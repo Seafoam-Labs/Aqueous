@@ -1,64 +1,76 @@
 ﻿using System;
-using System.Linq;
 using Gtk;
-using Gio;
 
+using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
-using Aqueous.Bindings.AstalApp.Services;
 
 public class Program
 {
     public static void Main(string[] args)
     {
-        Console.WriteLine("Starting Astal App...");
+        var app = new AstalApplication();
+        app.GtkApplication.ApplicationId = "com.example.aqueous";
 
-        var astalApp = new AstalApplication();
-        var app = astalApp.GtkApplication;
-        app.ApplicationId = "com.example.astal-app";
-
-        var apps = new AstalAppsApps();
-
-        app.OnActivate += (sender, e) => {
-            var astalWin = new AstalWindow();
-            var win = astalWin.GtkWindow;
-            
-            app.AddWindow(win);
-
-            astalWin.Namespace = "Aqueous";
-            astalWin.Layer = Aqueous.Bindings.AstalGTK4.AstalLayer.ASTAL_LAYER_TOP;
-            astalWin.Anchor = Aqueous.Bindings.AstalGTK4.AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP |
-                              Aqueous.Bindings.AstalGTK4.AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
-
-            win.SetDefaultSize(400, 300);
-            win.Title = "Aqueous Astal Window";
-
-            var astalBox = new AstalBox();
-            astalBox.Vertical = true;
-            win.SetChild(astalBox.GtkBox);
-
-            var label = Gtk.Label.New("Hello from Aqueous!");
-            astalBox.GtkBox.Append(label);
-
-            var queryLabel = Gtk.Label.New("Searching for 'term'...");
-            astalBox.GtkBox.Append(queryLabel);
-            
-
-            var results = apps.FuzzyQuery("terminal").Take(5);
-            foreach (var result in results)
-            {
-                var appLabel = Gtk.Label.New($"{result.Name}: {result.Description}");
-                astalBox.GtkBox.Append(appLabel);
-            }
-
-            var astalSlider = new AstalSlider();
-            astalSlider.Min = 0;
-            astalSlider.Max = 100;
-            astalSlider.Value = 50;
-            astalBox.GtkBox.Append(astalSlider.GtkWidget);
-            
-            win.Present();
+        app.GtkApplication.OnActivate += (sender, e) =>
+        {
+            // --- Bar Window ---
+            var bar = CreateBar(app);
+            bar.GtkWindow.Present();
         };
 
-        app.Run(args);
+        app.GtkApplication.Run(args);
+    }
+
+    private static AstalWindow CreateBar(AstalApplication app)
+    {
+        var window = new AstalWindow();
+        app.GtkApplication.AddWindow(window.GtkWindow);
+
+        window.Namespace = "bar";
+        window.Layer = AstalLayer.ASTAL_LAYER_TOP;
+        window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_EXCLUSIVE;
+        window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                      | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
+                      | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+
+        window.GtkWindow.SetDefaultSize(-1, 32);
+
+        // Main horizontal layout: left | center | right
+        var layout = new AstalBox();
+        layout.Vertical = false;
+        window.GtkWindow.SetChild(layout.GtkBox);
+
+        // Left section
+        var left = new AstalBox();
+        left.Vertical = false;
+        left.GtkBox.Hexpand = true;
+        left.GtkBox.Halign = Align.Start;
+        layout.GtkBox.Append(left.GtkBox);
+
+        // Center section
+        var center = new AstalBox();
+        center.Vertical = false;
+        center.GtkBox.Hexpand = true;
+        center.GtkBox.Halign = Align.Center;
+        layout.GtkBox.Append(center.GtkBox);
+
+        // Right section
+        var right = new AstalBox();
+        right.Vertical = false;
+        right.GtkBox.Hexpand = true;
+        right.GtkBox.Halign = Align.End;
+        layout.GtkBox.Append(right.GtkBox);
+
+        // --- Populate sections ---
+        // Left: workspaces / launcher placeholder
+        left.GtkBox.Append(Label.New("Aqueous"));
+
+        // Center: clock placeholder
+        center.GtkBox.Append(Label.New(DateTime.Now.ToString("ddd MMM dd  HH:mm")));
+
+        // Right: system tray / status placeholder
+        right.GtkBox.Append(Label.New("status"));
+
+        return window;
     }
 }
