@@ -11,4 +11,5 @@
   <Project Path="AqueousBindings/AstalMpris/AstalMpris.csproj" />
   <Project Path="AqueousBindings/AstalNetwork/AstalNetwork.csproj" />
   <Project Path="AqueousBindings/AstalNotifd/AstalNotifd.csproj" />
+  <Project Path="AqueousBindings/AstalPowerProfiles/AstalPowerProfiles.csproj" />
 </Solution>
