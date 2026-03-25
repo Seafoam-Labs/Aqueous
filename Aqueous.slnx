@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Aqueous/Aqueous.csproj" />
   <Project Path="AqueousBindings/AstalGTK4/AstalGTK4.csproj" />
+  <Project Path="AqueousBindings/AstalApp/AstalApp.csproj" />
 </Solution>

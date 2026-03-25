@@ -12,6 +12,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AqueousBindings\AstalGTK4\AstalGTK4.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalApp\AstalApp.csproj" />
     </ItemGroup>
 
     <ItemGroup>
