@@ -5,4 +5,7 @@
   <Project Path="AqueousBindings/AstalApp/AstalApp.csproj" />
   <Project Path="AqueousBindings/AstalAuth/AstalAuth.csproj" />
   <Project Path="AqueousBindings/AstalBattery/AstalBattery.csproj" />
+  <Project Path="AqueousBindings/AstalCava/AstalCava.csproj" />
+  <Project Path="AqueousBindings/AstalGreet/AstalGreet.csproj" />
+  <Project Path="AqueousBindings/AstalIo/AstalIo.csproj" />
 </Solution>
