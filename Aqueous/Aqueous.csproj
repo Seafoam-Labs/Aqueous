@@ -11,7 +11,16 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="AstalBindings" Version="0.1.0" />
+      <ProjectReference Include="..\AqueousBindings\AstalGTK4\AstalGTK4.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Reference Include="AstalBindings">
+        <HintPath>bin\Debug\net10.0\AstalBindings.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
     </ItemGroup>
 

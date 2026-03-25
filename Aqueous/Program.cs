@@ -1,29 +1,51 @@
 ﻿using System;
-using System.Runtime.InteropServices;
-using Astal.Bindings.AstalGtk4;
+using System.Linq;
+using Gtk;
+using Gio;
+
+using Aqueous.Bindings.AstalGTK4.Services;
 
 public class Program
 {
-
-    public static unsafe void Main(string[] args)
+    public static void Main(string[] args)
     {
-        Console.WriteLine("Initializing Astal Application...");
-        _AstalApplication* app = AstalGtk4Interop.astal_application_new();
-        
-        Console.WriteLine("Creating Astal Window...");
-        _AstalWindow* window = AstalGtk4Interop.astal_window_new();
-        
-        fixed (byte* ns = "my-namespace"u8)
-        {
-            AstalGtk4Interop.astal_window_set_namespace(window, (sbyte*)ns);
-        }
-        
-        AstalGtk4Interop.astal_window_set_monitor(window, 0);
-        
-        Console.WriteLine("Application and Window created via Interop.");
-        
-        // Uncomment the following line to run the application main loop.
-        // It might fail if a Wayland or X11 session is not available.
-         g_application_run((IntPtr)app, args.Length, args);
+        Console.WriteLine("Starting Astal App...");
+
+        var astalApp = new AstalApplication();
+        var app = astalApp.GtkApplication;
+        app.ApplicationId = "com.example.astal-app";
+
+        app.OnActivate += (sender, e) => {
+            var astalWin = new AstalWindow();
+            var win = astalWin.GtkWindow;
+            
+            app.AddWindow(win);
+
+            astalWin.Namespace = "Aqueous";
+            astalWin.Layer = Aqueous.Bindings.AstalGTK4.AstalLayer.ASTAL_LAYER_TOP;
+            astalWin.Anchor = Aqueous.Bindings.AstalGTK4.AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | 
+                              Aqueous.Bindings.AstalGTK4.AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT | 
+                              Aqueous.Bindings.AstalGTK4.AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+
+            win.SetDefaultSize(400, 50);
+            win.Title = "Aqueous Astal Window";
+
+            var astalBox = new AstalBox();
+            astalBox.Vertical = false;
+            win.SetChild(astalBox.GtkBox);
+
+            var label = Gtk.Label.New("Hello from Aqueous!");
+            astalBox.GtkBox.Append(label);
+
+            var astalSlider = new AstalSlider();
+            astalSlider.Min = 0;
+            astalSlider.Max = 100;
+            astalSlider.Value = 50;
+            astalBox.GtkBox.Append(astalSlider.GtkWidget);
+
+            win.Present();
+        };
+
+        app.Run(args);
     }
 }
