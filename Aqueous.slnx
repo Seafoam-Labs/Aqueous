@@ -8,4 +8,5 @@
   <Project Path="AqueousBindings/AstalCava/AstalCava.csproj" />
   <Project Path="AqueousBindings/AstalGreet/AstalGreet.csproj" />
   <Project Path="AqueousBindings/AstalIo/AstalIo.csproj" />
+  <Project Path="AqueousBindings/AstalMpris/AstalMpris.csproj" />
 </Solution>
