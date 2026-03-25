@@ -1,5 +1,8 @@
 <Solution>
   <Project Path="Aqueous/Aqueous.csproj" />
+  <Project Path="AqueousBindings/AstalBluetooth/AstalBluetooth.csproj" />
   <Project Path="AqueousBindings/AstalGTK4/AstalGTK4.csproj" />
   <Project Path="AqueousBindings/AstalApp/AstalApp.csproj" />
+  <Project Path="AqueousBindings/AstalAuth/AstalAuth.csproj" />
+  <Project Path="AqueousBindings/AstalBattery/AstalBattery.csproj" />
 </Solution>

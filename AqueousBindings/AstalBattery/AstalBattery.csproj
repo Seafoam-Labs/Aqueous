@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Aqueous.Bindings.AstalBattery</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="GirCore.Gio-2.0" Version="0.7.0" />
+  </ItemGroup>
+</Project>
