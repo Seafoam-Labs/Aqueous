@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -26,6 +27,16 @@ namespace Aqueous.Features.AudioSwitcher
             var output = await process.StandardOutput.ReadToEndAsync();
             await process.WaitForExitAsync();
             return output;
+        }
+
+        private static int ParseVolumePercent(Dictionary<string, PactlChannelVolume>? volume)
+        {
+            if (volume == null || volume.Count == 0)
+                return 0;
+
+            var first = volume.Values.First();
+            var pct = first.ValuePercent.TrimEnd('%');
+            return int.TryParse(pct, out var val) ? Math.Clamp(val, 0, 150) : 0;
         }
 
         private static async Task<(string defaultSink, string defaultSource)> GetDefaults()
@@ -64,7 +75,8 @@ namespace Aqueous.Features.AudioSwitcher
                         s.Name,
                         s.Description,
                         string.Equals(s.Name, defaultSink, StringComparison.Ordinal),
-                        AudioDeviceType.Sink
+                        AudioDeviceType.Sink,
+                        ParseVolumePercent(s.Volume)
                     ));
                 }
             }
@@ -99,7 +111,8 @@ namespace Aqueous.Features.AudioSwitcher
                         s.Name,
                         s.Description,
                         string.Equals(s.Name, defaultSource, StringComparison.Ordinal),
-                        AudioDeviceType.Source
+                        AudioDeviceType.Source,
+                        ParseVolumePercent(s.Volume)
                     ));
                 }
             }
@@ -119,6 +132,16 @@ namespace Aqueous.Features.AudioSwitcher
         public static async Task SetDefaultSource(string name)
         {
             await RunCommand("pactl", $"set-default-source {name}");
+        }
+
+        public static async Task SetSinkVolume(string name, int percent)
+        {
+            await RunCommand("pactl", $"set-sink-volume {name} {percent}%");
+        }
+
+        public static async Task SetSourceVolume(string name, int percent)
+        {
+            await RunCommand("pactl", $"set-source-volume {name} {percent}%");
         }
     }
 }

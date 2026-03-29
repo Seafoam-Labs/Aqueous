@@ -7,6 +7,7 @@ namespace Aqueous.Features.AudioSwitcher
         string Name,
         string Description,
         bool IsDefault,
-        AudioDeviceType Type
+        AudioDeviceType Type,
+        int Volume
     );
 }

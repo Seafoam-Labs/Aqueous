@@ -1,7 +1,14 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace Aqueous.Features.AudioSwitcher
 {
+    public class PactlChannelVolume
+    {
+        [JsonPropertyName("value_percent")]
+        public string ValuePercent { get; set; } = "0%";
+    }
+
     public class PactlSink
     {
         [JsonPropertyName("index")]
@@ -15,6 +22,9 @@ namespace Aqueous.Features.AudioSwitcher
 
         [JsonPropertyName("state")]
         public string State { get; set; } = "";
+
+        [JsonPropertyName("volume")]
+        public Dictionary<string, PactlChannelVolume>? Volume { get; set; }
     }
 
     public class PactlSource
@@ -30,6 +40,9 @@ namespace Aqueous.Features.AudioSwitcher
 
         [JsonPropertyName("state")]
         public string State { get; set; } = "";
+
+        [JsonPropertyName("volume")]
+        public Dictionary<string, PactlChannelVolume>? Volume { get; set; }
     }
 
     public class PactlServerInfo
@@ -44,6 +57,7 @@ namespace Aqueous.Features.AudioSwitcher
     [JsonSerializable(typeof(PactlSink[]))]
     [JsonSerializable(typeof(PactlSource[]))]
     [JsonSerializable(typeof(PactlServerInfo))]
+    [JsonSerializable(typeof(Dictionary<string, PactlChannelVolume>))]
     [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
     internal partial class AudioJsonContext : JsonSerializerContext
     {

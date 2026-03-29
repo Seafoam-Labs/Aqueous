@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Gtk;
@@ -10,6 +11,7 @@ namespace Aqueous.Features.AudioSwitcher
     {
         private readonly AstalApplication _app;
         private AstalWindow? _window;
+        private CancellationTokenSource? _debounceCts;
         public bool IsVisible { get; private set; }
 
         public AudioSwitcherPopup(AstalApplication app)
@@ -46,8 +48,8 @@ namespace Aqueous.Features.AudioSwitcher
 
                 foreach (var sink in sinks)
                 {
-                    var btn = CreateDeviceButton(sink);
-                    container.Append(btn);
+                    var row = CreateDeviceRow(sink);
+                    container.Append(row);
                 }
             }
 
@@ -61,8 +63,8 @@ namespace Aqueous.Features.AudioSwitcher
 
                 foreach (var source in sources)
                 {
-                    var btn = CreateDeviceButton(source);
-                    container.Append(btn);
+                    var row = CreateDeviceRow(source);
+                    container.Append(row);
                 }
             }
 
@@ -92,8 +94,12 @@ namespace Aqueous.Features.AudioSwitcher
             IsVisible = false;
         }
 
-        private Gtk.Button CreateDeviceButton(AudioDevice device)
+        private Gtk.Box CreateDeviceRow(AudioDevice device)
         {
+            var row = Gtk.Box.New(Orientation.Vertical, 4);
+            row.AddCssClass("audio-device-row");
+
+            // Device select button
             var btn = Gtk.Button.New();
             var label = Gtk.Label.New(device.Description);
             label.Halign = Align.Start;
@@ -115,7 +121,44 @@ namespace Aqueous.Features.AudioSwitcher
                 Show();
             };
 
-            return btn;
+            // Volume slider
+            var slider = Gtk.Scale.NewWithRange(Orientation.Horizontal, 0, 100, 1);
+            slider.SetValue(device.Volume);
+            slider.Hexpand = true;
+            slider.AddCssClass("volume-slider");
+
+            slider.OnChangeValue += (scale, args) =>
+            {
+                var value = (int)args.Value;
+                DebounceSetVolume(device, value);
+                return false;
+            };
+
+            row.Append(btn);
+            row.Append(slider);
+            return row;
+        }
+
+        private async void DebounceSetVolume(AudioDevice device, int percent)
+        {
+            _debounceCts?.Cancel();
+            _debounceCts = new CancellationTokenSource();
+            var token = _debounceCts.Token;
+
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(80, token);
+                if (token.IsCancellationRequested) return;
+
+                if (device.Type == AudioDeviceType.Sink)
+                    await AudioBackend.SetSinkVolume(device.Name, percent);
+                else
+                    await AudioBackend.SetSourceVolume(device.Name, percent);
+            }
+            catch (OperationCanceledException)
+            {
+                // Debounce cancelled, ignore
+            }
         }
     }
 }

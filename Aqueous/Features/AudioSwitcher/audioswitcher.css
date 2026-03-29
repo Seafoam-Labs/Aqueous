@@ -26,3 +26,30 @@
     padding: 4px 8px;
     color: #a6adc8;
 }
+
+.audio-device-row {
+    padding: 0 4px;
+}
+
+.volume-slider {
+    min-height: 8px;
+    padding: 0 16px 4px 16px;
+}
+
+.volume-slider trough {
+    min-height: 6px;
+    border-radius: 3px;
+    background: rgba(205, 214, 244, 0.15);
+}
+
+.volume-slider highlight {
+    border-radius: 3px;
+    background: rgba(137, 180, 250, 0.6);
+}
+
+.volume-slider slider {
+    min-width: 14px;
+    min-height: 14px;
+    border-radius: 7px;
+    background: #89b4fa;
+}
