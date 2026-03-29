@@ -1,0 +1,20 @@
+.snapto-overlay {
+    background-color: rgba(0, 0, 0, 0.3);
+}
+
+.zone {
+    background-color: rgba(100, 149, 237, 0.2);
+    border: 2px solid rgba(100, 149, 237, 0.6);
+    border-radius: 8px;
+    transition: background-color 150ms;
+}
+
+.zone:hover {
+    background-color: rgba(100, 149, 237, 0.5);
+    border-color: rgba(100, 149, 237, 1.0);
+}
+
+.zone-label {
+    color: white;
+    font-size: 14px;
+}

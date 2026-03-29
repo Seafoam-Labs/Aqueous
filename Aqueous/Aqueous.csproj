@@ -14,6 +14,7 @@
       <ProjectReference Include="..\AqueousBindings\AstalGTK4\AstalGTK4.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalApp\AstalApp.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalAuth\AstalAuth.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalWl\AstalWl.csproj" />
     </ItemGroup>
 
     <ItemGroup>
@@ -24,6 +25,21 @@
 
     <ItemGroup>
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="Widgets\AudioTray\audiotray.css">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="Features\SnapTo\snapto.css">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="Features\AudioSwitcher\audioswitcher.css">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
 </Project>
