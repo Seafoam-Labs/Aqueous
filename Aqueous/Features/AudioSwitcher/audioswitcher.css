@@ -1,0 +1,28 @@
+.audio-switcher {
+    background: rgba(30, 30, 46, 0.9);
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 300px;
+}
+
+.audio-device {
+    padding: 8px 16px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: #cdd6f4;
+}
+
+.audio-device:hover {
+    background: rgba(137, 180, 250, 0.15);
+}
+
+.audio-device.active {
+    background: rgba(137, 180, 250, 0.3);
+}
+
+.section-header {
+    font-weight: bold;
+    padding: 4px 8px;
+    color: #a6adc8;
+}
