@@ -10,6 +10,8 @@ using Aqueous.Widgets.AudioTray;
 using Aqueous.Features.AppLauncher;
 using Aqueous.Widgets.StartMenu;
 using Aqueous.Features.Settings;
+using Aqueous.Features.Bluetooth;
+using Aqueous.Widgets.BluetoothTray;
 
 public class Program
 {
@@ -17,6 +19,7 @@ public class Program
     private static AudioSwitcherService? _audioSwitcherService;
     private static AppLauncherService? _appLauncherService;
     private static SettingsService? _settingsService;
+    private static BluetoothService? _bluetoothService;
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -77,10 +80,20 @@ public class Program
             _settingsService = new SettingsService(app);
             _settingsService.Start();
 
+            // --- Bluetooth Service ---
+            LoadBluetoothCss();
+            _bluetoothService = new BluetoothService(app);
+            _bluetoothService.Start();
+
             // --- Audio Tray Widget ---
             LoadAudioTrayCss();
             var audioTray = new AudioTrayWidget(_audioSwitcherService);
             barRight.GtkBox.Append(audioTray.Button);
+
+            // --- Bluetooth Tray Widget ---
+            LoadBluetoothTrayCss();
+            var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!);
+            barRight.GtkBox.Append(bluetoothTray.Button);
 
             // --- Start Menu Widget ---
             LoadStartMenuCss();
@@ -93,6 +106,7 @@ public class Program
         _audioSwitcherService?.Stop();
         _appLauncherService?.Stop();
         _settingsService?.Stop();
+        _bluetoothService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -155,6 +169,34 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "SnapTo", "snapto.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadBluetoothCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Bluetooth", "bluetooth.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadBluetoothTrayCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "BluetoothTray", "bluetoothtray.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);

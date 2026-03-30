@@ -23,6 +23,10 @@ namespace Aqueous.Features.Settings
         // AppLauncher
         public string LaunchKeybind { get; set; } = "Alt+Space";
         public int MaxResults { get; set; } = 20;
+
+        // Bluetooth
+        public bool ShowBluetoothTray { get; set; } = true;
+        public bool BluetoothAutoConnect { get; set; } = true;
     }
 
     public class SettingsStore
