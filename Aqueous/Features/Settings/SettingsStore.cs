@@ -27,6 +27,8 @@ namespace Aqueous.Features.Settings
         // Bluetooth
         public bool ShowBluetoothTray { get; set; } = true;
         public bool BluetoothAutoConnect { get; set; } = true;
+        // Dock
+        public string DockPosition { get; set; } = "Left";
     }
 
     public class SettingsStore

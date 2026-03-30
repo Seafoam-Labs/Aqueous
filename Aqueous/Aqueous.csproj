@@ -56,6 +56,9 @@
       <Content Include="Widgets\BluetoothTray\bluetoothtray.css">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
+      <Content Include="Features\Dock\dock.css">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
 </Project>

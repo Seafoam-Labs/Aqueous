@@ -1,0 +1,39 @@
+window.dock-trigger {
+    background-color: rgba(0, 0, 0, 0.01);
+}
+
+window.dock-panel {
+    background-color: transparent;
+}
+
+.dock-container {
+    background-color: #1e1e2e;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+.dock-item {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 3px;
+    min-width: 24px;
+    min-height: 24px;
+    transition: background-color 200ms ease;
+}
+
+.dock-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dock-item:active {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.dock-item-icon {
+    -gtk-icon-size: 24px;
+}
+
+.dock-item-running {
+    box-shadow: 0 3px 0 0 #89b4fa;
+}

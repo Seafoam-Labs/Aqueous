@@ -54,6 +54,7 @@ namespace Aqueous.Features.Settings
             _stack.AddNamed(AudioPage.Create(_store), "Audio");
             _stack.AddNamed(AppLauncherPage.Create(_store), "App Launcher");
             _stack.AddNamed(BluetoothPage.Create(_store), "Bluetooth");
+            _stack.AddNamed(DockPage.Create(_store), "Dock");
 
             _stack.SetVisibleChildName(_activePage);
 
@@ -110,7 +111,7 @@ namespace Aqueous.Features.Settings
             var sidebar = Gtk.Box.New(Orientation.Vertical, 2);
             sidebar.AddCssClass("settings-sidebar");
 
-            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth"];
+            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth", "Dock"];
             foreach (var page in pages)
             {
                 var btn = Gtk.Button.New();
@@ -139,7 +140,7 @@ namespace Aqueous.Features.Settings
         {
             if (_sidebarBox == null) return;
             var child = _sidebarBox.GetFirstChild();
-            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth"];
+            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth", "Dock"];
             int i = 0;
             while (child != null)
             {

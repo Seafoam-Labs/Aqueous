@@ -12,6 +12,7 @@ using Aqueous.Widgets.StartMenu;
 using Aqueous.Features.Settings;
 using Aqueous.Features.Bluetooth;
 using Aqueous.Widgets.BluetoothTray;
+using Aqueous.Features.Dock;
 
 public class Program
 {
@@ -20,6 +21,7 @@ public class Program
     private static AppLauncherService? _appLauncherService;
     private static SettingsService? _settingsService;
     private static BluetoothService? _bluetoothService;
+    private static DockService? _dockService;
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -99,6 +101,11 @@ public class Program
             LoadStartMenuCss();
             var startMenu = new StartMenuWidget(app, _settingsService!);
             barLeft.GtkBox.Prepend(startMenu.Button);
+
+            // --- Dock Service ---
+            LoadDockCss();
+            _dockService = new DockService(app, _settingsService!);
+            _dockService.Start();
         };
 
         app.GtkApplication.Run(args);
@@ -107,6 +114,7 @@ public class Program
         _appLauncherService?.Stop();
         _settingsService?.Stop();
         _bluetoothService?.Stop();
+        _dockService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -197,6 +205,20 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "BluetoothTray", "bluetoothtray.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadDockCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Dock", "dock.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);
