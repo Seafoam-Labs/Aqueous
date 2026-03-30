@@ -70,7 +70,7 @@ public class StartMenuWindow
         _window.MarginTop = 40;
         _window.MarginLeft = 4;
 
-        _window.GtkWindow.SetDefaultSize(680, 720);
+        _window.GtkWindow.SetDefaultSize(510, 540);
 
         var container = Gtk.Box.New(Orientation.Vertical, 0);
         container.AddCssClass("start-menu-window");

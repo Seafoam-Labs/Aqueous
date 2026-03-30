@@ -23,13 +23,13 @@
     background-color: #1e1e2e;
     border-radius: 12px;
     padding: 8px;
-    min-width: 660px;
-    min-height: 700px;
+    min-width: 490px;
+    min-height: 520px;
 }
 
 /* Header */
 .start-menu-header {
-    padding: 12px 16px;
+    padding: 8px 12px;
     border-bottom: 1px solid #313244;
 }
 
@@ -51,8 +51,8 @@
 
 /* Search */
 .start-menu-search {
-    margin: 8px 12px;
-    padding: 8px 12px;
+    margin: 6px 8px;
+    padding: 6px 10px;
     background-color: #313244;
     color: #cdd6f4;
     border-radius: 8px;
@@ -74,7 +74,7 @@
     background-color: #181825;
     border-radius: 8px;
     padding: 4px;
-    min-width: 140px;
+    min-width: 110px;
     margin-right: 4px;
 }
 
@@ -83,8 +83,8 @@
     color: #a6adc8;
     border: none;
     border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: 6px 10px;
+    font-size: 12px;
 }
 
 .start-menu-sidebar-btn:hover {
@@ -105,7 +105,7 @@
 
 /* App Rows */
 .start-menu-app-row {
-    padding: 6px 12px;
+    padding: 4px 10px;
     border-radius: 6px;
 }
 
@@ -142,7 +142,7 @@
 
 /* Footer */
 .start-menu-footer {
-    padding: 8px 12px;
+    padding: 6px 8px;
     border-top: 1px solid #313244;
 }
 
@@ -151,8 +151,8 @@
     color: #a6adc8;
     border: none;
     border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 4px 8px;
+    font-size: 11px;
 }
 
 .start-menu-power-btn:hover {
