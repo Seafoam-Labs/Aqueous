@@ -1,0 +1,53 @@
+.settings-window {
+    background-color: #1e1e2e;
+    border-radius: 12px;
+    padding: 0;
+}
+
+.settings-sidebar {
+    background-color: #181825;
+    min-width: 180px;
+    padding: 12px 8px;
+    border-radius: 12px 0 0 12px;
+}
+
+.settings-sidebar button {
+    background: transparent;
+    color: #cdd6f4;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 2px 0;
+}
+
+.settings-sidebar button.active {
+    background-color: #313244;
+    color: #89b4fa;
+}
+
+.settings-content {
+    padding: 20px;
+}
+
+.settings-page {
+    padding: 8px;
+}
+
+.settings-section-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #cdd6f4;
+    margin-bottom: 12px;
+}
+
+.settings-row {
+    padding: 8px 0;
+}
+
+.settings-row label {
+    color: #cdd6f4;
+}
+
+.settings-color-btn {
+    padding: 0;
+    margin: 0 2px;
+}

@@ -1,0 +1,161 @@
+/* Start Menu Button */
+.start-menu-button {
+    background-color: transparent;
+    border: none;
+    padding: 2px 8px;
+    min-width: 32px;
+    min-height: 32px;
+}
+
+.start-menu-button:hover {
+    background-color: rgba(137, 180, 250, 0.15);
+    border-radius: 6px;
+}
+
+.start-menu-button-label {
+    font-size: 18px;
+    font-weight: bold;
+    color: #89b4fa;
+}
+
+/* Start Menu Window */
+.start-menu-window {
+    background-color: #1e1e2e;
+    border-radius: 12px;
+    padding: 8px;
+    min-width: 660px;
+    min-height: 700px;
+}
+
+/* Header */
+.start-menu-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #313244;
+}
+
+.start-menu-avatar {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    font-size: 16px;
+    font-weight: bold;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 18px;
+}
+
+.start-menu-username {
+    color: #cdd6f4;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* Search */
+.start-menu-search {
+    margin: 8px 12px;
+    padding: 8px 12px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border-radius: 8px;
+    border: 1px solid #45475a;
+    font-size: 14px;
+}
+
+.start-menu-search:focus {
+    border-color: #89b4fa;
+}
+
+/* Body */
+.start-menu-body {
+    margin: 0 4px;
+}
+
+/* Sidebar */
+.start-menu-sidebar {
+    background-color: #181825;
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 140px;
+    margin-right: 4px;
+}
+
+.start-menu-sidebar-btn {
+    background-color: transparent;
+    color: #a6adc8;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.start-menu-sidebar-btn:hover {
+    background-color: rgba(137, 180, 250, 0.1);
+    color: #cdd6f4;
+}
+
+.start-menu-sidebar-btn.active {
+    background-color: rgba(137, 180, 250, 0.2);
+    color: #89b4fa;
+    font-weight: 600;
+}
+
+/* Content Area */
+.start-menu-content {
+    padding: 4px 8px;
+}
+
+/* App Rows */
+.start-menu-app-row {
+    padding: 6px 12px;
+    border-radius: 6px;
+}
+
+.start-menu-app-row:hover {
+    background-color: rgba(137, 180, 250, 0.12);
+}
+
+.start-menu-app-name {
+    color: #cdd6f4;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.start-menu-app-comment {
+    color: #6c7086;
+    font-size: 11px;
+}
+
+/* Category Headers */
+.start-menu-category-header {
+    color: #89b4fa;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 12px 4px 12px;
+    text-transform: uppercase;
+}
+
+/* Hint text */
+.start-menu-hint {
+    color: #6c7086;
+    font-size: 13px;
+    padding: 24px;
+}
+
+/* Footer */
+.start-menu-footer {
+    padding: 8px 12px;
+    border-top: 1px solid #313244;
+}
+
+.start-menu-power-btn {
+    background-color: transparent;
+    color: #a6adc8;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.start-menu-power-btn:hover {
+    background-color: rgba(243, 139, 168, 0.15);
+    color: #f38ba8;
+}

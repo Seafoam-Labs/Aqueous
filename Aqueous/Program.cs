@@ -8,12 +8,15 @@ using Aqueous.Features.SnapTo;
 using Aqueous.Features.AudioSwitcher;
 using Aqueous.Widgets.AudioTray;
 using Aqueous.Features.AppLauncher;
+using Aqueous.Widgets.StartMenu;
+using Aqueous.Features.Settings;
 
 public class Program
 {
     private static SnapToService? _snapToService;
     private static AudioSwitcherService? _audioSwitcherService;
     private static AppLauncherService? _appLauncherService;
+    private static SettingsService? _settingsService;
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -30,8 +33,11 @@ public class Program
             // Load AppLauncher CSS
             LoadAppLauncherCss();
 
+            // Load Settings CSS
+            LoadSettingsCss();
+
             // --- Bar Window ---
-            var (bar, barRight) = CreateBar(app);
+            var (bar, barLeft, barRight) = CreateBar(app);
 
             // Bar transparency CSS
             var barCss = Gtk.CssProvider.New();
@@ -67,16 +73,26 @@ public class Program
             _appLauncherService = new AppLauncherService(app);
             _appLauncherService.Start();
 
+            // --- Settings Service ---
+            _settingsService = new SettingsService(app);
+            _settingsService.Start();
+
             // --- Audio Tray Widget ---
             LoadAudioTrayCss();
             var audioTray = new AudioTrayWidget(_audioSwitcherService);
             barRight.GtkBox.Append(audioTray.Button);
+
+            // --- Start Menu Widget ---
+            LoadStartMenuCss();
+            var startMenu = new StartMenuWidget(app, _settingsService!);
+            barLeft.GtkBox.Prepend(startMenu.Button);
         };
 
         app.GtkApplication.Run(args);
         _snapToService?.Stop();
         _audioSwitcherService?.Stop();
         _appLauncherService?.Stop();
+        _settingsService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -121,6 +137,20 @@ public class Program
         }
     }
 
+    private static void LoadSettingsCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Settings", "settings.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
     private static void LoadSnapToCss()
     {
         var cssProvider = Gtk.CssProvider.New();
@@ -135,7 +165,21 @@ public class Program
         }
     }
 
-    private static (AstalWindow window, AstalBox right) CreateBar(AstalApplication app)
+    private static void LoadStartMenuCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "StartMenu", "startmenu.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static (AstalWindow window, AstalBox left, AstalBox right) CreateBar(AstalApplication app)
     {
         var window = new AstalWindow();
         app.GtkApplication.AddWindow(window.GtkWindow);
@@ -181,12 +225,11 @@ public class Program
         layout.GtkBox.Append(right.GtkBox);
 
         // --- Populate sections ---
-        // Left: workspaces / launcher placeholder
-        left.GtkBox.Append(Label.New("Aqueous"));
+        // Left: start menu button will be prepended here
 
         // Center: clock placeholder
         center.GtkBox.Append(Label.New(DateTime.Now.ToString("ddd MMM dd  HH:mm")));
 
-        return (window, right);
+        return (window, left, right);
     }
 }

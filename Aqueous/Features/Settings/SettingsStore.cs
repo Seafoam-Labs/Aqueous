@@ -1,0 +1,80 @@
+using System;
+using System.IO;
+using System.Text.Json;
+
+namespace Aqueous.Features.Settings
+{
+    public class SettingsData
+    {
+        // General
+        public bool AutostartEnabled { get; set; }
+        public string BarPosition { get; set; } = "Top";
+        public string ThemeAccentColor { get; set; } = "#89b4fa";
+
+        // SnapTo
+        public string ActiveSnapLayout { get; set; } = "Priority Grid";
+        public bool SnapToEnabled { get; set; } = true;
+
+        // Audio
+        public string DefaultOutputDevice { get; set; } = "";
+        public bool ShowTrayWidget { get; set; } = true;
+        public int VolumeStep { get; set; } = 5;
+
+        // AppLauncher
+        public string LaunchKeybind { get; set; } = "Alt+Space";
+        public int MaxResults { get; set; } = 20;
+    }
+
+    public class SettingsStore
+    {
+        private static readonly string ConfigDir =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config", "aqueous");
+
+        private static readonly string ConfigPath =
+            Path.Combine(ConfigDir, "settings.json");
+
+        private static SettingsStore? _instance;
+        public static SettingsStore Instance => _instance ??= new SettingsStore();
+
+        public SettingsData Data { get; private set; } = new();
+
+        public event Action? Changed;
+
+        public void Load()
+        {
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    var json = File.ReadAllText(ConfigPath);
+                    Data = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.SettingsData) ?? new SettingsData();
+                }
+            }
+            catch
+            {
+                Data = new SettingsData();
+            }
+        }
+
+        public void Save()
+        {
+            try
+            {
+                Directory.CreateDirectory(ConfigDir);
+                var json = JsonSerializer.Serialize(Data, SettingsJsonContext.Default.SettingsData);
+                File.WriteAllText(ConfigPath, json);
+            }
+            catch
+            {
+                // Ignore save errors
+            }
+        }
+
+        public void NotifyChanged()
+        {
+            Save();
+            Changed?.Invoke();
+        }
+    }
+}
