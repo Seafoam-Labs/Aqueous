@@ -98,14 +98,18 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             string[] presets = ["#89b4fa", "#a6e3a1", "#f38ba8", "#fab387", "#cba6f7", "#f9e2af"];
             var colorBox = Gtk.Box.New(Orientation.Horizontal, 4);
+            int colorIndex = 0;
             foreach (var color in presets)
             {
                 var btn = Gtk.Button.New();
                 btn.AddCssClass("settings-color-btn");
+
+                var uniqueClass = $"accent-color-{colorIndex}";
+                btn.AddCssClass(uniqueClass);
                 btn.SetSizeRequest(28, 28);
 
                 var cssProvider = Gtk.CssProvider.New();
-                cssProvider.LoadFromString($"button {{ background-color: {color}; border-radius: 14px; min-width: 28px; min-height: 28px; }}");
+                cssProvider.LoadFromString($".{uniqueClass} {{ background-color: {color}; border-radius: 14px; min-width: 28px; min-height: 28px; }}");
                 Gtk.StyleContext.AddProviderForDisplay(
                     Gdk.Display.GetDefault()!,
                     cssProvider,
@@ -118,6 +122,7 @@ namespace Aqueous.Features.Settings.SettingsPages
                     store.NotifyChanged();
                 };
                 colorBox.Append(btn);
+                colorIndex++;
             }
             row.Append(colorBox);
 
