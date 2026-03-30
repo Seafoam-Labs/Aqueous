@@ -6,25 +6,25 @@ using Gtk;
 
 namespace Aqueous.Features.Dock
 {
-    public class DockWindow
+    public partial class DockWindow
     {
         [StructLayout(LayoutKind.Sequential)]
         private struct GdkRectangle { public int X, Y, Width, Height; }
 
-        [DllImport("libgdk-4.so.1")]
-        private static extern IntPtr gdk_display_get_default();
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial IntPtr gdk_display_get_default();
 
-        [DllImport("libgdk-4.so.1")]
-        private static extern IntPtr gdk_display_get_monitors(IntPtr display);
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial IntPtr gdk_display_get_monitors(IntPtr display);
 
-        [DllImport("libgio-2.0.so.0")]
-        private static extern IntPtr g_list_model_get_item(IntPtr list, uint position);
+        [LibraryImport("libgio-2.0.so.0")]
+        private static partial IntPtr g_list_model_get_item(IntPtr list, uint position);
 
-        [DllImport("libgio-2.0.so.0")]
-        private static extern uint g_list_model_get_n_items(IntPtr list);
+        [LibraryImport("libgio-2.0.so.0")]
+        private static partial uint g_list_model_get_n_items(IntPtr list);
 
-        [DllImport("libgdk-4.so.1")]
-        private static extern void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
 
         private readonly AstalApplication _app;
         private AstalWindow? _triggerStrip;

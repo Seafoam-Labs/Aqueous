@@ -50,9 +50,14 @@ public class Program
             var barCss = Gtk.CssProvider.New();
             barCss.LoadFromString(@"
                 window.bar-window {
+                    background: transparent;
                     background-color: transparent;
                 }
+                window.bar-window decoration {
+                    background: transparent;
+                }
                 .bar-layout {
+                    background: transparent;
                     background-color: transparent;
                 }
                 .bar-section {

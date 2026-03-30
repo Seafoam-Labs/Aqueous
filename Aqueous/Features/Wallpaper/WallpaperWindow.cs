@@ -64,11 +64,21 @@ namespace Aqueous.Features.Wallpaper
         {
             if (_picture == null || _container == null) return;
 
-            if (!string.IsNullOrEmpty(config.ImagePath) && File.Exists(config.ImagePath))
+            var imagePath = config.ImagePath;
+            if (string.IsNullOrEmpty(imagePath))
+            {
+                imagePath = Path.Combine(AppContext.BaseDirectory, "Features", "Wallpaper", "DefaultWallpapers", "Moon.png");
+            }
+            else if (!Path.IsPathRooted(imagePath))
+            {
+                imagePath = Path.Combine(AppContext.BaseDirectory, imagePath);
+            }
+
+            if (File.Exists(imagePath))
             {
                 try
                 {
-                    var texture = Gdk.Texture.NewFromFilename(config.ImagePath);
+                    var texture = Gdk.Texture.NewFromFilename(imagePath);
                     _picture.SetPaintable(texture);
                     _picture.SetVisible(true);
                 }
