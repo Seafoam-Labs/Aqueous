@@ -17,15 +17,21 @@ namespace Aqueous.Features.SnapTo
 
         public static List<ZoneLayout> Load()
         {
-            if (!File.Exists(ConfigPath)) return [GetDefault()];
+            if (!File.Exists(ConfigPath)) return GetDefaults();
             var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize(json, SnapToJsonContext.Default.ListZoneLayout) ?? [GetDefault()];
+            return JsonSerializer.Deserialize(json, SnapToJsonContext.Default.ListZoneLayout) ?? GetDefaults();
         }
 
-        public static ZoneLayout GetDefault() => new("Halves",
+        public static List<ZoneLayout> GetDefaults() =>
         [
-            new("Left", 0, 0, 0.5, 1.0),
-            new("Right", 0.5, 0, 0.5, 1.0)
-        ]);
+            new("Priority Grid",
+            [
+                new("Top Left", 0, 0, 0.25, 0.5),
+                new("Bottom Left 1", 0, 0.5, 0.125, 0.5),
+                new("Bottom Left 2", 0.125, 0.5, 0.125, 0.5),
+                new("Center", 0.25, 0, 0.5, 1.0),
+                new("Right", 0.75, 0, 0.25, 1.0)
+            ]),
+        ];
     }
 }

@@ -1,0 +1,35 @@
+.launcher-window {
+    background-color: rgba(30, 30, 46, 0.95);
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 500px;
+}
+
+.launcher-search {
+    font-size: 18px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    margin-bottom: 8px;
+}
+
+.launcher-result-row {
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+.launcher-result-row.selected {
+    background-color: #45475a;
+}
+
+.launcher-result-name {
+    font-weight: bold;
+    color: #cdd6f4;
+}
+
+.launcher-result-comment {
+    font-size: 12px;
+    color: #a6adc8;
+}

@@ -7,11 +7,13 @@ using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
 using Aqueous.Features.AudioSwitcher;
 using Aqueous.Widgets.AudioTray;
+using Aqueous.Features.AppLauncher;
 
 public class Program
 {
     private static SnapToService? _snapToService;
     private static AudioSwitcherService? _audioSwitcherService;
+    private static AppLauncherService? _appLauncherService;
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -24,6 +26,9 @@ public class Program
 
             // Load AudioSwitcher CSS
             LoadAudioSwitcherCss();
+
+            // Load AppLauncher CSS
+            LoadAppLauncherCss();
 
             // --- Bar Window ---
             var (bar, barRight) = CreateBar(app);
@@ -58,6 +63,10 @@ public class Program
             _audioSwitcherService = new AudioSwitcherService(app);
             _audioSwitcherService.Start();
 
+            // --- AppLauncher Service ---
+            _appLauncherService = new AppLauncherService(app);
+            _appLauncherService.Start();
+
             // --- Audio Tray Widget ---
             LoadAudioTrayCss();
             var audioTray = new AudioTrayWidget(_audioSwitcherService);
@@ -67,6 +76,7 @@ public class Program
         app.GtkApplication.Run(args);
         _snapToService?.Stop();
         _audioSwitcherService?.Stop();
+        _appLauncherService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -87,6 +97,20 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "AudioSwitcher", "audioswitcher.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadAppLauncherCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "AppLauncher", "applauncher.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);
