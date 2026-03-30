@@ -45,20 +45,28 @@ public class Program
 
             // --- Bar Window ---
             var (bar, barLeft, barRight) = CreateBar(app);
+            bar.GtkWindow.SetCssClasses(new string[] { "bar-window" });
 
             // Bar transparency CSS
             var barCss = Gtk.CssProvider.New();
             barCss.LoadFromString(@"
-                window.bar-window {
-                    background: transparent;
-                    background-color: transparent;
+                window.bar-window,
+                window.bar-window.background {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    background-image: none !important;
                 }
                 window.bar-window decoration {
-                    background: transparent;
+                    background: transparent !important;
+                    background-image: none !important;
                 }
                 .bar-layout {
-                    background: transparent;
-                    background-color: transparent;
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    background-image: none !important;
+                }
+                .bar-side {
+                    background-color: #313244;
                 }
                 .bar-section {
                     background-color: #1e1e2e;
@@ -69,7 +77,7 @@ public class Program
             Gtk.StyleContext.AddProviderForDisplay(
                 Gdk.Display.GetDefault()!,
                 barCss,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+                800);  // STYLE_PROVIDER_PRIORITY_USER
 
             bar.GtkWindow.Present();
 
@@ -285,35 +293,53 @@ public class Program
         window.GtkWindow.SetDefaultSize(-1, 32);
         window.GtkWindow.AddCssClass("bar-window");
 
-        // Main horizontal layout: left | center | right
+        // Main layout container
         var layout = new AstalBox();
         layout.Vertical = false;
+        layout.GtkBox.Hexpand = true;
         layout.GtkBox.AddCssClass("bar-layout");
         window.GtkWindow.SetChild(layout.GtkBox);
 
-        // Left section
+        // Single centered bar box
+        var bar = new AstalBox();
+        bar.Vertical = false;
+        bar.GtkBox.Hexpand = false;
+        bar.GtkBox.Halign = Align.Center;
+        bar.GtkBox.AddCssClass("bar-section");
+        // Left spacer
+        var leftSpacer = new AstalBox();
+        leftSpacer.GtkBox.Hexpand = true;
+        leftSpacer.GtkBox.AddCssClass("bar-side");
+        layout.GtkBox.Append(leftSpacer.GtkBox);
+
+        layout.GtkBox.Append(bar.GtkBox);
+
+        // Right spacer
+        var rightSpacer = new AstalBox();
+        rightSpacer.GtkBox.Hexpand = true;
+        rightSpacer.GtkBox.AddCssClass("bar-side");
+        layout.GtkBox.Append(rightSpacer.GtkBox);
+
+        // Left content area (inside the single box)
         var left = new AstalBox();
         left.Vertical = false;
         left.GtkBox.Hexpand = true;
         left.GtkBox.Halign = Align.Start;
-        left.GtkBox.AddCssClass("bar-section");
-        layout.GtkBox.Append(left.GtkBox);
+        bar.GtkBox.Append(left.GtkBox);
 
-        // Center section
+        // Center content area
         var center = new AstalBox();
         center.Vertical = false;
         center.GtkBox.Hexpand = true;
         center.GtkBox.Halign = Align.Center;
-        center.GtkBox.AddCssClass("bar-section");
-        layout.GtkBox.Append(center.GtkBox);
+        bar.GtkBox.Append(center.GtkBox);
 
-        // Right section
+        // Right content area
         var right = new AstalBox();
         right.Vertical = false;
         right.GtkBox.Hexpand = true;
         right.GtkBox.Halign = Align.End;
-        right.GtkBox.AddCssClass("bar-section");
-        layout.GtkBox.Append(right.GtkBox);
+        bar.GtkBox.Append(right.GtkBox);
 
         // --- Populate sections ---
         // Left: start menu button will be prepended here

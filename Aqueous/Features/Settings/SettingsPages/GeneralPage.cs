@@ -106,7 +106,10 @@ namespace Aqueous.Features.Settings.SettingsPages
 
                 var cssProvider = Gtk.CssProvider.New();
                 cssProvider.LoadFromString($"button {{ background-color: {color}; border-radius: 14px; min-width: 28px; min-height: 28px; }}");
-                btn.GetStyleContext().AddProvider(cssProvider, Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+                Gtk.StyleContext.AddProviderForDisplay(
+                    Gdk.Display.GetDefault()!,
+                    cssProvider,
+                    Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
 
                 var c = color;
                 btn.OnClicked += (_, _) =>

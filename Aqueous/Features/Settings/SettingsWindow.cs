@@ -79,12 +79,15 @@ namespace Aqueous.Features.Settings
             };
             _window.GtkWindow.AddController(keyController);
 
-            // Close on focus loss
-            _window.GtkWindow.OnNotify += (sender, args) =>
+            // Save button
+            var saveBtn = Gtk.Button.NewWithLabel("Save");
+            saveBtn.AddCssClass("settings-save-btn");
+            saveBtn.OnClicked += (_, _) =>
             {
-                if (args.Pspec.GetName() == "is-active" && !_window.GtkWindow.IsActive)
-                    Hide();
+                _store.Save();
+                Hide();
             };
+            _sidebarBox.Append(saveBtn);
 
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
