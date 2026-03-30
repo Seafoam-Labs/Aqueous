@@ -1,12 +1,12 @@
 .audio-switcher {
     background: rgba(30, 30, 46, 0.9);
     border-radius: 12px;
-    padding: 12px;
-    min-width: 300px;
+    padding: 8px;
+    min-width: 250px;
 }
 
 .audio-device {
-    padding: 8px 16px;
+    padding: 4px 12px;
     border-radius: 8px;
     background: transparent;
     border: none;
@@ -23,33 +23,34 @@
 
 .section-header {
     font-weight: bold;
-    padding: 4px 8px;
+    font-size: 0.9em;
+    padding: 2px 8px;
     color: #a6adc8;
 }
 
 .audio-device-row {
-    padding: 0 4px;
+    padding: 0 2px;
 }
 
 .volume-slider {
-    min-height: 8px;
-    padding: 0 16px 4px 16px;
+    min-height: 6px;
+    padding: 0 12px 2px 12px;
 }
 
 .volume-slider trough {
-    min-height: 6px;
-    border-radius: 3px;
+    min-height: 4px;
+    border-radius: 2px;
     background: rgba(205, 214, 244, 0.15);
 }
 
 .volume-slider highlight {
-    border-radius: 3px;
+    border-radius: 2px;
     background: rgba(137, 180, 250, 0.6);
 }
 
 .volume-slider slider {
-    min-width: 14px;
-    min-height: 14px;
-    border-radius: 7px;
+    min-width: 12px;
+    min-height: 12px;
+    border-radius: 6px;
     background: #89b4fa;
 }

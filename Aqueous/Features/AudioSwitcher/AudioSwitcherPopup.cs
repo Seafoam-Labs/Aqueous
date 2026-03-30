@@ -35,7 +35,7 @@ namespace Aqueous.Features.AudioSwitcher
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
-            var container = Gtk.Box.New(Orientation.Vertical, 8);
+            var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("audio-switcher");
 
             // Speakers section
@@ -81,7 +81,13 @@ namespace Aqueous.Features.AudioSwitcher
             };
             _window.GtkWindow.AddController(keyController);
 
-            _window.GtkWindow.SetChild(container);
+            var scrolled = Gtk.ScrolledWindow.New();
+            scrolled.SetPolicy(PolicyType.Never, PolicyType.Automatic);
+            scrolled.SetMaxContentHeight(400);
+            scrolled.SetPropagateNaturalHeight(true);
+            scrolled.SetChild(container);
+
+            _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
             IsVisible = true;
         }
