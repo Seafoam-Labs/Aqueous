@@ -45,6 +45,20 @@ public class StartMenuWindow
         _config = StartMenuConfig.Load();
         AppDiscoveryService.Refresh();
 
+        EnsureWindowCreated();
+
+        RefreshSidebarSelection();
+        PopulateContent();
+
+        _window!.GtkWindow.SetVisible(true);
+        _window.GtkWindow.Present();
+        IsVisible = true;
+    }
+
+    private void EnsureWindowCreated()
+    {
+        if (_window != null) return;
+
         _window = new AstalWindow();
         _app.GtkApplication.AddWindow(_window.GtkWindow);
         _window.Namespace = "start-menu";
@@ -128,20 +142,14 @@ public class StartMenuWindow
         };
 
         _window.GtkWindow.SetChild(container);
-        _window.GtkWindow.Present();
-
-        PopulateContent();
-        IsVisible = true;
     }
 
     public void Hide()
     {
         if (!IsVisible || _window == null) return;
-        _window.GtkWindow.Close();
-        _window = null;
-        _searchEntry = null;
-        _contentArea = null;
-        _sidebarBox = null;
+        _searchEntry?.GetBuffer().SetText("", 0);
+        _activeTab = "Favorites";
+        _window.GtkWindow.SetVisible(false);
         IsVisible = false;
     }
 
