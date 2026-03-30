@@ -13,6 +13,7 @@ using Aqueous.Features.Settings;
 using Aqueous.Features.Bluetooth;
 using Aqueous.Widgets.BluetoothTray;
 using Aqueous.Features.Dock;
+using Aqueous.Features.Wallpaper;
 
 public class Program
 {
@@ -22,6 +23,7 @@ public class Program
     private static SettingsService? _settingsService;
     private static BluetoothService? _bluetoothService;
     private static DockService? _dockService;
+    private static WallpaperService? _wallpaperService;
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -82,6 +84,11 @@ public class Program
             _settingsService = new SettingsService(app);
             _settingsService.Start();
 
+            // --- Wallpaper Service ---
+            LoadWallpaperCss();
+            _wallpaperService = new WallpaperService(app, _settingsService!);
+            _wallpaperService.Start();
+
             // --- Bluetooth Service ---
             LoadBluetoothCss();
             _bluetoothService = new BluetoothService(app);
@@ -115,6 +122,7 @@ public class Program
         _settingsService?.Stop();
         _bluetoothService?.Stop();
         _dockService?.Stop();
+        _wallpaperService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -219,6 +227,20 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Dock", "dock.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadWallpaperCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Wallpaper", "wallpaper.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);

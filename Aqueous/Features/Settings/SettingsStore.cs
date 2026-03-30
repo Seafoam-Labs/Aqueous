@@ -29,6 +29,11 @@ namespace Aqueous.Features.Settings
         public bool BluetoothAutoConnect { get; set; } = true;
         // Dock
         public string DockPosition { get; set; } = "Left";
+
+        // Wallpaper
+        public string WallpaperImagePath { get; set; } = "";
+        public string WallpaperScaleMode { get; set; } = "Fill";
+        public string WallpaperFallbackColor { get; set; } = "#1e1e2e";
     }
 
     public class SettingsStore
