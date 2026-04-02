@@ -14,6 +14,7 @@ namespace Aqueous.Features.Settings
         // SnapTo
         public string ActiveSnapLayout { get; set; } = "Priority Grid";
         public bool SnapToEnabled { get; set; } = true;
+        public string SnapToKeybind { get; set; } = "Super+Ctrl+S";
 
         // Audio
         public string DefaultOutputDevice { get; set; } = "";
