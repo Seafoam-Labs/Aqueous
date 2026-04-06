@@ -1,8 +1,7 @@
 /* Ensure the trigger is truly invisible but captures events */
 window.bar-trigger,
 window.bar-trigger.background,
-window.bar-trigger decoration,
-window.bar-trigger box {
+window.bar-trigger decoration {
     background: rgba(0, 0, 0, 0.01) !important;
     background-color: rgba(0, 0, 0, 0.01) !important;
     background-image: none !important;
@@ -14,8 +13,7 @@ window.bar-trigger box {
 /* Main bar window styling */
 window.bar-window,
 window.bar-window.background,
-window.bar-window decoration,
-window.bar-window box {
+window.bar-window decoration {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
@@ -35,7 +33,7 @@ window.bar-window box {
 }
 
 .bar-section {
-    background-color: #1e1e2e;
+    background-color: rgba(30, 30, 46, 0.8);
     border-radius: 8px;
     padding: 4px 8px;
 }

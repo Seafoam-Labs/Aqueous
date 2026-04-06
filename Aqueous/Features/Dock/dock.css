@@ -1,13 +1,27 @@
-window.dock-trigger {
-    background-color: rgba(0, 0, 0, 0.01);
+window.dock-trigger,
+window.dock-trigger.background,
+window.dock-trigger decoration {
+    background: rgba(0, 0, 0, 0.01) !important;
+    background-color: rgba(0, 0, 0, 0.01) !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
 }
 
-window.dock-panel {
-    background-color: transparent;
+window.dock-panel,
+window.dock-panel.background,
+window.dock-panel decoration {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
 }
 
 .dock-container {
-    background-color: #1e1e2e;
+    background-color: rgba(30, 30, 46, 0.8);
     border-radius: 8px;
     padding: 2px;
 }

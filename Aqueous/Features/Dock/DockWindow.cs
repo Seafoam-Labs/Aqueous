@@ -165,6 +165,10 @@ namespace Aqueous.Features.Dock
             _triggerStrip.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
             _triggerStrip.Anchor = GetAnchors();
 
+            _triggerStrip.GtkWindow.SetDecorated(false);
+            _triggerStrip.GtkWindow.SetCanFocus(false);
+            _triggerStrip.GtkWindow.SetOpacity(1.0);
+
             var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
             if (isVertical)
                 _triggerStrip.GtkWindow.SetDefaultSize(4, 50);
@@ -201,6 +205,9 @@ namespace Aqueous.Features.Dock
             _dockPanel.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
             _dockPanel.Anchor = GetAnchors();
 
+            _dockPanel.GtkWindow.SetDecorated(false);
+            _dockPanel.GtkWindow.SetOpacity(0.0);
+            _dockPanel.GtkWindow.SetVisible(false);
             _dockPanel.GtkWindow.AddCssClass("dock-panel");
 
             var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
@@ -234,6 +241,7 @@ namespace Aqueous.Features.Dock
             if (_dockPanel != null && !_dockVisible)
             {
                 _dockPanel.GtkWindow.SetVisible(true);
+                _dockPanel.GtkWindow.SetOpacity(1.0);
                 _dockPanel.GtkWindow.Present();
                 _dockVisible = true;
             }
@@ -248,6 +256,7 @@ namespace Aqueous.Features.Dock
             if (_dockPanel != null)
             {
                 _dockPanel.GtkWindow.SetVisible(false);
+                _dockPanel.GtkWindow.SetOpacity(0.0);
             }
             _dockVisible = false;
         }
