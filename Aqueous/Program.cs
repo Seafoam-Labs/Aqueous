@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using Gtk;
-
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
@@ -24,6 +23,7 @@ public class Program
     private static BluetoothService? _bluetoothService;
     private static DockService? _dockService;
     private static WallpaperService? _wallpaperService;
+
     public static void Main(string[] args)
     {
         var app = new AstalApplication();
@@ -44,7 +44,7 @@ public class Program
             LoadSettingsCss();
 
             // --- Bar Window ---
-            var (bar, barLeft, barRight) = CreateBar(app);
+            var (bar, barLeft, barCenter, barRight) = CreateBar(app);
             bar.GtkWindow.SetCssClasses(new string[] { "bar-window" });
 
             // Bar transparency CSS
@@ -77,7 +77,7 @@ public class Program
             Gtk.StyleContext.AddProviderForDisplay(
                 Gdk.Display.GetDefault()!,
                 barCss,
-                800);  // STYLE_PROVIDER_PRIORITY_USER
+                800); // STYLE_PROVIDER_PRIORITY_USER
 
             bar.GtkWindow.Present();
 
@@ -116,6 +116,11 @@ public class Program
             LoadBluetoothTrayCss();
             var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!);
             barRight.GtkBox.Append(bluetoothTray.Button);
+
+            // --- Clock Tray Widget ---
+            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: true);
+            barCenter.GtkBox.Append(clock.Label);
+            clock.Start();
 
             // --- Start Menu Widget ---
             LoadStartMenuCss();
@@ -278,7 +283,7 @@ public class Program
         }
     }
 
-    private static (AstalWindow window, AstalBox left, AstalBox right) CreateBar(AstalApplication app)
+    private static (AstalWindow window, AstalBox left, AstalBox center, AstalBox right) CreateBar(AstalApplication app)
     {
         var window = new AstalWindow();
         app.GtkApplication.AddWindow(window.GtkWindow);
@@ -287,8 +292,8 @@ public class Program
         window.Layer = AstalLayer.ASTAL_LAYER_TOP;
         window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_EXCLUSIVE;
         window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                      | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
-                      | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
+                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
         window.GtkWindow.SetDefaultSize(-1, 32);
         window.GtkWindow.AddCssClass("bar-window");
@@ -310,6 +315,7 @@ public class Program
         var leftSpacer = new AstalBox();
         leftSpacer.GtkBox.Hexpand = true;
         leftSpacer.GtkBox.AddCssClass("bar-side");
+        leftSpacer.GtkBox.Opacity = 0;
         layout.GtkBox.Append(leftSpacer.GtkBox);
 
         layout.GtkBox.Append(bar.GtkBox);
@@ -318,6 +324,7 @@ public class Program
         var rightSpacer = new AstalBox();
         rightSpacer.GtkBox.Hexpand = true;
         rightSpacer.GtkBox.AddCssClass("bar-side");
+        rightSpacer.GtkBox.Opacity = 0;
         layout.GtkBox.Append(rightSpacer.GtkBox);
 
         // Left content area (inside the single box)
@@ -344,9 +351,6 @@ public class Program
         // --- Populate sections ---
         // Left: start menu button will be prepended here
 
-        // Center: clock placeholder
-        center.GtkBox.Append(Label.New(DateTime.Now.ToString("ddd MMM dd  HH:mm")));
-
-        return (window, left, right);
+        return (window, left, center, right);
     }
 }
