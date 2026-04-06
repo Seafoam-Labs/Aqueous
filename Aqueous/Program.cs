@@ -13,6 +13,7 @@ using Aqueous.Features.Bluetooth;
 using Aqueous.Widgets.BluetoothTray;
 using Aqueous.Features.Dock;
 using Aqueous.Features.Wallpaper;
+using Aqueous.Features.Bar;
 
 public class Program
 {
@@ -23,6 +24,7 @@ public class Program
     private static BluetoothService? _bluetoothService;
     private static DockService? _dockService;
     private static WallpaperService? _wallpaperService;
+    private static BarService? _barService;
 
     public static void Main(string[] args)
     {
@@ -31,6 +33,9 @@ public class Program
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
+            // Load Bar CSS
+            LoadBarCss();
+
             // Load SnapTo CSS
             LoadSnapToCss();
 
@@ -43,43 +48,13 @@ public class Program
             // Load Settings CSS
             LoadSettingsCss();
 
-            // --- Bar Window ---
-            var (bar, barLeft, barCenter, barRight) = CreateBar(app);
-            bar.GtkWindow.SetCssClasses(new string[] { "bar-window" });
-
-            // Bar transparency CSS
-            var barCss = Gtk.CssProvider.New();
-            barCss.LoadFromString(@"
-                window.bar-window,
-                window.bar-window.background {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                    background-image: none !important;
-                }
-                window.bar-window decoration {
-                    background: transparent !important;
-                    background-image: none !important;
-                }
-                .bar-layout {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                    background-image: none !important;
-                }
-                .bar-side {
-                    background-color: #313244;
-                }
-                .bar-section {
-                    background-color: #1e1e2e;
-                    border-radius: 8px;
-                    padding: 4px 8px;
-                }
-            ");
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                barCss,
-                800); // STYLE_PROVIDER_PRIORITY_USER
-
-            bar.GtkWindow.Present();
+            // --- Bar Service ---
+            _barService = new BarService(app);
+            _barService.Start();
+            var barWindow = _barService.Window!;
+            var barLeft = barWindow.LeftSection;
+            var barCenter = barWindow.CenterSection;
+            var barRight = barWindow.RightSection;
 
             // --- SnapTo Service ---
             _snapToService = new SnapToService(app);
@@ -141,6 +116,7 @@ public class Program
         _bluetoothService?.Stop();
         _dockService?.Stop();
         _wallpaperService?.Stop();
+        _barService?.Stop();
     }
 
     private static void LoadAudioTrayCss()
@@ -283,74 +259,17 @@ public class Program
         }
     }
 
-    private static (AstalWindow window, AstalBox left, AstalBox center, AstalBox right) CreateBar(AstalApplication app)
+    private static void LoadBarCss()
     {
-        var window = new AstalWindow();
-        app.GtkApplication.AddWindow(window.GtkWindow);
-
-        window.Namespace = "bar";
-        window.Layer = AstalLayer.ASTAL_LAYER_TOP;
-        window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_EXCLUSIVE;
-        window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
-                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
-
-        window.GtkWindow.SetDefaultSize(-1, 32);
-        window.GtkWindow.AddCssClass("bar-window");
-
-        // Main layout container
-        var layout = new AstalBox();
-        layout.Vertical = false;
-        layout.GtkBox.Hexpand = true;
-        layout.GtkBox.AddCssClass("bar-layout");
-        window.GtkWindow.SetChild(layout.GtkBox);
-
-        // Single centered bar box
-        var bar = new AstalBox();
-        bar.Vertical = false;
-        bar.GtkBox.Hexpand = false;
-        bar.GtkBox.Halign = Align.Center;
-        bar.GtkBox.AddCssClass("bar-section");
-        // Left spacer
-        var leftSpacer = new AstalBox();
-        leftSpacer.GtkBox.Hexpand = true;
-        leftSpacer.GtkBox.AddCssClass("bar-side");
-        leftSpacer.GtkBox.Opacity = 0;
-        layout.GtkBox.Append(leftSpacer.GtkBox);
-
-        layout.GtkBox.Append(bar.GtkBox);
-
-        // Right spacer
-        var rightSpacer = new AstalBox();
-        rightSpacer.GtkBox.Hexpand = true;
-        rightSpacer.GtkBox.AddCssClass("bar-side");
-        rightSpacer.GtkBox.Opacity = 0;
-        layout.GtkBox.Append(rightSpacer.GtkBox);
-
-        // Left content area (inside the single box)
-        var left = new AstalBox();
-        left.Vertical = false;
-        left.GtkBox.Hexpand = true;
-        left.GtkBox.Halign = Align.Start;
-        bar.GtkBox.Append(left.GtkBox);
-
-        // Center content area
-        var center = new AstalBox();
-        center.Vertical = false;
-        center.GtkBox.Hexpand = true;
-        center.GtkBox.Halign = Align.Center;
-        bar.GtkBox.Append(center.GtkBox);
-
-        // Right content area
-        var right = new AstalBox();
-        right.Vertical = false;
-        right.GtkBox.Hexpand = true;
-        right.GtkBox.Halign = Align.End;
-        bar.GtkBox.Append(right.GtkBox);
-
-        // --- Populate sections ---
-        // Left: start menu button will be prepended here
-
-        return (window, left, center, right);
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Bar", "bar.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
     }
 }

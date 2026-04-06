@@ -1,0 +1,33 @@
+/* Hitbox trigger - same size as bar but invisible */
+window.bar-trigger {
+    background-color: rgba(0, 0, 0, 0.01); /* Invisible but captures events */
+}
+
+/* Main bar window styling */
+window.bar-window,
+window.bar-window.background {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+}
+
+window.bar-window decoration {
+    background: transparent !important;
+    background-image: none !important;
+}
+
+.bar-layout {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+}
+
+.bar-side {
+    background-color: #313244;
+}
+
+.bar-section {
+    background-color: #1e1e2e;
+    border-radius: 8px;
+    padding: 4px 8px;
+}
