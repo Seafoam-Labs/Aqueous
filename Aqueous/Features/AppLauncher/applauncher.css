@@ -16,20 +16,26 @@
 }
 
 .launcher-result-row {
-    padding: 6px 8px;
-    border-radius: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
 }
 
 .launcher-result-row.selected {
     background-color: #45475a;
 }
 
+.launcher-result-icon {
+    margin-right: 4px;
+}
+
 .launcher-result-name {
-    font-weight: bold;
+    font-size: 14px;
+    font-weight: 600;
     color: #cdd6f4;
 }
 
 .launcher-result-comment {
-    font-size: 12px;
+    font-size: 11px;
+    opacity: 0.7;
     color: #a6adc8;
 }

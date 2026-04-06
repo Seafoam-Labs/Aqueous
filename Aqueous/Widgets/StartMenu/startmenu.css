@@ -105,23 +105,28 @@
 
 /* App Rows */
 .start-menu-app-row {
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
 }
 
 .start-menu-app-row:hover {
     background-color: rgba(137, 180, 250, 0.12);
 }
 
+.start-menu-app-icon {
+    margin-right: 4px;
+}
+
 .start-menu-app-name {
     color: #cdd6f4;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .start-menu-app-comment {
     color: #6c7086;
     font-size: 11px;
+    opacity: 0.7;
 }
 
 /* Category Headers */

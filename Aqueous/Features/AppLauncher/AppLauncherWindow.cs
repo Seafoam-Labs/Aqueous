@@ -123,21 +123,31 @@ namespace Aqueous.Features.AppLauncher
 
         private Gtk.Box CreateResultRow(DesktopEntry entry, int index)
         {
-            var row = Gtk.Box.New(Orientation.Vertical, 0);
+            var row = Gtk.Box.New(Orientation.Horizontal, 12);
             row.AddCssClass("launcher-result-row");
+
+            var icon = Gtk.Image.NewFromIconName(entry.Icon);
+            icon.SetPixelSize(32);
+            icon.AddCssClass("launcher-result-icon");
+            row.Append(icon);
+
+            var textColumn = Gtk.Box.New(Orientation.Vertical, 0);
+            textColumn.Valign = Align.Center;
 
             var nameLabel = Gtk.Label.New(entry.Name);
             nameLabel.AddCssClass("launcher-result-name");
             nameLabel.Halign = Align.Start;
-            row.Append(nameLabel);
+            textColumn.Append(nameLabel);
 
             if (!string.IsNullOrEmpty(entry.Comment))
             {
                 var commentLabel = Gtk.Label.New(entry.Comment);
                 commentLabel.AddCssClass("launcher-result-comment");
                 commentLabel.Halign = Align.Start;
-                row.Append(commentLabel);
+                textColumn.Append(commentLabel);
             }
+
+            row.Append(textColumn);
 
             var gesture = Gtk.GestureClick.New();
             var idx = index;

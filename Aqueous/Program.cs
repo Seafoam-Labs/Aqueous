@@ -118,7 +118,7 @@ public class Program
             barRight.GtkBox.Append(bluetoothTray.Button);
 
             // --- Clock Tray Widget ---
-            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: true);
+            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false);
             barCenter.GtkBox.Append(clock.Label);
             clock.Start();
 

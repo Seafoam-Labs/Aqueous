@@ -30,15 +30,15 @@ public class StartMenuWindow
         _config = StartMenuConfig.Load();
     }
 
-    public void Toggle()
+    public void Toggle(double? x = null, double? y = null)
     {
         if (IsVisible)
             Hide();
         else
-            Show();
+            Show(x, y);
     }
 
-    public void Show()
+    public void Show(double? x = null, double? y = null)
     {
         if (IsVisible) return;
 
@@ -46,6 +46,26 @@ public class StartMenuWindow
         AppDiscoveryService.Refresh();
 
         EnsureWindowCreated();
+
+        if (x.HasValue && _window != null)
+        {
+            // Window width is 510
+            int menuWidth = 510;
+            // Center under the button: buttonX - (menuWidth / 2)
+            // Note: The caller should ideally pass the button's center X, but if it passes the button's left X, 
+            // we might need button width. For now, let's assume 'x' is where we want the left edge, 
+            // or we can try to center it if we know the button width.
+            // Let's just align to the button's left edge for now as a starting point, 
+            // but add a small offset to not be perfectly on the edge if needed.
+            
+            int marginLeft = (int)x.Value;
+            
+            // Screen boundary check (assuming common 1920 width if we can't get it, 
+            // but let's just make sure it's not negative)
+            if (marginLeft < 4) marginLeft = 4;
+            
+            _window.MarginLeft = marginLeft;
+        }
 
         RefreshSidebarSelection();
         PopulateContent();
@@ -351,22 +371,37 @@ public class StartMenuWindow
 
     private Gtk.Box CreateAppRow(AppDiscoveryService.CategorizedEntry entry)
     {
-        var row = Gtk.Box.New(Orientation.Vertical, 0);
+        // 1. Create a horizontal box for the main row
+        var row = Gtk.Box.New(Orientation.Horizontal, 12);
         row.AddCssClass("start-menu-app-row");
+
+        // 2. Create and add the icon widget
+        var icon = Gtk.Image.NewFromIconName(entry.Icon);
+        icon.SetPixelSize(32);
+        icon.AddCssClass("start-menu-app-icon");
+        row.Append(icon);
+
+        // 3. Create a vertical box for the text labels
+        var textColumn = Gtk.Box.New(Orientation.Vertical, 0);
+        textColumn.Valign = Align.Center;
 
         var nameLabel = Gtk.Label.New(entry.Name);
         nameLabel.AddCssClass("start-menu-app-name");
         nameLabel.Halign = Align.Start;
-        row.Append(nameLabel);
+        textColumn.Append(nameLabel);
 
         if (!string.IsNullOrEmpty(entry.Comment))
         {
             var commentLabel = Gtk.Label.New(entry.Comment);
             commentLabel.AddCssClass("start-menu-app-comment");
             commentLabel.Halign = Align.Start;
-            row.Append(commentLabel);
+            textColumn.Append(commentLabel);
         }
 
+        // 4. Append the text column to the row
+        row.Append(textColumn);
+
+        // 5. Existing gesture logic
         var gesture = Gtk.GestureClick.New();
         gesture.OnReleased += (_, _) => LaunchApp(entry);
         row.AddController(gesture);
