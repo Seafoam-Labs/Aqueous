@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Aqueous
+Comment=A .NET 10 GTK4-based desktop environment components
+Exec=aqueous
+Icon=aqueous
+Terminal=false
+Type=Application
+Categories=System;Utilities;
+StartupNotify=true
+

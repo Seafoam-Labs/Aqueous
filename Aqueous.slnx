@@ -15,4 +15,12 @@
   <Project Path="AqueousBindings/AstalTray/AstalTray.csproj" />
   <Project Path="AqueousBindings/AstalWirePlumber/AstalWirePlumber.csproj" />
   <Project Path="AqueousBindings/AstalWl/AstalWl.csproj" />
+  <Folder Name="/Solution/">
+    <File Path="aqueous.desktop" />
+    <File Path="aqueous.install" />
+    <File Path="aqueous-dev-setup.sh" />
+    <File Path="aqueous-wayfire-setup.sh" />
+    <File Path="PKGBUILD" />
+    <File Path="README.md" />
+  </Folder>
 </Solution>
