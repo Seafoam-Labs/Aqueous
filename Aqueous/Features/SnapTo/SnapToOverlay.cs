@@ -22,7 +22,7 @@ namespace Aqueous.Features.SnapTo
             _layouts = layouts;
         }
 
-        public async void Show()
+        public async void Show(bool isDragMode = false)
         {
             if (IsVisible) return;
 
@@ -48,13 +48,17 @@ namespace Aqueous.Features.SnapTo
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
             _window.Namespace = "snapto-overlay";
-            _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
+            _window.Layer = isDragMode
+                ? AstalLayer.ASTAL_LAYER_BOTTOM
+                : AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_BOTTOM
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            _window.Keymode = isDragMode
+                ? AstalKeymode.ASTAL_KEYMODE_NONE
+                : AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
 
             // Use a Fixed container for absolute positioning of zones
             var overlay = Gtk.Fixed.New();
@@ -85,18 +89,21 @@ namespace Aqueous.Features.SnapTo
                 overlay.Put(zoneButton, x, y);
             }
 
-            // Handle Escape key to hide
-            var keyController = Gtk.EventControllerKey.New();
-            keyController.OnKeyPressed += (controller, args) =>
+            if (!isDragMode)
             {
-                if (args.Keyval == 0xff1b) // GDK_KEY_Escape
+                // Handle Escape key to hide (only in non-drag mode)
+                var keyController = Gtk.EventControllerKey.New();
+                keyController.OnKeyPressed += (controller, args) =>
                 {
-                    Hide();
-                    return true;
-                }
-                return false;
-            };
-            _window.GtkWindow.AddController(keyController);
+                    if (args.Keyval == 0xff1b) // GDK_KEY_Escape
+                    {
+                        Hide();
+                        return true;
+                    }
+                    return false;
+                };
+                _window.GtkWindow.AddController(keyController);
+            }
 
             _window.GtkWindow.SetChild(overlay);
             _window.GtkWindow.Present();

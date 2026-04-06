@@ -12,7 +12,7 @@ fi
 
 echo "[aqueous-setup] Configuring Wayfire for Aqueous..."
 
-# --- 1. Ensure shortcuts-inhibit plugin is loaded ---
+# --- 1. Ensure required plugins are loaded ---
 if grep -q '^\[core\]' "$WAYFIRE_INI"; then
     if grep -q 'plugins\s*=' "$WAYFIRE_INI"; then
         if ! grep -q 'shortcuts-inhibit' "$WAYFIRE_INI"; then
@@ -20,6 +20,22 @@ if grep -q '^\[core\]' "$WAYFIRE_INI"; then
             echo "[aqueous-setup] Added shortcuts-inhibit to [core] plugins."
         else
             echo "[aqueous-setup] shortcuts-inhibit already in plugins."
+        fi
+
+        # Ensure ipc plugin is loaded (required for Wayfire IPC event subscription)
+        if ! grep -q '\bipc\b' "$WAYFIRE_INI"; then
+            sed -i '/^\(plugins\s*=\)/s/=\s*/= ipc /' "$WAYFIRE_INI"
+            echo "[aqueous-setup] Added ipc to [core] plugins."
+        else
+            echo "[aqueous-setup] ipc already in plugins."
+        fi
+
+        # Ensure ipc-rules plugin is loaded (required for event watching)
+        if ! grep -q '\bipc-rules\b' "$WAYFIRE_INI"; then
+            sed -i '/^\(plugins\s*=\)/s/=\s*/= ipc-rules /' "$WAYFIRE_INI"
+            echo "[aqueous-setup] Added ipc-rules to [core] plugins."
+        else
+            echo "[aqueous-setup] ipc-rules already in plugins."
         fi
     fi
 fi
