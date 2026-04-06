@@ -97,6 +97,24 @@ namespace Aqueous.Features.AppLauncher
             };
             _window.GtkWindow.AddController(keyController);
 
+            // Key handler on search entry (Entry may capture Return/Escape before window)
+            var entryKeyController = Gtk.EventControllerKey.New();
+            entryKeyController.OnKeyPressed += (controller, args) =>
+            {
+                if (args.Keyval == 0xff0d) // Return/Enter
+                {
+                    LaunchSelected();
+                    return true;
+                }
+                if (args.Keyval == 0xff1b) // Escape
+                {
+                    Hide();
+                    return true;
+                }
+                return false;
+            };
+            _searchEntry.AddController(entryKeyController);
+
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
             _searchEntry.GrabFocus();
