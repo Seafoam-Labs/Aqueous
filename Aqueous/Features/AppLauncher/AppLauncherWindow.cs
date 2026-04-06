@@ -75,6 +75,24 @@ namespace Aqueous.Features.AppLauncher
                     LaunchSelected();
                     return true;
                 }
+                if (args.Keyval == 0xff52) // Up Arrow
+                {
+                    if (_selectedIndex > 0)
+                    {
+                        _selectedIndex--;
+                        UpdateSelection();
+                    }
+                    return true;
+                }
+                if (args.Keyval == 0xff54) // Down Arrow
+                {
+                    if (_selectedIndex < _currentResults.Count - 1)
+                    {
+                        _selectedIndex++;
+                        UpdateSelection();
+                    }
+                    return true;
+                }
                 return false;
             };
             _window.GtkWindow.AddController(keyController);

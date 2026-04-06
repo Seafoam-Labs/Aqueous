@@ -47,6 +47,10 @@ namespace Aqueous.Features.AppLauncher
         {
             CleanupSocket();
 
+            // Ensure directory exists (e.g., ~/.run/)
+            var directory = Path.GetDirectoryName(SocketPath);
+            if (directory != null) Directory.CreateDirectory(directory);
+
             using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             listener.Bind(new UnixDomainSocketEndPoint(SocketPath));
             listener.Listen(5);
