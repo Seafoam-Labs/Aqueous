@@ -37,6 +37,7 @@ namespace Aqueous.Features.Bar
 
             _trigger.GtkWindow.SetDecorated(false); // Remove window frame/shadow
             _trigger.GtkWindow.SetCanFocus(false);   // Prevent it from taking keyboard focus
+            _trigger.GtkWindow.SetOpacity(1.0);
             _trigger.GtkWindow.SetDefaultSize(-1, 32);
             _trigger.GtkWindow.AddCssClass("bar-trigger");
 
@@ -64,6 +65,7 @@ namespace Aqueous.Features.Bar
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
             _bar.GtkWindow.SetDecorated(false); // Remove window frame/shadow
+            _bar.GtkWindow.SetOpacity(0.0);
             _bar.GtkWindow.SetDefaultSize(-1, 32);
             _bar.GtkWindow.AddCssClass("bar-window");
             _bar.GtkWindow.SetVisible(false);
@@ -147,6 +149,7 @@ namespace Aqueous.Features.Bar
             if (_bar != null && !_barVisible)
             {
                 _bar.GtkWindow.SetVisible(true);
+                _bar.GtkWindow.SetOpacity(1.0);
                 _bar.GtkWindow.Present();
                 _barVisible = true;
             }
@@ -158,6 +161,7 @@ namespace Aqueous.Features.Bar
             if (_bar != null)
             {
                 _bar.GtkWindow.SetVisible(false);
+                _bar.GtkWindow.SetOpacity(0.0);
             }
             _barVisible = false;
         }

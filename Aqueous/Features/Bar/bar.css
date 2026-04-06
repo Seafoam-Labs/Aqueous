@@ -1,28 +1,32 @@
-/* Ensure the trigger is truly invisible and has no decoration */
+/* Ensure the trigger is truly invisible but captures events */
 window.bar-trigger,
+window.bar-trigger.background,
 window.bar-trigger decoration,
 window.bar-trigger box {
-    background: transparent !important;
-    background-color: transparent !important;
+    background: rgba(0, 0, 0, 0.01) !important;
+    background-color: rgba(0, 0, 0, 0.01) !important;
+    background-image: none !important;
     box-shadow: none !important;
     border: none !important;
+    outline: none !important;
 }
 
 /* Main bar window styling */
 window.bar-window,
 window.bar-window.background,
-window.bar-window decoration {
+window.bar-window decoration,
+window.bar-window box {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
     box-shadow: none !important;
     border: none !important;
+    outline: none !important;
 }
 
 .bar-layout {
     background: transparent !important;
     background-color: transparent !important;
-    background-image: none !important;
 }
 
 .bar-side {
