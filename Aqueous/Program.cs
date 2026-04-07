@@ -125,10 +125,10 @@ public class Program
             var windowList = new WindowListWidget(_windowManagerService);
             barCenter.GtkBox.Append(windowList.Button);
 
-            // --- Workspace Switcher Widget ---
-            LoadWorkspaceSwitcherCss();
-            var workspaceSwitcher = new WorkspaceSwitcherWidget(_windowManagerService);
-            barLeft.GtkBox.Append(workspaceSwitcher.Box);
+            // --- Workspace Switcher Widget (disabled) ---
+            // LoadWorkspaceSwitcherCss();
+            // var workspaceSwitcher = new WorkspaceSwitcherWidget(_windowManagerService);
+            // barLeft.GtkBox.Append(workspaceSwitcher.Box);
 
             // --- Dock Service ---
             LoadDockCss();
