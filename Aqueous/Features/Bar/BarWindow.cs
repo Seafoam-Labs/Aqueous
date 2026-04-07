@@ -1,12 +1,30 @@
 using System;
+using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Gtk;
 
 namespace Aqueous.Features.Bar
 {
-    public class BarWindow
+    public partial class BarWindow
     {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct GdkRectangle { public int X, Y, Width, Height; }
+
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial IntPtr gdk_display_get_default();
+
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial IntPtr gdk_display_get_monitors(IntPtr display);
+
+        [LibraryImport("libgio-2.0.so.0")]
+        private static partial IntPtr g_list_model_get_item(IntPtr list, uint position);
+
+        [LibraryImport("libgio-2.0.so.0")]
+        private static partial uint g_list_model_get_n_items(IntPtr list);
+
+        [LibraryImport("libgdk-4.so.1")]
+        private static partial void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
         private const int BarHeight = 32;
         private const int HitboxHeight = 2;
 
@@ -33,11 +51,12 @@ namespace Aqueous.Features.Bar
             _bar.Layer = AstalLayer.ASTAL_LAYER_TOP;
             _bar.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
             _bar.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
-                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
 
             _bar.GtkWindow.SetDecorated(false);
-            _bar.GtkWindow.SetDefaultSize(-1, 32);
+            var (screenWidth, _) = GetScreenSize();
+            var barWidth = screenWidth / 3;
+            _bar.GtkWindow.SetDefaultSize(barWidth, BarHeight);
             _bar.GtkWindow.AddCssClass("bar-window");
 
             // Main layout container
@@ -46,6 +65,7 @@ namespace Aqueous.Features.Bar
             layout.GtkBox.Hexpand = true;
             layout.GtkBox.AddCssClass("bar-layout");
             _bar.GtkWindow.SetChild(layout.GtkBox);
+            ApplyMiddleThirdMargin();
 
             // Single centered bar box
             var barBox = new AstalBox();
@@ -54,21 +74,8 @@ namespace Aqueous.Features.Bar
             barBox.GtkBox.Halign = Align.Center;
             barBox.GtkBox.AddCssClass("bar-section");
 
-            // Left spacer
-            var leftSpacer = new AstalBox();
-            leftSpacer.GtkBox.Hexpand = true;
-            leftSpacer.GtkBox.AddCssClass("bar-side");
-            leftSpacer.GtkBox.Opacity = 0;
-            layout.GtkBox.Append(leftSpacer.GtkBox);
-
+            barBox.GtkBox.Hexpand = true;
             layout.GtkBox.Append(barBox.GtkBox);
-
-            // Right spacer
-            var rightSpacer = new AstalBox();
-            rightSpacer.GtkBox.Hexpand = true;
-            rightSpacer.GtkBox.AddCssClass("bar-side");
-            rightSpacer.GtkBox.Opacity = 0;
-            layout.GtkBox.Append(rightSpacer.GtkBox);
 
             // Left content area (inside the single box)
             LeftSection = new AstalBox();
@@ -116,7 +123,8 @@ namespace Aqueous.Features.Bar
             if (_bar != null && !_barVisible)
             {
                 _barVisible = true;
-                _bar.GtkWindow.SetDefaultSize(-1, BarHeight);
+                var (sw, _) = GetScreenSize();
+                _bar.GtkWindow.SetDefaultSize(sw / 3, BarHeight);
                 _bar.GtkWindow.GetChild()?.SetVisible(true);
                 _bar.GtkWindow.SetOpacity(1.0);
             }
@@ -128,7 +136,8 @@ namespace Aqueous.Features.Bar
             if (_bar != null)
             {
                 _bar.GtkWindow.GetChild()?.SetVisible(false);
-                _bar.GtkWindow.SetDefaultSize(-1, HitboxHeight);
+                var (sw2, _) = GetScreenSize();
+                _bar.GtkWindow.SetDefaultSize(sw2 / 3, HitboxHeight);
                 _bar.GtkWindow.SetOpacity(0.01);
             }
             _barVisible = false;
@@ -152,6 +161,40 @@ namespace Aqueous.Features.Bar
                 GLib.Functions.SourceRemove(_hideTimeout);
                 _hideTimeout = 0;
             }
+        }
+
+        private (int width, int height) GetScreenSize()
+        {
+            try
+            {
+                var display = gdk_display_get_default();
+                if (display != IntPtr.Zero)
+                {
+                    var monitors = gdk_display_get_monitors(display);
+                    if (monitors != IntPtr.Zero && g_list_model_get_n_items(monitors) > 0)
+                    {
+                        var monitor = g_list_model_get_item(monitors, 0);
+                        if (monitor != IntPtr.Zero)
+                        {
+                            gdk_monitor_get_geometry(monitor, out var geo);
+                            return (geo.Width, geo.Height);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback on any GDK error
+            }
+            return (1920, 1080);
+        }
+
+        private void ApplyMiddleThirdMargin()
+        {
+            if (_bar == null) return;
+            var (screenWidth, _) = GetScreenSize();
+            var barWidth = screenWidth / 3;
+            _bar.MarginLeft = (screenWidth - barWidth) / 2;
         }
 
         public void Destroy()
