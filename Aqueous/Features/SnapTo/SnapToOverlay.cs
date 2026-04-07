@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Gtk;
@@ -34,10 +35,13 @@ namespace Aqueous.Features.SnapTo
                 var outputs = await WayfireIpc.ListOutputs();
                 if (outputs.Length > 0)
                 {
-                    if (outputs[0].TryGetProperty("width", out var w))
-                        _screenW = w.GetInt32();
-                    if (outputs[0].TryGetProperty("height", out var h))
-                        _screenH = h.GetInt32();
+                    if (outputs[0].TryGetProperty("geometry", out var geo))
+                    {
+                        if (geo.TryGetProperty("width", out var w))
+                            _screenW = w.GetInt32();
+                        if (geo.TryGetProperty("height", out var h))
+                            _screenH = h.GetInt32();
+                    }
                 }
             }
             catch
@@ -125,6 +129,42 @@ namespace Aqueous.Features.SnapTo
             {
                 Hide();
                 Show();
+            }
+        }
+
+        public async Task SnapToZoneAtCursor()
+        {
+            var layout = _layouts[_currentLayoutIndex];
+
+            try
+            {
+                var cursorPos = await WayfireIpc.GetCursorPosition();
+                if (cursorPos == null) return;
+
+                var (cursorX, cursorY) = cursorPos.Value;
+
+                foreach (var zone in layout.Zones)
+                {
+                    var zx = (int)(zone.X * _screenW);
+                    var zy = (int)(zone.Y * _screenH);
+                    var zw = (int)(zone.Width * _screenW);
+                    var zh = (int)(zone.Height * _screenH);
+
+                    if (cursorX >= zx && cursorX < zx + zw &&
+                        cursorY >= zy && cursorY < zy + zh)
+                    {
+                        var focused = await WayfireIpc.GetFocusedView();
+                        if (focused == null) return;
+
+                        var viewId = focused.Value.GetProperty("id").GetInt32();
+                        await WayfireIpc.SetViewGeometry(viewId, zx, zy, zw, zh);
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[SnapTo] SnapToZoneAtCursor error: {ex.Message}");
             }
         }
 

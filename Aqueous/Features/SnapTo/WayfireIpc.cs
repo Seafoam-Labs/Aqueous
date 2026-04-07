@@ -1,6 +1,7 @@
 using System;
-using System.Diagnostics;
-using System.Linq;
+using System.IO;
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -8,45 +9,108 @@ namespace Aqueous.Features.SnapTo
 {
     public static class WayfireIpc
     {
-        private static async Task<string> RunWfMsg(string args)
+        private static async Task<JsonElement> CallIpc(string method, JsonElement? data = null)
         {
-            var psi = new ProcessStartInfo("wf-msg", args)
+            var socketPath = Environment.GetEnvironmentVariable("WAYFIRE_SOCKET")
+                ?? Environment.GetEnvironmentVariable("_WAYFIRE_SOCKET")
+                ?? FindWayfireSocket();
+
+            using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            socket.Connect(new UnixDomainSocketEndPoint(socketPath));
+
+            var msg = data.HasValue
+                ? $"{{\"method\":\"{method}\",\"data\":{data.Value.GetRawText()}}}"
+                : $"{{\"method\":\"{method}\"}}";
+
+            var payload = Encoding.UTF8.GetBytes(msg);
+            var header = BitConverter.GetBytes((uint)payload.Length);
+            await socket.SendAsync(header);
+            await socket.SendAsync(payload);
+
+            var lenBuf = new byte[4];
+            await ReadExact(socket, lenBuf, 4);
+            var len = BitConverter.ToInt32(lenBuf, 0);
+            var msgBuf = new byte[len];
+            await ReadExact(socket, msgBuf, len);
+
+            var json = Encoding.UTF8.GetString(msgBuf);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
+        }
+
+        private static string FindWayfireSocket()
+        {
+            var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+            if (runtimeDir != null)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null) return string.Empty;
-            var output = await proc.StandardOutput.ReadToEndAsync();
-            await proc.WaitForExitAsync();
-            return output;
+                var files = Directory.GetFiles(runtimeDir, "wayfire-*.socket");
+                if (files.Length > 0) return files[0];
+            }
+
+            var tmpFiles = Directory.GetFiles("/tmp", "wayfire-*.socket");
+            if (tmpFiles.Length > 0) return tmpFiles[0];
+            throw new FileNotFoundException(
+                "No Wayfire IPC socket found. Ensure 'ipc' plugin is enabled and WAYFIRE_SOCKET is set.");
+        }
+
+        private static async Task ReadExact(Socket socket, byte[] buffer, int count)
+        {
+            int offset = 0;
+            while (offset < count)
+            {
+                var seg = new ArraySegment<byte>(buffer, offset, count - offset);
+                var read = await socket.ReceiveAsync(seg, SocketFlags.None);
+                if (read == 0) throw new IOException("Socket closed");
+                offset += read;
+            }
         }
 
         public static async Task<JsonElement[]> ListViews()
         {
-            var json = await RunWfMsg("list-views");
-            if (string.IsNullOrWhiteSpace(json)) return [];
-            return JsonSerializer.Deserialize(json, SnapToJsonContext.Default.JsonElementArray) ?? [];
+            var result = await CallIpc("window-rules/list-views");
+            var len = result.GetArrayLength();
+            var arr = new JsonElement[len];
+            int i = 0;
+            foreach (var item in result.EnumerateArray())
+                arr[i++] = item.Clone();
+            return arr;
         }
 
         public static async Task<JsonElement?> GetFocusedView()
         {
-            var views = await ListViews();
-            return views.FirstOrDefault(v =>
-                v.TryGetProperty("focused", out var f) && f.GetBoolean());
+            var result = await CallIpc("window-rules/get-focused-view");
+            if (result.TryGetProperty("info", out var info) && info.ValueKind != JsonValueKind.Null)
+                return info.Clone();
+            return null;
         }
 
         public static async Task SetViewGeometry(int viewId, int x, int y, int w, int h)
         {
-            await RunWfMsg($"set-view-geometry {viewId} {x} {y} {w} {h}");
+            var dataJson = $"{{\"id\":{viewId},\"geometry\":{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h}}}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/configure-view", data);
         }
 
         public static async Task<JsonElement[]> ListOutputs()
         {
-            var json = await RunWfMsg("list-outputs");
-            if (string.IsNullOrWhiteSpace(json)) return [];
-            return JsonSerializer.Deserialize(json, SnapToJsonContext.Default.JsonElementArray) ?? [];
+            var result = await CallIpc("window-rules/list-outputs");
+            var len = result.GetArrayLength();
+            var arr = new JsonElement[len];
+            int i = 0;
+            foreach (var item in result.EnumerateArray())
+                arr[i++] = item.Clone();
+            return arr;
+        }
+
+        public static async Task<(int X, int Y)?> GetCursorPosition()
+        {
+            var result = await CallIpc("window-rules/get_cursor_position");
+            if (result.TryGetProperty("pos", out var pos)
+                && pos.TryGetProperty("x", out var x)
+                && pos.TryGetProperty("y", out var y))
+                return ((int)x.GetDouble(), (int)y.GetDouble());
+            return null;
         }
     }
 }

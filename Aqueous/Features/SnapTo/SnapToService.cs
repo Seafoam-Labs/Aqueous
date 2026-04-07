@@ -144,7 +144,7 @@ namespace Aqueous.Features.SnapTo
                             {
                                 GLib.Functions.IdleAdd(0, () =>
                                 {
-                                    _overlay.Hide();
+                                    _ = SnapAndHideAsync();
                                     return false;
                                 });
                             }
@@ -158,6 +158,12 @@ namespace Aqueous.Features.SnapTo
                     await Task.Delay(2000, ct);
                 }
             }
+        }
+
+        private async Task SnapAndHideAsync()
+        {
+            await _overlay.SnapToZoneAtCursor();
+            _overlay.Hide();
         }
 
         private static void CleanupSocket()
