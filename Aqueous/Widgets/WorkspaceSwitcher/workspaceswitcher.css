@@ -1,0 +1,29 @@
+.workspace-switcher {
+    padding: 2px 4px;
+}
+
+.workspace-dot {
+    min-width: 12px;
+    min-height: 12px;
+    padding: 0;
+    margin: 1px;
+    border-radius: 50%;
+    background: alpha(white, 0.2);
+    border: none;
+}
+
+.workspace-dot:hover {
+    background: alpha(white, 0.4);
+}
+
+.workspace-dot-active {
+    background: @theme_selected_bg_color;
+}
+
+.workspace-dot-occupied {
+    background: alpha(white, 0.5);
+}
+
+.workspace-dot-active.workspace-dot-occupied {
+    background: @theme_selected_bg_color;
+}

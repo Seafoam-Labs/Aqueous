@@ -112,5 +112,58 @@ namespace Aqueous.Features.SnapTo
                 return ((int)x.GetDouble(), (int)y.GetDouble());
             return null;
         }
+
+        public static async Task FocusView(int viewId)
+        {
+            var dataJson = $"{{\"id\":{viewId}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/focus-view", data);
+        }
+
+        public static async Task CloseView(int viewId)
+        {
+            var dataJson = $"{{\"id\":{viewId}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/close-view", data);
+        }
+
+        public static async Task MinimizeView(int viewId, bool state)
+        {
+            var dataJson = $"{{\"id\":{viewId},\"minimized\":{(state ? "true" : "false")}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/configure-view", data);
+        }
+
+        public static async Task SetViewFullscreen(int viewId, bool state)
+        {
+            var dataJson = $"{{\"id\":{viewId},\"fullscreen\":{(state ? "true" : "false")}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/configure-view", data);
+        }
+
+        public static async Task MoveViewToWorkspace(int viewId, int wsX, int wsY)
+        {
+            var dataJson = $"{{\"id\":{viewId},\"workspace\":{{\"x\":{wsX},\"y\":{wsY}}}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("window-rules/configure-view", data);
+        }
+
+        public static async Task<JsonElement> GetWorkspace()
+        {
+            return await CallIpc("vswitch/get-workspace");
+        }
+
+        public static async Task SetWorkspace(int x, int y)
+        {
+            var dataJson = $"{{\"x\":{x},\"y\":{y}}}";
+            using var dataDoc = JsonDocument.Parse(dataJson);
+            var data = dataDoc.RootElement.Clone();
+            await CallIpc("vswitch/set-workspace", data);
+        }
     }
 }

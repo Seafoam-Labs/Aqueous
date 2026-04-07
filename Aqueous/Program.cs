@@ -15,7 +15,10 @@ using Aqueous.Features.Dock;
 using Aqueous.Features.Wallpaper;
 using Aqueous.Features.Bar;
 using Aqueous.Features.SystemTray;
+using Aqueous.Features.WindowManager;
 using Aqueous.Widgets.SystemTray;
+using Aqueous.Widgets.WindowList;
+using Aqueous.Widgets.WorkspaceSwitcher;
 
 public class Program
 {
@@ -28,6 +31,7 @@ public class Program
     private static WallpaperService? _wallpaperService;
     private static BarService? _barService;
     private static SystemTrayService? _systemTrayService;
+    private static WindowManagerService? _windowManagerService;
 
     public static void Main(string[] args)
     {
@@ -112,9 +116,23 @@ public class Program
             var systemTray = new SystemTrayWidget(_systemTrayService, barWindow);
             barRight.GtkBox.Append(systemTray.Box);
 
+            // --- Window Manager Service ---
+            _windowManagerService = new WindowManagerService();
+            _windowManagerService.Start();
+
+            // --- Window List Widget ---
+            LoadWindowListCss();
+            var windowList = new WindowListWidget(_windowManagerService);
+            barCenter.GtkBox.Append(windowList.Button);
+
+            // --- Workspace Switcher Widget ---
+            LoadWorkspaceSwitcherCss();
+            var workspaceSwitcher = new WorkspaceSwitcherWidget(_windowManagerService);
+            barLeft.GtkBox.Append(workspaceSwitcher.Box);
+
             // --- Dock Service ---
             LoadDockCss();
-            _dockService = new DockService(app, _settingsService!);
+            _dockService = new DockService(app, _settingsService!, _windowManagerService);
             _dockService.Start();
         };
 
@@ -127,6 +145,7 @@ public class Program
         _dockService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
+        _windowManagerService?.Dispose();
         _barService?.Stop();
     }
 
@@ -274,6 +293,34 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "SystemTray", "systemtray.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadWindowListCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "WindowList", "windowlist.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadWorkspaceSwitcherCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "WorkspaceSwitcher", "workspaceswitcher.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);

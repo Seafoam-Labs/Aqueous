@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.Settings;
+using Aqueous.Features.WindowManager;
 using Aqueous.Widgets.Dock;
 
 namespace Aqueous.Features.Dock
@@ -12,14 +13,16 @@ namespace Aqueous.Features.Dock
     {
         private readonly AstalApplication _app;
         private readonly SettingsService _settingsService;
+        private readonly WindowManagerService _windowManager;
         private DockWindow? _window;
         private WindowTracker? _windowTracker;
         private readonly Dictionary<string, Gtk.Widget> _runningAppWidgets = new();
 
-        public DockService(AstalApplication app, SettingsService settingsService)
+        public DockService(AstalApplication app, SettingsService settingsService, WindowManagerService windowManager)
         {
             _app = app;
             _settingsService = settingsService;
+            _windowManager = windowManager;
         }
 
         public void Start()
@@ -30,7 +33,7 @@ namespace Aqueous.Features.Dock
 
             _settingsService.Store.Changed += OnSettingsChanged;
 
-            _windowTracker = new WindowTracker();
+            _windowTracker = new WindowTracker(_windowManager);
             _windowTracker.RunningAppsChanged += OnRunningAppsChanged;
             _windowTracker.Start();
         }
