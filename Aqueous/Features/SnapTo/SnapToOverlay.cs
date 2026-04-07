@@ -29,12 +29,15 @@ namespace Aqueous.Features.SnapTo
 
             var layout = _layouts[_currentLayoutIndex];
 
-            // Get screen dimensions from wf-msg
+            // Get screen dimensions from Wayfire IPC
             try
             {
                 var outputs = await WayfireIpc.ListOutputs();
+                Console.WriteLine("[SnapTo] ListOutputs returned " + outputs.Length + " output(s)");
                 if (outputs.Length > 0)
                 {
+                    Console.WriteLine("[SnapTo] Output[0]: " + outputs[0].ToString());
+
                     if (outputs[0].TryGetProperty("geometry", out var geo))
                     {
                         if (geo.TryGetProperty("width", out var w))
@@ -43,10 +46,11 @@ namespace Aqueous.Features.SnapTo
                             _screenH = h.GetInt32();
                     }
                 }
+                Console.WriteLine($"[SnapTo] Screen resolution: {_screenW}x{_screenH}");
             }
-            catch
+            catch (Exception ex)
             {
-                // Fall back to defaults
+                Console.Error.WriteLine($"[SnapTo] Failed to get screen resolution via Wayfire IPC: {ex.Message}");
             }
 
             _window = new AstalWindow();
