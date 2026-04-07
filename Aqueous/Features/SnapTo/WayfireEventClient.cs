@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -15,7 +16,8 @@ namespace Aqueous.Features.SnapTo
 
         public WayfireEventClient()
         {
-            _socketPath = Environment.GetEnvironmentVariable("_WAYFIRE_SOCKET")
+            _socketPath = Environment.GetEnvironmentVariable("WAYFIRE_SOCKET")
+                ?? Environment.GetEnvironmentVariable("_WAYFIRE_SOCKET")
                 ?? FindWayfireSocket();
         }
 
@@ -25,9 +27,8 @@ namespace Aqueous.Features.SnapTo
             _socket.Connect(new UnixDomainSocketEndPoint(_socketPath));
         }
 
-        public async Task SendJson(object message)
+        public async Task SendJson(string json)
         {
-            var json = JsonSerializer.Serialize(message);
             var payload = Encoding.UTF8.GetBytes(json);
             var header = BitConverter.GetBytes((uint)payload.Length);
             await _socket!.SendAsync(header);
@@ -44,7 +45,8 @@ namespace Aqueous.Features.SnapTo
             await ReadExact(msgBuf, len, ct);
 
             var json = Encoding.UTF8.GetString(msgBuf);
-            return JsonSerializer.Deserialize<JsonElement>(json);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
         }
 
         private async Task ReadExact(byte[] buffer, int count, CancellationToken ct)
@@ -61,12 +63,9 @@ namespace Aqueous.Features.SnapTo
 
         public async Task Subscribe(string[] events)
         {
-            var msg = new
-            {
-                method = "window-rules/events/watch",
-                data = new { events }
-            };
-            await SendJson(msg);
+            var eventsJson = string.Join(",", events.Select(e => $"\"{e}\""));
+            var json = $"{{\"method\":\"window-rules/events/watch\",\"data\":{{\"events\":[{eventsJson}]}}}}";
+            await SendJson(json);
             await ReadMessage(CancellationToken.None);
         }
 
@@ -82,7 +81,7 @@ namespace Aqueous.Features.SnapTo
             var tmpFiles = Directory.GetFiles("/tmp", "wayfire-*.socket");
             if (tmpFiles.Length > 0) return tmpFiles[0];
             throw new FileNotFoundException(
-                "No Wayfire IPC socket found. Ensure 'ipc' plugin is enabled and _WAYFIRE_SOCKET is set.");
+                "No Wayfire IPC socket found. Ensure 'ipc' plugin is enabled and WAYFIRE_SOCKET is set.");
         }
 
         public void Dispose()
