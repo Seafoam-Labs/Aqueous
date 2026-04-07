@@ -17,7 +17,7 @@ namespace Aqueous.Widgets.BluetoothTray
             var label = Gtk.Label.New("󰂯");
             _button.SetChild(label);
 
-            _button.OnClicked += (_, _) => service.Toggle();
+            _button.OnClicked += async (_, _) => await service.TogglePowerAsync();
 
             service.StateChanged += () =>
             {

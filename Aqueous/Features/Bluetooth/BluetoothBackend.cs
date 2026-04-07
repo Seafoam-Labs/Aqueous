@@ -29,6 +29,14 @@ namespace Aqueous.Features.Bluetooth
         Task<IDictionary<string, object>> GetAllAsync();
     }
 
+    [DBusInterface("org.freedesktop.DBus.Properties")]
+    public interface IProperties : IDBusObject
+    {
+        Task<IDisposable> WatchPropertiesChangedAsync(
+            Action<(string iface, IDictionary<string, object> changed, string[] invalidated)> handler,
+            Action<Exception>? onError = null);
+    }
+
     [DBusInterface("org.freedesktop.DBus.ObjectManager")]
     public interface IObjectManager : IDBusObject
     {
@@ -48,6 +56,7 @@ namespace Aqueous.Features.Bluetooth
         private IObjectManager? _objectManager;
         private IDisposable? _addedWatch;
         private IDisposable? _removedWatch;
+        private IDisposable? _propsWatch;
         private ObjectPath _adapterPath = new("/org/bluez/hci0");
 
         public event Action? DevicesChanged;
@@ -71,6 +80,13 @@ namespace Aqueous.Features.Bluetooth
             _removedWatch = await _objectManager.WatchInterfacesRemovedAsync(
                 _ => DevicesChanged?.Invoke(),
                 _ => { });
+
+            var adapterProps = _connection.CreateProxy<IProperties>("org.bluez", _adapterPath);
+            _propsWatch = await adapterProps.WatchPropertiesChangedAsync(change =>
+            {
+                if (change.iface == "org.bluez.Adapter1" && change.changed.ContainsKey("Powered"))
+                    AdapterStateChanged?.Invoke();
+            });
         }
 
         public async Task<bool> GetAdapterPoweredAsync()
@@ -89,7 +105,6 @@ namespace Aqueous.Features.Bluetooth
             {
                 if (_adapter == null) return;
                 await _adapter.SetAsync("Powered", powered);
-                AdapterStateChanged?.Invoke();
             }
             catch { }
         }
@@ -209,6 +224,7 @@ namespace Aqueous.Features.Bluetooth
         {
             _addedWatch?.Dispose();
             _removedWatch?.Dispose();
+            _propsWatch?.Dispose();
             _connection?.Dispose();
         }
     }

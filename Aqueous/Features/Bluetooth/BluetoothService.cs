@@ -68,6 +68,12 @@ namespace Aqueous.Features.Bluetooth
             else _popup.Show();
         }
 
+        public async Task TogglePowerAsync()
+        {
+            var powered = await _backend.GetAdapterPoweredAsync();
+            await _backend.SetAdapterPoweredAsync(!powered);
+        }
+
         public void Hide() => _popup.Hide();
 
         private async Task RefreshStateAsync()
