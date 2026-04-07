@@ -22,5 +22,6 @@
     <File Path="aqueous-wayfire-setup.sh" />
     <File Path="PKGBUILD" />
     <File Path="README.md" />
+    <File Path="wayfire.ini" />
   </Folder>
 </Solution>
