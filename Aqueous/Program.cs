@@ -14,6 +14,8 @@ using Aqueous.Widgets.BluetoothTray;
 using Aqueous.Features.Dock;
 using Aqueous.Features.Wallpaper;
 using Aqueous.Features.Bar;
+using Aqueous.Features.SystemTray;
+using Aqueous.Widgets.SystemTray;
 
 public class Program
 {
@@ -25,6 +27,7 @@ public class Program
     private static DockService? _dockService;
     private static WallpaperService? _wallpaperService;
     private static BarService? _barService;
+    private static SystemTrayService? _systemTrayService;
 
     public static void Main(string[] args)
     {
@@ -102,6 +105,13 @@ public class Program
             var startMenu = new StartMenuWidget(app, _settingsService!);
             barLeft.GtkBox.Prepend(startMenu.Button);
 
+            // --- System Tray Widget ---
+            LoadSystemTrayCss();
+            _systemTrayService = new SystemTrayService();
+            _systemTrayService.Start();
+            var systemTray = new SystemTrayWidget(_systemTrayService);
+            barRight.GtkBox.Append(systemTray.Box);
+
             // --- Dock Service ---
             LoadDockCss();
             _dockService = new DockService(app, _settingsService!);
@@ -116,6 +126,7 @@ public class Program
         _bluetoothService?.Stop();
         _dockService?.Stop();
         _wallpaperService?.Stop();
+        _systemTrayService?.Dispose();
         _barService?.Stop();
     }
 
@@ -249,6 +260,20 @@ public class Program
     {
         var cssProvider = Gtk.CssProvider.New();
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "StartMenu", "startmenu.css");
+        if (File.Exists(cssPath))
+        {
+            cssProvider.LoadFromPath(cssPath);
+            Gtk.StyleContext.AddProviderForDisplay(
+                Gdk.Display.GetDefault()!,
+                cssProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        }
+    }
+
+    private static void LoadSystemTrayCss()
+    {
+        var cssProvider = Gtk.CssProvider.New();
+        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "SystemTray", "systemtray.css");
         if (File.Exists(cssPath))
         {
             cssProvider.LoadFromPath(cssPath);
