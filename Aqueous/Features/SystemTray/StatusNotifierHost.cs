@@ -14,10 +14,18 @@ namespace Aqueous.Features.SystemTray
             Action<Exception>? onError = null);
     }
 
+    // For reading properties via org.freedesktop.DBus.Properties
+    [DBusInterface("org.freedesktop.DBus.Properties")]
+    public interface ISNIProperties : IDBusObject
+    {
+        Task<IDictionary<string, object>> GetAllAsync(string interfaceName);
+        Task<object> GetAsync(string interfaceName, string property);
+    }
+
     public class StatusNotifierHost : IDisposable
     {
         private readonly Connection _connection;
-        private readonly StatusNotifierWatcher _watcher;
+        private readonly StatusNotifierWatcher? _localWatcher;
         private readonly DBusMenuProxy _menuProxy;
         private readonly Dictionary<string, TrayItem> _items = new();
         private readonly List<IDisposable> _watches = new();
@@ -26,40 +34,83 @@ namespace Aqueous.Features.SystemTray
         public IReadOnlyList<TrayItem> Items => _items.Values.ToList();
         public DBusMenuProxy MenuProxy => _menuProxy;
 
-        public StatusNotifierHost(Connection connection, StatusNotifierWatcher watcher)
+        public StatusNotifierHost(Connection connection, StatusNotifierWatcher? localWatcher)
         {
             _connection = connection;
-            _watcher = watcher;
+            _localWatcher = localWatcher;
             _menuProxy = new DBusMenuProxy(connection);
         }
 
         public async Task StartAsync()
         {
-            _watcher.ItemRegistered += OnItemRegistered;
-            _watcher.ItemUnregistered += OnItemUnregistered;
-
             // Watch for D-Bus name owner changes to detect app exits
             var dbus = _connection.CreateProxy<IDBus>("org.freedesktop.DBus", new ObjectPath("/org/freedesktop/DBus"));
-            var watch = await dbus.WatchNameOwnerChangedAsync(change =>
+            var nameWatch = await dbus.WatchNameOwnerChangedAsync(change =>
             {
                 if (string.IsNullOrEmpty(change.newOwner))
                 {
-                    // Name lost — check if it was a tray item
                     var toRemove = _items.Keys
                         .Where(k => k == change.name || k.StartsWith(change.name + "/"))
                         .ToList();
                     foreach (var key in toRemove)
                     {
-                        _watcher.RemoveItem(key);
+                        if (_localWatcher != null)
+                            _localWatcher.RemoveItem(key);
+                        else
+                            OnItemUnregistered(key);
                     }
                 }
             });
-            _watches.Add(watch);
+            _watches.Add(nameWatch);
 
-            // Pick up any already-registered items
-            foreach (var service in _watcher.RegisteredItems)
+            if (_localWatcher != null)
             {
-                OnItemRegistered(service);
+                // Local watcher mode — use in-process events
+                _localWatcher.ItemRegistered += OnItemRegistered;
+                _localWatcher.ItemUnregistered += OnItemUnregistered;
+
+                foreach (var service in _localWatcher.RegisteredItems)
+                    OnItemRegistered(service);
+            }
+            else
+            {
+                // Remote watcher mode — use D-Bus proxy
+                var remoteWatcher = _connection.CreateProxy<IStatusNotifierWatcher>(
+                    "org.kde.StatusNotifierWatcher",
+                    new ObjectPath("/StatusNotifierWatcher"));
+
+                // Watch for new items registered
+                var regWatch = await remoteWatcher.WatchStatusNotifierItemRegisteredAsync(
+                    service =>
+                    {
+                        Console.Error.WriteLine($"[SystemTray] Remote item registered: {service}");
+                        OnItemRegistered(service);
+                    },
+                    ex => Console.Error.WriteLine($"[SystemTray] Watch registered error: {ex.Message}"));
+                _watches.Add(regWatch);
+
+                // Watch for items unregistered
+                var unregWatch = await remoteWatcher.WatchStatusNotifierItemUnregisteredAsync(
+                    service =>
+                    {
+                        Console.Error.WriteLine($"[SystemTray] Remote item unregistered: {service}");
+                        OnItemUnregistered(service);
+                    },
+                    ex => Console.Error.WriteLine($"[SystemTray] Watch unregistered error: {ex.Message}"));
+                _watches.Add(unregWatch);
+
+                // Enumerate pre-existing items from the remote watcher
+                try
+                {
+                    var existingItems = await remoteWatcher.GetAsync<string[]>("RegisteredStatusNotifierItems");
+                    Console.Error.WriteLine($"[SystemTray] Found {existingItems.Length} existing items");
+                    foreach (var service in existingItems)
+                        OnItemRegistered(service);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[SystemTray] Failed to get existing items: {ex.Message}");
+                }
             }
         }
 
@@ -70,8 +121,6 @@ namespace Aqueous.Features.SystemTray
 
             var item = new TrayItem { ServiceName = service };
 
-            // Parse service name — could be ":1.45" (unique name) or "org.kde.StatusNotifierItem-PID-N"
-            // Some apps register with "busname/objectpath" format
             var parts = service.Split('/', 2);
             var busName = parts[0];
             var objPath = parts.Length > 1 ? "/" + parts[1] : "/StatusNotifierItem";
@@ -85,9 +134,13 @@ namespace Aqueous.Features.SystemTray
                 {
                     await LoadItemPropertiesAsync(busName, item);
                     await WatchItemSignalsAsync(busName, item);
+                    Console.Error.WriteLine($"[SystemTray] Loaded item: {item.Id} ({item.IconName}) from {busName}");
                     GLib.Functions.IdleAdd(0, () => { ItemsChanged?.Invoke(); return false; });
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[SystemTray] Failed to load item {service}: {ex.Message}");
+                }
             });
         }
 
@@ -101,10 +154,11 @@ namespace Aqueous.Features.SystemTray
 
         private async Task LoadItemPropertiesAsync(string busName, TrayItem item)
         {
-            var proxy = _connection.CreateProxy<IStatusNotifierItem>(busName, new ObjectPath(item.ObjectPath));
+            // Use org.freedesktop.DBus.Properties.GetAll instead of the SNI GetAll
+            var propsProxy = _connection.CreateProxy<ISNIProperties>(busName, new ObjectPath(item.ObjectPath));
             try
             {
-                var props = await proxy.GetAllAsync();
+                var props = await propsProxy.GetAllAsync("org.kde.StatusNotifierItem");
                 if (props.TryGetValue("Id", out var id)) item.Id = id as string ?? "";
                 if (props.TryGetValue("Title", out var title)) item.Title = title as string ?? "";
                 if (props.TryGetValue("Status", out var status)) item.Status = status as string ?? "Active";
@@ -112,7 +166,6 @@ namespace Aqueous.Features.SystemTray
                 if (props.TryGetValue("IconName", out var iconName)) item.IconName = iconName as string ?? "";
                 if (props.TryGetValue("IconThemePath", out var themePath) && themePath is string tp && !string.IsNullOrEmpty(tp))
                 {
-                    // Add custom icon theme path
                     var theme = Gtk.IconTheme.GetForDisplay(Gdk.Display.GetDefault()!);
                     theme.AddSearchPath(tp);
                 }
@@ -120,8 +173,35 @@ namespace Aqueous.Features.SystemTray
                     item.MenuPath = menuPath.ToString();
                 else if (props.TryGetValue("Menu", out var menuStr) && menuStr is string ms)
                     item.MenuPath = ms;
+
+                // Try to get ToolTip
+                if (props.TryGetValue("ToolTip", out var tooltip))
+                {
+                    if (tooltip is string ttStr)
+                        item.ToolTipTitle = ttStr;
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[SystemTray] Properties.GetAll failed for {busName}: {ex.Message}");
+
+                // Fallback: try reading individual properties via the SNI interface
+                try
+                {
+                    var sniProxy = _connection.CreateProxy<IStatusNotifierItem>(busName, new ObjectPath(item.ObjectPath));
+                    var fallbackProps = await sniProxy.GetAllAsync();
+                    if (fallbackProps.TryGetValue("Id", out var id)) item.Id = id as string ?? "";
+                    if (fallbackProps.TryGetValue("Title", out var title)) item.Title = title as string ?? "";
+                    if (fallbackProps.TryGetValue("Status", out var status)) item.Status = status as string ?? "Active";
+                    if (fallbackProps.TryGetValue("IconName", out var iconName)) item.IconName = iconName as string ?? "";
+                    if (fallbackProps.TryGetValue("Menu", out var menu) && menu is ObjectPath menuPath)
+                        item.MenuPath = menuPath.ToString();
+                }
+                catch (Exception ex2)
+                {
+                    Console.Error.WriteLine($"[SystemTray] Fallback GetAll also failed for {busName}: {ex2.Message}");
+                }
+            }
         }
 
         private async Task WatchItemSignalsAsync(string busName, TrayItem item)
@@ -156,7 +236,10 @@ namespace Aqueous.Features.SystemTray
                 });
                 _watches.Add(w3);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[SystemTray] Failed to watch signals for {busName}: {ex.Message}");
+            }
         }
 
         public async Task ActivateItemAsync(TrayItem item)

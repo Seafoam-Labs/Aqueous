@@ -9,6 +9,7 @@
     padding: 2px 4px;
     min-width: 22px;
     min-height: 22px;
+    max-height: 28px;
 }
 
 .system-tray-button:hover {

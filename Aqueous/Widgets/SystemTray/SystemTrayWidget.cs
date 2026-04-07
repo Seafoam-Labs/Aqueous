@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aqueous.Features.SystemTray;
+using Aqueous.Features.Bar;
 
 namespace Aqueous.Widgets.SystemTray
 {
@@ -9,13 +10,16 @@ namespace Aqueous.Widgets.SystemTray
     {
         private readonly Gtk.Box _box;
         private readonly SystemTrayService _service;
+        private readonly BarWindow? _barWindow;
         private readonly Dictionary<string, Gtk.Button> _buttons = new();
+        private int _openPopoverCount;
 
         public Gtk.Box Box => _box;
 
-        public SystemTrayWidget(SystemTrayService service)
+        public SystemTrayWidget(SystemTrayService service, BarWindow? barWindow = null)
         {
             _service = service;
+            _barWindow = barWindow;
 
             _box = Gtk.Box.New(Gtk.Orientation.Horizontal, 4);
             _box.AddCssClass("system-tray-box");
@@ -28,6 +32,9 @@ namespace Aqueous.Widgets.SystemTray
                     return false;
                 });
             };
+
+            // Initial rebuild in case items are already present
+            Rebuild();
         }
 
         private void Rebuild()
@@ -53,7 +60,9 @@ namespace Aqueous.Widgets.SystemTray
                 }
                 else
                 {
-                    button.SetChild(Gtk.Label.New(item.DisplayName));
+                    var fallback = Gtk.Image.NewFromIconName("application-x-executable");
+                    fallback.SetPixelSize(22);
+                    button.SetChild(fallback);
                 }
 
                 if (!string.IsNullOrEmpty(item.ToolTipTitle))
@@ -140,6 +149,17 @@ namespace Aqueous.Widgets.SystemTray
             }
 
             popover.SetChild(vbox);
+
+            // Prevent bar auto-hide while popover is open
+            _openPopoverCount++;
+            _barWindow?.ShowBar();
+
+            popover.OnClosed += (_, _) =>
+            {
+                _openPopoverCount--;
+                popover.Unparent();
+            };
+
             popover.Popup();
         }
     }

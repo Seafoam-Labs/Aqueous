@@ -109,7 +109,7 @@ public class Program
             LoadSystemTrayCss();
             _systemTrayService = new SystemTrayService();
             _systemTrayService.Start();
-            var systemTray = new SystemTrayWidget(_systemTrayService);
+            var systemTray = new SystemTrayWidget(_systemTrayService, barWindow);
             barRight.GtkBox.Append(systemTray.Box);
 
             // --- Dock Service ---
