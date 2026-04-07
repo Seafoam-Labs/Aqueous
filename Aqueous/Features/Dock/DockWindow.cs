@@ -26,8 +26,10 @@ namespace Aqueous.Features.Dock
         [LibraryImport("libgdk-4.so.1")]
         private static partial void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
 
+        private const int DockThickness = 40;
+        private const int HitboxThickness = 2;
+
         private readonly AstalApplication _app;
-        private AstalWindow? _triggerStrip;
         private AstalWindow? _dockPanel;
         private AstalBox? _dockBox;
         private DockPosition _position;
@@ -44,24 +46,16 @@ namespace Aqueous.Features.Dock
         public void Show()
         {
             if (_position == DockPosition.Hidden) return;
-            CreateTriggerStrip();
             CreateDockPanel();
-            _triggerStrip?.GtkWindow.Present();
-
-            // Present dock panel briefly on startup, then auto-hide
             _dockPanel?.GtkWindow.Present();
-            _dockVisible = true;
+            _dockVisible = false;
+            ShowDockPanel();
             ScheduleHide();
         }
 
         public void Hide()
         {
             DestroyDockPanel();
-            if (_triggerStrip != null)
-            {
-                _triggerStrip.GtkWindow.Close();
-                _triggerStrip = null;
-            }
         }
 
         public void Rebuild(DockPosition newPosition)
@@ -156,44 +150,11 @@ namespace Aqueous.Features.Dock
             };
         }
 
-        private void CreateTriggerStrip()
+        private int GetDockLength()
         {
-            _triggerStrip = new AstalWindow();
-            _app.GtkApplication.AddWindow(_triggerStrip.GtkWindow);
-            _triggerStrip.Namespace = "dock-trigger";
-            _triggerStrip.Layer = AstalLayer.ASTAL_LAYER_TOP;
-            _triggerStrip.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
-            _triggerStrip.Anchor = GetAnchors();
-
-            _triggerStrip.GtkWindow.SetDecorated(false);
-            _triggerStrip.GtkWindow.SetCanFocus(false);
-            _triggerStrip.GtkWindow.SetOpacity(1.0);
-
-            var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
-            if (isVertical)
-                _triggerStrip.GtkWindow.SetDefaultSize(4, 50);
-            else
-                _triggerStrip.GtkWindow.SetDefaultSize(50, 4);
-
-            _triggerStrip.GtkWindow.AddCssClass("dock-trigger");
-
-            // Add a child widget so the trigger strip has content to size to
-            var triggerBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
-            var isVerticalTrigger = _position == DockPosition.Left || _position == DockPosition.Right;
-            if (isVerticalTrigger)
-                triggerBox.SetSizeRequest(4, 50);
-            else
-                triggerBox.SetSizeRequest(50, 4);
-            _triggerStrip.GtkWindow.SetChild(triggerBox);
-
-            ApplyMiddleThirdMargin(_triggerStrip);
-
-            var motionController = Gtk.EventControllerMotion.New();
-            motionController.OnEnter += (_, _) =>
-            {
-                ShowDockPanel();
-            };
-            _triggerStrip.GtkWindow.AddController(motionController);
+            var (screenWidth, screenHeight) = GetScreenSize();
+            bool isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
+            return (isVertical ? screenHeight : screenWidth) / 3;
         }
 
         private void CreateDockPanel()
@@ -206,15 +167,14 @@ namespace Aqueous.Features.Dock
             _dockPanel.Anchor = GetAnchors();
 
             _dockPanel.GtkWindow.SetDecorated(false);
-            _dockPanel.GtkWindow.SetOpacity(0.0);
-            _dockPanel.GtkWindow.SetVisible(false);
             _dockPanel.GtkWindow.AddCssClass("dock-panel");
 
             var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
+            var dockLength = GetDockLength();
             if (isVertical)
-                _dockPanel.GtkWindow.SetDefaultSize(40, 50);
+                _dockPanel.GtkWindow.SetDefaultSize(HitboxThickness, dockLength);
             else
-                _dockPanel.GtkWindow.SetDefaultSize(50, 40);
+                _dockPanel.GtkWindow.SetDefaultSize(dockLength, HitboxThickness);
             _dockBox = new AstalBox();
             _dockBox.Vertical = isVertical;
             _dockBox.GtkBox.AddCssClass("dock-container");
@@ -226,7 +186,7 @@ namespace Aqueous.Features.Dock
             var motionController = Gtk.EventControllerMotion.New();
             motionController.OnEnter += (_, _) =>
             {
-                CancelHideTimeout();
+                ShowDockPanel();
             };
             motionController.OnLeave += (_, _) =>
             {
@@ -240,23 +200,31 @@ namespace Aqueous.Features.Dock
             CancelHideTimeout();
             if (_dockPanel != null && !_dockVisible)
             {
-                _dockPanel.GtkWindow.SetVisible(true);
-                _dockPanel.GtkWindow.SetOpacity(1.0);
-                _dockPanel.GtkWindow.Present();
                 _dockVisible = true;
+                var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
+                var dockLength = GetDockLength();
+                if (isVertical)
+                    _dockPanel.GtkWindow.SetDefaultSize(DockThickness, dockLength);
+                else
+                    _dockPanel.GtkWindow.SetDefaultSize(dockLength, DockThickness);
+                _dockPanel.GtkWindow.GetChild()?.SetVisible(true);
+                _dockPanel.GtkWindow.SetOpacity(1.0);
             }
         }
 
-        /// <summary>
-        /// Auto-hide: preserves the window and its children, just hides it.
-        /// </summary>
         private void HideDockPanel()
         {
             CancelHideTimeout();
             if (_dockPanel != null)
             {
-                _dockPanel.GtkWindow.SetVisible(false);
-                _dockPanel.GtkWindow.SetOpacity(0.0);
+                _dockPanel.GtkWindow.GetChild()?.SetVisible(false);
+                var isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
+                var dockLength = GetDockLength();
+                if (isVertical)
+                    _dockPanel.GtkWindow.SetDefaultSize(HitboxThickness, dockLength);
+                else
+                    _dockPanel.GtkWindow.SetDefaultSize(dockLength, HitboxThickness);
+                _dockPanel.GtkWindow.SetOpacity(0.01);
             }
             _dockVisible = false;
         }
