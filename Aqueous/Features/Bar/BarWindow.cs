@@ -7,8 +7,10 @@ namespace Aqueous.Features.Bar
 {
     public class BarWindow
     {
+        private const int BarHeight = 32;
+        private const int HitboxHeight = 2;
+
         private readonly AstalApplication _app;
-        private AstalWindow? _trigger;
         private AstalWindow? _bar;
         private uint _hideTimeout;
         private bool _barVisible;
@@ -20,37 +22,7 @@ namespace Aqueous.Features.Bar
         public BarWindow(AstalApplication app)
         {
             _app = app;
-            CreateTrigger();
             CreateBar();
-        }
-
-        private void CreateTrigger()
-        {
-            _trigger = new AstalWindow();
-            _app.GtkApplication.AddWindow(_trigger.GtkWindow);
-            _trigger.Namespace = "bar-trigger";
-            _trigger.Layer = AstalLayer.ASTAL_LAYER_TOP;
-            _trigger.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
-            _trigger.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
-                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
-
-            _trigger.GtkWindow.SetDecorated(false); // Remove window frame/shadow
-            _trigger.GtkWindow.SetCanFocus(false);   // Prevent it from taking keyboard focus
-            _trigger.GtkWindow.SetOpacity(1.0);
-            _trigger.GtkWindow.SetDefaultSize(-1, 32);
-            _trigger.GtkWindow.AddCssClass("bar-trigger");
-
-            var triggerBox = new AstalBox();
-            triggerBox.GtkBox.SetSizeRequest(-1, 32);
-            _trigger.GtkWindow.SetChild(triggerBox.GtkBox);
-
-            var motionController = Gtk.EventControllerMotion.New();
-            motionController.OnEnter += (_, _) =>
-            {
-                ShowBar();
-            };
-            _trigger.GtkWindow.AddController(motionController);
         }
 
         private void CreateBar()
@@ -64,11 +36,9 @@ namespace Aqueous.Features.Bar
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
-            _bar.GtkWindow.SetDecorated(false); // Remove window frame/shadow
-            _bar.GtkWindow.SetOpacity(0.0);
+            _bar.GtkWindow.SetDecorated(false);
             _bar.GtkWindow.SetDefaultSize(-1, 32);
             _bar.GtkWindow.AddCssClass("bar-window");
-            _bar.GtkWindow.SetVisible(false);
 
             // Main layout container
             var layout = new AstalBox();
@@ -83,7 +53,7 @@ namespace Aqueous.Features.Bar
             barBox.GtkBox.Hexpand = false;
             barBox.GtkBox.Halign = Align.Center;
             barBox.GtkBox.AddCssClass("bar-section");
-            
+
             // Left spacer
             var leftSpacer = new AstalBox();
             leftSpacer.GtkBox.Hexpand = true;
@@ -124,7 +94,7 @@ namespace Aqueous.Features.Bar
             var motionController = Gtk.EventControllerMotion.New();
             motionController.OnEnter += (_, _) =>
             {
-                CancelHideTimeout();
+                ShowBar();
             };
             motionController.OnLeave += (_, _) =>
             {
@@ -135,10 +105,7 @@ namespace Aqueous.Features.Bar
 
         public void Show()
         {
-            // Ensure the trigger window is active and capturing events
-            _trigger?.GtkWindow.Present();
-
-            // Briefly show the bar on startup for user feedback, then hide it
+            _bar?.GtkWindow.Present();
             ShowBar();
             ScheduleHide();
         }
@@ -148,10 +115,10 @@ namespace Aqueous.Features.Bar
             CancelHideTimeout();
             if (_bar != null && !_barVisible)
             {
-                _bar.GtkWindow.SetVisible(true);
-                _bar.GtkWindow.SetOpacity(1.0);
-                _bar.GtkWindow.Present();
                 _barVisible = true;
+                _bar.GtkWindow.SetDefaultSize(-1, BarHeight);
+                _bar.GtkWindow.GetChild()?.SetVisible(true);
+                _bar.GtkWindow.SetOpacity(1.0);
             }
         }
 
@@ -160,8 +127,9 @@ namespace Aqueous.Features.Bar
             CancelHideTimeout();
             if (_bar != null)
             {
-                _bar.GtkWindow.SetVisible(false);
-                _bar.GtkWindow.SetOpacity(0.0);
+                _bar.GtkWindow.GetChild()?.SetVisible(false);
+                _bar.GtkWindow.SetDefaultSize(-1, HitboxHeight);
+                _bar.GtkWindow.SetOpacity(0.01);
             }
             _barVisible = false;
         }
@@ -172,7 +140,7 @@ namespace Aqueous.Features.Bar
             _hideTimeout = GLib.Functions.TimeoutAdd(0, 500, () =>
             {
                 HideBar();
-                _hideTimeout = 0; // Reset after execution
+                _hideTimeout = 0;
                 return false;
             });
         }
@@ -189,9 +157,7 @@ namespace Aqueous.Features.Bar
         public void Destroy()
         {
             CancelHideTimeout();
-            _trigger?.GtkWindow.Close();
             _bar?.GtkWindow.Close();
-            _trigger = null;
             _bar = null;
         }
     }

@@ -84,5 +84,24 @@ namespace Aqueous.Bindings.AstalGTK4.Services
         {
             AstalGtk4Interop.astal_window_set_margin(_handle, margin);
         }
+
+        public void SetInputRegion(int x, int y, int width, int height)
+        {
+            var gdkSurface = GdkSurfaceInterop.gtk_native_get_surface((nint)_handle);
+            if (gdkSurface == nint.Zero) return;
+
+            var rect = new CairoRectangleInt { X = x, Y = y, Width = width, Height = height };
+            var region = CairoRegionInterop.cairo_region_create_rectangle(ref rect);
+            GdkSurfaceInterop.gdk_surface_set_input_region(gdkSurface, region);
+            CairoRegionInterop.cairo_region_destroy(region);
+        }
+
+        public void ClearInputRegion()
+        {
+            var gdkSurface = GdkSurfaceInterop.gtk_native_get_surface((nint)_handle);
+            if (gdkSurface == nint.Zero) return;
+
+            GdkSurfaceInterop.gdk_surface_set_input_region(gdkSurface, nint.Zero);
+        }
     }
 }
