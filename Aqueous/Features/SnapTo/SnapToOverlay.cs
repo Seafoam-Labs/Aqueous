@@ -75,26 +75,30 @@ namespace Aqueous.Features.SnapTo
 
             foreach (var zone in layout.Zones)
             {
-                var x = (int)(zone.X * _screenW);
-                var y = (int)(zone.Y * _screenH);
-                var w = (int)(zone.Width * _screenW);
-                var h = (int)(zone.Height * _screenH);
+                var zoneX = (int)(zone.X * _screenW);
+                var zoneY = (int)(zone.Y * _screenH);
+                var zoneW = (int)(zone.Width * _screenW);
+                var zoneH = (int)(zone.Height * _screenH);
+
+                var capturedZone = zone;
+
+                // Centered visible indicator
+                const int indicatorW = 150;
+                const int indicatorH = 80;
+                var centerX = zoneX + (zoneW - indicatorW) / 2;
+                var centerY = zoneY + (zoneH - indicatorH) / 2;
 
                 var zoneButton = Gtk.Button.New();
-                zoneButton.SetSizeRequest(w, h);
+                zoneButton.SetSizeRequest(indicatorW, indicatorH);
+                zoneButton.AddCssClass("flat");
                 zoneButton.AddCssClass("zone");
 
                 var label = Gtk.Label.New(zone.Name);
                 label.AddCssClass("zone-label");
                 zoneButton.SetChild(label);
 
-                var capturedZone = zone;
-                zoneButton.OnClicked += (sender, args) =>
-                {
-                    SnapToZone(capturedZone);
-                };
-
-                overlay.Put(zoneButton, x, y);
+                zoneButton.OnClicked += (sender, args) => { SnapToZone(capturedZone); };
+                overlay.Put(zoneButton, centerX, centerY);
             }
 
             if (!isDragMode)
@@ -113,6 +117,7 @@ namespace Aqueous.Features.SnapTo
                 _window.GtkWindow.AddController(keyController);
             }
 
+            _window.GtkWindow.AddCssClass("snapto-overlay");
             _window.GtkWindow.SetChild(overlay);
             _window.GtkWindow.Present();
             IsVisible = true;
