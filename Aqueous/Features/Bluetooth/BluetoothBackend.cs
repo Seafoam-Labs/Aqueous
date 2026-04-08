@@ -57,7 +57,9 @@ namespace Aqueous.Features.Bluetooth
         private IDisposable? _addedWatch;
         private IDisposable? _removedWatch;
         private IDisposable? _propsWatch;
-        private ObjectPath _adapterPath = new("/org/bluez/hci0");
+        private ObjectPath _adapterPath;
+
+        public List<ObjectPath> AvailableAdapters { get; private set; } = new();
 
         public event Action? DevicesChanged;
         public event Action? AdapterStateChanged;
@@ -69,6 +71,20 @@ namespace Aqueous.Features.Bluetooth
 
             _objectManager = _connection.CreateProxy<IObjectManager>(
                 "org.bluez", new ObjectPath("/"));
+
+            // Discover adapters dynamically
+            var objects = await _objectManager.GetManagedObjectsAsync();
+            AvailableAdapters = new List<ObjectPath>();
+            foreach (var (path, interfaces) in objects)
+            {
+                if (interfaces.ContainsKey("org.bluez.Adapter1"))
+                    AvailableAdapters.Add(path);
+            }
+
+            if (AvailableAdapters.Count == 0)
+                throw new Exception("No Bluetooth adapter found via BlueZ");
+
+            _adapterPath = AvailableAdapters[0];
 
             _adapter = _connection.CreateProxy<IAdapter1>(
                 "org.bluez", _adapterPath);
@@ -215,9 +231,19 @@ namespace Aqueous.Features.Bluetooth
             catch { }
         }
 
-        private static ObjectPath AddressToPath(string address)
+        public void SetActiveAdapter(ObjectPath path)
         {
-            return new ObjectPath($"/org/bluez/hci0/dev_{address.Replace(':', '_')}");
+            if (!AvailableAdapters.Contains(path))
+                throw new ArgumentException($"Adapter {path} is not available");
+
+            _adapterPath = path;
+            _adapter = _connection?.CreateProxy<IAdapter1>("org.bluez", _adapterPath);
+            AdapterStateChanged?.Invoke();
+        }
+
+        private ObjectPath AddressToPath(string address)
+        {
+            return new ObjectPath($"{_adapterPath}/dev_{address.Replace(':', '_')}");
         }
 
         public void Dispose()
