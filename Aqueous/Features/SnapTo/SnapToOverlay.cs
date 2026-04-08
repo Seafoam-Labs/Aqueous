@@ -152,6 +152,9 @@ namespace Aqueous.Features.SnapTo
 
                 var (cursorX, cursorY) = cursorPos.Value;
 
+                const int indicatorW = 150;
+                const int indicatorH = 80;
+
                 foreach (var zone in layout.Zones)
                 {
                     var zx = (int)(zone.X * _screenW);
@@ -159,8 +162,12 @@ namespace Aqueous.Features.SnapTo
                     var zw = (int)(zone.Width * _screenW);
                     var zh = (int)(zone.Height * _screenH);
 
-                    if (cursorX >= zx && cursorX < zx + zw &&
-                        cursorY >= zy && cursorY < zy + zh)
+                    // Hit-test against the centered indicator bounds, not the full zone
+                    var centerX = zx + (zw - indicatorW) / 2;
+                    var centerY = zy + (zh - indicatorH) / 2;
+
+                    if (cursorX >= centerX && cursorX < centerX + indicatorW &&
+                        cursorY >= centerY && cursorY < centerY + indicatorH)
                     {
                         var focused = await WayfireIpc.GetFocusedView();
                         if (focused == null) return;
