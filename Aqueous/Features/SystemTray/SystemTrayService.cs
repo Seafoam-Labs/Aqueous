@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Tmds.DBus;
+using Tmds.DBus.Protocol;
 
 namespace Aqueous.Features.SystemTray
 {
     public class SystemTrayService : IDisposable
     {
-        private Connection? _connection;
+        private DBusConnection? _connection;
         private StatusNotifierWatcher? _watcher;
         private StatusNotifierHost? _host;
 
@@ -21,7 +21,7 @@ namespace Aqueous.Features.SystemTray
             {
                 try
                 {
-                    _connection = new Connection(Address.Session);
+                    _connection = new DBusConnection(DBusAddress.Session!);
                     await _connection.ConnectAsync();
                     Console.Error.WriteLine("[SystemTray] Connected to session bus");
 
@@ -29,11 +29,10 @@ namespace Aqueous.Features.SystemTray
                     bool watcherExists = false;
                     try
                     {
-                        var existingWatcher = _connection.CreateProxy<IStatusNotifierWatcher>(
-                            "org.kde.StatusNotifierWatcher",
-                            new ObjectPath("/StatusNotifierWatcher"));
-                        // Try reading a property — if it succeeds, a watcher is running
-                        await existingWatcher.GetAsync<bool>("IsStatusNotifierHostRegistered");
+                        await DBusHelper.GetPropertyAsync(
+                            _connection, "org.kde.StatusNotifierWatcher",
+                            "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher",
+                            "IsStatusNotifierHostRegistered");
                         watcherExists = true;
                         Console.Error.WriteLine("[SystemTray] Existing watcher found on bus");
                     }
@@ -45,20 +44,19 @@ namespace Aqueous.Features.SystemTray
                     if (!watcherExists)
                     {
                         // No existing watcher — register our own
-                        _watcher = new StatusNotifierWatcher();
-                        await _connection.RegisterObjectAsync(_watcher);
-                        await _connection.RegisterServiceAsync("org.kde.StatusNotifierWatcher",
-                            ServiceRegistrationOptions.None);
-                        await _watcher.RegisterStatusNotifierHostAsync("com.example.aqueous");
+                        _watcher = new StatusNotifierWatcher(_connection);
+                        _connection.AddMethodHandler(_watcher);
+                        await DBusHelper.RequestNameAsync(_connection, "org.kde.StatusNotifierWatcher");
+                        _watcher.RegisterHostInternal("com.example.aqueous");
                         Console.Error.WriteLine("[SystemTray] Registered own watcher");
                     }
                     else
                     {
                         // Register ourselves as a host on the existing watcher
-                        var existingWatcher = _connection.CreateProxy<IStatusNotifierWatcher>(
-                            "org.kde.StatusNotifierWatcher",
-                            new ObjectPath("/StatusNotifierWatcher"));
-                        await existingWatcher.RegisterStatusNotifierHostAsync("com.example.aqueous");
+                        await DBusHelper.CallMethodStringAsync(
+                            _connection, "org.kde.StatusNotifierWatcher",
+                            "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher",
+                            "RegisterStatusNotifierHost", "com.example.aqueous");
                         Console.Error.WriteLine("[SystemTray] Registered as host on existing watcher");
                     }
 

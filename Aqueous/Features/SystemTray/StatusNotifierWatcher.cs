@@ -1,24 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Tmds.DBus;
+using Tmds.DBus.Protocol;
 
 namespace Aqueous.Features.SystemTray
 {
-    [DBusInterface("org.kde.StatusNotifierWatcher")]
-    public interface IStatusNotifierWatcher : IDBusObject
+    public class StatusNotifierWatcher : IPathMethodHandler
     {
-        Task RegisterStatusNotifierItemAsync(string service);
-        Task RegisterStatusNotifierHostAsync(string service);
-        Task<T> GetAsync<T>(string prop);
-        Task<IDictionary<string, object>> GetAllAsync();
-        Task<IDisposable> WatchStatusNotifierItemRegisteredAsync(Action<string> handler, Action<Exception>? onError = null);
-        Task<IDisposable> WatchStatusNotifierItemUnregisteredAsync(Action<string> handler, Action<Exception>? onError = null);
-        Task<IDisposable> WatchStatusNotifierHostRegisteredAsync(Action handler, Action<Exception>? onError = null);
-    }
-
-    public class StatusNotifierWatcher : IStatusNotifierWatcher
-    {
+        private readonly DBusConnection? _connection;
         private readonly List<string> _items = new();
         private bool _hostRegistered;
 
@@ -28,62 +17,155 @@ namespace Aqueous.Features.SystemTray
         public IReadOnlyList<string> RegisteredItems => _items;
         public bool IsHostRegistered => _hostRegistered;
 
-        public ObjectPath ObjectPath => new("/StatusNotifierWatcher");
+        public string Path => "/StatusNotifierWatcher";
+        public bool HandlesChildPaths => false;
 
-        public Task RegisterStatusNotifierItemAsync(string service)
+        private static readonly ReadOnlyMemory<byte> IntrospectXml =
+            """
+            <interface name="org.kde.StatusNotifierWatcher">
+              <method name="RegisterStatusNotifierItem">
+                <arg name="service" type="s" direction="in"/>
+              </method>
+              <method name="RegisterStatusNotifierHost">
+                <arg name="service" type="s" direction="in"/>
+              </method>
+              <signal name="StatusNotifierItemRegistered">
+                <arg type="s"/>
+              </signal>
+              <signal name="StatusNotifierItemUnregistered">
+                <arg type="s"/>
+              </signal>
+              <signal name="StatusNotifierHostRegistered"/>
+              <property name="RegisteredStatusNotifierItems" type="as" access="read"/>
+              <property name="IsStatusNotifierHostRegistered" type="b" access="read"/>
+              <property name="ProtocolVersion" type="i" access="read"/>
+            </interface>
+            """u8.ToArray();
+
+        public StatusNotifierWatcher()
+        {
+        }
+
+        public StatusNotifierWatcher(DBusConnection connection)
+        {
+            _connection = connection;
+        }
+
+        public ValueTask HandleMethodAsync(MethodContext context)
+        {
+            if (context.IsDBusIntrospectRequest)
+            {
+                context.ReplyIntrospectXml([IntrospectXml]);
+                return default;
+            }
+
+            var request = context.Request;
+            var iface = request.InterfaceAsString;
+            var member = request.MemberAsString;
+
+            switch (iface)
+            {
+                case "org.kde.StatusNotifierWatcher":
+                    switch (member)
+                    {
+                        case "RegisterStatusNotifierItem":
+                        {
+                            var reader = request.GetBodyReader();
+                            var service = reader.ReadString();
+
+                            // If the service doesn't contain a bus name, use the sender
+                            if (!service.StartsWith(":") && !service.Contains("."))
+                                service = request.SenderAsString ?? service;
+
+                            RegisterItem(service);
+                            using (var writer = context.CreateReplyWriter(null))
+                                context.Reply(writer.CreateMessage());
+                            return default;
+                        }
+                        case "RegisterStatusNotifierHost":
+                        {
+                            _hostRegistered = true;
+                            using (var writer = context.CreateReplyWriter(null))
+                                context.Reply(writer.CreateMessage());
+                            return default;
+                        }
+                    }
+                    break;
+
+                case "org.freedesktop.DBus.Properties":
+                    switch (member)
+                    {
+                        case "GetAll":
+                            HandleGetAll(context);
+                            return default;
+                        case "Get":
+                            HandleGet(context);
+                            return default;
+                    }
+                    break;
+            }
+
+            context.ReplyUnknownMethodError();
+            return default;
+        }
+
+        private void HandleGetAll(MethodContext context)
+        {
+            using var writer = context.CreateReplyWriter("a{sv}");
+            var dictStart = writer.WriteArrayStart(DBusType.DictEntry);
+
+            writer.WriteStructureStart();
+            writer.WriteString("RegisteredStatusNotifierItems");
+            writer.WriteVariant(VariantValue.Array(_items.ToArray()));
+
+            writer.WriteStructureStart();
+            writer.WriteString("IsStatusNotifierHostRegistered");
+            writer.WriteVariant(VariantValue.Bool(_hostRegistered));
+
+            writer.WriteStructureStart();
+            writer.WriteString("ProtocolVersion");
+            writer.WriteVariant(VariantValue.Int32(0));
+
+            writer.WriteArrayEnd(dictStart);
+            context.Reply(writer.CreateMessage());
+        }
+
+        private void HandleGet(MethodContext context)
+        {
+            var reader = context.Request.GetBodyReader();
+            var _ = reader.ReadString(); // interface
+            var prop = reader.ReadString();
+
+            using var writer = context.CreateReplyWriter("v");
+            switch (prop)
+            {
+                case "RegisteredStatusNotifierItems":
+                    writer.WriteVariant(VariantValue.Array(_items.ToArray()));
+                    break;
+                case "IsStatusNotifierHostRegistered":
+                    writer.WriteVariant(VariantValue.Bool(_hostRegistered));
+                    break;
+                case "ProtocolVersion":
+                    writer.WriteVariant(VariantValue.Int32(0));
+                    break;
+                default:
+                    context.ReplyError("org.freedesktop.DBus.Error.UnknownProperty", $"Unknown property: {prop}");
+                    return;
+            }
+            context.Reply(writer.CreateMessage());
+        }
+
+        private void RegisterItem(string service)
         {
             if (!_items.Contains(service))
             {
                 _items.Add(service);
                 ItemRegistered?.Invoke(service);
+
+                // Emit D-Bus signal
+                if (_connection != null)
+                    EmitSignal("StatusNotifierItemRegistered", service);
             }
-            return Task.CompletedTask;
-        }
-
-        public Task RegisterStatusNotifierHostAsync(string service)
-        {
-            _hostRegistered = true;
-            return Task.CompletedTask;
-        }
-
-        public Task<T> GetAsync<T>(string prop)
-        {
-            object result = prop switch
-            {
-                "RegisteredStatusNotifierItems" => _items.ToArray(),
-                "IsStatusNotifierHostRegistered" => _hostRegistered,
-                "ProtocolVersion" => 0,
-                _ => throw new ArgumentException($"Unknown property: {prop}")
-            };
-            return Task.FromResult((T)result);
-        }
-
-        public Task<IDictionary<string, object>> GetAllAsync()
-        {
-            var dict = new Dictionary<string, object>
-            {
-                ["RegisteredStatusNotifierItems"] = _items.ToArray(),
-                ["IsStatusNotifierHostRegistered"] = _hostRegistered,
-                ["ProtocolVersion"] = 0
-            };
-            return Task.FromResult<IDictionary<string, object>>(dict);
-        }
-
-        public Task<IDisposable> WatchStatusNotifierItemRegisteredAsync(Action<string> handler, Action<Exception>? onError = null)
-        {
-            ItemRegistered += handler;
-            return Task.FromResult<IDisposable>(new SignalDisposable(() => ItemRegistered -= handler));
-        }
-
-        public Task<IDisposable> WatchStatusNotifierItemUnregisteredAsync(Action<string> handler, Action<Exception>? onError = null)
-        {
-            ItemUnregistered += handler;
-            return Task.FromResult<IDisposable>(new SignalDisposable(() => ItemUnregistered -= handler));
-        }
-
-        public Task<IDisposable> WatchStatusNotifierHostRegisteredAsync(Action handler, Action<Exception>? onError = null)
-        {
-            return Task.FromResult<IDisposable>(new SignalDisposable(() => { }));
         }
 
         public void RemoveItem(string service)
@@ -91,14 +173,30 @@ namespace Aqueous.Features.SystemTray
             if (_items.Remove(service))
             {
                 ItemUnregistered?.Invoke(service);
+
+                // Emit D-Bus signal
+                if (_connection != null)
+                    EmitSignal("StatusNotifierItemUnregistered", service);
             }
         }
 
-        private class SignalDisposable : IDisposable
+        public void RegisterHostInternal(string hostName)
         {
-            private readonly Action _onDispose;
-            public SignalDisposable(Action onDispose) => _onDispose = onDispose;
-            public void Dispose() => _onDispose();
+            _hostRegistered = true;
+        }
+
+        private void EmitSignal(string signalName, string value)
+        {
+            if (_connection == null) return;
+            var writer = _connection.GetMessageWriter();
+            writer.WriteSignalHeader(
+                destination: null,
+                path: "/StatusNotifierWatcher",
+                @interface: "org.kde.StatusNotifierWatcher",
+                signature: "s",
+                member: signalName);
+            writer.WriteString(value);
+            _connection.TrySendMessage(writer.CreateMessage());
         }
     }
 }

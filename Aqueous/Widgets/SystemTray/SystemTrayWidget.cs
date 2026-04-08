@@ -49,6 +49,10 @@ namespace Aqueous.Widgets.SystemTray
                 if (item.Status == "Passive")
                     continue;
 
+                // Skip items with no icon — they have no meaningful tray presence
+                if (string.IsNullOrEmpty(item.IconName) && item.IconPixmap is not { Length: > 0 })
+                    continue;
+
                 var button = Gtk.Button.New();
                 button.AddCssClass("system-tray-button");
 
