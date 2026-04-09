@@ -21,6 +21,7 @@ namespace Aqueous.Features.Bluetooth
                 "aqueous-bluetooth.sock");
 
         public event Action? StateChanged;
+        public event Action? PopupClosed;
 
         public bool IsAdapterPowered { get; private set; }
         public List<BluetoothDevice> Devices { get; private set; } = new();
@@ -45,12 +46,29 @@ namespace Aqueous.Features.Bluetooth
             _cts = new CancellationTokenSource();
             Task.Run(async () =>
             {
-                try
+                for (int attempt = 0; attempt < 5; attempt++)
                 {
-                    await _backend.ConnectAsync();
-                    await RefreshStateAsync();
+                    try
+                    {
+                        await _backend.ConnectAsync();
+                        await RefreshStateAsync();
+                        return; // Success
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[Bluetooth] Start attempt {attempt + 1} failed: {ex.Message}");
+                        _backend.ResetConnection();
+                        await Task.Delay(2000);
+                    }
                 }
-                catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] Start/Connect failed: {ex.Message}"); }
+                Console.Error.WriteLine("[Bluetooth] All connection attempts failed.");
+            });
+
+            // Periodic state refresh as a safety net (every 10 seconds)
+            GLib.Functions.TimeoutAdd(0, 10000, () =>
+            {
+                _ = RefreshStateAsync();
+                return true;
             });
             Task.Run(() => ListenAsync(_cts.Token));
         }
@@ -62,10 +80,19 @@ namespace Aqueous.Features.Bluetooth
             CleanupSocket();
         }
 
+        public bool IsPopupVisible => _popup.IsVisible;
+
         public void Toggle()
         {
-            if (_popup.IsVisible) _popup.Hide();
-            else _popup.Show();
+            if (_popup.IsVisible)
+            {
+                _popup.Hide();
+                PopupClosed?.Invoke();
+            }
+            else
+            {
+                _popup.Show();
+            }
         }
 
         public async Task TogglePowerAsync()
@@ -74,7 +101,11 @@ namespace Aqueous.Features.Bluetooth
             await _backend.SetAdapterPoweredAsync(!powered);
         }
 
-        public void Hide() => _popup.Hide();
+        public void Hide()
+        {
+            _popup.Hide();
+            PopupClosed?.Invoke();
+        }
 
         private async Task RefreshStateAsync()
         {

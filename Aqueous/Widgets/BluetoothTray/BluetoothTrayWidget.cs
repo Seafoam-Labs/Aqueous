@@ -1,4 +1,5 @@
 using System.Linq;
+using Aqueous.Features.Bar;
 using Aqueous.Features.Bluetooth;
 using Gtk;
 
@@ -7,18 +8,31 @@ namespace Aqueous.Widgets.BluetoothTray
     public class BluetoothTrayWidget
     {
         private readonly Gtk.Button _button;
+        private readonly BarWindow? _barWindow;
         public Gtk.Button Button => _button;
 
-        public BluetoothTrayWidget(BluetoothService service)
+        public BluetoothTrayWidget(BluetoothService service, BarWindow? barWindow = null)
         {
+            _barWindow = barWindow;
             _button = Gtk.Button.New();
             _button.AddCssClass("bluetooth-tray-button");
 
             var label = Gtk.Label.New("󰂯");
             _button.SetChild(label);
 
-            // Left-click: toggle popup (uses Button's native click handling)
-            _button.OnClicked += (_, _) => service.Toggle();
+            // Left-click: toggle popup
+            _button.OnClicked += (_, _) =>
+            {
+                if (!service.IsPopupVisible)
+                {
+                    _barWindow?.PreventHide();
+                }
+                else
+                {
+                    _barWindow?.AllowHide();
+                }
+                service.Toggle();
+            };
 
             // Right-click: toggle adapter power
             var rightClick = Gtk.GestureClick.New();
@@ -34,6 +48,16 @@ namespace Aqueous.Widgets.BluetoothTray
                 GLib.Functions.IdleAdd(0, () =>
                 {
                     UpdateIcon(label, service);
+                    return false;
+                });
+            };
+
+            // Allow hide when popup is closed externally
+            service.PopupClosed += () =>
+            {
+                GLib.Functions.IdleAdd(0, () =>
+                {
+                    _barWindow?.AllowHide();
                     return false;
                 });
             };

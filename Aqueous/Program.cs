@@ -96,7 +96,7 @@ public class Program
 
             // --- Bluetooth Tray Widget ---
             LoadBluetoothTrayCss();
-            var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!);
+            var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!, barWindow);
             barRight.GtkBox.Append(bluetoothTray.Button);
 
             // --- Clock Tray Widget ---

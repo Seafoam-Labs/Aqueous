@@ -58,22 +58,48 @@ namespace Aqueous.Features.Bluetooth
         private IDisposable? _removedWatch;
         private IDisposable? _propsWatch;
         private ObjectPath _adapterPath;
+        private readonly List<IDisposable> _devicePropsWatches = new();
+        private uint _devicesChangedDebounce;
 
         public List<ObjectPath> AvailableAdapters { get; private set; } = new();
+        public bool IsConnected => _objectManager != null && _adapter != null;
 
         public event Action? DevicesChanged;
         public event Action? AdapterStateChanged;
 
+        public void ResetConnection()
+        {
+            _addedWatch?.Dispose();
+            _addedWatch = null;
+            _removedWatch?.Dispose();
+            _removedWatch = null;
+            _propsWatch?.Dispose();
+            _propsWatch = null;
+            foreach (var w in _devicePropsWatches)
+                w.Dispose();
+            _devicePropsWatches.Clear();
+            if (_devicesChangedDebounce != 0)
+            {
+                GLib.Functions.SourceRemove(_devicesChangedDebounce);
+                _devicesChangedDebounce = 0;
+            }
+            _objectManager = null;
+            _adapter = null;
+            _connection?.Dispose();
+            _connection = null;
+        }
+
         public async Task ConnectAsync()
         {
             _connection = new Connection(Address.System);
-            await _connection.ConnectAsync();
+            await _connection.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
             _objectManager = _connection.CreateProxy<IObjectManager>(
                 "org.bluez", new ObjectPath("/"));
 
             // Discover adapters dynamically
-            var objects = await _objectManager.GetManagedObjectsAsync();
+            var objects = await _objectManager.GetManagedObjectsAsync()
+                .WaitAsync(TimeSpan.FromSeconds(5));
             AvailableAdapters = new List<ObjectPath>();
             foreach (var (path, interfaces) in objects)
             {
@@ -105,7 +131,11 @@ namespace Aqueous.Features.Bluetooth
                             AdapterStateChanged?.Invoke();
                         }
                     }
-                    DevicesChanged?.Invoke();
+                    if (change.interfaces.ContainsKey("org.bluez.Device1"))
+                    {
+                        _ = SubscribeSingleDeviceAsync(change.objectPath);
+                    }
+                    RaiseDevicesChangedDebounced();
                 },
                 ex => Console.Error.WriteLine($"[Bluetooth] WatchInterfacesAdded error: {ex.Message}"));
 
@@ -137,11 +167,12 @@ namespace Aqueous.Features.Bluetooth
                             }
                         }
                     }
-                    DevicesChanged?.Invoke();
+                    RaiseDevicesChangedDebounced();
                 },
                 ex => Console.Error.WriteLine($"[Bluetooth] WatchInterfacesRemoved error: {ex.Message}"));
 
             await SubscribeAdapterPropertiesAsync();
+            await SubscribeDevicePropertiesAsync(objects);
         }
 
         private async Task SubscribeAdapterPropertiesAsync()
@@ -157,17 +188,56 @@ namespace Aqueous.Features.Bluetooth
             });
         }
 
+        private async Task SubscribeDevicePropertiesAsync(IDictionary<ObjectPath, IDictionary<string, IDictionary<string, object>>> objects)
+        {
+            foreach (var w in _devicePropsWatches)
+                w.Dispose();
+            _devicePropsWatches.Clear();
+
+            if (_connection == null) return;
+
+            foreach (var (path, interfaces) in objects)
+            {
+                if (interfaces.ContainsKey("org.bluez.Device1"))
+                {
+                    await SubscribeSingleDeviceAsync(path);
+                }
+            }
+        }
+
+        private async Task SubscribeSingleDeviceAsync(ObjectPath path)
+        {
+            if (_connection == null) return;
+            try
+            {
+                var devProps = _connection.CreateProxy<IProperties>("org.bluez", path);
+                var watch = await devProps.WatchPropertiesChangedAsync(change =>
+                {
+                    if (change.iface == "org.bluez.Device1")
+                        RaiseDevicesChangedDebounced();
+                });
+                _devicePropsWatches.Add(watch);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Bluetooth] SubscribeSingleDeviceAsync({path}) error: {ex.Message}");
+            }
+        }
+
+        private bool _lastKnownPowered = false;
+
         public async Task<bool> GetAdapterPoweredAsync()
         {
             try
             {
                 if (_adapter == null) return false;
-                return await _adapter.GetAsync<bool>("Powered");
+                _lastKnownPowered = await _adapter.GetAsync<bool>("Powered");
+                return _lastKnownPowered;
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Bluetooth] GetAdapterPoweredAsync error: {ex.Message}");
-                return false;
+                return _lastKnownPowered;
             }
         }
 
@@ -303,6 +373,18 @@ namespace Aqueous.Features.Bluetooth
             AdapterStateChanged?.Invoke();
         }
 
+        private void RaiseDevicesChangedDebounced()
+        {
+            if (_devicesChangedDebounce != 0)
+                GLib.Functions.SourceRemove(_devicesChangedDebounce);
+            _devicesChangedDebounce = GLib.Functions.TimeoutAdd(0, 500, () =>
+            {
+                _devicesChangedDebounce = 0;
+                DevicesChanged?.Invoke();
+                return false;
+            });
+        }
+
         private ObjectPath AddressToPath(string address)
         {
             return new ObjectPath($"{_adapterPath}/dev_{address.Replace(':', '_')}");
@@ -310,9 +392,17 @@ namespace Aqueous.Features.Bluetooth
 
         public void Dispose()
         {
+            if (_devicesChangedDebounce != 0)
+            {
+                GLib.Functions.SourceRemove(_devicesChangedDebounce);
+                _devicesChangedDebounce = 0;
+            }
             _addedWatch?.Dispose();
             _removedWatch?.Dispose();
             _propsWatch?.Dispose();
+            foreach (var w in _devicePropsWatches)
+                w.Dispose();
+            _devicePropsWatches.Clear();
             _connection?.Dispose();
         }
     }

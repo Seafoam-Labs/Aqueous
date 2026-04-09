@@ -11,6 +11,9 @@ namespace Aqueous.Features.Bluetooth
         private readonly AstalApplication _app;
         private readonly BluetoothBackend _backend;
         private AstalWindow? _window;
+        private Gtk.Box? _deviceListContainer;
+        private Gtk.Box? _mainContainer;
+        private Action? _devicesChangedHandler;
 
         public bool IsVisible { get; private set; }
 
@@ -25,11 +28,29 @@ namespace Aqueous.Features.Bluetooth
             if (IsVisible) return;
             IsVisible = true;
 
+            if (!_backend.IsConnected)
+            {
+                GLib.Functions.IdleAdd(0, () =>
+                {
+                    BuildNotConnectedWindow();
+                    return false;
+                });
+                return;
+            }
+
             Task.Run(async () =>
             {
                 try
                 {
                     var powered = await _backend.GetAdapterPoweredAsync();
+
+                    // Auto-start discovery when popup opens
+                    if (powered)
+                        await _backend.StartDiscoveryAsync();
+
+                    // Give BlueZ time to start returning discovery results
+                    await Task.Delay(1000);
+
                     var discovering = await _backend.GetDiscoveringAsync();
                     var devices = await _backend.GetDevicesAsync();
 
@@ -58,8 +79,8 @@ namespace Aqueous.Features.Bluetooth
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
-            var container = Gtk.Box.New(Orientation.Vertical, 4);
-            container.AddCssClass("bluetooth-popup");
+            _mainContainer = Gtk.Box.New(Orientation.Vertical, 4);
+            _mainContainer.AddCssClass("bluetooth-popup");
 
             // Header with power toggle
             var header = Gtk.Box.New(Orientation.Horizontal, 8);
@@ -82,7 +103,7 @@ namespace Aqueous.Features.Bluetooth
                 return false;
             };
             header.Append(powerSwitch);
-            container.Append(header);
+            _mainContainer.Append(header);
 
             if (powered)
             {
@@ -100,49 +121,39 @@ namespace Aqueous.Features.Bluetooth
                     Hide();
                     Show();
                 };
-                container.Append(scanBtn);
+                _mainContainer.Append(scanBtn);
 
-                // Connected devices
-                var connected = devices.FindAll(d => d.IsConnected);
-                if (connected.Count > 0)
-                {
-                    var connHeader = Gtk.Label.New("Connected");
-                    connHeader.AddCssClass("section-header");
-                    connHeader.Halign = Align.Start;
-                    container.Append(connHeader);
-                    foreach (var dev in connected)
-                        container.Append(CreateDeviceRow(dev));
-                }
+                // Build initial device list
+                RebuildDeviceList(devices, discovering);
 
-                // Paired devices (not connected)
-                var paired = devices.FindAll(d => d.IsPaired && !d.IsConnected);
-                if (paired.Count > 0)
+                // Subscribe to device changes for live updates
+                _devicesChangedHandler = () =>
                 {
-                    var pairedHeader = Gtk.Label.New("Paired");
-                    pairedHeader.AddCssClass("section-header");
-                    pairedHeader.Halign = Align.Start;
-                    container.Append(pairedHeader);
-                    foreach (var dev in paired)
-                        container.Append(CreateDeviceRow(dev));
-                }
-
-                // Discovered devices (not paired)
-                var discovered = devices.FindAll(d => !d.IsPaired);
-                if (discovered.Count > 0)
-                {
-                    var discHeader = Gtk.Label.New("Available");
-                    discHeader.AddCssClass("section-header");
-                    discHeader.Halign = Align.Start;
-                    container.Append(discHeader);
-                    foreach (var dev in discovered)
-                        container.Append(CreateDeviceRow(dev));
-                }
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var newDevices = await _backend.GetDevicesAsync();
+                            var newDiscovering = await _backend.GetDiscoveringAsync();
+                            GLib.Functions.IdleAdd(0, () =>
+                            {
+                                RebuildDeviceList(newDevices, newDiscovering);
+                                return false;
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"[Bluetooth] Live refresh failed: {ex.Message}");
+                        }
+                    });
+                };
+                _backend.DevicesChanged += _devicesChangedHandler;
             }
             else
             {
                 var offLabel = Gtk.Label.New("Bluetooth is turned off");
                 offLabel.AddCssClass("bluetooth-off-label");
-                container.Append(offLabel);
+                _mainContainer.Append(offLabel);
             }
 
             // Escape key to dismiss
@@ -162,17 +173,130 @@ namespace Aqueous.Features.Bluetooth
             scrolled.SetPolicy(PolicyType.Never, PolicyType.Automatic);
             scrolled.SetMaxContentHeight(400);
             scrolled.SetPropagateNaturalHeight(true);
-            scrolled.SetChild(container);
+            scrolled.SetChild(_mainContainer);
 
             _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
         }
 
+        private void RebuildDeviceList(List<BluetoothDevice> devices, bool discovering)
+        {
+            if (_mainContainer == null) return;
+
+            // Remove old device list container if present
+            if (_deviceListContainer != null)
+                _mainContainer.Remove(_deviceListContainer);
+
+            _deviceListContainer = Gtk.Box.New(Orientation.Vertical, 4);
+
+            // Connected devices
+            var connected = devices.FindAll(d => d.IsConnected);
+            if (connected.Count > 0)
+            {
+                var connHeader = Gtk.Label.New("Connected");
+                connHeader.AddCssClass("section-header");
+                connHeader.Halign = Align.Start;
+                _deviceListContainer.Append(connHeader);
+                foreach (var dev in connected)
+                    _deviceListContainer.Append(CreateDeviceRow(dev));
+            }
+
+            // Paired devices (not connected)
+            var paired = devices.FindAll(d => d.IsPaired && !d.IsConnected);
+            if (paired.Count > 0)
+            {
+                var pairedHeader = Gtk.Label.New("Paired");
+                pairedHeader.AddCssClass("section-header");
+                pairedHeader.Halign = Align.Start;
+                _deviceListContainer.Append(pairedHeader);
+                foreach (var dev in paired)
+                    _deviceListContainer.Append(CreateDeviceRow(dev));
+            }
+
+            // Discovered devices (not paired)
+            var discovered = devices.FindAll(d => !d.IsPaired);
+            if (discovered.Count > 0)
+            {
+                var discHeader = Gtk.Label.New("Available");
+                discHeader.AddCssClass("section-header");
+                discHeader.Halign = Align.Start;
+                _deviceListContainer.Append(discHeader);
+                foreach (var dev in discovered)
+                    _deviceListContainer.Append(CreateDeviceRow(dev));
+            }
+
+            // Show placeholder if no devices found
+            if (connected.Count == 0 && paired.Count == 0 && discovered.Count == 0)
+            {
+                var emptyLabel = Gtk.Label.New(discovering ? "Scanning..." : "No devices found");
+                emptyLabel.AddCssClass("bluetooth-empty-label");
+                _deviceListContainer.Append(emptyLabel);
+            }
+
+            _mainContainer.Append(_deviceListContainer);
+        }
+
+        private void BuildNotConnectedWindow()
+        {
+            _window = new AstalWindow();
+            _app.GtkApplication.AddWindow(_window.GtkWindow);
+            _window.Namespace = "bluetooth-popup";
+            _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
+            _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+
+            var container = Gtk.Box.New(Orientation.Vertical, 4);
+            container.AddCssClass("bluetooth-popup");
+
+            var label = Gtk.Label.New("Connecting to BlueZ...");
+            label.AddCssClass("bluetooth-empty-label");
+            container.Append(label);
+
+            var keyController = Gtk.EventControllerKey.New();
+            keyController.OnKeyPressed += (controller, args) =>
+            {
+                if (args.Keyval == 0xff1b) { Hide(); return true; }
+                return false;
+            };
+            _window.GtkWindow.AddController(keyController);
+
+            _window.GtkWindow.SetChild(container);
+            _window.GtkWindow.Present();
+
+            // Poll every 1 second — auto-transition when connected
+            GLib.Functions.TimeoutAdd(0, 1000, () =>
+            {
+                if (!IsVisible) return false;
+                if (_backend.IsConnected)
+                {
+                    Hide();
+                    Show();
+                    return false;
+                }
+                return true;
+            });
+        }
+
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
+
+            // Unsubscribe from device changes
+            if (_devicesChangedHandler != null)
+            {
+                _backend.DevicesChanged -= _devicesChangedHandler;
+                _devicesChangedHandler = null;
+            }
+
+            // Auto-stop discovery when popup closes
+            _ = _backend.StopDiscoveryAsync();
+
             _window.GtkWindow.Close();
             _window = null;
+            _mainContainer = null;
+            _deviceListContainer = null;
             IsVisible = false;
         }
 
