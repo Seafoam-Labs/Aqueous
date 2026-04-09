@@ -32,6 +32,7 @@ namespace Aqueous.Features.Bar
         private AstalWindow? _bar;
         private uint _hideTimeout;
         private bool _barVisible;
+        private int _preventHideCount;
 
         public AstalBox LeftSection { get; private set; } = null!;
         public AstalBox CenterSection { get; private set; } = null!;
@@ -143,8 +144,25 @@ namespace Aqueous.Features.Bar
             _barVisible = false;
         }
 
+        public void PreventHide()
+        {
+            _preventHideCount++;
+            CancelHideTimeout();
+        }
+
+        public void AllowHide()
+        {
+            _preventHideCount--;
+            if (_preventHideCount <= 0)
+            {
+                _preventHideCount = 0;
+                ScheduleHide();
+            }
+        }
+
         private void ScheduleHide()
         {
+            if (_preventHideCount > 0) return;
             CancelHideTimeout();
             _hideTimeout = GLib.Functions.TimeoutAdd(0, 500, () =>
             {

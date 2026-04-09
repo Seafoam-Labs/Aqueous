@@ -157,11 +157,14 @@ namespace Aqueous.Widgets.SystemTray
             // Prevent bar auto-hide while popover is open
             _openPopoverCount++;
             _barWindow?.ShowBar();
+            _barWindow?.PreventHide();
 
             popover.OnClosed += (_, _) =>
             {
                 _openPopoverCount--;
                 popover.Unparent();
+                if (_openPopoverCount <= 0)
+                    _barWindow?.AllowHide();
             };
 
             popover.Popup();
