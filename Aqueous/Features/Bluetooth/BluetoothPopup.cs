@@ -20,20 +20,41 @@ namespace Aqueous.Features.Bluetooth
             _backend = backend;
         }
 
-        public async void Show()
+        public void Show()
         {
             if (IsVisible) return;
+            IsVisible = true;
 
-            var powered = await _backend.GetAdapterPoweredAsync();
-            var discovering = await _backend.GetDiscoveringAsync();
-            var devices = await _backend.GetDevicesAsync();
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var powered = await _backend.GetAdapterPoweredAsync();
+                    var discovering = await _backend.GetDiscoveringAsync();
+                    var devices = await _backend.GetDevicesAsync();
 
+                    GLib.Functions.IdleAdd(0, () =>
+                    {
+                        BuildWindow(powered, discovering, devices);
+                        return false;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Bluetooth] Show() failed: {ex.Message}");
+                    IsVisible = false;
+                }
+            });
+        }
+
+        private void BuildWindow(bool powered, bool discovering, List<BluetoothDevice> devices)
+        {
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
             _window.Namespace = "bluetooth-popup";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
@@ -145,7 +166,6 @@ namespace Aqueous.Features.Bluetooth
 
             _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
-            IsVisible = true;
         }
 
         public void Hide()

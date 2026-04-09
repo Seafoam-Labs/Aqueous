@@ -89,13 +89,65 @@ namespace Aqueous.Features.Bluetooth
             _adapter = _connection.CreateProxy<IAdapter1>(
                 "org.bluez", _adapterPath);
 
+            // Watch for added interfaces (devices + hot-plug adapters)
             _addedWatch = await _objectManager.WatchInterfacesAddedAsync(
-                _ => DevicesChanged?.Invoke(),
-                _ => { });
+                change =>
+                {
+                    if (change.interfaces.ContainsKey("org.bluez.Adapter1"))
+                    {
+                        if (!AvailableAdapters.Contains(change.objectPath))
+                            AvailableAdapters.Add(change.objectPath);
+                        // Auto-connect if we had no adapter
+                        if (_adapter == null)
+                        {
+                            _adapterPath = change.objectPath;
+                            _adapter = _connection?.CreateProxy<IAdapter1>("org.bluez", _adapterPath);
+                            AdapterStateChanged?.Invoke();
+                        }
+                    }
+                    DevicesChanged?.Invoke();
+                },
+                ex => Console.Error.WriteLine($"[Bluetooth] WatchInterfacesAdded error: {ex.Message}"));
 
+            // Watch for removed interfaces (devices + hot-unplug adapters)
             _removedWatch = await _objectManager.WatchInterfacesRemovedAsync(
-                _ => DevicesChanged?.Invoke(),
-                _ => { });
+                change =>
+                {
+                    if (change.interfaces != null)
+                    {
+                        foreach (var iface in change.interfaces)
+                        {
+                            if (iface == "org.bluez.Adapter1")
+                            {
+                                AvailableAdapters.Remove(change.objectPath);
+                                if (_adapterPath == change.objectPath)
+                                {
+                                    if (AvailableAdapters.Count > 0)
+                                    {
+                                        _adapterPath = AvailableAdapters[0];
+                                        _adapter = _connection?.CreateProxy<IAdapter1>("org.bluez", _adapterPath);
+                                    }
+                                    else
+                                    {
+                                        _adapter = null;
+                                    }
+                                    AdapterStateChanged?.Invoke();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    DevicesChanged?.Invoke();
+                },
+                ex => Console.Error.WriteLine($"[Bluetooth] WatchInterfacesRemoved error: {ex.Message}"));
+
+            await SubscribeAdapterPropertiesAsync();
+        }
+
+        private async Task SubscribeAdapterPropertiesAsync()
+        {
+            _propsWatch?.Dispose();
+            if (_connection == null) return;
 
             var adapterProps = _connection.CreateProxy<IProperties>("org.bluez", _adapterPath);
             _propsWatch = await adapterProps.WatchPropertiesChangedAsync(change =>
@@ -112,7 +164,11 @@ namespace Aqueous.Features.Bluetooth
                 if (_adapter == null) return false;
                 return await _adapter.GetAsync<bool>("Powered");
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Bluetooth] GetAdapterPoweredAsync error: {ex.Message}");
+                return false;
+            }
         }
 
         public async Task SetAdapterPoweredAsync(bool powered)
@@ -122,7 +178,7 @@ namespace Aqueous.Features.Bluetooth
                 if (_adapter == null) return;
                 await _adapter.SetAsync("Powered", powered);
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] SetAdapterPoweredAsync error: {ex.Message}"); }
         }
 
         public async Task<bool> GetDiscoveringAsync()
@@ -132,19 +188,23 @@ namespace Aqueous.Features.Bluetooth
                 if (_adapter == null) return false;
                 return await _adapter.GetAsync<bool>("Discovering");
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Bluetooth] GetDiscoveringAsync error: {ex.Message}");
+                return false;
+            }
         }
 
         public async Task StartDiscoveryAsync()
         {
             try { if (_adapter != null) await _adapter.StartDiscoveryAsync(); }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] StartDiscoveryAsync error: {ex.Message}"); }
         }
 
         public async Task StopDiscoveryAsync()
         {
             try { if (_adapter != null) await _adapter.StopDiscoveryAsync(); }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] StopDiscoveryAsync error: {ex.Message}"); }
         }
 
         public async Task<List<BluetoothDevice>> GetDevicesAsync()
@@ -175,7 +235,7 @@ namespace Aqueous.Features.Bluetooth
                     devices.Add(new BluetoothDevice(address, name, icon, paired, connected, trusted, rssi, status));
                 }
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] GetDevicesAsync error: {ex.Message}"); }
 
             return devices;
         }
@@ -190,7 +250,7 @@ namespace Aqueous.Features.Bluetooth
                 await device.ConnectAsync();
                 DevicesChanged?.Invoke();
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] ConnectDeviceAsync error: {ex.Message}"); }
         }
 
         public async Task DisconnectDeviceAsync(string address)
@@ -203,7 +263,7 @@ namespace Aqueous.Features.Bluetooth
                 await device.DisconnectAsync();
                 DevicesChanged?.Invoke();
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] DisconnectDeviceAsync error: {ex.Message}"); }
         }
 
         public async Task PairDeviceAsync(string address)
@@ -216,7 +276,7 @@ namespace Aqueous.Features.Bluetooth
                 await device.PairAsync();
                 DevicesChanged?.Invoke();
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] PairDeviceAsync error: {ex.Message}"); }
         }
 
         public async Task RemoveDeviceAsync(string address)
@@ -228,16 +288,18 @@ namespace Aqueous.Features.Bluetooth
                 await _adapter.RemoveDeviceAsync(path);
                 DevicesChanged?.Invoke();
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] RemoveDeviceAsync error: {ex.Message}"); }
         }
 
-        public void SetActiveAdapter(ObjectPath path)
+        public async Task SetActiveAdapterAsync(ObjectPath path)
         {
             if (!AvailableAdapters.Contains(path))
                 throw new ArgumentException($"Adapter {path} is not available");
 
             _adapterPath = path;
             _adapter = _connection?.CreateProxy<IAdapter1>("org.bluez", _adapterPath);
+
+            await SubscribeAdapterPropertiesAsync();
             AdapterStateChanged?.Invoke();
         }
 

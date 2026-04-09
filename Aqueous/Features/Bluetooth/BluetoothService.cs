@@ -50,7 +50,7 @@ namespace Aqueous.Features.Bluetooth
                     await _backend.ConnectAsync();
                     await RefreshStateAsync();
                 }
-                catch { }
+                catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] Start/Connect failed: {ex.Message}"); }
             });
             Task.Run(() => ListenAsync(_cts.Token));
         }
@@ -84,7 +84,7 @@ namespace Aqueous.Features.Bluetooth
                 Devices = await _backend.GetDevicesAsync();
                 GLib.Functions.IdleAdd(0, () => { StateChanged?.Invoke(); return false; });
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] RefreshStateAsync failed: {ex.Message}"); }
         }
 
         private async Task ListenAsync(CancellationToken ct)
@@ -102,7 +102,7 @@ namespace Aqueous.Features.Bluetooth
                     _ = HandleClientAsync(client);
                 }
                 catch (OperationCanceledException) { break; }
-                catch { }
+                catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] ListenAsync failed: {ex.Message}"); }
             }
 
             CleanupSocket();
@@ -131,7 +131,7 @@ namespace Aqueous.Features.Bluetooth
 
                 await client.SendAsync(Encoding.UTF8.GetBytes("ok\n"));
             }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine($"[Bluetooth] HandleClientAsync failed: {ex.Message}"); }
             finally
             {
                 client.Dispose();
