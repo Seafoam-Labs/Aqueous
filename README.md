@@ -85,6 +85,52 @@ Aqueous is also configured to autostart with Wayfire via the `[autostart]` secti
 
 ---
 
+### Customizing CSS (Dotfile Overrides)
+
+Aqueous supports per-user CSS overrides via `~/.config/aqueous/`. On first run, default CSS files are copied there automatically.
+
+#### Override directory structure
+
+```
+~/.config/aqueous/
+├── Features/
+│   ├── AppLauncher/applauncher.css
+│   ├── AudioSwitcher/audioswitcher.css
+│   ├── Bar/bar.css
+│   ├── Bluetooth/bluetooth.css
+│   ├── Dock/dock.css
+│   ├── Settings/settings.css
+│   ├── SnapTo/snapto.css
+│   └── Wallpaper/wallpaper.css
+└── Widgets/
+    ├── AudioTray/audiotray.css
+    ├── BluetoothTray/bluetoothtray.css
+    ├── StartMenu/startmenu.css
+    ├── SystemTray/systemtray.css
+    ├── WindowList/windowlist.css
+    └── WorkspaceSwitcher/workspaceswitcher.css
+```
+
+#### How it works
+
+- If a CSS file exists in `~/.config/aqueous/`, it is used instead of the bundled default.
+- To reset a component's style, simply delete its file from `~/.config/aqueous/` — the built-in default will be used on next launch.
+- To reset all styles: `rm -rf ~/.config/aqueous/` and restart Aqueous.
+
+#### Example: changing the bar background
+
+Edit `~/.config/aqueous/Features/Bar/bar.css`:
+
+```css
+.bar {
+    background-color: rgba(30, 30, 46, 0.9);
+}
+```
+
+Restart Aqueous to apply changes.
+
+---
+
 ### Teardown (Dev)
 
 Remove all symlinks created by the dev setup:
@@ -103,13 +149,23 @@ Aqueous/
 │   ├── Features/
 │   │   ├── AppLauncher/      # App launcher + aqueous-applauncher script
 │   │   ├── AudioSwitcher/    # Audio switcher + aqueous-audioswitcher script
-│   │   ├── SnapTo/           # Window snapping + aqueous-snapto script
 │   │   ├── Bar/              # Status bar
-│   │   ├── Dock/             # Application dock
 │   │   ├── Bluetooth/        # Bluetooth manager
-│   │   ├── Settings/         # Settings panel
-│   │   └── Wallpaper/        # Wallpaper manager
-│   └── Widgets/              # Shared widget components
+│   │   ├── Dock/             # Application dock (+ helpers/)
+│   │   ├── Settings/         # Settings panel (+ SettingsPages/)
+│   │   ├── SnapTo/           # Window snapping + aqueous-snapto script
+│   │   ├── SystemTray/       # System tray service
+│   │   ├── Wallpaper/        # Wallpaper manager (+ DefaultWallpapers/)
+│   │   └── WindowManager/    # Window manager service
+│   └── Widgets/
+│       ├── AudioTray/        # Audio tray bar widget
+│       ├── BluetoothTray/    # Bluetooth tray bar widget
+│       ├── Clock/            # Clock bar widget
+│       ├── Dock/             # Dock widget components
+│       ├── StartMenu/        # Start menu bar widget
+│       ├── SystemTray/       # System tray bar widget
+│       ├── WindowList/       # Window list bar widget
+│       └── WorkspaceSwitcher/ # Workspace switcher bar widget
 ├── AqueousBindings/          # C# bindings for Astal libraries
 ├── aqueous-dev-setup.sh      # Dev environment setup script
 ├── aqueous-wayfire-setup.sh  # Wayfire keybinding configuration

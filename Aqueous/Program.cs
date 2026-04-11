@@ -40,20 +40,15 @@ public class Program
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
-            // Load Bar CSS
-            LoadBarCss();
+            // Seed user CSS overrides on first run
+            SeedUserCss();
 
-            // Load SnapTo CSS
-            LoadSnapToCss();
-
-            // Load AudioSwitcher CSS
-            LoadAudioSwitcherCss();
-
-            // Load AppLauncher CSS
-            LoadAppLauncherCss();
-
-            // Load Settings CSS
-            LoadSettingsCss();
+            // Load all CSS (user overrides take priority)
+            LoadCss(Path.Combine("Features", "Bar", "bar.css"));
+            LoadCss(Path.Combine("Features", "SnapTo", "snapto.css"));
+            LoadCss(Path.Combine("Features", "AudioSwitcher", "audioswitcher.css"));
+            LoadCss(Path.Combine("Features", "AppLauncher", "applauncher.css"));
+            LoadCss(Path.Combine("Features", "Settings", "settings.css"));
 
             // --- Bar Service ---
             _barService = new BarService(app);
@@ -80,22 +75,22 @@ public class Program
             _settingsService.Start();
 
             // --- Wallpaper Service ---
-            LoadWallpaperCss();
+            LoadCss(Path.Combine("Features", "Wallpaper", "wallpaper.css"));
             _wallpaperService = new WallpaperService(app, _settingsService!);
             _wallpaperService.Start();
 
             // --- Bluetooth Service ---
-            LoadBluetoothCss();
+            LoadCss(Path.Combine("Features", "Bluetooth", "bluetooth.css"));
             _bluetoothService = new BluetoothService(app);
             _bluetoothService.Start();
 
             // --- Audio Tray Widget ---
-            LoadAudioTrayCss();
+            LoadCss(Path.Combine("Widgets", "AudioTray", "audiotray.css"));
             var audioTray = new AudioTrayWidget(_audioSwitcherService);
             barRight.GtkBox.Append(audioTray.Button);
 
             // --- Bluetooth Tray Widget ---
-            LoadBluetoothTrayCss();
+            LoadCss(Path.Combine("Widgets", "BluetoothTray", "bluetoothtray.css"));
             var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!, barWindow);
             barRight.GtkBox.Append(bluetoothTray.Button);
 
@@ -105,12 +100,12 @@ public class Program
             clock.Start();
 
             // --- Start Menu Widget ---
-            LoadStartMenuCss();
+            LoadCss(Path.Combine("Widgets", "StartMenu", "startmenu.css"));
             var startMenu = new StartMenuWidget(app, _settingsService!);
             barLeft.GtkBox.Prepend(startMenu.Button);
 
             // --- System Tray Widget ---
-            LoadSystemTrayCss();
+            LoadCss(Path.Combine("Widgets", "SystemTray", "systemtray.css"));
             _systemTrayService = new SystemTrayService();
             _systemTrayService.Start();
             var systemTray = new SystemTrayWidget(_systemTrayService, barWindow);
@@ -121,17 +116,17 @@ public class Program
             _windowManagerService.Start();
 
             // --- Window List Widget ---
-            LoadWindowListCss();
+            LoadCss(Path.Combine("Widgets", "WindowList", "windowlist.css"));
             var windowList = new WindowListWidget(_windowManagerService);
             barCenter.GtkBox.Append(windowList.Button);
 
             // --- Workspace Switcher Widget (disabled) ---
-            // LoadWorkspaceSwitcherCss();
+            // LoadCss(Path.Combine("Widgets", "WorkspaceSwitcher", "workspaceswitcher.css"));
             // var workspaceSwitcher = new WorkspaceSwitcherWidget(_windowManagerService);
             // barLeft.GtkBox.Append(workspaceSwitcher.Box);
 
             // --- Dock Service ---
-            LoadDockCss();
+            LoadCss(Path.Combine("Features", "Dock", "dock.css"));
             _dockService = new DockService(app, _settingsService!, _windowManagerService);
             _dockService.Start();
         };
@@ -149,12 +144,20 @@ public class Program
         _barService?.Stop();
     }
 
-    private static void LoadAudioTrayCss()
+    private static void LoadCss(string relativePath)
     {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "AudioTray", "audiotray.css");
+        var configDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "aqueous");
+
+        var userCssPath = Path.Combine(configDir, relativePath);
+        var defaultCssPath = Path.Combine(AppContext.BaseDirectory, relativePath);
+
+        var cssPath = File.Exists(userCssPath) ? userCssPath : defaultCssPath;
+
         if (File.Exists(cssPath))
         {
+            var cssProvider = Gtk.CssProvider.New();
             cssProvider.LoadFromPath(cssPath);
             Gtk.StyleContext.AddProviderForDisplay(
                 Gdk.Display.GetDefault()!,
@@ -163,185 +166,42 @@ public class Program
         }
     }
 
-    private static void LoadAudioSwitcherCss()
+    private static void SeedUserCss()
     {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "AudioSwitcher", "audioswitcher.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
+        var configDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "aqueous");
 
-    private static void LoadAppLauncherCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "AppLauncher", "applauncher.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
+        string[] cssFiles =
+        [
+            Path.Combine("Features", "AppLauncher", "applauncher.css"),
+            Path.Combine("Features", "AudioSwitcher", "audioswitcher.css"),
+            Path.Combine("Features", "Bar", "bar.css"),
+            Path.Combine("Features", "Bluetooth", "bluetooth.css"),
+            Path.Combine("Features", "Dock", "dock.css"),
+            Path.Combine("Features", "Settings", "settings.css"),
+            Path.Combine("Features", "SnapTo", "snapto.css"),
+            Path.Combine("Features", "Wallpaper", "wallpaper.css"),
+            Path.Combine("Widgets", "AudioTray", "audiotray.css"),
+            Path.Combine("Widgets", "BluetoothTray", "bluetoothtray.css"),
+            Path.Combine("Widgets", "StartMenu", "startmenu.css"),
+            Path.Combine("Widgets", "SystemTray", "systemtray.css"),
+            Path.Combine("Widgets", "WindowList", "windowlist.css"),
+            Path.Combine("Widgets", "WorkspaceSwitcher", "workspaceswitcher.css"),
+        ];
 
-    private static void LoadSettingsCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Settings", "settings.css");
-        if (File.Exists(cssPath))
+        foreach (var relativePath in cssFiles)
         {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadSnapToCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "SnapTo", "snapto.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadBluetoothCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Bluetooth", "bluetooth.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadBluetoothTrayCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "BluetoothTray", "bluetoothtray.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadDockCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Dock", "dock.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadWallpaperCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Wallpaper", "wallpaper.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadStartMenuCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "StartMenu", "startmenu.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadSystemTrayCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "SystemTray", "systemtray.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadWindowListCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "WindowList", "windowlist.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadWorkspaceSwitcherCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Widgets", "WorkspaceSwitcher", "workspaceswitcher.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
-        }
-    }
-
-    private static void LoadBarCss()
-    {
-        var cssProvider = Gtk.CssProvider.New();
-        var cssPath = Path.Combine(AppContext.BaseDirectory, "Features", "Bar", "bar.css");
-        if (File.Exists(cssPath))
-        {
-            cssProvider.LoadFromPath(cssPath);
-            Gtk.StyleContext.AddProviderForDisplay(
-                Gdk.Display.GetDefault()!,
-                cssProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_APPLICATION);
+            var dest = Path.Combine(configDir, relativePath);
+            if (!File.Exists(dest))
+            {
+                var src = Path.Combine(AppContext.BaseDirectory, relativePath);
+                if (File.Exists(src))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    File.Copy(src, dest);
+                }
+            }
         }
     }
 }
