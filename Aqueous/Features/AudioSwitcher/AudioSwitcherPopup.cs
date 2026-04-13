@@ -45,6 +45,7 @@ namespace Aqueous.Features.AudioSwitcher
                 sinkHeader.AddCssClass("section-header");
                 sinkHeader.Halign = Align.Start;
                 container.Append(sinkHeader);
+                container.SetSpacing(8);
 
                 foreach (var sink in sinks)
                 {
@@ -60,6 +61,7 @@ namespace Aqueous.Features.AudioSwitcher
                 sourceHeader.AddCssClass("section-header");
                 sourceHeader.Halign = Align.Start;
                 container.Append(sourceHeader);
+                container.SetSpacing(8);
 
                 foreach (var source in sources)
                 {
@@ -102,7 +104,7 @@ namespace Aqueous.Features.AudioSwitcher
 
         private Gtk.Box CreateDeviceRow(AudioDevice device)
         {
-            var row = Gtk.Box.New(Orientation.Vertical, 4);
+            var row = Gtk.Box.New(Orientation.Vertical, 8);
             row.AddCssClass("audio-device-row");
 
             // Device select button
