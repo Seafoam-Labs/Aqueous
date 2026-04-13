@@ -1,4 +1,3 @@
-using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.Settings.SettingsPages;
 using Gtk;
@@ -9,7 +8,7 @@ namespace Aqueous.Features.Settings
     {
         private readonly AstalApplication _app;
         private readonly SettingsStore _store;
-        private AstalWindow? _window;
+        private Gtk.Window? _gtkWindow;
         private Gtk.Stack? _stack;
         private Gtk.Box? _sidebarBox;
         private string _activePage = "General";
@@ -63,18 +62,29 @@ namespace Aqueous.Features.Settings
 
         public void Show()
         {
+            if (IsVisible && _gtkWindow != null)
+            {
+                _gtkWindow.Present();
+                return;
+            }
             if (IsVisible) return;
 
             WayfireConfigService.Instance.Load();
 
-            _window = new AstalWindow();
-            _app.GtkApplication.AddWindow(_window.GtkWindow);
-            _window.Namespace = "settings";
-            _window.Layer = AstalLayer.ASTAL_LAYER_TOP;
-            _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _gtkWindow = Gtk.Window.New();
+            _gtkWindow.Title = "Aqueous Settings";
+            _gtkWindow.SetDefaultSize(800, 600);
+            _gtkWindow.Resizable = true;
+            _app.GtkApplication.AddWindow(_gtkWindow);
 
-            _window.GtkWindow.SetDefaultSize(800, 600);
+            _gtkWindow.OnCloseRequest += (_, _) =>
+            {
+                _gtkWindow = null;
+                _stack = null;
+                _sidebarBox = null;
+                IsVisible = false;
+                return false;
+            };
 
             var container = Gtk.Box.New(Orientation.Horizontal, 0);
             container.AddCssClass("settings-window");
@@ -149,18 +159,18 @@ namespace Aqueous.Features.Settings
                 }
                 return false;
             };
-            _window.GtkWindow.AddController(keyController);
+            _gtkWindow.AddController(keyController);
 
-            _window.GtkWindow.SetChild(container);
-            _window.GtkWindow.Present();
+            _gtkWindow.SetChild(container);
+            _gtkWindow.Present();
             IsVisible = true;
         }
 
         public void Hide()
         {
-            if (!IsVisible || _window == null) return;
-            _window.GtkWindow.Close();
-            _window = null;
+            if (!IsVisible || _gtkWindow == null) return;
+            _gtkWindow.Close();
+            _gtkWindow = null;
             _stack = null;
             _sidebarBox = null;
             IsVisible = false;

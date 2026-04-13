@@ -8,12 +8,15 @@ namespace Aqueous.Features.Settings.SettingsPages
 {
     public static class HdrPage
     {
-        private static readonly string WayfireIniPath =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".config", "wayfire.ini");
-
         private static readonly string[] IncompatiblePlugins =
             ["wobbly", "blur", "cube", "fire", "annotate"];
+
+        private static readonly string EnvironmentDirPath =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config", "environment.d");
+
+        private static readonly string HdrEnvFilePath =
+            Path.Combine(EnvironmentDirPath, "hdr.conf");
 
         public static Gtk.Box Create(SettingsStore store)
         {
@@ -125,17 +128,14 @@ namespace Aqueous.Features.Settings.SettingsPages
         {
             try
             {
-                if (!File.Exists(WayfireIniPath))
-                    return;
-
-                var lines = new List<string>(File.ReadAllLines(WayfireIniPath));
+                var config = WayfireConfigService.Instance;
 
                 if (store.Data.HdrEnabled)
-                    EnableHdr(lines, store);
+                    EnableHdr(config, store);
                 else
-                    DisableHdr(lines, store);
+                    DisableHdr(config, store);
 
-                File.WriteAllLines(WayfireIniPath, lines);
+                // No separate save needed — SettingsWindow.Save() will call config.Save()
                 store.NotifyChanged();
             }
             catch
@@ -144,85 +144,68 @@ namespace Aqueous.Features.Settings.SettingsPages
             }
         }
 
-        private static void EnableHdr(List<string> lines, SettingsStore store)
+        private static void EnableHdr(WayfireConfigService config, SettingsStore store)
         {
             // Backup current state
-            var pluginLine = FindKeyInSection(lines, "core", "plugins");
-            if (pluginLine >= 0)
-                store.Data.PreHdrPluginList = GetValue(lines[pluginLine]);
+            var plugins = config.GetString("core", "plugins");
+            store.Data.PreHdrPluginList = plugins;
+            store.Data.PreHdrOpenAnimation = config.GetString("animate", "open_animation");
+            store.Data.PreHdrCloseAnimation = config.GetString("animate", "close_animation");
 
-            var openAnim = FindKeyInSection(lines, "animate", "open_animation");
-            if (openAnim >= 0)
-                store.Data.PreHdrOpenAnimation = GetValue(lines[openAnim]);
-
-            var closeAnim = FindKeyInSection(lines, "animate", "close_animation");
-            if (closeAnim >= 0)
-                store.Data.PreHdrCloseAnimation = GetValue(lines[closeAnim]);
-
-            // Add WLR_RENDERER=vulkan to [autostart]
-            var autostartEnv = FindKeyInSection(lines, "autostart", "env_hdr_renderer");
-            if (autostartEnv >= 0)
-                lines[autostartEnv] = "env_hdr_renderer = WLR_RENDERER=vulkan";
-            else
-                InsertInSection(lines, "autostart", "env_hdr_renderer = WLR_RENDERER=vulkan");
+            // Set WLR_RENDERER=vulkan via environment.d
+            SetVulkanRenderer(true);
 
             // Add vk-color-management to plugins
-            if (pluginLine >= 0)
-            {
-                var plugins = GetValue(lines[pluginLine]);
-                if (!plugins.Contains("vk-color-management"))
-                {
-                    plugins = plugins.TrimEnd() + " vk-color-management";
-                    lines[pluginLine] = "plugins = " + plugins;
-                }
+            if (!plugins.Contains("vk-color-management"))
+                plugins = plugins.TrimEnd() + " vk-color-management";
 
-                // Remove incompatible plugins
-                if (store.Data.HdrDisableIncompatibleAnimations)
-                {
-                    var pluginList = plugins.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-                    foreach (var p in IncompatiblePlugins)
-                        pluginList.Remove(p);
-                    lines[pluginLine] = "plugins = " + string.Join(" ", pluginList);
-                }
+            // Remove incompatible plugins
+            if (store.Data.HdrDisableIncompatibleAnimations)
+            {
+                var pluginList = plugins.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+                foreach (var p in IncompatiblePlugins)
+                    pluginList.Remove(p);
+                plugins = string.Join(" ", pluginList);
             }
+
+            config.SetString("core", "plugins", plugins);
+
+            // Configure vk-color-management section
+            config.SetString("vk-color-management", "hdr", "true");
 
             // Set safe animation defaults
             if (store.Data.HdrDisableIncompatibleAnimations)
             {
-                SetKeyInSection(lines, "animate", "open_animation", "zoom");
-                SetKeyInSection(lines, "animate", "close_animation", "zoom");
-                SetKeyInSection(lines, "animate", "fire_enabled_for", "none");
+                config.SetString("animate", "open_animation", "zoom");
+                config.SetString("animate", "close_animation", "zoom");
+                config.SetString("animate", "fire_enabled_for", "none");
             }
         }
 
-        private static void DisableHdr(List<string> lines, SettingsStore store)
+        private static void DisableHdr(WayfireConfigService config, SettingsStore store)
         {
-            // Remove WLR_RENDERER=vulkan from [autostart]
-            var autostartEnv = FindKeyInSection(lines, "autostart", "env_hdr_renderer");
-            if (autostartEnv >= 0)
-                lines.RemoveAt(autostartEnv);
+            // Remove WLR_RENDERER=vulkan
+            SetVulkanRenderer(false);
 
             // Restore plugins
-            var pluginLine = FindKeyInSection(lines, "core", "plugins");
-            if (pluginLine >= 0)
+            if (store.Data.PreHdrPluginList != null)
+                config.SetString("core", "plugins", store.Data.PreHdrPluginList);
+            else
             {
-                if (store.Data.PreHdrPluginList != null)
-                    lines[pluginLine] = "plugins = " + store.Data.PreHdrPluginList;
-                else
-                {
-                    // Just remove vk-color-management
-                    var plugins = GetValue(lines[pluginLine]);
-                    var pluginList = plugins.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-                    pluginList.Remove("vk-color-management");
-                    lines[pluginLine] = "plugins = " + string.Join(" ", pluginList);
-                }
+                var plugins = config.GetString("core", "plugins");
+                var pluginList = plugins.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+                pluginList.Remove("vk-color-management");
+                config.SetString("core", "plugins", string.Join(" ", pluginList));
             }
+
+            // Remove vk-color-management config
+            config.RemoveKey("vk-color-management", "hdr");
 
             // Restore animations
             if (store.Data.PreHdrOpenAnimation != null)
-                SetKeyInSection(lines, "animate", "open_animation", store.Data.PreHdrOpenAnimation);
+                config.SetString("animate", "open_animation", store.Data.PreHdrOpenAnimation);
             if (store.Data.PreHdrCloseAnimation != null)
-                SetKeyInSection(lines, "animate", "close_animation", store.Data.PreHdrCloseAnimation);
+                config.SetString("animate", "close_animation", store.Data.PreHdrCloseAnimation);
 
             // Clear backup
             store.Data.PreHdrPluginList = null;
@@ -230,67 +213,18 @@ namespace Aqueous.Features.Settings.SettingsPages
             store.Data.PreHdrCloseAnimation = null;
         }
 
-        private static int FindSectionStart(List<string> lines, string section)
+        private static void SetVulkanRenderer(bool enable)
         {
-            for (int i = 0; i < lines.Count; i++)
+            if (enable)
             {
-                if (lines[i].Trim() == $"[{section}]")
-                    return i;
+                Directory.CreateDirectory(EnvironmentDirPath);
+                File.WriteAllText(HdrEnvFilePath, "WLR_RENDERER=vulkan\n");
             }
-            return -1;
-        }
-
-        private static int FindKeyInSection(List<string> lines, string section, string key)
-        {
-            int sectionStart = FindSectionStart(lines, section);
-            if (sectionStart < 0) return -1;
-
-            for (int i = sectionStart + 1; i < lines.Count; i++)
-            {
-                var trimmed = lines[i].Trim();
-                if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-                    break;
-                if (trimmed.StartsWith(key + " =") || trimmed.StartsWith(key + "="))
-                    return i;
-            }
-            return -1;
-        }
-
-        private static string GetValue(string line)
-        {
-            var idx = line.IndexOf('=');
-            return idx >= 0 ? line.Substring(idx + 1).Trim() : "";
-        }
-
-        private static void SetKeyInSection(List<string> lines, string section, string key, string value)
-        {
-            var idx = FindKeyInSection(lines, section, key);
-            if (idx >= 0)
-                lines[idx] = $"{key} = {value}";
             else
-                InsertInSection(lines, section, $"{key} = {value}");
-        }
-
-        private static void InsertInSection(List<string> lines, string section, string entry)
-        {
-            int sectionStart = FindSectionStart(lines, section);
-            if (sectionStart < 0)
             {
-                lines.Add($"[{section}]");
-                lines.Add(entry);
-                return;
+                if (File.Exists(HdrEnvFilePath))
+                    File.Delete(HdrEnvFilePath);
             }
-
-            // Insert after last key in section
-            int insertAt = sectionStart + 1;
-            for (int i = sectionStart + 1; i < lines.Count; i++)
-            {
-                var trimmed = lines[i].Trim();
-                if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-                    break;
-                insertAt = i + 1;
-            }
-            lines.Insert(insertAt, entry);
         }
     }
 }

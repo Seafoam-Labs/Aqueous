@@ -165,6 +165,14 @@ namespace Aqueous.Features.Settings
             SetString(section, key, $"{ms}ms {curve}");
         }
 
+        public void RemoveKey(string section, string key)
+        {
+            EnsureLoaded();
+            var idx = FindKeyInSection(section, key);
+            if (idx >= 0)
+                _lines.RemoveAt(idx);
+        }
+
         // Internal helpers
 
         private int FindSectionStart(string section)
