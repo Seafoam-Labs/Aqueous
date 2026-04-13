@@ -190,15 +190,16 @@ namespace Aqueous.Features.Settings
             int sectionStart = FindSectionStart(section);
             if (sectionStart < 0) return -1;
 
+            int lastFound = -1;
             for (int i = sectionStart + 1; i < _lines.Count; i++)
             {
                 var trimmed = _lines[i].Trim();
                 if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
                     break;
                 if (trimmed.StartsWith(key + " =") || trimmed.StartsWith(key + "="))
-                    return i;
+                    lastFound = i;
             }
-            return -1;
+            return lastFound;
         }
 
         private static string GetValue(string line)

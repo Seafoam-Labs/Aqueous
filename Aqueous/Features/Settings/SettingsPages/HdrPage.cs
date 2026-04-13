@@ -9,7 +9,7 @@ namespace Aqueous.Features.Settings.SettingsPages
     public static class HdrPage
     {
         private static readonly string[] IncompatiblePlugins =
-            ["wobbly", "blur", "cube", "fire", "annotate"];
+            ["wobbly", "blur"];
 
         private static readonly string EnvironmentDirPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -69,7 +69,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             label.Halign = Align.Start;
             row.Append(label);
 
-            var subLabel = Gtk.Label.New("Wobbly, Blur, Cube, Fire, Annotate");
+            var subLabel = Gtk.Label.New("Wobbly, Blur");
             subLabel.AddCssClass("hdr-info");
             subLabel.Halign = Align.Start;
 
@@ -135,7 +135,8 @@ namespace Aqueous.Features.Settings.SettingsPages
                 else
                     DisableHdr(config, store);
 
-                // No separate save needed — SettingsWindow.Save() will call config.Save()
+                config.Save();
+                store.Save();
                 store.NotifyChanged();
             }
             catch
