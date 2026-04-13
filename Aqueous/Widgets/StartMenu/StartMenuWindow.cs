@@ -179,7 +179,7 @@ public class StartMenuWindow
         header.AddCssClass("start-menu-header");
 
         var username = Environment.GetEnvironmentVariable("USER") ?? "User";
-        var avatar = Gtk.Label.New("A");
+        var avatar = Gtk.Label.New(username[0].ToString().ToUpper());
         avatar.AddCssClass("start-menu-avatar");
 
         var nameLabel = Gtk.Label.New(username);
