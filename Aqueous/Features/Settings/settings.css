@@ -51,3 +51,15 @@
     padding: 0;
     margin: 0 2px;
 }
+
+.hdr-warning {
+    color: #f38ba8;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.hdr-info {
+    color: #a6adc8;
+    font-size: 11px;
+    margin-top: 4px;
+}

@@ -35,6 +35,13 @@ namespace Aqueous.Features.Settings
         public string WallpaperImagePath { get; set; } = "";
         public string WallpaperScaleMode { get; set; } = "Fill";
         public string WallpaperFallbackColor { get; set; } = "#1e1e2e";
+
+        // HDR / Display
+        public bool HdrEnabled { get; set; } = false;
+        public bool HdrDisableIncompatibleAnimations { get; set; } = true;
+        public string? PreHdrPluginList { get; set; } = null;
+        public string? PreHdrOpenAnimation { get; set; } = null;
+        public string? PreHdrCloseAnimation { get; set; } = null;
     }
 
     public class SettingsStore
