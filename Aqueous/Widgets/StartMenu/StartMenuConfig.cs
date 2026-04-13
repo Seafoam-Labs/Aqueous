@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Aqueous.Widgets.StartMenu;
 
@@ -22,7 +23,7 @@ public class StartMenuConfig
             if (File.Exists(ConfigPath))
             {
                 var json = File.ReadAllText(ConfigPath);
-                return JsonSerializer.Deserialize<StartMenuConfig>(json) ?? new StartMenuConfig();
+                return JsonSerializer.Deserialize(json, StartMenuConfigJsonContext.Default.StartMenuConfig) ?? new StartMenuConfig();
             }
         }
         catch { }
@@ -35,9 +36,15 @@ public class StartMenuConfig
         try
         {
             Directory.CreateDirectory(ConfigDir);
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(this, StartMenuConfigJsonContext.Default.StartMenuConfig);
             File.WriteAllText(ConfigPath, json);
         }
         catch { }
     }
+}
+
+[JsonSerializable(typeof(StartMenuConfig))]
+[JsonSourceGenerationOptions(WriteIndented = true)]
+internal partial class StartMenuConfigJsonContext : JsonSerializerContext
+{
 }

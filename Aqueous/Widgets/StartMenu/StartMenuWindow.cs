@@ -49,21 +49,7 @@ public class StartMenuWindow
 
         if (x.HasValue && _window != null)
         {
-            // Window width is 510
-            int menuWidth = 510;
-            // Center under the button: buttonX - (menuWidth / 2)
-            // Note: The caller should ideally pass the button's center X, but if it passes the button's left X, 
-            // we might need button width. For now, let's assume 'x' is where we want the left edge, 
-            // or we can try to center it if we know the button width.
-            // Let's just align to the button's left edge for now as a starting point, 
-            // but add a small offset to not be perfectly on the edge if needed.
-            
-            int marginLeft = (int)x.Value;
-            
-            // Screen boundary check (assuming common 1920 width if we can't get it, 
-            // but let's just make sure it's not negative)
-            if (marginLeft < 4) marginLeft = 4;
-            
+            int marginLeft = Math.Max(4, (int)x.Value);
             _window.MarginLeft = marginLeft;
         }
 
