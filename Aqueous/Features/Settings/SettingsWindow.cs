@@ -16,6 +16,45 @@ namespace Aqueous.Features.Settings
 
         public bool IsVisible { get; private set; }
 
+        private static readonly (string Category, (string Name, string Id)[] Pages)[] SidebarLayout =
+        [
+            ("Shell", [
+                ("General", "General"),
+                ("Dock", "Dock"),
+                ("App Launcher", "App Launcher"),
+                ("Snap Zones", "Snap Zones"),
+                ("Wallpaper", "Wallpaper"),
+            ]),
+            ("System", [
+                ("Audio", "Audio"),
+                ("Bluetooth", "Bluetooth"),
+                ("Display", "Display"),
+                ("Input", "Input"),
+                ("Idle & Lock", "Idle & Lock"),
+            ]),
+            ("Window Management", [
+                ("Decorations", "Decorations"),
+                ("Animations", "Animations"),
+                ("Move & Resize", "Move & Resize"),
+                ("Tiling & Grid", "Tiling & Grid"),
+                ("Window Rules", "Window Rules"),
+            ]),
+            ("Workspaces", [
+                ("Workspaces", "Workspaces"),
+                ("Cube", "Cube"),
+                ("Switcher", "Switcher"),
+            ]),
+            ("Effects", [
+                ("Blur", "Blur"),
+                ("Visual Effects", "Visual Effects"),
+            ]),
+            ("Advanced", [
+                ("Core & Commands", "Core & Commands"),
+                ("Focus", "Focus"),
+                ("Developer Tools", "Developer Tools"),
+            ]),
+        ];
+
         public SettingsWindow(AstalApplication app, SettingsStore store)
         {
             _app = app;
@@ -26,6 +65,8 @@ namespace Aqueous.Features.Settings
         {
             if (IsVisible) return;
 
+            WayfireConfigService.Instance.Load();
+
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
             _window.Namespace = "settings";
@@ -33,14 +74,18 @@ namespace Aqueous.Features.Settings
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
 
-            _window.GtkWindow.SetDefaultSize(700, 500);
+            _window.GtkWindow.SetDefaultSize(800, 600);
 
             var container = Gtk.Box.New(Orientation.Horizontal, 0);
             container.AddCssClass("settings-window");
 
             // Sidebar
             _sidebarBox = CreateSidebar();
-            container.Append(_sidebarBox);
+            var sidebarScroll = Gtk.ScrolledWindow.New();
+            sidebarScroll.SetChild(_sidebarBox);
+            sidebarScroll.SetPolicy(PolicyType.Never, PolicyType.Automatic);
+            sidebarScroll.WidthRequest = 180;
+            container.Append(sidebarScroll);
 
             // Content stack
             _stack = Gtk.Stack.New();
@@ -49,14 +94,40 @@ namespace Aqueous.Features.Settings
             _stack.Vexpand = true;
             _stack.TransitionType = StackTransitionType.SlideUpDown;
 
+            // Shell
             _stack.AddNamed(GeneralPage.Create(_store), "General");
-            _stack.AddNamed(SnapToPage.Create(_store), "Snap Zones");
-            _stack.AddNamed(AudioPage.Create(_store), "Audio");
-            _stack.AddNamed(AppLauncherPage.Create(_store), "App Launcher");
-            _stack.AddNamed(BluetoothPage.Create(_store), "Bluetooth");
             _stack.AddNamed(DockPage.Create(_store), "Dock");
+            _stack.AddNamed(AppLauncherPage.Create(_store), "App Launcher");
+            _stack.AddNamed(SnapToPage.Create(_store), "Snap Zones");
             _stack.AddNamed(WallpaperPage.Create(_store), "Wallpaper");
+
+            // System
+            _stack.AddNamed(AudioPage.Create(_store), "Audio");
+            _stack.AddNamed(BluetoothPage.Create(_store), "Bluetooth");
             _stack.AddNamed(HdrPage.Create(_store), "Display");
+            _stack.AddNamed(InputPage.Create(_store), "Input");
+            _stack.AddNamed(IdleLockPage.Create(_store), "Idle & Lock");
+
+            // Window Management
+            _stack.AddNamed(DecorationsPage.Create(_store), "Decorations");
+            _stack.AddNamed(AnimationsPage.Create(_store), "Animations");
+            _stack.AddNamed(MoveResizePage.Create(_store), "Move & Resize");
+            _stack.AddNamed(TilingGridPage.Create(_store), "Tiling & Grid");
+            _stack.AddNamed(WindowRulesPage.Create(_store), "Window Rules");
+
+            // Workspaces
+            _stack.AddNamed(WorkspacePage.Create(_store), "Workspaces");
+            _stack.AddNamed(CubePage.Create(_store), "Cube");
+            _stack.AddNamed(SwitcherPage.Create(_store), "Switcher");
+
+            // Effects
+            _stack.AddNamed(BlurPage.Create(_store), "Blur");
+            _stack.AddNamed(EffectsPage.Create(_store), "Visual Effects");
+
+            // Advanced
+            _stack.AddNamed(CorePage.Create(_store), "Core & Commands");
+            _stack.AddNamed(FocusPage.Create(_store), "Focus");
+            _stack.AddNamed(DevToolsPage.Create(_store), "Developer Tools");
 
             _stack.SetVisibleChildName(_activePage);
 
@@ -79,16 +150,6 @@ namespace Aqueous.Features.Settings
                 return false;
             };
             _window.GtkWindow.AddController(keyController);
-
-            // Save button
-            var saveBtn = Gtk.Button.NewWithLabel("Save");
-            saveBtn.AddCssClass("settings-save-btn");
-            saveBtn.OnClicked += (_, _) =>
-            {
-                _store.Save();
-                Hide();
-            };
-            _sidebarBox.Append(saveBtn);
 
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
@@ -113,30 +174,50 @@ namespace Aqueous.Features.Settings
 
         private Gtk.Box CreateSidebar()
         {
-            var sidebar = Gtk.Box.New(Orientation.Vertical, 2);
+            var sidebar = Gtk.Box.New(Orientation.Vertical, 0);
             sidebar.AddCssClass("settings-sidebar");
 
-            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth", "Dock", "Wallpaper", "Display"];
-            foreach (var page in pages)
+            foreach (var (category, pages) in SidebarLayout)
             {
-                var btn = Gtk.Button.New();
-                var label = Gtk.Label.New(page);
-                label.Halign = Align.Start;
-                btn.SetChild(label);
+                var categoryLabel = Gtk.Label.New(category);
+                categoryLabel.AddCssClass("settings-sidebar-category");
+                categoryLabel.Halign = Align.Start;
+                sidebar.Append(categoryLabel);
 
-                if (page == _activePage)
-                    btn.AddCssClass("active");
-
-                var pageName = page;
-                btn.OnClicked += (_, _) =>
+                foreach (var (name, id) in pages)
                 {
-                    _activePage = pageName;
-                    _stack?.SetVisibleChildName(pageName);
-                    RefreshSidebarSelection();
-                };
+                    var btn = Gtk.Button.New();
+                    var label = Gtk.Label.New(name);
+                    label.Halign = Align.Start;
+                    btn.SetChild(label);
+                    btn.AddCssClass("settings-sidebar-item");
 
-                sidebar.Append(btn);
+                    if (id == _activePage)
+                        btn.AddCssClass("active");
+
+                    var pageId = id;
+                    btn.OnClicked += (_, _) =>
+                    {
+                        _activePage = pageId;
+                        _stack?.SetVisibleChildName(pageId);
+                        RefreshSidebarSelection();
+                    };
+
+                    sidebar.Append(btn);
+                }
             }
+
+            // Save button at bottom
+            var saveBtn = Gtk.Button.NewWithLabel("Save");
+            saveBtn.AddCssClass("settings-save-btn");
+            saveBtn.MarginTop = 12;
+            saveBtn.OnClicked += (_, _) =>
+            {
+                _store.Save();
+                WayfireConfigService.Instance.Save();
+                Hide();
+            };
+            sidebar.Append(saveBtn);
 
             return sidebar;
         }
@@ -145,19 +226,32 @@ namespace Aqueous.Features.Settings
         {
             if (_sidebarBox == null) return;
             var child = _sidebarBox.GetFirstChild();
-            string[] pages = ["General", "Snap Zones", "Audio", "App Launcher", "Bluetooth", "Dock", "Wallpaper", "Display"];
-            int i = 0;
             while (child != null)
             {
-                if (i < pages.Length)
+                if (child.GetCssClasses() != null)
                 {
-                    if (pages[i] == _activePage)
-                        child.AddCssClass("active");
-                    else
-                        child.RemoveCssClass("active");
+                    child.RemoveCssClass("active");
+                    // Check if this is a sidebar item button matching active page
+                    if (child is Gtk.Button btn)
+                    {
+                        var btnChild = btn.GetChild();
+                        if (btnChild is Gtk.Label lbl && lbl.GetLabel() != null)
+                        {
+                            // Find matching page id
+                            foreach (var (_, pages) in SidebarLayout)
+                            {
+                                foreach (var (name, id) in pages)
+                                {
+                                    if (name == lbl.GetLabel() && id == _activePage)
+                                    {
+                                        child.AddCssClass("active");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 child = child.GetNextSibling();
-                i++;
             }
         }
     }
