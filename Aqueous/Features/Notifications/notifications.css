@@ -1,0 +1,124 @@
+/* Notification Popup (toast) */
+.notification-popup {
+    background-color: #1e1e2e;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 320px;
+    max-width: 400px;
+}
+.notification-popup.notification-critical {
+    border-left: 3px solid #f38ba8;
+}
+.notification-popup.notification-low {
+    opacity: 0.85;
+}
+.notification-popup-header {
+    padding: 2px 0;
+    margin-bottom: 2px;
+}
+.notification-app-name {
+    color: #6c7086;
+    font-size: 11px;
+}
+.notification-close-btn {
+    background: transparent;
+    color: #6c7086;
+    border: none;
+    padding: 0 4px;
+    font-size: 12px;
+    min-width: 20px;
+    min-height: 20px;
+}
+.notification-close-btn:hover {
+    color: #f38ba8;
+}
+.notification-summary {
+    color: #cdd6f4;
+    font-weight: bold;
+    font-size: 13px;
+}
+.notification-body {
+    color: #a6adc8;
+    font-size: 12px;
+}
+.notification-actions {
+    margin-top: 6px;
+}
+.notification-action-btn {
+    background: #313244;
+    color: #89b4fa;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.notification-action-btn:hover {
+    background: #45475a;
+}
+
+/* Notification Center */
+.notification-center {
+    background-color: #1e1e2e;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 380px;
+}
+.notification-center-header {
+    padding: 4px 0;
+    margin-bottom: 8px;
+}
+.notification-center .section-header {
+    color: #cdd6f4;
+    font-weight: bold;
+    font-size: 14px;
+}
+.notification-clear-btn {
+    background: #313244;
+    color: #f38ba8;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.notification-clear-btn:hover {
+    background: #45475a;
+}
+.notification-list {
+    padding: 0;
+}
+.notification-row {
+    padding: 8px;
+    border-radius: 8px;
+    margin: 2px 0;
+    background: #181825;
+}
+.notification-row:hover {
+    background: #313244;
+}
+.notification-row.notification-critical {
+    border-left: 3px solid #f38ba8;
+}
+.notification-row-header {
+    margin-bottom: 2px;
+}
+.notification-time {
+    color: #585b70;
+    font-size: 10px;
+}
+.notification-dismiss-btn {
+    background: transparent;
+    color: #6c7086;
+    border: none;
+    padding: 0 4px;
+    font-size: 11px;
+    min-width: 18px;
+    min-height: 18px;
+}
+.notification-dismiss-btn:hover {
+    color: #f38ba8;
+}
+.notification-empty-label {
+    color: #6c7086;
+    padding: 24px;
+    font-size: 13px;
+}

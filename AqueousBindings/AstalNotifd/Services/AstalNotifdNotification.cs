@@ -8,14 +8,14 @@ namespace Aqueous.Bindings.AstalNotifd.Services
     {
         private _AstalNotifdNotification* _handle;
 
-        internal _AstalNotifdNotification* Handle => _handle;
+        public _AstalNotifdNotification* Handle => _handle;
 
         public AstalNotifdNotification()
         {
             _handle = AstalNotifdInterop.astal_notifd_notification_new();
         }
 
-        internal AstalNotifdNotification(_AstalNotifdNotification* handle)
+        public AstalNotifdNotification(_AstalNotifdNotification* handle)
         {
             _handle = handle;
         }

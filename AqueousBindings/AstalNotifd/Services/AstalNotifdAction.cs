@@ -8,7 +8,7 @@ namespace Aqueous.Bindings.AstalNotifd.Services
     {
         private _AstalNotifdAction* _handle;
 
-        internal _AstalNotifdAction* Handle => _handle;
+        public _AstalNotifdAction* Handle => _handle;
 
         public AstalNotifdAction(string id, string label)
         {
@@ -19,7 +19,7 @@ namespace Aqueous.Bindings.AstalNotifd.Services
             }
         }
 
-        internal AstalNotifdAction(_AstalNotifdAction* handle)
+        public AstalNotifdAction(_AstalNotifdAction* handle)
         {
             _handle = handle;
         }

@@ -19,6 +19,8 @@ using Aqueous.Features.WindowManager;
 using Aqueous.Widgets.SystemTray;
 using Aqueous.Widgets.WindowList;
 using Aqueous.Widgets.WorkspaceSwitcher;
+using Aqueous.Features.Notifications;
+using Aqueous.Widgets.NotificationTray;
 
 public class Program
 {
@@ -32,6 +34,7 @@ public class Program
     private static BarService? _barService;
     private static SystemTrayService? _systemTrayService;
     private static WindowManagerService? _windowManagerService;
+    private static NotificationService? _notificationService;
 
     public static void Main(string[] args)
     {
@@ -79,6 +82,11 @@ public class Program
             _wallpaperService = new WallpaperService(app, _settingsService!);
             _wallpaperService.Start();
 
+            // --- Notification Service ---
+            LoadCss(Path.Combine("Features", "Notifications", "notifications.css"));
+            _notificationService = new NotificationService(app);
+            _notificationService.Start();
+
             // --- Bluetooth Service ---
             LoadCss(Path.Combine("Features", "Bluetooth", "bluetooth.css"));
             _bluetoothService = new BluetoothService(app);
@@ -93,6 +101,11 @@ public class Program
             LoadCss(Path.Combine("Widgets", "BluetoothTray", "bluetoothtray.css"));
             var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!, barWindow);
             barRight.GtkBox.Append(bluetoothTray.Button);
+
+            // --- Notification Tray Widget ---
+            LoadCss(Path.Combine("Widgets", "NotificationTray", "notificationtray.css"));
+            var notificationTray = new NotificationTrayWidget(_notificationService!, barWindow);
+            barRight.GtkBox.Append(notificationTray.Button);
 
             // --- Clock Tray Widget ---
             var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false);
@@ -136,6 +149,7 @@ public class Program
         _audioSwitcherService?.Stop();
         _appLauncherService?.Stop();
         _settingsService?.Stop();
+        _notificationService?.Stop();
         _bluetoothService?.Stop();
         _dockService?.Stop();
         _wallpaperService?.Stop();
@@ -188,6 +202,8 @@ public class Program
             Path.Combine("Widgets", "SystemTray", "systemtray.css"),
             Path.Combine("Widgets", "WindowList", "windowlist.css"),
             Path.Combine("Widgets", "WorkspaceSwitcher", "workspaceswitcher.css"),
+            Path.Combine("Features", "Notifications", "notifications.css"),
+            Path.Combine("Widgets", "NotificationTray", "notificationtray.css"),
         ];
 
         foreach (var relativePath in cssFiles)
