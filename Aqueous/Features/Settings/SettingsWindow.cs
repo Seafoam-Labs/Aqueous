@@ -98,7 +98,7 @@ namespace Aqueous.Features.Settings
             _stack.AddNamed(GeneralPage.Create(_store), "General");
             _stack.AddNamed(DockPage.Create(_store), "Dock");
             _stack.AddNamed(AppLauncherPage.Create(_store), "App Launcher");
-            _stack.AddNamed(SnapToPage.Create(_store), "Snap Zones");
+            _stack.AddNamed(SnapToPage.Create(_store, _app), "Snap Zones");
             _stack.AddNamed(WallpaperPage.Create(_store), "Wallpaper");
 
             // System

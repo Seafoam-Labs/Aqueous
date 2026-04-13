@@ -10,6 +10,7 @@ namespace Aqueous.Features.SnapTo
 {
     public class SnapToService
     {
+        private readonly AstalApplication _app;
         private SnapToOverlay _overlay;
         private CancellationTokenSource? _cts;
 
@@ -18,10 +19,29 @@ namespace Aqueous.Features.SnapTo
                 ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".run"),
                 "aqueous-snapto.sock");
 
+        public AstalApplication App => _app;
+
         public SnapToService(AstalApplication app)
         {
+            _app = app;
             var layouts = SnapToConfig.Load();
             _overlay = new SnapToOverlay(app, layouts);
+        }
+
+        public void ReloadLayouts()
+        {
+            var wasVisible = _overlay.IsVisible;
+            if (wasVisible) _overlay.Hide();
+            var layouts = SnapToConfig.Load();
+            _overlay = new SnapToOverlay(_app, layouts);
+            if (wasVisible) _overlay.Show();
+        }
+
+        public void ShowEditor(string? preSelectedZone = null)
+        {
+            var editor = new SnapToEditorPopup(_app, SnapToConfig.Load());
+            editor.OnSaved = ReloadLayouts;
+            editor.Show(preSelectedZone);
         }
 
         public void Start()
@@ -97,6 +117,9 @@ namespace Aqueous.Features.SnapTo
                         break;
                     case "show":
                         GLib.Functions.IdleAdd(0, () => { _overlay.Show(); return false; });
+                        break;
+                    case "edit":
+                        GLib.Functions.IdleAdd(0, () => { ShowEditor(); return false; });
                         break;
                 }
 

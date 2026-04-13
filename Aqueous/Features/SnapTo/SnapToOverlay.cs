@@ -98,6 +98,29 @@ namespace Aqueous.Features.SnapTo
                 zoneButton.SetChild(label);
 
                 zoneButton.OnClicked += (sender, args) => { SnapToZone(capturedZone); };
+
+                // Option C: Right-click opens zone editor with this zone pre-selected
+                var rightClick = Gtk.GestureClick.New();
+                rightClick.SetButton(3);
+                var capturedZoneForEdit = zone;
+                rightClick.OnReleased += (gesture, args) =>
+                {
+                    Hide();
+                    var editor = new SnapToEditorPopup(_app, SnapToConfig.Load());
+                    editor.Show(preSelectedZone: capturedZoneForEdit.Name);
+                };
+                zoneButton.AddController(rightClick);
+
+                // Option C: Long-press for touchscreen
+                var longPress = Gtk.GestureLongPress.New();
+                longPress.OnPressed += (gesture, args) =>
+                {
+                    Hide();
+                    var editor = new SnapToEditorPopup(_app, SnapToConfig.Load());
+                    editor.Show(preSelectedZone: capturedZoneForEdit.Name);
+                };
+                zoneButton.AddController(longPress);
+
                 overlay.Put(zoneButton, centerX, centerY);
             }
 

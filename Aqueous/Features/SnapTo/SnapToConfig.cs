@@ -22,6 +22,14 @@ namespace Aqueous.Features.SnapTo
             return JsonSerializer.Deserialize(json, SnapToJsonContext.Default.ListZoneLayout) ?? GetDefaults();
         }
 
+        public static void Save(List<ZoneLayout> layouts)
+        {
+            var dir = Path.GetDirectoryName(ConfigPath)!;
+            Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(layouts, SnapToJsonContext.Default.ListZoneLayout);
+            File.WriteAllText(ConfigPath, json);
+        }
+
         public static List<ZoneLayout> GetDefaults() =>
         [
             new("Priority Grid",

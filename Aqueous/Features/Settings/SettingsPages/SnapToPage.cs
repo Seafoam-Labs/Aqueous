@@ -1,4 +1,5 @@
 using System.Linq;
+using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
 using Gtk;
 
@@ -6,7 +7,7 @@ namespace Aqueous.Features.Settings.SettingsPages
 {
     public static class SnapToPage
     {
-        public static Gtk.Box Create(SettingsStore store)
+        public static Gtk.Box Create(SettingsStore store, AstalApplication? app = null)
         {
             var page = Gtk.Box.New(Orientation.Vertical, 8);
             page.AddCssClass("settings-page");
@@ -27,6 +28,20 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             // Zone preview
             page.Append(CreateZonePreview(store));
+
+            // Edit Zones button (Option B)
+            if (app != null)
+            {
+                var editBtn = Gtk.Button.NewWithLabel("Edit Zones");
+                editBtn.AddCssClass("suggested-action");
+                editBtn.Halign = Align.Start;
+                editBtn.OnClicked += (_, _) =>
+                {
+                    var editor = new SnapToEditorPopup(app, SnapToConfig.Load());
+                    editor.Show();
+                };
+                page.Append(editBtn);
+            }
 
             return page;
         }
