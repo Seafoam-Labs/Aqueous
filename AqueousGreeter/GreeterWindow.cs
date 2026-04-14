@@ -252,11 +252,11 @@ namespace AqueousGreeter
         {
             try
             {
-                System.Diagnostics.Process.Start("systemctl", action);
+                System.Diagnostics.Process.Start("loginctl", action);
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore — greeter user may not have permission
+                Console.Error.WriteLine($"Failed to execute power command: {ex.Message}");
             }
         }
     }

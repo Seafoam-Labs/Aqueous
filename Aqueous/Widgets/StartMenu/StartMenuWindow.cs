@@ -240,8 +240,8 @@ public class StartMenuWindow
             _settingsService.Toggle();
         };
 
-        var powerBtn = CreateFooterButton("Power Off", "systemctl poweroff");
-        var restartBtn = CreateFooterButton("Restart", "systemctl reboot");
+        var powerBtn = CreateFooterButton("Power Off", "loginctl poweroff");
+        var restartBtn = CreateFooterButton("Restart", "loginctl reboot");
         var lockBtn = CreateFooterButton("Lock", "loginctl lock-session");
         var logoutBtn = CreateFooterButton("Logout", "loginctl terminate-session self || killall wayfire");
 
@@ -271,7 +271,10 @@ public class StartMenuWindow
                     UseShellExecute = false,
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to execute power command: {ex.Message}");
+            }
         };
         return btn;
     }
