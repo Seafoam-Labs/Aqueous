@@ -19,8 +19,11 @@ using Aqueous.Features.WindowManager;
 using Aqueous.Widgets.SystemTray;
 using Aqueous.Widgets.WindowList;
 using Aqueous.Widgets.WorkspaceSwitcher;
+using Aqueous.Features.Network;
+using Aqueous.Widgets.NetworkTray;
 using Aqueous.Features.Notifications;
 using Aqueous.Widgets.NotificationTray;
+using Aqueous.Features.MediaPlayer;
 
 public class Program
 {
@@ -34,7 +37,9 @@ public class Program
     private static BarService? _barService;
     private static SystemTrayService? _systemTrayService;
     private static WindowManagerService? _windowManagerService;
+    private static NetworkService? _networkService;
     private static NotificationService? _notificationService;
+    private static MediaPlayerService? _mediaPlayerService;
 
     public static void Main(string[] args)
     {
@@ -87,6 +92,11 @@ public class Program
             _notificationService = new NotificationService(app);
             _notificationService.Start();
 
+            // --- Network Service ---
+            LoadCss(Path.Combine("Features", "Network", "network.css"));
+            _networkService = new NetworkService(app);
+            _networkService.Start();
+
             // --- Bluetooth Service ---
             LoadCss(Path.Combine("Features", "Bluetooth", "bluetooth.css"));
             _bluetoothService = new BluetoothService(app);
@@ -96,6 +106,11 @@ public class Program
             LoadCss(Path.Combine("Widgets", "AudioTray", "audiotray.css"));
             var audioTray = new AudioTrayWidget(_audioSwitcherService);
             barRight.GtkBox.Append(audioTray.Button);
+
+            // --- Network Tray Widget ---
+            LoadCss(Path.Combine("Widgets", "NetworkTray", "networktray.css"));
+            var networkTray = new NetworkTrayWidget(_networkService!, barWindow);
+            barRight.GtkBox.Append(networkTray.Button);
 
             // --- Bluetooth Tray Widget ---
             LoadCss(Path.Combine("Widgets", "BluetoothTray", "bluetoothtray.css"));
@@ -142,6 +157,11 @@ public class Program
             LoadCss(Path.Combine("Features", "Dock", "dock.css"));
             _dockService = new DockService(app, _settingsService!, _windowManagerService);
             _dockService.Start();
+
+            // --- Media Player Service ---
+            LoadCss(Path.Combine("Features", "MediaPlayer", "mediaplayer.css"));
+            _mediaPlayerService = new MediaPlayerService(app);
+            _mediaPlayerService.Start();
         };
 
         app.GtkApplication.Run(args);
@@ -150,8 +170,10 @@ public class Program
         _appLauncherService?.Stop();
         _settingsService?.Stop();
         _notificationService?.Stop();
+        _networkService?.Stop();
         _bluetoothService?.Stop();
         _dockService?.Stop();
+        _mediaPlayerService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
         _windowManagerService?.Dispose();
@@ -203,7 +225,10 @@ public class Program
             Path.Combine("Widgets", "WindowList", "windowlist.css"),
             Path.Combine("Widgets", "WorkspaceSwitcher", "workspaceswitcher.css"),
             Path.Combine("Features", "Notifications", "notifications.css"),
+            Path.Combine("Features", "Network", "network.css"),
+            Path.Combine("Widgets", "NetworkTray", "networktray.css"),
             Path.Combine("Widgets", "NotificationTray", "notificationtray.css"),
+            Path.Combine("Features", "MediaPlayer", "mediaplayer.css"),
         ];
 
         foreach (var relativePath in cssFiles)

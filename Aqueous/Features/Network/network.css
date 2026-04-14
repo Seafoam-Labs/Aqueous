@@ -1,0 +1,121 @@
+.network-popup {
+    background-color: #1e1e2e;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 320px;
+}
+.network-header {
+    padding: 4px 0;
+    margin-bottom: 4px;
+}
+.network-popup .section-header {
+    color: #cdd6f4;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 8px 4px 4px 4px;
+}
+.network-scan-btn {
+    background: #313244;
+    color: #89b4fa;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    margin: 4px 0;
+}
+.network-scan-btn:hover {
+    background: #45475a;
+}
+.network-device-row {
+    padding: 6px 8px;
+    border-radius: 6px;
+    margin: 2px 0;
+}
+.network-device-row:hover {
+    background: #313244;
+}
+.network-device-icon {
+    font-size: 16px;
+    min-width: 24px;
+    font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
+}
+.network-device-name {
+    color: #cdd6f4;
+    font-size: 13px;
+}
+.network-device-status {
+    color: #6c7086;
+    font-size: 11px;
+}
+.network-device-status.connected {
+    color: #a6e3a1;
+}
+.network-ap-row {
+    padding: 6px 8px;
+    border-radius: 6px;
+    margin: 2px 0;
+}
+.network-ap-row:hover {
+    background: #313244;
+}
+.network-signal-icon {
+    font-size: 16px;
+    min-width: 24px;
+    color: #89b4fa;
+    font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
+}
+.network-ap-ssid {
+    color: #cdd6f4;
+    font-size: 13px;
+}
+.network-lock-icon {
+    color: #f9e2af;
+    font-size: 14px;
+    font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
+}
+.network-connect-btn {
+    background: #89b4fa;
+    color: #1e1e2e;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.network-connect-btn:hover {
+    background: #b4d0fb;
+}
+.network-cancel-btn {
+    background: #313244;
+    color: #cdd6f4;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.network-cancel-btn:hover {
+    background: #45475a;
+}
+.network-off-label {
+    color: #6c7086;
+    padding: 16px;
+    font-size: 13px;
+}
+.network-empty-label {
+    color: #6c7086;
+    padding: 16px;
+    font-size: 13px;
+}
+.network-password-container {
+    padding: 8px;
+}
+.network-password-prompt {
+    color: #cdd6f4;
+    font-size: 13px;
+    padding: 4px 0;
+}
+.network-password-entry {
+    background: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 6px 8px;
+}

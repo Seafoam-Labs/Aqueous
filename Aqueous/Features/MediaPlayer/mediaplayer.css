@@ -1,0 +1,58 @@
+.media-player-panel {
+    background: rgba(30, 30, 46, 0.85);
+    border-radius: 12px;
+    padding: 8px 12px;
+}
+
+.media-player-container {
+    padding: 4px;
+}
+
+.media-player-controls button {
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: none;
+    margin: 0 2px;
+}
+
+.media-player-controls button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.media-player-track-title {
+    font-weight: bold;
+    font-size: 13px;
+    color: white;
+}
+
+.media-player-track-artist {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.media-player-cava-container {
+    min-height: 30px;
+    margin: 4px 0;
+}
+
+.media-player-lock-button {
+    min-width: 24px;
+    min-height: 24px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.5);
+    border: none;
+    padding: 2px;
+}
+
+.media-player-lock-button:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.media-player-lock-active {
+    background: rgba(137, 180, 250, 0.3);
+    color: white;
+}

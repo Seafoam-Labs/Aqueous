@@ -1,0 +1,25 @@
+.network-tray-button {
+    background: transparent;
+    border: none;
+    padding: 2px 6px;
+    min-width: 24px;
+    color: #89b4fa;
+    font-size: 16px;
+    font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
+}
+.network-tray-button:hover {
+    background: #313244;
+    border-radius: 6px;
+}
+.net-disconnected {
+    color: #6c7086;
+}
+.net-ethernet {
+    color: #a6e3a1;
+}
+.net-wifi-off {
+    color: #6c7086;
+}
+.net-wifi {
+    color: #89b4fa;
+}

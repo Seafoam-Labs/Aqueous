@@ -16,6 +16,8 @@
       <ProjectReference Include="..\AqueousBindings\AstalAuth\AstalAuth.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalWl\AstalWl.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalNotifd\AstalNotifd.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalMpris\AstalMpris.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalCava\AstalCava.csproj" />
     </ItemGroup>
 
     <ItemGroup>
@@ -77,6 +79,9 @@
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
       <Content Include="Widgets\NotificationTray\notificationtray.css">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <Content Include="Features\MediaPlayer\mediaplayer.css">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
