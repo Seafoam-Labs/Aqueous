@@ -29,6 +29,7 @@ using Aqueous.Features.PowerProfiles;
 using Aqueous.Widgets.PowerProfilesTray;
 using Aqueous.Features.Brightness;
 using Aqueous.Widgets.BrightnessTray;
+using Aqueous.Features.ClipboardManager;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -47,6 +48,7 @@ public class Program
     private static ScreenlockService? _screenlockService;
     private static PowerProfilesService? _powerProfilesService;
     private static BrightnessService? _brightnessService;
+    private static ClipboardService? _clipboardService;
 
     public static void Main(string[] args)
     {
@@ -138,6 +140,11 @@ public class Program
             _brightnessService = new BrightnessService(app);
             _brightnessService.Start();
 
+            // --- Clipboard Manager Service ---
+            LoadCss(Path.Combine("Features", "ClipboardManager", "clipboard.css"));
+            _clipboardService = new ClipboardService(app);
+            _clipboardService.Start();
+
             // --- Brightness Tray Widget ---
             LoadCss(Path.Combine("Widgets", "BrightnessTray", "brightnesstray.css"));
             var brightnessTray = new BrightnessTrayWidget(_brightnessService!, barWindow);
@@ -212,6 +219,7 @@ public class Program
         _mediaPlayerService?.Stop();
         _screenlockService?.Stop();
         _brightnessService?.Stop();
+        _clipboardService?.Stop();
         _powerProfilesService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
@@ -273,6 +281,7 @@ public class Program
             Path.Combine("Widgets", "PowerProfilesTray", "powerprofilestray.css"),
             Path.Combine("Features", "Brightness", "brightness.css"),
             Path.Combine("Widgets", "BrightnessTray", "brightnesstray.css"),
+            Path.Combine("Features", "ClipboardManager", "clipboard.css"),
         ];
 
         foreach (var relativePath in cssFiles)

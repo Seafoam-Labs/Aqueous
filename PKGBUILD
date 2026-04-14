@@ -5,7 +5,7 @@ pkgdesc="A .NET 10 GTK4-based desktop environment components using Astal"
 arch=('x86_64' 'aarch64')
 url="https://github.com/your-username/aqueous"
 license=('GPL3')
-depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'brightnessctl' 'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery' 'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris' 'libastal-network' 'libastal-notifd' 'libastal-powerprofiles' 'libastal-tray' 'libastal-wireplumber')
+depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl' 'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery' 'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris' 'libastal-network' 'libastal-notifd' 'libastal-powerprofiles' 'libastal-tray' 'libastal-wireplumber')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5')
 provides=('aqueous')
 conflicts=('aqueous')
@@ -58,6 +58,9 @@ package() {
     
     # Brightness script
     install -m755 "$srcdir/Aqueous/Features/Brightness/aqueous-brightness" "$pkgdir/usr/bin/aqueous-brightness"
+    
+    # Clipboard script
+    install -m755 "$srcdir/Aqueous/Features/ClipboardManager/aqueous-clipboard" "$pkgdir/usr/bin/aqueous-clipboard"
 
     # Screenshot tool
     install -d "$pkgdir/usr/lib/aqueous-screenshot"

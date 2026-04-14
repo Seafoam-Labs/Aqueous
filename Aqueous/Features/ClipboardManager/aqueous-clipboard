@@ -1,0 +1,2 @@
+#!/bin/sh
+exec socat - UNIX-CONNECT:"${XDG_RUNTIME_DIR:-$HOME/.run}/aqueous-clipboard.sock" <<< "${1:-toggle}"

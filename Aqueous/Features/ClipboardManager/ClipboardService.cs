@@ -1,0 +1,159 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Aqueous.Bindings.AstalGTK4.Services;
+
+namespace Aqueous.Features.ClipboardManager
+{
+    public class ClipboardService
+    {
+        private readonly ClipboardPopup _popup;
+        private CancellationTokenSource? _cts;
+        private Process? _watcherProcess;
+
+        private static readonly string SocketPath =
+            Path.Combine(Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR")
+                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".run"),
+                "aqueous-clipboard.sock");
+
+        public ClipboardService(AstalApplication app)
+        {
+            _popup = new ClipboardPopup(app);
+        }
+
+        public void Start()
+        {
+            _cts = new CancellationTokenSource();
+            Task.Run(() => ListenAsync(_cts.Token));
+            StartClipboardWatcher();
+        }
+
+        public void Stop()
+        {
+            _cts?.Cancel();
+            StopClipboardWatcher();
+            CleanupSocket();
+        }
+
+        public void Toggle()
+        {
+            if (_popup.IsVisible) _popup.Hide();
+            else _popup.Show();
+        }
+
+        public void Hide() => _popup.Hide();
+
+        private void StartClipboardWatcher()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "wl-paste",
+                    Arguments = "--watch cliphist store",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                _watcherProcess = Process.Start(psi);
+            }
+            catch
+            {
+                // wl-paste or cliphist not available
+            }
+        }
+
+        private void StopClipboardWatcher()
+        {
+            try
+            {
+                if (_watcherProcess is { HasExited: false })
+                {
+                    _watcherProcess.Kill();
+                    _watcherProcess.Dispose();
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+
+            _watcherProcess = null;
+        }
+
+        private async Task ListenAsync(CancellationToken ct)
+        {
+            CleanupSocket();
+
+            using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            listener.Bind(new UnixDomainSocketEndPoint(SocketPath));
+            listener.Listen(5);
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var client = await listener.AcceptAsync(ct);
+                    _ = HandleClientAsync(client);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Continue listening on transient errors
+                }
+            }
+
+            CleanupSocket();
+        }
+
+        private async Task HandleClientAsync(Socket client)
+        {
+            try
+            {
+                var buffer = new byte[256];
+                var received = await client.ReceiveAsync(buffer);
+                var command = Encoding.UTF8.GetString(buffer, 0, received).Trim();
+
+                switch (command)
+                {
+                    case "toggle":
+                        GLib.Functions.IdleAdd(0, () => { Toggle(); return false; });
+                        break;
+                    case "show":
+                        GLib.Functions.IdleAdd(0, () => { _popup.Show(); return false; });
+                        break;
+                    case "hide":
+                        GLib.Functions.IdleAdd(0, () => { Hide(); return false; });
+                        break;
+                    case "clear":
+                        await ClipboardBackend.ClearHistoryAsync();
+                        break;
+                }
+
+                await client.SendAsync(Encoding.UTF8.GetBytes("ok\n"));
+            }
+            catch
+            {
+                // Ignore client errors
+            }
+            finally
+            {
+                client.Dispose();
+            }
+        }
+
+        private static void CleanupSocket()
+        {
+            try { File.Delete(SocketPath); } catch { }
+        }
+    }
+}
