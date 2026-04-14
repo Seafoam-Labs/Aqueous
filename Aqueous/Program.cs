@@ -25,6 +25,8 @@ using Aqueous.Features.Notifications;
 using Aqueous.Widgets.NotificationTray;
 using Aqueous.Features.MediaPlayer;
 using Aqueous.Features.Screenlock;
+using Aqueous.Features.PowerProfiles;
+using Aqueous.Widgets.PowerProfilesTray;
 
 public class Program
 {
@@ -42,6 +44,7 @@ public class Program
     private static NotificationService? _notificationService;
     private static MediaPlayerService? _mediaPlayerService;
     private static ScreenlockService? _screenlockService;
+    private static PowerProfilesService? _powerProfilesService;
 
     public static void Main(string[] args)
     {
@@ -114,10 +117,20 @@ public class Program
             var networkTray = new NetworkTrayWidget(_networkService!, barWindow);
             barRight.GtkBox.Append(networkTray.Button);
 
+            // --- Power Profiles Service ---
+            LoadCss(Path.Combine("Features", "PowerProfiles", "powerprofiles.css"));
+            _powerProfilesService = new PowerProfilesService(app);
+            _powerProfilesService.Start();
+
             // --- Bluetooth Tray Widget ---
             LoadCss(Path.Combine("Widgets", "BluetoothTray", "bluetoothtray.css"));
             var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!, barWindow);
             barRight.GtkBox.Append(bluetoothTray.Button);
+
+            // --- Power Profiles Tray Widget ---
+            LoadCss(Path.Combine("Widgets", "PowerProfilesTray", "powerprofilestray.css"));
+            var powerProfilesTray = new PowerProfilesTrayWidget(_powerProfilesService!, barWindow);
+            barRight.GtkBox.Append(powerProfilesTray.Button);
 
             // --- Notification Tray Widget ---
             LoadCss(Path.Combine("Widgets", "NotificationTray", "notificationtray.css"));
@@ -182,6 +195,7 @@ public class Program
         _dockService?.Stop();
         _mediaPlayerService?.Stop();
         _screenlockService?.Stop();
+        _powerProfilesService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
         _windowManagerService?.Dispose();
@@ -238,6 +252,8 @@ public class Program
             Path.Combine("Widgets", "NotificationTray", "notificationtray.css"),
             Path.Combine("Features", "MediaPlayer", "mediaplayer.css"),
             Path.Combine("Features", "Screenlock", "screenlock.css"),
+            Path.Combine("Features", "PowerProfiles", "powerprofiles.css"),
+            Path.Combine("Widgets", "PowerProfilesTray", "powerprofilestray.css"),
         ];
 
         foreach (var relativePath in cssFiles)

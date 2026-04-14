@@ -18,6 +18,7 @@
       <ProjectReference Include="..\AqueousBindings\AstalNotifd\AstalNotifd.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalMpris\AstalMpris.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalCava\AstalCava.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalPowerProfiles\AstalPowerProfiles.csproj" />
     </ItemGroup>
 
     <ItemGroup>
@@ -28,7 +29,7 @@
 
     <ItemGroup>
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
-      <PackageReference Include="Tmds.DBus" Version="0.91.1" />
+      <PackageReference Include="Tmds.DBus" Version="0.92.0" />
       <PackageReference Include="Tmds.DBus.Protocol" Version="0.92.0" />
     </ItemGroup>
 
@@ -85,6 +86,12 @@
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
       <Content Include="Features\Screenlock\screenlock.css">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <Content Include="Features\PowerProfiles\powerprofiles.css">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <Content Include="Widgets\PowerProfilesTray\powerprofilestray.css">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
