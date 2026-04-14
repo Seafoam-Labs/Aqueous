@@ -193,21 +193,81 @@ namespace Aqueous.Features.Settings
                 Save();
         }
 
-        private static readonly Dictionary<string, string> ScreenshotBindings = new()
+        private static string ResolveScreenshotBinary()
         {
-            ["binding_screenshot"] = "KEY_SYSRQ",
-            ["command_screenshot"] = "aqueous-screenshot --fullscreen --clipboard",
-            ["binding_screenshot_region"] = "<shift> KEY_SYSRQ",
-            ["command_screenshot_region"] = "aqueous-screenshot --region --clipboard",
-            ["binding_screenshot_window"] = "<alt> KEY_SYSRQ",
-            ["command_screenshot_window"] = "aqueous-screenshot --active-window --clipboard",
-            ["binding_screenshot_ui"] = "<super> KEY_SYSRQ",
-            ["command_screenshot_ui"] = "aqueous-screenshot",
-        };
+            var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(':') ?? [];
+            foreach (var dir in pathDirs)
+            {
+                var candidate = Path.Combine(dir, "aqueous-screenshot");
+                if (File.Exists(candidate))
+                    return "aqueous-screenshot";
+            }
+
+            var baseDir = AppContext.BaseDirectory;
+            var projectRoot = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+            var screenshotBin = Path.Combine(projectRoot, "AqueousScreenshot", "bin", "Debug", "net10.0", "AqueousScreenshot");
+
+            if (File.Exists(screenshotBin))
+                return screenshotBin;
+
+            return "aqueous-screenshot";
+        }
+
+        private static Dictionary<string, string> GetScreenshotBindings()
+        {
+            var bin = ResolveScreenshotBinary();
+            return new Dictionary<string, string>
+            {
+                ["binding_screenshot"] = "KEY_SYSRQ",
+                ["command_screenshot"] = $"{bin} --fullscreen --clipboard",
+                ["binding_screenshot_region"] = "<shift> KEY_SYSRQ",
+                ["command_screenshot_region"] = $"{bin} --region --clipboard",
+                ["binding_screenshot_window"] = "<alt> KEY_SYSRQ",
+                ["command_screenshot_window"] = $"{bin} --active-window --clipboard",
+                ["binding_screenshot_ui"] = "<super> KEY_SYSRQ",
+                ["command_screenshot_ui"] = bin,
+            };
+        }
+
+        public void EnsureBrightnessBindings()
+        {
+            var bindings = new Dictionary<string, string>
+            {
+                ["binding_brightness_up"] = "KEY_BRIGHTNESSUP",
+                ["command_brightness_up"] = "aqueous-brightness up",
+                ["binding_brightness_down"] = "KEY_BRIGHTNESSDOWN",
+                ["command_brightness_down"] = "aqueous-brightness down",
+            };
+            EnsureBindings(bindings);
+        }
 
         public void EnsureScreenshotBindings()
         {
-            EnsureBindings(ScreenshotBindings);
+            var bindings = GetScreenshotBindings();
+            EnsureLoaded();
+            bool changed = false;
+
+            foreach (var (key, value) in bindings)
+            {
+                var idx = FindKeyInSection("command", key);
+                if (idx < 0)
+                {
+                    InsertInSection("command", $"{key} = {value}");
+                    changed = true;
+                }
+                else if (key.StartsWith("command_"))
+                {
+                    var existing = GetValue(_lines[idx]);
+                    if (existing.StartsWith("aqueous-screenshot") && value.StartsWith("/"))
+                    {
+                        _lines[idx] = $"{key} = {value}";
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+                Save();
         }
 
         // Internal helpers

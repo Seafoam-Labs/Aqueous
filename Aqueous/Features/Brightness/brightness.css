@@ -1,0 +1,30 @@
+.brightness-popup {
+    background-color: @theme_bg_color;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 280px;
+}
+
+.brightness-header {
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.brightness-slider-row {
+    padding: 4px 0;
+}
+
+.brightness-icon {
+    font-size: 20px;
+    min-width: 24px;
+}
+
+.brightness-slider {
+    min-width: 180px;
+}
+
+.brightness-label {
+    min-width: 40px;
+    font-size: 13px;
+}

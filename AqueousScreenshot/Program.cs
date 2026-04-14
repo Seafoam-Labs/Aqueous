@@ -15,6 +15,7 @@ namespace AqueousScreenshot
             {
                 LoadCss("screenshot.css");
 
+                CaptureBackend.App = app;
                 var service = new ScreenshotService(app);
                 service.Start(args);
             };

@@ -14,6 +14,8 @@ namespace AqueousScreenshot
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Pictures", "Screenshots");
 
+        public static Aqueous.Bindings.AstalGTK4.Services.AstalApplication? App { get; set; }
+
         public static string GenerateFilePath()
         {
             Directory.CreateDirectory(ScreenshotDir);
@@ -46,16 +48,14 @@ namespace AqueousScreenshot
 
         public static async Task<string?> CaptureInteractiveRegion()
         {
-            var path = GenerateFilePath();
-            // Use slurp for interactive region selection, then grim
-            var slurpResult = await RunProcessWithOutput("slurp");
-            if (slurpResult == null) return null;
+            if (App == null) return null;
 
-            var region = slurpResult.Trim();
-            if (string.IsNullOrEmpty(region)) return null;
+            var selector = new RegionSelector(App);
+            var region = await selector.SelectRegionAsync();
+            if (region == null) return null;
 
-            var result = await RunProcess("grim", $"-g \"{region}\" {path}");
-            return result ? path : null;
+            var (x, y, w, h) = region.Value;
+            return await CaptureRegion(x, y, w, h);
         }
 
         public static async Task<bool> CopyToClipboard(string filePath)

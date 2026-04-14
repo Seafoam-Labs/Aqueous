@@ -73,3 +73,16 @@
 .screenshot-action-btn:disabled {
     opacity: 0.4;
 }
+
+.region-selector-window {
+    background-color: transparent;
+}
+
+.region-dimension-label {
+    background-color: rgba(30, 30, 46, 0.85);
+    color: #cdd6f4;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: bold;
+}
