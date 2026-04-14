@@ -1,0 +1,75 @@
+.screenshot-window {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+.screenshot-mode-box {
+    margin-bottom: 6px;
+}
+
+.screenshot-mode-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    font-weight: bold;
+}
+
+.screenshot-mode-btn:checked {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+}
+
+.screenshot-delay-box {
+    margin-bottom: 6px;
+}
+
+.screenshot-capture-btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.screenshot-capture-btn:hover {
+    background-color: #74c7ec;
+}
+
+.screenshot-preview-frame {
+    background-color: #181825;
+    border-radius: 8px;
+    border: 1px solid #45475a;
+}
+
+.screenshot-preview {
+    min-height: 200px;
+}
+
+.screenshot-status {
+    font-size: 12px;
+    color: #a6adc8;
+}
+
+.screenshot-action-box {
+    margin-top: 6px;
+}
+
+.screenshot-action-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+}
+
+.screenshot-action-btn:hover {
+    background-color: #45475a;
+}
+
+.screenshot-action-btn:disabled {
+    opacity: 0.4;
+}

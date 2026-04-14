@@ -173,6 +173,43 @@ namespace Aqueous.Features.Settings
                 _lines.RemoveAt(idx);
         }
 
+        /// <summary>
+        /// Ensures the given bindings exist in the specified section.
+        /// Existing keys are never overwritten.
+        /// </summary>
+        public void EnsureBindings(Dictionary<string, string> bindings, string section = "command")
+        {
+            EnsureLoaded();
+            bool changed = false;
+            foreach (var (key, value) in bindings)
+            {
+                if (FindKeyInSection(section, key) < 0)
+                {
+                    InsertInSection(section, $"{key} = {value}");
+                    changed = true;
+                }
+            }
+            if (changed)
+                Save();
+        }
+
+        private static readonly Dictionary<string, string> ScreenshotBindings = new()
+        {
+            ["binding_screenshot"] = "KEY_SYSRQ",
+            ["command_screenshot"] = "aqueous-screenshot --fullscreen --clipboard",
+            ["binding_screenshot_region"] = "<shift> KEY_SYSRQ",
+            ["command_screenshot_region"] = "aqueous-screenshot --region --clipboard",
+            ["binding_screenshot_window"] = "<alt> KEY_SYSRQ",
+            ["command_screenshot_window"] = "aqueous-screenshot --active-window --clipboard",
+            ["binding_screenshot_ui"] = "<super> KEY_SYSRQ",
+            ["command_screenshot_ui"] = "aqueous-screenshot",
+        };
+
+        public void EnsureScreenshotBindings()
+        {
+            EnsureBindings(ScreenshotBindings);
+        }
+
         // Internal helpers
 
         private int FindSectionStart(string section)

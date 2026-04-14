@@ -27,7 +27,6 @@ using Aqueous.Features.MediaPlayer;
 using Aqueous.Features.Screenlock;
 using Aqueous.Features.PowerProfiles;
 using Aqueous.Widgets.PowerProfilesTray;
-
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -53,6 +52,9 @@ public class Program
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
+            // Ensure Wayfire keybindings (screenshot, etc.)
+            WayfireConfigService.Instance.EnsureScreenshotBindings();
+
             // Seed user CSS overrides on first run
             SeedUserCss();
 
