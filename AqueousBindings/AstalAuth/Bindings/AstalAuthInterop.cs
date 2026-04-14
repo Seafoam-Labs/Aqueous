@@ -6,10 +6,22 @@ namespace Aqueous.Bindings.AstalAuth
     public static unsafe partial class AstalAuthInterop
     {
         private const string LibName = "libastal-auth.so";
+        private const string GObjectLib = "libgobject-2.0.so";
 
         [LibraryImport(LibName)]
         [return: NativeTypeName("GType")]
         public static partial nuint astal_auth_pam_get_type();
+
+        [DllImport(GObjectLib)]
+        public static extern IntPtr g_object_new(nuint object_type, IntPtr first_property_name);
+
+        [DllImport(GObjectLib)]
+        public static extern ulong g_signal_connect_data(
+            IntPtr instance, IntPtr detailed_signal, IntPtr c_handler,
+            IntPtr data, IntPtr destroy_data, int connect_flags);
+
+        [DllImport(GObjectLib)]
+        public static extern void g_signal_handler_disconnect(IntPtr instance, ulong handler_id);
 
         [LibraryImport(LibName)]
         public static partial void astal_auth_pam_set_username([NativeTypeName("AstalAuthPam *")] _AstalAuthPam* self, [NativeTypeName("const gchar *")] sbyte* username);

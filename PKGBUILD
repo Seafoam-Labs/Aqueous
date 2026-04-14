@@ -46,6 +46,9 @@ package() {
     # SnapTo script
     install -m755 "$srcdir/Aqueous/Features/SnapTo/aqueous-snapto" "$pkgdir/usr/bin/aqueous-snapto"
     
+    # Screenlock script
+    install -m755 "$srcdir/Aqueous/Features/Screenlock/aqueous-screenlock" "$pkgdir/usr/bin/aqueous-screenlock"
+    
     # Wayfire setup script
     install -Dm755 "$srcdir/aqueous-wayfire-setup.sh" "$pkgdir/usr/lib/aqueous/aqueous-wayfire-setup.sh"
     

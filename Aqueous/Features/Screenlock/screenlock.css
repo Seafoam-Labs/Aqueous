@@ -1,0 +1,71 @@
+.screenlock-background {
+    background-color: rgba(0, 0, 0, 0.85);
+}
+
+.screenlock-card {
+    padding: 48px;
+    border-radius: 16px;
+    background-color: rgba(30, 30, 30, 0.95);
+    min-width: 360px;
+}
+
+.screenlock-clock {
+    font-size: 42px;
+    font-weight: 300;
+    color: #ffffff;
+    margin-bottom: 24px;
+}
+
+.screenlock-icon {
+    color: #888888;
+    margin-bottom: 8px;
+}
+
+.screenlock-username {
+    font-size: 20px;
+    font-weight: 500;
+    color: #ffffff;
+    margin-bottom: 16px;
+}
+
+.screenlock-password {
+    min-width: 280px;
+    min-height: 40px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.screenlock-password:focus {
+    border-color: rgba(100, 160, 255, 0.8);
+}
+
+.screenlock-unlock-btn {
+    min-height: 40px;
+    padding: 8px 24px;
+    border-radius: 8px;
+    background-color: rgba(100, 160, 255, 0.8);
+    color: #ffffff;
+    font-weight: 600;
+    border: none;
+}
+
+.screenlock-unlock-btn:hover {
+    background-color: rgba(120, 180, 255, 0.9);
+}
+
+.screenlock-status {
+    font-size: 14px;
+    min-height: 20px;
+    color: #aaaaaa;
+}
+
+.screenlock-status-error {
+    color: #ff6b6b;
+}
+
+.screenlock-status-info {
+    color: #aaaaaa;
+}

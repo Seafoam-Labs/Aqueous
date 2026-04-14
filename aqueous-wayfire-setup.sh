@@ -64,6 +64,8 @@ if grep -q '^\[command\]' "$WAYFIRE_INI"; then
     add_binding "command_aqueous_launcher" "aqueous-applauncher"
     add_binding "binding_aqueous_snapto" "<ctrl> <super> KEY_S"
     add_binding "command_aqueous_snapto" "aqueous-snapto toggle"
+    add_binding "binding_aqueous_screenlock" "<ctrl> <super> KEY_L"
+    add_binding "command_aqueous_screenlock" "aqueous-screenlock"
 else
     # No [command] section exists, append one
     cat >> "$WAYFIRE_INI" <<'EOF'
@@ -73,6 +75,8 @@ binding_aqueous_launcher = <alt> KEY_SPACE
 command_aqueous_launcher = aqueous-applauncher
 binding_aqueous_snapto = <ctrl> <super> KEY_S
 command_aqueous_snapto = aqueous-snapto toggle
+binding_aqueous_screenlock = <ctrl> <super> KEY_L
+command_aqueous_screenlock = aqueous-screenlock
 EOF
     echo "[aqueous-setup] Created [command] section with Aqueous bindings."
 fi

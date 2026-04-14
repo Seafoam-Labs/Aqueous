@@ -84,6 +84,9 @@
       <Content Include="Features\MediaPlayer\mediaplayer.css">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
+      <Content Include="Features\Screenlock\screenlock.css">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
     <ItemGroup>

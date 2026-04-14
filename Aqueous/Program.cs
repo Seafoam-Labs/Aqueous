@@ -24,6 +24,7 @@ using Aqueous.Widgets.NetworkTray;
 using Aqueous.Features.Notifications;
 using Aqueous.Widgets.NotificationTray;
 using Aqueous.Features.MediaPlayer;
+using Aqueous.Features.Screenlock;
 
 public class Program
 {
@@ -40,6 +41,7 @@ public class Program
     private static NetworkService? _networkService;
     private static NotificationService? _notificationService;
     private static MediaPlayerService? _mediaPlayerService;
+    private static ScreenlockService? _screenlockService;
 
     public static void Main(string[] args)
     {
@@ -162,6 +164,11 @@ public class Program
             LoadCss(Path.Combine("Features", "MediaPlayer", "mediaplayer.css"));
             _mediaPlayerService = new MediaPlayerService(app);
             _mediaPlayerService.Start();
+
+            // --- Screenlock Service ---
+            LoadCss(Path.Combine("Features", "Screenlock", "screenlock.css"));
+            _screenlockService = new ScreenlockService(app);
+            _screenlockService.Start();
         };
 
         app.GtkApplication.Run(args);
@@ -174,6 +181,7 @@ public class Program
         _bluetoothService?.Stop();
         _dockService?.Stop();
         _mediaPlayerService?.Stop();
+        _screenlockService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
         _windowManagerService?.Dispose();
@@ -229,6 +237,7 @@ public class Program
             Path.Combine("Widgets", "NetworkTray", "networktray.css"),
             Path.Combine("Widgets", "NotificationTray", "notificationtray.css"),
             Path.Combine("Features", "MediaPlayer", "mediaplayer.css"),
+            Path.Combine("Features", "Screenlock", "screenlock.css"),
         ];
 
         foreach (var relativePath in cssFiles)
