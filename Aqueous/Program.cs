@@ -27,6 +27,8 @@ using Aqueous.Features.MediaPlayer;
 using Aqueous.Features.Screenlock;
 using Aqueous.Features.PowerProfiles;
 using Aqueous.Widgets.PowerProfilesTray;
+using Aqueous.Features.Brightness;
+using Aqueous.Widgets.BrightnessTray;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -44,6 +46,7 @@ public class Program
     private static MediaPlayerService? _mediaPlayerService;
     private static ScreenlockService? _screenlockService;
     private static PowerProfilesService? _powerProfilesService;
+    private static BrightnessService? _brightnessService;
 
     public static void Main(string[] args)
     {
@@ -54,6 +57,7 @@ public class Program
         {
             // Ensure Wayfire keybindings (screenshot, etc.)
             WayfireConfigService.Instance.EnsureScreenshotBindings();
+            WayfireConfigService.Instance.EnsureBrightnessBindings();
 
             // Seed user CSS overrides on first run
             SeedUserCss();
@@ -129,6 +133,16 @@ public class Program
             var bluetoothTray = new BluetoothTrayWidget(_bluetoothService!, barWindow);
             barRight.GtkBox.Append(bluetoothTray.Button);
 
+            // --- Brightness Service ---
+            LoadCss(Path.Combine("Features", "Brightness", "brightness.css"));
+            _brightnessService = new BrightnessService(app);
+            _brightnessService.Start();
+
+            // --- Brightness Tray Widget ---
+            LoadCss(Path.Combine("Widgets", "BrightnessTray", "brightnesstray.css"));
+            var brightnessTray = new BrightnessTrayWidget(_brightnessService!, barWindow);
+            barRight.GtkBox.Append(brightnessTray.Button);
+
             // --- Power Profiles Tray Widget ---
             LoadCss(Path.Combine("Widgets", "PowerProfilesTray", "powerprofilestray.css"));
             var powerProfilesTray = new PowerProfilesTrayWidget(_powerProfilesService!, barWindow);
@@ -197,6 +211,7 @@ public class Program
         _dockService?.Stop();
         _mediaPlayerService?.Stop();
         _screenlockService?.Stop();
+        _brightnessService?.Stop();
         _powerProfilesService?.Stop();
         _wallpaperService?.Stop();
         _systemTrayService?.Dispose();
@@ -256,6 +271,8 @@ public class Program
             Path.Combine("Features", "Screenlock", "screenlock.css"),
             Path.Combine("Features", "PowerProfiles", "powerprofiles.css"),
             Path.Combine("Widgets", "PowerProfilesTray", "powerprofilestray.css"),
+            Path.Combine("Features", "Brightness", "brightness.css"),
+            Path.Combine("Widgets", "BrightnessTray", "brightnesstray.css"),
         ];
 
         foreach (var relativePath in cssFiles)
