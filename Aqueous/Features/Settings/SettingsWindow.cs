@@ -114,7 +114,7 @@ namespace Aqueous.Features.Settings
             // System
             _stack.AddNamed(AudioPage.Create(_store), "Audio");
             _stack.AddNamed(BluetoothPage.Create(_store), "Bluetooth");
-            _stack.AddNamed(HdrPage.Create(_store), "Display");
+            _stack.AddNamed(DisplayPage.Create(_store), "Display");
             _stack.AddNamed(InputPage.Create(_store), "Input");
             _stack.AddNamed(IdleLockPage.Create(_store), "Idle & Lock");
 
