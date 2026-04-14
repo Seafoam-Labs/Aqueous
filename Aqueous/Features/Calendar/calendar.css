@@ -1,0 +1,22 @@
+.calendar-popup {
+    padding: 12px;
+    background: @theme_bg_color;
+    border-radius: 8px;
+}
+
+.calendar-header {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.clock-button {
+    background: transparent;
+    border: none;
+    padding: 0 8px;
+}
+
+.clock-button:hover {
+    background: alpha(white, 0.1);
+    border-radius: 4px;
+}

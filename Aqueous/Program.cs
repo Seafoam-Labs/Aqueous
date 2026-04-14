@@ -30,6 +30,7 @@ using Aqueous.Widgets.PowerProfilesTray;
 using Aqueous.Features.Brightness;
 using Aqueous.Widgets.BrightnessTray;
 using Aqueous.Features.ClipboardManager;
+using Aqueous.Features.Calendar;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -161,8 +162,10 @@ public class Program
             barRight.GtkBox.Append(notificationTray.Button);
 
             // --- Clock Tray Widget ---
-            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false);
-            barCenter.GtkBox.Append(clock.Label);
+            LoadCss(Path.Combine("Features", "Calendar", "calendar.css"));
+            var calendarPopup = new CalendarPopup(app);
+            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false, onClick: calendarPopup.Toggle);
+            barCenter.GtkBox.Append(clock.Button);
             clock.Start();
 
             // --- Start Menu Widget ---
@@ -282,6 +285,7 @@ public class Program
             Path.Combine("Features", "Brightness", "brightness.css"),
             Path.Combine("Widgets", "BrightnessTray", "brightnesstray.css"),
             Path.Combine("Features", "ClipboardManager", "clipboard.css"),
+            Path.Combine("Features", "Calendar", "calendar.css"),
         ];
 
         foreach (var relativePath in cssFiles)

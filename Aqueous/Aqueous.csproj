@@ -94,6 +94,9 @@
       <Content Include="Widgets\PowerProfilesTray\powerprofilestray.css">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
+      <Content Include="Features\Calendar\calendar.css">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
     <ItemGroup>

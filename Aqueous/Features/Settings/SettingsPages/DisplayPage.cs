@@ -9,7 +9,8 @@ namespace Aqueous.Features.Settings.SettingsPages
 {
     public static class DisplayPage
     {
-        private static readonly string OutputSection = "output";
+        private static string OutputSection => $"output:{DetectedOutputName}";
+        private static string DetectedOutputName = DetectOutputName();
 
         private static Gtk.DropDown? _resolutionDropdown;
         private static Gtk.DropDown? _refreshDropdown;
@@ -287,6 +288,48 @@ namespace Aqueous.Features.Settings.SettingsPages
             }
 
             return modes;
+        }
+
+        /// <summary>
+        /// Detects the primary output name from wlr-randr (e.g. eDP-1, HDMI-A-1).
+        /// Falls back to empty string if detection fails, resulting in section "output:".
+        /// </summary>
+        private static string DetectOutputName()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("wlr-randr")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc == null) return "";
+
+                var output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(3000);
+
+                if (proc.ExitCode != 0) return "";
+
+                foreach (var line in output.Split('\n'))
+                {
+                    // Output names are non-indented lines, e.g. "eDP-1 \"BOE 0x0BCA\" (16 modes)"
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.StartsWith(' ') || line.StartsWith('\t')) continue;
+
+                    var name = line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+                    if (!string.IsNullOrEmpty(name))
+                        return name;
+                }
+            }
+            catch
+            {
+                // wlr-randr not available
+            }
+
+            return "";
         }
 
         private struct DisplayMode
