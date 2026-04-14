@@ -1,0 +1,96 @@
+.greeter-background {
+    background: rgba(30, 30, 46, 1.0);
+    background-size: cover;
+}
+
+.greeter-card {
+    background: rgba(30, 30, 46, 0.85);
+    border-radius: 16px;
+    padding: 32px 48px;
+    min-width: 380px;
+}
+
+.greeter-clock {
+    font-size: 48px;
+    font-weight: 300;
+    color: white;
+    margin-bottom: 8px;
+}
+
+.greeter-hostname {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 24px;
+}
+
+.greeter-icon {
+    margin-bottom: 12px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.greeter-username entry {
+    min-height: 40px;
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
+
+.greeter-password {
+    min-height: 40px;
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
+
+.greeter-login-button {
+    min-height: 40px;
+    border-radius: 8px;
+    background: #89b4fa;
+    color: #1e1e2e;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.greeter-login-button:hover {
+    background: #b4d0fb;
+}
+
+.greeter-status {
+    font-size: 12px;
+    min-height: 20px;
+}
+
+.greeter-status-error {
+    color: #f38ba8;
+}
+
+.greeter-status-info {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.greeter-power-row {
+    margin-top: 16px;
+}
+
+.greeter-power-button {
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.greeter-power-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.greeter-session-dropdown {
+    min-height: 36px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
