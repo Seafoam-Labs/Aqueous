@@ -34,6 +34,31 @@ namespace Aqueous.Features.Dock
 
         public HashSet<string> GetRunningApps() => new(_runningApps);
 
+        /// <summary>
+        /// Returns the original app_id(s) from running windows that resolved to the given desktop ID.
+        /// </summary>
+        public List<string> GetAppIdsForDesktopId(string desktopId)
+        {
+            var result = new List<string>();
+            var windows = _windowManager.Windows;
+            foreach (var win in windows)
+            {
+                if (string.IsNullOrEmpty(win.AppId) || win.Role != "toplevel") continue;
+                var appIdLower = win.AppId.ToLowerInvariant();
+                if (_appIdToDesktopId.TryGetValue(appIdLower, out var resolved) && resolved == desktopId)
+                {
+                    if (!result.Contains(win.AppId))
+                        result.Add(win.AppId);
+                }
+                else if (win.AppId == desktopId)
+                {
+                    if (!result.Contains(win.AppId))
+                        result.Add(win.AppId);
+                }
+            }
+            return result;
+        }
+
         public void Dispose()
         {
             Stop();

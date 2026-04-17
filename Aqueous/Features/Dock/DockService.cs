@@ -91,10 +91,17 @@ namespace Aqueous.Features.Dock
                 if (desktopPath != null)
                 {
                     var (name, icon, exec) = ParseDesktopFile(desktopPath);
+
+                    // Resolve the original app_id used by running windows for this desktop entry
+                    var windowAppIds = _windowTracker?.GetAppIdsForDesktopId(appId);
+                    var windowAppId = windowAppIds?.Count > 0 ? windowAppIds[0] : appId;
+
                     var item = new DockItemWidget(
                         name ?? appId,
                         icon ?? "application-x-executable",
-                        exec ?? "");
+                        exec ?? "",
+                        _windowManager,
+                        windowAppId);
                     item.Button.AddCssClass("dock-item-running");
                     _window.AddItem(item.Button);
                     _runningAppWidgets[appId] = item.Button;
