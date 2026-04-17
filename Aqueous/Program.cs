@@ -62,6 +62,9 @@ public class Program
             WayfireConfigService.Instance.EnsureScreenshotBindings();
             WayfireConfigService.Instance.EnsureBrightnessBindings();
 
+            // Validate and apply saved display settings (per-output modes)
+            DisplaySettingsManager.Instance.ValidateAndApplySavedModes();
+
             // Seed user CSS overrides on first run
             SeedUserCss();
 

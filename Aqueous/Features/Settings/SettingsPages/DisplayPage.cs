@@ -189,8 +189,6 @@ namespace Aqueous.Features.Settings.SettingsPages
         {
             try
             {
-                var config = WayfireConfigService.Instance;
-
                 if (_resolutionDropdown == null || _refreshDropdown == null)
                     return;
 
@@ -212,8 +210,8 @@ namespace Aqueous.Features.Settings.SettingsPages
                         : $"{resolution}@{refresh}";
                 }
 
-                config.SetString(OutputSection, "mode", mode);
-                config.Save();
+                // Apply live via wlr-randr and persist to wayfire.ini
+                DisplaySettingsManager.Instance.ApplyAndPersist(DetectedOutputName, mode);
             }
             catch
             {
