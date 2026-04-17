@@ -1,5 +1,7 @@
 # Aqueous
 
+![Screenshot](Screenshot_20260417_101145.png)
+
 A .NET 10 GTK4-based desktop environment component suite using [Astal](https://github.com/Aylur/astal), designed for Wayfire.
 
 ### Features
