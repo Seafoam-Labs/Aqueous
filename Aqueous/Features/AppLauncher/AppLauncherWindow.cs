@@ -48,6 +48,12 @@ namespace Aqueous.Features.AppLauncher
             // Populate initial results
             UpdateResults("");
 
+            // Enter key via Entry's activate signal
+            _searchEntry.OnActivate += (sender, args) =>
+            {
+                LaunchSelected();
+            };
+
             // Text changed handler
             var buffer = _searchEntry.GetBuffer();
             buffer.OnInsertedText += (sender, args) =>
