@@ -1,225 +1,213 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
-using Tmds.DBus;
 
 namespace Aqueous.Features.Network
 {
-    // NetworkManager D-Bus interface definitions
-
-    [DBusInterface("org.freedesktop.NetworkManager")]
-    public interface INetworkManager : IDBusObject
-    {
-        Task<ObjectPath> ActivateConnectionAsync(ObjectPath connection, ObjectPath device, ObjectPath specificObject);
-        Task DeactivateConnectionAsync(ObjectPath activeConnection);
-        Task<ObjectPath> AddAndActivateConnectionAsync(IDictionary<string, IDictionary<string, object>> connection, ObjectPath device, ObjectPath specificObject);
-        Task<T> GetAsync<T>(string prop);
-        Task SetAsync(string prop, object val);
-        Task<IDictionary<string, object>> GetAllAsync();
-        Task<ObjectPath[]> GetDevicesAsync();
-    }
-
-    [DBusInterface("org.freedesktop.NetworkManager.Device")]
-    public interface INetworkDevice : IDBusObject
-    {
-        Task<T> GetAsync<T>(string prop);
-        Task<IDictionary<string, object>> GetAllAsync();
-    }
-
-    [DBusInterface("org.freedesktop.NetworkManager.Device.Wireless")]
-    public interface IWirelessDevice : IDBusObject
-    {
-        Task RequestScanAsync(IDictionary<string, object> options);
-        Task<ObjectPath[]> GetAccessPointsAsync();
-        Task<T> GetAsync<T>(string prop);
-    }
-
-    [DBusInterface("org.freedesktop.NetworkManager.AccessPoint")]
-    public interface IAccessPoint : IDBusObject
-    {
-        Task<T> GetAsync<T>(string prop);
-        Task<IDictionary<string, object>> GetAllAsync();
-    }
-
-    [DBusInterface("org.freedesktop.NetworkManager.Connection.Active")]
-    public interface IActiveConnection : IDBusObject
-    {
-        Task<T> GetAsync<T>(string prop);
-        Task<IDictionary<string, object>> GetAllAsync();
-    }
-
-    [DBusInterface("org.freedesktop.DBus.Properties")]
-    public interface INmProperties : IDBusObject
-    {
-        Task<IDisposable> WatchPropertiesChangedAsync(
-            Action<(string iface, IDictionary<string, object> changed, string[] invalidated)> handler,
-            Action<Exception>? onError = null);
-    }
-
     public class NetworkBackend : IDisposable
     {
-        private Connection? _connection;
-        private INetworkManager? _networkManager;
-        private IDisposable? _propsWatch;
-        private readonly List<IDisposable> _devicePropsWatches = new();
+        private Process? _monitorProcess;
+        private CancellationTokenSource? _monitorCts;
         private uint _devicesChangedDebounce;
 
-        public bool IsConnected => _networkManager != null;
+        public bool IsConnected { get; private set; }
 
         public event Action? DevicesChanged;
         public event Action? StateChanged;
 
         public void ResetConnection()
         {
-            _propsWatch?.Dispose();
-            _propsWatch = null;
-            foreach (var w in _devicePropsWatches)
-                w.Dispose();
-            _devicePropsWatches.Clear();
+            StopMonitor();
+            IsConnected = false;
             if (_devicesChangedDebounce != 0)
             {
                 GLib.Functions.SourceRemove(_devicesChangedDebounce);
                 _devicesChangedDebounce = 0;
             }
-            _networkManager = null;
-            _connection?.Dispose();
-            _connection = null;
         }
 
         public async Task ConnectAsync()
         {
-            _connection = new Connection(Address.System);
-            await _connection.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            var result = await RunAsync("networkctl", "list --no-pager --no-legend");
+            if (result.ExitCode != 0)
+                throw new Exception("networkctl not available or systemd-networkd not running");
 
-            _networkManager = _connection.CreateProxy<INetworkManager>(
-                "org.freedesktop.NetworkManager", new ObjectPath("/org/freedesktop/NetworkManager"));
-
-            // Watch NM properties for global state changes
-            var nmProps = _connection.CreateProxy<INmProperties>(
-                "org.freedesktop.NetworkManager", new ObjectPath("/org/freedesktop/NetworkManager"));
-            _propsWatch = await nmProps.WatchPropertiesChangedAsync(change =>
-            {
-                if (change.iface == "org.freedesktop.NetworkManager")
-                    RaiseDevicesChangedDebounced();
-            });
-
-            await SubscribeDevicePropertiesAsync();
+            IsConnected = true;
+            StartMonitor();
         }
 
-        public async Task SubscribeDevicePropertiesAsync()
+        private void StartMonitor()
         {
-            foreach (var w in _devicePropsWatches)
-                w.Dispose();
-            _devicePropsWatches.Clear();
+            StopMonitor();
+            _monitorCts = new CancellationTokenSource();
 
-            if (_connection == null || _networkManager == null) return;
-
-            try
+            _monitorProcess = new Process
             {
-                var devicePaths = await _networkManager.GetDevicesAsync();
-                foreach (var path in devicePaths)
+                StartInfo = new ProcessStartInfo
                 {
-                    try
+                    FileName = "networkctl",
+                    Arguments = "monitor",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                },
+                EnableRaisingEvents = true
+            };
+
+            _monitorProcess.Start();
+
+            var ct = _monitorCts.Token;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var reader = _monitorProcess.StandardOutput;
+                    while (!ct.IsCancellationRequested)
                     {
-                        var devProps = _connection.CreateProxy<INmProperties>(
-                            "org.freedesktop.NetworkManager", path);
-                        var watch = await devProps.WatchPropertiesChangedAsync(change =>
-                        {
-                            RaiseDevicesChangedDebounced();
-                        });
-                        _devicePropsWatches.Add(watch);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[Network] SubscribeDeviceProps({path}) error: {ex.Message}");
+                        var line = await reader.ReadLineAsync(ct);
+                        if (line == null) break;
+                        RaiseDevicesChangedDebounced();
                     }
                 }
-            }
-            catch (Exception ex)
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Network] Monitor error: {ex.Message}");
+                }
+            }, ct);
+        }
+
+        private void StopMonitor()
+        {
+            _monitorCts?.Cancel();
+            if (_monitorProcess != null)
             {
-                Console.Error.WriteLine($"[Network] SubscribeDevicePropertiesAsync error: {ex.Message}");
+                try
+                {
+                    if (!_monitorProcess.HasExited)
+                        _monitorProcess.Kill();
+                    _monitorProcess.Dispose();
+                }
+                catch { }
+                _monitorProcess = null;
             }
+            _monitorCts?.Dispose();
+            _monitorCts = null;
+        }
+
+        private void RaiseDevicesChangedDebounced()
+        {
+            GLib.Functions.IdleAdd(0, () =>
+            {
+                if (_devicesChangedDebounce != 0)
+                    GLib.Functions.SourceRemove(_devicesChangedDebounce);
+
+                _devicesChangedDebounce = GLib.Functions.TimeoutAdd(0, 300, () =>
+                {
+                    _devicesChangedDebounce = 0;
+                    DevicesChanged?.Invoke();
+                    StateChanged?.Invoke();
+                    return false;
+                });
+                return false;
+            });
         }
 
         public async Task<List<NetworkDevice>> GetDevicesAsync()
         {
             var devices = new List<NetworkDevice>();
-            if (_connection == null || _networkManager == null) return devices;
+            if (!IsConnected) return devices;
 
             try
             {
-                var devicePaths = await _networkManager.GetDevicesAsync();
-                foreach (var path in devicePaths)
+                var result = await RunAsync("networkctl", "list --no-pager --no-legend");
+                if (result.ExitCode != 0) return devices;
+
+                foreach (var line in result.Output.Split('\n'))
                 {
-                    try
+                    var trimmed = line.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+
+                    // Format: IDX NAME TYPE OPERATIONAL SETUP
+                    var parts = Regex.Split(trimmed, @"\s+");
+                    if (parts.Length < 4) continue;
+
+                    var name = parts[1];
+                    var type = parts[2];
+                    var operational = parts[3];
+
+                    var deviceType = type switch
                     {
-                        var dev = _connection.CreateProxy<INetworkDevice>(
-                            "org.freedesktop.NetworkManager", path);
-                        var props = await dev.GetAllAsync();
+                        "ether" => NetworkDeviceType.Ethernet,
+                        "wlan" => NetworkDeviceType.Wifi,
+                        _ => NetworkDeviceType.Unknown
+                    };
 
-                        var deviceType = props.TryGetValue("DeviceType", out var dt) && dt is uint dtu
-                            ? dtu switch { 1 => NetworkDeviceType.Ethernet, 2 => NetworkDeviceType.Wifi, _ => NetworkDeviceType.Unknown }
-                            : NetworkDeviceType.Unknown;
+                    if (deviceType == NetworkDeviceType.Unknown) continue;
 
-                        // Skip loopback and other non-physical devices
-                        if (deviceType == NetworkDeviceType.Unknown) continue;
-
-                        var state = props.TryGetValue("State", out var st) && st is uint stu
-                            ? stu switch
-                            {
-                                100 => NetworkConnectionState.Connected,
-                                40 or 50 or 60 or 70 or 80 or 90 => NetworkConnectionState.Connecting,
-                                110 or 120 => NetworkConnectionState.Deactivating,
-                                _ => NetworkConnectionState.Disconnected
-                            }
-                            : NetworkConnectionState.Unknown;
-
-                        var iface = props.TryGetValue("Interface", out var ifv) ? ifv as string ?? "" : "";
-
-                        // Get active connection name
-                        var activeConnName = "";
-                        if (props.TryGetValue("ActiveConnection", out var acPath) && acPath is ObjectPath acp && acp.ToString() != "/")
-                        {
-                            try
-                            {
-                                var ac = _connection.CreateProxy<IActiveConnection>(
-                                    "org.freedesktop.NetworkManager", acp);
-                                var acId = await ac.GetAsync<string>("Id");
-                                activeConnName = acId ?? "";
-                            }
-                            catch { }
-                        }
-
-                        // Get signal strength for Wi-Fi
-                        var signalStrength = -1;
-                        if (deviceType == NetworkDeviceType.Wifi)
-                        {
-                            try
-                            {
-                                var wireless = _connection.CreateProxy<IWirelessDevice>(
-                                    "org.freedesktop.NetworkManager", path);
-                                var activeAp = await wireless.GetAsync<ObjectPath>("ActiveAccessPoint");
-                                if (activeAp.ToString() != "/")
-                                {
-                                    var ap = _connection.CreateProxy<IAccessPoint>(
-                                        "org.freedesktop.NetworkManager", activeAp);
-                                    var strength = await ap.GetAsync<byte>("Strength");
-                                    signalStrength = strength;
-                                }
-                                else
-                                {
-                                    signalStrength = 0;
-                                }
-                            }
-                            catch { signalStrength = 0; }
-                        }
-
-                        devices.Add(new NetworkDevice(iface, deviceType, state, activeConnName, signalStrength));
-                    }
-                    catch (Exception ex)
+                    var state = operational switch
                     {
-                        Console.Error.WriteLine($"[Network] GetDevicesAsync device error: {ex.Message}");
+                        "routable" or "carrier" => NetworkConnectionState.Connected,
+                        "degraded" => NetworkConnectionState.Connecting,
+                        "dormant" or "no-carrier" or "off" => NetworkConnectionState.Disconnected,
+                        _ => NetworkConnectionState.Disconnected
+                    };
+
+                    var activeConnName = "";
+                    var signalStrength = -1;
+
+                    if (deviceType == NetworkDeviceType.Wifi)
+                    {
+                        signalStrength = 0;
+                        // Get connected network name and signal from iwctl
+                        try
+                        {
+                            var iwResult = await RunAsync("iwctl", $"station {name} show");
+                            if (iwResult.ExitCode == 0)
+                            {
+                                foreach (var iwLine in iwResult.Output.Split('\n'))
+                                {
+                                    var iwTrimmed = iwLine.Trim();
+                                    if (iwTrimmed.StartsWith("Connected network"))
+                                    {
+                                        activeConnName = iwTrimmed["Connected network".Length..].Trim();
+                                    }
+                                }
+
+                                // Get signal strength from scan results if connected
+                                if (!string.IsNullOrEmpty(activeConnName))
+                                {
+                                    var netResult = await RunAsync("iwctl", $"station {name} get-networks");
+                                    if (netResult.ExitCode == 0)
+                                    {
+                                        foreach (var netLine in netResult.Output.Split('\n'))
+                                        {
+                                            if (netLine.Contains(activeConnName))
+                                            {
+                                                signalStrength = ParseSignalBars(netLine);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"[Network] iwctl station show error: {ex.Message}");
+                        }
                     }
+                    else if (state == NetworkConnectionState.Connected)
+                    {
+                        activeConnName = name;
+                    }
+
+                    devices.Add(new NetworkDevice(name, deviceType, state, activeConnName, signalStrength));
                 }
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] GetDevicesAsync error: {ex.Message}"); }
@@ -230,49 +218,51 @@ namespace Aqueous.Features.Network
         public async Task<List<WifiAccessPoint>> GetAccessPointsAsync(string deviceInterface)
         {
             var accessPoints = new List<WifiAccessPoint>();
-            if (_connection == null || _networkManager == null) return accessPoints;
+            if (!IsConnected) return accessPoints;
 
             try
             {
-                var devicePaths = await _networkManager.GetDevicesAsync();
-                foreach (var path in devicePaths)
+                var result = await RunAsync("iwctl", $"station {deviceInterface} get-networks");
+                if (result.ExitCode != 0) return accessPoints;
+
+                var lines = result.Output.Split('\n');
+                var pastHeader = false;
+                var headerDashCount = 0;
+
+                foreach (var line in lines)
                 {
-                    var dev = _connection.CreateProxy<INetworkDevice>(
-                        "org.freedesktop.NetworkManager", path);
-                    var iface = await dev.GetAsync<string>("Interface");
-                    if (iface != deviceInterface) continue;
-
-                    var wireless = _connection.CreateProxy<IWirelessDevice>(
-                        "org.freedesktop.NetworkManager", path);
-                    var apPaths = await wireless.GetAccessPointsAsync();
-
-                    foreach (var apPath in apPaths)
+                    if (line.Contains("--------"))
                     {
-                        try
-                        {
-                            var ap = _connection.CreateProxy<IAccessPoint>(
-                                "org.freedesktop.NetworkManager", apPath);
-                            var apProps = await ap.GetAllAsync();
-
-                            var ssidBytes = apProps.TryGetValue("Ssid", out var sb) ? sb as byte[] : null;
-                            var ssid = ssidBytes != null ? System.Text.Encoding.UTF8.GetString(ssidBytes) : "";
-                            if (string.IsNullOrEmpty(ssid)) continue;
-
-                            var strength = apProps.TryGetValue("Strength", out var s) && s is byte b ? (int)b : 0;
-
-                            // WpaFlags or RsnFlags != 0 means secured
-                            var wpaFlags = apProps.TryGetValue("WpaFlags", out var wf) && wf is uint wfu ? wfu : 0u;
-                            var rsnFlags = apProps.TryGetValue("RsnFlags", out var rf) && rf is uint rfu ? rfu : 0u;
-                            var isSecured = wpaFlags != 0 || rsnFlags != 0;
-
-                            accessPoints.Add(new WifiAccessPoint(ssid, strength, isSecured, apPath.ToString()));
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine($"[Network] GetAccessPointsAsync AP error: {ex.Message}");
-                        }
+                        headerDashCount++;
+                        if (headerDashCount >= 2)
+                            pastHeader = true;
+                        continue;
                     }
-                    break;
+
+                    if (!pastHeader || string.IsNullOrWhiteSpace(line)) continue;
+
+                    // Lines look like:
+                    //   >   MyHomeWifi                      psk               ****
+                    //       CoffeeShop                      open              ***
+                    var trimmed = line.TrimStart();
+                    var isConnected = trimmed.StartsWith(">");
+                    if (isConnected)
+                        trimmed = trimmed[1..].TrimStart();
+
+                    // Parse from the right: signal bars, then security, then network name
+                    var parts = Regex.Split(trimmed.TrimEnd(), @"\s{2,}");
+                    if (parts.Length < 3) continue;
+
+                    var networkName = parts[0].Trim();
+                    var security = parts[1].Trim().ToLower();
+                    var signalStr = parts[2].Trim();
+
+                    if (string.IsNullOrEmpty(networkName)) continue;
+
+                    var isSecured = security != "open";
+                    var strength = ParseSignalBars(signalStr);
+
+                    accessPoints.Add(new WifiAccessPoint(networkName, strength, isSecured, networkName));
                 }
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] GetAccessPointsAsync error: {ex.Message}"); }
@@ -284,8 +274,28 @@ namespace Aqueous.Features.Network
         {
             try
             {
-                if (_networkManager == null) return false;
-                return await _networkManager.GetAsync<bool>("WirelessEnabled");
+                var result = await RunAsync("iwctl", "device list");
+                if (result.ExitCode != 0) return false;
+
+                foreach (var line in result.Output.Split('\n'))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.Contains("on") && !trimmed.Contains("Powered") && !trimmed.Contains("----"))
+                    {
+                        // Check if any device line has "on" in the Powered column
+                        var parts = Regex.Split(trimmed, @"\s{2,}");
+                        if (parts.Length >= 3)
+                        {
+                            // Name, Address, Powered, Adapter, Mode
+                            foreach (var part in parts)
+                            {
+                                if (part.Trim().Equals("on", StringComparison.OrdinalIgnoreCase))
+                                    return true;
+                            }
+                        }
+                    }
+                }
+                return false;
             }
             catch (Exception ex)
             {
@@ -298,8 +308,12 @@ namespace Aqueous.Features.Network
         {
             try
             {
-                if (_networkManager == null) return;
-                await _networkManager.SetAsync("WirelessEnabled", enabled);
+                // Find the wlan device name first
+                var devices = await GetDevicesAsync();
+                var wlanDevice = devices.FirstOrDefault(d => d.DeviceType == NetworkDeviceType.Wifi);
+                if (wlanDevice == null) return;
+
+                await RunAsync("iwctl", $"device {wlanDevice.Interface} set-property Powered {(enabled ? "on" : "off")}");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] SetWirelessEnabledAsync error: {ex.Message}"); }
         }
@@ -308,8 +322,22 @@ namespace Aqueous.Features.Network
         {
             try
             {
-                if (_networkManager == null) return false;
-                return await _networkManager.GetAsync<bool>("NetworkingEnabled");
+                var result = await RunAsync("networkctl", "list --no-pager --no-legend");
+                if (result.ExitCode != 0) return false;
+
+                foreach (var line in result.Output.Split('\n'))
+                {
+                    var trimmed = line.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    var parts = Regex.Split(trimmed, @"\s+");
+                    if (parts.Length >= 4)
+                    {
+                        var operational = parts[3];
+                        if (operational == "routable" || operational == "carrier")
+                            return true;
+                    }
+                }
+                return false;
             }
             catch (Exception ex)
             {
@@ -320,124 +348,85 @@ namespace Aqueous.Features.Network
 
         public async Task RequestScanAsync(string deviceInterface)
         {
-            if (_connection == null || _networkManager == null) return;
             try
             {
-                var devicePaths = await _networkManager.GetDevicesAsync();
-                foreach (var path in devicePaths)
-                {
-                    var dev = _connection.CreateProxy<INetworkDevice>(
-                        "org.freedesktop.NetworkManager", path);
-                    var iface = await dev.GetAsync<string>("Interface");
-                    if (iface != deviceInterface) continue;
-
-                    var wireless = _connection.CreateProxy<IWirelessDevice>(
-                        "org.freedesktop.NetworkManager", path);
-                    await wireless.RequestScanAsync(new Dictionary<string, object>());
-                    break;
-                }
+                await RunAsync("iwctl", $"station {deviceInterface} scan");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] RequestScanAsync error: {ex.Message}"); }
         }
 
-        public async Task ActivateConnectionAsync(string accessPointPath, string devicePath)
+        public async Task ActivateConnectionAsync(string networkName, string deviceInterface)
         {
-            if (_connection == null || _networkManager == null) return;
             try
             {
-                await _networkManager.ActivateConnectionAsync(
-                    new ObjectPath("/"),
-                    new ObjectPath(devicePath),
-                    new ObjectPath(accessPointPath));
+                await RunAsync("iwctl", $"station {deviceInterface} connect \"{networkName}\"");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] ActivateConnectionAsync error: {ex.Message}"); }
         }
 
-        public async Task ConnectToNewWifiAsync(string ssid, string password, string devicePath)
+        public async Task ConnectToNewWifiAsync(string ssid, string password, string deviceInterface)
         {
-            if (_connection == null || _networkManager == null) return;
             try
             {
-                var connection = new Dictionary<string, IDictionary<string, object>>
-                {
-                    ["connection"] = new Dictionary<string, object>
-                    {
-                        ["type"] = "802-11-wireless",
-                        ["id"] = ssid
-                    },
-                    ["802-11-wireless"] = new Dictionary<string, object>
-                    {
-                        ["ssid"] = System.Text.Encoding.UTF8.GetBytes(ssid),
-                        ["mode"] = "infrastructure"
-                    },
-                    ["802-11-wireless-security"] = new Dictionary<string, object>
-                    {
-                        ["key-mgmt"] = "wpa-psk",
-                        ["psk"] = password
-                    }
-                };
-
-                await _networkManager.AddAndActivateConnectionAsync(
-                    connection,
-                    new ObjectPath(devicePath),
-                    new ObjectPath("/"));
+                await RunAsync("iwctl", $"station {deviceInterface} connect \"{ssid}\" --passphrase \"{password}\"");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] ConnectToNewWifiAsync error: {ex.Message}"); }
         }
 
-        public async Task DeactivateConnectionAsync(string activeConnectionPath)
+        public async Task DeactivateConnectionAsync(string deviceInterface)
         {
-            if (_networkManager == null) return;
             try
             {
-                await _networkManager.DeactivateConnectionAsync(new ObjectPath(activeConnectionPath));
+                await RunAsync("iwctl", $"station {deviceInterface} disconnect");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Network] DeactivateConnectionAsync error: {ex.Message}"); }
         }
 
-        public async Task<ObjectPath?> FindDevicePathAsync(string deviceInterface)
+        public Task<string?> FindDevicePathAsync(string deviceInterface)
         {
-            if (_connection == null || _networkManager == null) return null;
-            try
-            {
-                var devicePaths = await _networkManager.GetDevicesAsync();
-                foreach (var path in devicePaths)
-                {
-                    var dev = _connection.CreateProxy<INetworkDevice>(
-                        "org.freedesktop.NetworkManager", path);
-                    var iface = await dev.GetAsync<string>("Interface");
-                    if (iface == deviceInterface) return path;
-                }
-            }
-            catch (Exception ex) { Console.Error.WriteLine($"[Network] FindDevicePathAsync error: {ex.Message}"); }
-            return null;
+            // With networkctl/iwctl, we just use the interface name directly
+            return Task.FromResult<string?>(deviceInterface);
         }
 
-        private void RaiseDevicesChangedDebounced()
+        private static int ParseSignalBars(string input)
         {
-            if (_devicesChangedDebounce != 0)
-                GLib.Functions.SourceRemove(_devicesChangedDebounce);
-            _devicesChangedDebounce = GLib.Functions.TimeoutAdd(0, 1000, () =>
+            // Count asterisks for signal strength: **** = ~100, *** = ~75, ** = ~50, * = ~25
+            var stars = input.Count(c => c == '*');
+            return stars switch
             {
-                _devicesChangedDebounce = 0;
-                DevicesChanged?.Invoke();
-                StateChanged?.Invoke();
-                return false;
-            });
+                >= 4 => 100,
+                3 => 75,
+                2 => 50,
+                1 => 25,
+                _ => 0
+            };
         }
 
         public void Dispose()
         {
-            if (_devicesChangedDebounce != 0)
+            ResetConnection();
+            GC.SuppressFinalize(this);
+        }
+
+        private static async Task<(int ExitCode, string Output)> RunAsync(string command, string args)
+        {
+            using var process = new Process
             {
-                GLib.Functions.SourceRemove(_devicesChangedDebounce);
-                _devicesChangedDebounce = 0;
-            }
-            _propsWatch?.Dispose();
-            foreach (var w in _devicePropsWatches)
-                w.Dispose();
-            _devicePropsWatches.Clear();
-            _connection?.Dispose();
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = command,
+                    Arguments = args,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, output);
         }
     }
 }

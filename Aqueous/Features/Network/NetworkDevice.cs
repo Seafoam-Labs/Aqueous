@@ -15,6 +15,6 @@ namespace Aqueous.Features.Network
         string Ssid,
         int Strength,
         bool IsSecured,
-        string ObjectPath
+        string NetworkName
     );
 }

@@ -266,7 +266,7 @@ namespace Aqueous.Features.Network
             var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("network-popup");
 
-            var label = Gtk.Label.New("Connecting to NetworkManager...");
+            var label = Gtk.Label.New("Connecting to network service...");
             label.AddCssClass("network-empty-label");
             container.Append(label);
 
@@ -388,13 +388,13 @@ namespace Aqueous.Features.Network
                     {
                         GLib.Functions.IdleAdd(0, () =>
                         {
-                            ShowPasswordDialog(ap, devicePath.Value.ToString());
+                            ShowPasswordDialog(ap, devicePath);
                             return false;
                         });
                     }
                     else
                     {
-                        await _backend.ActivateConnectionAsync(ap.ObjectPath, devicePath.Value.ToString());
+                        await _backend.ActivateConnectionAsync(ap.NetworkName, devicePath);
                         GLib.Functions.IdleAdd(0, () => { Hide(); return false; });
                     }
                 });
