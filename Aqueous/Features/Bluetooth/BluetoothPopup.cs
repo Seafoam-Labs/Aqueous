@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Bluetooth
@@ -11,6 +12,7 @@ namespace Aqueous.Features.Bluetooth
         private readonly AstalApplication _app;
         private readonly BluetoothBackend _backend;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         private Gtk.Box? _deviceListContainer;
         private Gtk.Box? _mainContainer;
         private Action? _devicesChangedHandler;
@@ -175,6 +177,8 @@ namespace Aqueous.Features.Bluetooth
             scrolled.SetPropagateNaturalHeight(true);
             scrolled.SetChild(_mainContainer);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "bluetooth-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
         }
@@ -262,6 +266,8 @@ namespace Aqueous.Features.Bluetooth
             };
             _window.GtkWindow.AddController(keyController);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "bluetooth-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
 
@@ -293,6 +299,7 @@ namespace Aqueous.Features.Bluetooth
             // Auto-stop discovery when popup closes
             _ = _backend.StopDiscoveryAsync();
 
+            BackdropHelper.DestroyBackdrop(ref _backdrop);
             _window.GtkWindow.Close();
             _window = null;
             _mainContainer = null;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.AudioSwitcher
@@ -11,6 +12,7 @@ namespace Aqueous.Features.AudioSwitcher
     {
         private readonly AstalApplication _app;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         private CancellationTokenSource? _debounceCts;
         public bool IsVisible { get; private set; }
 
@@ -89,6 +91,8 @@ namespace Aqueous.Features.AudioSwitcher
             scrolled.SetPropagateNaturalHeight(true);
             scrolled.SetChild(container);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "audio-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
             IsVisible = true;
@@ -97,6 +101,7 @@ namespace Aqueous.Features.AudioSwitcher
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
+            BackdropHelper.DestroyBackdrop(ref _backdrop);
             _window.GtkWindow.Close();
             _window = null;
             IsVisible = false;

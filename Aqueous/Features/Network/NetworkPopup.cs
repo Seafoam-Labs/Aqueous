@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Network
@@ -13,6 +14,7 @@ namespace Aqueous.Features.Network
         private readonly AstalApplication _app;
         private readonly NetworkBackend _backend;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         private Gtk.Box? _apListContainer;
         private Gtk.Box? _mainContainer;
         private Action? _devicesChangedHandler;
@@ -205,6 +207,8 @@ namespace Aqueous.Features.Network
             scrolled.SetPropagateNaturalHeight(true);
             scrolled.SetChild(_mainContainer);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "network-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(scrolled);
             _window.GtkWindow.Present();
         }
@@ -274,6 +278,8 @@ namespace Aqueous.Features.Network
             };
             _window.GtkWindow.AddController(keyController);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "network-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
 
@@ -306,6 +312,7 @@ namespace Aqueous.Features.Network
                 _refreshDebounce = 0;
             }
 
+            BackdropHelper.DestroyBackdrop(ref _backdrop);
             _window.GtkWindow.Close();
             _window = null;
             _mainContainer = null;

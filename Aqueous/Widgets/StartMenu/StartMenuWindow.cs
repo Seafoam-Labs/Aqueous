@@ -6,6 +6,7 @@ using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.AppLauncher;
 using Aqueous.Features.Settings;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Widgets.StartMenu;
@@ -15,6 +16,7 @@ public class StartMenuWindow
     private readonly AstalApplication _app;
     private readonly SettingsService _settingsService;
     private AstalWindow? _window;
+    private AstalWindow? _backdrop;
     private Gtk.Entry? _searchEntry;
     private Gtk.Box? _contentArea;
     private Gtk.Box? _sidebarBox;
@@ -55,6 +57,8 @@ public class StartMenuWindow
 
         RefreshSidebarSelection();
         PopulateContent();
+
+        _backdrop = BackdropHelper.CreateBackdrop(_app, "start-menu-backdrop", AstalLayer.ASTAL_LAYER_TOP, Hide);
 
         _window!.GtkWindow.SetVisible(true);
         _window.GtkWindow.Present();
@@ -135,18 +139,6 @@ public class StartMenuWindow
         };
         _window.GtkWindow.AddController(keyController);
 
-        // Close on focus loss
-        var focusController = Gtk.EventControllerFocus.New();
-        focusController.OnLeave += (_, _) => Hide();
-        _window.GtkWindow.AddController(focusController);
-
-        // Also watch is-active for layer-shell reliability
-        _window.GtkWindow.OnNotify += (sender, args) =>
-        {
-            if (args.Pspec.GetName() == "is-active" && !_window.GtkWindow.IsActive)
-                Hide();
-        };
-
         _window.GtkWindow.SetChild(container);
     }
 
@@ -155,6 +147,7 @@ public class StartMenuWindow
         if (!IsVisible || _window == null) return;
         _searchEntry?.GetBuffer().SetText("", 0);
         _activeTab = "Favorites";
+        BackdropHelper.DestroyBackdrop(ref _backdrop);
         _window.GtkWindow.SetVisible(false);
         IsVisible = false;
     }
