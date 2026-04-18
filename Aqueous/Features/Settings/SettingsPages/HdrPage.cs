@@ -9,7 +9,7 @@ namespace Aqueous.Features.Settings.SettingsPages
     public static class HdrPage
     {
         private static readonly string[] IncompatiblePlugins =
-            ["wobbly", "blur"];
+            ["wobbly", "blur", "cube"];
 
         private static readonly string EnvironmentDirPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -30,6 +30,7 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             page.Append(CreateHdrToggleRow(store));
             page.Append(CreateDisableAnimationsRow(store));
+            page.Append(CreateIccProfileRow(store));
             page.Append(CreateInfoSection());
             page.Append(CreateApplyButton(store));
 
@@ -69,7 +70,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             label.Halign = Align.Start;
             row.Append(label);
 
-            var subLabel = Gtk.Label.New("Wobbly, Blur");
+            var subLabel = Gtk.Label.New("Wobbly, Blur, Cube");
             subLabel.AddCssClass("hdr-info");
             subLabel.Halign = Align.Start;
 
@@ -89,12 +90,33 @@ namespace Aqueous.Features.Settings.SettingsPages
             return container;
         }
 
+        private static Gtk.Box CreateIccProfileRow(SettingsStore store)
+        {
+            var row = Gtk.Box.New(Orientation.Horizontal, 8);
+            row.AddCssClass("settings-row");
+
+            var label = Gtk.Label.New("ICC Profile Path (optional)");
+            label.Hexpand = true;
+            label.Halign = Align.Start;
+            row.Append(label);
+
+            var entry = Gtk.Entry.New();
+            entry.SetText(store.Data.HdrIccProfilePath ?? "");
+            entry.OnChanged += (sender, args) =>
+            {
+                store.Data.HdrIccProfilePath = entry.GetText();
+            };
+            row.Append(entry);
+
+            return row;
+        }
+
         private static Gtk.Box CreateInfoSection()
         {
             var box = Gtk.Box.New(Orientation.Vertical, 4);
             box.MarginTop = 12;
 
-            var warning = Gtk.Label.New("⚠ Enabling HDR switches to the Vulkan renderer. Some visual plugins (blur, wobbly, cube) will be disabled as they require OpenGL.");
+            var warning = Gtk.Label.New("⚠ Enabling HDR switches to the Vulkan renderer (wlroots 0.20). Color management is handled natively by the compositor core. Some visual plugins (blur, wobbly, cube) will be disabled as they require OpenGL.");
             warning.AddCssClass("hdr-warning");
             warning.Halign = Align.Start;
             warning.Wrap = true;
@@ -156,10 +178,6 @@ namespace Aqueous.Features.Settings.SettingsPages
             // Set WLR_RENDERER=vulkan via environment.d
             SetVulkanRenderer(true);
 
-            // Add vk-color-management to plugins
-            if (!plugins.Contains("vk-color-management"))
-                plugins = plugins.TrimEnd() + " vk-color-management";
-
             // Remove incompatible plugins
             if (store.Data.HdrDisableIncompatibleAnimations)
             {
@@ -171,9 +189,6 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             config.SetString("core", "plugins", plugins);
 
-            // Configure vk-color-management section
-            config.SetString("vk-color-management", "hdr", "true");
-
             // Set safe animation defaults
             if (store.Data.HdrDisableIncompatibleAnimations)
             {
@@ -181,6 +196,10 @@ namespace Aqueous.Features.Settings.SettingsPages
                 config.SetString("animate", "close_animation", "zoom");
                 config.SetString("animate", "fire_enabled_for", "none");
             }
+
+            // Write ICC profile if set
+            if (!string.IsNullOrWhiteSpace(store.Data.HdrIccProfilePath))
+                config.SetString("output:*", "icc_profile", store.Data.HdrIccProfilePath);
         }
 
         private static void DisableHdr(WayfireConfigService config, SettingsStore store)
@@ -191,16 +210,9 @@ namespace Aqueous.Features.Settings.SettingsPages
             // Restore plugins
             if (store.Data.PreHdrPluginList != null)
                 config.SetString("core", "plugins", store.Data.PreHdrPluginList);
-            else
-            {
-                var plugins = config.GetString("core", "plugins");
-                var pluginList = plugins.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-                pluginList.Remove("vk-color-management");
-                config.SetString("core", "plugins", string.Join(" ", pluginList));
-            }
 
-            // Remove vk-color-management config
-            config.RemoveKey("vk-color-management", "hdr");
+            // Remove ICC profile config
+            config.RemoveKey("output:*", "icc_profile");
 
             // Restore animations
             if (store.Data.PreHdrOpenAnimation != null)

@@ -42,6 +42,7 @@ namespace Aqueous.Features.Settings
         public string? PreHdrPluginList { get; set; } = null;
         public string? PreHdrOpenAnimation { get; set; } = null;
         public string? PreHdrCloseAnimation { get; set; } = null;
+        public string? HdrIccProfilePath { get; set; } = null;
     }
 
     public class SettingsStore
