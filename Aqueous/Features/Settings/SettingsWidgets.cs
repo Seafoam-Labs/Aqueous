@@ -261,6 +261,15 @@ namespace Aqueous.Features.Settings
             return box;
         }
 
+        public static Gtk.Box FilePicker(string label, string section, string key,
+            string defaultValue = "", string filterName = "All Files", string[]? filterPatterns = null)
+        {
+            return Aqueous.Widgets.FilePickerRow.Create(label,
+                Wf.GetString(section, key, defaultValue),
+                filterName, filterPatterns,
+                path => Wf.SetString(section, key, path));
+        }
+
         public static Gtk.Box SubSectionTitle(string title)
         {
             var box = Gtk.Box.New(Orientation.Vertical, 0);

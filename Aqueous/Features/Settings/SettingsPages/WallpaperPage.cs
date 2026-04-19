@@ -1,4 +1,5 @@
 using Gtk;
+using Aqueous.Helpers;
 
 namespace Aqueous.Features.Settings.SettingsPages
 {
@@ -14,46 +15,23 @@ namespace Aqueous.Features.Settings.SettingsPages
             title.Halign = Align.Start;
             page.Append(title);
 
-            page.Append(CreateImagePathRow(store));
+            page.Append(Aqueous.Widgets.FilePickerRow.Create(
+                "Image path",
+                store.Data.WallpaperImagePath,
+                "Images",
+                ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.svg"],
+                path =>
+                {
+                    store.Data.WallpaperImagePath = path;
+                    store.NotifyChanged();
+                }
+            ));
             page.Append(CreateScaleModeRow(store));
             page.Append(CreateFallbackColorRow(store));
 
             return page;
         }
 
-        private static Gtk.Box CreateImagePathRow(SettingsStore store)
-        {
-            var row = Gtk.Box.New(Orientation.Horizontal, 8);
-            row.AddCssClass("settings-row");
-
-            var label = Gtk.Label.New("Image path");
-            label.Hexpand = true;
-            label.Halign = Align.Start;
-            row.Append(label);
-
-            var entry = Gtk.Entry.New();
-            var buffer = entry.GetBuffer();
-            buffer.SetText(store.Data.WallpaperImagePath, -1);
-            entry.SetSizeRequest(300, -1);
-
-            entry.OnActivate += (_, _) =>
-            {
-                store.Data.WallpaperImagePath = buffer.GetText();
-                store.NotifyChanged();
-            };
-
-            row.Append(entry);
-
-            var applyBtn = Gtk.Button.NewWithLabel("Apply");
-            applyBtn.OnClicked += (_, _) =>
-            {
-                store.Data.WallpaperImagePath = buffer.GetText();
-                store.NotifyChanged();
-            };
-            row.Append(applyBtn);
-
-            return row;
-        }
 
         private static Gtk.Box CreateScaleModeRow(SettingsStore store)
         {
