@@ -1,6 +1,6 @@
 pkgname=aqueous-git
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="A .NET 10 GTK4-based desktop environment components using Astal"
 arch=('x86_64' 'aarch64')
 url="https://github.com/your-username/aqueous"
@@ -12,7 +12,8 @@ depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl'
          'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery'
          'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris'
          'libastal-network' 'libastal-notifd' 'libastal-powerprofiles'
-         'libastal-tray' 'libastal-wireplumber')
+         'libastal-tray' 'libastal-wireplumber'
+         'nemo')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git'
              'meson' 'ninja' 'cmake' 'wayland-protocols' 'glslang' 'vulkan-headers')
 optdepends=('vulkan-validation-layers: Vulkan validation for HDR debugging')
@@ -118,4 +119,11 @@ package() {
 
     # Desktop entry
     install -Dm644 "$srcdir/aqueous.desktop" "$pkgdir/usr/share/applications/aqueous.desktop"
+
+    # Set Nemo as default file manager
+    install -d "$pkgdir/usr/share/applications"
+    cat > "$pkgdir/usr/share/applications/mimeapps.list" <<EOF
+[Default Applications]
+inode/directory=nemo.desktop
+EOF
 }
