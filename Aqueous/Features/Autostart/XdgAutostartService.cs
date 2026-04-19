@@ -16,6 +16,14 @@ public static class XdgAutostartService
         {
             try
             {
+                // Skip KDE-related desktop files by filename
+                var fileName = Path.GetFileName(file);
+                if (IsKdeRelated(fileName))
+                {
+                    Console.WriteLine($"[Autostart] Skipping KDE entry: {fileName}");
+                    continue;
+                }
+
                 var entry = ParseDesktopFile(file);
                 if (entry == null) continue;
                 if (entry.Hidden) continue;
@@ -54,14 +62,13 @@ public static class XdgAutostartService
             dirs.Add(userDir);
 
         // System directories
-        // Lets just not
-        // var xdgConfigDirs = Environment.GetEnvironmentVariable("XDG_CONFIG_DIRS") ?? "/etc/xdg";
-        // foreach (var dir in xdgConfigDirs.Split(':'))
-        // {
-        //     var sysDir = Path.Combine(dir, "autostart");
-        //     if (Directory.Exists(sysDir))
-        //         dirs.Add(sysDir);
-        // }
+        var xdgConfigDirs = Environment.GetEnvironmentVariable("XDG_CONFIG_DIRS") ?? "/etc/xdg";
+        foreach (var dir in xdgConfigDirs.Split(':'))
+        {
+            var sysDir = Path.Combine(dir, "autostart");
+            if (Directory.Exists(sysDir))
+                dirs.Add(sysDir);
+        }
 
         // Collect files; user entries override system entries (by filename)
         var seen = new HashSet<string>();
@@ -158,6 +165,23 @@ public static class XdgAutostartService
     private static string StripFieldCodes(string exec)
     {
         return System.Text.RegularExpressions.Regex.Replace(exec, @"%[fFuUdDnNickvm]", "").Trim();
+    }
+
+    private static bool IsKdeRelated(string fileName)
+    {
+        var lower = fileName.ToLowerInvariant();
+        return lower.StartsWith("org.kde.") ||
+               lower.Contains("kde") ||
+               lower.Contains("plasma") ||
+               lower.Contains("kwallet") ||
+               lower.Contains("kaccess") ||
+               lower.Contains("kmix") ||
+               lower.Contains("konqy") ||
+               lower.Contains("baloo") ||
+               lower.Contains("powerdevil") ||
+               lower.Contains("kglobalaccel") ||
+               lower.Contains("xembedsniproxy") ||
+               lower.Contains("gmenudbusmenuproxy");
     }
 
     private static bool ExistsOnPath(string fileName)
