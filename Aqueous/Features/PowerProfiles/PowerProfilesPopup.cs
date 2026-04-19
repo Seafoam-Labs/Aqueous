@@ -1,6 +1,7 @@
 using System;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 namespace Aqueous.Features.PowerProfiles
 {
@@ -9,6 +10,7 @@ namespace Aqueous.Features.PowerProfiles
         private readonly AstalApplication _app;
         private readonly PowerProfilesBackend _backend;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         public bool IsVisible { get; private set; }
         public PowerProfilesPopup(AstalApplication app, PowerProfilesBackend backend)
         {
@@ -25,6 +27,7 @@ namespace Aqueous.Features.PowerProfiles
         {
             if (!IsVisible) return;
             IsVisible = false;
+            BackdropHelper.DestroyBackdrop(ref _backdrop);
             if (_window != null)
             {
                 _window.GtkWindow.Close();
@@ -38,7 +41,7 @@ namespace Aqueous.Features.PowerProfiles
             _window.Namespace = "power-profiles-popup";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
             var mainBox = Gtk.Box.New(Orientation.Vertical, 8);
@@ -78,6 +81,21 @@ namespace Aqueous.Features.PowerProfiles
                     mainBox.Append(holdRow);
                 }
             }
+            // Escape key to dismiss
+            var keyController = Gtk.EventControllerKey.New();
+            keyController.OnKeyPressed += (controller, args) =>
+            {
+                if (args.Keyval == 0xff1b) // GDK_KEY_Escape
+                {
+                    Hide();
+                    return true;
+                }
+                return false;
+            };
+            _window.GtkWindow.AddController(keyController);
+
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "power-profiles-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(mainBox);
             _window.GtkWindow.Present();
         }

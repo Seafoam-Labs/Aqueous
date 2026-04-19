@@ -5,6 +5,7 @@ using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Bindings.AstalNotifd;
 using Aqueous.Bindings.AstalNotifd.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Notifications
@@ -14,6 +15,7 @@ namespace Aqueous.Features.Notifications
         private readonly AstalApplication _app;
         private readonly NotificationBackend _backend;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         private Gtk.Box? _listContainer;
 
         public bool IsVisible { get; private set; }
@@ -41,6 +43,7 @@ namespace Aqueous.Features.Notifications
         {
             if (!IsVisible || _window == null) return;
 
+            BackdropHelper.DestroyBackdrop(ref _backdrop);
             _window.GtkWindow.Close();
             _window = null;
             _listContainer = null;
@@ -74,7 +77,7 @@ namespace Aqueous.Features.Notifications
             _window.Namespace = "notification-center";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
@@ -138,6 +141,8 @@ namespace Aqueous.Features.Notifications
                 return false;
             };
             _window.GtkWindow.AddController(keyController);
+
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "notification-center-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
 
             _window.GtkWindow.SetChild(mainContainer);
             _window.GtkWindow.Present();
