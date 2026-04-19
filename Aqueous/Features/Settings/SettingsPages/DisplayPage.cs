@@ -213,9 +213,9 @@ namespace Aqueous.Features.Settings.SettingsPages
                 // Apply live via wlr-randr and persist to wayfire.ini
                 DisplaySettingsManager.Instance.ApplyAndPersist(DetectedOutputName, mode);
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore errors
+                Console.Error.WriteLine($"[Display] Failed to apply display settings: {ex.Message}");
             }
         }
 
@@ -264,15 +264,13 @@ namespace Aqueous.Features.Settings.SettingsPages
                         if (parts[i] == "Hz" && i > 0)
                         {
                             var refreshStr = parts[i - 1].TrimEnd(',');
-                            if (double.TryParse(refreshStr, NumberStyles.Float,
-                                    CultureInfo.InvariantCulture, out var refreshVal))
+                            if (!string.IsNullOrEmpty(refreshStr))
                             {
                                 modes.Add(new DisplayMode
                                 {
                                     Width = width,
                                     Height = height,
-                                    Refresh = refreshVal.ToString("F3",
-                                        CultureInfo.InvariantCulture)
+                                    Refresh = refreshStr
                                 });
                             }
                             break;

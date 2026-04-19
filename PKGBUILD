@@ -6,7 +6,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/your-username/aqueous"
 license=('GPL3')
 depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl'
-         'bluez' 'bluez-utils' 'iwd' 'vulkan-icd-loader'
+         'bluez' 'bluez-utils' 'iwd' 'vulkan-icd-loader' 'wlr-randr'
          'cairo' 'pango' 'libjpeg' 'libinput' 'libxkbcommon' 'wayland'
          'pixman' 'glm' 'libdrm' 'libevdev' 'nlohmann-json'
          'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery'

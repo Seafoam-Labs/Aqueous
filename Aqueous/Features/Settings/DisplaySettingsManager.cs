@@ -97,11 +97,21 @@ namespace Aqueous.Features.Settings
                 using var proc = Process.Start(psi);
                 if (proc == null) return false;
 
+                var stderr = proc.StandardError.ReadToEnd();
+                var stdout = proc.StandardOutput.ReadToEnd();
                 proc.WaitForExit(5000);
-                return proc.ExitCode == 0;
+
+                if (proc.ExitCode != 0)
+                {
+                    Console.Error.WriteLine($"[Display] wlr-randr failed (exit {proc.ExitCode}): {stderr}");
+                    return false;
+                }
+
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Console.Error.WriteLine($"[Display] Failed to run wlr-randr: {ex.Message}");
                 return false;
             }
         }
@@ -179,7 +189,7 @@ namespace Aqueous.Features.Settings
                 if (double.TryParse(refreshPart, NumberStyles.Float, CultureInfo.InvariantCulture, out var targetRefresh) &&
                     double.TryParse(mode.Refresh, NumberStyles.Float, CultureInfo.InvariantCulture, out var availRefresh))
                 {
-                    if (Math.Abs(targetRefresh - availRefresh) < 1.0)
+                    if (Math.Abs(targetRefresh - availRefresh) < 0.01)
                         return true;
                 }
             }
@@ -250,14 +260,13 @@ namespace Aqueous.Features.Settings
                             if (parts[i] == "Hz" && i > 0)
                             {
                                 var refreshStr = parts[i - 1].TrimEnd(',');
-                                if (double.TryParse(refreshStr, NumberStyles.Float,
-                                        CultureInfo.InvariantCulture, out var refreshVal))
+                                if (!string.IsNullOrEmpty(refreshStr))
                                 {
                                     current.Value.AvailableModes.Add(new ModeInfo
                                     {
                                         Width = width,
                                         Height = height,
-                                        Refresh = refreshVal.ToString("F3", CultureInfo.InvariantCulture)
+                                        Refresh = refreshStr
                                     });
                                 }
                                 break;
