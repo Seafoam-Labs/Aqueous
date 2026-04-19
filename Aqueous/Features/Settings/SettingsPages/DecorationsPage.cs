@@ -1,4 +1,5 @@
 using Gtk;
+using Aqueous.Features.Corners;
 using static Aqueous.Features.Settings.SettingsWidgets;
 
 namespace Aqueous.Features.Settings.SettingsPages
@@ -24,21 +25,6 @@ namespace Aqueous.Features.Settings.SettingsPages
             page.Append(Dropdown("Preferred decoration mode", "core", "preferred_decoration_mode",
                 ["client", "server"], "client"));
 
-            // PixDecor
-            page.Append(SubSectionTitle("Pixel Decoration"));
-            page.Append(IntSlider("Rounded corner radius", "pixdecor", "rounded_corner_radius", 0, 30, 1, 5));
-            page.Append(ColorPicker("Background color", "pixdecor", "bg_color", "#124580D9"));
-            page.Append(ColorPicker("Foreground color", "pixdecor", "fg_color", "#E6A60AFF"));
-            page.Append(ColorPicker("Shadow color", "pixdecor", "shadow_color", "#00000040"));
-            page.Append(IntSlider("Shadow radius", "pixdecor", "shadow_radius", 0, 60, 1, 10));
-            page.Append(Toggle("Enable shade", "pixdecor", "enable_shade", true));
-            page.Append(Toggle("Titlebar", "pixdecor", "titlebar", true));
-            page.Append(IntSlider("Border size", "pixdecor", "border_size", 0, 20, 1, 5));
-            page.Append(Toggle("Animate", "pixdecor", "animate"));
-            page.Append(Dropdown("Effect type", "pixdecor", "effect_type",
-                ["none", "smoke", "ink", "flames"], "none"));
-            page.Append(ColorPicker("Effect color", "pixdecor", "effect_color", "#E01C24FF"));
-
             // WinShadows
             page.Append(SubSectionTitle("Window Shadows"));
             page.Append(ColorPicker("Shadow color", "winshadows", "shadow_color", "#00000070"));
@@ -52,7 +38,38 @@ namespace Aqueous.Features.Settings.SettingsPages
             page.Append(IntSlider("Glow spread", "winshadows", "glow_spread", 0, 50, 1, 10));
             page.Append(Toggle("Clip shadow inside", "winshadows", "clip_shadow_inside", true));
 
+            // Corner Rounding (Vulkan-compatible)
+            page.Append(SubSectionTitle("Corner Rounding"));
+            page.Append(CreateCornersToggle(store));
+            page.Append(IntSlider("Corner radius", "aqueous-corners", "corner_radius", 0, 30, 1, 12));
+            page.Append(ColorPicker("Corner color", "aqueous-corners", "corner_color", "#1A1A1AFF"));
+            page.Append(Toggle("Exclude maximized", "aqueous-corners", "exclude_maximized", true));
+
             return page;
+        }
+
+        private static Gtk.Box CreateCornersToggle(SettingsStore store)
+        {
+            var box = Gtk.Box.New(Orientation.Horizontal, 8);
+            box.AddCssClass("settings-row");
+
+            var label = Gtk.Label.New("Enable rounded corners (all windows)");
+            label.Halign = Align.Start;
+            label.Hexpand = true;
+            box.Append(label);
+
+            var toggle = Gtk.Switch.New();
+            toggle.Active = store.Data.CornersEnabled;
+            toggle.OnStateSet += (sender, args) =>
+            {
+                store.Data.CornersEnabled = args.State;
+                _ = CornersService.Instance.SetEnabled(args.State);
+                store.NotifyChanged();
+                return true;
+            };
+            box.Append(toggle);
+
+            return box;
         }
     }
 }

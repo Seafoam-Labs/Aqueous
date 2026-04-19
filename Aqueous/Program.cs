@@ -32,6 +32,7 @@ using Aqueous.Widgets.BrightnessTray;
 using Aqueous.Features.ClipboardManager;
 using Aqueous.Features.Calendar;
 using Aqueous.Features.Autostart;
+using Aqueous.Features.Corners;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -212,6 +213,12 @@ public class Program
             LoadCss(Path.Combine("Features", "Screenlock", "screenlock.css"));
             _screenlockService = new ScreenlockService(app);
             _screenlockService.Start();
+
+            // --- Corners Service (rounded corners for all windows) ---
+            if (SettingsStore.Instance.Data.CornersEnabled)
+            {
+                _ = CornersService.Instance.SetEnabled(true);
+            }
 
             // Launch XDG autostart applications
             XdgAutostartService.LaunchAll();

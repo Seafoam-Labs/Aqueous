@@ -43,6 +43,11 @@ namespace Aqueous.Features.Settings
         public string? PreHdrOpenAnimation { get; set; } = null;
         public string? PreHdrCloseAnimation { get; set; } = null;
         public string? HdrIccProfilePath { get; set; } = null;
+
+        // Corners
+        public bool CornersEnabled { get; set; } = true;
+        public int CornersRadius { get; set; } = 12;
+        public string CornersColor { get; set; } = "#1A1A1AFF";
     }
 
     public class SettingsStore

@@ -45,6 +45,8 @@ build() {
     # --- Build Wayfire (pinned commit with bundled wlroots 0.20) ---
     cd "$srcdir/wayfire"
     git submodule update --init --recursive
+
+
     meson setup build \
         --prefix=/usr \
         --buildtype=release \
@@ -82,6 +84,19 @@ package() {
     cd "$srcdir/wayfire"
     DESTDIR="$pkgdir" ninja -C build install
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/wayfire-LICENSE"
+
+    # --- Build and Install Aqueous Corners Plugin ---
+    cd "$srcdir/aqueous/wayfire-plugins/aqueous-corners"
+    
+    # Point pkg-config to the Wayfire we just installed in $pkgdir
+    export PKG_CONFIG_PATH="$pkgdir/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
+    export CFLAGS="-I$pkgdir/usr/include $CFLAGS"
+    export CXXFLAGS="-I$pkgdir/usr/include $CXXFLAGS"
+    export LDFLAGS="-L$pkgdir/usr/lib $LDFLAGS"
+
+    meson setup build --prefix=/usr
+    ninja -C build
+    DESTDIR="$pkgdir" ninja -C build install
 
     # --- Install Aqueous main binary ---
     install -d "$pkgdir/usr/lib/aqueous"
