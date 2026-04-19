@@ -236,7 +236,7 @@ public class StartMenuWindow
         var powerBtn = CreateFooterButton("Power Off", "loginctl poweroff");
         var restartBtn = CreateFooterButton("Restart", "loginctl reboot");
         var lockBtn = CreateFooterButton("Lock", "loginctl lock-session");
-        var logoutBtn = CreateFooterButton("Logout", "loginctl terminate-session self || killall wayfire");
+        var logoutBtn = CreateFooterButton("Logout", "wayland-logout");
 
         footer.Append(settingsBtn);
         footer.Append(powerBtn);
