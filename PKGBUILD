@@ -13,7 +13,7 @@ depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl'
          'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris'
          'libastal-network' 'libastal-notifd' 'libastal-powerprofiles'
          'libastal-tray' 'libastal-wireplumber'
-         'nemo')
+         'nemo' 'polkit-gnome')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git'
              'meson' 'ninja' 'cmake' 'wayland-protocols' 'glslang' 'vulkan-headers')
 optdepends=('vulkan-validation-layers: Vulkan validation for HDR debugging')
