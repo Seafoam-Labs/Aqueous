@@ -233,8 +233,8 @@ public class StartMenuWindow
             _settingsService.Toggle();
         };
 
-        var powerBtn = CreateFooterButton("Power Off", "loginctl poweroff");
-        var restartBtn = CreateFooterButton("Restart", "loginctl reboot");
+        var powerBtn = CreateFooterButton("Power Off", "systemctl poweroff");
+        var restartBtn = CreateFooterButton("Restart", "systemctl reboot");
         var lockBtn = CreateFooterButton("Lock", "loginctl lock-session");
         var logoutBtn = CreateFooterButton("Logout", "wayland-logout");
 
