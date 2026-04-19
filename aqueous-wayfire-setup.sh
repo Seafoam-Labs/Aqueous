@@ -10,6 +10,8 @@ if [ ! -f "$WAYFIRE_INI" ]; then
     exit 0
 fi
 
+export XDG_CURRENT_DESKTOP=Aqueous:Wayfire
+
 echo "[aqueous-setup] Configuring Wayfire for Aqueous..."
 
 # --- 1. Ensure required plugins are loaded ---

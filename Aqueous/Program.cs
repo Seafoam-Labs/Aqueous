@@ -31,6 +31,7 @@ using Aqueous.Features.Brightness;
 using Aqueous.Widgets.BrightnessTray;
 using Aqueous.Features.ClipboardManager;
 using Aqueous.Features.Calendar;
+using Aqueous.Features.Autostart;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -211,6 +212,9 @@ public class Program
             LoadCss(Path.Combine("Features", "Screenlock", "screenlock.css"));
             _screenlockService = new ScreenlockService(app);
             _screenlockService.Start();
+
+            // Launch XDG autostart applications
+            XdgAutostartService.LaunchAll();
         };
 
         app.GtkApplication.Run(args);
