@@ -54,13 +54,14 @@ public static class XdgAutostartService
             dirs.Add(userDir);
 
         // System directories
-        var xdgConfigDirs = Environment.GetEnvironmentVariable("XDG_CONFIG_DIRS") ?? "/etc/xdg";
-        foreach (var dir in xdgConfigDirs.Split(':'))
-        {
-            var sysDir = Path.Combine(dir, "autostart");
-            if (Directory.Exists(sysDir))
-                dirs.Add(sysDir);
-        }
+        // Lets just not
+        // var xdgConfigDirs = Environment.GetEnvironmentVariable("XDG_CONFIG_DIRS") ?? "/etc/xdg";
+        // foreach (var dir in xdgConfigDirs.Split(':'))
+        // {
+        //     var sysDir = Path.Combine(dir, "autostart");
+        //     if (Directory.Exists(sysDir))
+        //         dirs.Add(sysDir);
+        // }
 
         // Collect files; user entries override system entries (by filename)
         var seen = new HashSet<string>();
