@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
@@ -21,7 +22,7 @@ namespace Aqueous.Features.AudioSwitcher
             _app = app;
         }
 
-        public async void Show()
+        public async void Show(Gtk.Button? anchorButton = null)
         {
             if (IsVisible) return;
 
@@ -34,8 +35,6 @@ namespace Aqueous.Features.AudioSwitcher
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
-            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
             var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("audio-switcher");
@@ -51,7 +50,7 @@ namespace Aqueous.Features.AudioSwitcher
 
                 foreach (var sink in sinks)
                 {
-                    var row = CreateDeviceRow(sink);
+                    var row = CreateDeviceRow(sink, anchorButton);
                     container.Append(row);
                 }
             }
@@ -67,7 +66,7 @@ namespace Aqueous.Features.AudioSwitcher
 
                 foreach (var source in sources)
                 {
-                    var row = CreateDeviceRow(source);
+                    var row = CreateDeviceRow(source, anchorButton);
                     container.Append(row);
                 }
             }
@@ -91,6 +90,39 @@ namespace Aqueous.Features.AudioSwitcher
             scrolled.SetPropagateNaturalHeight(true);
             scrolled.SetChild(container);
 
+            if (anchorButton != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                scrolled.Measure(Orientation.Horizontal, -1, out _, out var natWidth, out _, out _);
+                scrolled.Measure(Orientation.Vertical, -1, out _, out var natHeight, out _, out _);
+
+                int popupWidth = Math.Max(300, natWidth);
+                int popupHeight = Math.Min(400, natHeight);
+
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
+
+                int targetX = x + (anchorButton.GetAllocatedWidth() / 2) - (popupWidth / 2);
+                int targetY = y + anchorButton.GetAllocatedHeight() + 4; // Tiny gap
+
+                if (targetX + popupWidth > screenWidth - 10) targetX = screenWidth - popupWidth - 10;
+                if (targetX < 10) targetX = 10;
+
+                if (targetY + popupHeight > screenHeight - 10)
+                {
+                    targetY = Math.Max(10, y - popupHeight - 4);
+                }
+
+                _window.MarginLeft = targetX;
+                _window.MarginTop = targetY;
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                               | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+            }
+
             _backdrop = BackdropHelper.CreateBackdrop(_app, "audio-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
 
             _window.GtkWindow.SetChild(scrolled);
@@ -107,7 +139,7 @@ namespace Aqueous.Features.AudioSwitcher
             IsVisible = false;
         }
 
-        private Gtk.Box CreateDeviceRow(AudioDevice device)
+        private Gtk.Box CreateDeviceRow(AudioDevice device, Gtk.Button? anchorButton)
         {
             var row = Gtk.Box.New(Orientation.Vertical, 8);
             row.AddCssClass("audio-device-row");
@@ -131,7 +163,7 @@ namespace Aqueous.Features.AudioSwitcher
 
                 // Refresh the popup
                 Hide();
-                Show();
+                Show(anchorButton);
             };
 
             // Volume slider

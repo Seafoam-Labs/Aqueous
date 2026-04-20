@@ -26,7 +26,7 @@ namespace Aqueous.Widgets.PowerProfilesTray
                 {
                     _barWindow?.AllowHide();
                 }
-                service.Toggle();
+                service.Toggle(_button);
             };
             // Right-click: cycle profile
             var rightClick = Gtk.GestureClick.New();

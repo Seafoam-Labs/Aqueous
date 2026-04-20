@@ -67,7 +67,7 @@ namespace Aqueous.Features.Notifications
             CleanupSocket();
         }
 
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (_center.IsVisible)
             {
@@ -76,10 +76,12 @@ namespace Aqueous.Features.Notifications
             else
             {
                 UnreadCount = 0;
-                _center.Show();
+                _center.Show(anchorButton);
                 GLib.Functions.IdleAdd(0, () => { StateChanged?.Invoke(); return false; });
             }
         }
+
+        public void Show(Gtk.Button? anchorButton = null) => _center.Show(anchorButton);
 
         public void Hide()
         {

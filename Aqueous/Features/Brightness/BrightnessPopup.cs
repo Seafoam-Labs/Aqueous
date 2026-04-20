@@ -21,7 +21,7 @@ namespace Aqueous.Features.Brightness
             _app = app;
         }
 
-        public async void Show()
+        public async void Show(Button? anchor = null)
         {
             if (IsVisible) return;
 
@@ -34,7 +34,7 @@ namespace Aqueous.Features.Brightness
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
             _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
 
             var container = Gtk.Box.New(Orientation.Vertical, 8);
             container.AddCssClass("brightness-popup");
@@ -90,6 +90,39 @@ namespace Aqueous.Features.Brightness
             _backdrop = BackdropHelper.CreateBackdrop(_app, "brightness-popup-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
 
             _window.GtkWindow.SetChild(container);
+
+            if (anchor != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchor);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                container.Measure(Orientation.Horizontal, -1, out _, out var natWidth, out _, out _);
+                container.Measure(Orientation.Vertical, -1, out _, out var natHeight, out _, out _);
+
+                var popupWidth = Math.Max(280, natWidth);
+                var popupHeight = Math.Max(100, natHeight);
+
+                var targetX = x + (anchor.GetAllocatedWidth() / 2) - (popupWidth / 2);
+                var targetY = y + anchor.GetAllocatedHeight() + 4; // Tiny gap
+
+                if (targetX + popupWidth > screenWidth - 10) targetX = screenWidth - popupWidth - 10;
+                if (targetX < 10) targetX = 10;
+                
+                if (targetY + popupHeight > screenHeight - 10)
+                {
+                    targetY = Math.Max(10, y - popupHeight - 4);
+                }
+
+                _window.MarginLeft = targetX;
+                _window.MarginTop = targetY;
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+                _window.MarginTop = 10;
+                _window.MarginRight = 10;
+            }
+
             _window.GtkWindow.Present();
             IsVisible = true;
         }

@@ -10,7 +10,7 @@ public class ClockTrayWidget
     private readonly bool _is24Hour = false;
     private bool _isRunning = false;
 
-    public ClockTrayWidget(bool is24Hour = false, Action? onClick = null)
+    public ClockTrayWidget(bool is24Hour = false, Action<Gtk.Button>? onClick = null)
     {
         _is24Hour = is24Hour;
         _label = Gtk.Label.New("Loading...");
@@ -21,7 +21,7 @@ public class ClockTrayWidget
         _button.AddCssClass("clock-button");
 
         if (onClick != null)
-            _button.OnClicked += (_, _) => onClick();
+            _button.OnClicked += (_, _) => onClick(_button);
     }
 
     public void Start()

@@ -24,15 +24,7 @@ public class StartMenuWidget
 
         _button.OnClicked += (sender, _) =>
         {
-            var root = _button.GetRoot();
-            if (root is Gtk.Widget rootWidget && _button.TranslateCoordinates(rootWidget, 0, 0, out double x, out double y))
-            {
-                _menuWindow.Toggle(x, y);
-            }
-            else
-            {
-                _menuWindow.Toggle();
-            }
+            _menuWindow.Toggle(_button);
         };
     }
 }

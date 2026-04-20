@@ -25,7 +25,7 @@ namespace Aqueous.Features.Bluetooth
             _backend = backend;
         }
 
-        public void Show()
+        public void Show(Gtk.Button? anchorButton = null)
         {
             if (IsVisible) return;
             IsVisible = true;
@@ -34,7 +34,7 @@ namespace Aqueous.Features.Bluetooth
             {
                 GLib.Functions.IdleAdd(0, () =>
                 {
-                    BuildNotConnectedWindow();
+                    BuildNotConnectedWindow(anchorButton);
                     return false;
                 });
                 return;
@@ -58,7 +58,7 @@ namespace Aqueous.Features.Bluetooth
 
                     GLib.Functions.IdleAdd(0, () =>
                     {
-                        BuildWindow(powered, discovering, devices);
+                        BuildWindow(powered, discovering, devices, anchorButton);
                         return false;
                     });
                 }
@@ -70,7 +70,7 @@ namespace Aqueous.Features.Bluetooth
             });
         }
 
-        private void BuildWindow(bool powered, bool discovering, List<BluetoothDevice> devices)
+        private void BuildWindow(bool powered, bool discovering, List<BluetoothDevice> devices, Gtk.Button? anchorButton)
         {
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
@@ -78,8 +78,6 @@ namespace Aqueous.Features.Bluetooth
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
-            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
             _mainContainer = Gtk.Box.New(Orientation.Vertical, 4);
             _mainContainer.AddCssClass("bluetooth-popup");
@@ -177,6 +175,40 @@ namespace Aqueous.Features.Bluetooth
             scrolled.SetPropagateNaturalHeight(true);
             scrolled.SetChild(_mainContainer);
 
+            if (anchorButton != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                scrolled.Measure(Orientation.Horizontal, -1, out _, out var natWidth, out _, out _);
+                scrolled.Measure(Orientation.Vertical, -1, out _, out var natHeight, out _, out _);
+
+                int popupWidth = Math.Max(320, natWidth);
+                int popupHeight = Math.Min(400, natHeight);
+
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
+
+                int targetX = x + (anchorButton.GetAllocatedWidth() / 2) - (popupWidth / 2);
+                int targetY = y + anchorButton.GetAllocatedHeight() + 4; // Tiny gap
+
+                // Keep it on screen
+                if (targetX + popupWidth > screenWidth - 10) targetX = screenWidth - popupWidth - 10;
+                if (targetX < 10) targetX = 10;
+
+                if (targetY + popupHeight > screenHeight - 10)
+                {
+                    targetY = Math.Max(10, y - popupHeight - 4);
+                }
+
+                _window.MarginLeft = targetX;
+                _window.MarginTop = targetY;
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                               | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+            }
+
             _backdrop = BackdropHelper.CreateBackdrop(_app, "bluetooth-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
 
             _window.GtkWindow.SetChild(scrolled);
@@ -240,7 +272,7 @@ namespace Aqueous.Features.Bluetooth
             _mainContainer.Append(_deviceListContainer);
         }
 
-        private void BuildNotConnectedWindow()
+        private void BuildNotConnectedWindow(Gtk.Button? anchorButton)
         {
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
@@ -248,8 +280,6 @@ namespace Aqueous.Features.Bluetooth
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
-            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
 
             var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("bluetooth-popup");
@@ -257,6 +287,40 @@ namespace Aqueous.Features.Bluetooth
             var label = Gtk.Label.New("Connecting to BlueZ...");
             label.AddCssClass("bluetooth-empty-label");
             container.Append(label);
+
+            if (anchorButton != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                container.Measure(Orientation.Horizontal, -1, out var minWidth, out var natWidth, out _, out _);
+                container.Measure(Orientation.Vertical, -1, out var minHeight, out var natHeight, out _, out _);
+
+                int popupWidth = Math.Max(320, natWidth);
+                int popupHeight = Math.Max(100, natHeight);
+
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
+
+                int targetX = x + (anchorButton.GetAllocatedWidth() / 2) - (popupWidth / 2);
+                int targetY = y + anchorButton.GetAllocatedHeight();
+
+                // Keep it on screen
+                if (targetX + popupWidth > screenWidth) targetX = screenWidth - popupWidth - 10;
+                if (targetX < 10) targetX = 10;
+
+                if (targetY + popupHeight > screenHeight)
+                {
+                    targetY = Math.Max(0, y - popupHeight);
+                }
+
+                _window.MarginLeft = targetX;
+                _window.MarginTop = targetY;
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                               | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+            }
 
             var keyController = Gtk.EventControllerKey.New();
             keyController.OnKeyPressed += (controller, args) =>

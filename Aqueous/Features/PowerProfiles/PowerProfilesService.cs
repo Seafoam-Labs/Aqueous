@@ -46,7 +46,7 @@ namespace Aqueous.Features.PowerProfiles
             _backend.Dispose();
             CleanupSocket();
         }
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (_popup.IsVisible)
             {
@@ -55,9 +55,10 @@ namespace Aqueous.Features.PowerProfiles
             }
             else
             {
-                _popup.Show();
+                _popup.Show(anchorButton);
             }
         }
+        public void Show(Gtk.Button? anchorButton = null) => _popup.Show(anchorButton);
         public void Hide()
         {
             _popup.Hide();

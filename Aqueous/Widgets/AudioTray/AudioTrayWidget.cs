@@ -19,7 +19,7 @@ public class AudioTrayWidget
         var label = Gtk.Label.New("VOL");
         _button.SetChild(label);
 
-        _button.OnClicked += (_, _) => service.Toggle();
+        _button.OnClicked += (_, _) => service.Toggle(_button);
 
         RefreshLabel(label);
         GLib.Functions.TimeoutAdd(0, 5000, () => { RefreshLabel(label); return true; });

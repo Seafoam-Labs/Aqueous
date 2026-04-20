@@ -30,7 +30,7 @@ namespace Aqueous.Widgets.BrightnessTray
                 {
                     _barWindow?.AllowHide();
                 }
-                service.Toggle();
+                service.Toggle(_button);
             };
 
             // Scroll: adjust brightness up/down by 5%
