@@ -18,7 +18,8 @@ public static class FilePickerRow
 
         var entry = Gtk.Entry.New();
         var buffer = entry.GetBuffer();
-        buffer.SetText(currentValue, -1);
+        var safeValue = currentValue ?? "";
+        buffer.SetText(safeValue, safeValue.Length);
         entry.WidthRequest = 200;
         entry.Hexpand = false;
 
@@ -35,7 +36,7 @@ public static class FilePickerRow
             Helpers.FilePicker.Open(window, $"Select {label}", filterName, filterPatterns, path =>
             {
                 if (path == null) return;
-                buffer.SetText(path, -1);
+                buffer.SetText(path, path.Length);
                 onChanged?.Invoke(path);
             });
         };

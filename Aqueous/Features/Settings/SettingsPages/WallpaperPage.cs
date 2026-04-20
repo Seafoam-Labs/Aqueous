@@ -87,7 +87,8 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             var entry = Gtk.Entry.New();
             var buffer = entry.GetBuffer();
-            buffer.SetText(store.Data.WallpaperFallbackColor, -1);
+            var color = store.Data.WallpaperFallbackColor ?? "";
+            buffer.SetText(color, color.Length);
             entry.SetSizeRequest(150, -1);
 
             entry.OnActivate += (_, _) =>

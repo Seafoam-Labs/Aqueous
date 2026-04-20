@@ -113,7 +113,8 @@ namespace Aqueous.Features.Settings
 
             var entry = Gtk.Entry.New();
             var buffer = entry.GetBuffer();
-            buffer.SetText(Wf.GetString(section, key, defaultValue), -1);
+            var val = Wf.GetString(section, key, defaultValue);
+            buffer.SetText(val, val.Length);
             entry.WidthRequest = 200;
 
             entry.OnChanged += (_, _) =>
@@ -204,7 +205,8 @@ namespace Aqueous.Features.Settings
 
             var entry = Gtk.Entry.New();
             var buffer = entry.GetBuffer();
-            buffer.SetText(Wf.GetKeybind(section, key, defaultValue), -1);
+            var val = Wf.GetKeybind(section, key, defaultValue);
+            buffer.SetText(val, val.Length);
             entry.WidthRequest = 200;
             entry.AddCssClass("keybind-entry");
 
