@@ -243,7 +243,7 @@ namespace Aqueous.Features.WindowManager
                 Focused = view.TryGetProperty("focused", out var f) && f.GetBoolean(),
                 Minimized = view.TryGetProperty("minimized", out var m) && m.GetBoolean(),
                 Fullscreen = view.TryGetProperty("fullscreen", out var fs) && fs.GetBoolean(),
-                Role = view.TryGetProperty("role", out var r) ? r.GetString() ?? "" : "",
+                Role = view.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "" : (view.TryGetProperty("role", out var r) ? r.GetString() ?? "" : ""),
             };
 
             if (view.TryGetProperty("geometry", out var geo))

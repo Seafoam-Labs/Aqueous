@@ -72,7 +72,10 @@ namespace Aqueous.Features.Dock
             {
                 "/usr/share/applications",
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                             ".local/share/applications")
+                             ".local/share/applications"),
+                "/var/lib/flatpak/exports/share/applications",
+                "/var/lib/snapd/desktop/applications",
+                "/usr/local/share/applications"
             };
 
             foreach (var dir in appDirs)

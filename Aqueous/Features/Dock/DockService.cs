@@ -88,24 +88,36 @@ namespace Aqueous.Features.Dock
                 if (_runningAppWidgets.ContainsKey(appId)) continue;
 
                 var desktopPath = FindDesktopFile(appId);
+                
+                string name = appId;
+                string icon = "application-x-executable";
+                string exec = "";
+                string windowAppId = appId;
+
                 if (desktopPath != null)
                 {
-                    var (name, icon, exec) = ParseDesktopFile(desktopPath);
+                    var parsed = ParseDesktopFile(desktopPath);
+                    name = parsed.name ?? name;
+                    icon = parsed.icon ?? icon;
+                    exec = parsed.exec ?? exec;
 
-                    // Resolve the original app_id used by running windows for this desktop entry
                     var windowAppIds = _windowTracker?.GetAppIdsForDesktopId(appId);
-                    var windowAppId = windowAppIds?.Count > 0 ? windowAppIds[0] : appId;
-
-                    var item = new DockItemWidget(
-                        name ?? appId,
-                        icon ?? "application-x-executable",
-                        exec ?? "",
-                        _windowManager,
-                        windowAppId);
-                    item.Button.AddCssClass("dock-item-running");
-                    _window.AddItem(item.Button);
-                    _runningAppWidgets[appId] = item.Button;
+                    if (windowAppIds?.Count > 0)
+                    {
+                        windowAppId = windowAppIds[0];
+                    }
                 }
+
+                var item = new DockItemWidget(
+                    name,
+                    icon,
+                    exec,
+                    _windowManager,
+                    windowAppId);
+                    
+                item.Button.AddCssClass("dock-item-running");
+                _window.AddItem(item.Button);
+                _runningAppWidgets[appId] = item.Button;
             }
         }
 
@@ -115,7 +127,10 @@ namespace Aqueous.Features.Dock
             {
                 "/usr/share/applications",
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                             ".local/share/applications")
+                             ".local/share/applications"),
+                "/var/lib/flatpak/exports/share/applications",
+                "/var/lib/snapd/desktop/applications",
+                "/usr/local/share/applications"
             };
 
             foreach (var dir in appDirs)
