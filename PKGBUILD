@@ -21,9 +21,10 @@ provides=('aqueous' 'wayfire')
 conflicts=('aqueous' 'wayfire')
 source=("aqueous::git+${url}.git"
         "wayfire::git+https://github.com/WayfireWM/wayfire.git#commit=9a568ffd7a2af8780926da50f89908ec4f38bf3a"
+        "wayfire-plugins-extra::git+https://github.com/WayfireWM/wayfire-plugins-extra.git"
         'aqueous.desktop'
         'aqueous-wayfire-setup.sh')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 install=aqueous.install
 
 _rid_map() {
@@ -94,6 +95,12 @@ package() {
     export CXXFLAGS="-I$pkgdir/usr/include $CXXFLAGS"
     export LDFLAGS="-L$pkgdir/usr/lib $LDFLAGS"
 
+    meson setup build --prefix=/usr
+    ninja -C build
+    DESTDIR="$pkgdir" ninja -C build install
+
+    # --- Build and Install wayfire-plugins-extra ---
+    cd "$srcdir/wayfire-plugins-extra"
     meson setup build --prefix=/usr
     ninja -C build
     DESTDIR="$pkgdir" ninja -C build install
