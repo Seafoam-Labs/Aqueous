@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Brightness
@@ -11,6 +12,7 @@ namespace Aqueous.Features.Brightness
     {
         private readonly AstalApplication _app;
         private AstalWindow? _window;
+        private AstalWindow? _backdrop;
         private CancellationTokenSource? _debounceCts;
         public bool IsVisible { get; private set; }
 
@@ -85,6 +87,8 @@ namespace Aqueous.Features.Brightness
             };
             _window.GtkWindow.AddController(keyController);
 
+            _backdrop = BackdropHelper.CreateBackdrop(_app, "brightness-popup-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
             _window.GtkWindow.SetChild(container);
             _window.GtkWindow.Present();
             IsVisible = true;
@@ -93,6 +97,13 @@ namespace Aqueous.Features.Brightness
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
+
+            if (_backdrop != null)
+            {
+                _backdrop.GtkWindow.Close();
+                _backdrop = null;
+            }
+
             _window.GtkWindow.Close();
             _window = null;
             IsVisible = false;

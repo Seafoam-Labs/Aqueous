@@ -1,6 +1,7 @@
 using System;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Calendar;
@@ -9,6 +10,7 @@ public class CalendarPopup
 {
     private readonly AstalApplication _app;
     private AstalWindow? _window;
+    private AstalWindow? _backdrop;
     public bool IsVisible { get; private set; }
 
     public CalendarPopup(AstalApplication app)
@@ -61,6 +63,8 @@ public class CalendarPopup
         };
         _window.GtkWindow.AddController(keyController);
 
+        _backdrop = BackdropHelper.CreateBackdrop(_app, "calendar-popup-backdrop", AstalLayer.ASTAL_LAYER_OVERLAY, Hide);
+
         _window.GtkWindow.SetChild(container);
         _window.GtkWindow.Present();
         IsVisible = true;
@@ -69,6 +73,13 @@ public class CalendarPopup
     public void Hide()
     {
         if (!IsVisible || _window == null) return;
+        
+        if (_backdrop != null)
+        {
+            _backdrop.GtkWindow.Close();
+            _backdrop = null;
+        }
+
         _window.GtkWindow.Close();
         _window = null;
         IsVisible = false;
