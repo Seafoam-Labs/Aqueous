@@ -42,22 +42,6 @@ if grep -q '^\[core\]' "$WAYFIRE_INI"; then
     fi
 fi
 
-# --- 1b. HDR: Remove incompatible plugins if Vulkan renderer is active ---
-HDR_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/hdr.conf"
-if [ -f "$HDR_ENV_FILE" ] && grep -q 'WLR_RENDERER=vulkan' "$HDR_ENV_FILE"; then
-    echo "[aqueous-setup] HDR mode detected (WLR_RENDERER=vulkan)."
-
-    # Remove incompatible plugins if still present
-    for plugin in wobbly blur cube; do
-        if grep -q "\b${plugin}\b" "$WAYFIRE_INI"; then
-            sed -i "s/\b${plugin}\b//g" "$WAYFIRE_INI"
-            echo "[aqueous-setup] Removed incompatible plugin '${plugin}' for HDR mode."
-        fi
-    done
-
-    # Clean up double spaces in plugins line
-    sed -i '/^\(plugins\s*=\)/s/  \+/ /g' "$WAYFIRE_INI"
-fi
 
 # --- 2. Clear conflicting [showtouch] toggle binding ---
 if grep -q '^\[showtouch\]' "$WAYFIRE_INI"; then

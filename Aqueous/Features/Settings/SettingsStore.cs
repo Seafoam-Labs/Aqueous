@@ -39,10 +39,6 @@ namespace Aqueous.Features.Settings
 
         // HDR / Display
         public bool HdrEnabled { get; set; } = false;
-        public bool HdrDisableIncompatibleAnimations { get; set; } = true;
-        public string? PreHdrPluginList { get; set; } = null;
-        public string? PreHdrOpenAnimation { get; set; } = null;
-        public string? PreHdrCloseAnimation { get; set; } = null;
         public string? HdrIccProfilePath { get; set; } = null;
 
         // Corners
