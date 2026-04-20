@@ -22,9 +22,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Reference Include="AstalBindings">
-        <HintPath>bin\Debug\net10.0\AstalBindings.dll</HintPath>
-      </Reference>
     </ItemGroup>
 
     <ItemGroup>
