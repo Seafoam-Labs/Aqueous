@@ -32,15 +32,15 @@ public class StartMenuWindow
         _config = StartMenuConfig.Load();
     }
 
-    public void Toggle(double? x = null, double? y = null)
+    public void Toggle(Gtk.Button? anchorButton = null)
     {
         if (IsVisible)
             Hide();
         else
-            Show(x, y);
+            Show(anchorButton);
     }
 
-    public void Show(double? x = null, double? y = null)
+    public void Show(Gtk.Button? anchorButton = null)
     {
         if (IsVisible) return;
 
@@ -49,10 +49,16 @@ public class StartMenuWindow
 
         EnsureWindowCreated();
 
-        if (x.HasValue && _window != null)
+        if (anchorButton != null && _window != null)
         {
-            int marginLeft = Math.Max(4, (int)x.Value);
-            _window.MarginLeft = marginLeft;
+            var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+            var (screenWidth, _) = WidgetGeometryHelper.GetScreenSize();
+            
+            _window.MarginLeft = Math.Max(4, x);
+            _window.MarginTop = y + anchorButton.GetAllocatedHeight();
+            
+            if (_window.MarginLeft + 510 > screenWidth)
+                _window.MarginLeft = screenWidth - 515;
         }
 
         RefreshSidebarSelection();

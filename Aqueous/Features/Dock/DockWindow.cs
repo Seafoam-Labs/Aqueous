@@ -3,30 +3,13 @@ using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.Settings;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Dock
 {
     public partial class DockWindow
     {
-        [StructLayout(LayoutKind.Sequential)]
-        private struct GdkRectangle { public int X, Y, Width, Height; }
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial IntPtr gdk_display_get_default();
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial IntPtr gdk_display_get_monitors(IntPtr display);
-
-        [LibraryImport("libgio-2.0.so.0")]
-        private static partial IntPtr g_list_model_get_item(IntPtr list, uint position);
-
-        [LibraryImport("libgio-2.0.so.0")]
-        private static partial uint g_list_model_get_n_items(IntPtr list);
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
-
         private const int DockThickness = 40;
         private const int HitboxThickness = 2;
 
@@ -87,40 +70,9 @@ namespace Aqueous.Features.Dock
                 widget.RemoveCssClass("dock-item-running");
         }
 
-        private (int width, int height) GetScreenSize()
-        {
-            try
-            {
-                var display = gdk_display_get_default();
-                if (display != IntPtr.Zero)
-                {
-                    var monitors = gdk_display_get_monitors(display);
-                    if (monitors != IntPtr.Zero && g_list_model_get_n_items(monitors) > 0)
-                    {
-                        var monitor = g_list_model_get_item(monitors, 0);
-                        if (monitor != IntPtr.Zero)
-                        {
-                            gdk_monitor_get_geometry(monitor, out var geo);
-                            return (geo.Width, geo.Height);
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Fallback on any GDK error
-            }
-            return (1920, 1080);
-        }
-
-        /// <summary>
-        /// Positions the dock in the middle third using a single margin (top or left)
-        /// with two-edge anchoring. This avoids the three-edge + dual-margin pattern
-        /// that caused Wayfire to compute negative surface dimensions.
-        /// </summary>
         private void ApplyMiddleThirdMargin(AstalWindow window)
         {
-            var (screenWidth, screenHeight) = GetScreenSize();
+            var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
 
             switch (_position)
             {
@@ -153,7 +105,7 @@ namespace Aqueous.Features.Dock
 
         private int GetDockLength()
         {
-            var (screenWidth, screenHeight) = GetScreenSize();
+            var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
             bool isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
             return (isVertical ? screenHeight : screenWidth) / 3;
         }
@@ -280,7 +232,7 @@ namespace Aqueous.Features.Dock
             }
             if (itemCount == 0) return;
 
-            var (screenWidth, screenHeight) = GetScreenSize();
+            var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
             bool isVertical = _position == DockPosition.Left || _position == DockPosition.Right;
             int availableSpace = isVertical ? screenHeight / 3 : screenWidth / 3;
 

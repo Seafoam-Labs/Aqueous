@@ -31,7 +31,7 @@ namespace Aqueous.Widgets.BluetoothTray
                 {
                     _barWindow?.AllowHide();
                 }
-                service.Toggle();
+                service.Toggle(_button);
             };
 
             // Right-click: toggle adapter power

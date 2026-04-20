@@ -27,14 +27,14 @@ namespace Aqueous.Features.Notifications
             _backend = backend;
         }
 
-        public void Show()
+        public void Show(Gtk.Button? anchorButton = null)
         {
             if (IsVisible) return;
             IsVisible = true;
 
             GLib.Functions.IdleAdd(0, () =>
             {
-                BuildWindow();
+                BuildWindow(anchorButton);
                 return false;
             });
         }
@@ -51,12 +51,12 @@ namespace Aqueous.Features.Notifications
             Closed?.Invoke();
         }
 
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (IsVisible)
                 Hide();
             else
-                Show();
+                Show(anchorButton);
         }
 
         public void Refresh()
@@ -70,7 +70,7 @@ namespace Aqueous.Features.Notifications
             });
         }
 
-        private void BuildWindow()
+        private void BuildWindow(Gtk.Button? anchorButton)
         {
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
@@ -78,8 +78,26 @@ namespace Aqueous.Features.Notifications
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
-            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+
+            if (anchorButton != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
+                _window.MarginLeft = x;
+                _window.MarginTop = y + anchorButton.GetAllocatedHeight();
+
+                if (_window.MarginLeft + 400 > screenWidth)
+                    _window.MarginLeft = screenWidth - 405;
+                if (_window.MarginTop + 500 > screenHeight)
+                    _window.MarginTop = Math.Max(0, y - 505);
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                               | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+            }
 
             var mainContainer = Gtk.Box.New(Orientation.Vertical, 4);
             mainContainer.AddCssClass("notification-center");

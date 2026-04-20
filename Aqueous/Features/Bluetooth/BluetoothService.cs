@@ -82,7 +82,7 @@ namespace Aqueous.Features.Bluetooth
 
         public bool IsPopupVisible => _popup.IsVisible;
 
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (_popup.IsVisible)
             {
@@ -91,9 +91,11 @@ namespace Aqueous.Features.Bluetooth
             }
             else
             {
-                _popup.Show();
+                _popup.Show(anchorButton);
             }
         }
+
+        public void Show(Gtk.Button? anchorButton = null) => _popup.Show(anchorButton);
 
         public async Task TogglePowerAsync()
         {

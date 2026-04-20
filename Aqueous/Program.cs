@@ -169,7 +169,7 @@ public class Program
             // --- Clock Tray Widget ---
             LoadCss(Path.Combine("Features", "Calendar", "calendar.css"));
             var calendarPopup = new CalendarPopup(app);
-            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false, onClick: calendarPopup.Toggle);
+            var clock = new Aqueous.Widgets.Clock.ClockTrayWidget(is24Hour: false, onClick: (btn) => calendarPopup.Toggle(btn));
             barCenter.GtkBox.Append(clock.Button);
             clock.Start();
 

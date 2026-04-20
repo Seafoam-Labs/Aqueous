@@ -86,7 +86,7 @@ namespace Aqueous.Features.Network
 
         public bool IsPopupVisible => _popup.IsVisible;
 
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (_popup.IsVisible)
             {
@@ -95,9 +95,11 @@ namespace Aqueous.Features.Network
             }
             else
             {
-                _popup.Show();
+                _popup.Show(anchorButton);
             }
         }
+
+        public void Show(Gtk.Button? anchorButton = null) => _popup.Show(anchorButton);
 
         public async Task ToggleWifiAsync()
         {

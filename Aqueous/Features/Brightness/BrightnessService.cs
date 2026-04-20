@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Gtk;
 
 namespace Aqueous.Features.Brightness
 {
@@ -40,7 +41,7 @@ namespace Aqueous.Features.Brightness
             CleanupSocket();
         }
 
-        public void Toggle()
+        public void Toggle(Button? anchor = null)
         {
             if (_popup.IsVisible)
             {
@@ -49,7 +50,7 @@ namespace Aqueous.Features.Brightness
             }
             else
             {
-                _popup.Show();
+                _popup.Show(anchor);
             }
         }
 
@@ -100,10 +101,10 @@ namespace Aqueous.Features.Brightness
                 switch (command)
                 {
                     case "toggle-popup":
-                        GLib.Functions.IdleAdd(0, () => { Toggle(); return false; });
+                        GLib.Functions.IdleAdd(0, () => { Toggle(null); return false; });
                         break;
                     case "show":
-                        GLib.Functions.IdleAdd(0, () => { _popup.Show(); return false; });
+                        GLib.Functions.IdleAdd(0, () => { _popup.Show(null); return false; });
                         break;
                     case "hide":
                         GLib.Functions.IdleAdd(0, () => { Hide(); return false; });

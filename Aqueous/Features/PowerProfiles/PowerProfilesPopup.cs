@@ -17,11 +17,11 @@ namespace Aqueous.Features.PowerProfiles
             _app = app;
             _backend = backend;
         }
-        public void Show()
+        public void Show(Gtk.Button? anchorButton = null)
         {
             if (IsVisible) return;
             IsVisible = true;
-            BuildWindow();
+            BuildWindow(anchorButton);
         }
         public void Hide()
         {
@@ -34,7 +34,7 @@ namespace Aqueous.Features.PowerProfiles
                 _window = null;
             }
         }
-        private void BuildWindow()
+        private void BuildWindow(Gtk.Button? anchorButton)
         {
             _window = new AstalWindow();
             _app.GtkApplication.AddWindow(_window.GtkWindow);
@@ -42,8 +42,7 @@ namespace Aqueous.Features.PowerProfiles
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
             _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
-            _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
-                           | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
+
             var mainBox = Gtk.Box.New(Orientation.Vertical, 8);
             mainBox.AddCssClass("power-profiles-popup");
             // Header
@@ -80,6 +79,40 @@ namespace Aqueous.Features.PowerProfiles
                     holdRow.SetHalign(Align.Start);
                     mainBox.Append(holdRow);
                 }
+            }
+
+            if (anchorButton != null)
+            {
+                var (x, y) = WidgetGeometryHelper.GetWidgetGlobalPos(anchorButton);
+                var (screenWidth, screenHeight) = WidgetGeometryHelper.GetScreenSize();
+
+                mainBox.Measure(Orientation.Horizontal, -1, out _, out var natWidth, out _, out _);
+                mainBox.Measure(Orientation.Vertical, -1, out _, out var natHeight, out _, out _);
+
+                int popupWidth = Math.Max(250, natWidth);
+                int popupHeight = Math.Max(200, natHeight);
+
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
+
+                int targetX = x + (anchorButton.GetAllocatedWidth() / 2) - (popupWidth / 2);
+                int targetY = y + anchorButton.GetAllocatedHeight() + 4; // Tiny gap
+
+                // Keep it on screen
+                if (targetX + popupWidth > screenWidth - 10) targetX = screenWidth - popupWidth - 10;
+                if (targetX < 10) targetX = 10;
+
+                if (targetY + popupHeight > screenHeight - 10)
+                {
+                    targetY = Math.Max(10, y - popupHeight - 4);
+                }
+
+                _window.MarginLeft = targetX;
+                _window.MarginTop = targetY;
+            }
+            else
+            {
+                _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
+                               | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
             }
             // Escape key to dismiss
             var keyController = Gtk.EventControllerKey.New();

@@ -3,29 +3,13 @@ using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.Settings;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Bar
 {
     public partial class BarWindow
     {
-        [StructLayout(LayoutKind.Sequential)]
-        private struct GdkRectangle { public int X, Y, Width, Height; }
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial IntPtr gdk_display_get_default();
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial IntPtr gdk_display_get_monitors(IntPtr display);
-
-        [LibraryImport("libgio-2.0.so.0")]
-        private static partial IntPtr g_list_model_get_item(IntPtr list, uint position);
-
-        [LibraryImport("libgio-2.0.so.0")]
-        private static partial uint g_list_model_get_n_items(IntPtr list);
-
-        [LibraryImport("libgdk-4.so.1")]
-        private static partial void gdk_monitor_get_geometry(IntPtr monitor, out GdkRectangle geometry);
         private const int BarHeight = 32;
         private const int HitboxHeight = 2;
 
@@ -56,7 +40,7 @@ namespace Aqueous.Features.Bar
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
 
             _bar.GtkWindow.SetDecorated(false);
-            var (screenWidth, _) = GetScreenSize();
+            var (screenWidth, _) = WidgetGeometryHelper.GetScreenSize();
             var barWidth = screenWidth / 3;
             _bar.GtkWindow.SetDefaultSize(barWidth, BarHeight);
             _bar.GtkWindow.AddCssClass("bar-window");
@@ -125,7 +109,7 @@ namespace Aqueous.Features.Bar
             if (_bar != null && !_barVisible)
             {
                 _barVisible = true;
-                var (sw, _) = GetScreenSize();
+                var (sw, _) = WidgetGeometryHelper.GetScreenSize();
                 _bar.GtkWindow.SetDefaultSize(sw / 3, BarHeight);
                 _bar.GtkWindow.GetChild()?.SetVisible(true);
                 _bar.GtkWindow.SetOpacity(SettingsStore.Instance.Data.PanelOpacity);
@@ -138,7 +122,7 @@ namespace Aqueous.Features.Bar
             if (_bar != null)
             {
                 _bar.GtkWindow.GetChild()?.SetVisible(false);
-                var (sw2, _) = GetScreenSize();
+                var (sw2, _) = WidgetGeometryHelper.GetScreenSize();
                 _bar.GtkWindow.SetDefaultSize(sw2 / 3, HitboxHeight);
                 _bar.GtkWindow.SetOpacity(0.01);
             }
@@ -182,36 +166,10 @@ namespace Aqueous.Features.Bar
             }
         }
 
-        private (int width, int height) GetScreenSize()
-        {
-            try
-            {
-                var display = gdk_display_get_default();
-                if (display != IntPtr.Zero)
-                {
-                    var monitors = gdk_display_get_monitors(display);
-                    if (monitors != IntPtr.Zero && g_list_model_get_n_items(monitors) > 0)
-                    {
-                        var monitor = g_list_model_get_item(monitors, 0);
-                        if (monitor != IntPtr.Zero)
-                        {
-                            gdk_monitor_get_geometry(monitor, out var geo);
-                            return (geo.Width, geo.Height);
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Fallback on any GDK error
-            }
-            return (1920, 1080);
-        }
-
         private void ApplyMiddleThirdMargin()
         {
             if (_bar == null) return;
-            var (screenWidth, _) = GetScreenSize();
+            var (screenWidth, _) = WidgetGeometryHelper.GetScreenSize();
             var barWidth = screenWidth / 3;
             _bar.MarginLeft = (screenWidth - barWidth) / 2;
         }

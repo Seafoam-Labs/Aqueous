@@ -1,9 +1,5 @@
-using System;
-using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4.Services;
 
 namespace Aqueous.Features.AudioSwitcher
@@ -35,10 +31,10 @@ namespace Aqueous.Features.AudioSwitcher
             CleanupSocket();
         }
 
-        public void Toggle()
+        public void Toggle(Gtk.Button? anchorButton = null)
         {
             if (_popup.IsVisible) _popup.Hide();
-            else _popup.Show();
+            else _popup.Show(anchorButton);
         }
 
         public void Hide() => _popup.Hide();
@@ -82,10 +78,10 @@ namespace Aqueous.Features.AudioSwitcher
                 switch (command)
                 {
                     case "toggle":
-                        GLib.Functions.IdleAdd(0, () => { Toggle(); return false; });
+                        GLib.Functions.IdleAdd(0, () => { Toggle(null); return false; });
                         break;
                     case "show":
-                        GLib.Functions.IdleAdd(0, () => { _popup.Show(); return false; });
+                        GLib.Functions.IdleAdd(0, () => { _popup.Show(null); return false; });
                         break;
                     case "hide":
                         GLib.Functions.IdleAdd(0, () => { Hide(); return false; });

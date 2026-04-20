@@ -31,7 +31,7 @@ namespace Aqueous.Widgets.NetworkTray
                 {
                     _barWindow?.AllowHide();
                 }
-                service.Toggle();
+                service.Toggle(_button);
             };
 
             // Right-click: toggle Wi-Fi

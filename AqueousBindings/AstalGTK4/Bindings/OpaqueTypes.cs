@@ -28,6 +28,7 @@ public unsafe struct _GSocketConnection { private byte _unused; }
 public unsafe struct _GSocketService { private byte _unused; }
 
 // GDK
+public unsafe struct _GdkDisplay { private byte _unused; }
 public unsafe struct _GdkMonitor { private byte _unused; }
 public unsafe struct _GdkPixbuf { private byte _unused; }
 public unsafe struct _GdkEventButton { private byte _unused; }
