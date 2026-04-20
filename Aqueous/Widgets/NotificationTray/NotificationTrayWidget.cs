@@ -26,10 +26,6 @@ namespace Aqueous.Widgets.NotificationTray
                 {
                     _barWindow?.PreventHide();
                 }
-                else
-                {
-                    _barWindow?.AllowHide();
-                }
                 service.Toggle();
             };
 

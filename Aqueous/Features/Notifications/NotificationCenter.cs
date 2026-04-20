@@ -165,9 +165,7 @@ namespace Aqueous.Features.Notifications
 
             if (notifications.Count == 0)
             {
-                var emptyLabel = Gtk.Label.New("No notifications");
-                emptyLabel.AddCssClass("notification-empty-label");
-                _listContainer.Append(emptyLabel);
+                Hide();
                 return;
             }
 
