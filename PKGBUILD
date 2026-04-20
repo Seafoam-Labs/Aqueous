@@ -87,7 +87,7 @@ package() {
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/wayfire-LICENSE"
 
     # --- Build and Install Aqueous Corners Plugin ---
-    cd "$srcdir/aqueous/wayfire-plugins/aqueous-corners"
+    #cd "$srcdir/aqueous/wayfire-plugins/aqueous-corners"
     
     # Point pkg-config to the Wayfire we just installed in $pkgdir
     export PKG_CONFIG_PATH="$pkgdir/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -95,9 +95,9 @@ package() {
     export CXXFLAGS="-I$pkgdir/usr/include $CXXFLAGS"
     export LDFLAGS="-L$pkgdir/usr/lib $LDFLAGS"
 
-    meson setup build --prefix=/usr
-    ninja -C build
-    DESTDIR="$pkgdir" ninja -C build install
+#     meson setup build --prefix=/usr
+#     ninja -C build
+#     DESTDIR="$pkgdir" ninja -C build install
 
     # --- Build and Install wayfire-plugins-extra ---
     cd "$srcdir/wayfire-plugins-extra"
