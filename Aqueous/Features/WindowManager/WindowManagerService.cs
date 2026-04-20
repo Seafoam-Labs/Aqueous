@@ -239,7 +239,7 @@ namespace Aqueous.Features.WindowManager
                 Id = idProp.GetInt32(),
                 Title = view.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
                 AppId = view.TryGetProperty("app-id", out var a) ? a.GetString() ?? "" : "",
-                OutputId = view.TryGetProperty("output-id", out var o) ? o.GetInt32() : -1,
+                OutputId = view.TryGetProperty("output-id", out var o) && o.TryGetInt32(out var oid) ? oid : -1,
                 Focused = view.TryGetProperty("focused", out var f) && f.GetBoolean(),
                 Minimized = view.TryGetProperty("minimized", out var m) && m.GetBoolean(),
                 Fullscreen = view.TryGetProperty("fullscreen", out var fs) && fs.GetBoolean(),
