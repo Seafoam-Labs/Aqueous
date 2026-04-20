@@ -270,6 +270,49 @@ namespace Aqueous.Features.Settings
                 Save();
         }
 
+        public Dictionary<string, string> GetSectionKeys(string section)
+        {
+            EnsureLoaded();
+            var result = new Dictionary<string, string>();
+            int sectionStart = FindSectionStart(section);
+            if (sectionStart < 0) return result;
+
+            for (int i = sectionStart + 1; i < _lines.Count; i++)
+            {
+                var trimmed = _lines[i].Trim();
+                if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+                    break;
+
+                int eqIdx = _lines[i].IndexOf('=');
+                if (eqIdx >= 0 && !trimmed.StartsWith('#') && !trimmed.StartsWith(';'))
+                {
+                    var key = _lines[i].Substring(0, eqIdx).Trim();
+                    var value = _lines[i].Substring(eqIdx + 1).Trim();
+                    result[key] = value;
+                }
+            }
+            return result;
+        }
+
+        public void RemoveSection(string section)
+        {
+            EnsureLoaded();
+            int sectionStart = FindSectionStart(section);
+            if (sectionStart < 0) return;
+
+            int sectionEnd = sectionStart + 1;
+            while (sectionEnd < _lines.Count)
+            {
+                var trimmed = _lines[sectionEnd].Trim();
+                if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+                    break;
+                sectionEnd++;
+            }
+
+            _lines.RemoveRange(sectionStart, sectionEnd - sectionStart);
+            Save();
+        }
+
         // Internal helpers
 
         private int FindSectionStart(string section)
