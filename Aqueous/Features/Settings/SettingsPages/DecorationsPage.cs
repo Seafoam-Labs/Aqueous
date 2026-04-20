@@ -19,7 +19,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             page.Append(ColorPicker("Inactive color", "decoration", "inactive_color", "#333333DD"));
             page.Append(IntSlider("Border size", "decoration", "border_size", 0, 20, 1, 4));
             page.Append(IntSlider("Title height", "decoration", "title_height", 0, 60, 1, 30));
-            page.Append(Entry("Font", "decoration", "font", "sans-serif"));
+            page.Append(Entry("Font", "decoration", "font", "MonoLisa Script, sans-serif"));
             page.Append(ColorPicker("Font color", "decoration", "font_color", "#FFFFFFFF"));
             page.Append(Entry("Button order", "decoration", "button_order", "minimize maximize close"));
             page.Append(Dropdown("Preferred decoration mode", "core", "preferred_decoration_mode",

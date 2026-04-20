@@ -59,7 +59,7 @@ namespace Aqueous.Features.Settings.SettingsPages
 
             // Workspace names
             page.Append(SubSectionTitle("Workspace Names"));
-            page.Append(Entry("Font", "workspace-names", "font", "sans-serif"));
+            page.Append(Entry("Font", "workspace-names", "font", "MonoLisa Script, sans-serif"));
             page.Append(Dropdown("Position", "workspace-names", "position",
                 ["center", "top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"], "center"));
             page.Append(IntSlider("Display duration", "workspace-names", "display_duration", 100, 5000, 100, 500));
