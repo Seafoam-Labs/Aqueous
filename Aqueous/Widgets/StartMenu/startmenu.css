@@ -18,6 +18,11 @@
     color: #89b4fa;
 }
 
+/* Start Menu Root Window */
+.start-menu-root {
+    background-color: transparent;
+}
+
 /* Start Menu Window */
 .start-menu-window {
     background-color: #1e1e2e;

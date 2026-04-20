@@ -71,6 +71,7 @@ public class StartMenuWindow
 
         _window = new AstalWindow();
         _app.GtkApplication.AddWindow(_window.GtkWindow);
+        _window.GtkWindow.AddCssClass("start-menu-root");
         _window.Namespace = "start-menu";
         _window.Layer = AstalLayer.ASTAL_LAYER_TOP;
         _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
