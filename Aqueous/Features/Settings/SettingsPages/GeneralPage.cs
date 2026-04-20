@@ -32,7 +32,63 @@ namespace Aqueous.Features.Settings.SettingsPages
             // Accent color
             page.Append(CreateAccentColorRow(store));
 
+            // Panel Opacity
+            page.Append(CreatePanelOpacityRow(store));
+
+            // Advanced INI Keys
+            page.Append(CreateAdvancedIniKeysRow(store));
+
             return page;
+        }
+
+        private static Gtk.Box CreatePanelOpacityRow(SettingsStore store)
+        {
+            var row = Gtk.Box.New(Orientation.Horizontal, 8);
+            row.AddCssClass("settings-row");
+
+            var label = Gtk.Label.New("Panel opacity");
+            label.Hexpand = true;
+            label.Halign = Align.Start;
+            row.Append(label);
+
+            var scale = Gtk.Scale.NewWithRange(Orientation.Horizontal, 0.1, 1.0, 0.05);
+            scale.WidthRequest = 200;
+            scale.DrawValue = true;
+            scale.SetValue(store.Data.PanelOpacity);
+            
+            scale.OnChangeValue += (_, args) =>
+            {
+                store.Data.PanelOpacity = args.Value;
+                store.NotifyChanged();
+                return false;
+            };
+
+            row.Append(scale);
+            return row;
+        }
+
+        private static Gtk.Box CreateAdvancedIniKeysRow(SettingsStore store)
+        {
+            var row = Gtk.Box.New(Orientation.Horizontal, 8);
+            row.AddCssClass("settings-row");
+
+            var label = Gtk.Label.New("Show Advanced INI Keys");
+            label.Hexpand = true;
+            label.Halign = Align.Start;
+            row.Append(label);
+
+            var toggle = Gtk.Switch.New();
+            toggle.Active = store.Data.ShowAdvancedIniKeys;
+            toggle.Valign = Align.Center;
+            toggle.OnStateSet += (sender, args) =>
+            {
+                store.Data.ShowAdvancedIniKeys = args.State;
+                store.NotifyChanged();
+                return false;
+            };
+            row.Append(toggle);
+
+            return row;
         }
 
         private static Gtk.Box CreateAutostartRow(SettingsStore store)

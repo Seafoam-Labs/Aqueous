@@ -86,8 +86,45 @@ namespace Aqueous.Features.Settings
                 return false;
             };
 
+            var rootBox = Gtk.Box.New(Orientation.Vertical, 0);
             var container = Gtk.Box.New(Orientation.Horizontal, 0);
+            container.Vexpand = true;
             container.AddCssClass("settings-window");
+            rootBox.Append(container);
+
+            var statusBox = Gtk.Box.New(Orientation.Horizontal, 0);
+            statusBox.Halign = Align.Center;
+            statusBox.MarginBottom = 4;
+            statusBox.MarginTop = 4;
+            
+            var statusLabel = Gtk.Label.New("");
+            statusLabel.AddCssClass("settings-toast");
+            statusBox.Append(statusLabel);
+            rootBox.Append(statusBox);
+
+            uint toastCount = 0;
+            SettingsWidgets.NotifySettingChanged = msg =>
+            {
+                toastCount++;
+                var currentToast = toastCount;
+                GLib.Functions.IdleAdd(0, () => 
+                {
+                    statusLabel.SetText(msg);
+                    return false;
+                });
+                
+                System.Threading.Tasks.Task.Delay(3000).ContinueWith(_ => 
+                {
+                    GLib.Functions.IdleAdd(0, () => 
+                    {
+                        if (toastCount == currentToast)
+                        {
+                            statusLabel.SetText("");
+                        }
+                        return false;
+                    });
+                });
+            };
 
             // Sidebar
             _sidebarBox = CreateSidebar();
@@ -161,7 +198,7 @@ namespace Aqueous.Features.Settings
             };
             _gtkWindow.AddController(keyController);
 
-            _gtkWindow.SetChild(container);
+            _gtkWindow.SetChild(rootBox);
             _gtkWindow.Present();
             IsVisible = true;
         }

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Features.Settings;
 using Gtk;
 
 namespace Aqueous.Features.MediaPlayer
@@ -226,7 +227,7 @@ namespace Aqueous.Features.MediaPlayer
                 _visible = true;
                 _panel.GtkWindow.SetDefaultSize(PanelWidth, PanelHeight);
                 _panel.GtkWindow.GetChild()?.SetVisible(true);
-                _panel.GtkWindow.SetOpacity(1.0);
+                _panel.GtkWindow.SetOpacity(SettingsStore.Instance.Data.PanelOpacity);
             }
         }
 

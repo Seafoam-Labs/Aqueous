@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Features.Settings;
 using Gtk;
 
 namespace Aqueous.Features.Bar
@@ -127,7 +128,7 @@ namespace Aqueous.Features.Bar
                 var (sw, _) = GetScreenSize();
                 _bar.GtkWindow.SetDefaultSize(sw / 3, BarHeight);
                 _bar.GtkWindow.GetChild()?.SetVisible(true);
-                _bar.GtkWindow.SetOpacity(1.0);
+                _bar.GtkWindow.SetOpacity(SettingsStore.Instance.Data.PanelOpacity);
             }
         }
 

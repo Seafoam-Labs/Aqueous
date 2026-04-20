@@ -7,15 +7,40 @@ namespace Aqueous.Features.Settings
     {
         private static WayfireConfigService Wf => WayfireConfigService.Instance;
 
+        public static Action<string>? NotifySettingChanged;
+
+        private static Gtk.Box CreateLabelBox(string label, string section, string key)
+        {
+            var box = Gtk.Box.New(Orientation.Vertical, 2);
+            box.Halign = Align.Start;
+
+            var mainLbl = Gtk.Label.New(label);
+            mainLbl.Halign = Align.Start;
+            box.Append(mainLbl);
+
+            var subLbl = Gtk.Label.New($"[{section}] {key}");
+            subLbl.Halign = Align.Start;
+            subLbl.AddCssClass("settings-subtitle");
+            subLbl.Visible = SettingsStore.Instance.Data.ShowAdvancedIniKeys;
+
+            SettingsStore.Instance.Changed += () =>
+            {
+                subLbl.Visible = SettingsStore.Instance.Data.ShowAdvancedIniKeys;
+            };
+
+            box.Append(subLbl);
+            return box;
+        }
+
         public static Gtk.Box Toggle(string label, string section, string key, bool defaultValue = false)
         {
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var toggle = Gtk.Switch.New();
             toggle.Active = Wf.GetBool(section, key, defaultValue);
@@ -23,6 +48,7 @@ namespace Aqueous.Features.Settings
             toggle.OnStateSet += (_, args) =>
             {
                 Wf.SetBool(section, key, args.State);
+                NotifySettingChanged?.Invoke($"Updated [{section}] {key}");
                 return false;
             };
             row.Append(toggle);
@@ -36,10 +62,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Halign = Align.Start;
-            lbl.WidthRequest = 200;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.WidthRequest = 200;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var scale = Gtk.Scale.NewWithRange(Orientation.Horizontal, min, max, step);
             scale.Hexpand = true;
@@ -53,9 +79,15 @@ namespace Aqueous.Features.Settings
             scale.OnChangeValue += (_, args) =>
             {
                 if (isInt)
+                {
                     Wf.SetInt(section, key, (int)args.Value);
+                    NotifySettingChanged?.Invoke($"Updated [{section}] {key}");
+                }
                 else
+                {
                     Wf.SetFloat(section, key, (float)args.Value);
+                    NotifySettingChanged?.Invoke($"Updated [{section}] {key}");
+                }
                 return false;
             };
             row.Append(scale);
@@ -74,10 +106,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var entry = Gtk.Entry.New();
             var buffer = entry.GetBuffer();
@@ -87,6 +119,7 @@ namespace Aqueous.Features.Settings
             entry.OnChanged += (_, _) =>
             {
                 Wf.SetString(section, key, buffer.GetText());
+                NotifySettingChanged?.Invoke($"Updated [{section}] {key}");
             };
             row.Append(entry);
 
@@ -98,10 +131,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var colorBtn = Gtk.ColorDialogButton.New(Gtk.ColorDialog.New());
             var colorStr = Wf.GetColor(section, key, defaultValue);
@@ -129,10 +162,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var stringList = Gtk.StringList.New(options);
             var dropdown = Gtk.DropDown.New(stringList, null);
@@ -164,10 +197,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var entry = Gtk.Entry.New();
             var buffer = entry.GetBuffer();
@@ -190,10 +223,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Halign = Align.Start;
-            lbl.WidthRequest = 200;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.WidthRequest = 200;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var scale = Gtk.Scale.NewWithRange(Orientation.Horizontal, min, max, step);
             scale.Hexpand = true;
@@ -218,10 +251,10 @@ namespace Aqueous.Features.Settings
             var row = Gtk.Box.New(Orientation.Horizontal, 8);
             row.AddCssClass("settings-row");
 
-            var lbl = Gtk.Label.New(label);
-            lbl.Hexpand = true;
-            lbl.Halign = Align.Start;
-            row.Append(lbl);
+            var lblBox = CreateLabelBox(label, section, key);
+            lblBox.Hexpand = true;
+            row.Append(lblBox);
+            row.TooltipText = $"Modifies [{section}] {key} in wayfire.ini";
 
             var stringList = Gtk.StringList.New(curves);
             var dropdown = Gtk.DropDown.New(stringList, null);

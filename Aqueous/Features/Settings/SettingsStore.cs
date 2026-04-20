@@ -10,6 +10,7 @@ namespace Aqueous.Features.Settings
         public bool AutostartEnabled { get; set; }
         public string BarPosition { get; set; } = "Top";
         public string ThemeAccentColor { get; set; } = "#89b4fa";
+        public double PanelOpacity { get; set; } = 1.0;
 
         // SnapTo
         public string ActiveSnapLayout { get; set; } = "Priority Grid";
@@ -48,6 +49,9 @@ namespace Aqueous.Features.Settings
         public bool CornersEnabled { get; set; } = true;
         public int CornersRadius { get; set; } = 12;
         public string CornersColor { get; set; } = "#1A1A1AFF";
+
+        // Advanced UI
+        public bool ShowAdvancedIniKeys { get; set; } = false;
     }
 
     public class SettingsStore

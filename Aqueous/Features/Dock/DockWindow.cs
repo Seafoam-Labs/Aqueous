@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Features.Settings;
 using Gtk;
 
 namespace Aqueous.Features.Dock
@@ -208,7 +209,7 @@ namespace Aqueous.Features.Dock
                 else
                     _dockPanel.GtkWindow.SetDefaultSize(dockLength, DockThickness);
                 _dockPanel.GtkWindow.GetChild()?.SetVisible(true);
-                _dockPanel.GtkWindow.SetOpacity(1.0);
+                _dockPanel.GtkWindow.SetOpacity(SettingsStore.Instance.Data.PanelOpacity);
             }
         }
 
