@@ -185,11 +185,12 @@ namespace Aqueous.Features.Settings
                 if (refreshPart == null)
                     return true; // Resolution matches, any refresh rate is fine
 
-                // Compare refresh rates with tolerance
+                // Extremely tight tolerance instead of 0.01 to avoid rounding to whole numbers 
+                // while still handling negligible float inaccuracies like .000001
                 if (double.TryParse(refreshPart, NumberStyles.Float, CultureInfo.InvariantCulture, out var targetRefresh) &&
                     double.TryParse(mode.Refresh, NumberStyles.Float, CultureInfo.InvariantCulture, out var availRefresh))
                 {
-                    if (Math.Abs(targetRefresh - availRefresh) < 0.01)
+                    if (Math.Abs(targetRefresh - availRefresh) < 0.001)
                         return true;
                 }
             }
