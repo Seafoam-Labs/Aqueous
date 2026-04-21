@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# aqueous-run: keep Aqueous alive; restart on crash with a small back-off.
+# Installed to ~/.local/bin/aqueous-run and launched from wayfire.ini [autostart].
+
+set -u
+
+BIN="${AQUEOUS_BIN:-/home/zoey/RiderProjects/Aqueous/Aqueous/bin/Debug/net10.0/Aqueous}"
+BACKOFF="${AQUEOUS_BACKOFF:-2}"
+
+# Let the compositor settle before the first launch (matches old autostart behaviour).
+sleep "$BACKOFF"
+
+while true; do
+    "$BIN" "$@"
+    code=$?
+
+    # Clean exit -> stop looping (user quit).
+    if [ "$code" -eq 0 ]; then
+        echo "aqueous-run: Aqueous exited cleanly (0), not restarting." >&2
+        break
+    fi
+
+    # SIGTERM (143) / SIGINT (130) -> assume intentional shutdown.
+    if [ "$code" -eq 143 ] || [ "$code" -eq 130 ]; then
+        echo "aqueous-run: Aqueous terminated by signal ($code), not restarting." >&2
+        break
+    fi
+
+    echo "aqueous-run: Aqueous exited with $code, restarting in ${BACKOFF}s..." >&2
+    sleep "$BACKOFF"
+done

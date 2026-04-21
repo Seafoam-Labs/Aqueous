@@ -215,10 +215,10 @@ public class Program
             _screenlockService.Start();
 
             // --- Corners Service (rounded corners for all windows) ---
-            if (SettingsStore.Instance.Data.CornersEnabled)
-            {
-                _ = CornersService.Instance.SetEnabled(true);
-            }
+            // if (SettingsStore.Instance.Data.CornersEnabled)
+            // {
+            //     _ = CornersService.Instance.SetEnabled(true);
+            // }
 
             // Launch XDG autostart applications
             XdgAutostartService.LaunchAll();
