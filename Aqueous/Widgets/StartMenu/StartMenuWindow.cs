@@ -22,6 +22,11 @@ public class StartMenuWindow
     private Gtk.Box? _sidebarBox;
     private string _activeTab = "Favorites";
     private StartMenuConfig _config;
+    // Debouncer for the search entry — without this, OnInsertedText + OnDeletedText fire
+    // at ~10-20 Hz during fast typing, each triggering a full ClearContent()+rebuild of
+    // up to 20 rows (icon lookup + label widgets), which is the visible flicker.
+    private ManagedTimer? _searchDebounce;
+    private string _pendingQuery = string.Empty;
 
     public bool IsVisible { get; private set; }
 
@@ -130,10 +135,10 @@ public class StartMenuWindow
         var footer = CreateFooter();
         container.Append(footer);
 
-        // Wire search
+        // Wire search (debounced — coalesce burst of insert/delete signals into one rebuild).
         var buffer = _searchEntry.GetBuffer();
-        buffer.OnInsertedText += (_, _) => OnSearchChanged(buffer.GetText());
-        buffer.OnDeletedText += (_, _) => OnSearchChanged(buffer.GetText());
+        buffer.OnInsertedText += (_, _) => QueueSearch(buffer.GetText());
+        buffer.OnDeletedText += (_, _) => QueueSearch(buffer.GetText());
 
         // Escape key
         var keyController = Gtk.EventControllerKey.New();
@@ -151,9 +156,23 @@ public class StartMenuWindow
         _window.GtkWindow.SetChild(container);
     }
 
+    private void QueueSearch(string query)
+    {
+        _pendingQuery = query;
+        _searchDebounce?.Dispose();
+        _searchDebounce = ManagedTimer.Once(TimeSpan.FromMilliseconds(100), () =>
+        {
+            _searchDebounce = null;
+            if (IsVisible)
+                OnSearchChanged(_pendingQuery);
+        });
+    }
+
     public void Hide()
     {
         if (!IsVisible || _window == null) return;
+        _searchDebounce?.Dispose();
+        _searchDebounce = null;
         _searchEntry?.GetBuffer().SetText("", 0);
         _activeTab = "Favorites";
         BackdropHelper.DestroyBackdrop(ref _backdrop);

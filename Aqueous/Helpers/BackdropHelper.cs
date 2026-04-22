@@ -6,6 +6,29 @@ namespace Aqueous.Helpers;
 
 public static class BackdropHelper
 {
+    /// <summary>
+    /// Tracks the number of live layer-shell surfaces we've created (backdrops + popup windows
+    /// teared down through <see cref="DestroyWindow"/>). Used by the <c>AQUEOUS_DEBUG_SURFACES=1</c>
+    /// diagnostic + shutdown assertion to detect leaked surfaces that would hold a keyboard grab
+    /// or a live input region over other apps.
+    /// </summary>
+    public static int LiveSurfaceCount { get; private set; }
+
+    private static readonly bool DebugSurfaces =
+        Environment.GetEnvironmentVariable("AQUEOUS_DEBUG_SURFACES") == "1";
+
+    /// <summary>
+    /// Call from each popup immediately after setting <c>Keymode</c> on a layer surface so the
+    /// diagnostic log tells us which popup owns which keymode. A no-op unless
+    /// <c>AQUEOUS_DEBUG_SURFACES=1</c>.
+    /// </summary>
+    public static void LogLayerCreated(string ns, AstalKeymode keymode)
+    {
+        LiveSurfaceCount++;
+        if (DebugSurfaces)
+            Console.Error.WriteLine($"[aqueous-surfaces] create ns={ns} keymode={keymode} live={LiveSurfaceCount}");
+    }
+
     public static AstalWindow CreateBackdrop(
         AstalApplication app,
         string ns,
@@ -33,6 +56,8 @@ public static class BackdropHelper
 
         backdrop.GtkWindow.SetVisible(true);
         backdrop.GtkWindow.Present();
+
+        LogLayerCreated(ns, AstalKeymode.ASTAL_KEYMODE_NONE);
         return backdrop;
     }
 
@@ -50,6 +75,8 @@ public static class BackdropHelper
     public static void DestroyWindow(ref AstalWindow? window)
     {
         if (window == null) return;
+        string? ns = null;
+        try { ns = window.Namespace; } catch { }
         try
         {
             window.GtkWindow.SetVisible(false);
@@ -61,5 +88,9 @@ public static class BackdropHelper
             // best-effort teardown; never throw during dismiss paths
         }
         window = null;
+
+        if (LiveSurfaceCount > 0) LiveSurfaceCount--;
+        if (DebugSurfaces)
+            Console.Error.WriteLine($"[aqueous-surfaces] destroy ns={ns ?? "?"} live={LiveSurfaceCount}");
     }
 }

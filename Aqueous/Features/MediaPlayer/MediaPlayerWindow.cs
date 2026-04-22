@@ -33,6 +33,8 @@ namespace Aqueous.Features.MediaPlayer
         public event Action? OnPrevious;
         public event Action? OnPlayPause;
         public event Action? OnNext;
+        /// <summary>Fires when the expanded panel is shown (true) or collapsed to hitbox (false).</summary>
+        public event Action<bool>? OnPanelVisibilityChanged;
 
         public MediaPlayerWindow(AstalApplication app)
         {
@@ -92,10 +94,16 @@ namespace Aqueous.Features.MediaPlayer
                 _playPauseButton.SetLabel(playing ? "⏸" : "▶");
         }
 
+        /// <summary>True when the expanded panel is on-screen; used to skip Cava work while collapsed.</summary>
+        public bool IsPanelVisible => _visible;
+
         public void UpdateCavaValues(float[] values)
         {
             _cavaValues = values;
-            _cavaDrawingArea?.QueueDraw();
+            // Skip QueueDraw when the panel is hidden (hitbox-only). The DrawingArea is still
+            // mapped inside a hidden child, but there's no reason to request a frame for it.
+            if (_visible)
+                _cavaDrawingArea?.QueueDraw();
         }
 
         private void CreatePanel()
@@ -228,12 +236,14 @@ namespace Aqueous.Features.MediaPlayer
                 _panel.GtkWindow.SetDefaultSize(PanelWidth, PanelHeight);
                 _panel.GtkWindow.GetChild()?.SetVisible(true);
                 _panel.GtkWindow.SetOpacity(SettingsStore.Instance.Data.PanelOpacity);
+                OnPanelVisibilityChanged?.Invoke(true);
             }
         }
 
         private void HidePanel()
         {
             CancelHideTimeout();
+            var wasVisible = _visible;
             if (_panel != null)
             {
                 _panel.GtkWindow.GetChild()?.SetVisible(false);
@@ -241,11 +251,14 @@ namespace Aqueous.Features.MediaPlayer
                 _panel.GtkWindow.SetOpacity(0.01);
             }
             _visible = false;
+            if (wasVisible)
+                OnPanelVisibilityChanged?.Invoke(false);
         }
 
         private void DestroyPanel()
         {
             CancelHideTimeout();
+            var wasVisible = _visible;
             if (_panel != null)
             {
                 _panel.GtkWindow.Close();
@@ -258,6 +271,8 @@ namespace Aqueous.Features.MediaPlayer
                 _cavaDrawingArea = null;
             }
             _visible = false;
+            if (wasVisible)
+                OnPanelVisibilityChanged?.Invoke(false);
         }
 
         private void ScheduleHide()

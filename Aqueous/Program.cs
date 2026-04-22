@@ -33,6 +33,7 @@ using Aqueous.Features.ClipboardManager;
 using Aqueous.Features.Calendar;
 using Aqueous.Features.Autostart;
 using Aqueous.Features.Corners;
+using Aqueous.Helpers;
 public class Program
 {
     private static SnapToService? _snapToService;
@@ -242,6 +243,18 @@ public class Program
         _systemTrayService?.Dispose();
         _windowManagerService?.Dispose();
         _barService?.Stop();
+
+#if DEBUG
+        // Leak assertions: after all services have stopped, every managed timer and every
+        // layer-shell surface we created should be gone. A non-zero count means a popup or
+        // timer leaked — in long-running sessions this is what shows up as a layer surface
+        // still eating clicks / holding a keyboard grab / spinning the main loop. Logged to
+        // stderr rather than thrown so it never crashes a developer session.
+        if (ManagedTimer.LiveCount != 0)
+            Console.Error.WriteLine($"[aqueous-debug] WARNING: {ManagedTimer.LiveCount} ManagedTimer(s) still live at shutdown");
+        if (BackdropHelper.LiveSurfaceCount != 0)
+            Console.Error.WriteLine($"[aqueous-debug] WARNING: {BackdropHelper.LiveSurfaceCount} layer surface(s) still live at shutdown");
+#endif
     }
 
     private static void LoadCss(string relativePath)
