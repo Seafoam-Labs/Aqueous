@@ -14,8 +14,26 @@ public static class BackdropHelper
     /// </summary>
     public static int LiveSurfaceCount { get; private set; }
 
+    /// <summary>
+    /// Safety cap: if we ever observe more than this many simultaneous layer surfaces we refuse
+    /// further creates. This is a fail-safe against a create/destroy churn bug that would
+    /// otherwise overflow the libwayland 4 KB send buffer and crash the compositor link.
+    /// </summary>
+    private const int MaxLiveSurfaces = 8;
+
     private static readonly bool DebugSurfaces =
-        Environment.GetEnvironmentVariable("AQUEOUS_DEBUG_SURFACES") == "1";
+        Environment.GetEnvironmentVariable("AQUEOUS_DEBUG_SURFACES") == "1"
+        || Environment.GetEnvironmentVariable("AQUEOUS_DEBUG_WAYLAND") == "1";
+
+    static BackdropHelper()
+    {
+        if (Environment.GetEnvironmentVariable("AQUEOUS_DEBUG_WAYLAND") == "1"
+            && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DEBUG")))
+        {
+            // Surface libwayland protocol trace for the current process.
+            Environment.SetEnvironmentVariable("WAYLAND_DEBUG", "1");
+        }
+    }
 
     /// <summary>
     /// Call from each popup immediately after setting <c>Keymode</c> on a layer surface so the
@@ -26,15 +44,26 @@ public static class BackdropHelper
     {
         LiveSurfaceCount++;
         if (DebugSurfaces)
-            Console.Error.WriteLine($"[aqueous-surfaces] create ns={ns} keymode={keymode} live={LiveSurfaceCount}");
+            Console.Error.WriteLine(
+                $"[aqueous-surfaces] create ns={ns} keymode={keymode} live={LiveSurfaceCount}");
     }
 
-    public static AstalWindow CreateBackdrop(
+    public static AstalWindow? CreateBackdrop(
         AstalApplication app,
         string ns,
         AstalLayer layer,
         Action onClicked)
     {
+        // Leak cap: refuse to create a new layer surface if we already have too many live ones.
+        // Logged so a regression is visible in stderr instead of silently overflowing the
+        // Wayland send buffer and taking down the client.
+        if (LiveSurfaceCount >= MaxLiveSurfaces)
+        {
+            Console.Error.WriteLine(
+                $"[aqueous-surfaces] refusing CreateBackdrop ns={ns}: live={LiveSurfaceCount} exceeds cap {MaxLiveSurfaces}");
+            return null;
+        }
+
         var backdrop = new AstalWindow();
         app.GtkApplication.AddWindow(backdrop.GtkWindow);
         backdrop.Namespace = ns;
@@ -54,6 +83,9 @@ public static class BackdropHelper
         click.OnPressed += (_, _) => onClicked();
         backdrop.GtkWindow.AddController(click);
 
+        // One configure pass: set all properties above first, then a single map+present.
+        // Splitting visibility + present across main-loop ticks would produce an extra
+        // layer-surface configure/ack round-trip per popup open.
         backdrop.GtkWindow.SetVisible(true);
         backdrop.GtkWindow.Present();
 
@@ -71,26 +103,44 @@ public static class BackdropHelper
     /// the underlying wl_surface / zwlr_layer_surface is released immediately, instead of lingering
     /// for a frame and eating clicks on apps above/below. Use this on every popup dismiss path
     /// instead of <c>GtkWindow.Close()</c> or <c>SetVisible(false)</c>.
+    ///
+    /// The actual unrealize/destroy is deferred one main-loop iteration so the preceding
+    /// <c>SetVisible(false)</c> is flushed to the compositor first. Landing a <c>wl_surface.destroy</c>
+    /// in the same batch as prior pending commits is the classic path to the libwayland
+    /// "Data too big for buffer" overflow and subsequent crash.
     /// </summary>
     public static void DestroyWindow(ref AstalWindow? window)
     {
         if (window == null) return;
-        string? ns = null;
-        try { ns = window.Namespace; } catch { }
-        try
-        {
-            window.GtkWindow.SetVisible(false);
-            window.GtkWindow.Unrealize();
-            window.GtkWindow.Destroy();
-        }
-        catch
-        {
-            // best-effort teardown; never throw during dismiss paths
-        }
+        var captured = window;
         window = null;
 
-        if (LiveSurfaceCount > 0) LiveSurfaceCount--;
-        if (DebugSurfaces)
-            Console.Error.WriteLine($"[aqueous-surfaces] destroy ns={ns ?? "?"} live={LiveSurfaceCount}");
+        string? ns = null;
+        try { ns = captured.Namespace; } catch { }
+
+        // Synchronous unmap — safe, ~1 request — schedule the hard teardown for the next
+        // main-loop tick so the unmap has already been flushed.
+        try { captured.GtkWindow.SetVisible(false); } catch { }
+
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            try
+            {
+                captured.GtkWindow.Unrealize();
+                captured.GtkWindow.Destroy();
+            }
+            catch
+            {
+                // best-effort teardown; never throw during dismiss paths
+            }
+            finally
+            {
+                if (LiveSurfaceCount > 0) LiveSurfaceCount--;
+                if (DebugSurfaces)
+                    Console.Error.WriteLine(
+                        $"[aqueous-surfaces] destroy ns={ns ?? "?"} live={LiveSurfaceCount}");
+            }
+            return false; // one-shot
+        });
     }
 }

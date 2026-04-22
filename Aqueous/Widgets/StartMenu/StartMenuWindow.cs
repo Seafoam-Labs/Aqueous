@@ -22,6 +22,10 @@ public class StartMenuWindow
     private Gtk.Box? _sidebarBox;
     private string _activeTab = "Favorites";
     private StartMenuConfig _config;
+    // Single-Present guard (Phase 2.5): Each extra GtkWindow.Present() on a layer-shell
+    // surface re-drives the compositor's configure round-trip. Guard it so a double
+    // Show() (e.g. hotkey + click race) cannot spam configures.
+    private bool _presented;
     // Debouncer for the search entry — without this, OnInsertedText + OnDeletedText fire
     // at ~10-20 Hz during fast typing, each triggering a full ClearContent()+rebuild of
     // up to 20 rows (icon lookup + label widgets), which is the visible flicker.
@@ -72,7 +76,11 @@ public class StartMenuWindow
         _backdrop = BackdropHelper.CreateBackdrop(_app, "start-menu-backdrop", AstalLayer.ASTAL_LAYER_TOP, Hide);
 
         _window!.GtkWindow.SetVisible(true);
-        _window.GtkWindow.Present();
+        if (!_presented)
+        {
+            _window.GtkWindow.Present();
+            _presented = true;
+        }
         IsVisible = true;
     }
 
@@ -180,6 +188,7 @@ public class StartMenuWindow
         // leaving it mapped would keep keyboard focus and cause apps underneath to lose the
         // first 1-2 clicks. The launcher is recreated on next Show().
         BackdropHelper.DestroyWindow(ref _window);
+        _presented = false;
         IsVisible = false;
     }
 

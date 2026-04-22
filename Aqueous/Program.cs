@@ -200,20 +200,39 @@ public class Program
             // var workspaceSwitcher = new WorkspaceSwitcherWidget(_windowManagerService);
             // barLeft.GtkBox.Append(workspaceSwitcher.Box);
 
-            // --- Dock Service ---
-            LoadCss(Path.Combine("Features", "Dock", "dock.css"));
-            _dockService = new DockService(app, _settingsService!, _windowManagerService);
-            _dockService.Start();
+            // --- Staggered startup (Phase 4) ---
+            // The bar + core trays above already map one layer-shell surface. Creating
+            // Dock + MediaPlayer + Screenlock + XDG autostart in the same main-loop tick
+            // can overflow the libwayland 4 KB send buffer on first frame (the classic
+            // "Data too big for buffer" log followed by a client crash). We defer them
+            // across idle ticks so each batch gets flushed before the next one starts.
 
-            // --- Media Player Service ---
-            LoadCss(Path.Combine("Features", "MediaPlayer", "mediaplayer.css"));
-            _mediaPlayerService = new MediaPlayerService(app);
-            _mediaPlayerService.Start();
+            // Tick 1: Dock (another layer-shell surface) — wait for bar to flush first.
+            GLib.Functions.IdleAdd(0, () =>
+            {
+                LoadCss(Path.Combine("Features", "Dock", "dock.css"));
+                _dockService = new DockService(app, _settingsService!, _windowManagerService);
+                _dockService.Start();
+                return false;
+            });
 
-            // --- Screenlock Service ---
-            LoadCss(Path.Combine("Features", "Screenlock", "screenlock.css"));
-            _screenlockService = new ScreenlockService(app);
-            _screenlockService.Start();
+            // Tick 2: MediaPlayer — attaches MPRIS + Cava signal storms.
+            GLib.Functions.IdleAdd(0, () =>
+            {
+                LoadCss(Path.Combine("Features", "MediaPlayer", "mediaplayer.css"));
+                _mediaPlayerService = new MediaPlayerService(app);
+                _mediaPlayerService.Start();
+                return false;
+            });
+
+            // Tick 3: Screenlock (another layer-shell, on-demand).
+            GLib.Functions.IdleAdd(0, () =>
+            {
+                LoadCss(Path.Combine("Features", "Screenlock", "screenlock.css"));
+                _screenlockService = new ScreenlockService(app);
+                _screenlockService.Start();
+                return false;
+            });
 
             // --- Corners Service (rounded corners for all windows) ---
             // if (SettingsStore.Instance.Data.CornersEnabled)
@@ -221,8 +240,13 @@ public class Program
             //     _ = CornersService.Instance.SetEnabled(true);
             // }
 
-            // Launch XDG autostart applications
-            XdgAutostartService.LaunchAll();
+            // Tick 4: XDG autostart — can spawn dozens of external processes which
+            // themselves connect to Wayland; defer so our own surfaces are mapped first.
+            GLib.Functions.IdleAdd(0, () =>
+            {
+                XdgAutostartService.LaunchAll();
+                return false;
+            });
         };
 
         app.GtkApplication.Run(args);
