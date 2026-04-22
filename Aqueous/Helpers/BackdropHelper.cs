@@ -35,9 +35,28 @@ public static class BackdropHelper
 
     public static void DestroyBackdrop(ref AstalWindow? backdrop)
     {
-        if (backdrop == null) return;
-        backdrop.GtkWindow.SetVisible(false);
-        backdrop.GtkWindow.Close();
-        backdrop = null;
+        DestroyWindow(ref backdrop);
+    }
+
+    /// <summary>
+    /// Hard teardown for any layer-shell <see cref="AstalWindow"/>: unmap + unrealize + destroy so
+    /// the underlying wl_surface / zwlr_layer_surface is released immediately, instead of lingering
+    /// for a frame and eating clicks on apps above/below. Use this on every popup dismiss path
+    /// instead of <c>GtkWindow.Close()</c> or <c>SetVisible(false)</c>.
+    /// </summary>
+    public static void DestroyWindow(ref AstalWindow? window)
+    {
+        if (window == null) return;
+        try
+        {
+            window.GtkWindow.SetVisible(false);
+            window.GtkWindow.Unrealize();
+            window.GtkWindow.Destroy();
+        }
+        catch
+        {
+            // best-effort teardown; never throw during dismiss paths
+        }
+        window = null;
     }
 }

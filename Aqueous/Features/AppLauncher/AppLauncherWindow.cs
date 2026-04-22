@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.AppLauncher
@@ -130,8 +131,7 @@ namespace Aqueous.Features.AppLauncher
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             _searchEntry = null;
             _resultsList = null;
             _selectedIndex = 0;

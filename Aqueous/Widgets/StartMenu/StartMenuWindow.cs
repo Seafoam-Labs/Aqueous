@@ -81,7 +81,9 @@ public class StartMenuWindow
         _window.Namespace = "start-menu";
         _window.Layer = AstalLayer.ASTAL_LAYER_TOP;
         _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_NORMAL;
-        _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+        // EXCLUSIVE while the launcher is open (search entry needs keys);
+        // ON_DEMAND makes the compositor swallow the first click to retarget focus.
+        _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
         _window.Anchor = AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_TOP
                        | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT;
         _window.MarginTop = 40;
@@ -155,7 +157,10 @@ public class StartMenuWindow
         _searchEntry?.GetBuffer().SetText("", 0);
         _activeTab = "Favorites";
         BackdropHelper.DestroyBackdrop(ref _backdrop);
-        _window.GtkWindow.SetVisible(false);
+        // Hard-destroy the launcher surface (not just hide). Because this surface is EXCLUSIVE,
+        // leaving it mapped would keep keyboard focus and cause apps underneath to lose the
+        // first 1-2 clicks. The launcher is recreated on next Show().
+        BackdropHelper.DestroyWindow(ref _window);
         IsVisible = false;
     }
 

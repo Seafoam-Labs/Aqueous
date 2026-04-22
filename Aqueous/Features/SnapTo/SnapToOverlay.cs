@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.SnapTo
@@ -64,9 +65,9 @@ namespace Aqueous.Features.SnapTo
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_BOTTOM
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
                            | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
-            _window.Keymode = isDragMode
-                ? AstalKeymode.ASTAL_KEYMODE_NONE
-                : AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            // Drag mode: pointer-only (NONE). Non-drag (picker) still NONE — we don't read keys;
+            // EXCLUSIVE would hold keyboard focus and make the compositor steal the first click.
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             // Use a Fixed container for absolute positioning of zones
             var overlay = Gtk.Fixed.New();
@@ -149,8 +150,7 @@ namespace Aqueous.Features.SnapTo
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             IsVisible = false;
         }
 

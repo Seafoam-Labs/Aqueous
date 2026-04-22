@@ -28,11 +28,7 @@ namespace Aqueous.Features.PowerProfiles
             if (!IsVisible) return;
             IsVisible = false;
             BackdropHelper.DestroyBackdrop(ref _backdrop);
-            if (_window != null)
-            {
-                _window.GtkWindow.Close();
-                _window = null;
-            }
+            BackdropHelper.DestroyWindow(ref _window);
         }
         private void BuildWindow(Gtk.Button? anchorButton)
         {
@@ -41,7 +37,8 @@ namespace Aqueous.Features.PowerProfiles
             _window.Namespace = "power-profiles-popup";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            // Pointer-only popup (radio list). NONE prevents compositor swallowing the first click.
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             var mainBox = Gtk.Box.New(Orientation.Vertical, 8);
             mainBox.AddCssClass("power-profiles-popup");

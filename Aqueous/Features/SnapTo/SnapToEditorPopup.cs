@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.SnapTo
@@ -52,7 +53,8 @@ namespace Aqueous.Features.SnapTo
             _window.Namespace = "snapto-editor";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            // Pointer-only editor popup. NONE prevents compositor stealing the first click.
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             _container = Gtk.Box.New(Orientation.Vertical, 8);
             _container.AddCssClass("snapto-editor");
@@ -129,8 +131,7 @@ namespace Aqueous.Features.SnapTo
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             IsVisible = false;
         }
 

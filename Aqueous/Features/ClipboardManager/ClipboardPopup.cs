@@ -133,8 +133,7 @@ namespace Aqueous.Features.ClipboardManager
         public void Hide()
         {
             if (!IsVisible || _window == null) return;
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             _listBox = null;
             IsVisible = false;
         }

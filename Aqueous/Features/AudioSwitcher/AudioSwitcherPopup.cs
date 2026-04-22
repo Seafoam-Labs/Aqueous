@@ -34,7 +34,8 @@ namespace Aqueous.Features.AudioSwitcher
             _window.Namespace = "audio-switcher";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            // Pointer-only popup (device list). NONE prevents compositor swallowing the first click.
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("audio-switcher");
@@ -134,8 +135,7 @@ namespace Aqueous.Features.AudioSwitcher
         {
             if (!IsVisible || _window == null) return;
             BackdropHelper.DestroyBackdrop(ref _backdrop);
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             IsVisible = false;
         }
 

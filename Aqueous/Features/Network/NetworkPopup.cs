@@ -83,7 +83,7 @@ namespace Aqueous.Features.Network
             _window.Namespace = "network-popup";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             _mainContainer = Gtk.Box.New(Orientation.Vertical, 4);
             _mainContainer.AddCssClass("network-popup");
@@ -294,7 +294,7 @@ namespace Aqueous.Features.Network
             _window.Namespace = "network-popup";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_ON_DEMAND;
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             var container = Gtk.Box.New(Orientation.Vertical, 4);
             container.AddCssClass("network-popup");
@@ -383,8 +383,7 @@ namespace Aqueous.Features.Network
             }
 
             BackdropHelper.DestroyBackdrop(ref _backdrop);
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             _mainContainer = null;
             _apListContainer = null;
             IsVisible = false;

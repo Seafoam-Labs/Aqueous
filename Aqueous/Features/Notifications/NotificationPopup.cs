@@ -5,6 +5,7 @@ using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Bindings.AstalNotifd;
 using Aqueous.Bindings.AstalNotifd.Services;
+using Aqueous.Helpers;
 using Gtk;
 
 namespace Aqueous.Features.Notifications
@@ -174,7 +175,8 @@ namespace Aqueous.Features.Notifications
         {
             if (entry.TimerId > 0)
                 GLib.Functions.SourceRemove(entry.TimerId);
-            entry.Window.GtkWindow.Close();
+            AstalWindow? win = entry.Window;
+            BackdropHelper.DestroyWindow(ref win);
             _activePopups.Remove(entry);
         }
     }

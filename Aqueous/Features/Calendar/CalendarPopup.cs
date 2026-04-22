@@ -33,7 +33,8 @@ public class CalendarPopup
         _window.Namespace = "calendar-popup";
         _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
         _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-        _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+        // Pointer-only popup. NONE prevents compositor stealing the first click for focus retargeting.
+        _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
         var container = Box.New(Orientation.Vertical, 8);
         container.AddCssClass("calendar-popup");
@@ -106,14 +107,8 @@ public class CalendarPopup
     {
         if (!IsVisible || _window == null) return;
         
-        if (_backdrop != null)
-        {
-            _backdrop.GtkWindow.Close();
-            _backdrop = null;
-        }
-
-        _window.GtkWindow.Close();
-        _window = null;
+        BackdropHelper.DestroyBackdrop(ref _backdrop);
+        BackdropHelper.DestroyWindow(ref _window);
         IsVisible = false;
     }
 }

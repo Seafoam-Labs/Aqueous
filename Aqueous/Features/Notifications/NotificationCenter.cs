@@ -44,8 +44,7 @@ namespace Aqueous.Features.Notifications
             if (!IsVisible || _window == null) return;
 
             BackdropHelper.DestroyBackdrop(ref _backdrop);
-            _window.GtkWindow.Close();
-            _window = null;
+            BackdropHelper.DestroyWindow(ref _window);
             _listContainer = null;
             IsVisible = false;
             Closed?.Invoke();
@@ -77,7 +76,8 @@ namespace Aqueous.Features.Notifications
             _window.Namespace = "notification-center";
             _window.Layer = AstalLayer.ASTAL_LAYER_OVERLAY;
             _window.Exclusivity = AstalExclusivity.ASTAL_EXCLUSIVITY_IGNORE;
-            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_EXCLUSIVE;
+            // Pointer-only panel (list of cards). NONE prevents compositor swallowing the first click.
+            _window.Keymode = AstalKeymode.ASTAL_KEYMODE_NONE;
 
             if (anchorButton != null)
             {
