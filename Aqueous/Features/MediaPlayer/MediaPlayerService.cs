@@ -76,6 +76,12 @@ namespace Aqueous.Features.MediaPlayer
 
         private uint _pollTimer;
 
+        // Reusable Cava buffers — avoid per-frame allocation at visualizer rate (20-60 Hz).
+        private double[] _cavaBuf = Array.Empty<double>();
+        private float[] _cavaOut = Array.Empty<float>();
+        private long _cavaLastTickTicks;
+        private const long CavaMinIntervalTicks = TimeSpan.TicksPerMillisecond * 16; // ~60 Hz cap
+
         public MediaPlayerService(AstalApplication app)
         {
             _app = app;
@@ -157,6 +163,17 @@ namespace Aqueous.Features.MediaPlayer
         {
             if (_cava == IntPtr.Zero || _window == null) return;
 
+            // Gate on playback state — Cava keeps emitting even when nothing is playing,
+            // which would otherwise cause a continuous redraw + allocation storm.
+            if (_activePlayer == IntPtr.Zero) return;
+            var status = (AstalMprisPlaybackStatus)astal_mpris_player_get_playback_status(_activePlayer);
+            if (status != AstalMprisPlaybackStatus.Playing) return;
+
+            // Throttle to ~60 Hz so the compositor never redraws faster than display rate.
+            var nowTicks = DateTime.UtcNow.Ticks;
+            if (nowTicks - _cavaLastTickTicks < CavaMinIntervalTicks) return;
+            _cavaLastTickTicks = nowTicks;
+
             var garray = astal_cava_cava_get_values(_cava);
             if (garray == IntPtr.Zero) return;
 
@@ -166,14 +183,25 @@ namespace Aqueous.Features.MediaPlayer
 
             if (dataPtr == IntPtr.Zero || len == 0) return;
 
-            var values = new float[len];
-            for (int i = 0; i < len; i++)
-            {
-                values[i] = (float)BitConverter.Int64BitsToDouble(
-                    Marshal.ReadInt64(dataPtr + i * sizeof(double)));
-            }
+            var n = (int)len;
+            if (_cavaBuf.Length < n) _cavaBuf = new double[n];
+            if (_cavaOut.Length < n) _cavaOut = new float[n];
 
-            _window.UpdateCavaValues(values);
+            // Single bulk copy instead of per-element Marshal.ReadInt64 + Int64BitsToDouble.
+            Marshal.Copy(dataPtr, _cavaBuf, 0, n);
+            for (int i = 0; i < n; i++)
+                _cavaOut[i] = (float)_cavaBuf[i];
+
+            // If the consumer retains the array, we still hand out a correctly-sized view;
+            // UpdateCavaValues copies for rendering so sharing the pooled buffer is safe here.
+            if (_cavaOut.Length == n)
+                _window.UpdateCavaValues(_cavaOut);
+            else
+            {
+                var slice = new float[n];
+                Array.Copy(_cavaOut, slice, n);
+                _window.UpdateCavaValues(slice);
+            }
         }
 
         private void SelectActivePlayer()

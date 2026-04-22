@@ -5,7 +5,13 @@ using System.Linq;
 
 namespace Aqueous.Features.AppLauncher
 {
-    public record DesktopEntry(string Name, string Exec, string Icon, string Comment);
+    public record DesktopEntry(string Name, string Exec, string Icon, string Comment)
+    {
+        // Pre-computed lowercase fields. Avoids ToLowerInvariant() allocation on every keystroke
+        // across ~500 desktop entries (was ~10k string allocations per 10-char query).
+        public string NameLower { get; } = Name.ToLowerInvariant();
+        public string CommentLower { get; } = Comment.ToLowerInvariant();
+    }
 
     public static class AppLauncherSearch
     {
@@ -39,8 +45,8 @@ namespace Aqueous.Features.AppLauncher
 
         private static int ScoreEntry(DesktopEntry entry, string query)
         {
-            var name = entry.Name.ToLowerInvariant();
-            var comment = entry.Comment.ToLowerInvariant();
+            var name = entry.NameLower;
+            var comment = entry.CommentLower;
 
             if (name == query) return 100;
             if (name.StartsWith(query)) return 80;

@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Aqueous.Helpers;
 
 namespace Aqueous.Features.SnapTo
 {
@@ -16,15 +17,21 @@ namespace Aqueous.Features.SnapTo
 
         public WayfireEventClient()
         {
-            _socketPath = Environment.GetEnvironmentVariable("WAYFIRE_SOCKET")
-                ?? Environment.GetEnvironmentVariable("_WAYFIRE_SOCKET")
-                ?? FindWayfireSocket();
+            _socketPath = WayfireSocket.Resolve();
         }
 
         public void Connect()
         {
             _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            _socket.Connect(new UnixDomainSocketEndPoint(_socketPath));
+            try
+            {
+                _socket.Connect(new UnixDomainSocketEndPoint(_socketPath));
+            }
+            catch
+            {
+                WayfireSocket.Invalidate();
+                throw;
+            }
         }
 
         public async Task SendJson(string json)
@@ -67,21 +74,6 @@ namespace Aqueous.Features.SnapTo
             var json = $"{{\"method\":\"window-rules/events/watch\",\"data\":{{\"events\":[{eventsJson}]}}}}";
             await SendJson(json);
             await ReadMessage(CancellationToken.None);
-        }
-
-        private static string FindWayfireSocket()
-        {
-            var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-            if (runtimeDir != null)
-            {
-                var files = Directory.GetFiles(runtimeDir, "wayfire-*.socket");
-                if (files.Length > 0) return files[0];
-            }
-
-            var tmpFiles = Directory.GetFiles("/tmp", "wayfire-*.socket");
-            if (tmpFiles.Length > 0) return tmpFiles[0];
-            throw new FileNotFoundException(
-                "No Wayfire IPC socket found. Ensure 'ipc' plugin is enabled and WAYFIRE_SOCKET is set.");
         }
 
         public void Dispose()

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Aqueous.Helpers;
 
 namespace Aqueous.Features.SnapTo
 {
@@ -11,12 +12,18 @@ namespace Aqueous.Features.SnapTo
     {
         private static async Task<JsonElement> CallIpc(string method, JsonElement? data = null)
         {
-            var socketPath = Environment.GetEnvironmentVariable("WAYFIRE_SOCKET")
-                ?? Environment.GetEnvironmentVariable("_WAYFIRE_SOCKET")
-                ?? FindWayfireSocket();
+            var socketPath = WayfireSocket.Resolve();
 
             using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            socket.Connect(new UnixDomainSocketEndPoint(socketPath));
+            try
+            {
+                socket.Connect(new UnixDomainSocketEndPoint(socketPath));
+            }
+            catch
+            {
+                WayfireSocket.Invalidate();
+                throw;
+            }
 
             var msg = data.HasValue
                 ? $"{{\"method\":\"{method}\",\"data\":{data.Value.GetRawText()}}}"
@@ -36,21 +43,6 @@ namespace Aqueous.Features.SnapTo
             var json = Encoding.UTF8.GetString(msgBuf);
             using var doc = JsonDocument.Parse(json);
             return doc.RootElement.Clone();
-        }
-
-        private static string FindWayfireSocket()
-        {
-            var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-            if (runtimeDir != null)
-            {
-                var files = Directory.GetFiles(runtimeDir, "wayfire-*.socket");
-                if (files.Length > 0) return files[0];
-            }
-
-            var tmpFiles = Directory.GetFiles("/tmp", "wayfire-*.socket");
-            if (tmpFiles.Length > 0) return tmpFiles[0];
-            throw new FileNotFoundException(
-                "No Wayfire IPC socket found. Ensure 'ipc' plugin is enabled and WAYFIRE_SOCKET is set.");
         }
 
         private static async Task ReadExact(Socket socket, byte[] buffer, int count)

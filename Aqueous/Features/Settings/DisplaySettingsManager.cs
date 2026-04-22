@@ -25,36 +25,38 @@ namespace Aqueous.Features.Settings
         /// </summary>
         public void ValidateAndApplySavedModes()
         {
-            try
+            // Run off the UI thread so startup isn't blocked by wlr-randr spawns (up to 3 s each).
+            System.Threading.Tasks.Task.Run(() =>
             {
-                var outputs = DetectAllOutputs();
-                var config = WayfireConfigService.Instance;
-
-                foreach (var output in outputs)
+                try
                 {
-                    var section = $"output:{output.Name}";
-                    var savedMode = config.GetString(section, "mode", "");
+                    var outputs = DetectAllOutputs();
+                    var config = WayfireConfigService.Instance;
 
-                    if (string.IsNullOrEmpty(savedMode) || savedMode == "auto")
-                        continue;
+                    foreach (var output in outputs)
+                    {
+                        var section = $"output:{output.Name}";
+                        var savedMode = config.GetString(section, "mode", "");
 
-                    // Check if the saved mode is still available
-                    if (IsModeAvailable(output, savedMode))
-                    {
-                        ApplyModeViaWlrRandr(output.Name, savedMode);
-                    }
-                    else
-                    {
-                        // Saved mode no longer available — fall back to auto
-                        config.SetString(section, "mode", "auto");
-                        config.Save();
+                        if (string.IsNullOrEmpty(savedMode) || savedMode == "auto")
+                            continue;
+
+                        if (IsModeAvailable(output, savedMode))
+                        {
+                            ApplyModeViaWlrRandr(output.Name, savedMode);
+                        }
+                        else
+                        {
+                            config.SetString(section, "mode", "auto");
+                            config.Save();
+                        }
                     }
                 }
-            }
-            catch
-            {
-                // Silently handle errors during startup validation
-            }
+                catch
+                {
+                    // Silently handle errors during startup validation
+                }
+            });
         }
 
         /// <summary>
@@ -62,15 +64,18 @@ namespace Aqueous.Features.Settings
         /// </summary>
         public void ApplyAndPersist(string outputName, string mode)
         {
+            // Persist synchronously (cheap INI write) then apply via wlr-randr on a worker
+            // thread so the UI doesn't freeze up to 5 s waiting for the process to exit.
             var config = WayfireConfigService.Instance;
             var section = $"output:{outputName}";
-
-            // Apply live via wlr-randr
-            ApplyModeViaWlrRandr(outputName, mode);
-
-            // Persist to wayfire.ini
             config.SetString(section, "mode", mode);
             config.Save();
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try { ApplyModeViaWlrRandr(outputName, mode); }
+                catch { /* logged inside */ }
+            });
         }
 
         /// <summary>

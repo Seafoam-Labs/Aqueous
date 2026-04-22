@@ -22,7 +22,10 @@ public static class BackdropHelper
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_BOTTOM
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_LEFT
                         | AstalWindowAnchor.ASTAL_WINDOW_ANCHOR_RIGHT;
-        backdrop.GtkWindow.Opacity = 0.01;
+        // Opacity 0.0 (fully transparent) lets the compositor direct-scanout the toplevel
+        // below; a non-zero alpha forces a full-screen composite per frame. The backdrop still
+        // receives clicks because its input region covers the full surface.
+        backdrop.GtkWindow.Opacity = 0.0;
 
         var click = Gtk.GestureClick.New();
         click.OnPressed += (_, _) => onClicked();
