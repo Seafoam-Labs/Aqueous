@@ -208,7 +208,7 @@ namespace Aqueous.Features.Compositor.River
 
             var self = GCHandle.Alloc(this, GCHandleType.Normal);
             _selfHandle = self;
-            WaylandInterop.wl_proxy_add_dispatcher(_registry, (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch, IntPtr.Zero, GCHandle.ToIntPtr(self));
+            WaylandInterop.wl_proxy_add_dispatcher(_registry, (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch, GCHandle.ToIntPtr(self), IntPtr.Zero);
 
             // Roundtrip so globals flush.
             WaylandInterop.wl_display_roundtrip(_display);
@@ -342,8 +342,7 @@ namespace Aqueous.Features.Compositor.River
                     WaylandInterop.wl_proxy_add_dispatcher(
                         _manager,
                         (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                        IntPtr.Zero,
-                        GCHandle.ToIntPtr(_selfHandle));
+                        GCHandle.ToIntPtr(_selfHandle), IntPtr.Zero);
                 }
             }
             else if (iface == "wl_seat" && _seat == IntPtr.Zero)
@@ -398,8 +397,7 @@ namespace Aqueous.Features.Compositor.River
             WaylandInterop.wl_proxy_add_dispatcher(
                 handleProxy,
                 (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                IntPtr.Zero,
-                GCHandle.ToIntPtr(_selfHandle));
+                GCHandle.ToIntPtr(_selfHandle), IntPtr.Zero);
         }
 
         // ---------- zwlr_foreign_toplevel_handle_v1 events ----------

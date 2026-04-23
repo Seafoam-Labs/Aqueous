@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Aqueous.WM/Aqueous.WM.csproj" />
   <Project Path="Aqueous/Aqueous.csproj" />
   <Project Path="AqueousGreeter/AqueousGreeter.csproj" />
   <Project Path="AqueousScreenshot/AqueousScreenshot.csproj" />
@@ -26,6 +27,6 @@
     <File Path="PKGBUILD" />
     <File Path="README.md" />
     <File Path="REMAINING_WORK.md" />
-    <File Path="Screenshot_20260417_101145.png"/>
+    <File Path="Screenshot_20260417_101145.png" />
   </Folder>
 </Solution>

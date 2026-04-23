@@ -131,8 +131,7 @@ namespace Aqueous.Features.Compositor.River
             WaylandInterop.wl_proxy_add_dispatcher(
                 _registry,
                 (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                IntPtr.Zero,
-                GCHandle.ToIntPtr(_selfHandle));
+                GCHandle.ToIntPtr(_selfHandle), IntPtr.Zero);
 
             // Flush globals; then a second roundtrip so any events the
             // compositor sends immediately on bind (for an existing window
@@ -258,10 +257,20 @@ namespace Aqueous.Features.Compositor.River
                     WaylandInterop.wl_proxy_add_dispatcher(
                         _manager,
                         (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                        IntPtr.Zero,
-                        GCHandle.ToIntPtr(_selfHandle));
+                        GCHandle.ToIntPtr(_selfHandle),
+                        IntPtr.Zero);
                     Log($"bound river_window_manager_v1 (version {_managerVersion})");
                 }
+            }
+            else if (iface == "river_layer_shell_v1")
+            {
+                var p = Bind(name, WlInterfaces.RiverLayerShell, 1);
+                WaylandInterop.wl_proxy_add_dispatcher(
+                    p,
+                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                    GCHandle.ToIntPtr(_selfHandle),
+                    IntPtr.Zero);
+                Log("bound river_layer_shell_v1");
             }
         }
 
@@ -307,12 +316,18 @@ namespace Aqueous.Features.Compositor.River
                     _running = false;
                     break;
                 case 2: // manage_start
-                    // We make no state changes — just immediately finish.
                     Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+                    foreach (var kvp in _windows) {
+                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 3, IntPtr.Zero, 0, 0, (IntPtr)800, (IntPtr)600, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    }
                     SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
                     break;
                 case 3: // render_start
                     Log("render_start");
+                    foreach (var kvp in _windows) {
+                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 8, IntPtr.Zero, 0, 0, (IntPtr)15, (IntPtr)2, (IntPtr) unchecked((int)0xffff0000), (IntPtr)0x0, (IntPtr)0x0, (IntPtr) unchecked((int)0xffffffff));
+                    }
                     SendManagerRequest(4); // render_finish opcode = 4
                     break;
                 case 4: Log("session_locked"); break;
@@ -327,8 +342,8 @@ namespace Aqueous.Features.Compositor.River
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                            IntPtr.Zero,
-                            GCHandle.ToIntPtr(_selfHandle));
+                            GCHandle.ToIntPtr(_selfHandle),
+                            IntPtr.Zero);
                         Log($"+ window 0x{proxy.ToString("x")}");
                     }
                     break;
@@ -342,8 +357,8 @@ namespace Aqueous.Features.Compositor.River
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                            IntPtr.Zero,
-                            GCHandle.ToIntPtr(_selfHandle));
+                            GCHandle.ToIntPtr(_selfHandle),
+                            IntPtr.Zero);
                         Log($"+ output 0x{proxy.ToString("x")}");
                     }
                     break;
@@ -357,8 +372,8 @@ namespace Aqueous.Features.Compositor.River
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                            IntPtr.Zero,
-                            GCHandle.ToIntPtr(_selfHandle));
+                            GCHandle.ToIntPtr(_selfHandle),
+                            IntPtr.Zero);
                         Log($"+ seat 0x{proxy.ToString("x")}");
                     }
                     break;
