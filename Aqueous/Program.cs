@@ -4,6 +4,8 @@ using Gtk;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
+using Aqueous.Features.Compositor;
+using Aqueous.Features.Compositor.Wayfire;
 using Aqueous.Features.AudioSwitcher;
 using Aqueous.Widgets.AudioTray;
 using Aqueous.Features.AppLauncher;
@@ -76,6 +78,13 @@ public class Program
             LoadCss(Path.Combine("Features", "AudioSwitcher", "audioswitcher.css"));
             LoadCss(Path.Combine("Features", "AppLauncher", "applauncher.css"));
             LoadCss(Path.Combine("Features", "Settings", "settings.css"));
+
+            // --- Compositor Backend (Phase 2 scaffolding) ---
+            // Wayfire remains the active backend; RiverBackend is available but unused
+            // until the command side (Phase 4) and SnapTo redesign (Phase 5) land.
+            var wayfireBackend = new WayfireBackend();
+            wayfireBackend.Start();
+            CompositorBackend.Set(wayfireBackend);
 
             // --- Bar Service ---
             _barService = new BarService(app);

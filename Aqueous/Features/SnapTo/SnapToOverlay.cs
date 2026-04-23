@@ -33,7 +33,7 @@ namespace Aqueous.Features.SnapTo
             // Get screen dimensions from Wayfire IPC
             try
             {
-                var outputs = await WayfireIpc.ListOutputs();
+                var outputs = await Aqueous.Features.Compositor.CompositorBackend.Current.ListOutputs();
                 Console.WriteLine("[SnapTo] ListOutputs returned " + outputs.Length + " output(s)");
                 if (outputs.Length > 0)
                 {
@@ -170,7 +170,7 @@ namespace Aqueous.Features.SnapTo
 
             try
             {
-                var cursorPos = await WayfireIpc.GetCursorPosition();
+                var cursorPos = await Aqueous.Features.Compositor.CompositorBackend.Current.GetCursorPosition();
                 if (cursorPos == null) return;
 
                 var (cursorX, cursorY) = cursorPos.Value;
@@ -192,11 +192,11 @@ namespace Aqueous.Features.SnapTo
                     if (cursorX >= centerX && cursorX < centerX + indicatorW &&
                         cursorY >= centerY && cursorY < centerY + indicatorH)
                     {
-                        var focused = await WayfireIpc.GetFocusedView();
+                        var focused = await Aqueous.Features.Compositor.CompositorBackend.Current.GetFocusedView();
                         if (focused == null) return;
 
                         var viewId = focused.Value.GetProperty("id").GetInt32();
-                        await WayfireIpc.SetViewGeometry(viewId, zx, zy, zw, zh);
+                        await Aqueous.Features.Compositor.CompositorBackend.Current.SetViewGeometry(viewId, zx, zy, zw, zh);
                         return;
                     }
                 }
@@ -213,7 +213,7 @@ namespace Aqueous.Features.SnapTo
 
             try
             {
-                var focused = await WayfireIpc.GetFocusedView();
+                var focused = await Aqueous.Features.Compositor.CompositorBackend.Current.GetFocusedView();
                 if (focused == null) return;
 
                 var viewId = focused.Value.GetProperty("id").GetInt32();
@@ -223,7 +223,7 @@ namespace Aqueous.Features.SnapTo
                 var w = (int)(zone.Width * _screenW);
                 var h = (int)(zone.Height * _screenH);
 
-                await WayfireIpc.SetViewGeometry(viewId, x, y, w, h);
+                await Aqueous.Features.Compositor.CompositorBackend.Current.SetViewGeometry(viewId, x, y, w, h);
             }
             catch
             {

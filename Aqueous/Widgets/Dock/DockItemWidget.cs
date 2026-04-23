@@ -50,9 +50,9 @@ namespace Aqueous.Widgets.Dock
                         }
 
                         if (target.Minimized)
-                            _ = WayfireIpc.MinimizeView(target.Id, false);
+                            _ = Aqueous.Features.Compositor.CompositorBackend.Current.MinimizeView(target.Id, false);
 
-                        _ = WayfireIpc.FocusView(target.Id);
+                        _ = Aqueous.Features.Compositor.CompositorBackend.Current.FocusView(target.Id);
                         return;
                     }
                 }

@@ -57,7 +57,7 @@ namespace Aqueous.Features.WindowManager
             try
             {
                 // Initial population
-                var views = await WayfireIpc.ListViews();
+                var views = await Aqueous.Features.Compositor.CompositorBackend.Current.ListViews();
                 lock (_windows)
                 {
                     foreach (var view in views)

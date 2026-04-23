@@ -33,7 +33,7 @@ namespace Aqueous.Widgets.WorkspaceSwitcher
         {
             try
             {
-                var ws = await WayfireIpc.GetWorkspace();
+                var ws = await Aqueous.Features.Compositor.CompositorBackend.Current.GetWorkspace();
                 if (ws.TryGetProperty("x", out var x) && ws.TryGetProperty("y", out var y))
                 {
                     _currentX = x.GetInt32();
@@ -96,7 +96,7 @@ namespace Aqueous.Widgets.WorkspaceSwitcher
                     var wsY = y;
                     btn.OnClicked += (_, _) =>
                     {
-                        _ = WayfireIpc.SetWorkspace(wsX, wsY);
+                        _ = Aqueous.Features.Compositor.CompositorBackend.Current.SetWorkspace(wsX, wsY);
                     };
 
                     _box.Append(btn);
