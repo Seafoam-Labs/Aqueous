@@ -58,10 +58,12 @@ namespace Aqueous.Features.Compositor.River
         private sealed class WindowEntry
         {
             public IntPtr Proxy;
+            public IntPtr NodeProxy;
             public string? Title;
             public string? AppId;
             public int WidthHint, HeightHint;
             public int W, H;
+            public int X, Y;
         }
 
         private sealed class OutputEntry
@@ -88,6 +90,16 @@ namespace Aqueous.Features.Compositor.River
         private IntPtr _pendingFocusWindow;
         private IntPtr _pendingFocusShellSurface;
         private IntPtr _pendingFocusSeat;
+
+        private WindowEntry? _activeDragWindow;
+        private IntPtr _activeDragSeat;
+        private bool _dragFinished;
+        private bool _dragStarted;
+        private int _dragStartX;
+        private int _dragStartY;
+        private IntPtr _dragPointerBinding;
+        private bool _dragPointerBindingNeedsEnable;
+        private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
 
         // --- wayland state -------------------------------------------------
 
@@ -227,6 +239,7 @@ namespace Aqueous.Features.Compositor.River
                 else if (target == self._manager)  self.OnManagerEvent(opcode, a);
                 else if (target == self._layerShell) self.OnLayerShellEvent(opcode, a);
                 else if (target == self._superKeyBinding) self.OnSuperKeyBindingEvent(opcode, a);
+                else if (target == self._dragPointerBinding) self.OnDragPointerBindingEvent(opcode, a);
                 else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
                 else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
                 else if (self._seats.ContainsKey(target))   self.OnSeatEvent(target, opcode, a);
@@ -317,6 +330,34 @@ namespace Aqueous.Features.Compositor.River
 
         // --- river_window_manager_v1 events -------------------------------
 
+        private void OnDragPointerBindingEvent(uint opcode, WlArgument* args)
+        {
+            // 0 pressed, 1 released
+            if (opcode == 0)
+            {
+                // Find a seat that has a currently-hovered window and start a drag for it.
+                foreach (var kvp in _seatHoveredWindow)
+                {
+                    IntPtr seat = kvp.Key;
+                    IntPtr hovered = kvp.Value;
+                    if (hovered == IntPtr.Zero) continue;
+                    if (!_windows.TryGetValue(hovered, out var w)) continue;
+
+                    _activeDragWindow = w;
+                    _activeDragSeat = seat;
+                    _dragStartX = w.X;
+                    _dragStartY = w.Y;
+                    Log($"super+click drag start on window 0x{hovered.ToString("x")} via seat 0x{seat.ToString("x")}");
+                    break;
+                }
+            }
+            else if (opcode == 1)
+            {
+                Log("super+click pointer binding released");
+                // The matching op_release from the seat will set _dragFinished; nothing else to do here.
+            }
+        }
+
         private void OnSuperKeyBindingEvent(uint opcode, WlArgument* args)
         {
             // 0: pressed
@@ -391,6 +432,37 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case 2: // manage_start
                     Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+
+                    // Enable the pointer binding (must be issued inside a manage sequence).
+                    if (_dragPointerBindingNeedsEnable && _dragPointerBinding != IntPtr.Zero)
+                    {
+                        // river_pointer_binding_v1::enable is opcode 1 (0=destroy, 1=enable, 2=disable)
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            _dragPointerBinding, 1, IntPtr.Zero, 0, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        _dragPointerBindingNeedsEnable = false;
+                        Log("enabled Super+BTN_LEFT pointer binding");
+                    }
+
+                    if (_dragFinished)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            _activeDragSeat, 5, IntPtr.Zero, 1, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            
+                        _activeDragWindow = null;
+                        _activeDragSeat = IntPtr.Zero;
+                        _dragFinished = false;
+                        _dragStarted = false;
+                    }
+
+                    if (_activeDragSeat != IntPtr.Zero && _activeDragWindow != null && !_dragStarted)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            _activeDragSeat, 4, IntPtr.Zero, 1, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        _dragStarted = true;
+                    }
                     
                     if (_pendingFocusSeat != IntPtr.Zero)
                     {
@@ -419,6 +491,11 @@ namespace Aqueous.Features.Compositor.River
                     foreach (var kvp in _windows) {
                         WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 8, IntPtr.Zero, 0, 0, (IntPtr)15, (IntPtr)2, (IntPtr) unchecked((int)0xffff0000), (IntPtr)0x0, (IntPtr)0x0, (IntPtr) unchecked((int)0xffffffff));
+                        
+                        if (kvp.Value.NodeProxy != IntPtr.Zero)
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(kvp.Value.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)kvp.Value.X, (IntPtr)kvp.Value.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        }
                     }
                     SendManagerRequest(4); // render_finish opcode = 4
                     break;
@@ -430,6 +507,10 @@ namespace Aqueous.Features.Compositor.River
                     if (proxy != IntPtr.Zero)
                     {
                         var entry = new WindowEntry { Proxy = proxy };
+                        entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
+                            proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0, 
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
                         _windows[proxy] = entry;
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
@@ -495,6 +576,38 @@ namespace Aqueous.Features.Compositor.River
                                 Log("registered and enabled Super_L key binding");
                             }
                         }
+
+                        // Register a compositor-level Super+Left-Click pointer binding so that
+                        // windows without client-side decorations (e.g. Alacritty) can still be
+                        // dragged. BTN_LEFT = 0x110, modifiers.mod4 (Super) = 64.
+                        // Requires river_window_management_v1 version >= 4 (River 0.4.3 ships v3).
+                        if (_dragPointerBinding == IntPtr.Zero && _managerVersion >= 4)
+                        {
+                            const uint BTN_LEFT = 0x110;
+                            const uint MOD_SUPER = 64;
+                            // river_seat_v1::get_pointer_binding is opcode 6
+                            // signature: new_id<river_pointer_binding_v1>, uint button, uint modifiers
+                            // The child proxy version must match the parent seat's (manager's) version.
+                            _dragPointerBinding = WaylandInterop.wl_proxy_marshal_flags(
+                                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _managerVersion, 0,
+                                IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)MOD_SUPER,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                            if (_dragPointerBinding != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_add_dispatcher(
+                                    _dragPointerBinding,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    GCHandle.ToIntPtr(_selfHandle),
+                                    IntPtr.Zero);
+                                _dragPointerBindingNeedsEnable = true;
+                                Log($"registered Super+BTN_LEFT pointer binding for window drag (v{_managerVersion})");
+                            }
+                        }
+                        else if (_dragPointerBinding == IntPtr.Zero && _managerVersion < 4)
+                        {
+                            Log($"skipping get_pointer_binding; river_window_manager_v1 v{_managerVersion} < 4 (River 0.4.3 ships v3)");
+                        }
                     }
                     break;
                 }
@@ -549,6 +662,14 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case 3: w.AppId = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}"); break;
                 case 4: w.Title = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} title={w.Title}"); break;
+                case 7:
+                    IntPtr seatProxy = args[0].o;
+                    Log($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
+                    _activeDragWindow = w;
+                    _activeDragSeat = seatProxy;
+                    _dragStartX = w.X;
+                    _dragStartY = w.Y;
+                    break;
                 case 17: Log($"window 0x{proxy.ToString("x")} identifier={PtrToString(args[0].s)}"); break;
                 default:
                     Log($"window 0x{proxy.ToString("x")} event opcode={opcode}");
@@ -610,6 +731,17 @@ namespace Aqueous.Features.Compositor.River
                     s.WlSeatName = args[0].u;
                     Log($"seat 0x{proxy.ToString("x")} wl_seat_name={s.WlSeatName}");
                     break;
+                case 2: // pointer_enter(window)
+                {
+                    IntPtr hovered = args[0].o;
+                    _seatHoveredWindow[proxy] = hovered;
+                    Log($"seat 0x{proxy.ToString("x")} pointer_enter window 0x{hovered.ToString("x")}");
+                    break;
+                }
+                case 3: // pointer_leave
+                    _seatHoveredWindow.TryRemove(proxy, out _);
+                    Log($"seat 0x{proxy.ToString("x")} pointer_leave");
+                    break;
                 case 4:
                     Log($"seat 0x{proxy.ToString("x")} window_interaction 0x{args[0].o.ToString("x")}");
                     _seatInteractionService.HandleWindowInteraction(args[0].o, proxy);
@@ -617,6 +749,19 @@ namespace Aqueous.Features.Compositor.River
                 case 5:
                     Log($"seat 0x{proxy.ToString("x")} shell_surface_interaction 0x{args[0].o.ToString("x")}");
                     _seatInteractionService.HandleShellSurfaceInteraction(args[0].o, proxy);
+                    break;
+                case 6:
+                    int dx = args[0].i;
+                    int dy = args[1].i;
+                    if (_activeDragWindow != null)
+                    {
+                        _activeDragWindow.X = _dragStartX + dx;
+                        _activeDragWindow.Y = _dragStartY + dy;
+                    }
+                    break;
+                case 7:
+                    Log($"seat 0x{proxy.ToString("x")} pointer operation released");
+                    _dragFinished = true;
                     break;
                 default:
                     Log($"seat 0x{proxy.ToString("x")} event opcode={opcode}");
