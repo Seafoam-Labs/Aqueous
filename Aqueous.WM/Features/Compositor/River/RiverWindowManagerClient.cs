@@ -292,8 +292,9 @@ namespace Aqueous.Features.Compositor.River
             }
             else if (iface == "river_xkb_bindings_v1")
             {
-                _xkbBindings = Bind(name, WlInterfaces.RiverXkbBindings, 3);
-                Log("bound river_xkb_bindings_v1");
+                uint xkbVersion = Math.Min(version, 2u);
+                _xkbBindings = Bind(name, WlInterfaces.RiverXkbBindings, xkbVersion);
+                Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
             }
         }
 
