@@ -55,12 +55,17 @@ Tracking doc for the in-progress compositor port.
   - `RiverBackend.ListViews()` returns the toplevel list when the client is connected; empty otherwise. `ViewsChanged` is now also raised from foreign-toplevel events.
 - AOT publish (`dotnet publish Aqueous -c Release -r linux-x64 /p:PublishAot=true`) succeeds with zero warnings from the new files.
 
-### Still outstanding in Phase 4b (next iteration, needs a live River session)
+### Phase 4b write-side wiring (landed)
 
-- Per-view write requests — `activate(wl_seat)`, `close()`, `set_minimized()` / `unset_minimized()`, `set_fullscreen()` — the interface tables already describe them; wiring is a short follow-up once the read path is validated end-to-end.
-- Route `RiverBackend.FocusView(id)` / `CloseView(id)` / `MinimizeView(id, bool)` through the toplevel handle by id (instead of the current `riverctl` fallbacks) when `ForeignToplevel` cap is present.
-- Populate `FocusedViewInfo.AppId` from the `Activated`-flagged toplevel.
-- Validation under a nested River (`river` is installed on this machine; `riverctl` is NOT packaged — install `river-git`/AUR equivalent or use the wlr client exclusively).
+- `ForeignToplevelClient` now exposes `Activate(id)` / `Close(id)` / `SetMinimized(id, bool)` which marshal `zwlr_foreign_toplevel_handle_v1.activate(wl_seat)` (opcode 4), `close` (5), and `(set|unset)_minimized` (2 / 3) against the tracked handle, followed by a `wl_display_flush`.
+- `RiverBackend.FocusView` / `CloseView` / `MinimizeView` route through the toplevel client when `IsConnected`, falling back to the `riverctl` paths for `FocusView` / `CloseView` on older/non-foreign-toplevel setups. `MinimizeView` is still a no-op when the wlr client is absent (River itself has no minimized state).
+- `FocusedViewInfo.AppId` is now populated from the `Activated`-flagged toplevel via `ForeignToplevelClient.FocusedAppId`.
+- Fixed a latent bug: handle destructor on `closed` was using request opcode 5 (`close`); corrected to 7 (`destroy`).
+
+### Still outstanding in Phase 4b
+
+- `set_fullscreen` / `unset_fullscreen` (v2+) and `set_rectangle` — interface tables already describe them; no consumer in Aqueous yet.
+- Validation under a nested River (`river` is installed on this machine; `riverctl` is NOT packaged — install `river-git`/AUR equivalent or use the wlr client exclusively). Expected smoke test: `AQUEOUS_FOREIGN_TOPLEVEL=1 aqueous`, then from another toplevel, confirm `ListViews` enumerates, `FocusView(id)` raises the window, `CloseView(id)` closes it, `MinimizeView(id, true)` hides it under compositors that honour the bit.
 
 ## Phase B1a — River WM skeleton (river_window_manager_v1 v4)
 

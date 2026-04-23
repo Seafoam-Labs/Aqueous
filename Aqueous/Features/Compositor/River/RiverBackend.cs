@@ -121,7 +121,7 @@ namespace Aqueous.Features.Compositor.River
         public CompositorOutput? FocusedOutput => _last.FocusedOutput;
         public CompositorFocusedView? FocusedViewInfo =>
             _last.FocusedViewTitle is { Length: > 0 } title
-                ? new CompositorFocusedView(title, null, _last.FocusedOutputName)
+                ? new CompositorFocusedView(title, _toplevel?.FocusedAppId, _last.FocusedOutputName)
                 : null;
         public uint FocusedTagMask => _last.FocusedOutput?.FocusedTags ?? 0;
         public uint OccupiedTagMask => _last.FocusedOutput?.OccupiedTags ?? 0;
@@ -195,20 +195,41 @@ namespace Aqueous.Features.Compositor.River
         // blocking on a short-lived process would stall the GTK main loop.
 
         /// <summary>
-        /// River does not expose per-view IDs, so <paramref name="viewId"/> is
-        /// ignored and the command cycles focus to the next view on the
-        /// currently focused output.
+        /// When the wlr-foreign-toplevel client is connected, routes through
+        /// <c>zwlr_foreign_toplevel_handle_v1.activate</c> for the given view;
+        /// otherwise falls back to <c>riverctl focus-view next</c> (River has
+        /// no per-view IDs).
         /// </summary>
-        public Task FocusView(int viewId) => RunRiverCtl("focus-view", "next");
+        public Task FocusView(int viewId)
+        {
+            if (_toplevel is { IsConnected: true } t && t.Activate(viewId))
+                return Task.CompletedTask;
+            return RunRiverCtl("focus-view", "next");
+        }
 
         /// <summary>
-        /// River does not expose per-view IDs, so <paramref name="viewId"/> is
-        /// ignored and the currently focused view is closed.
+        /// When the wlr-foreign-toplevel client is connected, routes through
+        /// <c>zwlr_foreign_toplevel_handle_v1.close</c> for the given view;
+        /// otherwise falls back to <c>riverctl close</c> on the focused view.
         /// </summary>
-        public Task CloseView(int viewId) => RunRiverCtl("close");
+        public Task CloseView(int viewId)
+        {
+            if (_toplevel is { IsConnected: true } t && t.Close(viewId))
+                return Task.CompletedTask;
+            return RunRiverCtl("close");
+        }
 
-        /// <summary>No-op: River has no concept of minimized views.</summary>
-        public Task MinimizeView(int viewId, bool minimized) => Task.CompletedTask;
+        /// <summary>
+        /// When the wlr-foreign-toplevel client is connected, routes through
+        /// <c>zwlr_foreign_toplevel_handle_v1.(set|unset)_minimized</c>; a
+        /// no-op otherwise because River itself has no minimized state.
+        /// </summary>
+        public Task MinimizeView(int viewId, bool minimized)
+        {
+            if (_toplevel is { IsConnected: true } t)
+                t.SetMinimized(viewId, minimized);
+            return Task.CompletedTask;
+        }
 
         /// <summary>No-op: River is a dynamic tiler and does not support freeform geometry.</summary>
         public Task SetViewGeometry(int viewId, int x, int y, int w, int h) => Task.CompletedTask;

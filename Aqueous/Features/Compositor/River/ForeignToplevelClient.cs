@@ -69,6 +69,67 @@ namespace Aqueous.Features.Compositor.River
 
         public bool IsConnected => _display != IntPtr.Zero && _manager != IntPtr.Zero;
 
+        /// <summary>App-id of the currently activated toplevel, or <c>null</c>.</summary>
+        public string? FocusedAppId
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    foreach (var t in _toplevels.Values)
+                        if (t.Activated) return t.AppId;
+                }
+                return null;
+            }
+        }
+
+        // ---------- Write side (per-view requests) ----------
+        // Handle request opcodes (wlr v3): set_maximized=0, unset_maximized=1,
+        // set_minimized=2, unset_minimized=3, activate=4, close=5,
+        // set_rectangle=6, destroy=7, set_fullscreen=8, unset_fullscreen=9.
+
+        public bool Activate(int viewId)
+        {
+            if (_seat == IntPtr.Zero) return false;
+            if (!TryGetHandleById(viewId, out var handle)) return false;
+            WaylandInterop.wl_proxy_marshal_flags(
+                handle, 4, IntPtr.Zero, 0, 0,
+                _seat, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            WaylandInterop.wl_display_flush(_display);
+            return true;
+        }
+
+        public bool Close(int viewId)
+        {
+            if (!TryGetHandleById(viewId, out var handle)) return false;
+            WaylandInterop.wl_proxy_marshal_flags(
+                handle, 5, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            WaylandInterop.wl_display_flush(_display);
+            return true;
+        }
+
+        public bool SetMinimized(int viewId, bool minimized)
+        {
+            if (!TryGetHandleById(viewId, out var handle)) return false;
+            uint opcode = minimized ? 2u : 3u;
+            WaylandInterop.wl_proxy_marshal_flags(
+                handle, opcode, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            WaylandInterop.wl_display_flush(_display);
+            return true;
+        }
+
+        private bool TryGetHandleById(int id, out IntPtr handle)
+        {
+            foreach (var kv in _toplevels)
+            {
+                if (kv.Value.Id == id) { handle = kv.Key; return true; }
+            }
+            handle = IntPtr.Zero;
+            return false;
+        }
+
         // ---------- State ----------
 
         private IntPtr _display;
@@ -392,9 +453,9 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case 6: // closed
                     _toplevels.TryRemove(handle, out _);
-                    // destructor
+                    // destructor — handle::destroy is request opcode 7.
                     WaylandInterop.wl_proxy_marshal_flags(
-                        handle, 5 /* destroy */, IntPtr.Zero, 0, WaylandInterop.WL_MARSHAL_FLAG_DESTROY,
+                        handle, 7 /* destroy */, IntPtr.Zero, 0, WaylandInterop.WL_MARSHAL_FLAG_DESTROY,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     try { Changed?.Invoke(); } catch { }
                     break;
