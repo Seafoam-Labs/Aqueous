@@ -5,7 +5,6 @@ using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
 using Aqueous.Features.Compositor;
-using Aqueous.Features.Compositor.Wayfire;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Bindings.AstalRiver.Services;
 using Aqueous.Features.AudioSwitcher;
@@ -64,10 +63,6 @@ public class Program
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
-            // Ensure Wayfire keybindings (screenshot, etc.)
-            WayfireConfigService.Instance.EnsureScreenshotBindings();
-            WayfireConfigService.Instance.EnsureBrightnessBindings();
-
             // Validate and apply saved display settings (per-output modes)
             DisplaySettingsManager.Instance.ValidateAndApplySavedModes();
 
@@ -295,8 +290,6 @@ public class Program
         var forced = Environment.GetEnvironmentVariable("AQUEOUS_BACKEND");
         if (string.Equals(forced, "river", StringComparison.OrdinalIgnoreCase))
             return new RiverBackend();
-        if (string.Equals(forced, "wayfire", StringComparison.OrdinalIgnoreCase))
-            return new WayfireBackend();
 
         // Auto-detect: if the River singleton resolves to a live connection, use it.
         try
@@ -307,9 +300,10 @@ public class Program
         }
         catch
         {
-            // libastal-river may not be installed; fall through to Wayfire.
+            // libastal-river may not be installed
         }
-        return new WayfireBackend();
+        
+        throw new InvalidOperationException("Could not connect to River compositor.");
     }
 
     private static void LoadCss(string relativePath)

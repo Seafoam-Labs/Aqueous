@@ -23,11 +23,9 @@
     <File Path="aqueous.desktop" />
     <File Path="aqueous.install" />
     <File Path="aqueous-dev-setup.sh" />
-    <File Path="aqueous-wayfire-setup.sh" />
     <File Path="PKGBUILD" />
     <File Path="README.md" />
     <File Path="REMAINING_WORK.md" />
-    <File Path="wayfire.ini" />
     <File Path="Screenshot_20260417_101145.png"/>
   </Folder>
 </Solution>

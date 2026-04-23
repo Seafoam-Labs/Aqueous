@@ -107,40 +107,8 @@ namespace Aqueous.Features.Settings.SettingsPages
 
         private static void ApplyHdrSettings(SettingsStore store)
         {
-            try
-            {
-                var config = WayfireConfigService.Instance;
-
-                if (store.Data.HdrEnabled)
-                    EnableHdr(config, store);
-                else
-                    DisableHdr(config, store);
-
-                config.Save();
-                store.Save();
-                store.NotifyChanged();
-            }
-            catch
-            {
-                // Ignore wayfire.ini errors
-            }
-        }
-
-        private static void EnableHdr(WayfireConfigService config, SettingsStore store)
-        {
-            config.SetString("output:*", "hdr", "true");
-
-            // Write ICC profile if set
-            if (!string.IsNullOrWhiteSpace(store.Data.HdrIccProfilePath))
-                config.SetString("output:*", "icc_profile", store.Data.HdrIccProfilePath);
-        }
-
-        private static void DisableHdr(WayfireConfigService config, SettingsStore store)
-        {
-            config.SetString("output:*", "hdr", "false");
-
-            // Remove ICC profile config
-            config.RemoveKey("output:*", "icc_profile");
+            store.Save();
+            store.NotifyChanged();
         }
     }
 }

@@ -148,7 +148,7 @@ namespace Aqueous.Features.Settings.SettingsPages
         
         private void SaveAndClose()
         {
-            var wayfire = WayfireConfigService.Instance;
+            var wayfire = RiverConfigService.Instance;
             
             string key = _descriptionEntry.GetBuffer().GetText();
             if (string.IsNullOrEmpty(key)) key = "rule_new";

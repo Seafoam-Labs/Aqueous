@@ -148,5 +148,5 @@ the bar) is not viable on River 0.4 — the global is simply not advertised.
 
 - **Phase 6** — `RiverConfigService` emitting idempotent `~/.config/river/init`.
 - **Phase 7** — Greeter & packaging swap.
-- **Phase 8** — Delete Wayfire backend + `wayfire.ini` + old IPC files.
+- **Phase 8** — Delete Wayfire backend + `wayfire.ini` + old IPC files. (Completed)
 - **Phase 9** — Live-session smoke matrix, AOT publish regression, release tag `vX.0.0-river`.

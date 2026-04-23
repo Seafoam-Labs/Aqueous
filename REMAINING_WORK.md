@@ -91,11 +91,11 @@ Each is a significant project in its own right.
 
 ## 6. Phase 8 — Wayfire removal
 
-- [ ] Delete `WayfireBackend.cs` and its IPC helpers.
-- [ ] Delete `wayfire.ini` template + generator.
-- [ ] Delete `aqueous-wayfire-setup.sh`.
-- [ ] Remove the `AQUEOUS_BACKEND=wayfire` fallback in `Program.cs`.
-- [ ] Strip Wayfire-specific branches from `ICompositorBackend` consumers.
+- [x] Delete `WayfireBackend.cs` and its IPC helpers.
+- [x] Delete `wayfire.ini` template + generator.
+- [x] Delete `aqueous-wayfire-setup.sh`.
+- [x] Remove the `AQUEOUS_BACKEND=wayfire` fallback in `Program.cs`.
+- [x] Strip Wayfire-specific branches from `ICompositorBackend` consumers.
 
 ## 7. Phase 9 — Release
 
