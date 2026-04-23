@@ -31,7 +31,21 @@ sleep 0.3
 WM_BIN="$(pwd)/Aqueous.WM/bin/Debug/net10.0/Aqueous.WM"
 BAR_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/Aqueous"
 
+# Detect "nested" run: if a host Wayland/X session is already visible to us,
+# river will run as a client of it and the host compositor will consume Super
+# (Mod4) before it reaches river. Fall back to Alt for Aqueous.WM bindings so
+# drag-to-move / resize still work while developing from Rider. On a real TTY
+# neither variable is set, so we keep Super as the primary modifier.
+if [ -n "$WAYLAND_DISPLAY" ] || [ -n "$DISPLAY" ]; then
+    export AQUEOUS_MOD="Alt"
+    export AQUEOUS_NESTED=1
+else
+    export AQUEOUS_MOD="Super"
+    export AQUEOUS_NESTED=0
+fi
+echo "[launch_river] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
+
 INNER="'$WM_BIN' >/tmp/aqueous_wm.log 2>&1 & sleep 1; exec '$BAR_BIN' >/tmp/aqueous_bar.log 2>&1"
 
-AQUEOUS_RIVER_WM=1 WAYLAND_DEBUG=1 \
+AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     river -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

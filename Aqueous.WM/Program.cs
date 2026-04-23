@@ -9,6 +9,10 @@ namespace Aqueous.WM
         static void Main(string[] args)
         {
             Console.WriteLine("[Aqueous.WM] Starting standalone River Window Manager client...");
+            Console.Error.WriteLine(
+                $"[Aqueous.WM] primary modifier = {Mods.PrimaryName} " +
+                $"(mask=0x{Mods.PrimaryMask:x}, keysym=0x{Mods.PrimaryKeysym:x}, " +
+                $"AQUEOUS_MOD={Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>"})");
 
             // B1a: become a river_window_manager_v1 client
             var wm = RiverWindowManagerClient.TryStart();

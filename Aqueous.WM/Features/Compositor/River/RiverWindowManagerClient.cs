@@ -557,10 +557,11 @@ namespace Aqueous.Features.Compositor.River
 
                         if (_xkbBindings != IntPtr.Zero && _superKeyBinding == IntPtr.Zero)
                         {
-                            // 0xffeb is XKB_KEY_Super_L
+                            // XKB keysym for the primary modifier (Super_L on TTY, Alt_L when nested).
+                            uint keysym = Mods.PrimaryKeysym;
                             _superKeyBinding = WaylandInterop.wl_proxy_marshal_flags(
                                 _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
-                                proxy, IntPtr.Zero, (IntPtr)0xffeb, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                proxy, IntPtr.Zero, (IntPtr)keysym, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                             
                             if (_superKeyBinding != IntPtr.Zero)
                             {
@@ -573,24 +574,25 @@ namespace Aqueous.Features.Compositor.River
                                 WaylandInterop.wl_proxy_marshal_flags(
                                     _superKeyBinding, 2, IntPtr.Zero, 0, 0,
                                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                                Log("registered and enabled Super_L key binding");
+                                Log($"registered and enabled {Mods.PrimaryName}_L key binding (keysym 0x{keysym:x})");
                             }
                         }
 
-                        // Register a compositor-level Super+Left-Click pointer binding so that
+                        // Register a compositor-level {Primary}+Left-Click pointer binding so that
                         // windows without client-side decorations (e.g. Alacritty) can still be
-                        // dragged. BTN_LEFT = 0x110, modifiers.mod4 (Super) = 64.
+                        // dragged. BTN_LEFT = 0x110. The modifier (Super=64 / Alt=8) is selected
+                        // via AQUEOUS_MOD so nested river (where the host eats Super) still works.
                         // Requires river_window_management_v1 version >= 4 (River 0.4.3 ships v3).
                         if (_dragPointerBinding == IntPtr.Zero && _managerVersion >= 4)
                         {
                             const uint BTN_LEFT = 0x110;
-                            const uint MOD_SUPER = 64;
+                            uint modMask = Mods.PrimaryMask;
                             // river_seat_v1::get_pointer_binding is opcode 6
                             // signature: new_id<river_pointer_binding_v1>, uint button, uint modifiers
                             // The child proxy version must match the parent seat's (manager's) version.
                             _dragPointerBinding = WaylandInterop.wl_proxy_marshal_flags(
                                 proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _managerVersion, 0,
-                                IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)MOD_SUPER,
+                                IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)modMask,
                                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
                             if (_dragPointerBinding != IntPtr.Zero)
@@ -601,7 +603,7 @@ namespace Aqueous.Features.Compositor.River
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
                                 _dragPointerBindingNeedsEnable = true;
-                                Log($"registered Super+BTN_LEFT pointer binding for window drag (v{_managerVersion})");
+                                Log($"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{_managerVersion})");
                             }
                         }
                         else if (_dragPointerBinding == IntPtr.Zero && _managerVersion < 4)
