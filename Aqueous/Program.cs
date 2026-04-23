@@ -32,7 +32,6 @@ using Aqueous.Widgets.BrightnessTray;
 using Aqueous.Features.ClipboardManager;
 using Aqueous.Features.Calendar;
 using Aqueous.Features.Autostart;
-using Aqueous.Features.Corners;
 using Aqueous.Helpers;
 public class Program
 {
@@ -234,11 +233,6 @@ public class Program
                 return false;
             });
 
-            // --- Corners Service (rounded corners for all windows) ---
-            // if (SettingsStore.Instance.Data.CornersEnabled)
-            // {
-            //     _ = CornersService.Instance.SetEnabled(true);
-            // }
 
             // Tick 4: XDG autostart — can spawn dozens of external processes which
             // themselves connect to Wayland; defer so our own surfaces are mapped first.

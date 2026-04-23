@@ -157,47 +157,5 @@ namespace Aqueous.Features.SnapTo
             var data = dataDoc.RootElement.Clone();
             await CallIpc("vswitch/set-workspace", data);
         }
-
-        // --- Aqueous Corners plugin IPC ---
-
-        public static async Task SetCornersEnabled(bool enabled)
-        {
-            var dataJson = $"{{\"enabled\":{(enabled ? "true" : "false")}}}";
-            using var dataDoc = JsonDocument.Parse(dataJson);
-            await CallIpc("wf/aqueous-corners/set-enabled", dataDoc.RootElement.Clone());
-        }
-
-        public static async Task SetCornerRadius(int radius)
-        {
-            var dataJson = $"{{\"radius\":{radius}}}";
-            using var dataDoc = JsonDocument.Parse(dataJson);
-            await CallIpc("wf/aqueous-corners/set-radius", dataDoc.RootElement.Clone());
-        }
-
-        public static async Task SetCornerColor(string color)
-        {
-            var dataJson = $"{{\"color\":\"{color}\"}}";
-            using var dataDoc = JsonDocument.Parse(dataJson);
-            await CallIpc("wf/aqueous-corners/set-color", dataDoc.RootElement.Clone());
-        }
-
-        public static async Task ExcludeViewFromCorners(int viewId)
-        {
-            var dataJson = $"{{\"view-id\":{viewId}}}";
-            using var dataDoc = JsonDocument.Parse(dataJson);
-            await CallIpc("wf/aqueous-corners/exclude-view", dataDoc.RootElement.Clone());
-        }
-
-        public static async Task IncludeViewInCorners(int viewId)
-        {
-            var dataJson = $"{{\"view-id\":{viewId}}}";
-            using var dataDoc = JsonDocument.Parse(dataJson);
-            await CallIpc("wf/aqueous-corners/include-view", dataDoc.RootElement.Clone());
-        }
-
-        public static async Task<JsonElement> GetCornersStatus()
-        {
-            return await CallIpc("wf/aqueous-corners/get-status");
-        }
     }
 }

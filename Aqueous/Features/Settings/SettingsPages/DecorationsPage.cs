@@ -1,5 +1,4 @@
 using Gtk;
-using Aqueous.Features.Corners;
 using static Aqueous.Features.Settings.SettingsWidgets;
 
 namespace Aqueous.Features.Settings.SettingsPages
@@ -38,38 +37,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             page.Append(IntSlider("Glow spread", "winshadows", "glow_spread", 0, 50, 1, 10));
             page.Append(Toggle("Clip shadow inside", "winshadows", "clip_shadow_inside", true));
 
-            // Corner Rounding (Vulkan-compatible)
-            page.Append(SubSectionTitle("Corner Rounding"));
-            page.Append(CreateCornersToggle(store));
-            page.Append(IntSlider("Corner radius", "aqueous-corners", "corner_radius", 0, 30, 1, 12));
-            page.Append(ColorPicker("Corner color", "aqueous-corners", "corner_color", "#1A1A1AFF"));
-            page.Append(Toggle("Exclude maximized", "aqueous-corners", "exclude_maximized", true));
-
             return page;
-        }
-
-        private static Gtk.Box CreateCornersToggle(SettingsStore store)
-        {
-            var box = Gtk.Box.New(Orientation.Horizontal, 8);
-            box.AddCssClass("settings-row");
-
-            var label = Gtk.Label.New("Enable rounded corners (all windows)");
-            label.Halign = Align.Start;
-            label.Hexpand = true;
-            box.Append(label);
-
-            var toggle = Gtk.Switch.New();
-            toggle.Active = store.Data.CornersEnabled;
-            toggle.OnStateSet += (sender, args) =>
-            {
-                store.Data.CornersEnabled = args.State;
-                _ = CornersService.Instance.SetEnabled(args.State);
-                store.NotifyChanged();
-                return true;
-            };
-            box.Append(toggle);
-
-            return box;
         }
     }
 }
