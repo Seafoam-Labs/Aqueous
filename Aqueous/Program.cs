@@ -59,11 +59,30 @@ public class Program
     public static void Main(string[] args)
     {
         System.AppDomain.CurrentDomain.UnhandledException += (s, e) => { System.IO.File.WriteAllText("/tmp/aq_crash.log", e.ExceptionObject.ToString()); System.Console.Error.WriteLine("CRASH: " + e.ExceptionObject); };
+
+        // Surface EVERY exception the moment it's thrown, even if something downstream
+        // (e.g. GLib signal marshalling) silently swallows it. Without this, a throwing
+        // OnActivate handler causes GtkApplication.Run() to return with no visible error
+        // and the bar never creates its layer-shell surface — which is exactly the
+        // "screen is black" symptom we've been chasing.
+        System.AppDomain.CurrentDomain.FirstChanceException += (_, fcArgs) =>
+        {
+            try
+            {
+                System.IO.File.AppendAllText(
+                    "/tmp/aqueous_bar_firstchance.log",
+                    $"{System.DateTime.Now:O} {fcArgs.Exception.GetType()}: {fcArgs.Exception.Message}\n{fcArgs.Exception.StackTrace}\n\n");
+            }
+            catch { /* never let logging itself throw during first-chance handling */ }
+        };
+
         var app = new AstalApplication();
         app.GtkApplication.ApplicationId = "com.example.aqueous";
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
+          try
+          {
             // Validate and apply saved display settings (per-output modes)
             DisplaySettingsManager.Instance.ValidateAndApplySavedModes();
 
@@ -251,6 +270,23 @@ public class Program
                 // XdgAutostartService.LaunchAll();
                 return false;
             });
+          }
+          catch (Exception ex)
+          {
+              // Capture whatever prevented BarService.Start() from reaching layer-shell init
+              // so the failure is visible instead of being silently swallowed by GLib at the
+              // signal boundary (which would let GtkApplication.Run() return with a black
+              // screen and no error).
+              try
+              {
+                  System.IO.File.WriteAllText(
+                      "/tmp/aqueous_bar_activate.log",
+                      $"OnActivate threw:\n{ex}\n");
+              }
+              catch { }
+              System.Console.Error.WriteLine("ACTIVATE CRASH: " + ex);
+              throw;
+          }
         };
 
         app.GtkApplication.Hold(); app.GtkApplication.Run(args); System.Console.Error.WriteLine("Run() returned");
