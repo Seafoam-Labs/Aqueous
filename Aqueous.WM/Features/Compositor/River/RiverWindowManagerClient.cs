@@ -81,6 +81,14 @@ namespace Aqueous.Features.Compositor.River
         private readonly ConcurrentDictionary<IntPtr, OutputEntry> _outputs = new();
         private readonly ConcurrentDictionary<IntPtr, SeatEntry> _seats = new();
 
+        // --- interaction service -------------------------------------------
+
+        private readonly SeatInteractionService _seatInteractionService;
+
+        private IntPtr _pendingFocusWindow;
+        private IntPtr _pendingFocusShellSurface;
+        private IntPtr _pendingFocusSeat;
+
         // --- wayland state -------------------------------------------------
 
         private IntPtr _display;
@@ -91,6 +99,11 @@ namespace Aqueous.Features.Compositor.River
         private GCHandle _selfHandle;
         private Thread? _pumpThread;
         private volatile bool _running;
+
+        private RiverWindowManagerClient()
+        {
+            _seatInteractionService = new SeatInteractionService(this);
+        }
 
         // --- lifecycle -----------------------------------------------------
 
@@ -339,6 +352,24 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case 2: // manage_start
                     Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+                    
+                    if (_pendingFocusSeat != IntPtr.Zero)
+                    {
+                        if (_pendingFocusWindow != IntPtr.Zero)
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 1, IntPtr.Zero, 0, 0, _pendingFocusWindow, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            Log($"gave focus to window 0x{_pendingFocusWindow.ToString("x")}");
+                        }
+                        else if (_pendingFocusShellSurface != IntPtr.Zero)
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 2, IntPtr.Zero, 0, 0, _pendingFocusShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            Log($"gave focus to shell surface 0x{_pendingFocusShellSurface.ToString("x")}");
+                        }
+                        _pendingFocusSeat = IntPtr.Zero;
+                        _pendingFocusWindow = IntPtr.Zero;
+                        _pendingFocusShellSurface = IntPtr.Zero;
+                    }
+
                     foreach (var kvp in _windows) {
                         WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 3, IntPtr.Zero, 0, 0, (IntPtr)800, (IntPtr)600, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     }
@@ -367,6 +398,12 @@ namespace Aqueous.Features.Compositor.River
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         Log($"+ window 0x{proxy.ToString("x")}");
+                        
+                        foreach (var seatProxy in _seats.Keys)
+                        {
+                            SetFocusedWindow(proxy, seatProxy);
+                            break;
+                        }
                     }
                     break;
                 }
@@ -512,6 +549,14 @@ namespace Aqueous.Features.Compositor.River
                     s.WlSeatName = args[0].u;
                     Log($"seat 0x{proxy.ToString("x")} wl_seat_name={s.WlSeatName}");
                     break;
+                case 4:
+                    Log($"seat 0x{proxy.ToString("x")} window_interaction 0x{args[0].o.ToString("x")}");
+                    _seatInteractionService.HandleWindowInteraction(args[0].o, proxy);
+                    break;
+                case 5:
+                    Log($"seat 0x{proxy.ToString("x")} shell_surface_interaction 0x{args[0].o.ToString("x")}");
+                    _seatInteractionService.HandleShellSurfaceInteraction(args[0].o, proxy);
+                    break;
                 default:
                     Log($"seat 0x{proxy.ToString("x")} event opcode={opcode}");
                     break;
@@ -519,6 +564,20 @@ namespace Aqueous.Features.Compositor.River
         }
 
         // --- utility -------------------------------------------------------
+
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
+        {
+            _pendingFocusWindow = windowProxy;
+            _pendingFocusShellSurface = IntPtr.Zero;
+            _pendingFocusSeat = seatProxy;
+        }
+
+        public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
+        {
+            _pendingFocusShellSurface = shellSurfaceProxy;
+            _pendingFocusWindow = IntPtr.Zero;
+            _pendingFocusSeat = seatProxy;
+        }
 
         private static string? PtrToString(IntPtr p)
             => p == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(p);
