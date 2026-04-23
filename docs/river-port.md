@@ -62,6 +62,83 @@ Tracking doc for the in-progress compositor port.
 - Populate `FocusedViewInfo.AppId` from the `Activated`-flagged toplevel.
 - Validation under a nested River (`river` is installed on this machine; `riverctl` is NOT packaged — install `river-git`/AUR equivalent or use the wlr client exclusively).
 
+## Phase B1a — River WM skeleton (river_window_manager_v1 v4)
+
+River 0.4 removed `zriver_control_v1` (and therefore `riverctl`), and instead
+delegates **all** window-management policy to a single client that binds the
+new `river_window_manager_v1` global. Option 2 (speak `zriver_control_v1` from
+the bar) is not viable on River 0.4 — the global is simply not advertised.
+
+### What landed
+
+- `Protocols/river-window-management-v1.xml` — vendored from
+  `/usr/share/river-protocols/stable/river-window-management-v1.xml` (v4, the
+  currently installed `river 0.4.3` protocol definition).
+- `WlInterfaces.cs` — extended with the full v4 interface tables for
+  `river_window_manager_v1`, `river_window_v1`, `river_decoration_v1`,
+  `river_shell_surface_v1`, `river_node_v1`, `river_output_v1`,
+  `river_seat_v1`, `river_pointer_binding_v1`. Every request/event is declared
+  with its exact signature string and nested-interface pointer array so
+  libwayland-client can marshal the wire format.
+- `RiverWindowManagerClient.cs` — mirrors the `ForeignToplevelClient` shape:
+  dedicated `wl_display_connect()` + worker thread, single
+  `[UnmanagedCallersOnly]` dispatcher demuxing events by proxy identity,
+  tracks `river_window_v1` / `river_output_v1` / `river_seat_v1` proxies in
+  concurrent dictionaries and logs every event that lands.
+- **Auto-ack** — immediately sends `manage_finish` after every
+  `manage_start` and `render_finish` after every `render_start`, with no
+  intervening state changes. This is the minimum traffic required to keep
+  River's manage/render loop progressing and avoid the `unresponsive`
+  watchdog; it does **not** constitute real window management.
+- `RiverBackend.cs` — starts the client in its constructor via
+  `RiverWindowManagerClient.TryStart()` and disposes it on shutdown. The
+  entire path is gated on `AQUEOUS_RIVER_WM=1`; in the default bar build the
+  WM client is inert.
+- AOT publish (`dotnet publish Aqueous -c Release -r linux-x64 /p:PublishAot=true`)
+  succeeds with zero warnings from `RiverWindowManagerClient` / `WlInterfaces`.
+
+### Scope and caveats
+
+- **Not a usable window manager.** No layout, no focus policy, no keybindings,
+  no decoration placement. Windows appear at whatever default dimensions
+  River chooses. Aqueous must be run *alongside* an actual WM in practice —
+  but note River allows only one WM client at a time, so enabling
+  `AQUEOUS_RIVER_WM=1` makes Aqueous the WM and nothing else can bind it.
+- **Protocol errors will crash the live compositor.** A single wrong opcode
+  or signature byte will trip `sequence_order` / `role` / `unresponsive` and
+  take the whole session down. The interface tables were extracted
+  mechanically from the installed XML (`/tmp/extract_sigs.py` helper) to
+  minimise hand-edit mistakes, but this code has not yet been run against a
+  live River session.
+- All proxies are indexed by their raw `IntPtr`; the current skeleton never
+  sends destroys, so a long-running session would accumulate entries. Fine
+  for first-boot validation; needs a `destroy`-on-`closed`/`removed` pass
+  before long-term use.
+
+### Validation matrix (execute inside a nested River; expect iteration)
+
+| Scenario | Expected log output |
+|---|---|
+| Launch Aqueous with `AQUEOUS_RIVER_WM=1` inside River | `[river-wm] attached as window manager (v4)` |
+| Spawn a terminal | `+ window 0x…`, then `manage_start` / `manage_finish` round-trip, then `window … app_id=foot`, `window … title=…` |
+| Resize the terminal | repeated `render_start` ↔ `render_finish` with `window … dimensions WxH` between them |
+| Close the terminal | `window … closed` |
+| Plug a second monitor | `+ output 0x…` followed by `output … wl_output_name=N`, `output … position=X,Y`, `output … dimensions=WxH` |
+| Kill Aqueous (`SIGTERM`) | River reverts to headless / next WM client |
+| Any compositor-side crash | **Stop here and iterate on signatures.** The most likely culprit is a mis-declared message in `BuildRiverWindowManagement()`. |
+
+### Follow-up phases (B1b+)
+
+- Stop logging every event, replace with a proper domain model.
+- Send `propose_dimensions` / `set_borders` / `show` during `manage_start` to
+  produce a real (if trivial) layout — e.g. stack all windows at the origin.
+- Bind `river_input_manager_v1` + `river_xkb_bindings_v1` to register
+  keybindings (otherwise River has no bindings at all in this mode).
+- Integrate with the existing Aqueous bar's `RiverStateAggregator` so tag/
+  workspace widgets continue to work in WM mode.
+- Ship a systemd user-unit / River `init` script that launches Aqueous with
+  `AQUEOUS_RIVER_WM=1` and a fallback WM in case we crash.
+
 ## Still to do
 
 - **Phase 6** — `RiverConfigService` emitting idempotent `~/.config/river/init`.

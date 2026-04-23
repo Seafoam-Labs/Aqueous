@@ -1,0 +1,489 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace Aqueous.Features.Compositor.River
+{
+    /// <summary>
+    /// B1a "survive a session" skeleton that binds the River 0.4+
+    /// <c>river_window_manager_v1</c> global and keeps the compositor alive by
+    /// immediately acknowledging every <c>manage_start</c> / <c>render_start</c>
+    /// event with the corresponding <c>manage_finish</c> / <c>render_finish</c>
+    /// request.
+    ///
+    /// <para>
+    /// <b>This is not a usable window manager.</b> It performs no layout, no
+    /// focus policy, no keybinding registration, and no decoration placement.
+    /// Windows will appear at whatever default dimensions River chooses and
+    /// keyboard focus will behave however River's fallback does in the absence
+    /// of a WM making focus decisions. The goal is solely to prove that the
+    /// C# / AOT / hand-rolled protocol stack can bind the global, receive
+    /// every event type declared in <see cref="WlInterfaces"/>, and keep
+    /// River's manage/render loop progressing without tripping the
+    /// <c>sequence_order</c> protocol error or the <c>unresponsive</c> watchdog.
+    /// </para>
+    ///
+    /// <para>
+    /// Gated on the <c>AQUEOUS_RIVER_WM</c> environment variable so that the
+    /// default Aqueous bar build is unaffected. Set <c>AQUEOUS_RIVER_WM=1</c>
+    /// to opt in when launching under River as the sole window-management
+    /// client.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Safety:</b> A misbehaving window manager can deadlock River (the
+    /// compositor refuses to render until <c>render_finish</c> is received)
+    /// and can crash it via protocol errors. This implementation therefore
+    /// never sends any window-management-state-modifying requests — only the
+    /// two lifecycle acks required to advance the sequence loop.
+    /// </para>
+    /// </summary>
+    internal sealed unsafe class RiverWindowManagerClient : IDisposable
+    {
+        // --- logging -------------------------------------------------------
+
+        /// <summary>
+        /// All protocol activity funnels through this action. By default logs
+        /// to stderr; host code may replace it with a GLib-aware sink.
+        /// </summary>
+        public static Action<string> Log { get; set; } =
+            msg => Console.Error.WriteLine("[river-wm] " + msg);
+
+        // --- state tracked from events ------------------------------------
+
+        private sealed class WindowEntry
+        {
+            public IntPtr Proxy;
+            public string? Title;
+            public string? AppId;
+            public int WidthHint, HeightHint;
+            public int W, H;
+        }
+
+        private sealed class OutputEntry
+        {
+            public IntPtr Proxy;
+            public uint WlOutputName;
+            public int X, Y, Width, Height;
+        }
+
+        private sealed class SeatEntry
+        {
+            public IntPtr Proxy;
+            public uint WlSeatName;
+        }
+
+        private readonly ConcurrentDictionary<IntPtr, WindowEntry> _windows = new();
+        private readonly ConcurrentDictionary<IntPtr, OutputEntry> _outputs = new();
+        private readonly ConcurrentDictionary<IntPtr, SeatEntry> _seats = new();
+
+        // --- wayland state -------------------------------------------------
+
+        private IntPtr _display;
+        private IntPtr _registry;
+        private IntPtr _manager;
+        private uint _managerVersion;
+        private GCHandle _selfHandle;
+        private Thread? _pumpThread;
+        private volatile bool _running;
+
+        // --- lifecycle -----------------------------------------------------
+
+        /// <summary>
+        /// Starts the client if <c>AQUEOUS_RIVER_WM=1</c> and the WM global is
+        /// advertised to us. Returns <c>null</c> silently in every other case
+        /// — the Aqueous bar never wants a failure here to abort startup.
+        /// </summary>
+        public static RiverWindowManagerClient? TryStart()
+        {
+            if (Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM") != "1")
+                return null;
+            try
+            {
+                var c = new RiverWindowManagerClient();
+                if (!c.Connect()) { c.Dispose(); return null; }
+                c.StartPump();
+                Log($"attached as window manager (v{c._managerVersion})");
+                return c;
+            }
+            catch (DllNotFoundException) { return null; }
+            catch (Exception e) { Log("TryStart failed: " + e.Message); return null; }
+        }
+
+        private bool Connect()
+        {
+            _display = WaylandInterop.wl_display_connect(IntPtr.Zero);
+            if (_display == IntPtr.Zero) { Log("wl_display_connect returned null"); return false; }
+
+            WlInterfaces.EnsureBuilt();
+
+            // wl_display::get_registry is opcode 1.
+            _registry = WaylandInterop.wl_proxy_marshal_flags(
+                _display, 1, (IntPtr)WlInterfaces.WlRegistry, 1, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            if (_registry == IntPtr.Zero) { Log("get_registry failed"); return false; }
+
+            _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+            WaylandInterop.wl_proxy_add_dispatcher(
+                _registry,
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                IntPtr.Zero,
+                GCHandle.ToIntPtr(_selfHandle));
+
+            // Flush globals; then a second roundtrip so any events the
+            // compositor sends immediately on bind (for an existing window
+            // list) are delivered before we return.
+            WaylandInterop.wl_display_roundtrip(_display);
+            WaylandInterop.wl_display_roundtrip(_display);
+
+            return _manager != IntPtr.Zero;
+        }
+
+        private void StartPump()
+        {
+            _running = true;
+            _pumpThread = new Thread(PumpLoop)
+            {
+                IsBackground = true,
+                Name = "Aqueous.RiverWindowManager",
+            };
+            _pumpThread.Start();
+        }
+
+        private void PumpLoop()
+        {
+            try
+            {
+                while (_running)
+                {
+                    int r = WaylandInterop.wl_display_dispatch(_display);
+                    if (r < 0) { Log("wl_display_dispatch returned < 0; pump exiting"); break; }
+                }
+            }
+            catch (Exception e) { Log("pump crashed: " + e.Message); }
+        }
+
+        public void Dispose()
+        {
+            _running = false;
+            try
+            {
+                if (_manager != IntPtr.Zero)
+                {
+                    // river_window_manager_v1::stop (opcode 0). NOT a destructor
+                    // — we still have to wait for the `finished` event and
+                    // then call destroy. For the skeleton we just disconnect
+                    // the display; River treats a disconnected WM the same
+                    // way as a stopped one and cleans up.
+                }
+
+                if (_display != IntPtr.Zero)
+                {
+                    WaylandInterop.wl_display_disconnect(_display);
+                    _display = IntPtr.Zero;
+                }
+
+                _pumpThread?.Join(500);
+            }
+            catch { }
+            finally
+            {
+                if (_selfHandle.IsAllocated) _selfHandle.Free();
+            }
+        }
+
+        // --- dispatcher ----------------------------------------------------
+
+        [UnmanagedCallersOnly]
+        private static int Dispatch(IntPtr implementation, IntPtr target, uint opcode, IntPtr msg, IntPtr args)
+        {
+            try
+            {
+                var gch = GCHandle.FromIntPtr(implementation);
+                var self = gch.Target as RiverWindowManagerClient;
+                if (self == null) return 0;
+                var a = (WlArgument*)args;
+
+                if (target == self._registry)      self.OnRegistryEvent(opcode, a);
+                else if (target == self._manager)  self.OnManagerEvent(opcode, a);
+                else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
+                else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
+                else if (self._seats.ContainsKey(target))   self.OnSeatEvent(target, opcode, a);
+                else Log("unhandled dispatch: target=0x" + target.ToString("x") + " opcode=" + opcode);
+            }
+            catch (Exception e)
+            {
+                // NEVER unwind into native dispatch.
+                try { Log("dispatch exception: " + e.Message); } catch { }
+            }
+            return 0;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct WlArgument
+        {
+            [FieldOffset(0)] public int   i;
+            [FieldOffset(0)] public uint  u;
+            [FieldOffset(0)] public int   fx;
+            [FieldOffset(0)] public IntPtr s;
+            [FieldOffset(0)] public IntPtr o;
+            [FieldOffset(0)] public uint  n;
+            [FieldOffset(0)] public IntPtr a;
+            [FieldOffset(0)] public int   h;
+        }
+
+        // --- registry ------------------------------------------------------
+
+        private void OnRegistryEvent(uint opcode, WlArgument* args)
+        {
+            // wl_registry events:
+            //   0  global(name, interface, version)
+            //   1  global_remove(name)
+            if (opcode != 0) return;
+            uint name = args[0].u;
+            string? iface = PtrToString(args[1].s);
+            uint version = args[2].u;
+            if (iface == null) return;
+
+            if (iface == "river_window_manager_v1" && _manager == IntPtr.Zero)
+            {
+                _managerVersion = Math.Min(version, 4u);
+                _manager = Bind(name, WlInterfaces.RiverWindowManager, _managerVersion);
+                if (_manager != IntPtr.Zero)
+                {
+                    WaylandInterop.wl_proxy_add_dispatcher(
+                        _manager,
+                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                        IntPtr.Zero,
+                        GCHandle.ToIntPtr(_selfHandle));
+                    Log($"bound river_window_manager_v1 (version {_managerVersion})");
+                }
+            }
+        }
+
+        private IntPtr Bind(uint name, WaylandInterop.WlInterface* iface, uint version)
+        {
+            // wl_registry::bind(name: uint, new_id: untyped)
+            // libwayland takes (name, iface_name, iface_version, new_id-placeholder)
+            // on the wire; wl_proxy_marshal_flags fills the new_id implicitly.
+            return WaylandInterop.wl_proxy_marshal_flags(
+                _registry,
+                0,                                 // opcode
+                (IntPtr)iface,
+                version,
+                0,
+                (IntPtr)name,
+                (IntPtr)iface->name,
+                (IntPtr)version,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        // --- river_window_manager_v1 events -------------------------------
+
+        private void OnManagerEvent(uint opcode, WlArgument* args)
+        {
+            // events, per XML order:
+            //  0 unavailable
+            //  1 finished
+            //  2 manage_start
+            //  3 render_start
+            //  4 session_locked
+            //  5 session_unlocked
+            //  6 window(new_id<river_window_v1>)
+            //  7 output(new_id<river_output_v1>)
+            //  8 seat(new_id<river_seat_v1>)
+            switch (opcode)
+            {
+                case 0: // unavailable
+                    Log("river_window_manager_v1.unavailable — another WM is active; giving up");
+                    _running = false;
+                    break;
+                case 1: // finished
+                    Log("river_window_manager_v1.finished");
+                    _running = false;
+                    break;
+                case 2: // manage_start
+                    // We make no state changes — just immediately finish.
+                    Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+                    SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
+                    break;
+                case 3: // render_start
+                    Log("render_start");
+                    SendManagerRequest(4); // render_finish opcode = 4
+                    break;
+                case 4: Log("session_locked"); break;
+                case 5: Log("session_unlocked"); break;
+                case 6: // window(new_id)
+                {
+                    IntPtr proxy = args[0].o;
+                    if (proxy != IntPtr.Zero)
+                    {
+                        var entry = new WindowEntry { Proxy = proxy };
+                        _windows[proxy] = entry;
+                        WaylandInterop.wl_proxy_add_dispatcher(
+                            proxy,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            IntPtr.Zero,
+                            GCHandle.ToIntPtr(_selfHandle));
+                        Log($"+ window 0x{proxy.ToString("x")}");
+                    }
+                    break;
+                }
+                case 7: // output(new_id)
+                {
+                    IntPtr proxy = args[0].o;
+                    if (proxy != IntPtr.Zero)
+                    {
+                        _outputs[proxy] = new OutputEntry { Proxy = proxy };
+                        WaylandInterop.wl_proxy_add_dispatcher(
+                            proxy,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            IntPtr.Zero,
+                            GCHandle.ToIntPtr(_selfHandle));
+                        Log($"+ output 0x{proxy.ToString("x")}");
+                    }
+                    break;
+                }
+                case 8: // seat(new_id)
+                {
+                    IntPtr proxy = args[0].o;
+                    if (proxy != IntPtr.Zero)
+                    {
+                        _seats[proxy] = new SeatEntry { Proxy = proxy };
+                        WaylandInterop.wl_proxy_add_dispatcher(
+                            proxy,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            IntPtr.Zero,
+                            GCHandle.ToIntPtr(_selfHandle));
+                        Log($"+ seat 0x{proxy.ToString("x")}");
+                    }
+                    break;
+                }
+            }
+        }
+
+        private void SendManagerRequest(uint opcode)
+        {
+            if (_manager == IntPtr.Zero) return;
+            WaylandInterop.wl_proxy_marshal_flags(
+                _manager, opcode, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            WaylandInterop.wl_display_flush(_display);
+        }
+
+        // --- river_window_v1 events ---------------------------------------
+
+        private void OnWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
+        {
+            if (!_windows.TryGetValue(proxy, out var w)) return;
+            //  0 closed
+            //  1 dimensions_hint(iiii)  -> min_w,min_h,max_w,max_h
+            //  2 dimensions(ii)
+            //  3 app_id(?s)
+            //  4 title(?s)
+            //  5 parent(?o)
+            //  6 decoration_hint(u)
+            //  7 pointer_move_requested(o)
+            //  8 pointer_resize_requested(o u)
+            //  9 show_window_menu_requested(ii)
+            // 10 maximize_requested
+            // 11 unmaximize_requested
+            // 12 fullscreen_requested(?o)
+            // 13 exit_fullscreen_requested
+            // 14 minimize_requested
+            // 15 unreliable_pid(i)
+            // 16 presentation_hint(u)
+            // 17 identifier(s)
+            switch (opcode)
+            {
+                case 0:
+                    Log($"window 0x{proxy.ToString("x")} closed");
+                    _windows.TryRemove(proxy, out _);
+                    break;
+                case 1:
+                    Log($"window 0x{proxy.ToString("x")} dimensions_hint {args[0].i}x{args[1].i}..{args[2].i}x{args[3].i}");
+                    w.WidthHint = args[2].i; w.HeightHint = args[3].i;
+                    break;
+                case 2:
+                    w.W = args[0].i; w.H = args[1].i;
+                    Log($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
+                    break;
+                case 3: w.AppId = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}"); break;
+                case 4: w.Title = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} title={w.Title}"); break;
+                case 17: Log($"window 0x{proxy.ToString("x")} identifier={PtrToString(args[0].s)}"); break;
+                default:
+                    Log($"window 0x{proxy.ToString("x")} event opcode={opcode}");
+                    break;
+            }
+        }
+
+        // --- river_output_v1 events ---------------------------------------
+
+        private void OnOutputEvent(IntPtr proxy, uint opcode, WlArgument* args)
+        {
+            if (!_outputs.TryGetValue(proxy, out var o)) return;
+            // 0 removed
+            // 1 wl_output(u)
+            // 2 position(ii)
+            // 3 dimensions(ii)
+            switch (opcode)
+            {
+                case 0:
+                    Log($"output 0x{proxy.ToString("x")} removed");
+                    _outputs.TryRemove(proxy, out _);
+                    break;
+                case 1:
+                    o.WlOutputName = args[0].u;
+                    Log($"output 0x{proxy.ToString("x")} wl_output_name={o.WlOutputName}");
+                    break;
+                case 2:
+                    o.X = args[0].i; o.Y = args[1].i;
+                    Log($"output 0x{proxy.ToString("x")} position={o.X},{o.Y}");
+                    break;
+                case 3:
+                    o.Width = args[0].i; o.Height = args[1].i;
+                    Log($"output 0x{proxy.ToString("x")} dimensions={o.Width}x{o.Height}");
+                    break;
+            }
+        }
+
+        // --- river_seat_v1 events -----------------------------------------
+
+        private void OnSeatEvent(IntPtr proxy, uint opcode, WlArgument* args)
+        {
+            if (!_seats.TryGetValue(proxy, out var s)) return;
+            // 0 removed
+            // 1 wl_seat(u)
+            // 2 pointer_enter(o)
+            // 3 pointer_leave
+            // 4 window_interaction(o)
+            // 5 shell_surface_interaction(o)
+            // 6 op_delta(ii)
+            // 7 op_release
+            // 8 pointer_position(ii)  [since 2]
+            switch (opcode)
+            {
+                case 0:
+                    Log($"seat 0x{proxy.ToString("x")} removed");
+                    _seats.TryRemove(proxy, out _);
+                    break;
+                case 1:
+                    s.WlSeatName = args[0].u;
+                    Log($"seat 0x{proxy.ToString("x")} wl_seat_name={s.WlSeatName}");
+                    break;
+                default:
+                    Log($"seat 0x{proxy.ToString("x")} event opcode={opcode}");
+                    break;
+            }
+        }
+
+        // --- utility -------------------------------------------------------
+
+        private static string? PtrToString(IntPtr p)
+            => p == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(p);
+    }
+}

@@ -41,6 +41,16 @@ namespace Aqueous.Features.Compositor.River
         public static WaylandInterop.WlInterface* ZwlrManager;
         public static WaylandInterop.WlInterface* ZwlrHandle;
 
+        // river_window_management_v1 v4 graph (B1a skeleton).
+        public static WaylandInterop.WlInterface* RiverWindowManager;
+        public static WaylandInterop.WlInterface* RiverWindow;
+        public static WaylandInterop.WlInterface* RiverDecoration;
+        public static WaylandInterop.WlInterface* RiverShellSurface;
+        public static WaylandInterop.WlInterface* RiverNode;
+        public static WaylandInterop.WlInterface* RiverOutput;
+        public static WaylandInterop.WlInterface* RiverSeat;
+        public static WaylandInterop.WlInterface* RiverPointerBinding;
+
         private static bool _built;
         private static readonly object _lock = new();
 
@@ -212,6 +222,198 @@ namespace Aqueous.Features.Compositor.River
                     Msg("done",         "",   NoTypes),
                     Msg("closed",       "",   NoTypes),
                     Msg("parent",       "3?o", new WaylandInterop.WlInterface*[] { ZwlrHandle }),
+                });
+
+            BuildRiverWindowManagement();
+        }
+
+        // ---------- river_window_management_v1 (v4) ----------
+        //
+        // Extracted from /usr/share/river-protocols/stable/river-window-management-v1.xml
+        // via the repo's /tmp/extract_sigs.py helper. Every request and event
+        // is declared with its exact signature string and nested interface
+        // pointers so libwayland-client can marshal the wire protocol.
+        //
+        // NB: "since" numbers (e.g. "2") in a signature string are valid
+        // per libwayland's docs (see `wl_message::signature` docs) and indicate
+        // the message is only available from that interface version onward.
+        // Because every message in this protocol is gated by at most version 4
+        // and we always bind the manager at version 4, the since prefixes are
+        // harmless padding.
+        private static void BuildRiverWindowManagement()
+        {
+            RiverWindowManager  = AllocEmpty("river_window_manager_v1",  4);
+            RiverWindow         = AllocEmpty("river_window_v1",          4);
+            RiverDecoration     = AllocEmpty("river_decoration_v1",      4);
+            RiverShellSurface   = AllocEmpty("river_shell_surface_v1",   4);
+            RiverNode           = AllocEmpty("river_node_v1",            4);
+            RiverOutput         = AllocEmpty("river_output_v1",          4);
+            RiverSeat           = AllocEmpty("river_seat_v1",            4);
+            RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
+
+            // river_window_manager_v1
+            Populate(RiverWindowManager,
+                requests: new[]
+                {
+                    Msg("stop",              "",   NoTypes),
+                    Msg("destroy",           "",   NoTypes),
+                    Msg("manage_finish",     "",   NoTypes),
+                    Msg("manage_dirty",      "",   NoTypes),
+                    Msg("render_finish",     "",   NoTypes),
+                    Msg("get_shell_surface", "no", new WaylandInterop.WlInterface*[] { RiverShellSurface, WlSurface }),
+                    Msg("exit_session",      "4",  NoTypes),
+                },
+                events: new[]
+                {
+                    Msg("unavailable",       "",   NoTypes),
+                    Msg("finished",          "",   NoTypes),
+                    Msg("manage_start",      "",   NoTypes),
+                    Msg("render_start",      "",   NoTypes),
+                    Msg("session_locked",    "",   NoTypes),
+                    Msg("session_unlocked",  "",   NoTypes),
+                    Msg("window",            "n",  new WaylandInterop.WlInterface*[] { RiverWindow }),
+                    Msg("output",            "n",  new WaylandInterop.WlInterface*[] { RiverOutput }),
+                    Msg("seat",              "n",  new WaylandInterop.WlInterface*[] { RiverSeat }),
+                });
+
+            // river_window_v1
+            Populate(RiverWindow,
+                requests: new[]
+                {
+                    Msg("destroy",              "",        NoTypes),
+                    Msg("close",                "",        NoTypes),
+                    Msg("get_node",             "n",       new WaylandInterop.WlInterface*[] { RiverNode }),
+                    Msg("propose_dimensions",   "ii",      new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("hide",                 "",        NoTypes),
+                    Msg("show",                 "",        NoTypes),
+                    Msg("use_csd",              "",        NoTypes),
+                    Msg("use_ssd",              "",        NoTypes),
+                    Msg("set_borders",          "uiuuuu",  new WaylandInterop.WlInterface*[] { null, null, null, null, null, null }),
+                    Msg("set_tiled",            "u",       new WaylandInterop.WlInterface*[] { null }),
+                    Msg("get_decoration_above", "no",      new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
+                    Msg("get_decoration_below", "no",      new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
+                    Msg("inform_resize_start",  "",        NoTypes),
+                    Msg("inform_resize_end",    "",        NoTypes),
+                    Msg("set_capabilities",     "u",       new WaylandInterop.WlInterface*[] { null }),
+                    Msg("inform_maximized",     "",        NoTypes),
+                    Msg("inform_unmaximized",   "",        NoTypes),
+                    Msg("inform_fullscreen",    "",        NoTypes),
+                    Msg("inform_not_fullscreen","",        NoTypes),
+                    Msg("fullscreen",           "o",       new WaylandInterop.WlInterface*[] { RiverOutput }),
+                    Msg("exit_fullscreen",      "",        NoTypes),
+                    Msg("set_clip_box",         "2iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                    Msg("set_content_clip_box", "3iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                    Msg("set_dimension_bounds", "4ii",     new WaylandInterop.WlInterface*[] { null, null }),
+                },
+                events: new[]
+                {
+                    Msg("closed",                    "",     NoTypes),
+                    Msg("dimensions_hint",           "iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                    Msg("dimensions",                "ii",   new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("app_id",                    "?s",   new WaylandInterop.WlInterface*[] { null }),
+                    Msg("title",                     "?s",   new WaylandInterop.WlInterface*[] { null }),
+                    Msg("parent",                    "?o",   new WaylandInterop.WlInterface*[] { RiverWindow }),
+                    Msg("decoration_hint",           "u",    new WaylandInterop.WlInterface*[] { null }),
+                    Msg("pointer_move_requested",    "o",    new WaylandInterop.WlInterface*[] { RiverSeat }),
+                    Msg("pointer_resize_requested",  "ou",   new WaylandInterop.WlInterface*[] { RiverSeat, null }),
+                    Msg("show_window_menu_requested","ii",   new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("maximize_requested",        "",     NoTypes),
+                    Msg("unmaximize_requested",      "",     NoTypes),
+                    Msg("fullscreen_requested",      "?o",   new WaylandInterop.WlInterface*[] { RiverOutput }),
+                    Msg("exit_fullscreen_requested", "",     NoTypes),
+                    Msg("minimize_requested",        "",     NoTypes),
+                    Msg("unreliable_pid",            "2i",   new WaylandInterop.WlInterface*[] { null }),
+                    Msg("presentation_hint",         "4u",   new WaylandInterop.WlInterface*[] { null }),
+                    Msg("identifier",                "4s",   new WaylandInterop.WlInterface*[] { null }),
+                });
+
+            // river_decoration_v1
+            Populate(RiverDecoration,
+                requests: new[]
+                {
+                    Msg("destroy",          "",   NoTypes),
+                    Msg("set_offset",       "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("sync_next_commit", "",   NoTypes),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
+
+            // river_shell_surface_v1
+            Populate(RiverShellSurface,
+                requests: new[]
+                {
+                    Msg("destroy",          "",  NoTypes),
+                    Msg("get_node",         "n", new WaylandInterop.WlInterface*[] { RiverNode }),
+                    Msg("sync_next_commit", "",  NoTypes),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
+
+            // river_node_v1
+            Populate(RiverNode,
+                requests: new[]
+                {
+                    Msg("destroy",      "",   NoTypes),
+                    Msg("set_position", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("place_top",    "",   NoTypes),
+                    Msg("place_bottom", "",   NoTypes),
+                    Msg("place_above",  "o",  new WaylandInterop.WlInterface*[] { RiverNode }),
+                    Msg("place_below",  "o",  new WaylandInterop.WlInterface*[] { RiverNode }),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
+
+            // river_output_v1
+            Populate(RiverOutput,
+                requests: new[]
+                {
+                    Msg("destroy",               "",   NoTypes),
+                    Msg("set_presentation_mode", "4u", new WaylandInterop.WlInterface*[] { null }),
+                },
+                events: new[]
+                {
+                    Msg("removed",    "",   NoTypes),
+                    Msg("wl_output",  "u",  new WaylandInterop.WlInterface*[] { null }),
+                    Msg("position",   "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("dimensions", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                });
+
+            // river_seat_v1
+            Populate(RiverSeat,
+                requests: new[]
+                {
+                    Msg("destroy",              "",   NoTypes),
+                    Msg("focus_window",         "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
+                    Msg("focus_shell_surface",  "o",  new WaylandInterop.WlInterface*[] { RiverShellSurface }),
+                    Msg("clear_focus",          "",   NoTypes),
+                    Msg("op_start_pointer",     "",   NoTypes),
+                    Msg("op_end",               "",   NoTypes),
+                    Msg("get_pointer_binding",  "nuu",new WaylandInterop.WlInterface*[] { RiverPointerBinding, null, null }),
+                    Msg("set_xcursor_theme",    "2su",new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("pointer_warp",         "3ii",new WaylandInterop.WlInterface*[] { null, null }),
+                },
+                events: new[]
+                {
+                    Msg("removed",                    "",   NoTypes),
+                    Msg("wl_seat",                    "u",  new WaylandInterop.WlInterface*[] { null }),
+                    Msg("pointer_enter",              "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
+                    Msg("pointer_leave",              "",   NoTypes),
+                    Msg("window_interaction",         "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
+                    Msg("shell_surface_interaction",  "o",  new WaylandInterop.WlInterface*[] { RiverShellSurface }),
+                    Msg("op_delta",                   "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                    Msg("op_release",                 "",   NoTypes),
+                    Msg("pointer_position",           "2ii",new WaylandInterop.WlInterface*[] { null, null }),
+                });
+
+            // river_pointer_binding_v1
+            Populate(RiverPointerBinding,
+                requests: new[]
+                {
+                    Msg("destroy", "", NoTypes),
+                    Msg("enable",  "", NoTypes),
+                    Msg("disable", "", NoTypes),
+                },
+                events: new[]
+                {
+                    Msg("pressed",  "", NoTypes),
+                    Msg("released", "", NoTypes),
                 });
         }
 

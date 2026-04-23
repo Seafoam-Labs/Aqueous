@@ -32,6 +32,11 @@ namespace Aqueous.Features.Compositor.River
         // path can't regress on production machines.
         private readonly ForeignToplevelClient? _toplevel;
 
+        // B1a — optional river_window_manager_v1 skeleton client, gated behind
+        // AQUEOUS_RIVER_WM=1. This turns Aqueous into (a very rudimentary)
+        // River window manager. Must NEVER be enabled alongside another WM.
+        private readonly RiverWindowManagerClient? _wm;
+
         public event Action? ViewsChanged;
         public event Action? WorkspaceChanged;
         public event Action? OutputsChanged;
@@ -100,6 +105,11 @@ namespace Aqueous.Features.Compositor.River
                     _toplevel.Changed += () => { try { ViewsChanged?.Invoke(); } catch { } };
                 }
             }
+
+            // B1a: become a river_window_manager_v1 client if explicitly
+            // opted in. Silently no-ops otherwise; the TryStart contract
+            // guarantees no exception propagation.
+            _wm = RiverWindowManagerClient.TryStart();
         }
 
         /// <summary>True when libastal-river is reachable (i.e. running under River).</summary>
@@ -279,6 +289,7 @@ namespace Aqueous.Features.Compositor.River
         {
             _agg?.Dispose();
             _toplevel?.Dispose();
+            _wm?.Dispose();
         }
     }
 }
