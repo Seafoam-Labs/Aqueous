@@ -52,6 +52,9 @@ namespace Aqueous.Features.Compositor.River
         public static WaylandInterop.WlInterface* RiverLayerSurface;
         public static WaylandInterop.WlInterface* RiverSeat;
         public static WaylandInterop.WlInterface* RiverPointerBinding;
+        public static WaylandInterop.WlInterface* RiverXkbBindings;
+        public static WaylandInterop.WlInterface* RiverXkbBinding;
+        public static WaylandInterop.WlInterface* RiverXkbBindingsSeat;
 
         private static bool _built;
         private static readonly object _lock = new();
@@ -255,6 +258,9 @@ namespace Aqueous.Features.Compositor.River
             RiverLayerSurface   = AllocEmpty("river_layer_surface_v1",   1);
             RiverSeat           = AllocEmpty("river_seat_v1",            4);
             RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
+            RiverXkbBindings    = AllocEmpty("river_xkb_bindings_v1",    3);
+            RiverXkbBinding     = AllocEmpty("river_xkb_binding_v1",     3);
+            RiverXkbBindingsSeat= AllocEmpty("river_xkb_bindings_seat_v1", 1);
 
             // river_window_manager_v1
             Populate(RiverWindowManager,
@@ -436,6 +442,40 @@ namespace Aqueous.Features.Compositor.River
                     Msg("pressed",  "", NoTypes),
                     Msg("released", "", NoTypes),
                 });
+
+            // river_xkb_bindings_v1
+            Populate(RiverXkbBindings,
+                requests: new[]
+                {
+                    Msg("destroy", "", NoTypes),
+                    Msg("get_xkb_binding", "onuu", new WaylandInterop.WlInterface*[] { RiverSeat, RiverXkbBinding, null, null }),
+                    Msg("get_seat", "2no", new WaylandInterop.WlInterface*[] { RiverXkbBindingsSeat, RiverSeat }),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
+
+            // river_xkb_binding_v1
+            Populate(RiverXkbBinding,
+                requests: new[]
+                {
+                    Msg("destroy", "", NoTypes),
+                    Msg("set_layout_override", "u", new WaylandInterop.WlInterface*[] { null }),
+                    Msg("enable", "", NoTypes),
+                    Msg("disable", "", NoTypes),
+                },
+                events: new[]
+                {
+                    Msg("pressed", "", NoTypes),
+                    Msg("released", "", NoTypes),
+                });
+
+            // river_xkb_bindings_seat_v1
+            Populate(RiverXkbBindingsSeat,
+                requests: new[]
+                {
+                    Msg("destroy", "", NoTypes),
+                    Msg("set_layout", "u", new WaylandInterop.WlInterface*[] { null }),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
         }
 
         private static WaylandInterop.WlInterface* AllocEmpty(string name, int version)

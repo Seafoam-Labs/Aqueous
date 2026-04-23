@@ -95,6 +95,8 @@ namespace Aqueous.Features.Compositor.River
         private IntPtr _registry;
         private IntPtr _manager;
         private IntPtr _layerShell;
+        private IntPtr _xkbBindings;
+        private IntPtr _superKeyBinding;
         private uint _managerVersion;
         private GCHandle _selfHandle;
         private Thread? _pumpThread;
@@ -224,6 +226,7 @@ namespace Aqueous.Features.Compositor.River
                 if (target == self._registry)      self.OnRegistryEvent(opcode, a);
                 else if (target == self._manager)  self.OnManagerEvent(opcode, a);
                 else if (target == self._layerShell) self.OnLayerShellEvent(opcode, a);
+                else if (target == self._superKeyBinding) self.OnSuperKeyBindingEvent(opcode, a);
                 else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
                 else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
                 else if (self._seats.ContainsKey(target))   self.OnSeatEvent(target, opcode, a);
@@ -287,6 +290,11 @@ namespace Aqueous.Features.Compositor.River
                     IntPtr.Zero);
                 Log("bound river_layer_shell_v1");
             }
+            else if (iface == "river_xkb_bindings_v1")
+            {
+                _xkbBindings = Bind(name, WlInterfaces.RiverXkbBindings, 3);
+                Log("bound river_xkb_bindings_v1");
+            }
         }
 
         private IntPtr Bind(uint name, WaylandInterop.WlInterface* iface, uint version)
@@ -307,6 +315,36 @@ namespace Aqueous.Features.Compositor.River
         }
 
         // --- river_window_manager_v1 events -------------------------------
+
+        private void OnSuperKeyBindingEvent(uint opcode, WlArgument* args)
+        {
+            // 0: pressed
+            // 1: released
+            if (opcode == 0)
+            {
+                Log("super key pressed, toggling Aqueous Start Menu via shell script/command");
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "dbus-send",
+                        Arguments = "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log("failed to launch start menu dbus command: " + ex.Message);
+                }
+            }
+            else if (opcode == 1)
+            {
+                Log("super key released");
+            }
+        }
 
         private void OnLayerShellEvent(uint opcode, WlArgument* args)
         {
@@ -434,6 +472,28 @@ namespace Aqueous.Features.Compositor.River
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         Log($"+ seat 0x{proxy.ToString("x")}");
+
+                        if (_xkbBindings != IntPtr.Zero && _superKeyBinding == IntPtr.Zero)
+                        {
+                            // 0xffeb is XKB_KEY_Super_L
+                            _superKeyBinding = WaylandInterop.wl_proxy_marshal_flags(
+                                _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
+                                proxy, IntPtr.Zero, (IntPtr)0xffeb, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            
+                            if (_superKeyBinding != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_add_dispatcher(
+                                    _superKeyBinding,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    GCHandle.ToIntPtr(_selfHandle),
+                                    IntPtr.Zero);
+                                
+                                WaylandInterop.wl_proxy_marshal_flags(
+                                    _superKeyBinding, 2, IntPtr.Zero, 0, 0,
+                                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                Log("registered and enabled Super_L key binding");
+                            }
+                        }
                     }
                     break;
                 }
