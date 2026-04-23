@@ -1,5 +1,7 @@
 #!/bin/bash
 # Automatically generated launch script for Rider
+dotnet build
+
 # This script launches a nested River session running Aqueous.WM and Aqueous
 
 # Rider sets the working directory to the project root, so we can use relative paths
