@@ -31,6 +31,51 @@ namespace Aqueous.Features.Compositor.River
         public event Action? WorkspaceChanged;
         public event Action? OutputsChanged;
 
+        // riverctl presence cached after first failed Start() on PATH.
+        private static readonly Lazy<bool> _riverctlAvailable = new(() =>
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("riverctl", "--help")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+                using var p = Process.Start(psi);
+                if (p == null) return false;
+                p.WaitForExit(500);
+                return true;
+            }
+            catch { return false; }
+        });
+
+        public CompositorCapabilities Capabilities
+        {
+            get
+            {
+                var caps = CompositorCapabilities.None;
+                if (_riverctlAvailable.Value)
+                    caps |= CompositorCapabilities.TagMaskSwitch | CompositorCapabilities.ToggleFloat;
+                // ForeignToplevel will land in a later phase; flag it off for now.
+                return caps;
+            }
+        }
+
+        public Task SetFocusedTagMask(uint mask) =>
+            RunRiverCtl("set-focused-tags", mask.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        public Task ToggleFloatingFocusedView() => RunRiverCtl("toggle-float");
+
+        public Task<(int X, int Y, int W, int H)?> GetFocusedOutputGeometry()
+        {
+            // AstalRiver does not yet expose per-output logical geometry through
+            // the snapshot; callers fall back to the Gdk monitor of the focused
+            // window. Return null here rather than guessing.
+            return Task.FromResult<(int X, int Y, int W, int H)?>(null);
+        }
+
         public RiverBackend()
         {
             _river = AstalRiverRiver.GetDefault();

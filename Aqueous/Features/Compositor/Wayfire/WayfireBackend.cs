@@ -24,6 +24,41 @@ namespace Aqueous.Features.Compositor.Wayfire
         public event Action? WorkspaceChanged;
         public event Action? OutputsChanged;
 
+        public CompositorCapabilities Capabilities =>
+            CompositorCapabilities.ArbitraryGeometry
+            | CompositorCapabilities.CursorQuery
+            | CompositorCapabilities.DragSnapEvents
+            | CompositorCapabilities.ForeignToplevel;
+
+        /// <summary>No-op on Wayfire: tag masks are a River concept.</summary>
+        public Task SetFocusedTagMask(uint mask) => Task.CompletedTask;
+
+        /// <summary>No-op on Wayfire: floating is managed via window rules, not a toggle.</summary>
+        public Task ToggleFloatingFocusedView() => Task.CompletedTask;
+
+        public async Task<(int X, int Y, int W, int H)?> GetFocusedOutputGeometry()
+        {
+            try
+            {
+                var outs = await WayfireIpc.ListOutputs();
+                foreach (var o in outs)
+                {
+                    bool focused = o.TryGetProperty("focused", out var f) && f.ValueKind == JsonValueKind.True;
+                    if (!focused && outs.Length > 1) continue;
+                    if (o.TryGetProperty("geometry", out var g))
+                    {
+                        int x = g.TryGetProperty("x", out var gx) ? gx.GetInt32() : 0;
+                        int y = g.TryGetProperty("y", out var gy) ? gy.GetInt32() : 0;
+                        int w = g.TryGetProperty("width", out var gw) ? gw.GetInt32() : 0;
+                        int h = g.TryGetProperty("height", out var gh) ? gh.GetInt32() : 0;
+                        if (w > 0 && h > 0) return (x, y, w, h);
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
         // --- Phase 3 typed accessors ---
         // Wayfire state is fetched lazily via JSON IPC (slow); we cache a best-effort
         // snapshot refreshed whenever WorkspaceChanged fires. Values default to "unknown"

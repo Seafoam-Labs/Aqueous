@@ -8,6 +8,7 @@ Tracking doc for the in-progress compositor port.
 - **Phase 1** — `aqueous-corners` plugin and all corner IPC / Settings / `wayfire.ini` references deleted.
 - **Phase 2** — `ICompositorBackend` + static `CompositorBackend` locator; `WayfireBackend` adapter; all feature-code callers migrated.
 - **Phase 3** — Event-driven River read side (see below).
+- **Phase 5** — SnapTo capability-gated (tag-preset tile path on River, geometry path unchanged on Wayfire).
 
 ## Phase 3 — Event-driven River read side
 
@@ -44,7 +45,6 @@ Tracking doc for the in-progress compositor port.
 ## Still to do
 
 - **Phase 4** — `RiverCtl` subprocess wrapper + `ForeignToplevelClient` (wlr-foreign-toplevel-management-v1 under AOT) wiring all write methods.
-- **Phase 5** — SnapTo reduced to tag presets + floating-only geometry.
 - **Phase 6** — `RiverConfigService` emitting idempotent `~/.config/river/init`.
 - **Phase 7** — Greeter & packaging swap.
 - **Phase 8** — Delete Wayfire backend + `wayfire.ini` + old IPC files.

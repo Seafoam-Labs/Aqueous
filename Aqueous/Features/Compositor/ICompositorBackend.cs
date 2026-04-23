@@ -33,8 +33,42 @@ namespace Aqueous.Features.Compositor
         string? AppId,
         string? OutputName);
 
+    /// <summary>
+    /// Declares which high-level operations the active compositor backend can
+    /// perform. UI code (SnapTo overlay in particular) gates feature branches
+    /// on these flags so the same code runs on Wayfire and River.
+    /// </summary>
+    [Flags]
+    public enum CompositorCapabilities
+    {
+        None              = 0,
+        /// <summary>Backend can place a view at an absolute pixel rectangle.</summary>
+        ArbitraryGeometry = 1 << 0,
+        /// <summary>Backend can report the current pointer position.</summary>
+        CursorQuery       = 1 << 1,
+        /// <summary>Backend emits events when the user drags a view (Wayfire move plugin).</summary>
+        DragSnapEvents    = 1 << 2,
+        /// <summary>Backend exposes River-style tag bitmasks and can switch focused tags.</summary>
+        TagMaskSwitch     = 1 << 3,
+        /// <summary>Backend can toggle the focused view between tiled and floating.</summary>
+        ToggleFloat       = 1 << 4,
+        /// <summary>Backend has a foreign-toplevel client available for per-view operations.</summary>
+        ForeignToplevel   = 1 << 5,
+    }
+
     public interface ICompositorBackend : IDisposable
     {
+        /// <summary>Capabilities exposed by the backend. See <see cref="CompositorCapabilities"/>.</summary>
+        CompositorCapabilities Capabilities { get; }
+
+        /// <summary>River: <c>riverctl set-focused-tags &lt;mask&gt;</c>. Wayfire: no-op.</summary>
+        Task SetFocusedTagMask(uint mask);
+
+        /// <summary>River: <c>riverctl toggle-float</c>. Wayfire: no-op.</summary>
+        Task ToggleFloatingFocusedView();
+
+        /// <summary>Returns the focused output geometry in layout coordinates, or null if unknown.</summary>
+        Task<(int X, int Y, int W, int H)?> GetFocusedOutputGeometry();
         // --- Views ---
         Task<JsonElement[]> ListViews();
         Task<JsonElement?> GetFocusedView();

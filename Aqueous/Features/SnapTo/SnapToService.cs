@@ -47,8 +47,11 @@ namespace Aqueous.Features.SnapTo
         public void Start()
         {
             _cts = new CancellationTokenSource();
-            Task.Run(() => ListenAsync(_cts.Token));
-            Task.Run(() => ListenWayfireEventsAsync(_cts.Token));
+            var backend = Aqueous.Features.Compositor.CompositorBackend.Current;
+            Console.WriteLine($"[SnapTo] backend={backend.GetType().Name} caps={backend.Capabilities}");
+            var ct = _cts.Token;
+            _ = Task.Run(async () => await ListenAsync(ct));
+            _ = Task.Run(async () => await ListenDragSnapAsync(ct));
         }
 
         public void Stop()
@@ -135,8 +138,15 @@ namespace Aqueous.Features.SnapTo
             }
         }
 
-        private async Task ListenWayfireEventsAsync(CancellationToken ct)
+        private async Task ListenDragSnapAsync(CancellationToken ct)
         {
+            var backend = Aqueous.Features.Compositor.CompositorBackend.Current;
+            if (!backend.Capabilities.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.DragSnapEvents))
+            {
+                Console.WriteLine("[SnapTo] DragSnap disabled: backend lacks DragSnapEvents capability.");
+                return;
+            }
+
             while (!ct.IsCancellationRequested)
             {
                 try
