@@ -27,6 +27,11 @@ namespace Aqueous.Features.Compositor.River
         private readonly RiverStateAggregator? _agg;
         private RiverSnapshot _last = RiverSnapshot.Empty;
 
+        // Phase 4b — optional wlr-foreign-toplevel client, gated behind
+        // AQUEOUS_FOREIGN_TOPLEVEL=1. Off by default so the stable riverctl
+        // path can't regress on production machines.
+        private readonly ForeignToplevelClient? _toplevel;
+
         public event Action? ViewsChanged;
         public event Action? WorkspaceChanged;
         public event Action? OutputsChanged;
@@ -58,7 +63,8 @@ namespace Aqueous.Features.Compositor.River
                 var caps = CompositorCapabilities.None;
                 if (_riverctlAvailable.Value)
                     caps |= CompositorCapabilities.TagMaskSwitch | CompositorCapabilities.ToggleFloat;
-                // ForeignToplevel will land in a later phase; flag it off for now.
+                if (_toplevel is { IsConnected: true })
+                    caps |= CompositorCapabilities.ForeignToplevel;
                 return caps;
             }
         }
@@ -83,6 +89,16 @@ namespace Aqueous.Features.Compositor.River
             {
                 _agg = new RiverStateAggregator(_river);
                 _agg.Changed += OnSnapshotChanged;
+            }
+
+            // Optional: spin up the wlr-foreign-toplevel client.
+            if (Environment.GetEnvironmentVariable("AQUEOUS_FOREIGN_TOPLEVEL") == "1")
+            {
+                _toplevel = ForeignToplevelClient.TryStart();
+                if (_toplevel != null)
+                {
+                    _toplevel.Changed += () => { try { ViewsChanged?.Invoke(); } catch { } };
+                }
             }
         }
 
@@ -139,9 +155,21 @@ namespace Aqueous.Features.Compositor.River
 
         public Task<JsonElement[]> ListViews()
         {
-            // AstalRiver is status-only and does not enumerate views. Phase 4 will
-            // populate this list from wlr-foreign-toplevel-management-v1.
-            return Task.FromResult(Array.Empty<JsonElement>());
+            // Phase 4b: when AQUEOUS_FOREIGN_TOPLEVEL=1, ListViews is backed by
+            // the hand-rolled wlr-foreign-toplevel-management-v1 client. When
+            // off or no manager global is available, we return an empty array
+            // (AstalRiver is status-only and does not enumerate views).
+            if (_toplevel is not { IsConnected: true }) return Task.FromResult(Array.Empty<JsonElement>());
+            var list = _toplevel.Toplevels;
+            var results = new JsonElement[list.Count];
+            for (int i = 0; i < list.Count; i++)
+            {
+                var t = list[i];
+                var json = $"{{\"id\":{t.Id},\"title\":\"{Escape(t.Title)}\",\"app-id\":\"{Escape(t.AppId)}\",\"activated\":{(t.Activated ? "true" : "false")},\"minimized\":{(t.Minimized ? "true" : "false")}}}";
+                using var doc = JsonDocument.Parse(json);
+                results[i] = doc.RootElement.Clone();
+            }
+            return Task.FromResult(results);
         }
 
         public Task<(int X, int Y)?> GetCursorPosition()
@@ -250,6 +278,7 @@ namespace Aqueous.Features.Compositor.River
         public void Dispose()
         {
             _agg?.Dispose();
+            _toplevel?.Dispose();
         }
     }
 }
