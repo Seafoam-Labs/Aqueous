@@ -58,6 +58,7 @@ public class Program
 
     public static void Main(string[] args)
     {
+        System.AppDomain.CurrentDomain.UnhandledException += (s, e) => { System.IO.File.WriteAllText("/tmp/aq_crash.log", e.ExceptionObject.ToString()); System.Console.Error.WriteLine("CRASH: " + e.ExceptionObject); };
         var app = new AstalApplication();
         app.GtkApplication.ApplicationId = "com.example.aqueous";
 
@@ -247,12 +248,12 @@ public class Program
             // themselves connect to Wayland; defer so our own surfaces are mapped first.
             GLib.Functions.IdleAdd(0, () =>
             {
-                XdgAutostartService.LaunchAll();
+                // XdgAutostartService.LaunchAll();
                 return false;
             });
         };
 
-        app.GtkApplication.Run(args);
+        app.GtkApplication.Hold(); app.GtkApplication.Run(args); System.Console.Error.WriteLine("Run() returned");
         _snapToService?.Stop();
         _audioSwitcherService?.Stop();
         _appLauncherService?.Stop();

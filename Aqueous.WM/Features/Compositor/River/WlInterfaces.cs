@@ -49,6 +49,7 @@ namespace Aqueous.Features.Compositor.River
         public static WaylandInterop.WlInterface* RiverNode;
         public static WaylandInterop.WlInterface* RiverOutput;
         public static WaylandInterop.WlInterface* RiverLayerShell;
+        public static WaylandInterop.WlInterface* RiverLayerSurface;
         public static WaylandInterop.WlInterface* RiverSeat;
         public static WaylandInterop.WlInterface* RiverPointerBinding;
 
@@ -250,6 +251,8 @@ namespace Aqueous.Features.Compositor.River
             RiverShellSurface   = AllocEmpty("river_shell_surface_v1",   4);
             RiverNode           = AllocEmpty("river_node_v1",            4);
             RiverOutput         = AllocEmpty("river_output_v1",          4);
+            RiverLayerShell     = AllocEmpty("river_layer_shell_v1",     1);
+            RiverLayerSurface   = AllocEmpty("river_layer_surface_v1",   1);
             RiverSeat           = AllocEmpty("river_seat_v1",            4);
             RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
 
@@ -346,6 +349,22 @@ namespace Aqueous.Features.Compositor.River
                     Msg("destroy",          "",  NoTypes),
                     Msg("get_node",         "n", new WaylandInterop.WlInterface*[] { RiverNode }),
                     Msg("sync_next_commit", "",  NoTypes),
+                },
+                events: Array.Empty<WaylandInterop.WlMessage>());
+
+            // river_layer_shell_v1
+            Populate(RiverLayerShell,
+                requests: Array.Empty<WaylandInterop.WlMessage>(),
+                events: new[]
+                {
+                    Msg("layer_surface", "n", new WaylandInterop.WlInterface*[] { RiverLayerSurface }),
+                });
+
+            // river_layer_surface_v1
+            Populate(RiverLayerSurface,
+                requests: new[]
+                {
+                    Msg("get_node", "n", new WaylandInterop.WlInterface*[] { RiverNode }),
                 },
                 events: Array.Empty<WaylandInterop.WlMessage>());
 

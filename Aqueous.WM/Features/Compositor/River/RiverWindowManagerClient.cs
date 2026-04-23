@@ -86,6 +86,7 @@ namespace Aqueous.Features.Compositor.River
         private IntPtr _display;
         private IntPtr _registry;
         private IntPtr _manager;
+        private IntPtr _layerShell;
         private uint _managerVersion;
         private GCHandle _selfHandle;
         private Thread? _pumpThread;
@@ -209,6 +210,7 @@ namespace Aqueous.Features.Compositor.River
 
                 if (target == self._registry)      self.OnRegistryEvent(opcode, a);
                 else if (target == self._manager)  self.OnManagerEvent(opcode, a);
+                else if (target == self._layerShell) self.OnLayerShellEvent(opcode, a);
                 else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
                 else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
                 else if (self._seats.ContainsKey(target))   self.OnSeatEvent(target, opcode, a);
@@ -264,9 +266,9 @@ namespace Aqueous.Features.Compositor.River
             }
             else if (iface == "river_layer_shell_v1")
             {
-                var p = Bind(name, WlInterfaces.RiverLayerShell, 1);
+                _layerShell = Bind(name, WlInterfaces.RiverLayerShell, 1);
                 WaylandInterop.wl_proxy_add_dispatcher(
-                    p,
+                    _layerShell,
                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                     GCHandle.ToIntPtr(_selfHandle),
                     IntPtr.Zero);
@@ -292,6 +294,26 @@ namespace Aqueous.Features.Compositor.River
         }
 
         // --- river_window_manager_v1 events -------------------------------
+
+        private void OnLayerShellEvent(uint opcode, WlArgument* args)
+        {
+            if (opcode == 0) // layer_surface(new_id<river_layer_surface_v1>)
+            {
+                IntPtr layerSurface = args[0].o;
+                if (layerSurface != IntPtr.Zero)
+                {
+                    IntPtr node = WaylandInterop.wl_proxy_marshal_flags(
+                        layerSurface, 0, (IntPtr)WlInterfaces.RiverNode, 1, 0, 
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    if (node != IntPtr.Zero)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(node, 2, IntPtr.Zero, 1, 0, 
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        Log("mapped layer_surface to top");
+                    }
+                }
+            }
+        }
 
         private void OnManagerEvent(uint opcode, WlArgument* args)
         {
