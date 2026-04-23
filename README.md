@@ -18,7 +18,7 @@ A .NET 10 GTK4-based desktop environment component suite using [Astal](https://g
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
 - [GTK4](https://gtk.org/)
 - [Wayfire](https://wayfire.org/) compositor
-- Astal libraries (`libastal-io`, `libastal-apps`, `libastal-auth`, `libastal-battery`, `libastal-bluetooth`, `libastal-cava`, `libastal-greet`, `libastal-mpris`, `libastal-network`, `libastal-notifd`, `libastal-powerprofiles`, `libastal-tray`, `libastal-wireplumber`)
+- Astal libraries (`libastal-io`, `libastal-apps`, `libastal-auth`, `libastal-battery`, `libastal-bluetooth`, `libastal-cava`, `libastal-greet`, `libastal-mpris`, `libastal-network`, `libastal-notifd`, `libastal-powerprofiles`, `libastal-river`, `libastal-tray`, `libastal-wireplumber`)
 - `socat` (used by service scripts for socket communication)
 - `clang`, `zlib`, `krb5` (build dependencies for AOT compilation)
 

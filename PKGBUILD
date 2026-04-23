@@ -12,7 +12,7 @@ depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl'
          'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery'
          'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris'
          'libastal-network' 'libastal-notifd' 'libastal-powerprofiles'
-         'libastal-tray' 'libastal-wireplumber'
+         'libastal-river' 'libastal-tray' 'libastal-wireplumber'
          'nemo' 'polkit-gnome' 'xembedsniproxy')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git'
              'meson' 'ninja' 'cmake' 'wayland-protocols' 'glslang' 'vulkan-headers')

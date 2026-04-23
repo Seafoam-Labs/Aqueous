@@ -15,6 +15,7 @@
       <ProjectReference Include="..\AqueousBindings\AstalApp\AstalApp.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalAuth\AstalAuth.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalWl\AstalWl.csproj" />
+      <ProjectReference Include="..\AqueousBindings\AstalRiver\AstalRiver.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalNotifd\AstalNotifd.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalMpris\AstalMpris.csproj" />
       <ProjectReference Include="..\AqueousBindings\AstalCava\AstalCava.csproj" />
