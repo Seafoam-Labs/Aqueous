@@ -24,25 +24,51 @@ namespace Aqueous.Widgets.WorkspaceSwitcher
             _box.AddCssClass("workspace-switcher");
 
             _windowManager.WindowsChanged += OnWindowsChanged;
+            // Phase 3: tag/workspace events are pushed via the compositor backend.
+            var be = Aqueous.Features.Compositor.CompositorBackend.Current;
+            be.WorkspaceChanged += OnWorkspaceChanged;
+            be.OutputsChanged += OnWorkspaceChanged;
 
             // Initial query
             _ = RefreshWorkspaceAsync();
         }
 
+        private void OnWorkspaceChanged()
+        {
+            _ = RefreshWorkspaceAsync();
+        }
+
         private async System.Threading.Tasks.Task RefreshWorkspaceAsync()
         {
+            var be = Aqueous.Features.Compositor.CompositorBackend.Current;
             try
             {
-                var ws = await Aqueous.Features.Compositor.CompositorBackend.Current.GetWorkspace();
-                if (ws.TryGetProperty("x", out var x) && ws.TryGetProperty("y", out var y))
+                // Phase 3: prefer the typed tag-mask surface when available — it's
+                // already maintained from push events and avoids a JSON round-trip.
+                var mask = be.FocusedTagMask;
+                if (mask != 0)
                 {
-                    _currentX = x.GetInt32();
-                    _currentY = y.GetInt32();
+                    int idx = System.Numerics.BitOperations.TrailingZeroCount(mask);
+                    _currentX = idx % 3;
+                    _currentY = idx / 3;
+                    _gridW = 3;
+                    _gridH = 3;
                 }
-                if (ws.TryGetProperty("workspace_size", out var size))
+                else
                 {
-                    if (size.TryGetProperty("width", out var w)) _gridW = w.GetInt32();
-                    if (size.TryGetProperty("height", out var h)) _gridH = h.GetInt32();
+                    // Fall back to the legacy JSON shape for backends without
+                    // a live typed snapshot (e.g. Wayfire pre-first-refresh).
+                    var ws = await be.GetWorkspace();
+                    if (ws.TryGetProperty("x", out var x) && ws.TryGetProperty("y", out var y))
+                    {
+                        _currentX = x.GetInt32();
+                        _currentY = y.GetInt32();
+                    }
+                    if (ws.TryGetProperty("workspace_size", out var size))
+                    {
+                        if (size.TryGetProperty("width", out var w)) _gridW = w.GetInt32();
+                        if (size.TryGetProperty("height", out var h)) _gridH = h.GetInt32();
+                    }
                 }
             }
             catch

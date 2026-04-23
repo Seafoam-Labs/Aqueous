@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,6 +22,68 @@ namespace Aqueous.Features.Compositor.Wayfire
 
         public event Action? ViewsChanged;
         public event Action? WorkspaceChanged;
+        public event Action? OutputsChanged;
+
+        // --- Phase 3 typed accessors ---
+        // Wayfire state is fetched lazily via JSON IPC (slow); we cache a best-effort
+        // snapshot refreshed whenever WorkspaceChanged fires. Values default to "unknown"
+        // (empty list / null / zero) on first access.
+        private IReadOnlyList<CompositorOutput> _outputs = Array.Empty<CompositorOutput>();
+        private CompositorOutput? _focusedOutput;
+        private CompositorFocusedView? _focusedView;
+
+        public IReadOnlyList<CompositorOutput> Outputs => _outputs;
+        public CompositorOutput? FocusedOutput => _focusedOutput;
+        public CompositorFocusedView? FocusedViewInfo => _focusedView;
+        public uint FocusedTagMask => _focusedOutput?.FocusedTags ?? 0;
+        public uint OccupiedTagMask => _focusedOutput?.OccupiedTags ?? 0;
+        public uint UrgentTagMask => _focusedOutput?.UrgentTags ?? 0;
+        public int LowestFocusedTagIndex =>
+            FocusedTagMask == 0 ? -1 : System.Numerics.BitOperations.TrailingZeroCount(FocusedTagMask);
+
+        private async Task RefreshTypedSnapshotAsync()
+        {
+            try
+            {
+                var outs = await WayfireIpc.ListOutputs();
+                var list = new List<CompositorOutput>(outs.Length);
+                foreach (var o in outs)
+                {
+                    string name = o.TryGetProperty("name", out var n) ? (n.GetString() ?? "") : "";
+                    bool focused = o.TryGetProperty("focused", out var f) && f.ValueKind == JsonValueKind.True;
+                    // Wayfire workspaces map to a 2D grid rather than tags — derive a tag-mask from
+                    // the active workspace index so the typed surface is non-empty for widgets.
+                    uint focusedTags = 0;
+                    if (o.TryGetProperty("workspace", out var ws)
+                        && ws.TryGetProperty("x", out var wx)
+                        && ws.TryGetProperty("y", out var wy))
+                    {
+                        int idx = wx.GetInt32() + wy.GetInt32() * 3;
+                        if (idx is >= 0 and < 32) focusedTags = 1u << idx;
+                    }
+                    list.Add(new CompositorOutput(name, focused, focusedTags, 0, 0, null));
+                }
+                _outputs = list;
+                _focusedOutput = null;
+                foreach (var o in list)
+                    if (o.Focused) { _focusedOutput = o; break; }
+
+                var fv = await WayfireIpc.GetFocusedView();
+                if (fv is { } v && v.TryGetProperty("title", out var t))
+                {
+                    string? appId = v.TryGetProperty("app-id", out var ai) ? ai.GetString() : null;
+                    _focusedView = new CompositorFocusedView(t.GetString() ?? "", appId, _focusedOutput?.Name);
+                }
+                else
+                {
+                    _focusedView = null;
+                }
+            }
+            catch
+            {
+                // Best-effort; leave last-known snapshot in place.
+            }
+        }
 
         public Task<JsonElement[]> ListViews() => WayfireIpc.ListViews();
         public Task<JsonElement?> GetFocusedView() => WayfireIpc.GetFocusedView();
@@ -39,6 +102,7 @@ namespace Aqueous.Features.Compositor.Wayfire
             if (_started) return;
             _started = true;
             _cts = new CancellationTokenSource();
+            _ = RefreshTypedSnapshotAsync();
             _eventLoop = Task.Run(() => EventLoop(_cts.Token));
         }
 
@@ -59,10 +123,16 @@ namespace Aqueous.Features.Compositor.Wayfire
                         if (evt.TryGetProperty("event", out var name))
                         {
                             var s = name.GetString();
+                            await RefreshTypedSnapshotAsync();
                             if (s is "view-workspace-changed")
+                            {
                                 WorkspaceChanged?.Invoke();
+                                OutputsChanged?.Invoke();
+                            }
                             else
+                            {
                                 ViewsChanged?.Invoke();
+                            }
                         }
                     }
                 }

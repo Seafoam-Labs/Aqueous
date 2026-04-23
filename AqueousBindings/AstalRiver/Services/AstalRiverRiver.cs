@@ -53,6 +53,26 @@ namespace Aqueous.Bindings.AstalRiver.Services
         public string? Mode =>
             Marshal.PtrToStringUTF8((IntPtr)AstalRiverInterop.astal_river_river_get_mode(_handle));
 
+        /// <summary>Native handle as <see cref="IntPtr"/>, for GObject signal plumbing.</summary>
+        public IntPtr NativePtr => (IntPtr)_handle;
+
+        /// <summary>
+        /// Connect a GObject <c>notify::&lt;property&gt;</c> signal.
+        /// Returns the handler id (use <see cref="Disconnect"/> to remove).
+        /// </summary>
+        public ulong ConnectNotify(string property, IntPtr callback, IntPtr userData)
+            => AstalRiverInterop.g_signal_connect_data(
+                   (IntPtr)_handle,
+                   "notify::" + property,
+                   callback,
+                   userData,
+                   IntPtr.Zero,
+                   0);
+
+        /// <summary>Disconnect a previously-connected signal handler.</summary>
+        public void Disconnect(ulong handlerId)
+            => AstalRiverInterop.g_signal_handler_disconnect((IntPtr)_handle, handlerId);
+
         /// <summary>Look up an output by name (e.g. "DP-1").</summary>
         public AstalRiverOutput? GetOutput(string name)
         {

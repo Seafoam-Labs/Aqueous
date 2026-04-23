@@ -35,5 +35,25 @@ namespace Aqueous.Bindings.AstalRiver.Services
 
         /// <summary>True if this output currently holds keyboard focus.</summary>
         public bool Focused => AstalRiverInterop.astal_river_output_get_focused(_handle) != 0;
+
+        /// <summary>Native handle as <see cref="IntPtr"/>, for GObject signal plumbing.</summary>
+        public IntPtr NativePtr => (IntPtr)_handle;
+
+        /// <summary>
+        /// Connect a GObject <c>notify::&lt;property&gt;</c> signal.
+        /// Returns the handler id (use <see cref="Disconnect"/> to remove).
+        /// </summary>
+        public ulong ConnectNotify(string property, IntPtr callback, IntPtr userData)
+            => AstalRiverInterop.g_signal_connect_data(
+                   (IntPtr)_handle,
+                   "notify::" + property,
+                   callback,
+                   userData,
+                   IntPtr.Zero,
+                   0);
+
+        /// <summary>Disconnect a previously-connected signal handler.</summary>
+        public void Disconnect(ulong handlerId)
+            => AstalRiverInterop.g_signal_handler_disconnect((IntPtr)_handle, handlerId);
     }
 }

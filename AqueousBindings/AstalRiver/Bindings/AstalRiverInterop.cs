@@ -75,5 +75,28 @@ namespace Aqueous.Bindings.AstalRiver
         [LibraryImport(LibName)]
         [return: NativeTypeName("gboolean")]
         public static partial int astal_river_output_get_focused([NativeTypeName("AstalRiverOutput *")] _AstalRiverOutput* self);
+
+        // --- GObject signal subscription shims (Phase 3) ---
+        // `g_signal_connect_data` is the canonical low-level signal attach; the
+        // usual `g_signal_connect` is a macro expanding to this call with flags=0.
+        // We use LPUTF8Str marshaling for the signal name so "notify::<prop>" flows
+        // through without extra allocation.
+        [DllImport("libgobject-2.0.so.0", EntryPoint = "g_signal_connect_data", CharSet = CharSet.Ansi)]
+        public static extern ulong g_signal_connect_data(
+            IntPtr instance,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string detailedSignal,
+            IntPtr cHandler,
+            IntPtr data,
+            IntPtr destroyData,
+            int connectFlags);
+
+        [DllImport("libgobject-2.0.so.0", EntryPoint = "g_signal_handler_disconnect")]
+        public static extern void g_signal_handler_disconnect(IntPtr instance, ulong handlerId);
+
+        [DllImport("libgobject-2.0.so.0", EntryPoint = "g_object_ref")]
+        public static extern IntPtr g_object_ref(IntPtr obj);
+
+        [DllImport("libgobject-2.0.so.0", EntryPoint = "g_object_unref")]
+        public static extern void g_object_unref(IntPtr obj);
     }
 }

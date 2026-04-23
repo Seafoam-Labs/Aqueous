@@ -6,6 +6,8 @@ using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
 using Aqueous.Features.Compositor;
 using Aqueous.Features.Compositor.Wayfire;
+using Aqueous.Features.Compositor.River;
+using Aqueous.Bindings.AstalRiver.Services;
 using Aqueous.Features.AudioSwitcher;
 using Aqueous.Widgets.AudioTray;
 using Aqueous.Features.AppLauncher;
@@ -79,12 +81,15 @@ public class Program
             LoadCss(Path.Combine("Features", "AppLauncher", "applauncher.css"));
             LoadCss(Path.Combine("Features", "Settings", "settings.css"));
 
-            // --- Compositor Backend (Phase 2 scaffolding) ---
-            // Wayfire remains the active backend; RiverBackend is available but unused
-            // until the command side (Phase 4) and SnapTo redesign (Phase 5) land.
-            var wayfireBackend = new WayfireBackend();
-            wayfireBackend.Start();
-            CompositorBackend.Set(wayfireBackend);
+            // --- Compositor Backend (Phase 3) ---
+            // Auto-select between River and Wayfire:
+            //   * AQUEOUS_BACKEND=river  -> force RiverBackend
+            //   * AQUEOUS_BACKEND=wayfire-> force WayfireBackend
+            //   * otherwise              -> River if libastal-river reaches the compositor,
+            //                               else fall back to Wayfire.
+            ICompositorBackend backend = SelectCompositorBackend();
+            backend.Start();
+            CompositorBackend.Set(backend);
 
             // --- Bar Service ---
             _barService = new BarService(app);
@@ -282,6 +287,29 @@ public class Program
         if (BackdropHelper.LiveSurfaceCount != 0)
             Console.Error.WriteLine($"[aqueous-debug] WARNING: {BackdropHelper.LiveSurfaceCount} layer surface(s) still live at shutdown");
 #endif
+    }
+
+    private static ICompositorBackend SelectCompositorBackend()
+    {
+        // Explicit override for development / dual-session machines.
+        var forced = Environment.GetEnvironmentVariable("AQUEOUS_BACKEND");
+        if (string.Equals(forced, "river", StringComparison.OrdinalIgnoreCase))
+            return new RiverBackend();
+        if (string.Equals(forced, "wayfire", StringComparison.OrdinalIgnoreCase))
+            return new WayfireBackend();
+
+        // Auto-detect: if the River singleton resolves to a live connection, use it.
+        try
+        {
+            var probe = AstalRiverRiver.GetDefault();
+            if (probe != null)
+                return new RiverBackend();
+        }
+        catch
+        {
+            // libastal-river may not be installed; fall through to Wayfire.
+        }
+        return new WayfireBackend();
     }
 
     private static void LoadCss(string relativePath)
