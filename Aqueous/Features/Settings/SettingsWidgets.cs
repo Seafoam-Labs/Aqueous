@@ -5,7 +5,7 @@ namespace Aqueous.Features.Settings
 {
     public static class SettingsWidgets
     {
-        private static WayfireConfigService Wf => WayfireConfigService.Instance;
+        private static RiverConfigService Wf => RiverConfigService.Instance;
 
         public static Action<string>? NotifySettingChanged;
 

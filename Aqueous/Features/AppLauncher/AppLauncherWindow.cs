@@ -227,21 +227,10 @@ namespace Aqueous.Features.AppLauncher
             var entry = _currentResults[_selectedIndex];
             var exec = AppLauncherSearch.CleanExec(entry.Exec);
 
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "/bin/sh",
-                    Arguments = $"-c \"{exec}\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                });
-            }
-            catch
-            {
-                // Ignore launch errors
-            }
+            // Shared hardened Wayland spawn: detaches via setsid, exports
+            // WAYLAND_DISPLAY / XDG_RUNTIME_DIR, clears DISPLAY so the child
+            // registers as a native Wayland (river) window and gets focus.
+            Aqueous.Helpers.WaylandSpawn.Spawn(exec);
 
             Hide();
         }

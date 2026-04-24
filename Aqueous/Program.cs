@@ -4,6 +4,9 @@ using Gtk;
 using Aqueous.Bindings.AstalGTK4;
 using Aqueous.Bindings.AstalGTK4.Services;
 using Aqueous.Features.SnapTo;
+using Aqueous.Features.Compositor;
+using Aqueous.Features.Compositor.River;
+using Aqueous.Bindings.AstalRiver.Services;
 using Aqueous.Features.AudioSwitcher;
 using Aqueous.Widgets.AudioTray;
 using Aqueous.Features.AppLauncher;
@@ -32,7 +35,6 @@ using Aqueous.Widgets.BrightnessTray;
 using Aqueous.Features.ClipboardManager;
 using Aqueous.Features.Calendar;
 using Aqueous.Features.Autostart;
-using Aqueous.Features.Corners;
 using Aqueous.Helpers;
 public class Program
 {
@@ -56,15 +58,31 @@ public class Program
 
     public static void Main(string[] args)
     {
+        System.AppDomain.CurrentDomain.UnhandledException += (s, e) => { System.IO.File.WriteAllText("/tmp/aq_crash.log", e.ExceptionObject.ToString()); System.Console.Error.WriteLine("CRASH: " + e.ExceptionObject); };
+
+        // Surface EVERY exception the moment it's thrown, even if something downstream
+        // (e.g. GLib signal marshalling) silently swallows it. Without this, a throwing
+        // OnActivate handler causes GtkApplication.Run() to return with no visible error
+        // and the bar never creates its layer-shell surface — which is exactly the
+        // "screen is black" symptom we've been chasing.
+        System.AppDomain.CurrentDomain.FirstChanceException += (_, fcArgs) =>
+        {
+            try
+            {
+                System.IO.File.AppendAllText(
+                    "/tmp/aqueous_bar_firstchance.log",
+                    $"{System.DateTime.Now:O} {fcArgs.Exception.GetType()}: {fcArgs.Exception.Message}\n{fcArgs.Exception.StackTrace}\n\n");
+            }
+            catch { /* never let logging itself throw during first-chance handling */ }
+        };
+
         var app = new AstalApplication();
         app.GtkApplication.ApplicationId = "com.example.aqueous";
 
         app.GtkApplication.OnActivate += (sender, e) =>
         {
-            // Ensure Wayfire keybindings (screenshot, etc.)
-            WayfireConfigService.Instance.EnsureScreenshotBindings();
-            WayfireConfigService.Instance.EnsureBrightnessBindings();
-
+          try
+          {
             // Validate and apply saved display settings (per-output modes)
             DisplaySettingsManager.Instance.ValidateAndApplySavedModes();
 
@@ -77,6 +95,16 @@ public class Program
             LoadCss(Path.Combine("Features", "AudioSwitcher", "audioswitcher.css"));
             LoadCss(Path.Combine("Features", "AppLauncher", "applauncher.css"));
             LoadCss(Path.Combine("Features", "Settings", "settings.css"));
+
+            // --- Compositor Backend (Phase 3) ---
+            // Auto-select between River and Wayfire:
+            //   * AQUEOUS_BACKEND=river  -> force RiverBackend
+            //   * AQUEOUS_BACKEND=wayfire-> force WayfireBackend
+            //   * otherwise              -> River if libastal-river reaches the compositor,
+            //                               else fall back to Wayfire.
+            ICompositorBackend backend = SelectCompositorBackend();
+            backend.Start();
+            CompositorBackend.Set(backend);
 
             // --- Bar Service ---
             _barService = new BarService(app);
@@ -234,22 +262,34 @@ public class Program
                 return false;
             });
 
-            // --- Corners Service (rounded corners for all windows) ---
-            // if (SettingsStore.Instance.Data.CornersEnabled)
-            // {
-            //     _ = CornersService.Instance.SetEnabled(true);
-            // }
 
             // Tick 4: XDG autostart — can spawn dozens of external processes which
             // themselves connect to Wayland; defer so our own surfaces are mapped first.
             GLib.Functions.IdleAdd(0, () =>
             {
-                XdgAutostartService.LaunchAll();
+                // XdgAutostartService.LaunchAll();
                 return false;
             });
+          }
+          catch (Exception ex)
+          {
+              // Capture whatever prevented BarService.Start() from reaching layer-shell init
+              // so the failure is visible instead of being silently swallowed by GLib at the
+              // signal boundary (which would let GtkApplication.Run() return with a black
+              // screen and no error).
+              try
+              {
+                  System.IO.File.WriteAllText(
+                      "/tmp/aqueous_bar_activate.log",
+                      $"OnActivate threw:\n{ex}\n");
+              }
+              catch { }
+              System.Console.Error.WriteLine("ACTIVATE CRASH: " + ex);
+              throw;
+          }
         };
 
-        app.GtkApplication.Run(args);
+        app.GtkApplication.Hold(); app.GtkApplication.Run(args); System.Console.Error.WriteLine("Run() returned");
         _snapToService?.Stop();
         _audioSwitcherService?.Stop();
         _appLauncherService?.Stop();
@@ -279,6 +319,28 @@ public class Program
         if (BackdropHelper.LiveSurfaceCount != 0)
             Console.Error.WriteLine($"[aqueous-debug] WARNING: {BackdropHelper.LiveSurfaceCount} layer surface(s) still live at shutdown");
 #endif
+    }
+
+    private static ICompositorBackend SelectCompositorBackend()
+    {
+        // Explicit override for development / dual-session machines.
+        var forced = Environment.GetEnvironmentVariable("AQUEOUS_BACKEND");
+        if (string.Equals(forced, "river", StringComparison.OrdinalIgnoreCase))
+            return new RiverBackend();
+
+        // Auto-detect: if the River singleton resolves to a live connection, use it.
+        try
+        {
+            var probe = AstalRiverRiver.GetDefault();
+            if (probe != null)
+                return new RiverBackend();
+        }
+        catch
+        {
+            // libastal-river may not be installed
+        }
+        
+        throw new InvalidOperationException("Could not connect to River compositor.");
     }
 
     private static void LoadCss(string relativePath)

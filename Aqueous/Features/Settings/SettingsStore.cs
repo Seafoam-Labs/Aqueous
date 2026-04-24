@@ -41,11 +41,6 @@ namespace Aqueous.Features.Settings
         public bool HdrEnabled { get; set; } = false;
         public string? HdrIccProfilePath { get; set; } = null;
 
-        // Corners
-        public bool CornersEnabled { get; set; } = true;
-        public int CornersRadius { get; set; } = 12;
-        public string CornersColor { get; set; } = "#1A1A1AFF";
-
         // Advanced UI
         public bool ShowAdvancedIniKeys { get; set; } = false;
     }

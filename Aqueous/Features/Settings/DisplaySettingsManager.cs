@@ -31,7 +31,7 @@ namespace Aqueous.Features.Settings
                 try
                 {
                     var outputs = DetectAllOutputs();
-                    var config = WayfireConfigService.Instance;
+                    var config = RiverConfigService.Instance;
 
                     foreach (var output in outputs)
                     {
@@ -66,7 +66,7 @@ namespace Aqueous.Features.Settings
         {
             // Persist synchronously (cheap INI write) then apply via wlr-randr on a worker
             // thread so the UI doesn't freeze up to 5 s waiting for the process to exit.
-            var config = WayfireConfigService.Instance;
+            var config = RiverConfigService.Instance;
             var section = $"output:{outputName}";
             config.SetString(section, "mode", mode);
             config.Save();

@@ -39,11 +39,13 @@ namespace Aqueous.Features.WindowManager
         public void Start()
         {
             _cts = new CancellationTokenSource();
+            Aqueous.Features.Compositor.CompositorBackend.Current.ViewsChanged += OnViewsChanged;
             Task.Run(() => InitAndListenAsync(_cts.Token));
         }
 
         public void Stop()
         {
+            Aqueous.Features.Compositor.CompositorBackend.Current.ViewsChanged -= OnViewsChanged;
             _cts?.Cancel();
         }
 
@@ -52,14 +54,25 @@ namespace Aqueous.Features.WindowManager
             Stop();
         }
 
+        private void OnViewsChanged()
+        {
+            if (_cts == null || _cts.IsCancellationRequested) return;
+            Task.Run(() => InitAndListenAsync(_cts.Token));
+        }
+
         private async Task InitAndListenAsync(CancellationToken ct)
         {
             try
             {
                 // Initial population
-                var views = await WayfireIpc.ListViews();
+                var views = await Aqueous.Features.Compositor.CompositorBackend.Current.ListViews();
+                if (ct.IsCancellationRequested) return;
+
                 lock (_windows)
                 {
+                    _windows.Clear();
+                    _focusedWindow = null;
+
                     foreach (var view in views)
                     {
                         var win = ParseView(view);
@@ -72,35 +85,10 @@ namespace Aqueous.Features.WindowManager
                     }
                 }
                 NotifyWindowsChanged();
-
-                // Subscribe to events
-                using var client = new WayfireEventClient();
-                client.Connect();
-                await client.Subscribe([
-                    "view-mapped",
-                    "view-unmapped",
-                    "view-focused",
-                    "view-title-changed",
-                    "view-geometry-changed",
-                    "view-minimized"
-                ]);
-
-                while (!ct.IsCancellationRequested)
-                {
-                    var evt = await client.ReadMessage(ct);
-                    HandleEvent(evt);
-                }
             }
-            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[WindowManager] Event loop error: {ex.Message}");
-                // Retry after delay
-                if (!ct.IsCancellationRequested)
-                {
-                    try { await Task.Delay(3000, ct); } catch { return; }
-                    await InitAndListenAsync(ct);
-                }
+                Console.Error.WriteLine($"[WindowManager] Refresh error: {ex.Message}");
             }
         }
 

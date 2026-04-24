@@ -69,7 +69,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             var box = Gtk.Box.New(Orientation.Vertical, 4);
             box.MarginTop = 8;
 
-            var config = WayfireConfigService.Instance;
+            var config = RiverConfigService.Instance;
             var currentMode = config.GetString(OutputSection, "mode", "auto");
 
             var info = Gtk.Label.New($"Current wayfire.ini mode: {currentMode}");
@@ -108,7 +108,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             _resolutionDropdown = Gtk.DropDown.New(stringList, null);
 
             // Select current value
-            var config = WayfireConfigService.Instance;
+            var config = RiverConfigService.Instance;
             var currentMode = config.GetString(OutputSection, "mode", "auto");
             var currentRes = "auto";
             if (currentMode != "auto" && currentMode.Contains('x'))
@@ -153,7 +153,7 @@ namespace Aqueous.Features.Settings.SettingsPages
             _refreshDropdown = Gtk.DropDown.New(stringList, null);
 
             // Select current value
-            var config = WayfireConfigService.Instance;
+            var config = RiverConfigService.Instance;
             var currentMode = config.GetString(OutputSection, "mode", "auto");
             if (currentMode.Contains('@'))
             {

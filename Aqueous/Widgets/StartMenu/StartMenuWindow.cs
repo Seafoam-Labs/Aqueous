@@ -434,18 +434,11 @@ public class StartMenuWindow
     private void LaunchApp(AppDiscoveryService.CategorizedEntry entry)
     {
         var exec = AppLauncherSearch.CleanExec(entry.Exec);
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "/bin/sh",
-                Arguments = $"-c \"{exec}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            });
-        }
-        catch { }
+        // Use the shared hardened spawner so the launched app gets the correct
+        // Wayland env (WAYLAND_DISPLAY, XDG_RUNTIME_DIR) and doesn't silently
+        // fall back to Xwayland, which would prevent it from receiving focus /
+        // input as a river_window_v1.
+        WaylandSpawn.Spawn(exec);
 
         Hide();
     }

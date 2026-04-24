@@ -30,28 +30,28 @@ namespace Aqueous.Features.SnapTo
 
             var layout = _layouts[_currentLayoutIndex];
 
-            // Get screen dimensions from Wayfire IPC
+            // Query focused-output geometry via the capability-agnostic backend API.
+            // On Wayfire this queries the IPC; on River it returns null and we fall
+            // back to the Gdk primary monitor so the overlay still sizes correctly.
             try
             {
-                var outputs = await WayfireIpc.ListOutputs();
-                Console.WriteLine("[SnapTo] ListOutputs returned " + outputs.Length + " output(s)");
-                if (outputs.Length > 0)
+                var geom = await Aqueous.Features.Compositor.CompositorBackend.Current.GetFocusedOutputGeometry();
+                if (geom is { W: > 0, H: > 0 } g)
                 {
-                    Console.WriteLine("[SnapTo] Output[0]: " + outputs[0].ToString());
-
-                    if (outputs[0].TryGetProperty("geometry", out var geo))
-                    {
-                        if (geo.TryGetProperty("width", out var w))
-                            _screenW = w.GetInt32();
-                        if (geo.TryGetProperty("height", out var h))
-                            _screenH = h.GetInt32();
-                    }
+                    _screenW = g.W;
+                    _screenH = g.H;
+                }
+                else
+                {
+                    var (sw, sh) = Aqueous.Helpers.WidgetGeometryHelper.GetScreenSize();
+                    if (sw > 0) _screenW = sw;
+                    if (sh > 0) _screenH = sh;
                 }
                 Console.WriteLine($"[SnapTo] Screen resolution: {_screenW}x{_screenH}");
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[SnapTo] Failed to get screen resolution via Wayfire IPC: {ex.Message}");
+                Console.Error.WriteLine($"[SnapTo] Failed to query output geometry: {ex.Message}");
             }
 
             _window = new AstalWindow();
@@ -166,11 +166,18 @@ namespace Aqueous.Features.SnapTo
 
         public async Task SnapToZoneAtCursor()
         {
+            var caps = Aqueous.Features.Compositor.CompositorBackend.Current.Capabilities;
+            if (!caps.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.CursorQuery))
+            {
+                Console.WriteLine("[SnapTo] SnapToZoneAtCursor skipped: backend has no CursorQuery capability.");
+                return;
+            }
+
             var layout = _layouts[_currentLayoutIndex];
 
             try
             {
-                var cursorPos = await WayfireIpc.GetCursorPosition();
+                var cursorPos = await Aqueous.Features.Compositor.CompositorBackend.Current.GetCursorPosition();
                 if (cursorPos == null) return;
 
                 var (cursorX, cursorY) = cursorPos.Value;
@@ -192,11 +199,11 @@ namespace Aqueous.Features.SnapTo
                     if (cursorX >= centerX && cursorX < centerX + indicatorW &&
                         cursorY >= centerY && cursorY < centerY + indicatorH)
                     {
-                        var focused = await WayfireIpc.GetFocusedView();
+                        var focused = await Aqueous.Features.Compositor.CompositorBackend.Current.GetFocusedView();
                         if (focused == null) return;
 
                         var viewId = focused.Value.GetProperty("id").GetInt32();
-                        await WayfireIpc.SetViewGeometry(viewId, zx, zy, zw, zh);
+                        await Aqueous.Features.Compositor.CompositorBackend.Current.SetViewGeometry(viewId, zx, zy, zw, zh);
                         return;
                     }
                 }
@@ -211,23 +218,58 @@ namespace Aqueous.Features.SnapTo
         {
             Hide();
 
+            var backend = Aqueous.Features.Compositor.CompositorBackend.Current;
+            var caps = backend.Capabilities;
+
             try
             {
-                var focused = await WayfireIpc.GetFocusedView();
-                if (focused == null) return;
+                // River tile path: switch focused tag mask; the dynamic tiler handles the rest.
+                if (zone.RiverAction == RiverSnapAction.Tile
+                    && caps.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.TagMaskSwitch)
+                    && zone.RiverTagMask is uint mask)
+                {
+                    await backend.SetFocusedTagMask(mask);
+                    return;
+                }
 
-                var viewId = focused.Value.GetProperty("id").GetInt32();
+                // Wayfire (and any backend supporting arbitrary pixel geometry).
+                if (caps.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.ArbitraryGeometry))
+                {
+                    var focused = await backend.GetFocusedView();
+                    if (focused == null) return;
 
-                var x = (int)(zone.X * _screenW);
-                var y = (int)(zone.Y * _screenH);
-                var w = (int)(zone.Width * _screenW);
-                var h = (int)(zone.Height * _screenH);
+                    var viewId = focused.Value.TryGetProperty("id", out var idEl) ? idEl.GetInt32() : -1;
 
-                await WayfireIpc.SetViewGeometry(viewId, x, y, w, h);
+                    var x = (int)(zone.X * _screenW);
+                    var y = (int)(zone.Y * _screenH);
+                    var w = (int)(zone.Width * _screenW);
+                    var h = (int)(zone.Height * _screenH);
+
+                    await backend.SetViewGeometry(viewId, x, y, w, h);
+                    return;
+                }
+
+                // River float path: toggle floating, then (if available) place via foreign-toplevel.
+                if (zone.RiverAction == RiverSnapAction.Float
+                    && caps.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.ToggleFloat))
+                {
+                    await backend.ToggleFloatingFocusedView();
+                    if (caps.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.ForeignToplevel))
+                    {
+                        var x = (int)(zone.X * _screenW);
+                        var y = (int)(zone.Y * _screenH);
+                        var w = (int)(zone.Width * _screenW);
+                        var h = (int)(zone.Height * _screenH);
+                        await backend.SetViewGeometry(-1, x, y, w, h);
+                    }
+                    return;
+                }
+
+                Console.WriteLine($"[SnapTo] No capability matched for zone '{zone.Name}' (caps={caps}); no-op.");
             }
-            catch
+            catch (Exception ex)
             {
-                // Silently fail if wf-msg is unavailable
+                Console.Error.WriteLine($"[SnapTo] SnapToZone error: {ex.Message}");
             }
         }
     }

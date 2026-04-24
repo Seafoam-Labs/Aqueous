@@ -12,7 +12,7 @@ depends=('gtk4' 'socat' 'grim' 'slurp' 'wl-clipboard' 'cliphist' 'brightnessctl'
          'libastal-io' 'libastal-apps' 'libastal-auth' 'libastal-battery'
          'libastal-bluetooth' 'libastal-cava' 'libastal-greet' 'libastal-mpris'
          'libastal-network' 'libastal-notifd' 'libastal-powerprofiles'
-         'libastal-tray' 'libastal-wireplumber'
+         'libastal-river' 'libastal-tray' 'libastal-wireplumber' 'river'
          'nemo' 'polkit-gnome' 'xembedsniproxy')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git'
              'meson' 'ninja' 'cmake' 'wayland-protocols' 'glslang' 'vulkan-headers')
@@ -85,19 +85,6 @@ package() {
     cd "$srcdir/wayfire"
     DESTDIR="$pkgdir" ninja -C build install
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/wayfire-LICENSE"
-
-    # --- Build and Install Aqueous Corners Plugin ---
-    #cd "$srcdir/aqueous/wayfire-plugins/aqueous-corners"
-    
-    # Point pkg-config to the Wayfire we just installed in $pkgdir
-    export PKG_CONFIG_PATH="$pkgdir/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
-    export CFLAGS="-I$pkgdir/usr/include $CFLAGS"
-    export CXXFLAGS="-I$pkgdir/usr/include $CXXFLAGS"
-    export LDFLAGS="-L$pkgdir/usr/lib $LDFLAGS"
-
-#     meson setup build --prefix=/usr
-#     ninja -C build
-#     DESTDIR="$pkgdir" ninja -C build install
 
     # --- Build and Install wayfire-plugins-extra ---
     cd "$srcdir/wayfire-plugins-extra"

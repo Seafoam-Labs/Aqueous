@@ -81,7 +81,7 @@ namespace Aqueous.Features.Settings.SettingsPages
                     rulesListContainer.Remove(rulesListContainer.GetFirstChild()!);
                 }
 
-                var wayfire = WayfireConfigService.Instance;
+                var wayfire = RiverConfigService.Instance;
                 var windowRules = wayfire.GetSectionKeys("window-rules");
 
                 foreach (var kvp in windowRules)

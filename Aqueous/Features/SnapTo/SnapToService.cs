@@ -47,8 +47,11 @@ namespace Aqueous.Features.SnapTo
         public void Start()
         {
             _cts = new CancellationTokenSource();
-            Task.Run(() => ListenAsync(_cts.Token));
-            Task.Run(() => ListenWayfireEventsAsync(_cts.Token));
+            var backend = Aqueous.Features.Compositor.CompositorBackend.Current;
+            Console.WriteLine($"[SnapTo] backend={backend.GetType().Name} caps={backend.Capabilities}");
+            var ct = _cts.Token;
+            _ = Task.Run(async () => await ListenAsync(ct));
+            _ = Task.Run(async () => await ListenDragSnapAsync(ct));
         }
 
         public void Stop()
@@ -135,52 +138,18 @@ namespace Aqueous.Features.SnapTo
             }
         }
 
-        private async Task ListenWayfireEventsAsync(CancellationToken ct)
+        private async Task ListenDragSnapAsync(CancellationToken ct)
         {
-            while (!ct.IsCancellationRequested)
+            var backend = Aqueous.Features.Compositor.CompositorBackend.Current;
+            if (!backend.Capabilities.HasFlag(Aqueous.Features.Compositor.CompositorCapabilities.DragSnapEvents))
             {
-                try
-                {
-                    using var client = new WayfireEventClient();
-                    client.Connect();
-                    await client.Subscribe(["plugin-activation-state-changed"]);
-
-                    while (!ct.IsCancellationRequested)
-                    {
-                        var evt = await client.ReadMessage(ct);
-
-                        if (evt.TryGetProperty("event", out var eventName)
-                            && eventName.GetString() == "plugin-activation-state-changed"
-                            && evt.TryGetProperty("plugin", out var plugin)
-                            && plugin.GetString() == "move"
-                            && evt.TryGetProperty("state", out var state))
-                        {
-                            if (state.GetBoolean())
-                            {
-                                GLib.Functions.IdleAdd(0, () =>
-                                {
-                                    _overlay.Show(isDragMode: true);
-                                    return false;
-                                });
-                            }
-                            else
-                            {
-                                GLib.Functions.IdleAdd(0, () =>
-                                {
-                                    _ = SnapAndHideAsync();
-                                    return false;
-                                });
-                            }
-                        }
-                    }
-                }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"[SnapTo] Wayfire IPC error: {ex.Message}");
-                    await Task.Delay(2000, ct);
-                }
+                Console.WriteLine("[SnapTo] DragSnap disabled: backend lacks DragSnapEvents capability.");
+                return;
             }
+
+            // River backend doesn't support DragSnapEvents yet, so this will just return
+            // Wait indefinitely to not exit the task prematurely
+            await Task.Delay(Timeout.Infinite, ct);
         }
 
         private async Task SnapAndHideAsync()

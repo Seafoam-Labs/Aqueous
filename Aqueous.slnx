@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Aqueous.WM/Aqueous.WM.csproj" />
   <Project Path="Aqueous/Aqueous.csproj" />
   <Project Path="AqueousGreeter/AqueousGreeter.csproj" />
   <Project Path="AqueousScreenshot/AqueousScreenshot.csproj" />
@@ -14,6 +15,8 @@
   <Project Path="AqueousBindings/AstalNetwork/AstalNetwork.csproj" />
   <Project Path="AqueousBindings/AstalNotifd/AstalNotifd.csproj" />
   <Project Path="AqueousBindings/AstalPowerProfiles/AstalPowerProfiles.csproj" />
+  <Project Path="AqueousBindings/AstalRiver/AstalRiver.csproj" />
+  <Project Path="AqueousBindings/AstalRiver.Tests/AstalRiver.Tests.csproj" />
   <Project Path="AqueousBindings/AstalTray/AstalTray.csproj" />
   <Project Path="AqueousBindings/AstalWirePlumber/AstalWirePlumber.csproj" />
   <Project Path="AqueousBindings/AstalWl/AstalWl.csproj" />
@@ -21,10 +24,9 @@
     <File Path="aqueous.desktop" />
     <File Path="aqueous.install" />
     <File Path="aqueous-dev-setup.sh" />
-    <File Path="aqueous-wayfire-setup.sh" />
     <File Path="PKGBUILD" />
     <File Path="README.md" />
-    <File Path="wayfire.ini" />
-    <File Path="Screenshot_20260417_101145.png"/>
+    <File Path="REMAINING_WORK.md" />
+    <File Path="Screenshot_20260417_101145.png" />
   </Folder>
 </Solution>

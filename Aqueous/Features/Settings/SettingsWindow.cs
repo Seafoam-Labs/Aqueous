@@ -69,7 +69,7 @@ namespace Aqueous.Features.Settings
             }
             if (IsVisible) return;
 
-            WayfireConfigService.Instance.Load();
+            RiverConfigService.Instance.Load();
 
             _gtkWindow = Gtk.Window.New();
             _gtkWindow.Title = "Aqueous Settings";
@@ -261,7 +261,7 @@ namespace Aqueous.Features.Settings
             saveBtn.OnClicked += (_, _) =>
             {
                 _store.Save();
-                WayfireConfigService.Instance.Save();
+                RiverConfigService.Instance.Save();
                 Hide();
             };
             sidebar.Append(saveBtn);

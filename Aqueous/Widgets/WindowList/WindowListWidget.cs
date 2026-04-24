@@ -108,7 +108,7 @@ namespace Aqueous.Widgets.WindowList
                 var viewId = win.Id;
                 focusBtn.OnClicked += (_, _) =>
                 {
-                    _ = WayfireIpc.FocusView(viewId);
+                    _ = Aqueous.Features.Compositor.CompositorBackend.Current.FocusView(viewId);
                     _popover?.Popdown();
                     _popover = null;
                 };
@@ -118,7 +118,7 @@ namespace Aqueous.Widgets.WindowList
                 var closeId = win.Id;
                 closeBtn.OnClicked += (_, _) =>
                 {
-                    _ = WayfireIpc.CloseView(closeId);
+                    _ = Aqueous.Features.Compositor.CompositorBackend.Current.CloseView(closeId);
                 };
 
                 var itemBox = Gtk.Box.New(Gtk.Orientation.Horizontal, 4);

@@ -50,27 +50,17 @@ namespace Aqueous.Widgets.Dock
                         }
 
                         if (target.Minimized)
-                            _ = WayfireIpc.MinimizeView(target.Id, false);
+                            _ = Aqueous.Features.Compositor.CompositorBackend.Current.MinimizeView(target.Id, false);
 
-                        _ = WayfireIpc.FocusView(target.Id);
+                        _ = Aqueous.Features.Compositor.CompositorBackend.Current.FocusView(target.Id);
                         return;
                     }
                 }
 
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "/bin/sh",
-                        Arguments = $"-c \"{execCommand}\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    });
-                }
-                catch
-                {
-                    // Ignore launch errors
-                }
+                // Shared hardened Wayland spawn so dock-launched apps get
+                // WAYLAND_DISPLAY / XDG_RUNTIME_DIR, avoid the silent Xwayland
+                // fallback, and receive keyboard/pointer focus on first frame.
+                Aqueous.Helpers.WaylandSpawn.Spawn(execCommand);
             };
         }
     }
