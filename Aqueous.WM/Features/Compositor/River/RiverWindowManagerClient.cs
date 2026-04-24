@@ -109,6 +109,13 @@ namespace Aqueous.Features.Compositor.River
         private IntPtr _layerShell;
         private IntPtr _xkbBindings;
         private IntPtr _superKeyBinding;
+
+        // --- key bindings -------------------------------------------------
+
+        private enum KeyBindingAction { ToggleStartMenu, SpawnTerminal, CloseFocused, CycleFocus, FocusLeft, FocusRight, FocusDown, FocusUp }
+        private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
+        private IntPtr _primarySeat;
+        private IntPtr _focusedWindow;
         private uint _managerVersion;
         private GCHandle _selfHandle;
         private Thread? _pumpThread;
@@ -238,7 +245,8 @@ namespace Aqueous.Features.Compositor.River
                 if (target == self._registry)      self.OnRegistryEvent(opcode, a);
                 else if (target == self._manager)  self.OnManagerEvent(opcode, a);
                 else if (target == self._layerShell) self.OnLayerShellEvent(opcode, a);
-                else if (target == self._superKeyBinding) self.OnSuperKeyBindingEvent(opcode, a);
+                else if (self._superKeyBinding != IntPtr.Zero && target == self._superKeyBinding) self.OnSuperKeyBindingEvent(opcode, a);
+                else if (self._keyBindings.ContainsKey(target)) self.OnKeyBindingEvent(target, opcode, a);
                 else if (target == self._dragPointerBinding) self.OnDragPointerBindingEvent(opcode, a);
                 else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
                 else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
@@ -433,6 +441,14 @@ namespace Aqueous.Features.Compositor.River
                 case 2: // manage_start
                     Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
 
+                    // Self-heal focus: if we think nothing is focused but windows exist, pick one.
+                    // This catches the case where the previously focused window was destroyed
+                    // between sequences and ensures the keyboard always has somewhere to go.
+                    if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _pendingFocusShellSurface == IntPtr.Zero && _windows.Count > 0)
+                    {
+                        foreach (var wk in _windows.Keys) { RequestFocus(wk); break; }
+                    }
+
                     // Enable the pointer binding (must be issued inside a manage sequence).
                     if (_dragPointerBindingNeedsEnable && _dragPointerBinding != IntPtr.Zero)
                     {
@@ -518,11 +534,12 @@ namespace Aqueous.Features.Compositor.River
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         Log($"+ window 0x{proxy.ToString("x")}");
-                        
-                        foreach (var seatProxy in _seats.Keys)
+
+                        // Focus the new window only if nothing is currently focused;
+                        // otherwise leave focus alone so the user's active window stays active.
+                        if (_focusedWindow == IntPtr.Zero)
                         {
-                            SetFocusedWindow(proxy, seatProxy);
-                            break;
+                            RequestFocus(proxy);
                         }
                     }
                     break;
@@ -555,27 +572,24 @@ namespace Aqueous.Features.Compositor.River
                             IntPtr.Zero);
                         Log($"+ seat 0x{proxy.ToString("x")}");
 
-                        if (_xkbBindings != IntPtr.Zero && _superKeyBinding == IntPtr.Zero)
+                        if (_primarySeat == IntPtr.Zero) _primarySeat = proxy;
+
+                        // Register only modifier+keysym combinations so plain keys (letters,
+                        // digits, arrows, Return, Backspace, etc.) fall through to the
+                        // surface with keyboard focus. Binding the bare Super_L/Alt_L keysym
+                        // would route every modifier press/release to the WM and prevent
+                        // *any* modified keystroke from reaching the focused surface.
+                        if (_xkbBindings != IntPtr.Zero && _keyBindings.Count == 0)
                         {
-                            // XKB keysym for the primary modifier (Super_L on TTY, Alt_L when nested).
-                            uint keysym = Mods.PrimaryKeysym;
-                            _superKeyBinding = WaylandInterop.wl_proxy_marshal_flags(
-                                _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
-                                proxy, IntPtr.Zero, (IntPtr)keysym, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                            
-                            if (_superKeyBinding != IntPtr.Zero)
-                            {
-                                WaylandInterop.wl_proxy_add_dispatcher(
-                                    _superKeyBinding,
-                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                                    GCHandle.ToIntPtr(_selfHandle),
-                                    IntPtr.Zero);
-                                
-                                WaylandInterop.wl_proxy_marshal_flags(
-                                    _superKeyBinding, 2, IntPtr.Zero, 0, 0,
-                                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                                Log($"registered and enabled {Mods.PrimaryName}_L key binding (keysym 0x{keysym:x})");
-                            }
+                            uint mod = Mods.PrimaryMask;
+                            RegisterKeyBinding(proxy, 0x0020, mod, KeyBindingAction.ToggleStartMenu); // space
+                            RegisterKeyBinding(proxy, 0xff0d, mod, KeyBindingAction.SpawnTerminal);   // Return
+                            RegisterKeyBinding(proxy, 0x0071, mod, KeyBindingAction.CloseFocused);    // q
+                            RegisterKeyBinding(proxy, 0xff09, mod, KeyBindingAction.CycleFocus);      // Tab
+                            RegisterKeyBinding(proxy, 0x0068, mod, KeyBindingAction.FocusLeft);       // h
+                            RegisterKeyBinding(proxy, 0x006a, mod, KeyBindingAction.FocusDown);       // j
+                            RegisterKeyBinding(proxy, 0x006b, mod, KeyBindingAction.FocusUp);         // k
+                            RegisterKeyBinding(proxy, 0x006c, mod, KeyBindingAction.FocusRight);      // l
                         }
 
                         // Register a compositor-level {Primary}+Left-Click pointer binding so that
@@ -653,6 +667,11 @@ namespace Aqueous.Features.Compositor.River
                 case 0:
                     Log($"window 0x{proxy.ToString("x")} closed");
                     _windows.TryRemove(proxy, out _);
+                    if (_focusedWindow == proxy)
+                    {
+                        _focusedWindow = IntPtr.Zero;
+                        FocusAnyOtherWindow(proxy);
+                    }
                     break;
                 case 1:
                     Log($"window 0x{proxy.ToString("x")} dimensions_hint {args[0].i}x{args[1].i}..{args[2].i}x{args[3].i}");
@@ -738,6 +757,11 @@ namespace Aqueous.Features.Compositor.River
                     IntPtr hovered = args[0].o;
                     _seatHoveredWindow[proxy] = hovered;
                     Log($"seat 0x{proxy.ToString("x")} pointer_enter window 0x{hovered.ToString("x")}");
+                    // Sloppy focus: follow the pointer so keystrokes go where the user is looking.
+                    if (hovered != IntPtr.Zero && _windows.ContainsKey(hovered) && hovered != _focusedWindow)
+                    {
+                        SetFocusedWindow(hovered, proxy);
+                    }
                     break;
                 }
                 case 3: // pointer_leave
@@ -778,6 +802,148 @@ namespace Aqueous.Features.Compositor.River
             _pendingFocusWindow = windowProxy;
             _pendingFocusShellSurface = IntPtr.Zero;
             _pendingFocusSeat = seatProxy;
+            _focusedWindow = windowProxy;
+        }
+
+        /// <summary>
+        /// Request focus for the given window. Uses the primary seat when no seat is provided.
+        /// The focus request is stashed and flushed during the next manage_start.
+        /// </summary>
+        private void RequestFocus(IntPtr windowProxy)
+        {
+            IntPtr seat = _primarySeat;
+            if (seat == IntPtr.Zero)
+            {
+                foreach (var k in _seats.Keys) { seat = k; break; }
+            }
+            if (seat == IntPtr.Zero) return;
+            SetFocusedWindow(windowProxy, seat);
+        }
+
+        /// <summary>Clear focus on the primary seat (river_seat_v1::clear_focus, opcode 3).</summary>
+        private void ClearFocus()
+        {
+            IntPtr seat = _primarySeat;
+            if (seat == IntPtr.Zero)
+            {
+                foreach (var k in _seats.Keys) { seat = k; break; }
+            }
+            _pendingFocusWindow = IntPtr.Zero;
+            _pendingFocusShellSurface = IntPtr.Zero;
+            _pendingFocusSeat = IntPtr.Zero;
+            _focusedWindow = IntPtr.Zero;
+            if (seat != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                Log($"clear_focus on seat 0x{seat.ToString("x")}");
+            }
+        }
+
+        /// <summary>Pick any window (prefer not-currently-focused) and focus it. No-op if empty.</summary>
+        private void FocusAnyOtherWindow(IntPtr avoid)
+        {
+            IntPtr pick = IntPtr.Zero;
+            foreach (var k in _windows.Keys)
+            {
+                if (k == avoid) continue;
+                pick = k;
+                break;
+            }
+            if (pick == IntPtr.Zero)
+            {
+                foreach (var k in _windows.Keys) { pick = k; break; }
+            }
+            if (pick != IntPtr.Zero) RequestFocus(pick);
+            else ClearFocus();
+        }
+
+        /// <summary>Advance keyboard focus to the next window in _windows iteration order.</summary>
+        private void CycleFocus()
+        {
+            if (_windows.Count == 0) return;
+            IntPtr next = IntPtr.Zero;
+            bool takeNext = false;
+            foreach (var k in _windows.Keys)
+            {
+                if (next == IntPtr.Zero) next = k; // fallback to first
+                if (takeNext) { next = k; takeNext = false; break; }
+                if (k == _focusedWindow) takeNext = true;
+            }
+            if (next != IntPtr.Zero) RequestFocus(next);
+        }
+
+        private void RegisterKeyBinding(IntPtr seatProxy, uint keysym, uint modifiers, KeyBindingAction action)
+        {
+            if (_xkbBindings == IntPtr.Zero) return;
+            // river_xkb_bindings_v1::get_xkb_binding opcode=1
+            // args: seat(o), id(new_id), keysym(u), modifiers(u)
+            IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
+                _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
+                seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
+            if (binding == IntPtr.Zero) return;
+            _keyBindings[binding] = action;
+            WaylandInterop.wl_proxy_add_dispatcher(
+                binding,
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                GCHandle.ToIntPtr(_selfHandle),
+                IntPtr.Zero);
+            // river_xkb_binding_v1::enable opcode=2
+            WaylandInterop.wl_proxy_marshal_flags(binding, 2, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            Log($"registered key binding {action} (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
+        }
+
+        private void OnKeyBindingEvent(IntPtr proxy, uint opcode, WlArgument* args)
+        {
+            // 0: pressed, 1: released
+            if (opcode != 0) return;
+            if (!_keyBindings.TryGetValue(proxy, out var action)) return;
+            Log($"key binding pressed: {action}");
+            switch (action)
+            {
+                case KeyBindingAction.ToggleStartMenu:
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "dbus-send",
+                            Arguments = "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                        });
+                    }
+                    catch (Exception ex) { Log("failed to toggle start menu: " + ex.Message); }
+                    break;
+                case KeyBindingAction.SpawnTerminal:
+                    try
+                    {
+                        var term = Environment.GetEnvironmentVariable("TERMINAL") ?? "alacritty";
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = term,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                        });
+                    }
+                    catch (Exception ex) { Log("failed to spawn terminal: " + ex.Message); }
+                    break;
+                case KeyBindingAction.CloseFocused:
+                    if (_focusedWindow != IntPtr.Zero)
+                    {
+                        // river_window_v1::close opcode=1 (0 is destroy)
+                        WaylandInterop.wl_proxy_marshal_flags(_focusedWindow, 1, IntPtr.Zero, 0, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    }
+                    break;
+                case KeyBindingAction.CycleFocus:
+                case KeyBindingAction.FocusLeft:
+                case KeyBindingAction.FocusRight:
+                case KeyBindingAction.FocusUp:
+                case KeyBindingAction.FocusDown:
+                    CycleFocus();
+                    break;
+            }
         }
 
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
