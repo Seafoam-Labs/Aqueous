@@ -64,6 +64,14 @@ namespace Aqueous.Features.Compositor.River
             public int WidthHint, HeightHint;
             public int W, H;
             public int X, Y;
+            public bool Placed;
+            public int ProposedW, ProposedH;
+            public int LastHintW, LastHintH;
+            public int MinW, MinH, MaxW, MaxH;
+            public int LastPosX = int.MinValue, LastPosY = int.MinValue;
+            public int LastClipW, LastClipH;
+            public bool BordersSent;
+            public bool ShowSent;
         }
 
         private sealed class OutputEntry
@@ -116,6 +124,7 @@ namespace Aqueous.Features.Compositor.River
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
+        private bool _insideManageSequence;
         private uint _managerVersion;
         private GCHandle _selfHandle;
         private Thread? _pumpThread;
@@ -439,6 +448,8 @@ namespace Aqueous.Features.Compositor.River
                     _running = false;
                     break;
                 case 2: // manage_start
+                    _insideManageSequence = true;
+                    try {
                     Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
 
                     // Self-heal focus: if we think nothing is focused but windows exist, pick one.
@@ -498,19 +509,71 @@ namespace Aqueous.Features.Compositor.River
                     }
 
                     foreach (var kvp in _windows) {
-                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 3, IntPtr.Zero, 0, 0, (IntPtr)800, (IntPtr)600, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        // Only propose when the hint itself changed. Whatever the client commits
+                        // in response (via the dimensions event) is final; we do not re-propose
+                        // just because the client rounded to cell size.
+                        var w = kvp.Value;
+                        int pw = 800, ph = 600;
+                        if (w.MaxW > 0) pw = Math.Min(pw, w.MaxW);
+                        if (w.MaxH > 0) ph = Math.Min(ph, w.MaxH);
+                        if (w.MinW > 0) pw = Math.Max(pw, w.MinW);
+                        if (w.MinH > 0) ph = Math.Max(ph, w.MinH);
+                        if (pw == w.LastHintW && ph == w.LastHintH) continue;
+                        w.LastHintW = pw; w.LastHintH = ph;
+                        w.ProposedW = pw; w.ProposedH = ph;
+                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 3, IntPtr.Zero, 0, 0, (IntPtr)pw, (IntPtr)ph, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     }
                     SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
+                    } finally { _insideManageSequence = false; }
                     break;
                 case 3: // render_start
+                    // NOTE: do NOT set _insideManageSequence here — render_start is the render
+                    // half of the loop, not a manage sequence. Setting the flag during render
+                    // would suppress legitimate manage_dirty calls scheduled from event
+                    // handlers dispatched just before render.
                     Log("render_start");
+                    // River's render cycle (render_start -> per-window placement/show/decoration
+                    // -> render_finish) describes the contents of the NEXT frame. The scene
+                    // graph is not retained between cycles — anything not re-emitted in this
+                    // cycle will simply not be in the frame. Therefore show, borders, place_top
+                    // and node position (and set_clip_box) MUST be emitted every render cycle
+                    // for every visible window. Gating them with one-shot latches (ShowSent,
+                    // BordersSent, Placed, LastPosX/Y, LastClipW/H) causes windows to appear
+                    // on the first frame and then vanish on every subsequent render.
+                    // Fix #2: show / borders / place_top must be re-emitted every render
+                    // cycle (River does not retain these across cycles), but set_position
+                    // and set_clip_box do NOT need to be re-sent every frame. Re-sending
+                    // them at full render cadence multiplies bus traffic and, combined with
+                    // the former manage_dirty storm, starved client pings. Only re-emit
+                    // when the cached value has actually changed.
                     foreach (var kvp in _windows) {
+                        var we = kvp.Value;
+                        // show (opcode 5) — every frame so the window is in this frame's scene.
                         WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 8, IntPtr.Zero, 0, 0, (IntPtr)15, (IntPtr)2, (IntPtr) unchecked((int)0xffff0000), (IntPtr)0x0, (IntPtr)0x0, (IntPtr) unchecked((int)0xffffffff));
-                        
-                        if (kvp.Value.NodeProxy != IntPtr.Zero)
+                        // set_borders (opcode 8) — zero-width, every frame.
+                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
+
+                        if (we.NodeProxy != IntPtr.Zero)
                         {
-                            WaylandInterop.wl_proxy_marshal_flags(kvp.Value.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)kvp.Value.X, (IntPtr)kvp.Value.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            // place_top (river_node_v1 opcode 2) — every frame (scene graph is not retained).
+                            WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            // set_position (river_node_v1 opcode 1) — only when changed.
+                            if (we.LastPosX != we.X || we.LastPosY != we.Y)
+                            {
+                                WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X, (IntPtr)we.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                we.LastPosX = we.X; we.LastPosY = we.Y;
+                            }
+                        }
+
+                        // set_clip_box (river_window_v1 opcode 21, since v2) — only when size changed.
+                        if (_managerVersion >= 2 && we.W > 0 && we.H > 0 &&
+                            (we.LastClipW != we.W || we.LastClipH != we.H))
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                kvp.Key, 21, IntPtr.Zero, 0, 0,
+                                (IntPtr)0, (IntPtr)0, (IntPtr)we.W, (IntPtr)we.H,
+                                IntPtr.Zero, IntPtr.Zero);
+                            we.LastClipW = we.W; we.LastClipH = we.H;
                         }
                     }
                     SendManagerRequest(4); // render_finish opcode = 4
@@ -522,7 +585,10 @@ namespace Aqueous.Features.Compositor.River
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        var entry = new WindowEntry { Proxy = proxy };
+                        // Bug 3 fix: cascade new windows so two windows do not sit stacked at
+                        // (0,0) shadowing each other's input region.
+                        int cascadeIndex = _windows.Count;
+                        var entry = new WindowEntry { Proxy = proxy, X = cascadeIndex * 40, Y = cascadeIndex * 40 };
                         entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
                             proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0, 
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -573,6 +639,14 @@ namespace Aqueous.Features.Compositor.River
                         Log($"+ seat 0x{proxy.ToString("x")}");
 
                         if (_primarySeat == IntPtr.Zero) _primarySeat = proxy;
+
+                        // Bug 1 fix: if windows already arrived before the seat, focus one now.
+                        // Otherwise the initial RequestFocus short-circuited (seat == 0) and
+                        // the first window never gets keyboard focus.
+                        if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _windows.Count > 0)
+                        {
+                            foreach (var wk in _windows.Keys) { RequestFocus(wk); break; }
+                        }
 
                         // Register only modifier+keysym combinations so plain keys (letters,
                         // digits, arrows, Return, Backspace, etc.) fall through to the
@@ -667,6 +741,28 @@ namespace Aqueous.Features.Compositor.River
                 case 0:
                     Log($"window 0x{proxy.ToString("x")} closed");
                     _windows.TryRemove(proxy, out _);
+                    // Clean up all dangling references to the destroyed proxy so subsequent
+                    // manage_start sequences don't send requests against a dead object (which
+                    // would be a protocol error and terminate the WM).
+                    if (_activeDragWindow != null && _activeDragWindow.Proxy == proxy)
+                    {
+                        _activeDragWindow = null;
+                        _activeDragSeat = IntPtr.Zero;
+                        _dragStarted = false;
+                        _dragFinished = false;
+                    }
+                    if (_pendingFocusWindow == proxy) _pendingFocusWindow = IntPtr.Zero;
+                    foreach (var k in _seatHoveredWindow.Keys)
+                    {
+                        if (_seatHoveredWindow.TryGetValue(k, out var v) && v == proxy)
+                            _seatHoveredWindow[k] = IntPtr.Zero;
+                    }
+                    // NOTE: do NOT send destroy (opcode 0) here. river_window_v1::closed
+                    // already implies the object is gone server-side, and calling destroy
+                    // from inside its own event handler can be a protocol error on some
+                    // River versions — which kills the WM connection and makes every
+                    // window on screen vanish. If cleanup of the client-side proxy is
+                    // needed, it must happen after the event dispatch returns.
                     if (_focusedWindow == proxy)
                     {
                         _focusedWindow = IntPtr.Zero;
@@ -674,12 +770,17 @@ namespace Aqueous.Features.Compositor.River
                     }
                     break;
                 case 1:
-                    Log($"window 0x{proxy.ToString("x")} dimensions_hint {args[0].i}x{args[1].i}..{args[2].i}x{args[3].i}");
-                    w.WidthHint = args[2].i; w.HeightHint = args[3].i;
+                    w.MinW = args[0].i; w.MinH = args[1].i; w.MaxW = args[2].i; w.MaxH = args[3].i;
+                    Log($"window 0x{proxy.ToString("x")} dimensions_hint min {w.MinW}x{w.MinH} max {w.MaxW}x{w.MaxH}");
                     break;
                 case 2:
                     w.W = args[0].i; w.H = args[1].i;
                     Log($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
+                    // Fix #3: as soon as the client commits a real size, run a fresh
+                    // manage/render cycle so set_clip_box is emitted on the first frame
+                    // the size is known. Otherwise the initial frame ships without a
+                    // clip box and pointer/keyboard input falls outside the input region.
+                    ScheduleManage();
                     break;
                 case 3: w.AppId = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}"); break;
                 case 4: w.Title = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} title={w.Title}"); break;
@@ -755,6 +856,11 @@ namespace Aqueous.Features.Compositor.River
                 case 2: // pointer_enter(window)
                 {
                     IntPtr hovered = args[0].o;
+                    // Gate: only log / follow focus when the hovered window actually changed.
+                    // River can re-send pointer_enter during normal motion; treating each
+                    // as a focus change triggers the manage_dirty storm (see Fix #1).
+                    if (_seatHoveredWindow.TryGetValue(proxy, out var prevHover) && prevHover == hovered)
+                        break;
                     _seatHoveredWindow[proxy] = hovered;
                     Log($"seat 0x{proxy.ToString("x")} pointer_enter window 0x{hovered.ToString("x")}");
                     // Sloppy focus: follow the pointer so keystrokes go where the user is looking.
@@ -799,10 +905,40 @@ namespace Aqueous.Features.Compositor.River
 
         public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
         {
+            // Fix #1: skip no-op focus changes. SetFocusedWindow is called from
+            // pointer_enter on every mouse crossing; without a correct guard each
+            // enter event would issue manage_dirty, creating a manage/render storm
+            // that starves other clients' wl_display pings (they die after ~60s).
+            // The previous guard only fired when both pending fields were zero,
+            // but _pendingFocusWindow stays non-zero between manage_start cycles,
+            // so the guard never tripped again during pointer motion.
+            if (windowProxy == _focusedWindow && _pendingFocusWindow == windowProxy)
+                return; // same focus already pending
+            if (windowProxy == _focusedWindow && _pendingFocusWindow == IntPtr.Zero && _pendingFocusShellSurface == IntPtr.Zero)
+                return; // already focused and applied
             _pendingFocusWindow = windowProxy;
             _pendingFocusShellSurface = IntPtr.Zero;
             _pendingFocusSeat = seatProxy;
             _focusedWindow = windowProxy;
+            ScheduleManage();
+        }
+
+        /// <summary>
+        /// Ask the compositor to start a new manage sequence so that any state we
+        /// changed outside of one (pending focus from pointer-enter, Super+Tab,
+        /// close-and-refocus, drag start) actually gets flushed promptly.
+        /// river_window_manager_v1::manage_dirty is opcode 3.
+        /// </summary>
+        private void ScheduleManage()
+        {
+            if (_manager == IntPtr.Zero) return;
+            // If we're already inside a manage/render sequence the compositor will flush
+            // our pending state when the current handler returns; issuing manage_dirty now
+            // would just guarantee an extra cycle (and a potential infinite loop).
+            if (_insideManageSequence) return;
+            WaylandInterop.wl_proxy_marshal_flags(_manager, 3, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            WaylandInterop.wl_display_flush(_display);
         }
 
         /// <summary>
@@ -838,6 +974,7 @@ namespace Aqueous.Features.Compositor.River
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 Log($"clear_focus on seat 0x{seat.ToString("x")}");
             }
+            ScheduleManage();
         }
 
         /// <summary>Pick any window (prefer not-currently-focused) and focus it. No-op if empty.</summary>
