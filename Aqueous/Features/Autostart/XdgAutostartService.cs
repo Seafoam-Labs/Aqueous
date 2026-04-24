@@ -34,13 +34,11 @@ public static class XdgAutostartService
 
                 Console.WriteLine($"[Autostart] Launching: {entry.Name} ({exec})");
 
-                var psi = new ProcessStartInfo("sh", $"-c \"{exec}\"")
-                {
-                    UseShellExecute = false,
-                    RedirectStandardOutput = false,
-                    RedirectStandardError = false,
-                };
-                Process.Start(psi);
+                // Route autostart entries through the shared hardened spawner
+                // so they inherit the correct Wayland env (WAYLAND_DISPLAY,
+                // XDG_RUNTIME_DIR) and don't silently fall back to Xwayland,
+                // which would prevent them from registering with river.
+                Aqueous.Helpers.WaylandSpawn.Spawn(exec);
             }
             catch (Exception ex)
             {

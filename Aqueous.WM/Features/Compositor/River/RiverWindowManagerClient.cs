@@ -601,12 +601,18 @@ namespace Aqueous.Features.Compositor.River
                             IntPtr.Zero);
                         Log($"+ window 0x{proxy.ToString("x")}");
 
-                        // Focus the new window only if nothing is currently focused;
-                        // otherwise leave focus alone so the user's active window stays active.
-                        if (_focusedWindow == IntPtr.Zero)
-                        {
-                            RequestFocus(proxy);
-                        }
+                        // Spawn-to-front: always focus the freshly mapped window.
+                        // Previously this was guarded by `_focusedWindow == IntPtr.Zero`,
+                        // but at the moment a new window event arrives focus is usually
+                        // still on the start-menu / previously-focused window, so the
+                        // guard would skip RequestFocus and the new window would map
+                        // without keyboard/pointer focus ("no input" symptom).
+                        RequestFocus(proxy);
+
+                        // Flush pending focus + clip box / position on this cycle so the
+                        // very first committed frame of the new client has a valid input
+                        // region and is actually the focused surface.
+                        ScheduleManage();
                     }
                     break;
                 }
@@ -1056,12 +1062,32 @@ namespace Aqueous.Features.Compositor.River
                     try
                     {
                         var term = Environment.GetEnvironmentVariable("TERMINAL") ?? "alacritty";
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        // Hardened spawn: detach via setsid (so the child survives WM
+                        // restarts / manage storms), explicitly export the WM's
+                        // WAYLAND_DISPLAY / XDG_RUNTIME_DIR, and clear DISPLAY to
+                        // prevent silent Xwayland fallback (an X11 client would never
+                        // register as a river_window_v1 and therefore never receive
+                        // focus / input through this code path).
+                        var psi = new System.Diagnostics.ProcessStartInfo
                         {
-                            FileName = term,
+                            FileName = "/bin/sh",
                             UseShellExecute = false,
                             CreateNoWindow = true,
-                        });
+                        };
+                        psi.ArgumentList.Add("-c");
+                        psi.ArgumentList.Add($"setsid -f {term} >/dev/null 2>&1");
+
+                        var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+                        var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+                        if (!string.IsNullOrEmpty(wayland))
+                            psi.EnvironmentVariables["WAYLAND_DISPLAY"] = wayland;
+                        if (!string.IsNullOrEmpty(runtime))
+                            psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
+                        psi.EnvironmentVariables["XDG_SESSION_TYPE"] = "wayland";
+                        psi.EnvironmentVariables["XDG_CURRENT_DESKTOP"] = "Aqueous";
+                        psi.EnvironmentVariables.Remove("DISPLAY");
+
+                        System.Diagnostics.Process.Start(psi);
                     }
                     catch (Exception ex) { Log("failed to spawn terminal: " + ex.Message); }
                     break;
@@ -1088,6 +1114,12 @@ namespace Aqueous.Features.Compositor.River
             _pendingFocusShellSurface = shellSurfaceProxy;
             _pendingFocusWindow = IntPtr.Zero;
             _pendingFocusSeat = seatProxy;
+            // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus
+            // is actually flushed on the next manage cycle. Without this, if a
+            // layer-shell surface (e.g. the start menu) grabs focus just before a
+            // new window maps, the pending focus never ships and the new window
+            // can't grab keyboard focus either.
+            ScheduleManage();
         }
 
         private static string? PtrToString(IntPtr p)
