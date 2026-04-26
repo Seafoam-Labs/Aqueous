@@ -85,6 +85,7 @@ public readonly record struct KeyChord(uint Modifiers, uint Keysym)
             ["bracketright"] = 0x005d,
             ["grave"]     = 0x0060,
             ["apostrophe"] = 0x0027,
+            ["backslash"] = 0x005c,
         };
 
     private static uint? ResolveKeysym(string token)

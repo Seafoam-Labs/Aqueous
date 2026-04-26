@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using Aqueous.WM.Features.Input;
+using Aqueous.WM.Features.State;
 
 [assembly: InternalsVisibleTo("Aqueous.WM.Tests")]
 
@@ -46,6 +47,9 @@ public sealed class LayoutConfig
 
     /// <summary>Configurable keybind table parsed from <c>[keybinds]</c>.</summary>
     public KeybindConfig Keybinds { get; init; } = new();
+
+    /// <summary>Phase B1e — <c>[state]</c> + <c>[scratchpad]</c> sections.</summary>
+    public StateConfig State { get; init; } = StateConfig.Default;
 
     /// <summary>Compiled-in fallback config (used when no file is present).</summary>
     public static LayoutConfig Default { get; } = new();
@@ -110,6 +114,15 @@ public sealed class LayoutConfig
         var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var kbCustom   = new Dictionary<string, string>(StringComparer.Ordinal);
         var knownActions = new HashSet<string>(KeybindConfig.KnownActions, StringComparer.Ordinal);
+
+        // Phase B1e — [state] + [scratchpad] + [scratchpad.spawn].
+        bool   stFsHidesBar     = StateConfig.Default.FullscreenHidesBar;
+        bool   stMaxFullOutput  = StateConfig.Default.MaximizeFullOutput;
+        string spOnEmpty        = ScratchpadConfig.Default.OnEmpty;
+        double spWidthFrac      = ScratchpadConfig.Default.WidthFrac;
+        double spHeightFrac     = ScratchpadConfig.Default.HeightFrac;
+        string spAnchor         = ScratchpadConfig.Default.Anchor;
+        var    spSpawn          = new Dictionary<string, string>(StringComparer.Ordinal);
 
         string? curSection = null;
         // Used by [[output]] tables.
@@ -195,6 +208,25 @@ public sealed class LayoutConfig
                     kbCustom[chord] = val;
                     break;
                 }
+                case "state":
+                    switch (key)
+                    {
+                        case "fullscreen_hides_bar":  stFsHidesBar    = ParseBool(val, stFsHidesBar); break;
+                        case "maximize_full_output": stMaxFullOutput = ParseBool(val, stMaxFullOutput); break;
+                    }
+                    break;
+                case "scratchpad":
+                    switch (key)
+                    {
+                        case "on_empty":    spOnEmpty    = val; break;
+                        case "width_frac":  spWidthFrac  = ParseDouble(val, spWidthFrac); break;
+                        case "height_frac": spHeightFrac = ParseDouble(val, spHeightFrac); break;
+                        case "anchor":      spAnchor     = val; break;
+                    }
+                    break;
+                case "scratchpad.spawn":
+                    spSpawn[StripQuotes(key)] = val;
+                    break;
                 default:
                     if (curSection != null && curSection.StartsWith("layout.options.", StringComparison.Ordinal))
                     {
@@ -244,6 +276,20 @@ public sealed class LayoutConfig
 
         var keybinds = new KeybindConfig { Builtins = kbBuiltins, Custom = kbCustom };
 
+        var stateConfig = new StateConfig
+        {
+            FullscreenHidesBar = stFsHidesBar,
+            MaximizeFullOutput = stMaxFullOutput,
+            Scratchpad = new ScratchpadConfig
+            {
+                OnEmpty       = spOnEmpty,
+                WidthFrac     = spWidthFrac,
+                HeightFrac    = spHeightFrac,
+                Anchor        = spAnchor,
+                SpawnCommands = spSpawn,
+            },
+        };
+
         return new LayoutConfig
         {
             DefaultLayout = defaultLayout ?? "tile",
@@ -253,6 +299,7 @@ public sealed class LayoutConfig
             PerOutput     = perOutput,
             Border        = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Keybinds      = keybinds,
+            State         = stateConfig,
         };
     }
 
@@ -315,6 +362,13 @@ public sealed class LayoutConfig
 
     private static double ParseDouble(string s, double fallback) =>
         double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
+    private static bool ParseBool(string s, bool fallback) => s.Trim().ToLowerInvariant() switch
+    {
+        "true"  or "yes" or "on"  or "1" => true,
+        "false" or "no"  or "off" or "0" => false,
+        _ => fallback,
+    };
 
     private static uint ParseColor(string s, uint fallback)
     {

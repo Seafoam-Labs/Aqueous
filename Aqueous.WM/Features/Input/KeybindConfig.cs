@@ -48,6 +48,16 @@ public sealed class KeybindConfig
         "toggle_window_tag_1","toggle_window_tag_2","toggle_window_tag_3","toggle_window_tag_4","toggle_window_tag_5",
         "toggle_window_tag_6","toggle_window_tag_7","toggle_window_tag_8","toggle_window_tag_9",
         "swap_last_tagset",
+        // Phase B1e — Window state ops.
+        "toggle_fullscreen",
+        "toggle_maximize",
+        "toggle_floating",
+        "toggle_minimize",
+        "unminimize_last",
+        "toggle_scratchpad",         // default pad
+        "toggle_scratchpad_named",   // requires :name argument via custom binding
+        "send_to_scratchpad",        // default pad
+        "send_to_scratchpad_named",  // requires :name argument via custom binding
     };
 
     /// <summary>Compiled-in fallback chords for each built-in action.</summary>
@@ -90,6 +100,16 @@ public sealed class KeybindConfig
             ["toggle_window_tag_7"] = "Super+Shift+Ctrl+7", ["toggle_window_tag_8"] = "Super+Shift+Ctrl+8",
             ["toggle_window_tag_9"] = "Super+Shift+Ctrl+9",
             ["swap_last_tagset"] = "Super+grave",
+
+            // Phase B1e — Window state ops.
+            ["toggle_fullscreen"]    = "Super+Shift+F",
+            ["toggle_maximize"]      = "Super+Shift+M",
+            ["toggle_floating"]      = "Super+Shift+Space",
+            ["toggle_minimize"]      = "Super+N",
+            ["unminimize_last"]      = "Super+Shift+N",
+            ["toggle_scratchpad"]    = "Super+Backslash",
+            ["send_to_scratchpad"]   = "Super+Shift+Backslash",
+            // toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
         };
 
     /// <summary>

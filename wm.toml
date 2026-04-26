@@ -174,6 +174,19 @@ toggle_window_tag_9   = "Super+Shift+Ctrl+9"   # default
 # Back-and-forth between the current and previous tagset on this output.
 swap_last_tagset      = "Super+grave"      # default (the ` key)
 
+# --- Window state ops (Phase B1e) ---
+# Fullscreen / Maximize / Floating / Minimize / Scratchpad. Each toggle
+# remembers the prior state so a second press round-trips. Only ONE
+# fullscreen window per output is allowed (toggling another auto-restores
+# the prior). Minimized windows are excluded from layout + focus cycle.
+toggle_fullscreen     = "Super+Shift+F"        # default
+toggle_maximize       = "Super+Shift+M"        # default
+toggle_floating       = "Super+Shift+Space"    # default
+toggle_minimize       = "Super+N"              # default — hide from layout
+unminimize_last       = "Super+Shift+N"        # default — restore most-recent minimized
+toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "default" pad
+send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
+
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
 #   close_focused = []                      # disables Super+Q entirely
@@ -205,3 +218,45 @@ swap_last_tagset      = "Super+grave"      # default (the ` key)
 
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"
+
+# Named scratchpads use a "verb:arg" suffix on the builtin: form. The
+# pad name is created on first use; multiple pads can coexist.
+# "Super+grave"        = "builtin:toggle_scratchpad_named:term"
+# "Super+Shift+grave"  = "builtin:send_to_scratchpad_named:term"
+
+
+# -----------------------------------------------------------------------------
+# Window-state behaviour (Phase B1e). Controls fullscreen / maximize / float /
+# minimize / scratchpad semantics. All keys are optional — defaults shown.
+# -----------------------------------------------------------------------------
+[state]
+# When toggling fullscreen, also hide layer-shell layers above 'bottom'
+# (the bar / notifications). NOTE: the layer-shell hide path is wired in
+# Phase B1f; until then this flag is parsed but has no effect.
+fullscreen_hides_bar = true
+
+# Maximize ignores layer-shell exclusive zones (i.e. covers the bar).
+# false → cover usable_area only (the conventional behaviour).
+maximize_full_output = false
+
+
+# -----------------------------------------------------------------------------
+# Scratchpad geometry + spawn-on-empty policy.
+# -----------------------------------------------------------------------------
+[scratchpad]
+# Behaviour when toggle_scratchpad fires on an empty pad:
+#   "manual" — no-op; the pad is filled only via send_to_scratchpad
+#   "spawn"  — run the configured [scratchpad.spawn.<name>] command and
+#              claim its first window on manage_start
+on_empty    = "manual"
+
+# Geometry of a summoned scratchpad window, as fractions of the output's
+# usable area. Anchor is one of: "center", "top", "bottom".
+width_frac  = 0.6
+height_frac = 0.5
+anchor      = "center"
+
+# pad-name → shell command. Run when on_empty = "spawn" and the pad is empty.
+[scratchpad.spawn]
+# term  = "ghostty --class=aqueous-scratch-term"
+# notes = "obsidian"
