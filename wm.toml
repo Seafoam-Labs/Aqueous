@@ -119,6 +119,61 @@ set_layout_secondary  = "Super+F"          # → scrolling
 set_layout_tertiary   = "Super+M"          # → monocle
 set_layout_quaternary = "Super+G"          # → grid
 
+# --- Tags / workspaces (Phase B1c) ---
+# Tags are a per-output 32-bit bitmask. A window is visible on its output iff
+# (window.tags & output.visible_tags) != 0. Bits 1..9 map to digits 1..9;
+# the "all" actions use the full mask 0xFFFFFFFF (sticky / show-everything).
+#
+# View: switch the focused output's visible tagset to exactly this tag.
+view_tag_1            = "Super+1"          # default
+view_tag_2            = "Super+2"          # default
+view_tag_3            = "Super+3"          # default
+view_tag_4            = "Super+4"          # default
+view_tag_5            = "Super+5"          # default
+view_tag_6            = "Super+6"          # default
+view_tag_7            = "Super+7"          # default
+view_tag_8            = "Super+8"          # default
+view_tag_9            = "Super+9"          # default
+view_tag_all          = "Super+0"          # default — show every tag
+
+# Send: reassign the focused window to exactly this tag (moves it).
+send_tag_1            = "Super+Shift+1"    # default
+send_tag_2            = "Super+Shift+2"    # default
+send_tag_3            = "Super+Shift+3"    # default
+send_tag_4            = "Super+Shift+4"    # default
+send_tag_5            = "Super+Shift+5"    # default
+send_tag_6            = "Super+Shift+6"    # default
+send_tag_7            = "Super+Shift+7"    # default
+send_tag_8            = "Super+Shift+8"    # default
+send_tag_9            = "Super+Shift+9"    # default
+send_tag_all          = "Super+Shift+0"    # default — make focused sticky
+
+# Toggle view: add/remove this tag from the output's visible mask (union view).
+toggle_view_tag_1     = "Super+Ctrl+1"     # default
+toggle_view_tag_2     = "Super+Ctrl+2"     # default
+toggle_view_tag_3     = "Super+Ctrl+3"     # default
+toggle_view_tag_4     = "Super+Ctrl+4"     # default
+toggle_view_tag_5     = "Super+Ctrl+5"     # default
+toggle_view_tag_6     = "Super+Ctrl+6"     # default
+toggle_view_tag_7     = "Super+Ctrl+7"     # default
+toggle_view_tag_8     = "Super+Ctrl+8"     # default
+toggle_view_tag_9     = "Super+Ctrl+9"     # default
+
+# Toggle window tag: add/remove this tag from the focused window's mask
+# (a window can live on multiple tags simultaneously).
+toggle_window_tag_1   = "Super+Shift+Ctrl+1"   # default
+toggle_window_tag_2   = "Super+Shift+Ctrl+2"   # default
+toggle_window_tag_3   = "Super+Shift+Ctrl+3"   # default
+toggle_window_tag_4   = "Super+Shift+Ctrl+4"   # default
+toggle_window_tag_5   = "Super+Shift+Ctrl+5"   # default
+toggle_window_tag_6   = "Super+Shift+Ctrl+6"   # default
+toggle_window_tag_7   = "Super+Shift+Ctrl+7"   # default
+toggle_window_tag_8   = "Super+Shift+Ctrl+8"   # default
+toggle_window_tag_9   = "Super+Shift+Ctrl+9"   # default
+
+# Back-and-forth between the current and previous tagset on this output.
+swap_last_tagset      = "Super+grave"      # default (the ` key)
+
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
 #   close_focused = []                      # disables Super+Q entirely
@@ -134,16 +189,19 @@ set_layout_quaternary = "Super+G"          # → grid
 #   builtin:<action_name>   — invoke a built-in by canonical name
 # -----------------------------------------------------------------------------
 [keybinds.custom]
-"Super+E"            = "spawn:nautilus"
+"Super+E"            = "spawn:nemo"
 "Super+Shift+S"      = "spawn:grim -g \"$(slurp)\" - | wl-copy"
 "Super+B"            = "spawn:firefox"
 
-# Direct layout switches (bypassing slots):
-"Super+1"            = "set_layout:tile"
-"Super+2"            = "set_layout:scrolling"
-"Super+3"            = "set_layout:monocle"
-"Super+4"            = "set_layout:grid"
-"Super+5"            = "set_layout:float"
+# Direct layout switches (bypassing slots).
+# NOTE: Super+1..5 are reserved by the tag bindings above (view_tag_1..5).
+# Use the [layout.slots]-based set_layout_primary/secondary/... built-ins
+# (Super+T/F/M/G) instead, or pick non-conflicting chords. Examples:
+# "Super+Alt+T"        = "set_layout:tile"
+# "Super+Alt+S"        = "set_layout:scrolling"
+# "Super+Alt+M"        = "set_layout:monocle"
+# "Super+Alt+G"        = "set_layout:grid"
+# "Super+Alt+F"        = "set_layout:float"
 
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"

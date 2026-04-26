@@ -35,9 +35,11 @@ public readonly record struct KeyChord(uint Modifiers, uint Keysym)
             switch (tok)
             {
                 case "super": case "mod4": case "logo": case "win":
-                    mods |= Mods.ModSuper; continue;
+                    // Honour AQUEOUS_MOD: "Super" in chords means the configured primary modifier.
+                    mods |= Mods.PrimaryMask; continue;
                 case "alt": case "mod1":
-                    mods |= Mods.ModAlt; continue;
+                    // If the primary mod is Alt, "Alt" collapses onto the same bit; otherwise it's literal Alt.
+                    mods |= Mods.Primary == Mods.Kind.Alt ? Mods.PrimaryMask : Mods.ModAlt; continue;
                 case "shift":
                     mods |= Mods.ModShift; continue;
                 case "ctrl": case "control":

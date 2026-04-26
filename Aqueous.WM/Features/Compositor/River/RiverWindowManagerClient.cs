@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Aqueous.WM.Features.Input;
 using Aqueous.WM.Features.Layout;
+using Aqueous.WM.Features.Tags;
 
 namespace Aqueous.Features.Compositor.River
 {
@@ -44,7 +45,7 @@ namespace Aqueous.Features.Compositor.River
     /// two lifecycle acks required to advance the sequence loop.
     /// </para>
     /// </summary>
-    internal sealed unsafe class RiverWindowManagerClient : IDisposable
+    internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagController.ITagHost
     {
         // --- logging -------------------------------------------------------
 
@@ -99,6 +100,28 @@ namespace Aqueous.Features.Compositor.River
             // like ScrollingLayout do not see windows from other outputs
             // in their per-output ScrollState.
             public IntPtr Output;
+
+            // Phase B1c — Tags / Workspaces.
+            //
+            // 32-bit tag bitmask. A window is rendered iff
+            // (Tags & Output.VisibleTags) != 0. Default is tag 1
+            // (bit 0). At manage_start a freshly-mapped window is
+            // re-tagged to whatever its assigned output currently views
+            // (minus the reserved scratchpad bit). See TagState for
+            // semantics.
+            public uint Tags = Aqueous.WM.Features.Tags.TagState.DefaultTag;
+
+            // Latched "the compositor currently considers this window
+            // shown" cache. Only flipped by the manage_start visibility
+            // pass; render_start uses this together with the
+            // engine-driven Visible flag to decide whether to emit
+            // show/place_top/borders this frame.
+            public bool TagVisible = true;
+
+            // Latch so we only emit hide (opcode 4) once per
+            // visibility transition; without this we would re-send hide
+            // every manage cycle for every off-tag window.
+            public bool HideSent;
         }
 
         private sealed class OutputEntry
@@ -106,6 +129,19 @@ namespace Aqueous.Features.Compositor.River
             public IntPtr Proxy;
             public uint WlOutputName;
             public int X, Y, Width, Height;
+
+            // Phase B1c — Tags / Workspaces.
+            //
+            // 32-bit "currently visible tags" mask. Default is tag 1
+            // (bit 0). Mutated by TagController in response to
+            // Super+1..0 / Super+Ctrl+1..9 / Super+grave bindings.
+            public uint VisibleTags = Aqueous.WM.Features.Tags.TagState.DefaultTag;
+
+            // Last-tagset stack for back-and-forth (Super+grave).
+            // Capped to keep the structure small; a deque would be
+            // cleaner but Stack<T> is sufficient at this size.
+            public uint LastVisibleTags = Aqueous.WM.Features.Tags.TagState.DefaultTag;
+            public readonly System.Collections.Generic.Stack<uint> TagHistory = new();
         }
 
         private sealed class SeatEntry
@@ -155,6 +191,19 @@ namespace Aqueous.Features.Compositor.River
             MoveColumnLeft, MoveColumnRight,
             ReloadConfig,
             SetLayoutPrimary, SetLayoutSecondary, SetLayoutTertiary, SetLayoutQuaternary,
+            // Phase B1c — Tag actions. Indexed by 0-based tag bit (0..9
+            // for tag1..10) so the dispatcher can compute the mask via
+            // 1u << (action - ViewTag1). Tag10 is bound to the digit
+            // key '0' because keymaps order digits 1234567890.
+            ViewTag1, ViewTag2, ViewTag3, ViewTag4, ViewTag5,
+            ViewTag6, ViewTag7, ViewTag8, ViewTag9, ViewTagAll,
+            SendTag1, SendTag2, SendTag3, SendTag4, SendTag5,
+            SendTag6, SendTag7, SendTag8, SendTag9, SendTagAll,
+            ToggleViewTag1, ToggleViewTag2, ToggleViewTag3, ToggleViewTag4, ToggleViewTag5,
+            ToggleViewTag6, ToggleViewTag7, ToggleViewTag8, ToggleViewTag9,
+            ToggleWindowTag1, ToggleWindowTag2, ToggleWindowTag3, ToggleWindowTag4, ToggleWindowTag5,
+            ToggleWindowTag6, ToggleWindowTag7, ToggleWindowTag8, ToggleWindowTag9,
+            SwapLastTagset,
             Custom,
         }
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
@@ -181,6 +230,36 @@ namespace Aqueous.Features.Compositor.River
                 ["set_layout_secondary"]  = KeyBindingAction.SetLayoutSecondary,
                 ["set_layout_tertiary"]   = KeyBindingAction.SetLayoutTertiary,
                 ["set_layout_quaternary"] = KeyBindingAction.SetLayoutQuaternary,
+                // Phase B1c — Tag actions exposed to [keybinds] config.
+                ["view_tag_1"] = KeyBindingAction.ViewTag1, ["view_tag_2"] = KeyBindingAction.ViewTag2,
+                ["view_tag_3"] = KeyBindingAction.ViewTag3, ["view_tag_4"] = KeyBindingAction.ViewTag4,
+                ["view_tag_5"] = KeyBindingAction.ViewTag5, ["view_tag_6"] = KeyBindingAction.ViewTag6,
+                ["view_tag_7"] = KeyBindingAction.ViewTag7, ["view_tag_8"] = KeyBindingAction.ViewTag8,
+                ["view_tag_9"] = KeyBindingAction.ViewTag9, ["view_tag_all"] = KeyBindingAction.ViewTagAll,
+                ["send_tag_1"] = KeyBindingAction.SendTag1, ["send_tag_2"] = KeyBindingAction.SendTag2,
+                ["send_tag_3"] = KeyBindingAction.SendTag3, ["send_tag_4"] = KeyBindingAction.SendTag4,
+                ["send_tag_5"] = KeyBindingAction.SendTag5, ["send_tag_6"] = KeyBindingAction.SendTag6,
+                ["send_tag_7"] = KeyBindingAction.SendTag7, ["send_tag_8"] = KeyBindingAction.SendTag8,
+                ["send_tag_9"] = KeyBindingAction.SendTag9, ["send_tag_all"] = KeyBindingAction.SendTagAll,
+                ["toggle_view_tag_1"] = KeyBindingAction.ToggleViewTag1,
+                ["toggle_view_tag_2"] = KeyBindingAction.ToggleViewTag2,
+                ["toggle_view_tag_3"] = KeyBindingAction.ToggleViewTag3,
+                ["toggle_view_tag_4"] = KeyBindingAction.ToggleViewTag4,
+                ["toggle_view_tag_5"] = KeyBindingAction.ToggleViewTag5,
+                ["toggle_view_tag_6"] = KeyBindingAction.ToggleViewTag6,
+                ["toggle_view_tag_7"] = KeyBindingAction.ToggleViewTag7,
+                ["toggle_view_tag_8"] = KeyBindingAction.ToggleViewTag8,
+                ["toggle_view_tag_9"] = KeyBindingAction.ToggleViewTag9,
+                ["toggle_window_tag_1"] = KeyBindingAction.ToggleWindowTag1,
+                ["toggle_window_tag_2"] = KeyBindingAction.ToggleWindowTag2,
+                ["toggle_window_tag_3"] = KeyBindingAction.ToggleWindowTag3,
+                ["toggle_window_tag_4"] = KeyBindingAction.ToggleWindowTag4,
+                ["toggle_window_tag_5"] = KeyBindingAction.ToggleWindowTag5,
+                ["toggle_window_tag_6"] = KeyBindingAction.ToggleWindowTag6,
+                ["toggle_window_tag_7"] = KeyBindingAction.ToggleWindowTag7,
+                ["toggle_window_tag_8"] = KeyBindingAction.ToggleWindowTag8,
+                ["toggle_window_tag_9"] = KeyBindingAction.ToggleWindowTag9,
+                ["swap_last_tagset"] = KeyBindingAction.SwapLastTagset,
             };
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
@@ -198,12 +277,16 @@ namespace Aqueous.Features.Compositor.River
         private LayoutController _layoutController;
         private LayoutConfig _layoutConfig;
 
+        // --- tags subsystem (Phase B1c) -----------------------------------
+        private readonly TagController _tagController;
+
         private RiverWindowManagerClient()
         {
             _seatInteractionService = new SeatInteractionService(this);
             _layoutRegistry  = new LayoutRegistry();
             _layoutConfig    = LayoutConfig.Load(GetDefaultConfigPath());
             _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
+            _tagController    = new TagController(this);
         }
 
         private static string GetDefaultConfigPath()
@@ -851,8 +934,20 @@ namespace Aqueous.Features.Compositor.River
             // For the IntPtr.Zero fallback (no outputs), accept all.
             bool isFallback = output == IntPtr.Zero;
 
+            // Phase B1c — Tags. Resolve the visible-tag mask for this
+            // output (or AllTags for the IntPtr.Zero fallback) so we
+            // can filter windows whose Tags do not intersect the
+            // mask out of the layout snapshot before invoking the
+            // engine. Off-tag windows additionally need a one-shot
+            // hide(opcode 4) so the compositor stops drawing them;
+            // see the transition pass below.
+            uint outputVisibleTags = Aqueous.WM.Features.Tags.TagState.AllTags;
+            if (!isFallback && _outputs.TryGetValue(output, out var oeForTags))
+                outputVisibleTags = oeForTags.VisibleTags;
+
             var tiledSnapshot = new List<WindowEntryView>(_windows.Count);
             var floatingHandles = new List<IntPtr>();
+            var hiddenByTag = new List<WindowEntry>();
             foreach (var kvp in _windows)
             {
                 var w = kvp.Value;
@@ -867,7 +962,23 @@ namespace Aqueous.Features.Compositor.River
                         bool inside =
                             w.X >= usableArea.X && w.X < usableArea.X + usableArea.W &&
                             w.Y >= usableArea.Y && w.Y < usableArea.Y + usableArea.H;
-                        if (inside) w.Output = output;
+                        if (inside)
+                        {
+                            w.Output = output;
+                            // Phase B1c: inherit the output's currently
+                            // visible tags so a freshly-mapped window
+                            // appears on whatever tag the user is on
+                            // (minus the reserved scratchpad bit). Only
+                            // touch a window still sitting on the
+                            // default tag — anything else came from a
+                            // deliberate SendFocusedToTags.
+                            if (w.Tags == Aqueous.WM.Features.Tags.TagState.DefaultTag)
+                            {
+                                uint inheritMask = outputVisibleTags &
+                                    ~Aqueous.WM.Features.Tags.TagState.ScratchpadTag;
+                                if (inheritMask != 0u) w.Tags = inheritMask;
+                            }
+                        }
                         else        continue;
                     }
                     else if (w.Output != output)
@@ -876,8 +987,26 @@ namespace Aqueous.Features.Compositor.River
                     }
                 }
 
-                bool treatAsFloating = w.Floating || floatIsActive;
-                if (treatAsFloating)
+                // Tag visibility gate: a window present on this output
+                // but whose Tags do not intersect VisibleTags must not
+                // be passed to the layout engine and must be hidden
+                // compositor-side.
+                bool tagVisible = Aqueous.WM.Features.Tags.TagState.IsVisible(
+                    w.Tags, outputVisibleTags);
+                if (!tagVisible)
+                {
+                    hiddenByTag.Add(w);
+                    continue;
+                }
+
+                // Floating is honoured only when the active layout is the
+                // dedicated `float` engine. In tile/scrolling/monocle/grid the
+                // per-window Floating override is suppressed so every window
+                // goes through the active tiling engine.
+                // When the float engine is active, every window goes onto
+                // the floating layer. Otherwise the per-window Floating
+                // override is suppressed so the tiling engine owns geometry.
+                if (floatIsActive)
                 {
                     floatingHandles.Add(kvp.Key);
                 }
@@ -889,8 +1018,32 @@ namespace Aqueous.Features.Compositor.River
                         MaxW:       w.MaxW, MaxH: w.MaxH,
                         Floating:   false,
                         Fullscreen: false,
-                        Tags:       0u));
+                        Tags:       w.Tags));
                 }
+            }
+
+            // Visibility transition pass for tag-hidden windows.
+            // Emit river_window_v1::hide (opcode 4) once per
+            // hide transition, and clear placement caches so a
+            // subsequent re-show re-issues propose_dimensions /
+            // set_position. Hidden windows must not participate in
+            // the per-frame render loop either, hence Visible=false.
+            for (int hi = 0; hi < hiddenByTag.Count; hi++)
+            {
+                var w = hiddenByTag[hi];
+                if (!w.HideSent)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        w.Proxy, 4, IntPtr.Zero, 0, 0,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    w.HideSent = true;
+                    // Force re-propose / re-position on next show.
+                    w.LastHintW = 0; w.LastHintH = 0;
+                    w.LastPosX = int.MinValue; w.LastPosY = int.MinValue;
+                    w.LastClipW = 0; w.LastClipH = 0;
+                }
+                w.TagVisible = false;
+                w.Visible = false;
             }
 
             // Adoption fallback: if we are the *only* output and no
@@ -904,8 +1057,8 @@ namespace Aqueous.Features.Compositor.River
                 {
                     var w = kvp.Value;
                     if (w.Output == IntPtr.Zero) w.Output = output;
-                    bool treatAsFloating = w.Floating || floatIsActive;
-                    if (treatAsFloating) floatingHandles.Add(kvp.Key);
+                    bool treatAsFloating = floatIsActive && w.Floating;
+                    if (floatIsActive || treatAsFloating) floatingHandles.Add(kvp.Key);
                     else tiledSnapshot.Add(new WindowEntryView(
                         Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
                         MaxW: w.MaxW, MaxH: w.MaxH,
@@ -960,6 +1113,8 @@ namespace Aqueous.Features.Compositor.River
                     }
 
                     w.Visible = true;
+                    w.TagVisible = true;
+                    w.HideSent = false;
 
                     if (pw == w.LastHintW && ph == w.LastHintH)
                     {
@@ -1005,6 +1160,8 @@ namespace Aqueous.Features.Compositor.River
                 // any engine call. Width/height only proposed when changed.
                 w.X = w.FloatX; w.Y = w.FloatY;
                 w.Visible = true;
+                w.TagVisible = true;
+                w.HideSent = false;
 
                 if (pw != w.LastHintW || ph != w.LastHintH)
                 {
@@ -1206,7 +1363,12 @@ namespace Aqueous.Features.Compositor.River
                         // last known committed dimensions; if the client has
                         // not committed a size yet, fall back to the last
                         // proposed hint.
-                        adw.Floating = true;
+                        // Drag-to-float promotion is only meaningful when the
+                        // active layout is the float engine; otherwise the tiling
+                        // engine owns geometry and a per-window Floating override
+                        // would be ignored anyway (see ProposeForArea).
+                        if (IsFloatLayoutActive())
+                            adw.Floating = true;
                         adw.HasFloatRect = true;
                         adw.FloatX = adw.X;
                         adw.FloatY = adw.Y;
@@ -1225,6 +1387,30 @@ namespace Aqueous.Features.Compositor.River
         }
 
         // --- utility -------------------------------------------------------
+
+        /// <summary>
+        /// True iff the active layout (resolved against the focused window's
+        /// output, or the first known output as a fallback) is the dedicated
+        /// `float` engine. Drag-to-float promotion and the
+        /// builtin:toggle_floating action consult this so per-window floating
+        /// is inert in tile/scrolling/monocle/grid layouts.
+        /// </summary>
+        internal bool IsFloatLayoutActive()
+        {
+            IntPtr output = IntPtr.Zero;
+            string? outputName = null;
+            if (_focusedWindow != IntPtr.Zero &&
+                _windows.TryGetValue(_focusedWindow, out var fw) &&
+                fw.Output != IntPtr.Zero)
+            {
+                output = fw.Output;
+            }
+            else
+            {
+                foreach (var k in _outputs.Keys) { output = k; break; }
+            }
+            return _layoutController.ResolveLayoutId(output, outputName) == "float";
+        }
 
         public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
         {
@@ -1600,8 +1786,183 @@ namespace Aqueous.Features.Compositor.River
                 case KeyBindingAction.SetLayoutQuaternary:
                     SetLayoutByIdOrSlot("quaternary");
                     break;
+
+                // Phase B1c — Tag actions. ViewTag1..9 / SendTag1..9 /
+                // ToggleViewTag1..9 / ToggleWindowTag1..9 are arranged
+                // contiguously in the enum; resolve the tag bit by
+                // subtracting the action's group base. ViewTagAll /
+                // SendTagAll fall through to AllTags.
+                case KeyBindingAction.ViewTag1: case KeyBindingAction.ViewTag2:
+                case KeyBindingAction.ViewTag3: case KeyBindingAction.ViewTag4:
+                case KeyBindingAction.ViewTag5: case KeyBindingAction.ViewTag6:
+                case KeyBindingAction.ViewTag7: case KeyBindingAction.ViewTag8:
+                case KeyBindingAction.ViewTag9:
+                    _tagController.ViewTags(TagState.Bit(action - KeyBindingAction.ViewTag1));
+                    break;
+                case KeyBindingAction.ViewTagAll:
+                    _tagController.ViewAll();
+                    break;
+                case KeyBindingAction.SendTag1: case KeyBindingAction.SendTag2:
+                case KeyBindingAction.SendTag3: case KeyBindingAction.SendTag4:
+                case KeyBindingAction.SendTag5: case KeyBindingAction.SendTag6:
+                case KeyBindingAction.SendTag7: case KeyBindingAction.SendTag8:
+                case KeyBindingAction.SendTag9:
+                    _tagController.SendFocusedToTags(TagState.Bit(action - KeyBindingAction.SendTag1));
+                    break;
+                case KeyBindingAction.SendTagAll:
+                    _tagController.SendFocusedToTags(TagState.AllTags);
+                    break;
+                case KeyBindingAction.ToggleViewTag1: case KeyBindingAction.ToggleViewTag2:
+                case KeyBindingAction.ToggleViewTag3: case KeyBindingAction.ToggleViewTag4:
+                case KeyBindingAction.ToggleViewTag5: case KeyBindingAction.ToggleViewTag6:
+                case KeyBindingAction.ToggleViewTag7: case KeyBindingAction.ToggleViewTag8:
+                case KeyBindingAction.ToggleViewTag9:
+                    _tagController.ToggleViewTag(TagState.Bit(action - KeyBindingAction.ToggleViewTag1));
+                    break;
+                case KeyBindingAction.ToggleWindowTag1: case KeyBindingAction.ToggleWindowTag2:
+                case KeyBindingAction.ToggleWindowTag3: case KeyBindingAction.ToggleWindowTag4:
+                case KeyBindingAction.ToggleWindowTag5: case KeyBindingAction.ToggleWindowTag6:
+                case KeyBindingAction.ToggleWindowTag7: case KeyBindingAction.ToggleWindowTag8:
+                case KeyBindingAction.ToggleWindowTag9:
+                    _tagController.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
+                    break;
+                case KeyBindingAction.SwapLastTagset:
+                    _tagController.SwapLastTagset();
+                    break;
             }
         }
+
+        // ---- TagController.ITagHost (Phase B1c) --------------------------
+
+        /// <summary>
+        /// Returns the OutputEntry the keyboard focus currently lives on.
+        /// Falls back to a pointer-hovered output, then to the first
+        /// known output. <c>null</c> if no outputs are tracked yet
+        /// (e.g. the headless fallback).
+        /// </summary>
+        private OutputEntry? GetFocusedOutputEntry()
+        {
+            // 1. Output of the focused window.
+            if (_focusedWindow != IntPtr.Zero &&
+                _windows.TryGetValue(_focusedWindow, out var fw) &&
+                fw.Output != IntPtr.Zero &&
+                _outputs.TryGetValue(fw.Output, out var oeFromFocus))
+            {
+                return oeFromFocus;
+            }
+
+            // 2. First output (deterministic enough for single-output;
+            //    pointer-position output resolution can be added when
+            //    SeatInteractionService exposes it).
+            foreach (var kv in _outputs)
+                return kv.Value;
+
+            return null;
+        }
+
+        uint? TagController.ITagHost.GetFocusedOutputVisibleTags()
+            => GetFocusedOutputEntry()?.VisibleTags;
+
+        uint? TagController.ITagHost.GetFocusedOutputLastTagset()
+            => GetFocusedOutputEntry()?.LastVisibleTags;
+
+        bool TagController.ITagHost.SetFocusedOutputVisibleTags(uint mask)
+        {
+            var oe = GetFocusedOutputEntry();
+            if (oe is null) return false;
+            if (oe.VisibleTags == mask) return false;
+
+            // Push prior value onto history (cap to 8) and remember it
+            // separately as LastVisibleTags for fast back-and-forth.
+            oe.LastVisibleTags = oe.VisibleTags;
+            oe.TagHistory.Push(oe.VisibleTags);
+            while (oe.TagHistory.Count > 8)
+            {
+                // Drop oldest by rebuilding (Stack<T> has no DequeueLast).
+                var arr = oe.TagHistory.ToArray();
+                oe.TagHistory.Clear();
+                for (int i = arr.Length - 2; i >= 0; i--) oe.TagHistory.Push(arr[i]);
+                break;
+            }
+            oe.VisibleTags = mask;
+            Log($"tags: output 0x{oe.Proxy.ToString("x")} VisibleTags=0x{mask:x8} (was 0x{oe.LastVisibleTags:x8})");
+            return true;
+        }
+
+        bool TagController.ITagHost.SetFocusedWindowTags(uint mask)
+        {
+            if (_focusedWindow == IntPtr.Zero) return false;
+            if (!_windows.TryGetValue(_focusedWindow, out var fw)) return false;
+            if (fw.Tags == mask) return false;
+            fw.Tags = mask;
+            Log($"tags: window 0x{_focusedWindow.ToString("x")} Tags=0x{mask:x8}");
+            return true;
+        }
+
+        bool TagController.ITagHost.ToggleFocusedWindowTags(uint mask)
+        {
+            if (_focusedWindow == IntPtr.Zero) return false;
+            if (!_windows.TryGetValue(_focusedWindow, out var fw)) return false;
+            uint next = fw.Tags ^ mask;
+            if (next == 0u) return false; // never end up untagged
+            fw.Tags = next;
+            Log($"tags: window 0x{_focusedWindow.ToString("x")} Tags=0x{next:x8} (toggled 0x{mask:x8})");
+            return true;
+        }
+
+        void TagController.ITagHost.RequestRelayout() => ScheduleManage();
+
+        /// <summary>
+        /// Self-heal focus when the previously-focused window has just
+        /// become invisible because of a tag change. Picks the first
+        /// window on the focused output that intersects the new
+        /// VisibleTags; clears focus if none.
+        /// </summary>
+        void TagController.ITagHost.RepairFocusAfterTagChange()
+        {
+            if (_focusedWindow != IntPtr.Zero &&
+                _windows.TryGetValue(_focusedWindow, out var fw))
+            {
+                uint mask = TagState.AllTags;
+                if (fw.Output != IntPtr.Zero && _outputs.TryGetValue(fw.Output, out var oe))
+                    mask = oe.VisibleTags;
+                if (TagState.IsVisible(fw.Tags, mask))
+                    return; // still visible; keep focus.
+            }
+
+            // Replacement: first visible window on the focused output,
+            // else any visible window, else clear focus.
+            IntPtr replacement = IntPtr.Zero;
+            var focusedOe = GetFocusedOutputEntry();
+            uint focusedMask = focusedOe?.VisibleTags ?? TagState.AllTags;
+            IntPtr focusedOutput = focusedOe?.Proxy ?? IntPtr.Zero;
+
+            foreach (var kv in _windows)
+            {
+                var w = kv.Value;
+                if (focusedOutput != IntPtr.Zero && w.Output != focusedOutput) continue;
+                if (!TagState.IsVisible(w.Tags, focusedMask)) continue;
+                replacement = kv.Key; break;
+            }
+
+            if (replacement == IntPtr.Zero)
+            {
+                ClearFocus();
+            }
+            else
+            {
+                RequestFocus(replacement);
+            }
+        }
+
+        /// <summary>
+        /// Optional sink consumed by the IPC bridge in Phase B1g.
+        /// Settable from <c>Program.cs</c>; null by default so the
+        /// hot path costs nothing.
+        /// </summary>
+        public Action<TagController.TagsChangedEvent>? TagsChanged { get; set; }
+
+        Action<TagController.TagsChangedEvent>? TagController.ITagHost.TagsChanged => TagsChanged;
 
         /// <summary>
         /// Engine-aware directional focus. Asks the active layout engine for

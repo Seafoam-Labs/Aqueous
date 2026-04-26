@@ -17,6 +17,7 @@ namespace Aqueous.Features.Compositor.River
         // See river-window-management-v1.xml: shift=1, caps=2, ctrl=4,
         // mod1/alt=8, mod2=16, mod3=32, mod4/super/logo=64, mod5=128.
         public const uint ModShift = 1;
+        public const uint ModCtrl  = 4;
         public const uint ModAlt   = 8;   // mod1
         public const uint ModSuper = 64;  // mod4
 
