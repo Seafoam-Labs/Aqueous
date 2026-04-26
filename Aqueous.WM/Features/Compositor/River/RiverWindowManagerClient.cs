@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Aqueous.WM.Features.Input;
 using Aqueous.WM.Features.Layout;
 
 namespace Aqueous.Features.Compositor.River
@@ -152,8 +153,35 @@ namespace Aqueous.Features.Compositor.River
             FocusLeft, FocusRight, FocusDown, FocusUp,
             ScrollViewportLeft, ScrollViewportRight,
             MoveColumnLeft, MoveColumnRight,
+            ReloadConfig,
+            SetLayoutPrimary, SetLayoutSecondary, SetLayoutTertiary, SetLayoutQuaternary,
+            Custom,
         }
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
+        // For KeyBindingAction.Custom — chord proxy → free-form action verb.
+        private readonly Dictionary<IntPtr, string> _customBindingActions = new();
+        // action_name -> KeyBindingAction (for built-in chord overrides via [keybinds]).
+        private static readonly Dictionary<string, KeyBindingAction> BuiltinActionMap =
+            new(StringComparer.Ordinal)
+            {
+                ["toggle_start_menu"]     = KeyBindingAction.ToggleStartMenu,
+                ["spawn_terminal"]        = KeyBindingAction.SpawnTerminal,
+                ["close_focused"]         = KeyBindingAction.CloseFocused,
+                ["cycle_focus"]           = KeyBindingAction.CycleFocus,
+                ["focus_left"]            = KeyBindingAction.FocusLeft,
+                ["focus_right"]           = KeyBindingAction.FocusRight,
+                ["focus_up"]              = KeyBindingAction.FocusUp,
+                ["focus_down"]            = KeyBindingAction.FocusDown,
+                ["scroll_viewport_left"]  = KeyBindingAction.ScrollViewportLeft,
+                ["scroll_viewport_right"] = KeyBindingAction.ScrollViewportRight,
+                ["move_column_left"]      = KeyBindingAction.MoveColumnLeft,
+                ["move_column_right"]     = KeyBindingAction.MoveColumnRight,
+                ["reload_config"]         = KeyBindingAction.ReloadConfig,
+                ["set_layout_primary"]    = KeyBindingAction.SetLayoutPrimary,
+                ["set_layout_secondary"]  = KeyBindingAction.SetLayoutSecondary,
+                ["set_layout_tertiary"]   = KeyBindingAction.SetLayoutTertiary,
+                ["set_layout_quaternary"] = KeyBindingAction.SetLayoutQuaternary,
+            };
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
         private bool _insideManageSequence;
@@ -742,24 +770,7 @@ namespace Aqueous.Features.Compositor.River
                         // *any* modified keystroke from reaching the focused surface.
                         if (_xkbBindings != IntPtr.Zero && _keyBindings.Count == 0)
                         {
-                            uint mod = Mods.PrimaryMask;
-                            RegisterKeyBinding(proxy, 0x0020, mod, KeyBindingAction.ToggleStartMenu); // space
-                            RegisterKeyBinding(proxy, 0xff0d, mod, KeyBindingAction.SpawnTerminal);   // Return
-                            RegisterKeyBinding(proxy, 0x0071, mod, KeyBindingAction.CloseFocused);    // q
-                            RegisterKeyBinding(proxy, 0xff09, mod, KeyBindingAction.CycleFocus);      // Tab
-                            RegisterKeyBinding(proxy, 0x0068, mod, KeyBindingAction.FocusLeft);       // h
-                            RegisterKeyBinding(proxy, 0x006a, mod, KeyBindingAction.FocusDown);       // j
-                            RegisterKeyBinding(proxy, 0x006b, mod, KeyBindingAction.FocusUp);         // k
-                            RegisterKeyBinding(proxy, 0x006c, mod, KeyBindingAction.FocusRight);      // l
-
-                            // Scrolling-layout viewport pan and column-move bindings.
-                            // Pan:  Super + ,  /  Super + .   (PaperWM convention)
-                            // Move: Super+Shift+H / Super+Shift+L
-                            uint modShift = mod | Mods.ModShift;
-                            RegisterKeyBinding(proxy, 0x002c, mod,      KeyBindingAction.ScrollViewportLeft);   // comma
-                            RegisterKeyBinding(proxy, 0x002e, mod,      KeyBindingAction.ScrollViewportRight);  // period
-                            RegisterKeyBinding(proxy, 0x0048, modShift, KeyBindingAction.MoveColumnLeft);       // Shift+H
-                            RegisterKeyBinding(proxy, 0x004c, modShift, KeyBindingAction.MoveColumnRight);      // Shift+L
+                            RegisterAllBindings(proxy);
                         }
 
                         // Register a compositor-level {Primary}+Left-Click pointer binding so that
@@ -1322,6 +1333,125 @@ namespace Aqueous.Features.Compositor.River
             if (next != IntPtr.Zero) RequestFocus(next);
         }
 
+        /// <summary>
+        /// Register every keybind defined by the active <see cref="LayoutConfig.Keybinds"/>
+        /// (built-in actions with config-overridable chords + custom chords with
+        /// free-form action verbs). Falls back to <see cref="KeybindConfig.Defaults"/>
+        /// for any built-in not explicitly listed in the config.
+        /// </summary>
+        private void RegisterAllBindings(IntPtr seatProxy)
+        {
+            var kb = _layoutConfig.Keybinds;
+            foreach (var (action, builtin) in BuiltinActionMap)
+            {
+                foreach (var chordStr in kb.ChordsFor(action))
+                {
+                    var parsed = KeyChord.Parse(chordStr);
+                    if (parsed is null)
+                    {
+                        Log($"keybind: invalid chord '{chordStr}' for action '{action}', ignored");
+                        continue;
+                    }
+                    RegisterKeyBinding(seatProxy, parsed.Value.Keysym, parsed.Value.Modifiers, builtin);
+                }
+            }
+
+            // Custom chord -> action verb (spawn:/set_layout:/builtin:).
+            foreach (var (chordStr, verb) in kb.Custom)
+            {
+                var parsed = KeyChord.Parse(chordStr);
+                if (parsed is null)
+                {
+                    Log($"keybind: invalid custom chord '{chordStr}', ignored");
+                    continue;
+                }
+                RegisterCustomKeyBinding(seatProxy, parsed.Value.Keysym, parsed.Value.Modifiers, verb);
+            }
+        }
+
+        private void RegisterCustomKeyBinding(IntPtr seatProxy, uint keysym, uint modifiers, string action)
+        {
+            if (_xkbBindings == IntPtr.Zero) return;
+            IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
+                _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
+                seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
+            if (binding == IntPtr.Zero) return;
+            _keyBindings[binding] = KeyBindingAction.Custom;
+            _customBindingActions[binding] = action;
+            WaylandInterop.wl_proxy_add_dispatcher(
+                binding,
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                GCHandle.ToIntPtr(_selfHandle),
+                IntPtr.Zero);
+            WaylandInterop.wl_proxy_marshal_flags(binding, 2, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            Log($"registered custom key binding '{action}' (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
+        }
+
+        /// <summary>
+        /// Dispatch a custom action verb. Recognised forms:
+        /// <list type="bullet">
+        ///   <item><c>spawn:&lt;cmd&gt;</c> — fork/exec via <c>/bin/sh -c</c>.</item>
+        ///   <item><c>set_layout:&lt;id-or-slot&gt;</c> — switch active layout.</item>
+        ///   <item><c>builtin:&lt;action_name&gt;</c> — invoke a built-in.</item>
+        /// </list>
+        /// </summary>
+        private void RunCustomAction(string action)
+        {
+            int colon = action.IndexOf(':');
+            string verb  = colon < 0 ? action : action.Substring(0, colon);
+            string arg   = colon < 0 ? ""     : action.Substring(colon + 1).Trim();
+            switch (verb)
+            {
+                case "spawn":
+                    if (arg.Length == 0) return;
+                    try
+                    {
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "/bin/sh",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                        };
+                        psi.ArgumentList.Add("-c");
+                        psi.ArgumentList.Add($"setsid -f sh -c {EscapeSh(arg)} >/dev/null 2>&1");
+                        var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+                        var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+                        if (!string.IsNullOrEmpty(wayland)) psi.EnvironmentVariables["WAYLAND_DISPLAY"] = wayland;
+                        if (!string.IsNullOrEmpty(runtime)) psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
+                        psi.EnvironmentVariables.Remove("DISPLAY");
+                        System.Diagnostics.Process.Start(psi);
+                    }
+                    catch (Exception ex) { Log($"spawn '{arg}' failed: {ex.Message}"); }
+                    break;
+                case "set_layout":
+                    SetLayoutByIdOrSlot(arg);
+                    break;
+                case "builtin":
+                    if (BuiltinActionMap.TryGetValue(arg, out var b))
+                        InvokeBuiltin(b);
+                    break;
+                default:
+                    Log($"unknown custom action verb '{verb}'");
+                    break;
+            }
+        }
+
+        private static string EscapeSh(string s) => "'" + s.Replace("'", "'\\''") + "'";
+
+        /// <summary>Resolve <paramref name="idOrSlot"/> through slots first, then engines.</summary>
+        private void SetLayoutByIdOrSlot(string idOrSlot)
+        {
+            if (string.IsNullOrEmpty(idOrSlot)) return;
+            string id = idOrSlot;
+            if (_layoutConfig.Slots.TryGetValue(idOrSlot, out var resolved))
+                id = resolved;
+            _layoutController.SetLayout(id);
+            ScheduleManage();
+        }
+
+        private void InvokeBuiltin(KeyBindingAction action) => HandleKeyBindingAction(action);
+
         private void RegisterKeyBinding(IntPtr seatProxy, uint keysym, uint modifiers, KeyBindingAction action)
         {
             if (_xkbBindings == IntPtr.Zero) return;
@@ -1349,6 +1479,17 @@ namespace Aqueous.Features.Compositor.River
             if (opcode != 0) return;
             if (!_keyBindings.TryGetValue(proxy, out var action)) return;
             Log($"key binding pressed: {action}");
+            if (action == KeyBindingAction.Custom)
+            {
+                if (_customBindingActions.TryGetValue(proxy, out var verb))
+                    RunCustomAction(verb);
+                return;
+            }
+            HandleKeyBindingAction(action);
+        }
+
+        private void HandleKeyBindingAction(KeyBindingAction action)
+        {
             switch (action)
             {
                 case KeyBindingAction.ToggleStartMenu:
@@ -1431,6 +1572,33 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case KeyBindingAction.MoveColumnRight:
                     HandleMoveColumn(FocusDirection.Right);
+                    break;
+                case KeyBindingAction.ReloadConfig:
+                    try
+                    {
+                        var fresh = LayoutConfig.Load(GetDefaultConfigPath());
+                        _layoutConfig = fresh;
+                        _layoutController.ReplaceConfig(fresh);
+                        Log("config reloaded");
+                        // Note: chord rebinding hot-swap is not done here —
+                        // existing xkb bindings remain (River v3 has no
+                        // unbind primitive); changes to [keybinds] take
+                        // effect on next WM start.
+                        ScheduleManage();
+                    }
+                    catch (Exception ex) { Log("config reload failed: " + ex.Message); }
+                    break;
+                case KeyBindingAction.SetLayoutPrimary:
+                    SetLayoutByIdOrSlot("primary");
+                    break;
+                case KeyBindingAction.SetLayoutSecondary:
+                    SetLayoutByIdOrSlot("secondary");
+                    break;
+                case KeyBindingAction.SetLayoutTertiary:
+                    SetLayoutByIdOrSlot("tertiary");
+                    break;
+                case KeyBindingAction.SetLayoutQuaternary:
+                    SetLayoutByIdOrSlot("quaternary");
                     break;
             }
         }

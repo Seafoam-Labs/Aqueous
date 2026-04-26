@@ -63,6 +63,43 @@ public sealed class LayoutController
     }
 
     /// <summary>
+    /// Switch every currently-tracked output to <paramref name="layoutId"/>.
+    /// Outputs that haven't been seen yet will adopt the new id on their
+    /// next <see cref="ResolveLayoutId"/> via the controller's default
+    /// (since the per-output override map now contains the new id for
+    /// known outputs only). Unknown layout ids fall back to the global
+    /// default; engine state is dropped so the layout starts fresh.
+    /// </summary>
+    public void SetLayout(string layoutId)
+    {
+        if (!_registry.Contains(layoutId))
+            layoutId = _config.DefaultLayout;
+        // Snapshot keys to avoid mutation during iteration.
+        var outputs = new List<IntPtr>(_engineByOutput.Keys);
+        if (outputs.Count == 0)
+        {
+            // No outputs registered yet — use a sentinel so the first
+            // ResolveEngine call sees this id. We can't usefully store
+            // it without an output; defer to default-config promotion
+            // by overwriting the in-memory config's DefaultLayout.
+            _config = new LayoutConfig
+            {
+                DefaultLayout = layoutId,
+                Defaults      = _config.Defaults,
+                Slots         = _config.Slots,
+                PerLayoutOpts = _config.PerLayoutOpts,
+                PerOutput     = _config.PerOutput,
+                Border        = _config.Border,
+                Keybinds      = _config.Keybinds,
+            };
+            _epoch++;
+            return;
+        }
+        foreach (var o in outputs)
+            SetLayoutForOutput(o, layoutId);
+    }
+
+    /// <summary>
     /// Resolve which layout an output should be using, considering (in order):
     ///   1) an explicit override set via <see cref="SetLayoutForOutput"/>;
     ///   2) per-output config (<c>[[output]]</c> in wm.toml);

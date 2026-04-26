@@ -72,3 +72,78 @@ layout = "tile"
 [[output]]
 name   = "eDP-1"
 layout = "monocle"
+
+
+# -----------------------------------------------------------------------------
+# Keybindings.
+#
+# Each built-in action maps to either:
+#   - a single chord string:   action = "Super+H"
+#   - a list of chords:        action = ["Super+H", "Alt+Left"]
+#   - an empty list to unbind: action = []
+#
+# Chord grammar: tokens joined by '+', case-insensitive.
+#   Modifiers: Super (Mod4) | Ctrl | Alt (Mod1) | Shift
+#   Keys:      single letters (A–Z), digits (0–9), F1–F24,
+#              named keys (Return, Space, Tab, Comma, Period, Escape,
+#              Left, Right, Up, Down, Home, End, PageUp, PageDown, ...)
+#
+# Omit any line to keep the compiled-in default (shown in the comment).
+# -----------------------------------------------------------------------------
+[keybinds]
+# --- Window / session ---
+toggle_start_menu     = "Super+Space"      # default
+spawn_terminal        = "Super+Return"     # default
+close_focused         = "Super+Q"          # default
+cycle_focus           = "Super+Tab"        # default
+
+# --- Directional focus (works in tile/grid; scrolling = prev/next column) ---
+focus_left            = "Super+H"          # default
+focus_right           = "Super+L"          # default
+focus_up              = "Super+K"          # default
+focus_down            = "Super+J"          # default
+
+# --- Scrolling-layout viewport pan + column move ---
+scroll_viewport_left  = "Super+Comma"      # default
+scroll_viewport_right = "Super+Period"     # default
+move_column_left      = "Super+Shift+H"    # default
+move_column_right     = "Super+Shift+L"    # default
+
+# --- Opt-in actions (no default chord) ---
+reload_config         = "Super+R"          # re-read this file (layout opts hot-swap;
+                                           # chord changes still need WM restart)
+
+# Layout-switch sugar: resolves through [layout.slots] above.
+set_layout_primary    = "Super+T"          # → tile
+set_layout_secondary  = "Super+F"          # → scrolling
+set_layout_tertiary   = "Super+M"          # → monocle
+set_layout_quaternary = "Super+G"          # → grid
+
+# Examples of the array form and explicit unbind:
+#   cycle_focus = ["Super+Tab", "Alt+Tab"]
+#   close_focused = []                      # disables Super+Q entirely
+
+
+# -----------------------------------------------------------------------------
+# Free-form custom chords. Key = chord string, value = action verb.
+#
+# Action verbs:
+#   spawn:<argv>            — fork/exec via /bin/sh -c (detached)
+#   set_layout:<id-or-slot> — switch active layout; <id> ∈ tile|monocle|grid|
+#                             float|scrolling, or a [layout.slots] name
+#   builtin:<action_name>   — invoke a built-in by canonical name
+# -----------------------------------------------------------------------------
+[keybinds.custom]
+"Super+E"            = "spawn:nautilus"
+"Super+Shift+S"      = "spawn:grim -g \"$(slurp)\" - | wl-copy"
+"Super+B"            = "spawn:firefox"
+
+# Direct layout switches (bypassing slots):
+"Super+1"            = "set_layout:tile"
+"Super+2"            = "set_layout:scrolling"
+"Super+3"            = "set_layout:monocle"
+"Super+4"            = "set_layout:grid"
+"Super+5"            = "set_layout:float"
+
+# Re-route a built-in onto an extra chord:
+"Alt+F4"             = "builtin:close_focused"

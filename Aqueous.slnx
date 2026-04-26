@@ -29,5 +29,6 @@
     <File Path="README.md" />
     <File Path="REMAINING_WORK.md" />
     <File Path="Screenshot_20260417_101145.png" />
+    <File Path="wm.toml"/>
   </Folder>
 </Solution>

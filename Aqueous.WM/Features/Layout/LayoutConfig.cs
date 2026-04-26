@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Aqueous.WM.Features.Input;
 
 [assembly: InternalsVisibleTo("Aqueous.WM.Tests")]
 
@@ -42,6 +43,9 @@ public sealed class LayoutConfig
 
     /// <summary>Border styling shared by every layout that draws borders.</summary>
     public BorderSpec Border { get; init; } = new(2, 0xFF88C0D0u, 0xFF3B4252u, 0xFFBF616Au);
+
+    /// <summary>Configurable keybind table parsed from <c>[keybinds]</c>.</summary>
+    public KeybindConfig Keybinds { get; init; } = new();
 
     /// <summary>Compiled-in fallback config (used when no file is present).</summary>
     public static LayoutConfig Default { get; } = new();
@@ -101,6 +105,11 @@ public sealed class LayoutConfig
         int gapsOuter = 8, gapsInner = 4, masterCount = 1, borderWidth = 2;
         double masterRatio = 0.55;
         uint borderFocused = 0xFF88C0D0u, borderNormal = 0xFF3B4252u, borderUrgent = 0xFFBF616Au;
+
+        // Keybind tables.
+        var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var kbCustom   = new Dictionary<string, string>(StringComparer.Ordinal);
+        var knownActions = new HashSet<string>(KeybindConfig.KnownActions, StringComparer.Ordinal);
 
         string? curSection = null;
         // Used by [[output]] tables.
@@ -174,6 +183,18 @@ public sealed class LayoutConfig
                     if (key == "name")        pendingOutputName   = val;
                     else if (key == "layout") pendingOutputLayout = val;
                     break;
+                case "keybinds":
+                    if (knownActions.Contains(key))
+                        kbBuiltins[key] = ParseChordList(valRaw);
+                    // Unknown action names are ignored (forward-compat).
+                    break;
+                case "keybinds.custom":
+                {
+                    // key is the chord (it may have been wrapped in quotes).
+                    var chord = StripQuotes(key);
+                    kbCustom[chord] = val;
+                    break;
+                }
                 default:
                     if (curSection != null && curSection.StartsWith("layout.options.", StringComparison.Ordinal))
                     {
@@ -221,6 +242,8 @@ public sealed class LayoutConfig
             ["quaternary"] = quaternary ?? "grid",
         };
 
+        var keybinds = new KeybindConfig { Builtins = kbBuiltins, Custom = kbCustom };
+
         return new LayoutConfig
         {
             DefaultLayout = defaultLayout ?? "tile",
@@ -229,7 +252,44 @@ public sealed class LayoutConfig
             PerLayoutOpts = perLayoutOpts,
             PerOutput     = perOutput,
             Border        = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
+            Keybinds      = keybinds,
         };
+    }
+
+    /// <summary>
+    /// Parses the right-hand side of a chord assignment. Accepts either a
+    /// quoted/unquoted single string (<c>"Super+H"</c>) or an inline array
+    /// of strings (<c>["Super+H", "Alt+F1"]</c>). An empty array is the
+    /// explicit "unbind" form and yields an empty list.
+    /// </summary>
+    private static List<string> ParseChordList(string raw)
+    {
+        var list = new List<string>();
+        var s = raw.Trim();
+        if (s.StartsWith("["))
+        {
+            int end = s.LastIndexOf(']');
+            if (end < 0) return list;
+            var inner = s.Substring(1, end - 1).Trim();
+            if (inner.Length == 0) return list; // = []
+            // split on commas not inside quotes
+            int start = 0;
+            bool inStr = false;
+            for (int i = 0; i <= inner.Length; i++)
+            {
+                if (i < inner.Length && inner[i] == '"') inStr = !inStr;
+                if (i == inner.Length || (inner[i] == ',' && !inStr))
+                {
+                    var item = StripQuotes(inner.Substring(start, i - start).Trim());
+                    if (item.Length > 0) list.Add(item);
+                    start = i + 1;
+                }
+            }
+            return list;
+        }
+        var single = StripQuotes(s);
+        if (single.Length > 0) list.Add(single);
+        return list;
     }
 
     private static string StripQuotes(string s)
