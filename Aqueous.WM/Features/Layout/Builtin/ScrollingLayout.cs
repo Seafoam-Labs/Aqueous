@@ -64,11 +64,33 @@ public sealed class ScrollingLayout : ILayoutEngine
         int gap  = opts.GapsInner;
         int step = colW + gap;
 
+        // Defensive: prune any column whose handle is not in the
+        // current snapshot. The reconciliation above already does this
+        // for state.Columns, but a stale handle could re-enter via a
+        // race with concurrent manage cycles. Use TryGetValue so a
+        // missing handle is dropped instead of throwing
+        // KeyNotFoundException (which would crash the manage thread).
+        for (int i = state.Columns.Count - 1; i >= 0; i--)
+            if (!byHandle.ContainsKey(state.Columns[i]))
+                state.Columns.RemoveAt(i);
+        if (state.Columns.Count == 0)
+        {
+            state.ViewportX = 0;
+            state.FocusedIdx = 0;
+            return result;
+        }
+        if (state.FocusedIdx >= state.Columns.Count) state.FocusedIdx = state.Columns.Count - 1;
+        if (state.FocusedIdx < 0) state.FocusedIdx = 0;
+
         // Per-column width override for windows whose MinW exceeds colW.
         var colWidths = new int[state.Columns.Count];
         for (int i = 0; i < state.Columns.Count; i++)
         {
-            var view = byHandle[state.Columns[i]];
+            if (!byHandle.TryGetValue(state.Columns[i], out var view))
+            {
+                colWidths[i] = colW;
+                continue;
+            }
             colWidths[i] = (view.MinW > colW) ? view.MinW : colW;
         }
 

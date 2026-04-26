@@ -82,6 +82,22 @@ namespace Aqueous.Features.Compositor.River
             public bool Floating;
             public bool HasFloatRect;
             public int FloatX, FloatY, FloatW, FloatH;
+
+            // Phase B1b scrolling fix: visibility comes from the layout
+            // engine's WindowPlacement.Visible. Off-screen scrolling
+            // columns must NOT be repositioned/clipped/place_top'd, and
+            // must NOT receive propose_dimensions storms. Defaults to
+            // true so windows mapped before the first manage cycle stay
+            // visible.
+            public bool Visible = true;
+
+            // Output the window currently belongs to. Set by manage_start
+            // when the window's position falls inside an output's area
+            // (or to the first output as a fallback). Used by
+            // ProposeForArea to filter the per-output snapshot so engines
+            // like ScrollingLayout do not see windows from other outputs
+            // in their per-output ScrollState.
+            public IntPtr Output;
         }
 
         private sealed class OutputEntry
@@ -598,6 +614,15 @@ namespace Aqueous.Features.Compositor.River
                     // when the cached value has actually changed.
                     foreach (var kvp in _windows) {
                         var we = kvp.Value;
+                        // Phase B1b scrolling fix: skip off-screen windows
+                        // entirely. Emitting show / borders / place_top /
+                        // set_position with the engine's negative screenX
+                        // crashes River (set_clip_box ends up against a
+                        // node that hasn't committed a buffer at that
+                        // position yet) and floods the wire with stale
+                        // proposals. ScrollingLayout returns Visible=false
+                        // for these; ProposeForArea propagated the bit.
+                        if (!we.Visible) continue;
                         // show (opcode 5) — every frame so the window is in this frame's scene.
                         WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         // set_borders (opcode 8) — zero-width, every frame.
@@ -789,11 +814,42 @@ namespace Aqueous.Features.Compositor.River
             string activeId = _layoutController.ResolveLayoutId(output, outputName);
             bool floatIsActive = activeId == "float";
 
+            // Per-output filter: an engine like ScrollingLayout maintains
+            // per-output state (ScrollState.Columns) and *must* only see
+            // the windows that belong to this output, otherwise its
+            // per-output state accumulates handles from other outputs
+            // and KeyNotFoundException / cross-monitor placements ensue.
+            // Assignment policy: a window belongs to `output` if its
+            // tracked W.Output matches; else, if its (X,Y) falls inside
+            // usableArea we adopt it onto this output; otherwise skip.
+            // For the IntPtr.Zero fallback (no outputs), accept all.
+            bool isFallback = output == IntPtr.Zero;
+
             var tiledSnapshot = new List<WindowEntryView>(_windows.Count);
             var floatingHandles = new List<IntPtr>();
             foreach (var kvp in _windows)
             {
                 var w = kvp.Value;
+
+                if (!isFallback)
+                {
+                    if (w.Output == IntPtr.Zero)
+                    {
+                        // Adopt onto an output: prefer one whose area
+                        // contains the current (X,Y); else skip — another
+                        // output's ProposeForArea call will adopt it.
+                        bool inside =
+                            w.X >= usableArea.X && w.X < usableArea.X + usableArea.W &&
+                            w.Y >= usableArea.Y && w.Y < usableArea.Y + usableArea.H;
+                        if (inside) w.Output = output;
+                        else        continue;
+                    }
+                    else if (w.Output != output)
+                    {
+                        continue;
+                    }
+                }
+
                 bool treatAsFloating = w.Floating || floatIsActive;
                 if (treatAsFloating)
                 {
@@ -808,6 +864,26 @@ namespace Aqueous.Features.Compositor.River
                         Floating:   false,
                         Fullscreen: false,
                         Tags:       0u));
+                }
+            }
+
+            // Adoption fallback: if we are the *only* output and no
+            // window has been assigned yet (happens on first cycle
+            // because windows start at cascade offsets that may sit
+            // outside the reported usableArea), adopt every unassigned
+            // window onto us so they are not silently dropped.
+            if (!isFallback && tiledSnapshot.Count == 0 && floatingHandles.Count == 0 && _outputs.Count == 1)
+            {
+                foreach (var kvp in _windows)
+                {
+                    var w = kvp.Value;
+                    if (w.Output == IntPtr.Zero) w.Output = output;
+                    bool treatAsFloating = w.Floating || floatIsActive;
+                    if (treatAsFloating) floatingHandles.Add(kvp.Key);
+                    else tiledSnapshot.Add(new WindowEntryView(
+                        Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
+                        MaxW: w.MaxW, MaxH: w.MaxH,
+                        Floating: false, Fullscreen: false, Tags: 0u));
                 }
             }
 
@@ -834,6 +910,30 @@ namespace Aqueous.Features.Compositor.River
                     int pw = p.Geometry.W;
                     int ph = p.Geometry.H;
                     if (pw <= 0 || ph <= 0) continue;
+
+                    // Honor Visible: invisible (off-screen) placements
+                    // must NOT trigger set_position with negative coords
+                    // (render_start checks w.Visible) and must NOT spam
+                    // propose_dimensions every manage cycle. Update size
+                    // tracking only on real change so the next time the
+                    // window scrolls back into view we don't re-propose.
+                    if (!p.Visible)
+                    {
+                        w.Visible = false;
+                        // Cache size for the off-screen column without
+                        // any wire traffic; if the column width changes
+                        // later we will propose only when it becomes
+                        // visible again or when it actually changes.
+                        if (pw != w.LastHintW || ph != w.LastHintH)
+                        {
+                            // Don't update LastHintW/H for invisible windows —
+                            // we want the next visible cycle to fire propose
+                            // exactly once if needed. Just skip silently.
+                        }
+                        continue;
+                    }
+
+                    w.Visible = true;
 
                     if (pw == w.LastHintW && ph == w.LastHintH)
                     {
@@ -878,6 +978,7 @@ namespace Aqueous.Features.Compositor.River
                 // Position is what the user dragged to; never overwritten by
                 // any engine call. Width/height only proposed when changed.
                 w.X = w.FloatX; w.Y = w.FloatY;
+                w.Visible = true;
 
                 if (pw != w.LastHintW || ph != w.LastHintH)
                 {
@@ -991,6 +1092,10 @@ namespace Aqueous.Features.Compositor.River
                 case 0:
                     Log($"output 0x{proxy.ToString("x")} removed");
                     _outputs.TryRemove(proxy, out _);
+                    // Detach windows from the gone output so the next
+                    // manage cycle re-adopts them onto a surviving one.
+                    foreach (var wkvp in _windows)
+                        if (wkvp.Value.Output == proxy) wkvp.Value.Output = IntPtr.Zero;
                     break;
                 case 1:
                     o.WlOutputName = args[0].u;
