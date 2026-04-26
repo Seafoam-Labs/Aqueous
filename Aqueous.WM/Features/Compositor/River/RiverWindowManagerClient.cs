@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Aqueous.WM.Features.Input;
 using Aqueous.WM.Features.Layout;
+using Aqueous.WM.Features.State;
 using Aqueous.WM.Features.Tags;
 
 namespace Aqueous.Features.Compositor.River
@@ -204,6 +205,9 @@ namespace Aqueous.Features.Compositor.River
             ToggleWindowTag1, ToggleWindowTag2, ToggleWindowTag3, ToggleWindowTag4, ToggleWindowTag5,
             ToggleWindowTag6, ToggleWindowTag7, ToggleWindowTag8, ToggleWindowTag9,
             SwapLastTagset,
+            // Phase B1e — Window state ops (Pass B integration).
+            ToggleFullscreen, ToggleMaximize, ToggleFloating, ToggleMinimize,
+            UnminimizeLast, ToggleScratchpad, SendToScratchpad,
             Custom,
         }
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
@@ -260,6 +264,18 @@ namespace Aqueous.Features.Compositor.River
                 ["toggle_window_tag_8"] = KeyBindingAction.ToggleWindowTag8,
                 ["toggle_window_tag_9"] = KeyBindingAction.ToggleWindowTag9,
                 ["swap_last_tagset"] = KeyBindingAction.SwapLastTagset,
+                // Phase B1e — Window state ops (Pass B integration).
+                ["toggle_fullscreen"]   = KeyBindingAction.ToggleFullscreen,
+                ["toggle_maximize"]     = KeyBindingAction.ToggleMaximize,
+                ["toggle_floating"]     = KeyBindingAction.ToggleFloating,
+                ["toggle_minimize"]     = KeyBindingAction.ToggleMinimize,
+                ["unminimize_last"]     = KeyBindingAction.UnminimizeLast,
+                ["toggle_scratchpad"]   = KeyBindingAction.ToggleScratchpad,
+                ["send_to_scratchpad"]  = KeyBindingAction.SendToScratchpad,
+                // toggle_scratchpad_named / send_to_scratchpad_named are not
+                // mapped here: they require a :arg suffix and are reachable
+                // only via [keybinds.custom] -> RunCustomAction's builtin:
+                // branch, which parses one trailing :name segment.
             };
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
@@ -280,6 +296,16 @@ namespace Aqueous.Features.Compositor.River
         // --- tags subsystem (Phase B1c) -----------------------------------
         private readonly TagController _tagController;
 
+        // --- window-state subsystem (Phase B1e — Pass B) ------------------
+        // Per-window state projection (FS/Max/Float/Min/Scratchpad) used by
+        // WindowStateController. Lazily populated when a chord first
+        // touches a window; lifecycle-cleared on close / output removal.
+        private readonly ConcurrentDictionary<IntPtr, WindowStateData> _windowStates = new();
+        // Per-output single-FS slot (single-fullscreen-per-output rule).
+        private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
+        private readonly ScratchpadRegistry _scratchpadRegistry;
+        private readonly WindowStateController _windowState;
+
         private RiverWindowManagerClient()
         {
             _seatInteractionService = new SeatInteractionService(this);
@@ -287,6 +313,114 @@ namespace Aqueous.Features.Compositor.River
             _layoutConfig    = LayoutConfig.Load(GetDefaultConfigPath());
             _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
             _tagController    = new TagController(this);
+            _scratchpadRegistry = new ScratchpadRegistry();
+            _windowState        = new WindowStateController(
+                new RiverWindowStateHost(this), _scratchpadRegistry);
+        }
+
+        // ------------------------------------------------------------------
+        // IWindowStateHost adapter — bridges WindowStateController to the
+        // river client's internal window/output dictionaries. Pass B keeps
+        // this adapter conservative: every method either consults existing
+        // state or asks the manage loop to re-run; it never directly emits
+        // Wayland protocol ops. Render-path overrides (visibility, geometry,
+        // z-order, borders) are deferred to a follow-up pass.
+        // ------------------------------------------------------------------
+        private sealed class RiverWindowStateHost : IWindowStateHost
+        {
+            private readonly RiverWindowManagerClient _c;
+            public RiverWindowStateHost(RiverWindowManagerClient c) { _c = c; }
+
+            public WindowStateData? Get(IntPtr window)
+            {
+                if (window == IntPtr.Zero) return null;
+                if (!_c._windows.ContainsKey(window)) return null;
+                return _c._windowStates.GetOrAdd(window, h => new WindowStateData { Handle = h });
+            }
+
+            public IntPtr FocusedWindow => _c._focusedWindow;
+
+            public IntPtr FocusedOutput
+            {
+                get
+                {
+                    var oe = _c.GetFocusedOutputEntry();
+                    return oe is null ? IntPtr.Zero : oe.Proxy;
+                }
+            }
+
+            public Rect OutputRect(IntPtr output)
+            {
+                if (output != IntPtr.Zero && _c._outputs.TryGetValue(output, out var o))
+                    return new Rect(o.X, o.Y, o.Width, o.Height);
+                return new Rect(0, 0, 0, 0);
+            }
+
+            public Rect UsableArea(IntPtr output)
+            {
+                // Pass B simplification: layer-shell exclusive zones and
+                // gaps are absorbed by the layout controller; treat the
+                // raw output rect as usable for Maximize geometry. A
+                // dedicated reservation pass can refine this later.
+                return OutputRect(output);
+            }
+
+            public IntPtr GetFullscreenWindow(IntPtr output) =>
+                _c._outputFullscreen.TryGetValue(output, out var w) ? w : IntPtr.Zero;
+
+            public void SetFullscreenWindow(IntPtr output, IntPtr window)
+            {
+                if (output == IntPtr.Zero) return;
+                if (window == IntPtr.Zero) _c._outputFullscreen.TryRemove(output, out _);
+                else                       _c._outputFullscreen[output] = window;
+            }
+
+            public void Focus(IntPtr window)
+            {
+                if (window != IntPtr.Zero) _c.RequestFocus(window);
+            }
+
+            public void FocusNextOnOutput(IntPtr output) => _c.FocusAnyOtherWindow(_c._focusedWindow);
+
+            public void RequestRender(IntPtr output) => _c.ScheduleManage();
+
+            public void EmitForeignToplevelFullscreen(IntPtr window, IntPtr output)
+            {
+                // Pass B: foreign-toplevel sync deferred. See
+                // none_of_the_new_keybinds_are_functional.md step 6.
+            }
+
+            public void EmitForeignToplevelUnfullscreen(IntPtr window)
+            {
+                // Pass B: foreign-toplevel sync deferred.
+            }
+
+            public void Spawn(string command)
+            {
+                if (string.IsNullOrEmpty(command)) return;
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "/bin/sh",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    };
+                    psi.ArgumentList.Add("-c");
+                    psi.ArgumentList.Add($"setsid -f sh -c {EscapeSh(command)} >/dev/null 2>&1");
+                    System.Diagnostics.Process.Start(psi);
+                }
+                catch (Exception ex) { RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}"); }
+            }
+
+            public void Log(string message) => RiverWindowManagerClient.Log(message);
+
+            public Rect CurrentGeometry(IntPtr window)
+            {
+                if (window != IntPtr.Zero && _c._windows.TryGetValue(window, out var w))
+                    return new Rect(w.X, w.Y, w.W, w.H);
+                return new Rect(0, 0, 0, 0);
+            }
         }
 
         private static string GetDefaultConfigPath()
@@ -1202,6 +1336,14 @@ namespace Aqueous.Features.Compositor.River
             {
                 case 0:
                     Log($"window 0x{proxy.ToString("x")} closed");
+                    // Phase B1e Pass B: tear down per-window state so the
+                    // controller's invariants (single-FS slot, MRU stack,
+                    // scratchpad ownership) drop their references to the
+                    // dead proxy before _windows loses the entry.
+                    _windowState.OnWindowDestroyed(proxy);
+                    _windowStates.TryRemove(proxy, out _);
+                    foreach (var ofs in _outputFullscreen)
+                        if (ofs.Value == proxy) _outputFullscreen.TryRemove(ofs.Key, out _);
                     _windows.TryRemove(proxy, out _);
                     // Clean up all dangling references to the destroyed proxy so subsequent
                     // manage_start sequences don't send requests against a dead object (which
@@ -1274,6 +1416,16 @@ namespace Aqueous.Features.Compositor.River
             {
                 case 0:
                     Log($"output 0x{proxy.ToString("x")} removed");
+                    // Phase B1e Pass B: forward the removal to the window
+                    // state controller so it can demote any FS/Max windows
+                    // pinned to this output before _outputs forgets it.
+                    {
+                        var goneOutputWindows = new List<WindowStateData>();
+                        foreach (var sk in _windowStates)
+                            if (sk.Value.PinnedOutput == proxy) goneOutputWindows.Add(sk.Value);
+                        _windowState.OnOutputRemoved(proxy, goneOutputWindows);
+                        _outputFullscreen.TryRemove(proxy, out _);
+                    }
                     _outputs.TryRemove(proxy, out _);
                     // Detach windows from the gone output so the next
                     // manage cycle re-adopts them onto a surviving one.
@@ -1614,8 +1766,43 @@ namespace Aqueous.Features.Compositor.River
                     SetLayoutByIdOrSlot(arg);
                     break;
                 case "builtin":
-                    if (BuiltinActionMap.TryGetValue(arg, out var b))
-                        InvokeBuiltin(b);
+                    {
+                        // Phase B1e Pass B: split one optional trailing
+                        // ":argument" segment so chords like
+                        //   builtin:toggle_scratchpad_named:term
+                        // can dispatch to the parameterised actions while
+                        // preserving the existing parameterless
+                        //   builtin:cycle_focus
+                        // form.
+                        string bname = arg;
+                        string barg  = string.Empty;
+                        int sub = arg.IndexOf(':');
+                        if (sub >= 0)
+                        {
+                            bname = arg.Substring(0, sub);
+                            barg  = arg.Substring(sub + 1).Trim();
+                        }
+                        switch (bname)
+                        {
+                            case "toggle_scratchpad_named":
+                                if (barg.Length == 0) { Log("builtin:toggle_scratchpad_named requires :name"); break; }
+                                _windowState.ToggleScratchpad(barg);
+                                break;
+                            case "send_to_scratchpad_named":
+                                if (barg.Length == 0) { Log("builtin:send_to_scratchpad_named requires :name"); break; }
+                                if (_focusedWindow != IntPtr.Zero)
+                                    _windowState.SendToScratchpad(_focusedWindow, barg);
+                                else
+                                    Log("builtin:send_to_scratchpad_named: no focused window");
+                                break;
+                            default:
+                                if (BuiltinActionMap.TryGetValue(bname, out var b))
+                                    InvokeBuiltin(b);
+                                else
+                                    Log($"unknown builtin '{bname}'");
+                                break;
+                        }
+                    }
                     break;
                 default:
                     Log($"unknown custom action verb '{verb}'");
@@ -1828,6 +2015,36 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case KeyBindingAction.SwapLastTagset:
                     _tagController.SwapLastTagset();
+                    break;
+
+                // ---- Phase B1e Pass B — Window state ops ---------------
+                case KeyBindingAction.ToggleFullscreen:
+                    if (_focusedWindow != IntPtr.Zero) _windowState.ToggleFullscreen(_focusedWindow);
+                    else Log("toggle_fullscreen: no focused window");
+                    break;
+                case KeyBindingAction.ToggleMaximize:
+                    if (_focusedWindow != IntPtr.Zero) _windowState.ToggleMaximize(_focusedWindow);
+                    else Log("toggle_maximize: no focused window");
+                    break;
+                case KeyBindingAction.ToggleFloating:
+                    if (_focusedWindow != IntPtr.Zero) _windowState.ToggleFloating(_focusedWindow);
+                    else Log("toggle_floating: no focused window");
+                    break;
+                case KeyBindingAction.ToggleMinimize:
+                    if (_focusedWindow != IntPtr.Zero) _windowState.ToggleMinimize(_focusedWindow);
+                    else Log("toggle_minimize: no focused window");
+                    break;
+                case KeyBindingAction.UnminimizeLast:
+                    _windowState.UnminimizeLast();
+                    break;
+                case KeyBindingAction.ToggleScratchpad:
+                    _windowState.ToggleScratchpad(ScratchpadRegistry.DefaultPad);
+                    break;
+                case KeyBindingAction.SendToScratchpad:
+                    if (_focusedWindow != IntPtr.Zero)
+                        _windowState.SendToScratchpad(_focusedWindow, ScratchpadRegistry.DefaultPad);
+                    else
+                        Log("send_to_scratchpad: no focused window");
                     break;
             }
         }
