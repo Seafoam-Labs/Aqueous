@@ -136,6 +136,82 @@ public sealed class ScrollingLayout : ILayoutEngine
         }
         return result;
     }
+
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as ScrollState;
+        if (state == null || state.Columns.Count == 0) return null;
+
+        // Live set so we don't return a handle that isn't in the snapshot.
+        var live = new HashSet<IntPtr>();
+        for (int i = 0; i < windows.Count; i++) live.Add(windows[i].Handle);
+
+        int idx = state.Columns.IndexOf(current);
+        if (idx < 0) idx = state.FocusedIdx;
+        if (idx < 0 || idx >= state.Columns.Count) return null;
+
+        int step = dir switch
+        {
+            FocusDirection.Left  or FocusDirection.Prev => -1,
+            FocusDirection.Right or FocusDirection.Next => +1,
+            _ => 0, // up/down: scrolling has no vertical ordering
+        };
+        if (step == 0) return null;
+
+        int next = idx + step;
+        if (next < 0 || next >= state.Columns.Count) return null;
+        var h = state.Columns[next];
+        return live.Contains(h) ? h : (IntPtr?)null;
+    }
+
+    public bool MoveFocused(
+        IntPtr output,
+        IntPtr focused,
+        FocusDirection dir,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as ScrollState;
+        if (state == null || state.Columns.Count < 2) return false;
+
+        int idx = state.Columns.IndexOf(focused);
+        if (idx < 0) return false;
+
+        int step = dir switch
+        {
+            FocusDirection.Left  or FocusDirection.Prev => -1,
+            FocusDirection.Right or FocusDirection.Next => +1,
+            _ => 0,
+        };
+        if (step == 0) return false;
+
+        int target = idx + step;
+        if (target < 0 || target >= state.Columns.Count) return false;
+
+        (state.Columns[idx], state.Columns[target]) = (state.Columns[target], state.Columns[idx]);
+        state.FocusedIdx = target;
+        return true;
+    }
+
+    public void ScrollViewport(
+        IntPtr output,
+        int deltaColumns,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as ScrollState;
+        if (state == null || state.Columns.Count == 0) return;
+        // We don't know colW here without the area + opts; use the
+        // FocusedIdx as a coarse proxy: shift focused index by delta and
+        // let the next Arrange recenter the viewport.
+        int next = state.FocusedIdx + deltaColumns;
+        if (next < 0) next = 0;
+        if (next >= state.Columns.Count) next = state.Columns.Count - 1;
+        state.FocusedIdx = next;
+    }
 }
 
 public sealed class ScrollingLayoutFactory : ILayoutFactory

@@ -1,0 +1,74 @@
+# =============================================================================
+# Aqueous WM — example config
+# Path: ~/.config/aqueous/wm.toml
+# Parser is a tiny TOML subset: [section], [[output]], key = value, # comments.
+# Unknown keys are ignored; a malformed file falls back to defaults silently.
+# =============================================================================
+
+[layout]
+# Global default layout id. One of: tile | monocle | grid | float | scrolling
+default       = "tile"
+
+# Gaps (px). Outer = around the screen edge; inner = between tiles.
+gaps_outer    = 8        # default 8
+gaps_inner    = 4        # default 4
+
+# Master/stack split for the `tile` engine.
+master_ratio  = 0.55     # default 0.55  (0.0–1.0)
+master_count  = 1        # default 1     (windows in master area)
+
+# Borders (ARGB hex, 0xAARRGGBB).
+border_width   = 2
+border_focused = 0xFF88C0D0   # Nord frost
+border_normal  = 0xFF3B4252   # Nord polar night
+border_urgent  = 0xFFBF616Au  # Nord aurora red
+
+
+# -----------------------------------------------------------------------------
+# Layout slots — symbolic names you can later bind keys to (Super+t/f/m/g
+# wiring is deferred to phase B1c, but the slot table is already parsed).
+# -----------------------------------------------------------------------------
+[layout.slots]
+primary    = "tile"
+secondary  = "scrolling"
+tertiary   = "monocle"
+quaternary = "grid"
+
+
+# -----------------------------------------------------------------------------
+# Per-layout option overrides. Section name pattern: [layout.options.<id>]
+# Recognised scalar keys: gaps_outer, gaps_inner, master_ratio, master_count.
+# Anything else lands in LayoutOptions.Extra (string→string) for the engine.
+# -----------------------------------------------------------------------------
+[layout.options.tile]
+gaps_outer   = 12
+gaps_inner   = 6
+master_ratio = 0.6
+
+[layout.options.grid]
+gaps_inner = 8
+
+[layout.options.scrolling]
+# PaperWM-style knobs consumed by ScrollingLayout via Extra:
+column_fraction = "0.5"     # each column = 50% of output width
+center_focused  = "true"    # auto-pan so focused column is centred
+
+[layout.options.float]
+# Floating engine has no scalar knobs today; reserved for future use.
+
+
+# -----------------------------------------------------------------------------
+# Per-output overrides. Repeat the [[output]] block once per monitor.
+# `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
+# -----------------------------------------------------------------------------
+[[output]]
+name   = "DP-1"
+layout = "scrolling"
+
+[[output]]
+name   = "HDMI-A-1"
+layout = "tile"
+
+[[output]]
+name   = "eDP-1"
+layout = "monocle"

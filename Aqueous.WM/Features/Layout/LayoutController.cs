@@ -90,14 +90,8 @@ public sealed class LayoutController
         IReadOnlyList<WindowEntryView> visibleWindows,
         IntPtr focusedWindow)
     {
-        var id = ResolveLayoutId(output, outputName);
-        if (!_engineByOutput.TryGetValue(output, out var engine) || engine.Id != id)
-        {
-            engine = _registry.Create(id);
-            _engineByOutput[output] = engine;
-            _stateByOutput[output]  = null;
-            _idByOutput[output]     = id;
-        }
+        var engine = ResolveEngine(output, outputName);
+        var id = engine.Id;
 
         var opts = _config.OptionsFor(id);
         object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
@@ -124,6 +118,73 @@ public sealed class LayoutController
             clamped.Add(p);
         }
         return clamped;
+    }
+
+    /// <summary>
+    /// Engine-aware directional focus: ask the active engine for the
+    /// neighbor of <paramref name="current"/> in <paramref name="dir"/>.
+    /// Returns <c>null</c> if the engine has no opinion (the caller
+    /// should then fall back to its layout-agnostic cycle).
+    /// </summary>
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        string? outputName,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows)
+    {
+        var engine = ResolveEngine(output, outputName);
+        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        var r = engine.FocusNeighbor(output, current, dir, windows, ref state);
+        _stateByOutput[output] = state;
+        return r;
+    }
+
+    /// <summary>
+    /// Ask the active engine to move the focused window's slot. Returns
+    /// true if the engine handled it; the caller should schedule a
+    /// manage cycle so the new ordering is applied.
+    /// </summary>
+    public bool MoveFocused(
+        IntPtr output,
+        string? outputName,
+        IntPtr focused,
+        FocusDirection dir)
+    {
+        var engine = ResolveEngine(output, outputName);
+        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        var r = engine.MoveFocused(output, focused, dir, ref state);
+        _stateByOutput[output] = state;
+        return r;
+    }
+
+    /// <summary>
+    /// Pan the active engine's viewport by <paramref name="deltaColumns"/>
+    /// (positive = right, negative = left). No-op for engines without a
+    /// viewport concept.
+    /// </summary>
+    public void ScrollViewport(
+        IntPtr output,
+        string? outputName,
+        int deltaColumns)
+    {
+        var engine = ResolveEngine(output, outputName);
+        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        engine.ScrollViewport(output, deltaColumns, ref state);
+        _stateByOutput[output] = state;
+    }
+
+    private ILayoutEngine ResolveEngine(IntPtr output, string? outputName)
+    {
+        var id = ResolveLayoutId(output, outputName);
+        if (!_engineByOutput.TryGetValue(output, out var engine) || engine.Id != id)
+        {
+            engine = _registry.Create(id);
+            _engineByOutput[output] = engine;
+            _stateByOutput[output]  = null;
+            _idByOutput[output]     = id;
+        }
+        return engine;
     }
 
     /// <summary>Called when an output is removed.</summary>

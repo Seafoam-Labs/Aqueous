@@ -146,7 +146,13 @@ namespace Aqueous.Features.Compositor.River
 
         // --- key bindings -------------------------------------------------
 
-        private enum KeyBindingAction { ToggleStartMenu, SpawnTerminal, CloseFocused, CycleFocus, FocusLeft, FocusRight, FocusDown, FocusUp }
+        private enum KeyBindingAction
+        {
+            ToggleStartMenu, SpawnTerminal, CloseFocused, CycleFocus,
+            FocusLeft, FocusRight, FocusDown, FocusUp,
+            ScrollViewportLeft, ScrollViewportRight,
+            MoveColumnLeft, MoveColumnRight,
+        }
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
@@ -745,6 +751,15 @@ namespace Aqueous.Features.Compositor.River
                             RegisterKeyBinding(proxy, 0x006a, mod, KeyBindingAction.FocusDown);       // j
                             RegisterKeyBinding(proxy, 0x006b, mod, KeyBindingAction.FocusUp);         // k
                             RegisterKeyBinding(proxy, 0x006c, mod, KeyBindingAction.FocusRight);      // l
+
+                            // Scrolling-layout viewport pan and column-move bindings.
+                            // Pan:  Super + ,  /  Super + .   (PaperWM convention)
+                            // Move: Super+Shift+H / Super+Shift+L
+                            uint modShift = mod | Mods.ModShift;
+                            RegisterKeyBinding(proxy, 0x002c, mod,      KeyBindingAction.ScrollViewportLeft);   // comma
+                            RegisterKeyBinding(proxy, 0x002e, mod,      KeyBindingAction.ScrollViewportRight);  // period
+                            RegisterKeyBinding(proxy, 0x0048, modShift, KeyBindingAction.MoveColumnLeft);       // Shift+H
+                            RegisterKeyBinding(proxy, 0x004c, modShift, KeyBindingAction.MoveColumnRight);      // Shift+L
                         }
 
                         // Register a compositor-level {Primary}+Left-Click pointer binding so that
@@ -1391,13 +1406,101 @@ namespace Aqueous.Features.Compositor.River
                     }
                     break;
                 case KeyBindingAction.CycleFocus:
-                case KeyBindingAction.FocusLeft:
-                case KeyBindingAction.FocusRight:
-                case KeyBindingAction.FocusUp:
-                case KeyBindingAction.FocusDown:
                     CycleFocus();
                     break;
+                case KeyBindingAction.FocusLeft:
+                    HandleDirectionalFocus(FocusDirection.Left);
+                    break;
+                case KeyBindingAction.FocusRight:
+                    HandleDirectionalFocus(FocusDirection.Right);
+                    break;
+                case KeyBindingAction.FocusUp:
+                    HandleDirectionalFocus(FocusDirection.Up);
+                    break;
+                case KeyBindingAction.FocusDown:
+                    HandleDirectionalFocus(FocusDirection.Down);
+                    break;
+                case KeyBindingAction.ScrollViewportLeft:
+                    HandleScrollViewport(-1);
+                    break;
+                case KeyBindingAction.ScrollViewportRight:
+                    HandleScrollViewport(+1);
+                    break;
+                case KeyBindingAction.MoveColumnLeft:
+                    HandleMoveColumn(FocusDirection.Left);
+                    break;
+                case KeyBindingAction.MoveColumnRight:
+                    HandleMoveColumn(FocusDirection.Right);
+                    break;
             }
+        }
+
+        /// <summary>
+        /// Engine-aware directional focus. Asks the active layout engine for
+        /// its preferred neighbour (e.g. scrolling's column ordering) and
+        /// falls back to insertion-order CycleFocus when the engine has no
+        /// opinion. After focus changes to a possibly off-screen window we
+        /// schedule a manage cycle so the engine recentres its viewport
+        /// (otherwise render_start would skip the new focused window
+        /// because Visible=false).
+        /// </summary>
+        private void HandleDirectionalFocus(FocusDirection dir)
+        {
+            if (_focusedWindow == IntPtr.Zero || _windows.Count == 0) { CycleFocus(); return; }
+            if (!_windows.TryGetValue(_focusedWindow, out var fw)) { CycleFocus(); return; }
+
+            IntPtr output = fw.Output;
+            string? outputName = ResolveOutputName(output);
+            var snapshot = BuildSnapshotFor(output);
+            var target = _layoutController.FocusNeighbor(output, outputName, _focusedWindow, dir, snapshot);
+            if (target is { } t && t != IntPtr.Zero && _windows.ContainsKey(t))
+            {
+                ScheduleManage();      // engine may need to recentre viewport
+                RequestFocus(t);
+                return;
+            }
+            CycleFocus();
+        }
+
+        private void HandleScrollViewport(int deltaColumns)
+        {
+            if (_focusedWindow == IntPtr.Zero || !_windows.TryGetValue(_focusedWindow, out var fw))
+                return;
+            _layoutController.ScrollViewport(fw.Output, ResolveOutputName(fw.Output), deltaColumns);
+            ScheduleManage();
+        }
+
+        private void HandleMoveColumn(FocusDirection dir)
+        {
+            if (_focusedWindow == IntPtr.Zero || !_windows.TryGetValue(_focusedWindow, out var fw))
+                return;
+            if (_layoutController.MoveFocused(fw.Output, ResolveOutputName(fw.Output), _focusedWindow, dir))
+                ScheduleManage();
+        }
+
+        /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
+        private List<WindowEntryView> BuildSnapshotFor(IntPtr output)
+        {
+            var list = new List<WindowEntryView>(_windows.Count);
+            foreach (var kvp in _windows)
+            {
+                var w = kvp.Value;
+                if (output != IntPtr.Zero && w.Output != IntPtr.Zero && w.Output != output) continue;
+                list.Add(new WindowEntryView(
+                    Handle: kvp.Key,
+                    MinW: w.MinW, MinH: w.MinH, MaxW: w.MaxW, MaxH: w.MaxH,
+                    Floating: w.Floating, Fullscreen: false, Tags: 0u));
+            }
+            return list;
+        }
+
+        private string? ResolveOutputName(IntPtr output)
+        {
+            // OutputEntry does not currently surface a name field; per-output
+            // config matching is handled separately. Returning null keeps the
+            // controller's resolution path identical to ProposeForArea's.
+            _ = output;
+            return null;
         }
 
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
