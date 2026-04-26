@@ -863,21 +863,26 @@ namespace Aqueous.Features.Compositor.River
                     // them at full render cadence multiplies bus traffic and, combined with
                     // the former manage_dirty storm, starved client pings. Only re-emit
                     // when the cached value has actually changed.
-                    foreach (var kvp in _windows) {
-                        var we = kvp.Value;
-                        // Phase B1b scrolling fix: skip off-screen windows
-                        // entirely. Emitting show / borders / place_top /
-                        // set_position with the engine's negative screenX
-                        // crashes River (set_clip_box ends up against a
-                        // node that hasn't committed a buffer at that
-                        // position yet) and floods the wire with stale
-                        // proposals. ScrollingLayout returns Visible=false
-                        // for these; ProposeForArea propagated the bit.
-                        if (!we.Visible) continue;
+                    // Phase B1e Pass C / C4: layered render emission.
+                    // The river scene graph is not retained between
+                    // render cycles, so the *last* place_top per node
+                    // wins for stacking. Emitting in four ordered passes
+                    // (tiled → maximized → floating → fullscreen) puts
+                    // FS on top of floats on top of maximized on top of
+                    // tiles, which is the documented Phase B1e
+                    // stacking order. Within a layer dictionary order is
+                    // accepted; focus-aware in-layer ordering is a
+                    // post-Pass-C polish item.
+                    void EmitWindow(IntPtr key, WindowEntry we) {
+                        if (!we.Visible) return;
                         // show (opcode 5) — every frame so the window is in this frame's scene.
-                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         // set_borders (opcode 8) — zero-width, every frame.
-                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
+                        // Note: per Pass C plan, fullscreen explicitly
+                        // wants 0-width borders; tiled/floating get the
+                        // same value today (Pass C does not introduce
+                        // border colour/width — that's a polish item).
+                        WaylandInterop.wl_proxy_marshal_flags(key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
 
                         if (we.NodeProxy != IntPtr.Zero)
                         {
@@ -896,11 +901,48 @@ namespace Aqueous.Features.Compositor.River
                             (we.LastClipW != we.W || we.LastClipH != we.H))
                         {
                             WaylandInterop.wl_proxy_marshal_flags(
-                                kvp.Key, 21, IntPtr.Zero, 0, 0,
+                                key, 21, IntPtr.Zero, 0, 0,
                                 (IntPtr)0, (IntPtr)0, (IntPtr)we.W, (IntPtr)we.H,
                                 IntPtr.Zero, IntPtr.Zero);
                             we.LastClipW = we.W; we.LastClipH = we.H;
                         }
+                    }
+
+                    // Classify each window once, then emit in four
+                    // ordered passes. State==null is treated as Tiled
+                    // (windows that no chord has yet touched).
+                    WindowState ClassifyState(IntPtr handle)
+                    {
+                        if (_windowStates.TryGetValue(handle, out var sd) && sd != null)
+                            return sd.State;
+                        return WindowState.Tiled;
+                    }
+
+                    // Pass 1: tiled (and unknown).
+                    foreach (var kvp in _windows)
+                    {
+                        var s = ClassifyState(kvp.Key);
+                        if (s == WindowState.Tiled) EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    // Pass 2: maximized.
+                    foreach (var kvp in _windows)
+                    {
+                        if (ClassifyState(kvp.Key) == WindowState.Maximized)
+                            EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    // Pass 3: floating (and Scratchpad — visible scratchpads
+                    // are rendered as floating dropdown windows above tiles).
+                    foreach (var kvp in _windows)
+                    {
+                        var s = ClassifyState(kvp.Key);
+                        if (s == WindowState.Floating || s == WindowState.Scratchpad)
+                            EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    // Pass 4: fullscreen (last so its place_top wins).
+                    foreach (var kvp in _windows)
+                    {
+                        if (ClassifyState(kvp.Key) == WindowState.Fullscreen)
+                            EmitWindow(kvp.Key, kvp.Value);
                     }
                     SendManagerRequest(4); // render_finish opcode = 4
                     break;
@@ -1081,7 +1123,18 @@ namespace Aqueous.Features.Compositor.River
 
             var tiledSnapshot = new List<WindowEntryView>(_windows.Count);
             var floatingHandles = new List<IntPtr>();
-            var hiddenByTag = new List<WindowEntry>();
+            // Phase B1e Pass C: per-window state overrides. Fullscreen
+            // and Maximized bypass the layout engine and route directly
+            // to short bespoke loops below; their target rects come from
+            // the host adapter (OutputRect / UsableArea).
+            var fullscreenHandles = new List<IntPtr>();
+            var maximizedHandles  = new List<IntPtr>();
+            // Pass C / C2: hiddenThisCycle is the union of (a) tag-hidden,
+            // (b) WindowState.Minimized, and (c) scratchpad windows that
+            // are currently dismissed (state.Visible == false). All three
+            // share the existing one-shot hide(opcode 4) + cache-invalidation
+            // treatment further down.
+            var hiddenThisCycle = new List<WindowEntry>();
             foreach (var kvp in _windows)
             {
                 var w = kvp.Value;
@@ -1129,7 +1182,67 @@ namespace Aqueous.Features.Compositor.River
                     w.Tags, outputVisibleTags);
                 if (!tagVisible)
                 {
-                    hiddenByTag.Add(w);
+                    hiddenThisCycle.Add(w);
+                    continue;
+                }
+
+                // Phase B1e Pass C / C2: window-state visibility filter.
+                // Minimized windows and scratchpad-parked windows whose
+                // visibility flag is currently false (pad dismissed) are
+                // hidden the same way tag-hidden windows are: a one-shot
+                // hide(opcode 4), placement caches invalidated, and
+                // skipped from the layout snapshot entirely.
+                _windowStates.TryGetValue(kvp.Key, out var wsState);
+                if (wsState != null &&
+                    (wsState.State == WindowState.Minimized ||
+                     (wsState.InScratchpad && !wsState.Visible)))
+                {
+                    hiddenThisCycle.Add(w);
+                    continue;
+                }
+
+                // Phase B1e Pass C / C3: state-driven geometry routing.
+                // Fullscreen and Maximized bypass the active layout
+                // engine; Floating uses the existing per-window FloatRect
+                // path.  When the active engine is "float" we still treat
+                // every window as floating so the user's drag handler
+                // works as before.  Note that a window can only be
+                // Fullscreen on the output it's pinned to: if a window
+                // wandered onto a different output, demote it back to
+                // its previous state for this cycle.
+                if (wsState != null && wsState.State == WindowState.Fullscreen)
+                {
+                    // Single-FS-per-output: only the slot owner gets the
+                    // FS rect. Defence-in-depth: if a stale FS flag
+                    // somehow survives an output change, fall through to
+                    // the Tiled bucket without emitting two FS rects.
+                    var fsOwner = _outputFullscreen.TryGetValue(output, out var owner) ? owner : IntPtr.Zero;
+                    if (fsOwner == IntPtr.Zero || fsOwner == kvp.Key)
+                    {
+                        fullscreenHandles.Add(kvp.Key);
+                        continue;
+                    }
+                    Log($"FS slot conflict on output 0x{output.ToString("x")}: " +
+                        $"window 0x{kvp.Key.ToString("x")} flagged FS but slot owner is 0x{fsOwner.ToString("x")}; demoting to tiled");
+                }
+                if (wsState != null && wsState.State == WindowState.Maximized)
+                {
+                    maximizedHandles.Add(kvp.Key);
+                    continue;
+                }
+                if (wsState != null && wsState.State == WindowState.Floating)
+                {
+                    // Seed the WindowEntry's FloatRect from the controller's
+                    // remembered FloatingGeom on the first cycle a window
+                    // enters Floating, so the bespoke loop below has a rect
+                    // to emit even if the user has never dragged it.
+                    if (!w.HasFloatRect && wsState.FloatingGeom is { } g && g.W > 0 && g.H > 0)
+                    {
+                        w.FloatX = g.X; w.FloatY = g.Y;
+                        w.FloatW = g.W; w.FloatH = g.H;
+                        w.HasFloatRect = true;
+                    }
+                    floatingHandles.Add(kvp.Key);
                     continue;
                 }
 
@@ -1162,9 +1275,9 @@ namespace Aqueous.Features.Compositor.River
             // subsequent re-show re-issues propose_dimensions /
             // set_position. Hidden windows must not participate in
             // the per-frame render loop either, hence Visible=false.
-            for (int hi = 0; hi < hiddenByTag.Count; hi++)
+            for (int hi = 0; hi < hiddenThisCycle.Count; hi++)
             {
-                var w = hiddenByTag[hi];
+                var w = hiddenThisCycle[hi];
                 if (!w.HideSent)
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
@@ -1293,6 +1406,81 @@ namespace Aqueous.Features.Compositor.River
                 // Position is what the user dragged to; never overwritten by
                 // any engine call. Width/height only proposed when changed.
                 w.X = w.FloatX; w.Y = w.FloatY;
+                w.Visible = true;
+                w.TagVisible = true;
+                w.HideSent = false;
+
+                if (pw != w.LastHintW || ph != w.LastHintH)
+                {
+                    w.LastHintW = pw; w.LastHintH = ph;
+                    w.ProposedW = pw; w.ProposedH = ph;
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+
+            // -------- Phase B1e Pass C: Maximized layer --------------------
+            // Maximized windows cover the usable area of their pinned
+            // output (or this output, when not pinned). Geometry follows
+            // exactly the same diff-gating discipline as the floating
+            // loop above so we don't re-propose every cycle.
+            for (int i = 0; i < maximizedHandles.Count; i++)
+            {
+                var handle = maximizedHandles[i];
+                if (!_windows.TryGetValue(handle, out var w)) continue;
+
+                int tx = usableArea.X, ty = usableArea.Y;
+                int pw = usableArea.W, ph = usableArea.H;
+                if (pw <= 0 || ph <= 0) continue;
+
+                w.X = tx; w.Y = ty;
+                w.Visible = true;
+                w.TagVisible = true;
+                w.HideSent = false;
+
+                if (pw != w.LastHintW || ph != w.LastHintH)
+                {
+                    w.LastHintW = pw; w.LastHintH = ph;
+                    w.ProposedW = pw; w.ProposedH = ph;
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+
+            // -------- Phase B1e Pass C: Fullscreen layer -------------------
+            // Fullscreen windows cover the raw output rect (no struts,
+            // no gaps). The single-FS-per-output invariant is enforced
+            // up in the snapshot pass; here we trust the bucket.
+            // Note: ProposeForArea is invoked once per output with
+            // `usableArea` already equal to the OutputEntry rect (see
+            // the `manage_start` caller around line 840), so for now we
+            // use `usableArea` minus any reservation as the FS rect by
+            // *adding back* the OutputEntry's full rect when one is
+            // available. UsableArea reservation is a TODO(passC1)
+            // pending real exclusive_zone tracking, so today
+            // `OutputRect == UsableArea` and the two loops produce
+            // identical geometry — which is the documented Pass C
+            // behaviour without C1 reservations.
+            Rect outputRect = usableArea;
+            if (output != IntPtr.Zero && _outputs.TryGetValue(output, out var oeFull))
+                outputRect = new Rect(oeFull.X, oeFull.Y,
+                                      oeFull.Width  > 0 ? oeFull.Width  : usableArea.W,
+                                      oeFull.Height > 0 ? oeFull.Height : usableArea.H);
+
+            for (int i = 0; i < fullscreenHandles.Count; i++)
+            {
+                var handle = fullscreenHandles[i];
+                if (!_windows.TryGetValue(handle, out var w)) continue;
+
+                int tx = outputRect.X, ty = outputRect.Y;
+                int pw = outputRect.W, ph = outputRect.H;
+                if (pw <= 0 || ph <= 0) continue;
+
+                w.X = tx; w.Y = ty;
                 w.Visible = true;
                 w.TagVisible = true;
                 w.HideSent = false;
