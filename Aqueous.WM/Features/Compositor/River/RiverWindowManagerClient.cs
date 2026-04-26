@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Aqueous.WM.Features.Layout;
 
 namespace Aqueous.Features.Compositor.River
 {
@@ -130,9 +131,32 @@ namespace Aqueous.Features.Compositor.River
         private Thread? _pumpThread;
         private volatile bool _running;
 
+        // --- layout subsystem ----------------------------------------------
+        // Pluggable layout engine (Phase 1.1 / B1b). The controller owns
+        // per-output state and applies size hints; the engines themselves are
+        // pure functions that never call into Wayland.
+        private readonly LayoutRegistry _layoutRegistry;
+        private LayoutController _layoutController;
+        private LayoutConfig _layoutConfig;
+
         private RiverWindowManagerClient()
         {
             _seatInteractionService = new SeatInteractionService(this);
+            _layoutRegistry  = new LayoutRegistry();
+            _layoutConfig    = LayoutConfig.Load(GetDefaultConfigPath());
+            _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
+        }
+
+        private static string GetDefaultConfigPath()
+        {
+            // ~/.config/aqueous/wm.toml — XDG base dir if set, otherwise HOME.
+            var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            var baseDir = !string.IsNullOrEmpty(xdg)
+                ? xdg
+                : System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".config");
+            return System.IO.Path.Combine(baseDir, "aqueous", "wm.toml");
         }
 
         // --- lifecycle -----------------------------------------------------
@@ -508,20 +532,37 @@ namespace Aqueous.Features.Compositor.River
                         _pendingFocusShellSurface = IntPtr.Zero;
                     }
 
-                    foreach (var kvp in _windows) {
-                        // Only propose when the hint itself changed. Whatever the client commits
-                        // in response (via the dimensions event) is final; we do not re-propose
-                        // just because the client rounded to cell size.
-                        var w = kvp.Value;
-                        int pw = 800, ph = 600;
-                        if (w.MaxW > 0) pw = Math.Min(pw, w.MaxW);
-                        if (w.MaxH > 0) ph = Math.Min(ph, w.MaxH);
-                        if (w.MinW > 0) pw = Math.Max(pw, w.MinW);
-                        if (w.MinH > 0) ph = Math.Max(ph, w.MinH);
-                        if (pw == w.LastHintW && ph == w.LastHintH) continue;
-                        w.LastHintW = pw; w.LastHintH = ph;
-                        w.ProposedW = pw; w.ProposedH = ph;
-                        WaylandInterop.wl_proxy_marshal_flags(kvp.Key, 3, IntPtr.Zero, 0, 0, (IntPtr)pw, (IntPtr)ph, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    // ----------------------------------------------------------------
+                    // Layout subsystem (Phase 1.1 / B1b).
+                    //
+                    // For every known output, ask the LayoutController to place the
+                    // visible windows assigned to that output. The controller calls the
+                    // resolved ILayoutEngine (tile / monocle / grid / float / scrolling)
+                    // and clamps results to per-window min/max hints.
+                    //
+                    // Wayland-side, manage_start is the right phase for propose_dimensions
+                    // — the per-frame set_position/show/place_top calls live in case 3
+                    // (render_start) and are unchanged. We diff against the per-window
+                    // LastHintW/H so we only re-propose when the engine actually picked a
+                    // new size, preserving the bandwidth-saving behaviour the previous
+                    // hard-coded 800x600 loop relied on.
+                    // ----------------------------------------------------------------
+                    if (_outputs.IsEmpty)
+                    {
+                        // Headless / no outputs reported yet: fall back to a single
+                        // virtual 1920x1080 area so windows still get a reasonable
+                        // initial proposal (matches old behaviour + tile layout).
+                        ProposeForArea(IntPtr.Zero, null, new Rect(0, 0, 1920, 1080));
+                    }
+                    else
+                    {
+                        foreach (var outputKvp in _outputs)
+                        {
+                            var oe = outputKvp.Value;
+                            int aw = oe.Width  > 0 ? oe.Width  : 1920;
+                            int ah = oe.Height > 0 ? oe.Height : 1080;
+                            ProposeForArea(outputKvp.Key, null, new Rect(oe.X, oe.Y, aw, ah));
+                        }
                     }
                     SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
                     } finally { _insideManageSequence = false; }
@@ -717,6 +758,74 @@ namespace Aqueous.Features.Compositor.River
                 _manager, opcode, IntPtr.Zero, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             WaylandInterop.wl_display_flush(_display);
+        }
+
+        /// <summary>
+        /// Drive the layout subsystem for one output (or, if
+        /// <paramref name="output"/> is <see cref="IntPtr.Zero"/>, the
+        /// virtual fallback area). Builds a snapshot of the visible
+        /// windows, asks <see cref="LayoutController.Arrange"/> for
+        /// placements, and emits <c>propose_dimensions</c> only when the
+        /// engine's choice differs from <c>WindowEntry.LastHintW/H</c>.
+        /// </summary>
+        private void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
+        {
+            // For Phase 1.1 every window goes through the active layout — there
+            // is no per-window floating/fullscreen flag in the current
+            // WindowEntry yet (that's Phase B1e). New flags are added by future
+            // phases without further controller changes.
+            var snapshot = new List<WindowEntryView>(_windows.Count);
+            foreach (var kvp in _windows)
+            {
+                var w = kvp.Value;
+                snapshot.Add(new WindowEntryView(
+                    Handle:     kvp.Key,
+                    MinW:       w.MinW, MinH: w.MinH,
+                    MaxW:       w.MaxW, MaxH: w.MaxH,
+                    Floating:   false,
+                    Fullscreen: false,
+                    Tags:       0u));
+            }
+            if (snapshot.Count == 0) return;
+
+            IReadOnlyList<WindowPlacement> placements;
+            try
+            {
+                placements = _layoutController.Arrange(
+                    output, outputName, usableArea, snapshot, _focusedWindow);
+            }
+            catch (Exception ex)
+            {
+                Log("layout engine threw, skipping arrange: " + ex.Message);
+                return;
+            }
+
+            for (int i = 0; i < placements.Count; i++)
+            {
+                var p = placements[i];
+                if (!_windows.TryGetValue(p.Handle, out var w)) continue;
+
+                int pw = p.Geometry.W;
+                int ph = p.Geometry.H;
+                if (pw <= 0 || ph <= 0) continue;
+
+                // Same diff guard as before — only re-propose on actual change.
+                if (pw == w.LastHintW && ph == w.LastHintH)
+                {
+                    // Still update target X/Y so render_start positions correctly.
+                    w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+                    continue;
+                }
+                w.LastHintW = pw; w.LastHintH = ph;
+                w.ProposedW = pw; w.ProposedH = ph;
+                w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+
+                // river_window_v1.propose_dimensions (opcode 3).
+                WaylandInterop.wl_proxy_marshal_flags(
+                    p.Handle, 3, IntPtr.Zero, 0, 0,
+                    (IntPtr)pw, (IntPtr)ph,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            }
         }
 
         // --- river_window_v1 events ---------------------------------------
