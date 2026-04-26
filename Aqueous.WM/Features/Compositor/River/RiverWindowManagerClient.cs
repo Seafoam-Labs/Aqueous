@@ -73,6 +73,15 @@ namespace Aqueous.Features.Compositor.River
             public int LastClipW, LastClipH;
             public bool BordersSent;
             public bool ShowSent;
+
+            // Phase B1e (partial): per-window floating override + remembered
+            // floating rect. Set when the user drags a window with
+            // Super+BTN_LEFT; honoured by ProposeForArea so floating windows
+            // bypass the active layout engine and keep their dragged
+            // position across manage cycles.
+            public bool Floating;
+            public bool HasFloatRect;
+            public int FloatX, FloatY, FloatW, FloatH;
         }
 
         private sealed class OutputEntry
@@ -770,61 +779,115 @@ namespace Aqueous.Features.Compositor.River
         /// </summary>
         private void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
         {
-            // For Phase 1.1 every window goes through the active layout — there
-            // is no per-window floating/fullscreen flag in the current
-            // WindowEntry yet (that's Phase B1e). New flags are added by future
-            // phases without further controller changes.
-            var snapshot = new List<WindowEntryView>(_windows.Count);
+            // Floating windows are a layer, not a layout: they bypass the
+            // active engine entirely and use their remembered FloatRect (set
+            // by the Super+BTN_LEFT drag handler). When the active engine is
+            // "float", we additionally treat every window as floating so the
+            // user can drag any of them — the engine itself is only used to
+            // compute an initial centred rect for windows that don't have
+            // one yet.
+            string activeId = _layoutController.ResolveLayoutId(output, outputName);
+            bool floatIsActive = activeId == "float";
+
+            var tiledSnapshot = new List<WindowEntryView>(_windows.Count);
+            var floatingHandles = new List<IntPtr>();
             foreach (var kvp in _windows)
             {
                 var w = kvp.Value;
-                snapshot.Add(new WindowEntryView(
-                    Handle:     kvp.Key,
-                    MinW:       w.MinW, MinH: w.MinH,
-                    MaxW:       w.MaxW, MaxH: w.MaxH,
-                    Floating:   false,
-                    Fullscreen: false,
-                    Tags:       0u));
-            }
-            if (snapshot.Count == 0) return;
-
-            IReadOnlyList<WindowPlacement> placements;
-            try
-            {
-                placements = _layoutController.Arrange(
-                    output, outputName, usableArea, snapshot, _focusedWindow);
-            }
-            catch (Exception ex)
-            {
-                Log("layout engine threw, skipping arrange: " + ex.Message);
-                return;
+                bool treatAsFloating = w.Floating || floatIsActive;
+                if (treatAsFloating)
+                {
+                    floatingHandles.Add(kvp.Key);
+                }
+                else
+                {
+                    tiledSnapshot.Add(new WindowEntryView(
+                        Handle:     kvp.Key,
+                        MinW:       w.MinW, MinH: w.MinH,
+                        MaxW:       w.MaxW, MaxH: w.MaxH,
+                        Floating:   false,
+                        Fullscreen: false,
+                        Tags:       0u));
+                }
             }
 
-            for (int i = 0; i < placements.Count; i++)
+            // -------- Tiled windows: drive through the layout engine --------
+            if (tiledSnapshot.Count > 0)
             {
-                var p = placements[i];
-                if (!_windows.TryGetValue(p.Handle, out var w)) continue;
+                IReadOnlyList<WindowPlacement> placements;
+                try
+                {
+                    placements = _layoutController.Arrange(
+                        output, outputName, usableArea, tiledSnapshot, _focusedWindow);
+                }
+                catch (Exception ex)
+                {
+                    Log("layout engine threw, skipping arrange: " + ex.Message);
+                    placements = Array.Empty<WindowPlacement>();
+                }
 
-                int pw = p.Geometry.W;
-                int ph = p.Geometry.H;
+                for (int i = 0; i < placements.Count; i++)
+                {
+                    var p = placements[i];
+                    if (!_windows.TryGetValue(p.Handle, out var w)) continue;
+
+                    int pw = p.Geometry.W;
+                    int ph = p.Geometry.H;
+                    if (pw <= 0 || ph <= 0) continue;
+
+                    if (pw == w.LastHintW && ph == w.LastHintH)
+                    {
+                        w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+                        continue;
+                    }
+                    w.LastHintW = pw; w.LastHintH = ph;
+                    w.ProposedW = pw; w.ProposedH = ph;
+                    w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        p.Handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+
+            // -------- Floating layer: use the remembered FloatRect ---------
+            // Initial-rect math matches FloatingLayout.Arrange so the very
+            // first frame of a never-dragged window in float-active mode is
+            // identical to what the engine would have produced.
+            int initW = Math.Min(800, (int)(usableArea.W * 0.6));
+            int initH = Math.Min(600, (int)(usableArea.H * 0.6));
+            int initX = usableArea.X + (usableArea.W - initW) / 2;
+            int initY = usableArea.Y + (usableArea.H - initH) / 2;
+
+            for (int i = 0; i < floatingHandles.Count; i++)
+            {
+                var handle = floatingHandles[i];
+                if (!_windows.TryGetValue(handle, out var w)) continue;
+
+                if (!w.HasFloatRect)
+                {
+                    w.FloatX = initX; w.FloatY = initY;
+                    w.FloatW = initW; w.FloatH = initH;
+                    w.HasFloatRect = true;
+                }
+
+                int pw = w.FloatW, ph = w.FloatH;
                 if (pw <= 0 || ph <= 0) continue;
 
-                // Same diff guard as before — only re-propose on actual change.
-                if (pw == w.LastHintW && ph == w.LastHintH)
-                {
-                    // Still update target X/Y so render_start positions correctly.
-                    w.X = p.Geometry.X; w.Y = p.Geometry.Y;
-                    continue;
-                }
-                w.LastHintW = pw; w.LastHintH = ph;
-                w.ProposedW = pw; w.ProposedH = ph;
-                w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+                // Position is what the user dragged to; never overwritten by
+                // any engine call. Width/height only proposed when changed.
+                w.X = w.FloatX; w.Y = w.FloatY;
 
-                // river_window_v1.propose_dimensions (opcode 3).
-                WaylandInterop.wl_proxy_marshal_flags(
-                    p.Handle, 3, IntPtr.Zero, 0, 0,
-                    (IntPtr)pw, (IntPtr)ph,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (pw != w.LastHintW || ph != w.LastHintH)
+                {
+                    w.LastHintW = pw; w.LastHintH = ph;
+                    w.ProposedW = pw; w.ProposedH = ph;
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
             }
         }
 
@@ -1002,8 +1065,22 @@ namespace Aqueous.Features.Compositor.River
                     int dy = args[1].i;
                     if (_activeDragWindow != null)
                     {
-                        _activeDragWindow.X = _dragStartX + dx;
-                        _activeDragWindow.Y = _dragStartY + dy;
+                        var adw = _activeDragWindow;
+                        adw.X = _dragStartX + dx;
+                        adw.Y = _dragStartY + dy;
+                        // Promote the dragged window to the floating layer and
+                        // remember its rect so subsequent manage cycles do not
+                        // overwrite the drag-derived position with the active
+                        // layout engine's choice. Width/height come from the
+                        // last known committed dimensions; if the client has
+                        // not committed a size yet, fall back to the last
+                        // proposed hint.
+                        adw.Floating = true;
+                        adw.HasFloatRect = true;
+                        adw.FloatX = adw.X;
+                        adw.FloatY = adw.Y;
+                        adw.FloatW = adw.W > 0 ? adw.W : (adw.LastHintW > 0 ? adw.LastHintW : adw.ProposedW);
+                        adw.FloatH = adw.H > 0 ? adw.H : (adw.LastHintH > 0 ? adw.LastHintH : adw.ProposedH);
                     }
                     break;
                 case 7:
