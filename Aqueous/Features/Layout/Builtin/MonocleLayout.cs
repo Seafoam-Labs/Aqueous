@@ -32,7 +32,9 @@ public sealed class MonocleLayout : ILayoutEngine
         // Validate Current; fall back to focused, then first.
         bool stillThere = false;
         for (int i = 0; i < windows.Count; i++)
+        {
             if (windows[i].Handle == state.Current) { stillThere = true; break; }
+        }
 
         if (!stillThere)
         {
@@ -40,12 +42,18 @@ public sealed class MonocleLayout : ILayoutEngine
             // If even focused isn't in the visible set, pick the first one.
             bool focusedHere = false;
             for (int i = 0; i < windows.Count; i++)
+            {
                 if (windows[i].Handle == state.Current) { focusedHere = true; break; }
-            if (!focusedHere) state.Current = windows[0].Handle;
+            }
+
+            if (!focusedHere)
+            {
+                state.Current = windows[0].Handle;
+            }
         }
 
         var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
-        bool hideOthers  = opts.GetExtraBool("hide_others", true);
+        bool hideOthers = opts.GetExtraBool("hide_others", true);
         bool showBorders = opts.GetExtraBool("show_borders", false);
         var border = showBorders ? new BorderSpec(2, 0, 0, 0) : BorderSpec.None;
 

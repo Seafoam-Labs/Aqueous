@@ -25,7 +25,11 @@ public sealed class LayoutRegistry
 
     public void Register(ILayoutFactory factory)
     {
-        if (factory is null) throw new ArgumentNullException(nameof(factory));
+        if (factory is null)
+        {
+            throw new ArgumentNullException(nameof(factory));
+        }
+
         _factories[factory.Id] = factory;
     }
 
@@ -35,7 +39,10 @@ public sealed class LayoutRegistry
     public ILayoutEngine Create(string id)
     {
         if (!_factories.TryGetValue(id, out var f))
+        {
             throw new KeyNotFoundException($"Layout '{id}' is not registered.");
+        }
+
         return f.Create();
     }
 

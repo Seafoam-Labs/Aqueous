@@ -21,7 +21,10 @@ public sealed class TileLayout : ILayoutEngine
         ref object? perOutputState)
     {
         var result = new List<WindowPlacement>(windows.Count);
-        if (windows.Count == 0) return result;
+        if (windows.Count == 0)
+        {
+            return result;
+        }
 
         var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
         int n = windows.Count;
@@ -38,7 +41,7 @@ public sealed class TileLayout : ILayoutEngine
         int masterW = stackCount == 0
             ? area.W
             : Math.Max(1, (int)Math.Round(area.W * opts.MasterRatio));
-        int stackW  = stackCount == 0 ? 0 : Math.Max(1, area.W - masterW - opts.GapsInner);
+        int stackW = stackCount == 0 ? 0 : Math.Max(1, area.W - masterW - opts.GapsInner);
 
         // Master column.
         SplitVertical(area.X, area.Y, masterW, area.H,

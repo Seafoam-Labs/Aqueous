@@ -20,12 +20,15 @@ public sealed class GridLayout : ILayoutEngine
     {
         var result = new List<WindowPlacement>(windows.Count);
         int n = windows.Count;
-        if (n == 0) return result;
+        if (n == 0)
+        {
+            return result;
+        }
 
         var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
         int cols = (int)Math.Ceiling(Math.Sqrt(n));
         int rows = (int)Math.Ceiling((double)n / cols);
-        int gap  = opts.GapsInner;
+        int gap = opts.GapsInner;
 
         int cellW = Math.Max(1, (area.W - gap * (cols - 1)) / cols);
         int cellH = Math.Max(1, (area.H - gap * (rows - 1)) / rows);

@@ -27,9 +27,9 @@ public sealed class WindowStateController
         ScratchpadRegistry scratchpads,
         StateConfig? config = null)
     {
-        _host        = host        ?? throw new ArgumentNullException(nameof(host));
+        _host = host ?? throw new ArgumentNullException(nameof(host));
         _scratchpads = scratchpads ?? throw new ArgumentNullException(nameof(scratchpads));
-        _config      = config      ?? StateConfig.Default;
+        _config = config ?? StateConfig.Default;
     }
 
     public ScratchpadRegistry Scratchpads => _scratchpads;
@@ -50,10 +50,16 @@ public sealed class WindowStateController
     public bool ToggleFullscreen(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null) return false;
+        if (w is null)
+        {
+            return false;
+        }
 
         var output = w.PinnedOutput != IntPtr.Zero ? w.PinnedOutput : _host.FocusedOutput;
-        if (output == IntPtr.Zero) return false;
+        if (output == IntPtr.Zero)
+        {
+            return false;
+        }
 
         if (w.State == WindowState.Fullscreen)
         {
@@ -68,15 +74,18 @@ public sealed class WindowStateController
         if (prior != IntPtr.Zero && prior != window)
         {
             var pw = _host.Get(prior);
-            if (pw is not null) DemoteFromFullscreen(pw, output);
+            if (pw is not null)
+            {
+                DemoteFromFullscreen(pw, output);
+            }
         }
 
         // Maximize/Floating sub-states stash their own pre-state too — but we
         // record what *we* will restore to, which is the snapshot taken now.
-        w.PreFsGeom     = _host.CurrentGeometry(window);
+        w.PreFsGeom = _host.CurrentGeometry(window);
         w.PreviousState = w.State;
-        w.State         = WindowState.Fullscreen;
-        w.PinnedOutput  = output;
+        w.State = WindowState.Fullscreen;
+        w.PinnedOutput = output;
         _host.SetFullscreenWindow(output, window);
         _host.EmitForeignToplevelFullscreen(window, output);
         _host.Log($"state ws=0x{(long)window:x} {w.PreviousState}→fullscreen output=0x{(long)output:x}");
@@ -92,9 +101,16 @@ public sealed class WindowStateController
     public void OnClientRequestedFullscreen(IntPtr window, IntPtr? output)
     {
         var w = _host.Get(window);
-        if (w is null || w.State == WindowState.Fullscreen) return;
+        if (w is null || w.State == WindowState.Fullscreen)
+        {
+            return;
+        }
+
         if (output is not null && output.Value != IntPtr.Zero)
+        {
             w.PinnedOutput = output.Value;
+        }
+
         ToggleFullscreen(window);
     }
 
@@ -102,7 +118,11 @@ public sealed class WindowStateController
     public void OnClientRequestedUnfullscreen(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null || w.State != WindowState.Fullscreen) return;
+        if (w is null || w.State != WindowState.Fullscreen)
+        {
+            return;
+        }
+
         ToggleFullscreen(window);
     }
 
@@ -114,7 +134,10 @@ public sealed class WindowStateController
         // recompute Tiled geometry on the next render. Floating/Maximized
         // restore their own remembered rect.
         if (w.State == WindowState.Floating && w.PreFsGeom is { } g)
+        {
             w.FloatingGeom = g;
+        }
+
         _host.SetFullscreenWindow(output, IntPtr.Zero);
         _host.EmitForeignToplevelUnfullscreen(w.Handle);
     }
@@ -132,9 +155,16 @@ public sealed class WindowStateController
     public bool ToggleMaximize(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null) return false;
+        if (w is null)
+        {
+            return false;
+        }
+
         var output = w.PinnedOutput != IntPtr.Zero ? w.PinnedOutput : _host.FocusedOutput;
-        if (output == IntPtr.Zero) return false;
+        if (output == IntPtr.Zero)
+        {
+            return false;
+        }
 
         if (w.State == WindowState.Maximized)
         {
@@ -145,11 +175,15 @@ public sealed class WindowStateController
         {
             // Disallow stacking maximize on top of fullscreen/minimize/scratchpad.
             if (w.State is WindowState.Fullscreen or WindowState.Minimized
-                or WindowState.Scratchpad) return false;
-            w.PreFsGeom     = _host.CurrentGeometry(window);
+                or WindowState.Scratchpad)
+            {
+                return false;
+            }
+
+            w.PreFsGeom = _host.CurrentGeometry(window);
             w.PreviousState = w.State;
-            w.State         = WindowState.Maximized;
-            w.PinnedOutput  = output;
+            w.State = WindowState.Maximized;
+            w.PinnedOutput = output;
             _host.Log($"state ws=0x{(long)window:x} {w.PreviousState}→maximized");
         }
         _host.RequestRender(output);
@@ -168,7 +202,11 @@ public sealed class WindowStateController
     public bool ToggleFloating(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null) return false;
+        if (w is null)
+        {
+            return false;
+        }
+
         var output = _host.FocusedOutput;
 
         switch (w.State)
@@ -211,7 +249,10 @@ public sealed class WindowStateController
     public bool ToggleMinimize(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null) return false;
+        if (w is null)
+        {
+            return false;
+        }
 
         if (w.State == WindowState.Minimized)
         {
@@ -226,13 +267,19 @@ public sealed class WindowStateController
             if (w.State == WindowState.Fullscreen)
             {
                 var fsOut = w.PinnedOutput != IntPtr.Zero ? w.PinnedOutput : _host.FocusedOutput;
-                if (fsOut != IntPtr.Zero) _host.SetFullscreenWindow(fsOut, IntPtr.Zero);
+                if (fsOut != IntPtr.Zero)
+                {
+                    _host.SetFullscreenWindow(fsOut, IntPtr.Zero);
+                }
             }
             w.PreviousState = w.State;
-            w.State         = WindowState.Minimized;
+            w.State = WindowState.Minimized;
             _minimizedMru.Push(window);
             if (_host.FocusedWindow == window)
+            {
                 _host.FocusNextOnOutput(_host.FocusedOutput);
+            }
+
             _host.Log($"state ws=0x{(long)window:x} {w.PreviousState}→minimized");
         }
         _host.RequestRender(_host.FocusedOutput);
@@ -249,8 +296,16 @@ public sealed class WindowStateController
         {
             var win = _minimizedMru.Pop();
             var w = _host.Get(win);
-            if (w is null) continue; // window died while minimized
-            if (w.State != WindowState.Minimized) continue; // already restored elsewhere
+            if (w is null)
+            {
+                continue; // window died while minimized
+            }
+
+            if (w.State != WindowState.Minimized)
+            {
+                continue; // already restored elsewhere
+            }
+
             w.State = w.PreviousState;
             _host.Focus(win);
             _host.Log($"state ws=0x{(long)win:x} minimized→{w.State} (unminimize_last)");
@@ -262,13 +317,27 @@ public sealed class WindowStateController
 
     private static void RemoveFromMru(Stack<IntPtr> stack, IntPtr handle)
     {
-        if (stack.Count == 0) return;
+        if (stack.Count == 0)
+        {
+            return;
+        }
+
         var buf = new IntPtr[stack.Count];
         int n = 0;
-        foreach (var v in stack) if (v != handle) buf[n++] = v;
+        foreach (var v in stack)
+        {
+            if (v != handle)
+            {
+                buf[n++] = v;
+            }
+        }
+
         stack.Clear();
         // Stack iterates top→bottom; rebuild bottom→top to preserve order.
-        for (int i = n - 1; i >= 0; i--) stack.Push(buf[i]);
+        for (int i = n - 1; i >= 0; i--)
+        {
+            stack.Push(buf[i]);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -284,7 +353,10 @@ public sealed class WindowStateController
     /// </summary>
     public bool ToggleScratchpad(string padName)
     {
-        if (string.IsNullOrEmpty(padName)) padName = ScratchpadRegistry.DefaultPad;
+        if (string.IsNullOrEmpty(padName))
+        {
+            padName = ScratchpadRegistry.DefaultPad;
+        }
 
         var current = _scratchpads.Get(padName);
         if (current == IntPtr.Zero)
@@ -311,24 +383,27 @@ public sealed class WindowStateController
         if (w.InScratchpad)
         {
             // Summon — float, centred on focused output.
-            w.InScratchpad   = false;
-            w.Visible        = true;
-            w.PreviousState  = w.State;
-            w.State          = WindowState.Floating;
-            w.PinnedOutput   = output;
-            w.FloatingGeom   = ComputeScratchpadRect(output);
+            w.InScratchpad = false;
+            w.Visible = true;
+            w.PreviousState = w.State;
+            w.State = WindowState.Floating;
+            w.PinnedOutput = output;
+            w.FloatingGeom = ComputeScratchpadRect(output);
             _host.Focus(current);
             _host.Log($"scratchpad pad={padName} action=summon ws=0x{(long)current:x}");
         }
         else
         {
             // Dismiss.
-            w.PreviousState  = WindowState.Floating;
-            w.State          = WindowState.Scratchpad;
-            w.InScratchpad   = true;
-            w.Visible        = false;
+            w.PreviousState = WindowState.Floating;
+            w.State = WindowState.Scratchpad;
+            w.InScratchpad = true;
+            w.Visible = false;
             if (_host.FocusedWindow == current)
+            {
                 _host.FocusNextOnOutput(output);
+            }
+
             _host.Log($"scratchpad pad={padName} action=dismiss ws=0x{(long)current:x}");
         }
         _host.RequestRender(output);
@@ -341,10 +416,21 @@ public sealed class WindowStateController
     /// </summary>
     public bool SendToScratchpad(IntPtr window, string padName)
     {
-        if (window == IntPtr.Zero) return false;
-        if (string.IsNullOrEmpty(padName)) padName = ScratchpadRegistry.DefaultPad;
+        if (window == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(padName))
+        {
+            padName = ScratchpadRegistry.DefaultPad;
+        }
+
         var w = _host.Get(window);
-        if (w is null) return false;
+        if (w is null)
+        {
+            return false;
+        }
 
         var prior = _scratchpads.Assign(padName, window);
         if (prior != IntPtr.Zero && prior != window)
@@ -352,20 +438,23 @@ public sealed class WindowStateController
             var pw = _host.Get(prior);
             if (pw is not null)
             {
-                pw.InScratchpad   = false;
-                pw.Visible        = true;
+                pw.InScratchpad = false;
+                pw.Visible = true;
                 pw.ScratchpadName = null;
-                pw.State          = WindowState.Tiled;
+                pw.State = WindowState.Tiled;
             }
         }
 
-        w.PreviousState  = w.State;
-        w.State          = WindowState.Scratchpad;
-        w.InScratchpad   = true;
-        w.Visible        = false;
+        w.PreviousState = w.State;
+        w.State = WindowState.Scratchpad;
+        w.InScratchpad = true;
+        w.Visible = false;
         w.ScratchpadName = padName;
         if (_host.FocusedWindow == window)
+        {
             _host.FocusNextOnOutput(_host.FocusedOutput);
+        }
+
         _host.Log($"scratchpad pad={padName} action=send ws=0x{(long)window:x}");
         _host.RequestRender(_host.FocusedOutput);
         return true;
@@ -380,9 +469,9 @@ public sealed class WindowStateController
         int x = u.X + (u.W - w) / 2;
         int y = sp.Anchor switch
         {
-            "top"    => u.Y,
+            "top" => u.Y,
             "bottom" => u.Y + u.H - h,
-            _        => u.Y + (u.H - h) / 2,
+            _ => u.Y + (u.H - h) / 2,
         };
         return new Rect(x, y, w, h);
     }
@@ -401,7 +490,9 @@ public sealed class WindowStateController
         if (w is not null)
         {
             if (w.State == WindowState.Fullscreen && w.PinnedOutput != IntPtr.Zero)
+            {
                 _host.SetFullscreenWindow(w.PinnedOutput, IntPtr.Zero);
+            }
         }
         _scratchpads.Forget(window);
         RemoveFromMru(_minimizedMru, window);
@@ -416,9 +507,16 @@ public sealed class WindowStateController
     {
         foreach (var w in windowsOnOutput)
         {
-            if (w.PinnedOutput != output) continue;
+            if (w.PinnedOutput != output)
+            {
+                continue;
+            }
+
             if (w.State is WindowState.Fullscreen or WindowState.Maximized)
+            {
                 w.State = w.PreviousState;
+            }
+
             w.PinnedOutput = _host.FocusedOutput;
         }
     }
@@ -431,14 +529,25 @@ public sealed class WindowStateController
     public void OnTagsChanged(IntPtr window)
     {
         var w = _host.Get(window);
-        if (w is null) return;
+        if (w is null)
+        {
+            return;
+        }
+
         if (w.State == WindowState.Fullscreen)
         {
             var output = w.PinnedOutput;
-            if (output != IntPtr.Zero) _host.SetFullscreenWindow(output, IntPtr.Zero);
+            if (output != IntPtr.Zero)
+            {
+                _host.SetFullscreenWindow(output, IntPtr.Zero);
+            }
+
             w.State = w.PreviousState;
             _host.EmitForeignToplevelUnfullscreen(window);
-            if (output != IntPtr.Zero) _host.RequestRender(output);
+            if (output != IntPtr.Zero)
+            {
+                _host.RequestRender(output);
+            }
         }
     }
 }

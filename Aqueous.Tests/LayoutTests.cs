@@ -60,7 +60,7 @@ public class LayoutTests
         {
             Assert.True(p.Geometry.X >= 10);
             Assert.True(p.Geometry.Y >= 10);
-            Assert.True(p.Geometry.Right  <= 990);
+            Assert.True(p.Geometry.Right <= 990);
             Assert.True(p.Geometry.Bottom <= 790);
         }
     }
@@ -80,7 +80,9 @@ public class LayoutTests
         int visibleCount = 0;
         WindowPlacement visible = default;
         foreach (var p in result)
+        {
             if (p.Visible) { visibleCount++; visible = p; }
+        }
 
         Assert.Equal(1, visibleCount);
         Assert.Equal(w2.Handle, visible.Handle);
@@ -98,8 +100,11 @@ public class LayoutTests
         var w1 = MakeWin(1); var w2 = MakeWin(2);
         var wins = new List<WindowEntryView> { w1, w2 };
         object? state = null;
-        var opts = Opts(extra: new Dictionary<string, string> {
-            ["column_width"] = "0.5", ["center_focused"] = "true", ["snap_to_columns"] = "false"
+        var opts = Opts(extra: new Dictionary<string, string>
+        {
+            ["column_width"] = "0.5",
+            ["center_focused"] = "true",
+            ["snap_to_columns"] = "false"
         });
 
         // Focus leftmost — viewport must clamp at 0, never negative.
@@ -114,16 +119,31 @@ public class LayoutTests
         var engine = new ScrollingLayout();
         // 6 columns of 500px each on a 1000px area → only ~2 visible at once.
         var wins = new List<WindowEntryView>();
-        for (int i = 1; i <= 6; i++) wins.Add(MakeWin(i));
+        for (int i = 1; i <= 6; i++)
+        {
+            wins.Add(MakeWin(i));
+        }
+
         object? state = null;
-        var opts = Opts(extra: new Dictionary<string, string> {
-            ["column_width"] = "0.5", ["center_focused"] = "false", ["snap_to_columns"] = "false"
+        var opts = Opts(extra: new Dictionary<string, string>
+        {
+            ["column_width"] = "0.5",
+            ["center_focused"] = "false",
+            ["snap_to_columns"] = "false"
         });
 
         var result = engine.Arrange(Area, wins, IntPtr.Zero, opts, ref state);
 
         int hidden = 0, visible = 0;
-        foreach (var p in result) { if (p.Visible) visible++; else hidden++; }
+        foreach (var p in result) { if (p.Visible)
+            {
+                visible++;
+            }
+            else
+            {
+                hidden++;
+            }
+        }
         Assert.True(hidden > 0, "at least one column must be hidden off-screen");
         Assert.True(visible > 0, "at least one column must be visible");
     }
@@ -138,7 +158,7 @@ public class LayoutTests
         var wins = new List<WindowEntryView> { w };
         object? state = null;
 
-        var first  = engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+        var first = engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
         var second = engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
 
         Assert.Equal(first[0].Geometry, second[0].Geometry);
@@ -159,7 +179,7 @@ public class LayoutTests
         Assert.Equal("scrolling", cfg.Slots["secondary"]);
 
         var registry = new LayoutRegistry();
-        var engine   = registry.Create(cfg.Slots["secondary"]);
+        var engine = registry.Create(cfg.Slots["secondary"]);
         Assert.Equal("scrolling", engine.Id);
     }
 
@@ -189,7 +209,7 @@ public class LayoutTests
             """;
         var cfg = LayoutConfig.Parse(toml);
         Assert.Equal("scrolling", cfg.PerOutput["DP-1"]);
-        Assert.Equal("monocle",   cfg.PerOutput["HDMI-A-1"]);
+        Assert.Equal("monocle", cfg.PerOutput["HDMI-A-1"]);
     }
 
     [Fact]
@@ -202,7 +222,7 @@ public class LayoutTests
             """;
         var cfg = LayoutConfig.Parse(toml);
         var opts = cfg.OptionsFor("scrolling");
-        Assert.Equal("0.4",  opts.GetExtra("column_width"));
+        Assert.Equal("0.4", opts.GetExtra("column_width"));
         Assert.True(opts.GetExtraBool("center_focused", false));
     }
 
@@ -214,8 +234,8 @@ public class LayoutTests
         // Tile would naturally give one window the whole 100x100 area, but
         // the window's MinW=300 must be enforced by the controller.
         var registry = new LayoutRegistry();
-        var ctrl     = new LayoutController(registry, LayoutConfig.Default);
-        var output   = new IntPtr(0xAA);
+        var ctrl = new LayoutController(registry, LayoutConfig.Default);
+        var output = new IntPtr(0xAA);
         var wins = new List<WindowEntryView> { MakeWin(1, minW: 300) };
 
         var result = ctrl.Arrange(output, "X-1", new Rect(0, 0, 100, 100), wins, IntPtr.Zero);
@@ -236,15 +256,15 @@ public class LayoutTests
             """);
         var ctrl = new LayoutController(registry, cfg);
         Assert.Equal("monocle", ctrl.ResolveLayoutId(new IntPtr(1), "DP-1"));
-        Assert.Equal("tile",    ctrl.ResolveLayoutId(new IntPtr(2), "OTHER"));
+        Assert.Equal("tile", ctrl.ResolveLayoutId(new IntPtr(2), "OTHER"));
     }
 
     [Fact]
     public void Controller_ReloadDropsEngineState()
     {
         var registry = new LayoutRegistry();
-        var ctrl     = new LayoutController(registry, LayoutConfig.Default);
-        var output   = new IntPtr(0xAA);
+        var ctrl = new LayoutController(registry, LayoutConfig.Default);
+        var output = new IntPtr(0xAA);
         var wins = new List<WindowEntryView> { MakeWin(1) };
 
         // First arrange picks an engine for the output.

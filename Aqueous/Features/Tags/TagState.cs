@@ -41,7 +41,11 @@ public static class TagState
     /// <summary>Returns a single-bit mask for the 0-based tag index <paramref name="n"/>.</summary>
     public static uint Bit(int n)
     {
-        if (n < 0 || n > 31) throw new ArgumentOutOfRangeException(nameof(n));
+        if (n < 0 || n > 31)
+        {
+            throw new ArgumentOutOfRangeException(nameof(n));
+        }
+
         return 1u << n;
     }
 
