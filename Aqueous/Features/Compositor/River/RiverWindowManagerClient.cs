@@ -99,7 +99,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private readonly EventPump _pump;
 
     private IntPtr _display => _connection.Display;
-    private IntPtr _registry;
+
+    /// <summary>
+    /// Owns the <c>wl_registry</c> proxy and converts raw
+    /// <c>global</c>/<c>global_remove</c> events into the
+    /// <see cref="OnGlobalDiscovered"/> handler below.
+    /// </summary>
+    private readonly RegistryBinder _registry = new();
     private IntPtr _manager;
     private IntPtr _layerShell;
     private IntPtr _xkbBindings;
@@ -288,21 +294,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
         WlInterfaces.EnsureBuilt();
 
-        // wl_display::get_registry is opcode 1.
-        _registry = WaylandInterop.wl_proxy_marshal_flags(
-            _display, 1, (IntPtr)WlInterfaces.WlRegistry, 1, 0,
-            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        if (_registry == IntPtr.Zero)
+        _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch;
+
+        if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
         {
             Log("get_registry failed");
             return false;
         }
 
-        _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-        WaylandInterop.wl_proxy_add_dispatcher(
-            _registry,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-            GCHandle.ToIntPtr(_selfHandle), IntPtr.Zero);
+        _registry.Discovered += OnGlobalDiscovered;
 
         // Flush globals; then a second roundtrip so any events the
         // compositor sends immediately on bind (for an existing window
@@ -356,9 +357,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
             var a = (WlArgument*)args;
 
-            if (target == self._registry)
+            if (target == self._registry.Handle)
             {
-                self.OnRegistryEvent(opcode, a);
+                self._registry.HandleEvent(opcode, a);
             }
             else if (target == self._manager)
             {
@@ -414,26 +415,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     // --- registry ------------------------------------------------------
 
-    private void OnRegistryEvent(uint opcode, WlArgument* args)
+    private void OnGlobalDiscovered(RegistryGlobal global)
     {
-        // wl_registry events: see RiverProtocolOpcodes.Registry.
-        if (opcode != RiverProtocolOpcodes.Registry.Global)
+        // The set of interfaces this client cares about. Anything else
+        // advertised by the compositor is intentionally ignored.
+        if (global.Interface == "river_window_manager_v1" && _manager == IntPtr.Zero)
         {
-            return;
-        }
-
-        uint name = args[0].u;
-        string? iface = MarshalUtf8(args[1].s);
-        uint version = args[2].u;
-        if (iface == null)
-        {
-            return;
-        }
-
-        if (iface == "river_window_manager_v1" && _manager == IntPtr.Zero)
-        {
-            _managerVersion = Math.Min(version, 4u);
-            _manager = Bind(name, WlInterfaces.RiverWindowManager, _managerVersion);
+            _managerVersion = Math.Min(global.Version, 4u);
+            _manager = _registry.Bind(global.Name, WlInterfaces.RiverWindowManager, _managerVersion);
             if (_manager != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
@@ -444,9 +433,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
                 Log($"bound river_window_manager_v1 (version {_managerVersion})");
             }
         }
-        else if (iface == "river_layer_shell_v1")
+        else if (global.Interface == "river_layer_shell_v1")
         {
-            _layerShell = Bind(name, WlInterfaces.RiverLayerShell, 1);
+            _layerShell = _registry.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
             WaylandInterop.wl_proxy_add_dispatcher(
                 _layerShell,
                 (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
@@ -454,29 +443,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
                 IntPtr.Zero);
             Log("bound river_layer_shell_v1");
         }
-        else if (iface == "river_xkb_bindings_v1")
+        else if (global.Interface == "river_xkb_bindings_v1")
         {
-            uint xkbVersion = Math.Min(version, 2u);
-            _xkbBindings = Bind(name, WlInterfaces.RiverXkbBindings, xkbVersion);
+            uint xkbVersion = Math.Min(global.Version, 2u);
+            _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
-    }
-
-    private IntPtr Bind(uint name, WaylandInterop.WlInterface* iface, uint version)
-    {
-        // wl_registry::bind(name: uint, new_id: untyped)
-        // libwayland takes (name, iface_name, iface_version, new_id-placeholder)
-        // on the wire; wl_proxy_marshal_flags fills the new_id implicitly.
-        return WaylandInterop.wl_proxy_marshal_flags(
-            _registry,
-            0, // opcode
-            (IntPtr)iface,
-            version,
-            0,
-            (IntPtr)name,
-            (IntPtr)iface->name,
-            (IntPtr)version,
-            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
 
     // --- river_window_manager_v1 events -------------------------------
