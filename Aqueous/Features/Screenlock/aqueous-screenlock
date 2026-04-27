@@ -1,3 +1,0 @@
-#!/bin/bash
-SOCKET="${XDG_RUNTIME_DIR:-$HOME/.run}/aqueous-screenlock.sock"
-echo "lock" | socat - UNIX-CONNECT:"$SOCKET"

@@ -1,5 +1,0 @@
-#!/bin/bash
-# Usage: aqueous-snapto toggle|cycle|hide|show
-# Sends a command to the running Aqueous SnapTo service via Unix socket.
-SOCKET="${XDG_RUNTIME_DIR:-$HOME/.run}/aqueous-snapto.sock"
-echo -n "${1:-toggle}" | socat - UNIX-CONNECT:"$SOCKET"
