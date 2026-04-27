@@ -1,8 +1,5 @@
 root = true
 
-# Aqueous code style — established as part of Phase 0 of the readability refactor.
-# Soft cap: 300 lines per file. Hard cap: 500 lines per file.
-
 [*]
 charset = utf-8
 end_of_line = lf
