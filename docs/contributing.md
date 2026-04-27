@@ -20,7 +20,7 @@ refactor.
 The Aqueous WM talks to River over hand-rolled libwayland P/Invoke. Raw
 `wl_proxy*` handles are `IntPtr`. Letting `IntPtr` leak into call sites
 that semantically hold a window/output/seat caused several mix-up bugs
-during the early prototype. The rule, as of Phase 2 / Step 8.B:
+during the early prototype.
 
 - **Domain handles** — window, output, seat — are passed as
   `WindowProxy`, `OutputProxy`, `SeatProxy` (defined in
