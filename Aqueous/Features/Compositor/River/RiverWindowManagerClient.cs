@@ -502,7 +502,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                     CreateNoWindow = true,
                 };
                 psi.ArgumentList.Add("-c");
-                psi.ArgumentList.Add($"setsid -f sh -c {EscapeSh(command)} >/dev/null 2>&1");
+                psi.ArgumentList.Add($"setsid -f sh -c {EscapeForShell(command)} >/dev/null 2>&1");
                 System.Diagnostics.Process.Start(psi);
             }
             catch (Exception ex)
@@ -764,16 +764,14 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
     private void OnRegistryEvent(uint opcode, WlArgument* args)
     {
-        // wl_registry events:
-        //   0  global(name, interface, version)
-        //   1  global_remove(name)
-        if (opcode != 0)
+        // wl_registry events: see RiverProtocolOpcodes.Registry.
+        if (opcode != RiverProtocolOpcodes.Registry.Global)
         {
             return;
         }
 
         uint name = args[0].u;
-        string? iface = PtrToString(args[1].s);
+        string? iface = MarshalUtf8(args[1].s);
         uint version = args[2].u;
         if (iface == null)
         {
@@ -833,8 +831,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
     private void OnDragPointerBindingEvent(uint opcode, WlArgument* args)
     {
-        // 0 pressed, 1 released
-        if (opcode == 0)
+        if (opcode == RiverProtocolOpcodes.Binding.Pressed)
         {
             // Find a seat that has a currently-hovered window and start a drag for it.
             foreach (var kvp in _seatHoveredWindow)
@@ -859,7 +856,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 break;
             }
         }
-        else if (opcode == 1)
+        else if (opcode == RiverProtocolOpcodes.Binding.Released)
         {
             Log("super+click pointer binding released");
             // The matching op_release from the seat will set _dragFinished; nothing else to do here.
@@ -868,9 +865,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
     private void OnSuperKeyBindingEvent(uint opcode, WlArgument* args)
     {
-        // 0: pressed
-        // 1: released
-        if (opcode == 0)
+        if (opcode == RiverProtocolOpcodes.Binding.Pressed)
         {
             Log("super key pressed, toggling Aqueous Start Menu via shell script/command");
             try
@@ -891,7 +886,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 Log("failed to launch start menu dbus command: " + ex.Message);
             }
         }
-        else if (opcode == 1)
+        else if (opcode == RiverProtocolOpcodes.Binding.Released)
         {
             Log("super key released");
         }
@@ -899,7 +894,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
     private void OnLayerShellEvent(uint opcode, WlArgument* args)
     {
-        if (opcode == 0) // layer_surface(new_id<river_layer_surface_v1>)
+        if (opcode == RiverProtocolOpcodes.LayerShell.LayerSurface)
         {
             IntPtr layerSurface = args[0].o;
             if (layerSurface != IntPtr.Zero)
@@ -919,27 +914,18 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
     private void OnManagerEvent(uint opcode, WlArgument* args)
     {
-        // events, per XML order:
-        //  0 unavailable
-        //  1 finished
-        //  2 manage_start
-        //  3 render_start
-        //  4 session_locked
-        //  5 session_unlocked
-        //  6 window(new_id<river_window_v1>)
-        //  7 output(new_id<river_output_v1>)
-        //  8 seat(new_id<river_seat_v1>)
+        // See RiverProtocolOpcodes.Manager for the full event table.
         switch (opcode)
         {
-            case 0: // unavailable
+            case RiverProtocolOpcodes.Manager.Unavailable:
                 Log("river_window_manager_v1.unavailable — another WM is active; giving up");
                 _running = false;
                 break;
-            case 1: // finished
+            case RiverProtocolOpcodes.Manager.Finished:
                 Log("river_window_manager_v1.finished");
                 _running = false;
                 break;
-            case 2: // manage_start
+            case RiverProtocolOpcodes.Manager.ManageStart:
                 _insideManageSequence = true;
                 try
                 {
@@ -1052,7 +1038,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 }
 
                 break;
-            case 3: // render_start
+            case RiverProtocolOpcodes.Manager.RenderStart:
                 // NOTE: do NOT set _insideManageSequence here — render_start is the render
                 // half of the loop, not a manage sequence. Setting the flag during render
                 // would suppress legitimate manage_dirty calls scheduled from event
@@ -1182,9 +1168,9 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                 SendManagerRequest(4); // render_finish opcode = 4
                 break;
-            case 4: Log("session_locked"); break;
-            case 5: Log("session_unlocked"); break;
-            case 6: // window(new_id)
+            case RiverProtocolOpcodes.Manager.SessionLocked: Log("session_locked"); break;
+            case RiverProtocolOpcodes.Manager.SessionUnlocked: Log("session_unlocked"); break;
+            case RiverProtocolOpcodes.Manager.WindowInformation:
                 {
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
@@ -1221,7 +1207,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                     break;
                 }
-            case 7: // output(new_id)
+            case RiverProtocolOpcodes.Manager.OutputInformation:
                 {
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
@@ -1237,7 +1223,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                     break;
                 }
-            case 8: // seat(new_id)
+            case RiverProtocolOpcodes.Manager.SeatInformation:
                 {
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
@@ -1828,27 +1814,10 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         {
             return;
         }
-        //  0 closed
-        //  1 dimensions_hint(iiii)  -> min_w,min_h,max_w,max_h
-        //  2 dimensions(ii)
-        //  3 app_id(?s)
-        //  4 title(?s)
-        //  5 parent(?o)
-        //  6 decoration_hint(u)
-        //  7 pointer_move_requested(o)
-        //  8 pointer_resize_requested(o u)
-        //  9 show_window_menu_requested(ii)
-        // 10 maximize_requested
-        // 11 unmaximize_requested
-        // 12 fullscreen_requested(?o)
-        // 13 exit_fullscreen_requested
-        // 14 minimize_requested
-        // 15 unreliable_pid(i)
-        // 16 presentation_hint(u)
-        // 17 identifier(s)
+        // See RiverProtocolOpcodes.Window for the full event table.
         switch (opcode)
         {
-            case 0:
+            case RiverProtocolOpcodes.Window.Closed:
                 Log($"window 0x{proxy.ToString("x")} closed");
                 // Phase B1e Pass B: tear down per-window state so the
                 // controller's invariants (single-FS slot, MRU stack,
@@ -1902,14 +1871,14 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 }
 
                 break;
-            case 1:
+            case RiverProtocolOpcodes.Window.DimensionsHint:
                 w.MinW = args[0].i;
                 w.MinH = args[1].i;
                 w.MaxW = args[2].i;
                 w.MaxH = args[3].i;
                 Log($"window 0x{proxy.ToString("x")} dimensions_hint min {w.MinW}x{w.MinH} max {w.MaxW}x{w.MaxH}");
                 break;
-            case 2:
+            case RiverProtocolOpcodes.Window.Dimensions:
                 w.W = args[0].i;
                 w.H = args[1].i;
                 Log($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
@@ -1919,15 +1888,15 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 // clip box and pointer/keyboard input falls outside the input region.
                 ScheduleManage();
                 break;
-            case 3:
-                w.AppId = PtrToString(args[0].s);
+            case RiverProtocolOpcodes.Window.AppId:
+                w.AppId = MarshalUtf8(args[0].s);
                 Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}");
                 break;
-            case 4:
-                w.Title = PtrToString(args[0].s);
+            case RiverProtocolOpcodes.Window.Title:
+                w.Title = MarshalUtf8(args[0].s);
                 Log($"window 0x{proxy.ToString("x")} title={w.Title}");
                 break;
-            case 7:
+            case RiverProtocolOpcodes.Window.PointerMoveRequested:
                 IntPtr seatProxy = args[0].o;
                 Log($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
                 _activeDragWindow = w;
@@ -1935,7 +1904,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 _dragStartX = w.X;
                 _dragStartY = w.Y;
                 break;
-            case 10:
+            case RiverProtocolOpcodes.Window.MaximizeRequested:
                 if (!_windowStates.TryGetValue(proxy, out var sMax)
                     || sMax.State != WindowState.Maximized)
                 {
@@ -1944,7 +1913,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                 ScheduleManage();
                 break;
-            case 11:
+            case RiverProtocolOpcodes.Window.UnmaximizeRequested:
                 if (_windowStates.TryGetValue(proxy, out var stateData)
                     && stateData.State == WindowState.Minimized)
                 {
@@ -1953,21 +1922,22 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                 ScheduleManage();
                 break;
-            case 12:
+            case RiverProtocolOpcodes.Window.FullscreenRequested:
                 var outputProxy = args[0].o;
                 _windowState.OnClientRequestedFullscreen(proxy,
                     outputProxy == IntPtr.Zero ? (IntPtr?)null : outputProxy);
                 ScheduleManage();
                 break;
-            case 13:
+            case RiverProtocolOpcodes.Window.ExitFullscreenRequested:
                 _windowState.OnClientRequestedUnfullscreen(proxy);
                 ScheduleManage();
                 break;
-            case 14:
+            case RiverProtocolOpcodes.Window.MinimizeRequested:
                 _windowState.ToggleMinimize(proxy);
                 ScheduleManage();
                 break;
-            case 17: Log($"window 0x{proxy.ToString("x")} identifier={PtrToString(args[0].s)}"); break;
+            case RiverProtocolOpcodes.Window.Identifier:
+                Log($"window 0x{proxy.ToString("x")} identifier={MarshalUtf8(args[0].s)}"); break;
             default:
                 Log($"window 0x{proxy.ToString("x")} event opcode={opcode}");
                 break;
@@ -1982,13 +1952,10 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         {
             return;
         }
-        // 0 removed
-        // 1 wl_output(u)
-        // 2 position(ii)
-        // 3 dimensions(ii)
+        // See RiverProtocolOpcodes.Output for the full event table.
         switch (opcode)
         {
-            case 0:
+            case RiverProtocolOpcodes.Output.Removed:
                 Log($"output 0x{proxy.ToString("x")} removed");
                 // Phase B1e Pass B: forward the removal to the window
                 // state controller so it can demote any FS/Max windows
@@ -2018,16 +1985,16 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 }
 
                 break;
-            case 1:
+            case RiverProtocolOpcodes.Output.WlOutput:
                 o.WlOutputName = args[0].u;
                 Log($"output 0x{proxy.ToString("x")} wl_output_name={o.WlOutputName}");
                 break;
-            case 2:
+            case RiverProtocolOpcodes.Output.Position:
                 o.X = args[0].i;
                 o.Y = args[1].i;
                 Log($"output 0x{proxy.ToString("x")} position={o.X},{o.Y}");
                 break;
-            case 3:
+            case RiverProtocolOpcodes.Output.Dimensions:
                 o.Width = args[0].i;
                 o.Height = args[1].i;
                 Log($"output 0x{proxy.ToString("x")} dimensions={o.Width}x{o.Height}");
@@ -2043,26 +2010,18 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         {
             return;
         }
-        // 0 removed
-        // 1 wl_seat(u)
-        // 2 pointer_enter(o)
-        // 3 pointer_leave
-        // 4 window_interaction(o)
-        // 5 shell_surface_interaction(o)
-        // 6 op_delta(ii)
-        // 7 op_release
-        // 8 pointer_position(ii)  [since 2]
+        // See RiverProtocolOpcodes.Seat for the full event table.
         switch (opcode)
         {
-            case 0:
+            case RiverProtocolOpcodes.Seat.Removed:
                 Log($"seat 0x{proxy.ToString("x")} removed");
                 _seats.TryRemove(proxy, out _);
                 break;
-            case 1:
+            case RiverProtocolOpcodes.Seat.WlSeat:
                 s.WlSeatName = args[0].u;
                 Log($"seat 0x{proxy.ToString("x")} wl_seat_name={s.WlSeatName}");
                 break;
-            case 2: // pointer_enter(window)
+            case RiverProtocolOpcodes.Seat.PointerEnter:
                 {
                     IntPtr hovered = args[0].o;
                     // Gate: only log / follow focus when the hovered window actually changed.
@@ -2083,19 +2042,19 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
 
                     break;
                 }
-            case 3: // pointer_leave
+            case RiverProtocolOpcodes.Seat.PointerLeave:
                 _seatHoveredWindow.TryRemove(proxy, out _);
                 Log($"seat 0x{proxy.ToString("x")} pointer_leave");
                 break;
-            case 4:
+            case RiverProtocolOpcodes.Seat.WindowInteraction:
                 Log($"seat 0x{proxy.ToString("x")} window_interaction 0x{args[0].o.ToString("x")}");
                 _seatInteractionService.HandleWindowInteraction(args[0].o, proxy);
                 break;
-            case 5:
+            case RiverProtocolOpcodes.Seat.ShellSurfaceInteraction:
                 Log($"seat 0x{proxy.ToString("x")} shell_surface_interaction 0x{args[0].o.ToString("x")}");
                 _seatInteractionService.HandleShellSurfaceInteraction(args[0].o, proxy);
                 break;
-            case 6:
+            case RiverProtocolOpcodes.Seat.OpDelta:
                 int dx = args[0].i;
                 int dy = args[1].i;
                 if (_activeDragWindow != null)
@@ -2127,7 +2086,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                 }
 
                 break;
-            case 7:
+            case RiverProtocolOpcodes.Seat.OpRelease:
                 Log($"seat 0x{proxy.ToString("x")} pointer operation released");
                 _dragFinished = true;
                 break;
@@ -2436,7 +2395,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
                         CreateNoWindow = true,
                     };
                     psi.ArgumentList.Add("-c");
-                    psi.ArgumentList.Add($"setsid -f sh -c {EscapeSh(arg)} >/dev/null 2>&1");
+                    psi.ArgumentList.Add($"setsid -f sh -c {EscapeForShell(arg)} >/dev/null 2>&1");
                     var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
                     var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
                     if (!string.IsNullOrEmpty(wayland))
@@ -2527,7 +2486,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         }
     }
 
-    private static string EscapeSh(string s) => "'" + s.Replace("'", "'\\''") + "'";
+    private static string EscapeForShell(string s) => "'" + s.Replace("'", "'\\''") + "'";
 
     /// <summary>Resolve <paramref name="idOrSlot"/> through slots first, then engines.</summary>
     private void SetLayoutByIdOrSlot(string idOrSlot)
@@ -3149,6 +3108,6 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         ScheduleManage();
     }
 
-    private static string? PtrToString(IntPtr p)
+    private static string? MarshalUtf8(IntPtr p)
         => p == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(p);
 }
