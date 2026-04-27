@@ -1,38 +1,20 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Layout-driving partial of <see cref="RiverWindowManagerClient"/>: owns
-/// <c>ProposeForArea</c>, <c>BuildSnapshotFor</c>, <c>SendManagerRequest</c>,
-/// <c>ScheduleManage</c>, the directional/scroll viewport helpers, and the
-/// <c>IsFloatLayoutActive</c> probe used by the drag handler. Promoted out
-/// of the inline declaration during the Phase 2 Step 7 readability refactor.
+/// Layout-proposing partial of <see cref="RiverWindowManagerClient"/>: owns
+/// <c>ProposeForArea</c> (the geometry-driving core), <c>BuildSnapshotFor</c>,
+/// the directional/scroll viewport helpers, the <c>IsFloatLayoutActive</c>
+/// probe used by the drag handler, and <c>ResolveOutputName</c>. Sibling
+/// file <c>RiverWindowManagerClient.ManagerRequestSender.cs</c> owns the
+/// small set of helpers that actually marshal Wayland manager requests.
 /// </summary>
 internal sealed unsafe partial class RiverWindowManagerClient
 {
-    // --- river_window_manager_v1 events -------------------------------
-
-
-
-
-
-    private void SendManagerRequest(uint opcode)
-    {
-        if (_manager == IntPtr.Zero)
-        {
-            return;
-        }
-
-        WaylandInterop.wl_proxy_marshal_flags(
-            _manager, opcode, IntPtr.Zero, 0, 0,
-            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        WaylandInterop.wl_display_flush(_display);
-    }
 
     /// <summary>
     /// Drive the layout subsystem for one output (or, if
@@ -556,31 +538,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
 
     /// <summary>
-    /// Ask the compositor to start a new manage sequence so that any state we
-    /// changed outside of one (pending focus from pointer-enter, Super+Tab,
-    /// close-and-refocus, drag start) actually gets flushed promptly.
-    /// river_window_manager_v1::manage_dirty is opcode 3.
-    /// </summary>
-    private void ScheduleManage()
-    {
-        if (_manager == IntPtr.Zero)
-        {
-            return;
-        }
-        // If we're already inside a manage/render sequence the compositor will flush
-        // our pending state when the current handler returns; issuing manage_dirty now
-        // would just guarantee an extra cycle (and a potential infinite loop).
-        if (_insideManageSequence)
-        {
-            return;
-        }
-
-        WaylandInterop.wl_proxy_marshal_flags(_manager, 3, IntPtr.Zero, 0, 0,
-            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        WaylandInterop.wl_display_flush(_display);
-    }
-
-    /// <summary>
     /// Engine-aware directional focus. Asks the active layout engine for
     /// its preferred neighbour (e.g. scrolling's column ordering) and
     /// falls back to insertion-order CycleFocus when the engine has no
@@ -644,7 +601,4 @@ internal sealed unsafe partial class RiverWindowManagerClient
         return null;
     }
 
-
-    private static string? MarshalUtf8(IntPtr p)
-        => p == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(p);
 }
