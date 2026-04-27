@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-
+using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
@@ -118,7 +118,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                 if (_focusedWindow != IntPtr.Zero)
                 {
-                    _windowState.SendToScratchpad(_focusedWindow, barg);
+                    _windowState.SendToScratchpad(new WindowProxy(_focusedWindow), barg);
                 }
                 else
                 {

@@ -211,11 +211,11 @@ internal sealed unsafe partial class RiverWindowManagerClient
     }
 
     /// <summary>Run <paramref name="action"/> only if a window has focus; log <paramref name="actionName"/> otherwise.</summary>
-    private void OnFocused(string actionName, Action<IntPtr> action)
+    private void OnFocused(string actionName, Action<WindowProxy> action)
     {
         if (_focusedWindow != IntPtr.Zero)
         {
-            action(_focusedWindow);
+            action(new WindowProxy(_focusedWindow));
         }
         else
         {
