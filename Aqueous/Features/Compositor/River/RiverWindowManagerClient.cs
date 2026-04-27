@@ -46,7 +46,7 @@ namespace Aqueous.Features.Compositor.River;
 /// two lifecycle acks required to advance the sequence loop.
 /// </para>
 /// </summary>
-internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagController.ITagHost
+internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, TagController.ITagHost
 {
     // --- logging -------------------------------------------------------
 
@@ -58,98 +58,7 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         msg => Console.Error.WriteLine("[river-wm] " + msg);
 
     // --- state tracked from events ------------------------------------
-
-    private sealed class WindowEntry
-    {
-        public IntPtr Proxy;
-        public IntPtr NodeProxy;
-        public string? Title;
-        public string? AppId;
-        public int WidthHint, HeightHint;
-        public int W, H;
-        public int X, Y;
-        public bool Placed;
-        public int ProposedW, ProposedH;
-        public int LastHintW, LastHintH;
-        public int MinW, MinH, MaxW, MaxH;
-        public int LastPosX = int.MinValue, LastPosY = int.MinValue;
-        public int LastClipW, LastClipH;
-        public bool BordersSent;
-        public bool ShowSent;
-
-        // Phase B1e (partial): per-window floating override + remembered
-        // floating rect. Set when the user drags a window with
-        // Super+BTN_LEFT; honoured by ProposeForArea so floating windows
-        // bypass the active layout engine and keep their dragged
-        // position across manage cycles.
-        public bool Floating;
-        public bool HasFloatRect;
-        public int FloatX, FloatY, FloatW, FloatH;
-
-        // Phase B1b scrolling fix: visibility comes from the layout
-        // engine's WindowPlacement.Visible. Off-screen scrolling
-        // columns must NOT be repositioned/clipped/place_top'd, and
-        // must NOT receive propose_dimensions storms. Defaults to
-        // true so windows mapped before the first manage cycle stay
-        // visible.
-        public bool Visible = true;
-
-        // Output the window currently belongs to. Set by manage_start
-        // when the window's position falls inside an output's area
-        // (or to the first output as a fallback). Used by
-        // ProposeForArea to filter the per-output snapshot so engines
-        // like ScrollingLayout do not see windows from other outputs
-        // in their per-output ScrollState.
-        public IntPtr Output;
-
-        // Phase B1c — Tags / Workspaces.
-        //
-        // 32-bit tag bitmask. A window is rendered iff
-        // (Tags & Output.VisibleTags) != 0. Default is tag 1
-        // (bit 0). At manage_start a freshly-mapped window is
-        // re-tagged to whatever its assigned output currently views
-        // (minus the reserved scratchpad bit). See TagState for
-        // semantics.
-        public uint Tags = Aqueous.Features.Tags.TagState.DefaultTag;
-
-        // Latched "the compositor currently considers this window
-        // shown" cache. Only flipped by the manage_start visibility
-        // pass; render_start uses this together with the
-        // engine-driven Visible flag to decide whether to emit
-        // show/place_top/borders this frame.
-        public bool TagVisible = true;
-
-        // Latch so we only emit hide (opcode 4) once per
-        // visibility transition; without this we would re-send hide
-        // every manage cycle for every off-tag window.
-        public bool HideSent;
-    }
-
-    private sealed class OutputEntry
-    {
-        public IntPtr Proxy;
-        public uint WlOutputName;
-        public int X, Y, Width, Height;
-
-        // Phase B1c — Tags / Workspaces.
-        //
-        // 32-bit "currently visible tags" mask. Default is tag 1
-        // (bit 0). Mutated by TagController in response to
-        // Super+1..0 / Super+Ctrl+1..9 / Super+grave bindings.
-        public uint VisibleTags = Aqueous.Features.Tags.TagState.DefaultTag;
-
-        // Last-tagset stack for back-and-forth (Super+grave).
-        // Capped to keep the structure small; a deque would be
-        // cleaner but Stack<T> is sufficient at this size.
-        public uint LastVisibleTags = Aqueous.Features.Tags.TagState.DefaultTag;
-        public readonly System.Collections.Generic.Stack<uint> TagHistory = new();
-    }
-
-    private sealed class SeatEntry
-    {
-        public IntPtr Proxy;
-        public uint WlSeatName;
-    }
+    // WindowEntry / OutputEntry / SeatEntry live in Model/*.cs.
 
     private readonly ConcurrentDictionary<IntPtr, WindowEntry> _windows = new();
     private readonly ConcurrentDictionary<IntPtr, OutputEntry> _outputs = new();
@@ -183,81 +92,6 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
     private IntPtr _superKeyBinding;
 
     // --- key bindings -------------------------------------------------
-
-    private enum KeyBindingAction
-    {
-        ToggleStartMenu,
-        SpawnTerminal,
-        CloseFocused,
-        CycleFocus,
-        FocusLeft,
-        FocusRight,
-        FocusDown,
-        FocusUp,
-        ScrollViewportLeft,
-        ScrollViewportRight,
-        MoveColumnLeft,
-        MoveColumnRight,
-        ReloadConfig,
-        SetLayoutPrimary,
-        SetLayoutSecondary,
-        SetLayoutTertiary,
-        SetLayoutQuaternary,
-
-        // Phase B1c — Tag actions. Indexed by 0-based tag bit (0..9
-        // for tag1..10) so the dispatcher can compute the mask via
-        // 1u << (action - ViewTag1). Tag10 is bound to the digit
-        // key '0' because keymaps order digits 1234567890.
-        ViewTag1,
-        ViewTag2,
-        ViewTag3,
-        ViewTag4,
-        ViewTag5,
-        ViewTag6,
-        ViewTag7,
-        ViewTag8,
-        ViewTag9,
-        ViewTagAll,
-        SendTag1,
-        SendTag2,
-        SendTag3,
-        SendTag4,
-        SendTag5,
-        SendTag6,
-        SendTag7,
-        SendTag8,
-        SendTag9,
-        SendTagAll,
-        ToggleViewTag1,
-        ToggleViewTag2,
-        ToggleViewTag3,
-        ToggleViewTag4,
-        ToggleViewTag5,
-        ToggleViewTag6,
-        ToggleViewTag7,
-        ToggleViewTag8,
-        ToggleViewTag9,
-        ToggleWindowTag1,
-        ToggleWindowTag2,
-        ToggleWindowTag3,
-        ToggleWindowTag4,
-        ToggleWindowTag5,
-        ToggleWindowTag6,
-        ToggleWindowTag7,
-        ToggleWindowTag8,
-        ToggleWindowTag9,
-        SwapLastTagset,
-
-        // Phase B1e — Window state ops (Pass B integration).
-        ToggleFullscreen,
-        ToggleMaximize,
-        ToggleFloating,
-        ToggleMinimize,
-        UnminimizeLast,
-        ToggleScratchpad,
-        SendToScratchpad,
-        Custom,
-    }
 
     private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
 
@@ -379,149 +213,6 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         _scratchpadRegistry = new ScratchpadRegistry();
         _windowState = new WindowStateController(
             new RiverWindowStateHost(this), _scratchpadRegistry);
-    }
-
-    // ------------------------------------------------------------------
-    // IWindowStateHost adapter — bridges WindowStateController to the
-    // river client's internal window/output dictionaries. Pass B keeps
-    // this adapter conservative: every method either consults existing
-    // state or asks the manage loop to re-run; it never directly emits
-    // Wayland protocol ops. Render-path overrides (visibility, geometry,
-    // z-order, borders) are deferred to a follow-up pass.
-    // ------------------------------------------------------------------
-    private sealed class RiverWindowStateHost : IWindowStateHost
-    {
-        private readonly RiverWindowManagerClient _c;
-
-        public RiverWindowStateHost(RiverWindowManagerClient c)
-        {
-            _c = c;
-        }
-
-        public WindowStateData? Get(IntPtr window)
-        {
-            if (window == IntPtr.Zero)
-            {
-                return null;
-            }
-
-            if (!_c._windows.ContainsKey(window))
-            {
-                return null;
-            }
-
-            return _c._windowStates.GetOrAdd(window, h => new WindowStateData { Handle = h });
-        }
-
-        public IntPtr FocusedWindow => _c._focusedWindow;
-
-        public IntPtr FocusedOutput
-        {
-            get
-            {
-                var oe = _c.GetFocusedOutputEntry();
-                return oe is null ? IntPtr.Zero : oe.Proxy;
-            }
-        }
-
-        public Rect OutputRect(IntPtr output)
-        {
-            if (output != IntPtr.Zero && _c._outputs.TryGetValue(output, out var o))
-            {
-                return new Rect(o.X, o.Y, o.Width, o.Height);
-            }
-
-            return new Rect(0, 0, 0, 0);
-        }
-
-        public Rect UsableArea(IntPtr output)
-        {
-            // Pass B simplification: layer-shell exclusive zones and
-            // gaps are absorbed by the layout controller; treat the
-            // raw output rect as usable for Maximize geometry. A
-            // dedicated reservation pass can refine this later.
-            return OutputRect(output);
-        }
-
-        public IntPtr GetFullscreenWindow(IntPtr output) =>
-            _c._outputFullscreen.TryGetValue(output, out var w) ? w : IntPtr.Zero;
-
-        public void SetFullscreenWindow(IntPtr output, IntPtr window)
-        {
-            if (output == IntPtr.Zero)
-            {
-                return;
-            }
-
-            if (window == IntPtr.Zero)
-            {
-                _c._outputFullscreen.TryRemove(output, out _);
-            }
-            else
-            {
-                _c._outputFullscreen[output] = window;
-            }
-        }
-
-        public void Focus(IntPtr window)
-        {
-            if (window != IntPtr.Zero)
-            {
-                _c.RequestFocus(window);
-            }
-        }
-
-        public void FocusNextOnOutput(IntPtr output) => _c.FocusAnyOtherWindow(_c._focusedWindow);
-
-        public void RequestRender(IntPtr output) => _c.ScheduleManage();
-
-        public void EmitForeignToplevelFullscreen(IntPtr window, IntPtr output)
-        {
-            // Pass B: foreign-toplevel sync deferred. See
-            // none_of_the_new_keybinds_are_functional.md step 6.
-        }
-
-        public void EmitForeignToplevelUnfullscreen(IntPtr window)
-        {
-            // Pass B: foreign-toplevel sync deferred.
-        }
-
-        public void Spawn(string command)
-        {
-            if (string.IsNullOrEmpty(command))
-            {
-                return;
-            }
-
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "/bin/sh",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                psi.ArgumentList.Add("-c");
-                psi.ArgumentList.Add($"setsid -f sh -c {EscapeForShell(command)} >/dev/null 2>&1");
-                System.Diagnostics.Process.Start(psi);
-            }
-            catch (Exception ex)
-            {
-                RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}");
-            }
-        }
-
-        public void Log(string message) => RiverWindowManagerClient.Log(message);
-
-        public Rect CurrentGeometry(IntPtr window)
-        {
-            if (window != IntPtr.Zero && _c._windows.TryGetValue(window, out var w))
-            {
-                return new Rect(w.X, w.Y, w.W, w.H);
-            }
-
-            return new Rect(0, 0, 0, 0);
-        }
     }
 
     private static string GetDefaultConfigPath()
@@ -745,19 +436,6 @@ internal sealed unsafe class RiverWindowManagerClient : IDisposable, TagControll
         }
 
         return 0;
-    }
-
-    [StructLayout(LayoutKind.Explicit)]
-    private struct WlArgument
-    {
-        [FieldOffset(0)] public int i;
-        [FieldOffset(0)] public uint u;
-        [FieldOffset(0)] public int fx;
-        [FieldOffset(0)] public IntPtr s;
-        [FieldOffset(0)] public IntPtr o;
-        [FieldOffset(0)] public uint n;
-        [FieldOffset(0)] public IntPtr a;
-        [FieldOffset(0)] public int h;
     }
 
     // --- registry ------------------------------------------------------
