@@ -1,2 +1,0 @@
-#!/bin/bash
-echo "${1:-toggle}" | socat - UNIX-CONNECT:${XDG_RUNTIME_DIR}/aqueous-network.sock

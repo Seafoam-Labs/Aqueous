@@ -1,34 +1,10 @@
 <Solution>
   <Project Path="Aqueous.WM/Aqueous.WM.csproj" />
   <Project Path="Aqueous.WM.Tests/Aqueous.WM.Tests.csproj" />
-  <Project Path="Aqueous/Aqueous.csproj" />
-  <Project Path="AqueousGreeter/AqueousGreeter.csproj" />
-  <Project Path="AqueousScreenshot/AqueousScreenshot.csproj" />
-  <Project Path="AqueousBindings/AstalBluetooth/AstalBluetooth.csproj" />
-  <Project Path="AqueousBindings/AstalGTK4/AstalGTK4.csproj" />
-  <Project Path="AqueousBindings/AstalApp/AstalApp.csproj" />
-  <Project Path="AqueousBindings/AstalAuth/AstalAuth.csproj" />
-  <Project Path="AqueousBindings/AstalBattery/AstalBattery.csproj" />
-  <Project Path="AqueousBindings/AstalCava/AstalCava.csproj" />
-  <Project Path="AqueousBindings/AstalGreet/AstalGreet.csproj" />
-  <Project Path="AqueousBindings/AstalIo/AstalIo.csproj" />
-  <Project Path="AqueousBindings/AstalMpris/AstalMpris.csproj" />
-  <Project Path="AqueousBindings/AstalNetwork/AstalNetwork.csproj" />
-  <Project Path="AqueousBindings/AstalNotifd/AstalNotifd.csproj" />
-  <Project Path="AqueousBindings/AstalPowerProfiles/AstalPowerProfiles.csproj" />
-  <Project Path="AqueousBindings/AstalRiver/AstalRiver.csproj" />
-  <Project Path="AqueousBindings/AstalRiver.Tests/AstalRiver.Tests.csproj" />
-  <Project Path="AqueousBindings/AstalTray/AstalTray.csproj" />
-  <Project Path="AqueousBindings/AstalWirePlumber/AstalWirePlumber.csproj" />
-  <Project Path="AqueousBindings/AstalWl/AstalWl.csproj" />
   <Folder Name="/Solution/">
-    <File Path="aqueous.desktop" />
-    <File Path="aqueous.install" />
-    <File Path="aqueous-dev-setup.sh" />
-    <File Path="PKGBUILD" />
     <File Path="README.md" />
-    <File Path="REMAINING_WORK.md" />
-    <File Path="Screenshot_20260417_101145.png" />
-    <File Path="wm.toml"/>
+    <File Path="wm.toml" />
+    <File Path="launch_river.sh" />
+    <File Path="PKGBUILD" />
   </Folder>
 </Solution>
