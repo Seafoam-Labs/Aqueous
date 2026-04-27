@@ -29,7 +29,7 @@ pkill -9 -f '^river '                                  2>/dev/null
 sleep 0.3
 
 WM_BIN="$(pwd)/Aqueous.WM/bin/Debug/net10.0/Aqueous.WM"
-BAR_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/Aqueous"
+BAR_BIN="qs -c noctalia-shell"
 
 # Detect "nested" run: if a host Wayland/X session is already visible to us,
 # river will run as a client of it and the host compositor will consume Super
@@ -45,7 +45,7 @@ else
 fi
 echo "[launch_river] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
 
-INNER="'$WM_BIN' >/tmp/aqueous_wm.log 2>&1 & sleep 1; exec '$BAR_BIN' >/tmp/aqueous_bar.log 2>&1"
+INNER="'$WM_BIN' >/tmp/aqueous_wm.log 2>&1 & sleep 1; exec $BAR_BIN >/tmp/aqueous_bar.log 2>&1"
 
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     river -c "sh -c \"$INNER\"" &>/tmp/river_log.txt
