@@ -1,3 +1,0 @@
-#!/bin/sh
-# Launched by the compositor that greetd starts
-exec /usr/bin/aqueous-greeter
