@@ -186,53 +186,104 @@ namespace Aqueous.Features.Compositor.River
 
         private enum KeyBindingAction
         {
-            ToggleStartMenu, SpawnTerminal, CloseFocused, CycleFocus,
-            FocusLeft, FocusRight, FocusDown, FocusUp,
-            ScrollViewportLeft, ScrollViewportRight,
-            MoveColumnLeft, MoveColumnRight,
+            ToggleStartMenu,
+            SpawnTerminal,
+            CloseFocused,
+            CycleFocus,
+            FocusLeft,
+            FocusRight,
+            FocusDown,
+            FocusUp,
+            ScrollViewportLeft,
+            ScrollViewportRight,
+            MoveColumnLeft,
+            MoveColumnRight,
             ReloadConfig,
-            SetLayoutPrimary, SetLayoutSecondary, SetLayoutTertiary, SetLayoutQuaternary,
+            SetLayoutPrimary,
+            SetLayoutSecondary,
+            SetLayoutTertiary,
+            SetLayoutQuaternary,
+
             // Phase B1c — Tag actions. Indexed by 0-based tag bit (0..9
             // for tag1..10) so the dispatcher can compute the mask via
             // 1u << (action - ViewTag1). Tag10 is bound to the digit
             // key '0' because keymaps order digits 1234567890.
-            ViewTag1, ViewTag2, ViewTag3, ViewTag4, ViewTag5,
-            ViewTag6, ViewTag7, ViewTag8, ViewTag9, ViewTagAll,
-            SendTag1, SendTag2, SendTag3, SendTag4, SendTag5,
-            SendTag6, SendTag7, SendTag8, SendTag9, SendTagAll,
-            ToggleViewTag1, ToggleViewTag2, ToggleViewTag3, ToggleViewTag4, ToggleViewTag5,
-            ToggleViewTag6, ToggleViewTag7, ToggleViewTag8, ToggleViewTag9,
-            ToggleWindowTag1, ToggleWindowTag2, ToggleWindowTag3, ToggleWindowTag4, ToggleWindowTag5,
-            ToggleWindowTag6, ToggleWindowTag7, ToggleWindowTag8, ToggleWindowTag9,
+            ViewTag1,
+            ViewTag2,
+            ViewTag3,
+            ViewTag4,
+            ViewTag5,
+            ViewTag6,
+            ViewTag7,
+            ViewTag8,
+            ViewTag9,
+            ViewTagAll,
+            SendTag1,
+            SendTag2,
+            SendTag3,
+            SendTag4,
+            SendTag5,
+            SendTag6,
+            SendTag7,
+            SendTag8,
+            SendTag9,
+            SendTagAll,
+            ToggleViewTag1,
+            ToggleViewTag2,
+            ToggleViewTag3,
+            ToggleViewTag4,
+            ToggleViewTag5,
+            ToggleViewTag6,
+            ToggleViewTag7,
+            ToggleViewTag8,
+            ToggleViewTag9,
+            ToggleWindowTag1,
+            ToggleWindowTag2,
+            ToggleWindowTag3,
+            ToggleWindowTag4,
+            ToggleWindowTag5,
+            ToggleWindowTag6,
+            ToggleWindowTag7,
+            ToggleWindowTag8,
+            ToggleWindowTag9,
             SwapLastTagset,
+
             // Phase B1e — Window state ops (Pass B integration).
-            ToggleFullscreen, ToggleMaximize, ToggleFloating, ToggleMinimize,
-            UnminimizeLast, ToggleScratchpad, SendToScratchpad,
+            ToggleFullscreen,
+            ToggleMaximize,
+            ToggleFloating,
+            ToggleMinimize,
+            UnminimizeLast,
+            ToggleScratchpad,
+            SendToScratchpad,
             Custom,
         }
+
         private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
+
         // For KeyBindingAction.Custom — chord proxy → free-form action verb.
         private readonly Dictionary<IntPtr, string> _customBindingActions = new();
+
         // action_name -> KeyBindingAction (for built-in chord overrides via [keybinds]).
         private static readonly Dictionary<string, KeyBindingAction> BuiltinActionMap =
             new(StringComparer.Ordinal)
             {
-                ["toggle_start_menu"]     = KeyBindingAction.ToggleStartMenu,
-                ["spawn_terminal"]        = KeyBindingAction.SpawnTerminal,
-                ["close_focused"]         = KeyBindingAction.CloseFocused,
-                ["cycle_focus"]           = KeyBindingAction.CycleFocus,
-                ["focus_left"]            = KeyBindingAction.FocusLeft,
-                ["focus_right"]           = KeyBindingAction.FocusRight,
-                ["focus_up"]              = KeyBindingAction.FocusUp,
-                ["focus_down"]            = KeyBindingAction.FocusDown,
-                ["scroll_viewport_left"]  = KeyBindingAction.ScrollViewportLeft,
+                ["toggle_start_menu"] = KeyBindingAction.ToggleStartMenu,
+                ["spawn_terminal"] = KeyBindingAction.SpawnTerminal,
+                ["close_focused"] = KeyBindingAction.CloseFocused,
+                ["cycle_focus"] = KeyBindingAction.CycleFocus,
+                ["focus_left"] = KeyBindingAction.FocusLeft,
+                ["focus_right"] = KeyBindingAction.FocusRight,
+                ["focus_up"] = KeyBindingAction.FocusUp,
+                ["focus_down"] = KeyBindingAction.FocusDown,
+                ["scroll_viewport_left"] = KeyBindingAction.ScrollViewportLeft,
                 ["scroll_viewport_right"] = KeyBindingAction.ScrollViewportRight,
-                ["move_column_left"]      = KeyBindingAction.MoveColumnLeft,
-                ["move_column_right"]     = KeyBindingAction.MoveColumnRight,
-                ["reload_config"]         = KeyBindingAction.ReloadConfig,
-                ["set_layout_primary"]    = KeyBindingAction.SetLayoutPrimary,
-                ["set_layout_secondary"]  = KeyBindingAction.SetLayoutSecondary,
-                ["set_layout_tertiary"]   = KeyBindingAction.SetLayoutTertiary,
+                ["move_column_left"] = KeyBindingAction.MoveColumnLeft,
+                ["move_column_right"] = KeyBindingAction.MoveColumnRight,
+                ["reload_config"] = KeyBindingAction.ReloadConfig,
+                ["set_layout_primary"] = KeyBindingAction.SetLayoutPrimary,
+                ["set_layout_secondary"] = KeyBindingAction.SetLayoutSecondary,
+                ["set_layout_tertiary"] = KeyBindingAction.SetLayoutTertiary,
                 ["set_layout_quaternary"] = KeyBindingAction.SetLayoutQuaternary,
                 // Phase B1c — Tag actions exposed to [keybinds] config.
                 ["view_tag_1"] = KeyBindingAction.ViewTag1, ["view_tag_2"] = KeyBindingAction.ViewTag2,
@@ -265,18 +316,19 @@ namespace Aqueous.Features.Compositor.River
                 ["toggle_window_tag_9"] = KeyBindingAction.ToggleWindowTag9,
                 ["swap_last_tagset"] = KeyBindingAction.SwapLastTagset,
                 // Phase B1e — Window state ops (Pass B integration).
-                ["toggle_fullscreen"]   = KeyBindingAction.ToggleFullscreen,
-                ["toggle_maximize"]     = KeyBindingAction.ToggleMaximize,
-                ["toggle_floating"]     = KeyBindingAction.ToggleFloating,
-                ["toggle_minimize"]     = KeyBindingAction.ToggleMinimize,
-                ["unminimize_last"]     = KeyBindingAction.UnminimizeLast,
-                ["toggle_scratchpad"]   = KeyBindingAction.ToggleScratchpad,
-                ["send_to_scratchpad"]  = KeyBindingAction.SendToScratchpad,
+                ["toggle_fullscreen"] = KeyBindingAction.ToggleFullscreen,
+                ["toggle_maximize"] = KeyBindingAction.ToggleMaximize,
+                ["toggle_floating"] = KeyBindingAction.ToggleFloating,
+                ["toggle_minimize"] = KeyBindingAction.ToggleMinimize,
+                ["unminimize_last"] = KeyBindingAction.UnminimizeLast,
+                ["toggle_scratchpad"] = KeyBindingAction.ToggleScratchpad,
+                ["send_to_scratchpad"] = KeyBindingAction.SendToScratchpad,
                 // toggle_scratchpad_named / send_to_scratchpad_named are not
                 // mapped here: they require a :arg suffix and are reachable
                 // only via [keybinds.custom] -> RunCustomAction's builtin:
                 // branch, which parses one trailing :name segment.
             };
+
         private IntPtr _primarySeat;
         private IntPtr _focusedWindow;
         private bool _insideManageSequence;
@@ -301,6 +353,7 @@ namespace Aqueous.Features.Compositor.River
         // WindowStateController. Lazily populated when a chord first
         // touches a window; lifecycle-cleared on close / output removal.
         private readonly ConcurrentDictionary<IntPtr, WindowStateData> _windowStates = new();
+
         // Per-output single-FS slot (single-fullscreen-per-output rule).
         private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
         private readonly ScratchpadRegistry _scratchpadRegistry;
@@ -309,12 +362,12 @@ namespace Aqueous.Features.Compositor.River
         private RiverWindowManagerClient()
         {
             _seatInteractionService = new SeatInteractionService(this);
-            _layoutRegistry  = new LayoutRegistry();
-            _layoutConfig    = LayoutConfig.Load(GetDefaultConfigPath());
+            _layoutRegistry = new LayoutRegistry();
+            _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
             _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
-            _tagController    = new TagController(this);
+            _tagController = new TagController(this);
             _scratchpadRegistry = new ScratchpadRegistry();
-            _windowState        = new WindowStateController(
+            _windowState = new WindowStateController(
                 new RiverWindowStateHost(this), _scratchpadRegistry);
         }
 
@@ -329,7 +382,11 @@ namespace Aqueous.Features.Compositor.River
         private sealed class RiverWindowStateHost : IWindowStateHost
         {
             private readonly RiverWindowManagerClient _c;
-            public RiverWindowStateHost(RiverWindowManagerClient c) { _c = c; }
+
+            public RiverWindowStateHost(RiverWindowManagerClient c)
+            {
+                _c = c;
+            }
 
             public WindowStateData? Get(IntPtr window)
             {
@@ -372,7 +429,7 @@ namespace Aqueous.Features.Compositor.River
             {
                 if (output == IntPtr.Zero) return;
                 if (window == IntPtr.Zero) _c._outputFullscreen.TryRemove(output, out _);
-                else                       _c._outputFullscreen[output] = window;
+                else _c._outputFullscreen[output] = window;
             }
 
             public void Focus(IntPtr window)
@@ -410,7 +467,10 @@ namespace Aqueous.Features.Compositor.River
                     psi.ArgumentList.Add($"setsid -f sh -c {EscapeSh(command)} >/dev/null 2>&1");
                     System.Diagnostics.Process.Start(psi);
                 }
-                catch (Exception ex) { RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}");
+                }
             }
 
             public void Log(string message) => RiverWindowManagerClient.Log(message);
@@ -449,19 +509,35 @@ namespace Aqueous.Features.Compositor.River
             try
             {
                 var c = new RiverWindowManagerClient();
-                if (!c.Connect()) { c.Dispose(); return null; }
+                if (!c.Connect())
+                {
+                    c.Dispose();
+                    return null;
+                }
+
                 c.StartPump();
                 Log($"attached as window manager (v{c._managerVersion})");
                 return c;
             }
-            catch (DllNotFoundException) { return null; }
-            catch (Exception e) { Log("TryStart failed: " + e.Message); return null; }
+            catch (DllNotFoundException)
+            {
+                return null;
+            }
+            catch (Exception e)
+            {
+                Log("TryStart failed: " + e.Message);
+                return null;
+            }
         }
 
         private bool Connect()
         {
             _display = WaylandInterop.wl_display_connect(IntPtr.Zero);
-            if (_display == IntPtr.Zero) { Log("wl_display_connect returned null"); return false; }
+            if (_display == IntPtr.Zero)
+            {
+                Log("wl_display_connect returned null");
+                return false;
+            }
 
             WlInterfaces.EnsureBuilt();
 
@@ -469,7 +545,11 @@ namespace Aqueous.Features.Compositor.River
             _registry = WaylandInterop.wl_proxy_marshal_flags(
                 _display, 1, (IntPtr)WlInterfaces.WlRegistry, 1, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            if (_registry == IntPtr.Zero) { Log("get_registry failed"); return false; }
+            if (_registry == IntPtr.Zero)
+            {
+                Log("get_registry failed");
+                return false;
+            }
 
             _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
             WaylandInterop.wl_proxy_add_dispatcher(
@@ -504,10 +584,17 @@ namespace Aqueous.Features.Compositor.River
                 while (_running)
                 {
                     int r = WaylandInterop.wl_display_dispatch(_display);
-                    if (r < 0) { Log("wl_display_dispatch returned < 0; pump exiting"); break; }
+                    if (r < 0)
+                    {
+                        Log("wl_display_dispatch returned < 0; pump exiting");
+                        break;
+                    }
                 }
             }
-            catch (Exception e) { Log("pump crashed: " + e.Message); }
+            catch (Exception e)
+            {
+                Log("pump crashed: " + e.Message);
+            }
         }
 
         public void Dispose()
@@ -532,7 +619,9 @@ namespace Aqueous.Features.Compositor.River
 
                 _pumpThread?.Join(500);
             }
-            catch { }
+            catch
+            {
+            }
             finally
             {
                 if (_selfHandle.IsAllocated) _selfHandle.Free();
@@ -551,36 +640,44 @@ namespace Aqueous.Features.Compositor.River
                 if (self == null) return 0;
                 var a = (WlArgument*)args;
 
-                if (target == self._registry)      self.OnRegistryEvent(opcode, a);
-                else if (target == self._manager)  self.OnManagerEvent(opcode, a);
+                if (target == self._registry) self.OnRegistryEvent(opcode, a);
+                else if (target == self._manager) self.OnManagerEvent(opcode, a);
                 else if (target == self._layerShell) self.OnLayerShellEvent(opcode, a);
-                else if (self._superKeyBinding != IntPtr.Zero && target == self._superKeyBinding) self.OnSuperKeyBindingEvent(opcode, a);
+                else if (self._superKeyBinding != IntPtr.Zero && target == self._superKeyBinding)
+                    self.OnSuperKeyBindingEvent(opcode, a);
                 else if (self._keyBindings.ContainsKey(target)) self.OnKeyBindingEvent(target, opcode, a);
                 else if (target == self._dragPointerBinding) self.OnDragPointerBindingEvent(opcode, a);
                 else if (self._windows.ContainsKey(target)) self.OnWindowEvent(target, opcode, a);
                 else if (self._outputs.ContainsKey(target)) self.OnOutputEvent(target, opcode, a);
-                else if (self._seats.ContainsKey(target))   self.OnSeatEvent(target, opcode, a);
+                else if (self._seats.ContainsKey(target)) self.OnSeatEvent(target, opcode, a);
                 else Log("unhandled dispatch: target=0x" + target.ToString("x") + " opcode=" + opcode);
             }
             catch (Exception e)
             {
                 // NEVER unwind into native dispatch.
-                try { Log("dispatch exception: " + e.Message); } catch { }
+                try
+                {
+                    Log("dispatch exception: " + e.Message);
+                }
+                catch
+                {
+                }
             }
+
             return 0;
         }
 
         [StructLayout(LayoutKind.Explicit)]
         private struct WlArgument
         {
-            [FieldOffset(0)] public int   i;
-            [FieldOffset(0)] public uint  u;
-            [FieldOffset(0)] public int   fx;
+            [FieldOffset(0)] public int i;
+            [FieldOffset(0)] public uint u;
+            [FieldOffset(0)] public int fx;
             [FieldOffset(0)] public IntPtr s;
             [FieldOffset(0)] public IntPtr o;
-            [FieldOffset(0)] public uint  n;
+            [FieldOffset(0)] public uint n;
             [FieldOffset(0)] public IntPtr a;
-            [FieldOffset(0)] public int   h;
+            [FieldOffset(0)] public int h;
         }
 
         // --- registry ------------------------------------------------------
@@ -635,7 +732,7 @@ namespace Aqueous.Features.Compositor.River
             // on the wire; wl_proxy_marshal_flags fills the new_id implicitly.
             return WaylandInterop.wl_proxy_marshal_flags(
                 _registry,
-                0,                                 // opcode
+                0, // opcode
                 (IntPtr)iface,
                 version,
                 0,
@@ -687,7 +784,8 @@ namespace Aqueous.Features.Compositor.River
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = "dbus-send",
-                        Arguments = "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
+                        Arguments =
+                            "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -713,11 +811,11 @@ namespace Aqueous.Features.Compositor.River
                 if (layerSurface != IntPtr.Zero)
                 {
                     IntPtr node = WaylandInterop.wl_proxy_marshal_flags(
-                        layerSurface, 0, (IntPtr)WlInterfaces.RiverNode, 1, 0, 
+                        layerSurface, 0, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     if (node != IntPtr.Zero)
                     {
-                        WaylandInterop.wl_proxy_marshal_flags(node, 2, IntPtr.Zero, 1, 0, 
+                        WaylandInterop.wl_proxy_marshal_flags(node, 2, IntPtr.Zero, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         Log("mapped layer_surface to top");
                     }
@@ -749,99 +847,116 @@ namespace Aqueous.Features.Compositor.River
                     break;
                 case 2: // manage_start
                     _insideManageSequence = true;
-                    try {
-                    Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+                    try
+                    {
+                        Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
 
-                    // Self-heal focus: if we think nothing is focused but windows exist, pick one.
-                    // This catches the case where the previously focused window was destroyed
-                    // between sequences and ensures the keyboard always has somewhere to go.
-                    if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _pendingFocusShellSurface == IntPtr.Zero && _windows.Count > 0)
-                    {
-                        foreach (var wk in _windows.Keys) { RequestFocus(wk); break; }
-                    }
-
-                    // Enable the pointer binding (must be issued inside a manage sequence).
-                    if (_dragPointerBindingNeedsEnable && _dragPointerBinding != IntPtr.Zero)
-                    {
-                        // river_pointer_binding_v1::enable is opcode 1 (0=destroy, 1=enable, 2=disable)
-                        WaylandInterop.wl_proxy_marshal_flags(
-                            _dragPointerBinding, 1, IntPtr.Zero, 0, 0,
-                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                        _dragPointerBindingNeedsEnable = false;
-                        Log("enabled Super+BTN_LEFT pointer binding");
-                    }
-
-                    if (_dragFinished)
-                    {
-                        WaylandInterop.wl_proxy_marshal_flags(
-                            _activeDragSeat, 5, IntPtr.Zero, 1, 0,
-                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                            
-                        _activeDragWindow = null;
-                        _activeDragSeat = IntPtr.Zero;
-                        _dragFinished = false;
-                        _dragStarted = false;
-                    }
-
-                    if (_activeDragSeat != IntPtr.Zero && _activeDragWindow != null && !_dragStarted)
-                    {
-                        WaylandInterop.wl_proxy_marshal_flags(
-                            _activeDragSeat, 4, IntPtr.Zero, 1, 0,
-                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                        _dragStarted = true;
-                    }
-                    
-                    if (_pendingFocusSeat != IntPtr.Zero)
-                    {
-                        if (_pendingFocusWindow != IntPtr.Zero)
+                        // Self-heal focus: if we think nothing is focused but windows exist, pick one.
+                        // This catches the case where the previously focused window was destroyed
+                        // between sequences and ensures the keyboard always has somewhere to go.
+                        if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero &&
+                            _pendingFocusShellSurface == IntPtr.Zero && _windows.Count > 0)
                         {
-                            WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 1, IntPtr.Zero, 0, 0, _pendingFocusWindow, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                            Log($"gave focus to window 0x{_pendingFocusWindow.ToString("x")}");
+                            foreach (var wk in _windows.Keys)
+                            {
+                                RequestFocus(wk);
+                                break;
+                            }
                         }
-                        else if (_pendingFocusShellSurface != IntPtr.Zero)
+
+                        // Enable the pointer binding (must be issued inside a manage sequence).
+                        if (_dragPointerBindingNeedsEnable && _dragPointerBinding != IntPtr.Zero)
                         {
-                            WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 2, IntPtr.Zero, 0, 0, _pendingFocusShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                            Log($"gave focus to shell surface 0x{_pendingFocusShellSurface.ToString("x")}");
+                            // river_pointer_binding_v1::enable is opcode 1 (0=destroy, 1=enable, 2=disable)
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _dragPointerBinding, 1, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            _dragPointerBindingNeedsEnable = false;
+                            Log("enabled Super+BTN_LEFT pointer binding");
                         }
-                        _pendingFocusSeat = IntPtr.Zero;
-                        _pendingFocusWindow = IntPtr.Zero;
-                        _pendingFocusShellSurface = IntPtr.Zero;
+
+                        if (_dragFinished)
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragSeat, 5, IntPtr.Zero, 1, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                            _activeDragWindow = null;
+                            _activeDragSeat = IntPtr.Zero;
+                            _dragFinished = false;
+                            _dragStarted = false;
+                        }
+
+                        if (_activeDragSeat != IntPtr.Zero && _activeDragWindow != null && !_dragStarted)
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragSeat, 4, IntPtr.Zero, 1, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            _dragStarted = true;
+                        }
+
+                        if (_pendingFocusSeat != IntPtr.Zero)
+                        {
+                            if (_pendingFocusWindow != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 1, IntPtr.Zero, 0, 0,
+                                    _pendingFocusWindow, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                                    IntPtr.Zero);
+                                Log($"gave focus to window 0x{_pendingFocusWindow.ToString("x")}");
+                            }
+                            else if (_pendingFocusShellSurface != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 2, IntPtr.Zero, 0, 0,
+                                    _pendingFocusShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                                    IntPtr.Zero);
+                                Log($"gave focus to shell surface 0x{_pendingFocusShellSurface.ToString("x")}");
+                            }
+
+                            _pendingFocusSeat = IntPtr.Zero;
+                            _pendingFocusWindow = IntPtr.Zero;
+                            _pendingFocusShellSurface = IntPtr.Zero;
+                        }
+
+                        // ----------------------------------------------------------------
+                        // Layout subsystem (Phase 1.1 / B1b).
+                        //
+                        // For every known output, ask the LayoutController to place the
+                        // visible windows assigned to that output. The controller calls the
+                        // resolved ILayoutEngine (tile / monocle / grid / float / scrolling)
+                        // and clamps results to per-window min/max hints.
+                        //
+                        // Wayland-side, manage_start is the right phase for propose_dimensions
+                        // — the per-frame set_position/show/place_top calls live in case 3
+                        // (render_start) and are unchanged. We diff against the per-window
+                        // LastHintW/H so we only re-propose when the engine actually picked a
+                        // new size, preserving the bandwidth-saving behaviour the previous
+                        // hard-coded 800x600 loop relied on.
+                        // ----------------------------------------------------------------
+                        if (_outputs.IsEmpty)
+                        {
+                            // Headless / no outputs reported yet: fall back to a single
+                            // virtual 1920x1080 area so windows still get a reasonable
+                            // initial proposal (matches old behaviour + tile layout).
+                            ProposeForArea(IntPtr.Zero, null, new Rect(0, 0, 1920, 1080));
+                        }
+                        else
+                        {
+                            foreach (var outputKvp in _outputs)
+                            {
+                                var oe = outputKvp.Value;
+                                int aw = oe.Width > 0 ? oe.Width : 1920;
+                                int ah = oe.Height > 0 ? oe.Height : 1080;
+                                ProposeForArea(outputKvp.Key, null, new Rect(oe.X, oe.Y, aw, ah));
+                            }
+                        }
+
+                        SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
+                    }
+                    finally
+                    {
+                        _insideManageSequence = false;
                     }
 
-                    // ----------------------------------------------------------------
-                    // Layout subsystem (Phase 1.1 / B1b).
-                    //
-                    // For every known output, ask the LayoutController to place the
-                    // visible windows assigned to that output. The controller calls the
-                    // resolved ILayoutEngine (tile / monocle / grid / float / scrolling)
-                    // and clamps results to per-window min/max hints.
-                    //
-                    // Wayland-side, manage_start is the right phase for propose_dimensions
-                    // — the per-frame set_position/show/place_top calls live in case 3
-                    // (render_start) and are unchanged. We diff against the per-window
-                    // LastHintW/H so we only re-propose when the engine actually picked a
-                    // new size, preserving the bandwidth-saving behaviour the previous
-                    // hard-coded 800x600 loop relied on.
-                    // ----------------------------------------------------------------
-                    if (_outputs.IsEmpty)
-                    {
-                        // Headless / no outputs reported yet: fall back to a single
-                        // virtual 1920x1080 area so windows still get a reasonable
-                        // initial proposal (matches old behaviour + tile layout).
-                        ProposeForArea(IntPtr.Zero, null, new Rect(0, 0, 1920, 1080));
-                    }
-                    else
-                    {
-                        foreach (var outputKvp in _outputs)
-                        {
-                            var oe = outputKvp.Value;
-                            int aw = oe.Width  > 0 ? oe.Width  : 1920;
-                            int ah = oe.Height > 0 ? oe.Height : 1080;
-                            ProposeForArea(outputKvp.Key, null, new Rect(oe.X, oe.Y, aw, ah));
-                        }
-                    }
-                    SendManagerRequest(2); // manage_finish opcode = 2 (see WlInterfaces)
-                    } finally { _insideManageSequence = false; }
                     break;
                 case 3: // render_start
                     // NOTE: do NOT set _insideManageSequence here — render_start is the render
@@ -849,6 +964,7 @@ namespace Aqueous.Features.Compositor.River
                     // would suppress legitimate manage_dirty calls scheduled from event
                     // handlers dispatched just before render.
                     Log("render_start");
+
                     // River's render cycle (render_start -> per-window placement/show/decoration
                     // -> render_finish) describes the contents of the NEXT frame. The scene
                     // graph is not retained between cycles — anything not re-emitted in this
@@ -873,26 +989,32 @@ namespace Aqueous.Features.Compositor.River
                     // stacking order. Within a layer dictionary order is
                     // accepted; focus-aware in-layer ordering is a
                     // post-Pass-C polish item.
-                    void EmitWindow(IntPtr key, WindowEntry we) {
+                    void EmitWindow(IntPtr key, WindowEntry we)
+                    {
                         if (!we.Visible) return;
                         // show (opcode 5) — every frame so the window is in this frame's scene.
-                        WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         // set_borders (opcode 8) — zero-width, every frame.
                         // Note: per Pass C plan, fullscreen explicitly
                         // wants 0-width borders; tiled/floating get the
                         // same value today (Pass C does not introduce
                         // border colour/width — that's a polish item).
-                        WaylandInterop.wl_proxy_marshal_flags(key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
+                        WaylandInterop.wl_proxy_marshal_flags(key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0,
+                            (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
 
                         if (we.NodeProxy != IntPtr.Zero)
                         {
                             // place_top (river_node_v1 opcode 2) — every frame (scene graph is not retained).
-                            WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                             // set_position (river_node_v1 opcode 1) — only when changed.
                             if (we.LastPosX != we.X || we.LastPosY != we.Y)
                             {
-                                WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X, (IntPtr)we.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                                we.LastPosX = we.X; we.LastPosY = we.Y;
+                                WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X,
+                                    (IntPtr)we.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                we.LastPosX = we.X;
+                                we.LastPosY = we.Y;
                             }
                         }
 
@@ -904,7 +1026,8 @@ namespace Aqueous.Features.Compositor.River
                                 key, 21, IntPtr.Zero, 0, 0,
                                 (IntPtr)0, (IntPtr)0, (IntPtr)we.W, (IntPtr)we.H,
                                 IntPtr.Zero, IntPtr.Zero);
-                            we.LastClipW = we.W; we.LastClipH = we.H;
+                            we.LastClipW = we.W;
+                            we.LastClipH = we.H;
                         }
                     }
 
@@ -924,12 +1047,14 @@ namespace Aqueous.Features.Compositor.River
                         var s = ClassifyState(kvp.Key);
                         if (s == WindowState.Tiled) EmitWindow(kvp.Key, kvp.Value);
                     }
+
                     // Pass 2: maximized.
                     foreach (var kvp in _windows)
                     {
                         if (ClassifyState(kvp.Key) == WindowState.Maximized)
                             EmitWindow(kvp.Key, kvp.Value);
                     }
+
                     // Pass 3: floating (and Scratchpad — visible scratchpads
                     // are rendered as floating dropdown windows above tiles).
                     foreach (var kvp in _windows)
@@ -938,12 +1063,14 @@ namespace Aqueous.Features.Compositor.River
                         if (s == WindowState.Floating || s == WindowState.Scratchpad)
                             EmitWindow(kvp.Key, kvp.Value);
                     }
+
                     // Pass 4: fullscreen (last so its place_top wins).
                     foreach (var kvp in _windows)
                     {
                         if (ClassifyState(kvp.Key) == WindowState.Fullscreen)
                             EmitWindow(kvp.Key, kvp.Value);
                     }
+
                     SendManagerRequest(4); // render_finish opcode = 4
                     break;
                 case 4: Log("session_locked"); break;
@@ -958,7 +1085,7 @@ namespace Aqueous.Features.Compositor.River
                         int cascadeIndex = _windows.Count;
                         var entry = new WindowEntry { Proxy = proxy, X = cascadeIndex * 40, Y = cascadeIndex * 40 };
                         entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
-                            proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0, 
+                            proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
                         _windows[proxy] = entry;
@@ -982,6 +1109,7 @@ namespace Aqueous.Features.Compositor.River
                         // region and is actually the focused surface.
                         ScheduleManage();
                     }
+
                     break;
                 }
                 case 7: // output(new_id)
@@ -997,6 +1125,7 @@ namespace Aqueous.Features.Compositor.River
                             IntPtr.Zero);
                         Log($"+ output 0x{proxy.ToString("x")}");
                     }
+
                     break;
                 }
                 case 8: // seat(new_id)
@@ -1019,7 +1148,11 @@ namespace Aqueous.Features.Compositor.River
                         // the first window never gets keyboard focus.
                         if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _windows.Count > 0)
                         {
-                            foreach (var wk in _windows.Keys) { RequestFocus(wk); break; }
+                            foreach (var wk in _windows.Keys)
+                            {
+                                RequestFocus(wk);
+                                break;
+                            }
                         }
 
                         // Register only modifier+keysym combinations so plain keys (letters,
@@ -1057,14 +1190,17 @@ namespace Aqueous.Features.Compositor.River
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
                                 _dragPointerBindingNeedsEnable = true;
-                                Log($"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{_managerVersion})");
+                                Log(
+                                    $"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{_managerVersion})");
                             }
                         }
                         else if (_dragPointerBinding == IntPtr.Zero && _managerVersion < 4)
                         {
-                            Log($"skipping get_pointer_binding; river_window_manager_v1 v{_managerVersion} < 4 (River 0.4.3 ships v3)");
+                            Log(
+                                $"skipping get_pointer_binding; river_window_manager_v1 v{_managerVersion} < 4 (River 0.4.3 ships v3)");
                         }
                     }
+
                     break;
                 }
             }
@@ -1128,7 +1264,7 @@ namespace Aqueous.Features.Compositor.River
             // to short bespoke loops below; their target rects come from
             // the host adapter (OutputRect / UsableArea).
             var fullscreenHandles = new List<IntPtr>();
-            var maximizedHandles  = new List<IntPtr>();
+            var maximizedHandles = new List<IntPtr>();
             // Pass C / C2: hiddenThisCycle is the union of (a) tag-hidden,
             // (b) WindowState.Minimized, and (c) scratchpad windows that
             // are currently dismissed (state.Visible == false). All three
@@ -1162,11 +1298,11 @@ namespace Aqueous.Features.Compositor.River
                             if (w.Tags == Aqueous.WM.Features.Tags.TagState.DefaultTag)
                             {
                                 uint inheritMask = outputVisibleTags &
-                                    ~Aqueous.WM.Features.Tags.TagState.ScratchpadTag;
+                                                   ~Aqueous.WM.Features.Tags.TagState.ScratchpadTag;
                                 if (inheritMask != 0u) w.Tags = inheritMask;
                             }
                         }
-                        else        continue;
+                        else continue;
                     }
                     else if (w.Output != output)
                     {
@@ -1222,14 +1358,17 @@ namespace Aqueous.Features.Compositor.River
                         fullscreenHandles.Add(kvp.Key);
                         continue;
                     }
+
                     Log($"FS slot conflict on output 0x{output.ToString("x")}: " +
                         $"window 0x{kvp.Key.ToString("x")} flagged FS but slot owner is 0x{fsOwner.ToString("x")}; demoting to tiled");
                 }
+
                 if (wsState != null && wsState.State == WindowState.Maximized)
                 {
                     maximizedHandles.Add(kvp.Key);
                     continue;
                 }
+
                 if (wsState != null && wsState.State == WindowState.Floating)
                 {
                     // Seed the WindowEntry's FloatRect from the controller's
@@ -1238,10 +1377,13 @@ namespace Aqueous.Features.Compositor.River
                     // to emit even if the user has never dragged it.
                     if (!w.HasFloatRect && wsState.FloatingGeom is { } g && g.W > 0 && g.H > 0)
                     {
-                        w.FloatX = g.X; w.FloatY = g.Y;
-                        w.FloatW = g.W; w.FloatH = g.H;
+                        w.FloatX = g.X;
+                        w.FloatY = g.Y;
+                        w.FloatW = g.W;
+                        w.FloatH = g.H;
                         w.HasFloatRect = true;
                     }
+
                     floatingHandles.Add(kvp.Key);
                     continue;
                 }
@@ -1260,12 +1402,12 @@ namespace Aqueous.Features.Compositor.River
                 else
                 {
                     tiledSnapshot.Add(new WindowEntryView(
-                        Handle:     kvp.Key,
-                        MinW:       w.MinW, MinH: w.MinH,
-                        MaxW:       w.MaxW, MaxH: w.MaxH,
-                        Floating:   false,
+                        Handle: kvp.Key,
+                        MinW: w.MinW, MinH: w.MinH,
+                        MaxW: w.MaxW, MaxH: w.MaxH,
+                        Floating: false,
                         Fullscreen: false,
-                        Tags:       w.Tags));
+                        Tags: w.Tags));
                 }
             }
 
@@ -1285,10 +1427,14 @@ namespace Aqueous.Features.Compositor.River
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     w.HideSent = true;
                     // Force re-propose / re-position on next show.
-                    w.LastHintW = 0; w.LastHintH = 0;
-                    w.LastPosX = int.MinValue; w.LastPosY = int.MinValue;
-                    w.LastClipW = 0; w.LastClipH = 0;
+                    w.LastHintW = 0;
+                    w.LastHintH = 0;
+                    w.LastPosX = int.MinValue;
+                    w.LastPosY = int.MinValue;
+                    w.LastClipW = 0;
+                    w.LastClipH = 0;
                 }
+
                 w.TagVisible = false;
                 w.Visible = false;
             }
@@ -1306,10 +1452,11 @@ namespace Aqueous.Features.Compositor.River
                     if (w.Output == IntPtr.Zero) w.Output = output;
                     bool treatAsFloating = floatIsActive && w.Floating;
                     if (floatIsActive || treatAsFloating) floatingHandles.Add(kvp.Key);
-                    else tiledSnapshot.Add(new WindowEntryView(
-                        Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
-                        MaxW: w.MaxW, MaxH: w.MaxH,
-                        Floating: false, Fullscreen: false, Tags: 0u));
+                    else
+                        tiledSnapshot.Add(new WindowEntryView(
+                            Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
+                            MaxW: w.MaxW, MaxH: w.MaxH,
+                            Floating: false, Fullscreen: false, Tags: 0u));
                 }
             }
 
@@ -1356,6 +1503,7 @@ namespace Aqueous.Features.Compositor.River
                             // we want the next visible cycle to fire propose
                             // exactly once if needed. Just skip silently.
                         }
+
                         continue;
                     }
 
@@ -1365,12 +1513,17 @@ namespace Aqueous.Features.Compositor.River
 
                     if (pw == w.LastHintW && ph == w.LastHintH)
                     {
-                        w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+                        w.X = p.Geometry.X;
+                        w.Y = p.Geometry.Y;
                         continue;
                     }
-                    w.LastHintW = pw; w.LastHintH = ph;
-                    w.ProposedW = pw; w.ProposedH = ph;
-                    w.X = p.Geometry.X; w.Y = p.Geometry.Y;
+
+                    w.LastHintW = pw;
+                    w.LastHintH = ph;
+                    w.ProposedW = pw;
+                    w.ProposedH = ph;
+                    w.X = p.Geometry.X;
+                    w.Y = p.Geometry.Y;
 
                     WaylandInterop.wl_proxy_marshal_flags(
                         p.Handle, 3, IntPtr.Zero, 0, 0,
@@ -1395,8 +1548,10 @@ namespace Aqueous.Features.Compositor.River
 
                 if (!w.HasFloatRect)
                 {
-                    w.FloatX = initX; w.FloatY = initY;
-                    w.FloatW = initW; w.FloatH = initH;
+                    w.FloatX = initX;
+                    w.FloatY = initY;
+                    w.FloatW = initW;
+                    w.FloatH = initH;
                     w.HasFloatRect = true;
                 }
 
@@ -1405,15 +1560,18 @@ namespace Aqueous.Features.Compositor.River
 
                 // Position is what the user dragged to; never overwritten by
                 // any engine call. Width/height only proposed when changed.
-                w.X = w.FloatX; w.Y = w.FloatY;
+                w.X = w.FloatX;
+                w.Y = w.FloatY;
                 w.Visible = true;
                 w.TagVisible = true;
                 w.HideSent = false;
 
                 if (pw != w.LastHintW || ph != w.LastHintH)
                 {
-                    w.LastHintW = pw; w.LastHintH = ph;
-                    w.ProposedW = pw; w.ProposedH = ph;
+                    w.LastHintW = pw;
+                    w.LastHintH = ph;
+                    w.ProposedW = pw;
+                    w.ProposedH = ph;
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
@@ -1435,15 +1593,18 @@ namespace Aqueous.Features.Compositor.River
                 int pw = usableArea.W, ph = usableArea.H;
                 if (pw <= 0 || ph <= 0) continue;
 
-                w.X = tx; w.Y = ty;
+                w.X = tx;
+                w.Y = ty;
                 w.Visible = true;
                 w.TagVisible = true;
                 w.HideSent = false;
 
                 if (pw != w.LastHintW || ph != w.LastHintH)
                 {
-                    w.LastHintW = pw; w.LastHintH = ph;
-                    w.ProposedW = pw; w.ProposedH = ph;
+                    w.LastHintW = pw;
+                    w.LastHintH = ph;
+                    w.ProposedW = pw;
+                    w.ProposedH = ph;
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
@@ -1468,8 +1629,8 @@ namespace Aqueous.Features.Compositor.River
             Rect outputRect = usableArea;
             if (output != IntPtr.Zero && _outputs.TryGetValue(output, out var oeFull))
                 outputRect = new Rect(oeFull.X, oeFull.Y,
-                                      oeFull.Width  > 0 ? oeFull.Width  : usableArea.W,
-                                      oeFull.Height > 0 ? oeFull.Height : usableArea.H);
+                    oeFull.Width > 0 ? oeFull.Width : usableArea.W,
+                    oeFull.Height > 0 ? oeFull.Height : usableArea.H);
 
             for (int i = 0; i < fullscreenHandles.Count; i++)
             {
@@ -1480,15 +1641,18 @@ namespace Aqueous.Features.Compositor.River
                 int pw = outputRect.W, ph = outputRect.H;
                 if (pw <= 0 || ph <= 0) continue;
 
-                w.X = tx; w.Y = ty;
+                w.X = tx;
+                w.Y = ty;
                 w.Visible = true;
                 w.TagVisible = true;
                 w.HideSent = false;
 
                 if (pw != w.LastHintW || ph != w.LastHintH)
                 {
-                    w.LastHintW = pw; w.LastHintH = ph;
-                    w.ProposedW = pw; w.ProposedH = ph;
+                    w.LastHintW = pw;
+                    w.LastHintH = ph;
+                    w.ProposedW = pw;
+                    w.ProposedH = ph;
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
@@ -1531,7 +1695,8 @@ namespace Aqueous.Features.Compositor.River
                     _windowState.OnWindowDestroyed(proxy);
                     _windowStates.TryRemove(proxy, out _);
                     foreach (var ofs in _outputFullscreen)
-                        if (ofs.Value == proxy) _outputFullscreen.TryRemove(ofs.Key, out _);
+                        if (ofs.Value == proxy)
+                            _outputFullscreen.TryRemove(ofs.Key, out _);
                     _windows.TryRemove(proxy, out _);
                     // Clean up all dangling references to the destroyed proxy so subsequent
                     // manage_start sequences don't send requests against a dead object (which
@@ -1543,12 +1708,14 @@ namespace Aqueous.Features.Compositor.River
                         _dragStarted = false;
                         _dragFinished = false;
                     }
+
                     if (_pendingFocusWindow == proxy) _pendingFocusWindow = IntPtr.Zero;
                     foreach (var k in _seatHoveredWindow.Keys)
                     {
                         if (_seatHoveredWindow.TryGetValue(k, out var v) && v == proxy)
                             _seatHoveredWindow[k] = IntPtr.Zero;
                     }
+
                     // NOTE: do NOT send destroy (opcode 0) here. river_window_v1::closed
                     // already implies the object is gone server-side, and calling destroy
                     // from inside its own event handler can be a protocol error on some
@@ -1560,13 +1727,18 @@ namespace Aqueous.Features.Compositor.River
                         _focusedWindow = IntPtr.Zero;
                         FocusAnyOtherWindow(proxy);
                     }
+
                     break;
                 case 1:
-                    w.MinW = args[0].i; w.MinH = args[1].i; w.MaxW = args[2].i; w.MaxH = args[3].i;
+                    w.MinW = args[0].i;
+                    w.MinH = args[1].i;
+                    w.MaxW = args[2].i;
+                    w.MaxH = args[3].i;
                     Log($"window 0x{proxy.ToString("x")} dimensions_hint min {w.MinW}x{w.MinH} max {w.MaxW}x{w.MaxH}");
                     break;
                 case 2:
-                    w.W = args[0].i; w.H = args[1].i;
+                    w.W = args[0].i;
+                    w.H = args[1].i;
                     Log($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
                     // Fix #3: as soon as the client commits a real size, run a fresh
                     // manage/render cycle so set_clip_box is emitted on the first frame
@@ -1574,8 +1746,14 @@ namespace Aqueous.Features.Compositor.River
                     // clip box and pointer/keyboard input falls outside the input region.
                     ScheduleManage();
                     break;
-                case 3: w.AppId = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}"); break;
-                case 4: w.Title = PtrToString(args[0].s); Log($"window 0x{proxy.ToString("x")} title={w.Title}"); break;
+                case 3:
+                    w.AppId = PtrToString(args[0].s);
+                    Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}");
+                    break;
+                case 4:
+                    w.Title = PtrToString(args[0].s);
+                    Log($"window 0x{proxy.ToString("x")} title={w.Title}");
+                    break;
                 case 7:
                     IntPtr seatProxy = args[0].o;
                     Log($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
@@ -1583,6 +1761,38 @@ namespace Aqueous.Features.Compositor.River
                     _activeDragSeat = seatProxy;
                     _dragStartX = w.X;
                     _dragStartY = w.Y;
+                    break;
+                case 10:
+                    if (!_windowStates.TryGetValue(proxy, out var sMax)
+                        || sMax.State != WindowState.Maximized)
+                    {
+                        _windowState.ToggleMaximize(proxy);
+                    }
+
+                    ScheduleManage();
+                    break;
+                case 11:
+                    if (_windowStates.TryGetValue(proxy, out var stateData)
+                        && stateData.State == WindowState.Minimized)
+                    {
+                        _windowState.ToggleMaximize(proxy);
+                    }
+
+                    ScheduleManage();
+                    break;
+                case 12:
+                    var outputProxy = args[0].o;
+                    _windowState.OnClientRequestedFullscreen(proxy,
+                        outputProxy == IntPtr.Zero ? (IntPtr?)null : outputProxy);
+                    ScheduleManage();
+                    break;
+                case 13:
+                    _windowState.OnClientRequestedUnfullscreen(proxy);
+                    ScheduleManage();
+                    break;
+                case 14:
+                    _windowState.ToggleMinimize(proxy);
+                    ScheduleManage();
                     break;
                 case 17: Log($"window 0x{proxy.ToString("x")} identifier={PtrToString(args[0].s)}"); break;
                 default:
@@ -1607,29 +1817,33 @@ namespace Aqueous.Features.Compositor.River
                     // Phase B1e Pass B: forward the removal to the window
                     // state controller so it can demote any FS/Max windows
                     // pinned to this output before _outputs forgets it.
-                    {
-                        var goneOutputWindows = new List<WindowStateData>();
-                        foreach (var sk in _windowStates)
-                            if (sk.Value.PinnedOutput == proxy) goneOutputWindows.Add(sk.Value);
-                        _windowState.OnOutputRemoved(proxy, goneOutputWindows);
-                        _outputFullscreen.TryRemove(proxy, out _);
-                    }
+                {
+                    var goneOutputWindows = new List<WindowStateData>();
+                    foreach (var sk in _windowStates)
+                        if (sk.Value.PinnedOutput == proxy)
+                            goneOutputWindows.Add(sk.Value);
+                    _windowState.OnOutputRemoved(proxy, goneOutputWindows);
+                    _outputFullscreen.TryRemove(proxy, out _);
+                }
                     _outputs.TryRemove(proxy, out _);
                     // Detach windows from the gone output so the next
                     // manage cycle re-adopts them onto a surviving one.
                     foreach (var wkvp in _windows)
-                        if (wkvp.Value.Output == proxy) wkvp.Value.Output = IntPtr.Zero;
+                        if (wkvp.Value.Output == proxy)
+                            wkvp.Value.Output = IntPtr.Zero;
                     break;
                 case 1:
                     o.WlOutputName = args[0].u;
                     Log($"output 0x{proxy.ToString("x")} wl_output_name={o.WlOutputName}");
                     break;
                 case 2:
-                    o.X = args[0].i; o.Y = args[1].i;
+                    o.X = args[0].i;
+                    o.Y = args[1].i;
                     Log($"output 0x{proxy.ToString("x")} position={o.X},{o.Y}");
                     break;
                 case 3:
-                    o.Width = args[0].i; o.Height = args[1].i;
+                    o.Width = args[0].i;
+                    o.Height = args[1].i;
                     Log($"output 0x{proxy.ToString("x")} dimensions={o.Width}x{o.Height}");
                     break;
             }
@@ -1674,6 +1888,7 @@ namespace Aqueous.Features.Compositor.River
                     {
                         SetFocusedWindow(hovered, proxy);
                     }
+
                     break;
                 }
                 case 3: // pointer_leave
@@ -1715,6 +1930,7 @@ namespace Aqueous.Features.Compositor.River
                         adw.FloatW = adw.W > 0 ? adw.W : (adw.LastHintW > 0 ? adw.LastHintW : adw.ProposedW);
                         adw.FloatH = adw.H > 0 ? adw.H : (adw.LastHintH > 0 ? adw.LastHintH : adw.ProposedH);
                     }
+
                     break;
                 case 7:
                     Log($"seat 0x{proxy.ToString("x")} pointer operation released");
@@ -1747,8 +1963,13 @@ namespace Aqueous.Features.Compositor.River
             }
             else
             {
-                foreach (var k in _outputs.Keys) { output = k; break; }
+                foreach (var k in _outputs.Keys)
+                {
+                    output = k;
+                    break;
+                }
             }
+
             return _layoutController.ResolveLayoutId(output, outputName) == "float";
         }
 
@@ -1763,7 +1984,8 @@ namespace Aqueous.Features.Compositor.River
             // so the guard never tripped again during pointer motion.
             if (windowProxy == _focusedWindow && _pendingFocusWindow == windowProxy)
                 return; // same focus already pending
-            if (windowProxy == _focusedWindow && _pendingFocusWindow == IntPtr.Zero && _pendingFocusShellSurface == IntPtr.Zero)
+            if (windowProxy == _focusedWindow && _pendingFocusWindow == IntPtr.Zero &&
+                _pendingFocusShellSurface == IntPtr.Zero)
                 return; // already focused and applied
             _pendingFocusWindow = windowProxy;
             _pendingFocusShellSurface = IntPtr.Zero;
@@ -1799,8 +2021,13 @@ namespace Aqueous.Features.Compositor.River
             IntPtr seat = _primarySeat;
             if (seat == IntPtr.Zero)
             {
-                foreach (var k in _seats.Keys) { seat = k; break; }
+                foreach (var k in _seats.Keys)
+                {
+                    seat = k;
+                    break;
+                }
             }
+
             if (seat == IntPtr.Zero) return;
             SetFocusedWindow(windowProxy, seat);
         }
@@ -1811,8 +2038,13 @@ namespace Aqueous.Features.Compositor.River
             IntPtr seat = _primarySeat;
             if (seat == IntPtr.Zero)
             {
-                foreach (var k in _seats.Keys) { seat = k; break; }
+                foreach (var k in _seats.Keys)
+                {
+                    seat = k;
+                    break;
+                }
             }
+
             _pendingFocusWindow = IntPtr.Zero;
             _pendingFocusShellSurface = IntPtr.Zero;
             _pendingFocusSeat = IntPtr.Zero;
@@ -1823,6 +2055,7 @@ namespace Aqueous.Features.Compositor.River
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 Log($"clear_focus on seat 0x{seat.ToString("x")}");
             }
+
             ScheduleManage();
         }
 
@@ -1836,10 +2069,16 @@ namespace Aqueous.Features.Compositor.River
                 pick = k;
                 break;
             }
+
             if (pick == IntPtr.Zero)
             {
-                foreach (var k in _windows.Keys) { pick = k; break; }
+                foreach (var k in _windows.Keys)
+                {
+                    pick = k;
+                    break;
+                }
             }
+
             if (pick != IntPtr.Zero) RequestFocus(pick);
             else ClearFocus();
         }
@@ -1853,9 +2092,16 @@ namespace Aqueous.Features.Compositor.River
             foreach (var k in _windows.Keys)
             {
                 if (next == IntPtr.Zero) next = k; // fallback to first
-                if (takeNext) { next = k; takeNext = false; break; }
+                if (takeNext)
+                {
+                    next = k;
+                    takeNext = false;
+                    break;
+                }
+
                 if (k == _focusedWindow) takeNext = true;
             }
+
             if (next != IntPtr.Zero) RequestFocus(next);
         }
 
@@ -1878,6 +2124,7 @@ namespace Aqueous.Features.Compositor.River
                         Log($"keybind: invalid chord '{chordStr}' for action '{action}', ignored");
                         continue;
                     }
+
                     RegisterKeyBinding(seatProxy, parsed.Value.Keysym, parsed.Value.Modifiers, builtin);
                 }
             }
@@ -1891,6 +2138,7 @@ namespace Aqueous.Features.Compositor.River
                     Log($"keybind: invalid custom chord '{chordStr}', ignored");
                     continue;
                 }
+
                 RegisterCustomKeyBinding(seatProxy, parsed.Value.Keysym, parsed.Value.Modifiers, verb);
             }
         }
@@ -1925,8 +2173,8 @@ namespace Aqueous.Features.Compositor.River
         private void RunCustomAction(string action)
         {
             int colon = action.IndexOf(':');
-            string verb  = colon < 0 ? action : action.Substring(0, colon);
-            string arg   = colon < 0 ? ""     : action.Substring(colon + 1).Trim();
+            string verb = colon < 0 ? action : action.Substring(0, colon);
+            string arg = colon < 0 ? "" : action.Substring(colon + 1).Trim();
             switch (verb)
             {
                 case "spawn":
@@ -1948,49 +2196,64 @@ namespace Aqueous.Features.Compositor.River
                         psi.EnvironmentVariables.Remove("DISPLAY");
                         System.Diagnostics.Process.Start(psi);
                     }
-                    catch (Exception ex) { Log($"spawn '{arg}' failed: {ex.Message}"); }
+                    catch (Exception ex)
+                    {
+                        Log($"spawn '{arg}' failed: {ex.Message}");
+                    }
+
                     break;
                 case "set_layout":
                     SetLayoutByIdOrSlot(arg);
                     break;
                 case "builtin":
+                {
+                    // Phase B1e Pass B: split one optional trailing
+                    // ":argument" segment so chords like
+                    //   builtin:toggle_scratchpad_named:term
+                    // can dispatch to the parameterised actions while
+                    // preserving the existing parameterless
+                    //   builtin:cycle_focus
+                    // form.
+                    string bname = arg;
+                    string barg = string.Empty;
+                    int sub = arg.IndexOf(':');
+                    if (sub >= 0)
                     {
-                        // Phase B1e Pass B: split one optional trailing
-                        // ":argument" segment so chords like
-                        //   builtin:toggle_scratchpad_named:term
-                        // can dispatch to the parameterised actions while
-                        // preserving the existing parameterless
-                        //   builtin:cycle_focus
-                        // form.
-                        string bname = arg;
-                        string barg  = string.Empty;
-                        int sub = arg.IndexOf(':');
-                        if (sub >= 0)
-                        {
-                            bname = arg.Substring(0, sub);
-                            barg  = arg.Substring(sub + 1).Trim();
-                        }
-                        switch (bname)
-                        {
-                            case "toggle_scratchpad_named":
-                                if (barg.Length == 0) { Log("builtin:toggle_scratchpad_named requires :name"); break; }
-                                _windowState.ToggleScratchpad(barg);
-                                break;
-                            case "send_to_scratchpad_named":
-                                if (barg.Length == 0) { Log("builtin:send_to_scratchpad_named requires :name"); break; }
-                                if (_focusedWindow != IntPtr.Zero)
-                                    _windowState.SendToScratchpad(_focusedWindow, barg);
-                                else
-                                    Log("builtin:send_to_scratchpad_named: no focused window");
-                                break;
-                            default:
-                                if (BuiltinActionMap.TryGetValue(bname, out var b))
-                                    InvokeBuiltin(b);
-                                else
-                                    Log($"unknown builtin '{bname}'");
-                                break;
-                        }
+                        bname = arg.Substring(0, sub);
+                        barg = arg.Substring(sub + 1).Trim();
                     }
+
+                    switch (bname)
+                    {
+                        case "toggle_scratchpad_named":
+                            if (barg.Length == 0)
+                            {
+                                Log("builtin:toggle_scratchpad_named requires :name");
+                                break;
+                            }
+
+                            _windowState.ToggleScratchpad(barg);
+                            break;
+                        case "send_to_scratchpad_named":
+                            if (barg.Length == 0)
+                            {
+                                Log("builtin:send_to_scratchpad_named requires :name");
+                                break;
+                            }
+
+                            if (_focusedWindow != IntPtr.Zero)
+                                _windowState.SendToScratchpad(_focusedWindow, barg);
+                            else
+                                Log("builtin:send_to_scratchpad_named: no focused window");
+                            break;
+                        default:
+                            if (BuiltinActionMap.TryGetValue(bname, out var b))
+                                InvokeBuiltin(b);
+                            else
+                                Log($"unknown builtin '{bname}'");
+                            break;
+                    }
+                }
                     break;
                 default:
                     Log($"unknown custom action verb '{verb}'");
@@ -2046,6 +2309,7 @@ namespace Aqueous.Features.Compositor.River
                     RunCustomAction(verb);
                 return;
             }
+
             HandleKeyBindingAction(action);
         }
 
@@ -2059,12 +2323,17 @@ namespace Aqueous.Features.Compositor.River
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "dbus-send",
-                            Arguments = "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
+                            Arguments =
+                                "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
                             UseShellExecute = false,
                             CreateNoWindow = true,
                         });
                     }
-                    catch (Exception ex) { Log("failed to toggle start menu: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        Log("failed to toggle start menu: " + ex.Message);
+                    }
+
                     break;
                 case KeyBindingAction.SpawnTerminal:
                     try
@@ -2097,7 +2366,11 @@ namespace Aqueous.Features.Compositor.River
 
                         System.Diagnostics.Process.Start(psi);
                     }
-                    catch (Exception ex) { Log("failed to spawn terminal: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        Log("failed to spawn terminal: " + ex.Message);
+                    }
+
                     break;
                 case KeyBindingAction.CloseFocused:
                     if (_focusedWindow != IntPtr.Zero)
@@ -2106,6 +2379,7 @@ namespace Aqueous.Features.Compositor.River
                         WaylandInterop.wl_proxy_marshal_flags(_focusedWindow, 1, IntPtr.Zero, 0, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     }
+
                     break;
                 case KeyBindingAction.CycleFocus:
                     CycleFocus();
@@ -2147,7 +2421,11 @@ namespace Aqueous.Features.Compositor.River
                         // effect on next WM start.
                         ScheduleManage();
                     }
-                    catch (Exception ex) { Log("config reload failed: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        Log("config reload failed: " + ex.Message);
+                    }
+
                     break;
                 case KeyBindingAction.SetLayoutPrimary:
                     SetLayoutByIdOrSlot("primary");
@@ -2167,37 +2445,53 @@ namespace Aqueous.Features.Compositor.River
                 // contiguously in the enum; resolve the tag bit by
                 // subtracting the action's group base. ViewTagAll /
                 // SendTagAll fall through to AllTags.
-                case KeyBindingAction.ViewTag1: case KeyBindingAction.ViewTag2:
-                case KeyBindingAction.ViewTag3: case KeyBindingAction.ViewTag4:
-                case KeyBindingAction.ViewTag5: case KeyBindingAction.ViewTag6:
-                case KeyBindingAction.ViewTag7: case KeyBindingAction.ViewTag8:
+                case KeyBindingAction.ViewTag1:
+                case KeyBindingAction.ViewTag2:
+                case KeyBindingAction.ViewTag3:
+                case KeyBindingAction.ViewTag4:
+                case KeyBindingAction.ViewTag5:
+                case KeyBindingAction.ViewTag6:
+                case KeyBindingAction.ViewTag7:
+                case KeyBindingAction.ViewTag8:
                 case KeyBindingAction.ViewTag9:
                     _tagController.ViewTags(TagState.Bit(action - KeyBindingAction.ViewTag1));
                     break;
                 case KeyBindingAction.ViewTagAll:
                     _tagController.ViewAll();
                     break;
-                case KeyBindingAction.SendTag1: case KeyBindingAction.SendTag2:
-                case KeyBindingAction.SendTag3: case KeyBindingAction.SendTag4:
-                case KeyBindingAction.SendTag5: case KeyBindingAction.SendTag6:
-                case KeyBindingAction.SendTag7: case KeyBindingAction.SendTag8:
+                case KeyBindingAction.SendTag1:
+                case KeyBindingAction.SendTag2:
+                case KeyBindingAction.SendTag3:
+                case KeyBindingAction.SendTag4:
+                case KeyBindingAction.SendTag5:
+                case KeyBindingAction.SendTag6:
+                case KeyBindingAction.SendTag7:
+                case KeyBindingAction.SendTag8:
                 case KeyBindingAction.SendTag9:
                     _tagController.SendFocusedToTags(TagState.Bit(action - KeyBindingAction.SendTag1));
                     break;
                 case KeyBindingAction.SendTagAll:
                     _tagController.SendFocusedToTags(TagState.AllTags);
                     break;
-                case KeyBindingAction.ToggleViewTag1: case KeyBindingAction.ToggleViewTag2:
-                case KeyBindingAction.ToggleViewTag3: case KeyBindingAction.ToggleViewTag4:
-                case KeyBindingAction.ToggleViewTag5: case KeyBindingAction.ToggleViewTag6:
-                case KeyBindingAction.ToggleViewTag7: case KeyBindingAction.ToggleViewTag8:
+                case KeyBindingAction.ToggleViewTag1:
+                case KeyBindingAction.ToggleViewTag2:
+                case KeyBindingAction.ToggleViewTag3:
+                case KeyBindingAction.ToggleViewTag4:
+                case KeyBindingAction.ToggleViewTag5:
+                case KeyBindingAction.ToggleViewTag6:
+                case KeyBindingAction.ToggleViewTag7:
+                case KeyBindingAction.ToggleViewTag8:
                 case KeyBindingAction.ToggleViewTag9:
                     _tagController.ToggleViewTag(TagState.Bit(action - KeyBindingAction.ToggleViewTag1));
                     break;
-                case KeyBindingAction.ToggleWindowTag1: case KeyBindingAction.ToggleWindowTag2:
-                case KeyBindingAction.ToggleWindowTag3: case KeyBindingAction.ToggleWindowTag4:
-                case KeyBindingAction.ToggleWindowTag5: case KeyBindingAction.ToggleWindowTag6:
-                case KeyBindingAction.ToggleWindowTag7: case KeyBindingAction.ToggleWindowTag8:
+                case KeyBindingAction.ToggleWindowTag1:
+                case KeyBindingAction.ToggleWindowTag2:
+                case KeyBindingAction.ToggleWindowTag3:
+                case KeyBindingAction.ToggleWindowTag4:
+                case KeyBindingAction.ToggleWindowTag5:
+                case KeyBindingAction.ToggleWindowTag6:
+                case KeyBindingAction.ToggleWindowTag7:
+                case KeyBindingAction.ToggleWindowTag8:
                 case KeyBindingAction.ToggleWindowTag9:
                     _tagController.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
                     break;
@@ -2289,6 +2583,7 @@ namespace Aqueous.Features.Compositor.River
                 for (int i = arr.Length - 2; i >= 0; i--) oe.TagHistory.Push(arr[i]);
                 break;
             }
+
             oe.VisibleTags = mask;
             Log($"tags: output 0x{oe.Proxy.ToString("x")} VisibleTags=0x{mask:x8} (was 0x{oe.LastVisibleTags:x8})");
             return true;
@@ -2347,7 +2642,8 @@ namespace Aqueous.Features.Compositor.River
                 var w = kv.Value;
                 if (focusedOutput != IntPtr.Zero && w.Output != focusedOutput) continue;
                 if (!TagState.IsVisible(w.Tags, focusedMask)) continue;
-                replacement = kv.Key; break;
+                replacement = kv.Key;
+                break;
             }
 
             if (replacement == IntPtr.Zero)
@@ -2380,8 +2676,17 @@ namespace Aqueous.Features.Compositor.River
         /// </summary>
         private void HandleDirectionalFocus(FocusDirection dir)
         {
-            if (_focusedWindow == IntPtr.Zero || _windows.Count == 0) { CycleFocus(); return; }
-            if (!_windows.TryGetValue(_focusedWindow, out var fw)) { CycleFocus(); return; }
+            if (_focusedWindow == IntPtr.Zero || _windows.Count == 0)
+            {
+                CycleFocus();
+                return;
+            }
+
+            if (!_windows.TryGetValue(_focusedWindow, out var fw))
+            {
+                CycleFocus();
+                return;
+            }
 
             IntPtr output = fw.Output;
             string? outputName = ResolveOutputName(output);
@@ -2389,10 +2694,11 @@ namespace Aqueous.Features.Compositor.River
             var target = _layoutController.FocusNeighbor(output, outputName, _focusedWindow, dir, snapshot);
             if (target is { } t && t != IntPtr.Zero && _windows.ContainsKey(t))
             {
-                ScheduleManage();      // engine may need to recentre viewport
+                ScheduleManage(); // engine may need to recentre viewport
                 RequestFocus(t);
                 return;
             }
+
             CycleFocus();
         }
 
@@ -2425,6 +2731,7 @@ namespace Aqueous.Features.Compositor.River
                     MinW: w.MinW, MinH: w.MinH, MaxW: w.MaxW, MaxH: w.MaxH,
                     Floating: w.Floating, Fullscreen: false, Tags: 0u));
             }
+
             return list;
         }
 
