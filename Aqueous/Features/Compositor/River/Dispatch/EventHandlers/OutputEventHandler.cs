@@ -33,15 +33,15 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // pinned to this output before _outputs forgets it.
                 {
                     var goneOutputWindows = new List<WindowStateData>();
+                    var outputProxy = new OutputProxy(proxy);
                     foreach (var sk in _windowStates)
                     {
-                        if (sk.Value.PinnedOutput == proxy)
+                        if (sk.Value.PinnedOutput == outputProxy)
                         {
                             goneOutputWindows.Add(sk.Value);
                         }
                     }
-
-                    _windowState.OnOutputRemoved(proxy, goneOutputWindows);
+                    _windowState.OnOutputRemoved(outputProxy, goneOutputWindows);
                     _outputFullscreen.TryRemove(proxy, out _);
                 }
                 _outputs.TryRemove(proxy, out _);

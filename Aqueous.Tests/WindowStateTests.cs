@@ -17,26 +17,27 @@ public class WindowStateTests
 
     private sealed class FakeHost : IWindowStateHost
     {
-        public readonly Dictionary<IntPtr, WindowStateData> Data = new();
-        public readonly Dictionary<IntPtr, IntPtr> Fullscreen = new();
-        public readonly Dictionary<IntPtr, Rect> Geom = new();
-        public readonly Dictionary<IntPtr, Rect> Outputs = new();
-        public IntPtr CurrentFocus, CurrentOutput;
+        public readonly Dictionary<WindowProxy, WindowStateData> Data = new();
+        public readonly Dictionary<OutputProxy, WindowProxy> Fullscreen = new();
+        public readonly Dictionary<WindowProxy, Rect> Geom = new();
+        public readonly Dictionary<OutputProxy, Rect> Outputs = new();
+        public WindowProxy CurrentFocus;
+        public OutputProxy CurrentOutput;
         public readonly List<string> Logs = new();
-        public readonly List<(IntPtr win, IntPtr output)> FsEmits = new();
-        public readonly List<IntPtr> UnfsEmits = new();
+        public readonly List<(WindowProxy win, OutputProxy output)> FsEmits = new();
+        public readonly List<WindowProxy> UnfsEmits = new();
         public readonly List<string> Spawned = new();
-        public readonly List<IntPtr> Renders = new();
+        public readonly List<OutputProxy> Renders = new();
 
-        public WindowStateData? Get(IntPtr w) => Data.TryGetValue(w, out var d) ? d : null;
-        public IntPtr FocusedWindow => CurrentFocus;
-        public IntPtr FocusedOutput => CurrentOutput;
-        public Rect OutputRect(IntPtr o) => Outputs.TryGetValue(o, out var r) ? r : new Rect(0, 0, 1920, 1080);
-        public Rect UsableArea(IntPtr o) => OutputRect(o);
-        public IntPtr GetFullscreenWindow(IntPtr o) => Fullscreen.TryGetValue(o, out var w) ? w : IntPtr.Zero;
-        public void SetFullscreenWindow(IntPtr o, IntPtr w)
+        public WindowStateData? Get(WindowProxy w) => Data.TryGetValue(w, out var d) ? d : null;
+        public WindowProxy FocusedWindow => CurrentFocus;
+        public OutputProxy FocusedOutput => CurrentOutput;
+        public Rect OutputRect(OutputProxy o) => Outputs.TryGetValue(o, out var r) ? r : new Rect(0, 0, 1920, 1080);
+        public Rect UsableArea(OutputProxy o) => OutputRect(o);
+        public WindowProxy GetFullscreenWindow(OutputProxy o) => Fullscreen.TryGetValue(o, out var w) ? w : WindowProxy.Zero;
+        public void SetFullscreenWindow(OutputProxy o, WindowProxy w)
         {
-            if (w == IntPtr.Zero)
+            if (w.IsZero)
             {
                 Fullscreen.Remove(o);
             }
@@ -45,8 +46,8 @@ public class WindowStateTests
                 Fullscreen[o] = w;
             }
         }
-        public void Focus(IntPtr w) => CurrentFocus = w;
-        public void FocusNextOnOutput(IntPtr o)
+        public void Focus(WindowProxy w) => CurrentFocus = w;
+        public void FocusNextOnOutput(OutputProxy o)
         {
             // pick any other window data entry on this output as the new focus.
             foreach (var kv in Data)
@@ -57,25 +58,25 @@ public class WindowStateTests
                     CurrentFocus = kv.Key; return;
                 }
             }
-            CurrentFocus = IntPtr.Zero;
+            CurrentFocus = WindowProxy.Zero;
         }
-        public void RequestRender(IntPtr o) => Renders.Add(o);
-        public void EmitForeignToplevelFullscreen(IntPtr w, IntPtr o) => FsEmits.Add((w, o));
-        public void EmitForeignToplevelUnfullscreen(IntPtr w) => UnfsEmits.Add(w);
+        public void RequestRender(OutputProxy o) => Renders.Add(o);
+        public void EmitForeignToplevelFullscreen(WindowProxy w, OutputProxy o) => FsEmits.Add((w, o));
+        public void EmitForeignToplevelUnfullscreen(WindowProxy w) => UnfsEmits.Add(w);
         public void Spawn(string cmd) => Spawned.Add(cmd);
         public void Log(string m) => Logs.Add(m);
-        public Rect CurrentGeometry(IntPtr w) => Geom.TryGetValue(w, out var r) ? r : new Rect(100, 100, 400, 300);
+        public Rect CurrentGeometry(WindowProxy w) => Geom.TryGetValue(w, out var r) ? r : new Rect(100, 100, 400, 300);
     }
 
-    private static (FakeHost host, WindowStateController ctrl, IntPtr w1, IntPtr w2, IntPtr o1)
+    private static (FakeHost host, WindowStateController ctrl, WindowProxy w1, WindowProxy w2, OutputProxy o1)
         Setup(StateConfig? cfg = null)
     {
         var host = new FakeHost();
-        var o1 = new IntPtr(0xA1);
+        var o1 = new OutputProxy(new IntPtr(0xA1));
         host.Outputs[o1] = new Rect(0, 0, 1920, 1080);
         host.CurrentOutput = o1;
-        var w1 = new IntPtr(0xB1);
-        var w2 = new IntPtr(0xB2);
+        var w1 = new WindowProxy(new IntPtr(0xB1));
+        var w2 = new WindowProxy(new IntPtr(0xB2));
         host.Data[w1] = new WindowStateData { Handle = w1, PinnedOutput = o1 };
         host.Data[w2] = new WindowStateData { Handle = w2, PinnedOutput = o1 };
         host.Geom[w1] = new Rect(10, 10, 800, 600);
@@ -99,7 +100,7 @@ public class WindowStateTests
 
         Assert.True(ctrl.ToggleFullscreen(w1));
         Assert.Equal(WindowState.Tiled, host.Data[w1].State);
-        Assert.Equal(IntPtr.Zero, host.GetFullscreenWindow(o1));
+        Assert.Equal(WindowProxy.Zero, host.GetFullscreenWindow(o1));
         Assert.Single(host.UnfsEmits);
     }
 
@@ -282,7 +283,7 @@ public class WindowStateTests
         var (host, ctrl, w1, _, o1) = Setup();
         ctrl.ToggleFullscreen(w1);
         ctrl.OnWindowDestroyed(w1);
-        Assert.Equal(IntPtr.Zero, host.GetFullscreenWindow(o1));
+        Assert.Equal(WindowProxy.Zero, host.GetFullscreenWindow(o1));
     }
 
     [Fact]
@@ -292,7 +293,7 @@ public class WindowStateTests
         ctrl.ToggleFullscreen(w1);
         ctrl.OnTagsChanged(w1);
         Assert.Equal(WindowState.Tiled, host.Data[w1].State);
-        Assert.Equal(IntPtr.Zero, host.GetFullscreenWindow(o1));
+        Assert.Equal(WindowProxy.Zero, host.GetFullscreenWindow(o1));
     }
 
     // --------- TOML loader (B1e additions) -------------------------------

@@ -36,7 +36,7 @@ public enum WindowState : byte
 /// </summary>
 public sealed class WindowStateData
 {
-    public IntPtr Handle { get; init; }
+    public WindowProxy Handle { get; init; }
     public WindowState State { get; set; } = WindowState.Tiled;
     public WindowState PreviousState { get; set; } = WindowState.Tiled;
 
@@ -47,7 +47,7 @@ public sealed class WindowStateData
     public Rect? PreFsGeom { get; set; }
 
     /// <summary>Output the window is pinned to while FS / Maximized.</summary>
-    public IntPtr PinnedOutput { get; set; }
+    public OutputProxy PinnedOutput { get; set; }
 
     /// <summary>True iff the window is parked in a scratchpad and currently hidden.</summary>
     public bool InScratchpad { get; set; }

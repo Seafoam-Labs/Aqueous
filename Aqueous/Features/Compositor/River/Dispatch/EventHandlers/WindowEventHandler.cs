@@ -32,7 +32,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // controller's invariants (single-FS slot, MRU stack,
                 // scratchpad ownership) drop their references to the
                 // dead proxy before _windows loses the entry.
-                _windowState.OnWindowDestroyed(proxy);
+                _windowState.OnWindowDestroyed(new WindowProxy(proxy));
                 _windowStates.TryRemove(proxy, out _);
                 foreach (var ofs in _outputFullscreen)
                 {
@@ -117,7 +117,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 if (!_windowStates.TryGetValue(proxy, out var sMax)
                     || sMax.State != WindowState.Maximized)
                 {
-                    _windowState.ToggleMaximize(proxy);
+                    _windowState.ToggleMaximize(new WindowProxy(proxy));
                 }
 
                 ScheduleManage();
@@ -126,23 +126,23 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 if (_windowStates.TryGetValue(proxy, out var stateData)
                     && stateData.State == WindowState.Minimized)
                 {
-                    _windowState.ToggleMaximize(proxy);
+                    _windowState.ToggleMaximize(new WindowProxy(proxy));
                 }
 
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.FullscreenRequested:
                 var outputProxy = args[0].o;
-                _windowState.OnClientRequestedFullscreen(proxy,
-                    outputProxy == IntPtr.Zero ? (IntPtr?)null : outputProxy);
+                _windowState.OnClientRequestedFullscreen(new WindowProxy(proxy),
+                    outputProxy == IntPtr.Zero ? null : new OutputProxy(outputProxy));
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.ExitFullscreenRequested:
-                _windowState.OnClientRequestedUnfullscreen(proxy);
+                _windowState.OnClientRequestedUnfullscreen(new WindowProxy(proxy));
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.MinimizeRequested:
-                _windowState.ToggleMinimize(proxy);
+                _windowState.ToggleMinimize(new WindowProxy(proxy));
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.Identifier:

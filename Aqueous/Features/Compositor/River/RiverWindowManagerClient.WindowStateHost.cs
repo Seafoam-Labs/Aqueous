@@ -16,6 +16,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
     //
     // Promoted out of the inline nested-class declaration into its own
     // partial-class file during the Phase 2 readability refactor.
+    //
+    // Phase 2 / Step 8.B: this is the architectural seam where the
+    // strongly-typed proxy value types meet the River-internal IntPtr
+    // plumbing. The adapter wraps every IntPtr reaching this layer in
+    // a WindowProxy/OutputProxy at the boundary, and unwraps proxies
+    // arriving from WindowStateController back to IntPtr for River's
+    // internal dictionaries (which use IntPtr because they hold raw
+    // wl_proxy* pointers received from the dispatcher).
     // ------------------------------------------------------------------
     private sealed class RiverWindowStateHost : IWindowStateHost
     {
@@ -26,35 +34,37 @@ internal sealed unsafe partial class RiverWindowManagerClient
             _c = c;
         }
 
-        public WindowStateData? Get(IntPtr window)
+        public WindowStateData? Get(WindowProxy window)
         {
-            if (window == IntPtr.Zero)
+            if (window.IsZero)
             {
                 return null;
             }
 
-            if (!_c._windows.ContainsKey(window))
+            if (!_c._windows.ContainsKey(window.Handle))
             {
                 return null;
             }
 
-            return _c._windowStates.GetOrAdd(window, h => new WindowStateData { Handle = h });
+            return _c._windowStates.GetOrAdd(
+                window.Handle,
+                _ => new WindowStateData { Handle = window });
         }
 
-        public IntPtr FocusedWindow => _c._focusedWindow;
+        public WindowProxy FocusedWindow => new(_c._focusedWindow);
 
-        public IntPtr FocusedOutput
+        public OutputProxy FocusedOutput
         {
             get
             {
                 var oe = _c.GetFocusedOutputEntry();
-                return oe is null ? IntPtr.Zero : oe.Proxy;
+                return oe is null ? OutputProxy.Zero : new OutputProxy(oe.Proxy);
             }
         }
 
-        public Rect OutputRect(IntPtr output)
+        public Rect OutputRect(OutputProxy output)
         {
-            if (output != IntPtr.Zero && _c._outputs.TryGetValue(output, out var o))
+            if (!output.IsZero && _c._outputs.TryGetValue(output.Handle, out var o))
             {
                 return new Rect(o.X, o.Y, o.Width, o.Height);
             }
@@ -62,7 +72,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return new Rect(0, 0, 0, 0);
         }
 
-        public Rect UsableArea(IntPtr output)
+        public Rect UsableArea(OutputProxy output)
         {
             // Pass B simplification: layer-shell exclusive zones and
             // gaps are absorbed by the layout controller; treat the
@@ -71,45 +81,48 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return OutputRect(output);
         }
 
-        public IntPtr GetFullscreenWindow(IntPtr output) =>
-            _c._outputFullscreen.TryGetValue(output, out var w) ? w : IntPtr.Zero;
+        public WindowProxy GetFullscreenWindow(OutputProxy output) =>
+            _c._outputFullscreen.TryGetValue(output.Handle, out var w)
+                ? new WindowProxy(w)
+                : WindowProxy.Zero;
 
-        public void SetFullscreenWindow(IntPtr output, IntPtr window)
+        public void SetFullscreenWindow(OutputProxy output, WindowProxy window)
         {
-            if (output == IntPtr.Zero)
+            if (output.IsZero)
             {
                 return;
             }
 
-            if (window == IntPtr.Zero)
+            if (window.IsZero)
             {
-                _c._outputFullscreen.TryRemove(output, out _);
+                _c._outputFullscreen.TryRemove(output.Handle, out _);
             }
             else
             {
-                _c._outputFullscreen[output] = window;
+                _c._outputFullscreen[output.Handle] = window.Handle;
             }
         }
 
-        public void Focus(IntPtr window)
+        public void Focus(WindowProxy window)
         {
-            if (window != IntPtr.Zero)
+            if (!window.IsZero)
             {
-                _c.RequestFocus(window);
+                _c.RequestFocus(window.Handle);
             }
         }
 
-        public void FocusNextOnOutput(IntPtr output) => _c.FocusAnyOtherWindow(_c._focusedWindow);
+        public void FocusNextOnOutput(OutputProxy output) =>
+            _c.FocusAnyOtherWindow(_c._focusedWindow);
 
-        public void RequestRender(IntPtr output) => _c.ScheduleManage();
+        public void RequestRender(OutputProxy output) => _c.ScheduleManage();
 
-        public void EmitForeignToplevelFullscreen(IntPtr window, IntPtr output)
+        public void EmitForeignToplevelFullscreen(WindowProxy window, OutputProxy output)
         {
             // Pass B: foreign-toplevel sync deferred. See
             // none_of_the_new_keybinds_are_functional.md step 6.
         }
 
-        public void EmitForeignToplevelUnfullscreen(IntPtr window)
+        public void EmitForeignToplevelUnfullscreen(WindowProxy window)
         {
             // Pass B: foreign-toplevel sync deferred.
         }
@@ -141,9 +154,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public void Log(string message) => RiverWindowManagerClient.Log(message);
 
-        public Rect CurrentGeometry(IntPtr window)
+        public Rect CurrentGeometry(WindowProxy window)
         {
-            if (window != IntPtr.Zero && _c._windows.TryGetValue(window, out var w))
+            if (!window.IsZero && _c._windows.TryGetValue(window.Handle, out var w))
             {
                 return new Rect(w.X, w.Y, w.W, w.H);
             }
