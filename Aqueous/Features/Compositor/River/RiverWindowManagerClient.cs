@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
@@ -84,7 +85,20 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     // --- wayland state -------------------------------------------------
 
-    private IntPtr _display;
+    /// <summary>
+    /// Owns the <c>wl_display*</c> lifetime; everything else in this
+    /// file reaches the native display via <see cref="_display"/>, which
+    /// proxies to <see cref="WaylandConnection.Display"/>.
+    /// </summary>
+    private readonly WaylandConnection _connection = new();
+
+    /// <summary>
+    /// Drives <c>wl_display_dispatch</c> on a background thread. Started
+    /// from <see cref="StartPump"/>, stopped from <see cref="Dispose"/>.
+    /// </summary>
+    private readonly EventPump _pump;
+
+    private IntPtr _display => _connection.Display;
     private IntPtr _registry;
     private IntPtr _manager;
     private IntPtr _layerShell;
@@ -178,8 +192,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private bool _insideManageSequence;
     private uint _managerVersion;
     private GCHandle _selfHandle;
-    private Thread? _pumpThread;
-    private volatile bool _running;
 
     // --- layout subsystem ----------------------------------------------
     // Pluggable layout engine (Phase 1.1 / B1b). The controller owns
@@ -205,6 +217,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     private RiverWindowManagerClient()
     {
+        _pump = new EventPump(_connection, msg => Log(msg));
         _seatInteractionService = new SeatInteractionService(this);
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
@@ -267,8 +280,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     private bool Connect()
     {
-        _display = WaylandInterop.wl_display_connect(IntPtr.Zero);
-        if (_display == IntPtr.Zero)
+        if (!_connection.Connect())
         {
             Log("wl_display_connect returned null");
             return false;
@@ -295,67 +307,29 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         // Flush globals; then a second roundtrip so any events the
         // compositor sends immediately on bind (for an existing window
         // list) are delivered before we return.
-        WaylandInterop.wl_display_roundtrip(_display);
-        WaylandInterop.wl_display_roundtrip(_display);
+        _connection.Roundtrip();
+        _connection.Roundtrip();
 
         return _manager != IntPtr.Zero;
     }
 
-    private void StartPump()
-    {
-        _running = true;
-        _pumpThread = new Thread(PumpLoop)
-        {
-            IsBackground = true,
-            Name = "Aqueous.RiverWindowManager",
-        };
-        _pumpThread.Start();
-    }
-
-    private void PumpLoop()
-    {
-        try
-        {
-            while (_running)
-            {
-                int r = WaylandInterop.wl_display_dispatch(_display);
-                if (r < 0)
-                {
-                    Log("wl_display_dispatch returned < 0; pump exiting");
-                    break;
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Log("pump crashed: " + e.Message);
-        }
-    }
+    private void StartPump() => _pump.Start();
 
     public void Dispose()
     {
-        _running = false;
+        // river_window_manager_v1::stop (opcode 0) is intentionally NOT
+        // sent here: it is not a destructor — we'd still have to wait
+        // for the `finished` event and then call destroy. For the
+        // skeleton we just disconnect the display; River treats a
+        // disconnected WM the same way as a stopped one and cleans up.
         try
         {
-            if (_manager != IntPtr.Zero)
-            {
-                // river_window_manager_v1::stop (opcode 0). NOT a destructor
-                // — we still have to wait for the `finished` event and
-                // then call destroy. For the skeleton we just disconnect
-                // the display; River treats a disconnected WM the same
-                // way as a stopped one and cleans up.
-            }
-
-            if (_display != IntPtr.Zero)
-            {
-                WaylandInterop.wl_display_disconnect(_display);
-                _display = IntPtr.Zero;
-            }
-
-            _pumpThread?.Join(500);
+            _pump.Stop();
+            _connection.Disconnect();
         }
         catch
         {
+            // Tear-down is best-effort; we never want Dispose to throw.
         }
         finally
         {
@@ -597,11 +571,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         {
             case RiverProtocolOpcodes.Manager.Unavailable:
                 Log("river_window_manager_v1.unavailable — another WM is active; giving up");
-                _running = false;
+                _pump.Stop(0);
                 break;
             case RiverProtocolOpcodes.Manager.Finished:
                 Log("river_window_manager_v1.finished");
-                _running = false;
+                _pump.Stop(0);
                 break;
             case RiverProtocolOpcodes.Manager.ManageStart:
                 _insideManageSequence = true;
