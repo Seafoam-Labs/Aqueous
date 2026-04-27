@@ -177,7 +177,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// <summary>
     /// Starts the client if <c>AQUEOUS_RIVER_WM=1</c> and the WM global is
     /// advertised to us. Returns <c>null</c> silently in every other case
-    /// — the Aqueous bar never wants a failure here to abort startup.
     /// </summary>
     public static RiverWindowManagerClient? TryStart()
     {
