@@ -8,7 +8,7 @@ namespace Aqueous.Features.Layout;
 /// </summary>
 public readonly record struct Rect(int X, int Y, int W, int H)
 {
-    public int Right  => X + W;
+    public int Right => X + W;
     public int Bottom => Y + H;
     public static readonly Rect Empty = new(0, 0, 0, 0);
 }

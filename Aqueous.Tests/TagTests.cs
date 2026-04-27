@@ -16,7 +16,7 @@ public class TagTests
     private sealed class FakeHost : TagController.ITagHost
     {
         public uint OutputVisible = TagState.DefaultTag;
-        public uint OutputLast    = TagState.DefaultTag;
+        public uint OutputLast = TagState.DefaultTag;
         public uint? FocusedWindowTags = TagState.DefaultTag;
         public int RelayoutCalls;
         public int RepairCalls;
@@ -27,7 +27,11 @@ public class TagTests
 
         public bool SetFocusedOutputVisibleTags(uint mask)
         {
-            if (OutputVisible == mask) return false;
+            if (OutputVisible == mask)
+            {
+                return false;
+            }
+
             OutputLast = OutputVisible;
             OutputVisible = mask;
             return true;
@@ -35,17 +39,33 @@ public class TagTests
 
         public bool SetFocusedWindowTags(uint mask)
         {
-            if (FocusedWindowTags is null) return false;
-            if (FocusedWindowTags == mask) return false;
+            if (FocusedWindowTags is null)
+            {
+                return false;
+            }
+
+            if (FocusedWindowTags == mask)
+            {
+                return false;
+            }
+
             FocusedWindowTags = mask;
             return true;
         }
 
         public bool ToggleFocusedWindowTags(uint mask)
         {
-            if (FocusedWindowTags is null) return false;
+            if (FocusedWindowTags is null)
+            {
+                return false;
+            }
+
             uint next = FocusedWindowTags.Value ^ mask;
-            if (next == 0u) return false;
+            if (next == 0u)
+            {
+                return false;
+            }
+
             FocusedWindowTags = next;
             return true;
         }

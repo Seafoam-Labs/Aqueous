@@ -67,7 +67,8 @@ public interface ILayoutEngine
     void ScrollViewport(
         IntPtr output,
         int deltaColumns,
-        ref object? perOutputState) {}
+        ref object? perOutputState)
+    { }
 }
 
 /// <summary>

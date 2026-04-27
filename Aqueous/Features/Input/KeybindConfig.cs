@@ -64,51 +64,69 @@ public sealed class KeybindConfig
     public static IReadOnlyDictionary<string, string> Defaults { get; } =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["toggle_start_menu"]     = "Super+Space",
-            ["spawn_terminal"]        = "Super+Return",
-            ["close_focused"]         = "Super+Q",
-            ["cycle_focus"]           = "Super+Tab",
-            ["focus_left"]            = "Super+H",
-            ["focus_right"]           = "Super+L",
-            ["focus_up"]              = "Super+K",
-            ["focus_down"]            = "Super+J",
-            ["scroll_viewport_left"]  = "Super+Comma",
+            ["toggle_start_menu"] = "Super+Space",
+            ["spawn_terminal"] = "Super+Return",
+            ["close_focused"] = "Super+Q",
+            ["cycle_focus"] = "Super+Tab",
+            ["focus_left"] = "Super+H",
+            ["focus_right"] = "Super+L",
+            ["focus_up"] = "Super+K",
+            ["focus_down"] = "Super+J",
+            ["scroll_viewport_left"] = "Super+Comma",
             ["scroll_viewport_right"] = "Super+Period",
-            ["move_column_left"]      = "Super+Shift+H",
-            ["move_column_right"]     = "Super+Shift+L",
+            ["move_column_left"] = "Super+Shift+H",
+            ["move_column_right"] = "Super+Shift+L",
             // reload_config / set_layout_* are unbound by default — opt-in.
 
             // Phase B1c — Tag default chords.
-            ["view_tag_1"] = "Super+1", ["view_tag_2"] = "Super+2",
-            ["view_tag_3"] = "Super+3", ["view_tag_4"] = "Super+4",
-            ["view_tag_5"] = "Super+5", ["view_tag_6"] = "Super+6",
-            ["view_tag_7"] = "Super+7", ["view_tag_8"] = "Super+8",
-            ["view_tag_9"] = "Super+9", ["view_tag_all"] = "Super+0",
-            ["send_tag_1"] = "Super+Shift+1", ["send_tag_2"] = "Super+Shift+2",
-            ["send_tag_3"] = "Super+Shift+3", ["send_tag_4"] = "Super+Shift+4",
-            ["send_tag_5"] = "Super+Shift+5", ["send_tag_6"] = "Super+Shift+6",
-            ["send_tag_7"] = "Super+Shift+7", ["send_tag_8"] = "Super+Shift+8",
-            ["send_tag_9"] = "Super+Shift+9", ["send_tag_all"] = "Super+Shift+0",
-            ["toggle_view_tag_1"] = "Super+Ctrl+1", ["toggle_view_tag_2"] = "Super+Ctrl+2",
-            ["toggle_view_tag_3"] = "Super+Ctrl+3", ["toggle_view_tag_4"] = "Super+Ctrl+4",
-            ["toggle_view_tag_5"] = "Super+Ctrl+5", ["toggle_view_tag_6"] = "Super+Ctrl+6",
-            ["toggle_view_tag_7"] = "Super+Ctrl+7", ["toggle_view_tag_8"] = "Super+Ctrl+8",
+            ["view_tag_1"] = "Super+1",
+            ["view_tag_2"] = "Super+2",
+            ["view_tag_3"] = "Super+3",
+            ["view_tag_4"] = "Super+4",
+            ["view_tag_5"] = "Super+5",
+            ["view_tag_6"] = "Super+6",
+            ["view_tag_7"] = "Super+7",
+            ["view_tag_8"] = "Super+8",
+            ["view_tag_9"] = "Super+9",
+            ["view_tag_all"] = "Super+0",
+            ["send_tag_1"] = "Super+Shift+1",
+            ["send_tag_2"] = "Super+Shift+2",
+            ["send_tag_3"] = "Super+Shift+3",
+            ["send_tag_4"] = "Super+Shift+4",
+            ["send_tag_5"] = "Super+Shift+5",
+            ["send_tag_6"] = "Super+Shift+6",
+            ["send_tag_7"] = "Super+Shift+7",
+            ["send_tag_8"] = "Super+Shift+8",
+            ["send_tag_9"] = "Super+Shift+9",
+            ["send_tag_all"] = "Super+Shift+0",
+            ["toggle_view_tag_1"] = "Super+Ctrl+1",
+            ["toggle_view_tag_2"] = "Super+Ctrl+2",
+            ["toggle_view_tag_3"] = "Super+Ctrl+3",
+            ["toggle_view_tag_4"] = "Super+Ctrl+4",
+            ["toggle_view_tag_5"] = "Super+Ctrl+5",
+            ["toggle_view_tag_6"] = "Super+Ctrl+6",
+            ["toggle_view_tag_7"] = "Super+Ctrl+7",
+            ["toggle_view_tag_8"] = "Super+Ctrl+8",
             ["toggle_view_tag_9"] = "Super+Ctrl+9",
-            ["toggle_window_tag_1"] = "Super+Shift+Ctrl+1", ["toggle_window_tag_2"] = "Super+Shift+Ctrl+2",
-            ["toggle_window_tag_3"] = "Super+Shift+Ctrl+3", ["toggle_window_tag_4"] = "Super+Shift+Ctrl+4",
-            ["toggle_window_tag_5"] = "Super+Shift+Ctrl+5", ["toggle_window_tag_6"] = "Super+Shift+Ctrl+6",
-            ["toggle_window_tag_7"] = "Super+Shift+Ctrl+7", ["toggle_window_tag_8"] = "Super+Shift+Ctrl+8",
+            ["toggle_window_tag_1"] = "Super+Shift+Ctrl+1",
+            ["toggle_window_tag_2"] = "Super+Shift+Ctrl+2",
+            ["toggle_window_tag_3"] = "Super+Shift+Ctrl+3",
+            ["toggle_window_tag_4"] = "Super+Shift+Ctrl+4",
+            ["toggle_window_tag_5"] = "Super+Shift+Ctrl+5",
+            ["toggle_window_tag_6"] = "Super+Shift+Ctrl+6",
+            ["toggle_window_tag_7"] = "Super+Shift+Ctrl+7",
+            ["toggle_window_tag_8"] = "Super+Shift+Ctrl+8",
             ["toggle_window_tag_9"] = "Super+Shift+Ctrl+9",
             ["swap_last_tagset"] = "Super+grave",
 
             // Phase B1e — Window state ops.
-            ["toggle_fullscreen"]    = "Super+Shift+F",
-            ["toggle_maximize"]      = "Super+Shift+M",
-            ["toggle_floating"]      = "Super+Shift+Space",
-            ["toggle_minimize"]      = "Super+N",
-            ["unminimize_last"]      = "Super+Shift+N",
-            ["toggle_scratchpad"]    = "Super+Backslash",
-            ["send_to_scratchpad"]   = "Super+Shift+Backslash",
+            ["toggle_fullscreen"] = "Super+Shift+F",
+            ["toggle_maximize"] = "Super+Shift+M",
+            ["toggle_floating"] = "Super+Shift+Space",
+            ["toggle_minimize"] = "Super+N",
+            ["unminimize_last"] = "Super+Shift+N",
+            ["toggle_scratchpad"] = "Super+Backslash",
+            ["send_to_scratchpad"] = "Super+Shift+Backslash",
             // toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
         };
 
@@ -119,8 +137,16 @@ public sealed class KeybindConfig
     /// </summary>
     public IReadOnlyList<string> ChordsFor(string action)
     {
-        if (Builtins.TryGetValue(action, out var list)) return list;
-        if (Defaults.TryGetValue(action, out var d))    return new[] { d };
+        if (Builtins.TryGetValue(action, out var list))
+        {
+            return list;
+        }
+
+        if (Defaults.TryGetValue(action, out var d))
+        {
+            return new[] { d };
+        }
+
         return Array.Empty<string>();
     }
 }

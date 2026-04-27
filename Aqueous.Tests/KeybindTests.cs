@@ -92,7 +92,7 @@ public class KeybindTests
         var cfg = LayoutConfig.Parse(toml);
         var chords = cfg.Keybinds.ChordsFor("move_column_left");
         Assert.Equal(2, chords.Count);
-        Assert.Equal("Super+Shift+H",   chords[0]);
+        Assert.Equal("Super+Shift+H", chords[0]);
         Assert.Equal("Super+BracketLeft", chords[1]);
         // Empty array = explicit unbind -> ChordsFor returns the empty list.
         Assert.Empty(cfg.Keybinds.ChordsFor("cycle_focus"));
@@ -108,8 +108,8 @@ public class KeybindTests
             "Super+2"       = "set_layout:scrolling"
             """;
         var cfg = LayoutConfig.Parse(toml);
-        Assert.Equal("spawn:nautilus",     cfg.Keybinds.Custom["Super+E"]);
-        Assert.Equal("set_layout:tile",    cfg.Keybinds.Custom["Super+1"]);
+        Assert.Equal("spawn:nautilus", cfg.Keybinds.Custom["Super+E"]);
+        Assert.Equal("set_layout:tile", cfg.Keybinds.Custom["Super+1"]);
         Assert.Equal("set_layout:scrolling", cfg.Keybinds.Custom["Super+2"]);
     }
 
@@ -134,7 +134,7 @@ public class KeybindTests
     public void Controller_SetLayout_PromotesDefaultWhenNoOutputs()
     {
         var registry = new LayoutRegistry();
-        var ctrl     = new LayoutController(registry, LayoutConfig.Default);
+        var ctrl = new LayoutController(registry, LayoutConfig.Default);
         long before = ctrl.Epoch;
 
         ctrl.SetLayout("scrolling");

@@ -79,8 +79,16 @@ public sealed class TagController
     /// <summary>Set focused output's view to exactly <paramref name="mask"/>. Super+1..9.</summary>
     public bool ViewTags(uint mask)
     {
-        if (mask == 0u) return false;
-        if (!_host.SetFocusedOutputVisibleTags(mask)) return false;
+        if (mask == 0u)
+        {
+            return false;
+        }
+
+        if (!_host.SetFocusedOutputVisibleTags(mask))
+        {
+            return false;
+        }
+
         _host.RepairFocusAfterTagChange();
         _host.RequestRelayout();
         Raise(TagsChangeKind.ViewTags, mask, null);
@@ -93,12 +101,28 @@ public sealed class TagController
     /// <summary>Toggle a single tag's visibility on the focused output. Super+Ctrl+1..9.</summary>
     public bool ToggleViewTag(uint mask)
     {
-        if (mask == 0u) return false;
+        if (mask == 0u)
+        {
+            return false;
+        }
+
         var cur = _host.GetFocusedOutputVisibleTags();
-        if (cur is null) return false;
+        if (cur is null)
+        {
+            return false;
+        }
+
         uint next = cur.Value ^ mask;
-        if (next == 0u) return false; // never leave an output with zero visible tags
-        if (!_host.SetFocusedOutputVisibleTags(next)) return false;
+        if (next == 0u)
+        {
+            return false; // never leave an output with zero visible tags
+        }
+
+        if (!_host.SetFocusedOutputVisibleTags(next))
+        {
+            return false;
+        }
+
         _host.RepairFocusAfterTagChange();
         _host.RequestRelayout();
         Raise(TagsChangeKind.ToggleViewTag, next, null);
@@ -108,8 +132,16 @@ public sealed class TagController
     /// <summary>Re-tag the focused window to <paramref name="mask"/>. Super+Shift+1..9 / Super+Shift+0.</summary>
     public bool SendFocusedToTags(uint mask)
     {
-        if (mask == 0u) return false;
-        if (!_host.SetFocusedWindowTags(mask)) return false;
+        if (mask == 0u)
+        {
+            return false;
+        }
+
+        if (!_host.SetFocusedWindowTags(mask))
+        {
+            return false;
+        }
+
         _host.RepairFocusAfterTagChange();
         _host.RequestRelayout();
         Raise(TagsChangeKind.SendFocusedToTags, _host.GetFocusedOutputVisibleTags() ?? 0u, mask);
@@ -119,8 +151,16 @@ public sealed class TagController
     /// <summary>Toggle a tag bit on the focused window's tag set. Super+Shift+Ctrl+1..9.</summary>
     public bool ToggleWindowTag(uint mask)
     {
-        if (mask == 0u) return false;
-        if (!_host.ToggleFocusedWindowTags(mask)) return false;
+        if (mask == 0u)
+        {
+            return false;
+        }
+
+        if (!_host.ToggleFocusedWindowTags(mask))
+        {
+            return false;
+        }
+
         _host.RepairFocusAfterTagChange();
         _host.RequestRelayout();
         Raise(TagsChangeKind.ToggleWindowTag, _host.GetFocusedOutputVisibleTags() ?? 0u, null);
@@ -134,8 +174,16 @@ public sealed class TagController
     public bool SwapLastTagset()
     {
         var prev = _host.GetFocusedOutputLastTagset();
-        if (prev is null || prev.Value == 0u) return false;
-        if (!_host.SetFocusedOutputVisibleTags(prev.Value)) return false;
+        if (prev is null || prev.Value == 0u)
+        {
+            return false;
+        }
+
+        if (!_host.SetFocusedOutputVisibleTags(prev.Value))
+        {
+            return false;
+        }
+
         _host.RepairFocusAfterTagChange();
         _host.RequestRelayout();
         Raise(TagsChangeKind.SwapLastTagset, prev.Value, null);

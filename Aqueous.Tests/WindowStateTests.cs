@@ -36,7 +36,14 @@ public class WindowStateTests
         public IntPtr GetFullscreenWindow(IntPtr o) => Fullscreen.TryGetValue(o, out var w) ? w : IntPtr.Zero;
         public void SetFullscreenWindow(IntPtr o, IntPtr w)
         {
-            if (w == IntPtr.Zero) Fullscreen.Remove(o); else Fullscreen[o] = w;
+            if (w == IntPtr.Zero)
+            {
+                Fullscreen.Remove(o);
+            }
+            else
+            {
+                Fullscreen[o] = w;
+            }
         }
         public void Focus(IntPtr w) => CurrentFocus = w;
         public void FocusNextOnOutput(IntPtr o)
@@ -315,7 +322,7 @@ public class WindowStateTests
         Assert.Equal(0.7, cfg.State.Scratchpad.WidthFrac);
         Assert.Equal(0.4, cfg.State.Scratchpad.HeightFrac);
         Assert.Equal("top", cfg.State.Scratchpad.Anchor);
-        Assert.Equal("ghostty",  cfg.State.Scratchpad.SpawnCommands["term"]);
+        Assert.Equal("ghostty", cfg.State.Scratchpad.SpawnCommands["term"]);
         Assert.Equal("obsidian", cfg.State.Scratchpad.SpawnCommands["notes"]);
     }
 
@@ -324,7 +331,7 @@ public class WindowStateTests
     {
         var cfg = LayoutConfig.Parse("");
         Assert.Equal("Super+Shift+F", cfg.Keybinds.ChordsFor("toggle_fullscreen")[0]);
-        Assert.Equal("Super+N",       cfg.Keybinds.ChordsFor("toggle_minimize")[0]);
+        Assert.Equal("Super+N", cfg.Keybinds.ChordsFor("toggle_minimize")[0]);
         Assert.Equal("Super+Shift+N", cfg.Keybinds.ChordsFor("unminimize_last")[0]);
         Assert.Equal("Super+Backslash", cfg.Keybinds.ChordsFor("toggle_scratchpad")[0]);
     }

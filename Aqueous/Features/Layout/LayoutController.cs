@@ -27,7 +27,7 @@ public sealed class LayoutController
     public LayoutController(LayoutRegistry registry, LayoutConfig config)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-        _config   = config   ?? throw new ArgumentNullException(nameof(config));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
     }
 
     public LayoutConfig Config => _config;
@@ -56,10 +56,13 @@ public sealed class LayoutController
     public void SetLayoutForOutput(IntPtr output, string layoutId)
     {
         if (!_registry.Contains(layoutId))
+        {
             layoutId = _config.DefaultLayout;
+        }
+
         _engineByOutput[output] = _registry.Create(layoutId);
-        _stateByOutput[output]  = null;
-        _idByOutput[output]     = layoutId;
+        _stateByOutput[output] = null;
+        _idByOutput[output] = layoutId;
     }
 
     /// <summary>
@@ -73,7 +76,9 @@ public sealed class LayoutController
     public void SetLayout(string layoutId)
     {
         if (!_registry.Contains(layoutId))
+        {
             layoutId = _config.DefaultLayout;
+        }
         // Snapshot keys to avoid mutation during iteration.
         var outputs = new List<IntPtr>(_engineByOutput.Keys);
         if (outputs.Count == 0)
@@ -85,18 +90,20 @@ public sealed class LayoutController
             _config = new LayoutConfig
             {
                 DefaultLayout = layoutId,
-                Defaults      = _config.Defaults,
-                Slots         = _config.Slots,
+                Defaults = _config.Defaults,
+                Slots = _config.Slots,
                 PerLayoutOpts = _config.PerLayoutOpts,
-                PerOutput     = _config.PerOutput,
-                Border        = _config.Border,
-                Keybinds      = _config.Keybinds,
+                PerOutput = _config.PerOutput,
+                Border = _config.Border,
+                Keybinds = _config.Keybinds,
             };
             _epoch++;
             return;
         }
         foreach (var o in outputs)
+        {
             SetLayoutForOutput(o, layoutId);
+        }
     }
 
     /// <summary>
@@ -108,10 +115,16 @@ public sealed class LayoutController
     public string ResolveLayoutId(IntPtr output, string? outputName)
     {
         if (_idByOutput.TryGetValue(output, out var id) && _registry.Contains(id))
+        {
             return id;
+        }
+
         if (outputName != null && _config.PerOutput.TryGetValue(outputName, out var perOutId)
             && _registry.Contains(perOutId))
+        {
             return perOutId;
+        }
+
         return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
     }
 
@@ -140,7 +153,9 @@ public sealed class LayoutController
         // a buggy plugin layout cannot violate hints.
         var hintsByHandle = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
         for (int i = 0; i < visibleWindows.Count; i++)
+        {
             hintsByHandle[visibleWindows[i].Handle] = visibleWindows[i];
+        }
 
         var clamped = new List<WindowPlacement>(raw.Count);
         for (int i = 0; i < raw.Count; i++)
@@ -150,7 +165,9 @@ public sealed class LayoutController
             {
                 var g = LayoutMath.ClampToHints(p.Geometry, view);
                 if (g != p.Geometry)
+                {
                     p = p with { Geometry = g };
+                }
             }
             clamped.Add(p);
         }
@@ -218,8 +235,8 @@ public sealed class LayoutController
         {
             engine = _registry.Create(id);
             _engineByOutput[output] = engine;
-            _stateByOutput[output]  = null;
-            _idByOutput[output]     = id;
+            _stateByOutput[output] = null;
+            _idByOutput[output] = id;
         }
         return engine;
     }

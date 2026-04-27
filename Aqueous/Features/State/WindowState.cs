@@ -36,25 +36,25 @@ public enum WindowState : byte
 /// </summary>
 public sealed class WindowStateData
 {
-    public IntPtr      Handle        { get; init; }
-    public WindowState State         { get; set; } = WindowState.Tiled;
+    public IntPtr Handle { get; init; }
+    public WindowState State { get; set; } = WindowState.Tiled;
     public WindowState PreviousState { get; set; } = WindowState.Tiled;
 
     /// <summary>Last floating rectangle (used to restore Floating geometry).</summary>
-    public Rect?       FloatingGeom  { get; set; }
+    public Rect? FloatingGeom { get; set; }
 
     /// <summary>Geometry snapshot taken before entering FS / Maximize.</summary>
-    public Rect?       PreFsGeom     { get; set; }
+    public Rect? PreFsGeom { get; set; }
 
     /// <summary>Output the window is pinned to while FS / Maximized.</summary>
-    public IntPtr      PinnedOutput  { get; set; }
+    public IntPtr PinnedOutput { get; set; }
 
     /// <summary>True iff the window is parked in a scratchpad and currently hidden.</summary>
-    public bool        InScratchpad  { get; set; }
+    public bool InScratchpad { get; set; }
 
     /// <summary>Visibility flag honoured by the render path; toggled by scratchpad summon/dismiss.</summary>
-    public bool        Visible       { get; set; } = true;
+    public bool Visible { get; set; } = true;
 
     /// <summary>Name of the scratchpad slot that owns this window, or <c>null</c>.</summary>
-    public string?     ScratchpadName { get; set; }
+    public string? ScratchpadName { get; set; }
 }

@@ -28,9 +28,9 @@ public sealed class LayoutConfig
     public IReadOnlyDictionary<string, string> Slots { get; init; } =
         new Dictionary<string, string>
         {
-            ["primary"]    = "tile",
-            ["secondary"]  = "float",
-            ["tertiary"]   = "monocle",
+            ["primary"] = "tile",
+            ["secondary"] = "float",
+            ["tertiary"] = "monocle",
             ["quaternary"] = "grid",
         };
 
@@ -65,11 +65,11 @@ public sealed class LayoutConfig
             // Merge: per-layout `Extra` wins, common scalars from per-layout if non-zero
             // else from defaults.
             return new LayoutOptions(
-                GapsOuter:    perLayout.GapsOuter    > 0 ? perLayout.GapsOuter    : Defaults.GapsOuter,
-                GapsInner:    perLayout.GapsInner    > 0 ? perLayout.GapsInner    : Defaults.GapsInner,
-                MasterRatio:  perLayout.MasterRatio  > 0 ? perLayout.MasterRatio  : Defaults.MasterRatio,
-                MasterCount:  perLayout.MasterCount  > 0 ? perLayout.MasterCount  : Defaults.MasterCount,
-                Extra:        perLayout.Extra);
+                GapsOuter: perLayout.GapsOuter > 0 ? perLayout.GapsOuter : Defaults.GapsOuter,
+                GapsInner: perLayout.GapsInner > 0 ? perLayout.GapsInner : Defaults.GapsInner,
+                MasterRatio: perLayout.MasterRatio > 0 ? perLayout.MasterRatio : Defaults.MasterRatio,
+                MasterCount: perLayout.MasterCount > 0 ? perLayout.MasterCount : Defaults.MasterCount,
+                Extra: perLayout.Extra);
         }
         return Defaults;
     }
@@ -83,7 +83,11 @@ public sealed class LayoutConfig
     {
         try
         {
-            if (!File.Exists(path)) return Default;
+            if (!File.Exists(path))
+            {
+                return Default;
+            }
+
             return Parse(File.ReadAllText(path));
         }
         catch
@@ -102,8 +106,8 @@ public sealed class LayoutConfig
     // -------------------------------------------------------------------
     internal static LayoutConfig Parse(string text)
     {
-        string?  defaultLayout = null;
-        string?  primary = null, secondary = null, tertiary = null, quaternary = null;
+        string? defaultLayout = null;
+        string? primary = null, secondary = null, tertiary = null, quaternary = null;
         var perLayout = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         var perOutput = new Dictionary<string, string>(StringComparer.Ordinal);
         int gapsOuter = 8, gapsInner = 4, masterCount = 1, borderWidth = 2;
@@ -112,17 +116,17 @@ public sealed class LayoutConfig
 
         // Keybind tables.
         var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var kbCustom   = new Dictionary<string, string>(StringComparer.Ordinal);
+        var kbCustom = new Dictionary<string, string>(StringComparer.Ordinal);
         var knownActions = new HashSet<string>(KeybindConfig.KnownActions, StringComparer.Ordinal);
 
         // Phase B1e — [state] + [scratchpad] + [scratchpad.spawn].
-        bool   stFsHidesBar     = StateConfig.Default.FullscreenHidesBar;
-        bool   stMaxFullOutput  = StateConfig.Default.MaximizeFullOutput;
-        string spOnEmpty        = ScratchpadConfig.Default.OnEmpty;
-        double spWidthFrac      = ScratchpadConfig.Default.WidthFrac;
-        double spHeightFrac     = ScratchpadConfig.Default.HeightFrac;
-        string spAnchor         = ScratchpadConfig.Default.Anchor;
-        var    spSpawn          = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool stFsHidesBar = StateConfig.Default.FullscreenHidesBar;
+        bool stMaxFullOutput = StateConfig.Default.MaximizeFullOutput;
+        string spOnEmpty = ScratchpadConfig.Default.OnEmpty;
+        double spWidthFrac = ScratchpadConfig.Default.WidthFrac;
+        double spHeightFrac = ScratchpadConfig.Default.HeightFrac;
+        string spAnchor = ScratchpadConfig.Default.Anchor;
+        var spSpawn = new Dictionary<string, string>(StringComparer.Ordinal);
 
         string? curSection = null;
         // Used by [[output]] tables.
@@ -132,7 +136,10 @@ public sealed class LayoutConfig
         void FlushOutput()
         {
             if (pendingOutputName != null && pendingOutputLayout != null)
+            {
                 perOutput[pendingOutputName] = pendingOutputLayout;
+            }
+
             pendingOutputName = null;
             pendingOutputLayout = null;
         }
@@ -140,7 +147,10 @@ public sealed class LayoutConfig
         foreach (var rawLine in text.Split('\n'))
         {
             var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith("#")) continue;
+            if (line.Length == 0 || line.StartsWith("#"))
+            {
+                continue;
+            }
 
             if (line.StartsWith("[["))
             {
@@ -159,12 +169,20 @@ public sealed class LayoutConfig
             }
 
             int eq = line.IndexOf('=');
-            if (eq <= 0) continue;
+            if (eq <= 0)
+            {
+                continue;
+            }
+
             var key = line.Substring(0, eq).Trim();
             var valRaw = line.Substring(eq + 1).Trim();
             // strip trailing inline comment (#)
             int hash = IndexOfUnquoted(valRaw, '#');
-            if (hash >= 0) valRaw = valRaw.Substring(0, hash).Trim();
+            if (hash >= 0)
+            {
+                valRaw = valRaw.Substring(0, hash).Trim();
+            }
+
             var val = StripQuotes(valRaw);
 
             switch (curSection)
@@ -172,56 +190,65 @@ public sealed class LayoutConfig
                 case "layout":
                     switch (key)
                     {
-                        case "default":         defaultLayout = val; break;
-                        case "gaps_outer":      gapsOuter   = ParseInt(val, gapsOuter); break;
-                        case "gaps_inner":      gapsInner   = ParseInt(val, gapsInner); break;
-                        case "master_ratio":    masterRatio = ParseDouble(val, masterRatio); break;
-                        case "master_count":    masterCount = ParseInt(val, masterCount); break;
-                        case "border_width":    borderWidth = ParseInt(val, borderWidth); break;
-                        case "border_focused":  borderFocused = ParseColor(val, borderFocused); break;
-                        case "border_normal":   borderNormal  = ParseColor(val, borderNormal); break;
-                        case "border_urgent":   borderUrgent  = ParseColor(val, borderUrgent); break;
+                        case "default": defaultLayout = val; break;
+                        case "gaps_outer": gapsOuter = ParseInt(val, gapsOuter); break;
+                        case "gaps_inner": gapsInner = ParseInt(val, gapsInner); break;
+                        case "master_ratio": masterRatio = ParseDouble(val, masterRatio); break;
+                        case "master_count": masterCount = ParseInt(val, masterCount); break;
+                        case "border_width": borderWidth = ParseInt(val, borderWidth); break;
+                        case "border_focused": borderFocused = ParseColor(val, borderFocused); break;
+                        case "border_normal": borderNormal = ParseColor(val, borderNormal); break;
+                        case "border_urgent": borderUrgent = ParseColor(val, borderUrgent); break;
                     }
                     break;
                 case "layout.slots":
                     switch (key)
                     {
-                        case "primary":    primary = val; break;
-                        case "secondary":  secondary = val; break;
-                        case "tertiary":   tertiary = val; break;
+                        case "primary": primary = val; break;
+                        case "secondary": secondary = val; break;
+                        case "tertiary": tertiary = val; break;
                         case "quaternary": quaternary = val; break;
                     }
                     break;
                 case "[[output]]":
-                    if (key == "name")        pendingOutputName   = val;
-                    else if (key == "layout") pendingOutputLayout = val;
+                    if (key == "name")
+                    {
+                        pendingOutputName = val;
+                    }
+                    else if (key == "layout")
+                    {
+                        pendingOutputLayout = val;
+                    }
+
                     break;
                 case "keybinds":
                     if (knownActions.Contains(key))
+                    {
                         kbBuiltins[key] = ParseChordList(valRaw);
+                    }
                     // Unknown action names are ignored (forward-compat).
                     break;
                 case "keybinds.custom":
-                {
-                    // key is the chord (it may have been wrapped in quotes).
-                    var chord = StripQuotes(key);
-                    kbCustom[chord] = val;
-                    break;
-                }
+                    {
+                        // key is the chord (it may have been wrapped in quotes).
+                        var chord = StripQuotes(key);
+                        kbCustom[chord] = val;
+                        break;
+                    }
                 case "state":
                     switch (key)
                     {
-                        case "fullscreen_hides_bar":  stFsHidesBar    = ParseBool(val, stFsHidesBar); break;
+                        case "fullscreen_hides_bar": stFsHidesBar = ParseBool(val, stFsHidesBar); break;
                         case "maximize_full_output": stMaxFullOutput = ParseBool(val, stMaxFullOutput); break;
                     }
                     break;
                 case "scratchpad":
                     switch (key)
                     {
-                        case "on_empty":    spOnEmpty    = val; break;
-                        case "width_frac":  spWidthFrac  = ParseDouble(val, spWidthFrac); break;
+                        case "on_empty": spOnEmpty = val; break;
+                        case "width_frac": spWidthFrac = ParseDouble(val, spWidthFrac); break;
                         case "height_frac": spHeightFrac = ParseDouble(val, spHeightFrac); break;
-                        case "anchor":      spAnchor     = val; break;
+                        case "anchor": spAnchor = val; break;
                     }
                     break;
                 case "scratchpad.spawn":
@@ -232,7 +259,10 @@ public sealed class LayoutConfig
                     {
                         var layoutId = curSection.Substring("layout.options.".Length);
                         if (!perLayout.TryGetValue(layoutId, out var bag))
+                        {
                             perLayout[layoutId] = bag = new Dictionary<string, string>(StringComparer.Ordinal);
+                        }
+
                         bag[key] = val;
                     }
                     break;
@@ -249,18 +279,18 @@ public sealed class LayoutConfig
         var perLayoutOpts = new Dictionary<string, LayoutOptions>(StringComparer.Ordinal);
         foreach (var kv in perLayout)
         {
-            int  pGo = defaults.GapsOuter, pGi = defaults.GapsInner, pMc = defaults.MasterCount;
+            int pGo = defaults.GapsOuter, pGi = defaults.GapsInner, pMc = defaults.MasterCount;
             double pMr = defaults.MasterRatio;
             var extra = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var kv2 in kv.Value)
             {
                 switch (kv2.Key)
                 {
-                    case "gaps_outer":   pGo = ParseInt(kv2.Value, pGo); break;
-                    case "gaps_inner":   pGi = ParseInt(kv2.Value, pGi); break;
+                    case "gaps_outer": pGo = ParseInt(kv2.Value, pGo); break;
+                    case "gaps_inner": pGi = ParseInt(kv2.Value, pGi); break;
                     case "master_count": pMc = ParseInt(kv2.Value, pMc); break;
                     case "master_ratio": pMr = ParseDouble(kv2.Value, pMr); break;
-                    default:             extra[kv2.Key] = kv2.Value; break;
+                    default: extra[kv2.Key] = kv2.Value; break;
                 }
             }
             perLayoutOpts[kv.Key] = new LayoutOptions(pGo, pGi, pMr, pMc, extra);
@@ -268,9 +298,9 @@ public sealed class LayoutConfig
 
         var slots = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["primary"]    = primary    ?? "tile",
-            ["secondary"]  = secondary  ?? "float",
-            ["tertiary"]   = tertiary   ?? "monocle",
+            ["primary"] = primary ?? "tile",
+            ["secondary"] = secondary ?? "float",
+            ["tertiary"] = tertiary ?? "monocle",
             ["quaternary"] = quaternary ?? "grid",
         };
 
@@ -282,10 +312,10 @@ public sealed class LayoutConfig
             MaximizeFullOutput = stMaxFullOutput,
             Scratchpad = new ScratchpadConfig
             {
-                OnEmpty       = spOnEmpty,
-                WidthFrac     = spWidthFrac,
-                HeightFrac    = spHeightFrac,
-                Anchor        = spAnchor,
+                OnEmpty = spOnEmpty,
+                WidthFrac = spWidthFrac,
+                HeightFrac = spHeightFrac,
+                Anchor = spAnchor,
                 SpawnCommands = spSpawn,
             },
         };
@@ -293,13 +323,13 @@ public sealed class LayoutConfig
         return new LayoutConfig
         {
             DefaultLayout = defaultLayout ?? "tile",
-            Defaults      = defaults,
-            Slots         = slots,
+            Defaults = defaults,
+            Slots = slots,
             PerLayoutOpts = perLayoutOpts,
-            PerOutput     = perOutput,
-            Border        = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
-            Keybinds      = keybinds,
-            State         = stateConfig,
+            PerOutput = perOutput,
+            Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
+            Keybinds = keybinds,
+            State = stateConfig,
         };
     }
 
@@ -316,33 +346,55 @@ public sealed class LayoutConfig
         if (s.StartsWith("["))
         {
             int end = s.LastIndexOf(']');
-            if (end < 0) return list;
+            if (end < 0)
+            {
+                return list;
+            }
+
             var inner = s.Substring(1, end - 1).Trim();
-            if (inner.Length == 0) return list; // = []
+            if (inner.Length == 0)
+            {
+                return list; // = []
+            }
             // split on commas not inside quotes
             int start = 0;
             bool inStr = false;
             for (int i = 0; i <= inner.Length; i++)
             {
-                if (i < inner.Length && inner[i] == '"') inStr = !inStr;
+                if (i < inner.Length && inner[i] == '"')
+                {
+                    inStr = !inStr;
+                }
+
                 if (i == inner.Length || (inner[i] == ',' && !inStr))
                 {
                     var item = StripQuotes(inner.Substring(start, i - start).Trim());
-                    if (item.Length > 0) list.Add(item);
+                    if (item.Length > 0)
+                    {
+                        list.Add(item);
+                    }
+
                     start = i + 1;
                 }
             }
             return list;
         }
         var single = StripQuotes(s);
-        if (single.Length > 0) list.Add(single);
+        if (single.Length > 0)
+        {
+            list.Add(single);
+        }
+
         return list;
     }
 
     private static string StripQuotes(string s)
     {
         if (s.Length >= 2 && (s[0] == '"' && s[^1] == '"' || s[0] == '\'' && s[^1] == '\''))
+        {
             return s.Substring(1, s.Length - 2);
+        }
+
         return s;
     }
 
@@ -351,8 +403,14 @@ public sealed class LayoutConfig
         bool inStr = false;
         for (int i = 0; i < s.Length; i++)
         {
-            if (s[i] == '"') inStr = !inStr;
-            else if (!inStr && s[i] == c) return i;
+            if (s[i] == '"')
+            {
+                inStr = !inStr;
+            }
+            else if (!inStr && s[i] == c)
+            {
+                return i;
+            }
         }
         return -1;
     }
@@ -365,8 +423,8 @@ public sealed class LayoutConfig
 
     private static bool ParseBool(string s, bool fallback) => s.Trim().ToLowerInvariant() switch
     {
-        "true"  or "yes" or "on"  or "1" => true,
-        "false" or "no"  or "off" or "0" => false,
+        "true" or "yes" or "on" or "1" => true,
+        "false" or "no" or "off" or "0" => false,
         _ => fallback,
     };
 
@@ -377,7 +435,9 @@ public sealed class LayoutConfig
         {
             var hex = s.Substring(1);
             if (uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
+            {
                 return hex.Length == 6 ? 0xFF000000u | v : v;
+            }
         }
         return uint.TryParse(s, out var p) ? p : fallback;
     }

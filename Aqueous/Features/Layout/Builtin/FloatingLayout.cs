@@ -53,11 +53,24 @@ public sealed class FloatingLayout : ILayoutEngine
         if (state.Rects.Count > windows.Count)
         {
             var live = new HashSet<IntPtr>();
-            for (int i = 0; i < windows.Count; i++) live.Add(windows[i].Handle);
+            for (int i = 0; i < windows.Count; i++)
+            {
+                live.Add(windows[i].Handle);
+            }
+
             var stale = new List<IntPtr>();
             foreach (var k in state.Rects.Keys)
-                if (!live.Contains(k)) stale.Add(k);
-            foreach (var k in stale) state.Rects.Remove(k);
+            {
+                if (!live.Contains(k))
+                {
+                    stale.Add(k);
+                }
+            }
+
+            foreach (var k in stale)
+            {
+                state.Rects.Remove(k);
+            }
         }
         return result;
     }

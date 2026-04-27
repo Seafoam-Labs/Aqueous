@@ -49,7 +49,11 @@ public sealed class ScratchpadRegistry
         {
             if (kv.Value == window) { hit = kv.Key; break; }
         }
-        if (hit != null) _pads.Remove(hit);
+        if (hit != null)
+        {
+            _pads.Remove(hit);
+        }
+
         return hit;
     }
 
