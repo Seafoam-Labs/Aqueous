@@ -61,17 +61,17 @@ center_focused  = "true"    # auto-pan so focused column is centred
 # Per-output overrides. Repeat the [[output]] block once per monitor.
 # `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
 # -----------------------------------------------------------------------------
-[[output]]
-name   = "DP-1"
-layout = "scrolling"
-
-[[output]]
-name   = "HDMI-A-1"
-layout = "tile"
-
-[[output]]
-name   = "eDP-1"
-layout = "monocle"
+#[[output]]
+#name   = "DP-1"
+#layout = "scrolling"
+#
+#[[output]]
+#name   = "HDMI-A-1"
+#layout = "tile"
+#
+#[[output]]
+#name   = "eDP-1"
+#layout = "monocle"
 
 
 # -----------------------------------------------------------------------------

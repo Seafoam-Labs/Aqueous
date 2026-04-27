@@ -1,3 +1,0 @@
-#!/bin/bash
-SOCKET="${XDG_RUNTIME_DIR:-$HOME/.run}/aqueous-launcher.sock"
-echo "toggle" | socat - UNIX-CONNECT:"$SOCKET"
