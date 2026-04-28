@@ -18,6 +18,8 @@ public sealed class LayoutConfig
     /// <summary>Global default layout id (used when nothing else applies).</summary>
     public string DefaultLayout { get; init; } = "tile";
 
+    public InputConfig Input { get; init; } = InputConfig.Default;
+
     /// <summary>Default options applied to every layout that doesn't override them.</summary>
     public LayoutOptions Defaults { get; init; } = LayoutOptions.Default;
 
