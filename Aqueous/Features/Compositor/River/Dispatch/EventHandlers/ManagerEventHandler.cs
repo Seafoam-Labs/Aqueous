@@ -280,7 +280,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        // Bug 3 fix: cascade new windows so two windows do not sit stacked at
                         // (0,0) shadowing each other's input region.
                         int cascadeIndex = _windows.Count;
                         var entry = new WindowEntry { Proxy = proxy, X = cascadeIndex * 40, Y = cascadeIndex * 40 };
