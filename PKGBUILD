@@ -5,7 +5,7 @@ pkgver=0.1.0
 pkgrel=3
 pkgdesc="Aqueous Wayland window manager (River-based) with Noctalia bar"
 arch=('x86_64' 'aarch64')
-url="https://github.com/your-username/aqueous"
+url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'river'
