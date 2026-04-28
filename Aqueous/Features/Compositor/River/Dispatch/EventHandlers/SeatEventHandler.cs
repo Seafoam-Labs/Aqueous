@@ -132,6 +132,20 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         {
                             adw.FloatH = newFh;
                         }
+
+                        // SnapZones live preview: if the pointer is
+                        // currently over a configured zone, override
+                        // the free-drag rect we just wrote with the
+                        // resolved zone rect. The dragged window
+                        // itself becomes the preview ghost — Aqueous
+                        // is a river-window-management *client* and
+                        // does not bind wl_compositor / wl_shm, so a
+                        // separate overlay surface is not available
+                        // (see RiverWindowManagerClient.SnapZones.cs
+                        // for the rationale). When the pointer leaves
+                        // the zone the next OpDelta sample writes the
+                        // free-drag rect again, undoing the preview.
+                        ApplyLiveSnapPreview(proxy);
                     }
                     else
                     {
