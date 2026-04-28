@@ -2,10 +2,15 @@
 	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AApps_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003F_002Econfig_003FJetBrains_003FRider2025_002E3_003Fresharper_002Dhost_003FDecompilerCache_003Fdecompiler_003F3698469e94e14222b087a62064138ac02a400_003F91_003F28564fa5_003FApps_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
 	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AAstalAppsInterop_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003F_002Econfig_003FJetBrains_003FRider2025_002E3_003Fresharper_002Dhost_003FDecompilerCache_003Fdecompiler_003F3698469e94e14222b087a62064138ac02a400_003Fb8_003Fc598064d_003FAstalAppsInterop_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
 	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AAstalNetworkInterop_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003F_002Econfig_003FJetBrains_003FRider2025_002E3_003Fresharper_002Dhost_003FDecompilerCache_003Fdecompiler_003F9523be819e824ac5a4a836acc99ff91b21400_003F53_003F567496b3_003FAstalNetworkInterop_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/dotCover/Editor/HighlightingSourceSnapshotLocation/@EntryValue">/home/zoey/.cache/JetBrains/Rider2026.1/resharper-host/temp/Rider/vAny/CoverageData/_Aqueous.-1987804269/Snapshot/snapshot.utdcvr</s:String>
 	<s:String x:Key="/Default/Environment/AssemblyExplorer/XmlDocument/@EntryValue">&lt;AssemblyExplorer&gt;
   &lt;Assembly Path="/home/zoey/.nuget/packages/astalbindings/0.1.0/lib/net10.0/AstalBindings.dll" /&gt;
   &lt;Assembly Path="/home/zoey/.nuget/packages/astalbindings/0.2.1/lib/net10.0/AstalBindings.dll" /&gt;
 &lt;/AssemblyExplorer&gt;</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=588571d6_002De025_002D49a0_002Da252_002D7177a469ec13/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" Name="All tests from Solution" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;Solution /&gt;
+&lt;/SessionState&gt;</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=7ce84f90_002D6ae2_002D4e9e_002D860e_002Deb90f45871f3/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="Junie Session" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
-  &lt;Project Location="/home/zoey/RiderProjects/Aqueous/Aqueous.WM.Tests" Presentation="&amp;lt;Aqueous.WM.Tests&amp;gt;" /&gt;
-&lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>
+  &lt;Project Location="/home/zoey/RiderProjects/Aqueous/Aqueous.Tests" Presentation="&amp;lt;Aqueous.Tests&amp;gt;" /&gt;
+&lt;/SessionState&gt;</s:String>
+	</wpf:ResourceDictionary>

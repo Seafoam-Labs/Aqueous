@@ -1,10 +1,11 @@
 <Solution>
-  <Project Path="Aqueous.WM/Aqueous.WM.csproj" />
-  <Project Path="Aqueous.WM.Tests/Aqueous.WM.Tests.csproj" />
+  <Project Path="Aqueous/Aqueous.csproj" />
+  <Project Path="Aqueous.Tests/Aqueous.Tests.csproj" />
   <Folder Name="/Solution/">
     <File Path="README.md" />
     <File Path="wm.toml" />
     <File Path="launch_river.sh" />
     <File Path="PKGBUILD" />
+    <File Path="docs/contributing.md"/>
   </Folder>
 </Solution>

@@ -1,0 +1,76 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.{json,yml,yaml,toml,md}]
+indent_size = 2
+
+[*.{xml,csproj,slnx,props,targets}]
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+max_line_length = 140
+
+# Namespaces
+csharp_style_namespace_declarations = file_scoped:warning
+
+# `var` rules — prefer var when type is apparent / built-in.
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Modern language features
+csharp_prefer_braces = true:warning
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+csharp_prefer_simple_using_statement = true:suggestion
+csharp_using_directive_placement = outside_namespace:warning
+
+# `this.` qualification — discourage.
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# Sort System.* usings first.
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Naming: _camelCase for private fields, PascalCase elsewhere.
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.severity = warning
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.symbols  = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.style    = camel_case_underscore_style
+
+dotnet_naming_symbols.private_fields.applicable_kinds           = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_fields.required_modifiers         =
+
+dotnet_naming_style.camel_case_underscore_style.required_prefix = _
+dotnet_naming_style.camel_case_underscore_style.capitalization  = camel_case
+
+dotnet_naming_rule.constants_should_be_pascal_case.severity = warning
+dotnet_naming_rule.constants_should_be_pascal_case.symbols  = constants
+dotnet_naming_rule.constants_should_be_pascal_case.style    = pascal_case_style
+
+dotnet_naming_symbols.constants.applicable_kinds   = field
+dotnet_naming_symbols.constants.required_modifiers = const
+
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+dotnet_naming_rule.public_members_pascal_case.severity = warning
+dotnet_naming_rule.public_members_pascal_case.symbols  = public_symbols
+dotnet_naming_rule.public_members_pascal_case.style    = pascal_case_style
+
+dotnet_naming_symbols.public_symbols.applicable_kinds           = property,method,field,event,delegate,class,struct,interface,enum
+dotnet_naming_symbols.public_symbols.applicable_accessibilities = public,internal,protected,protected_internal
+
+# Formatting hygiene (IDE0055 family).
+dotnet_diagnostic.IDE0055.severity = suggestion

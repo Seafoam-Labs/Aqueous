@@ -10,8 +10,8 @@ written in C# / .NET 10. The bar/shell is provided by the external
 
 | Component        | Description                                           |
 |------------------|-------------------------------------------------------|
-| `Aqueous.WM`     | Wayland/River compositor client (the window manager) |
-| `Aqueous.WM.Tests` | Unit tests for `Aqueous.WM`                         |
+| `Aqueous`        | Wayland/River compositor client (the window manager) |
+| `Aqueous.Tests`  | Unit tests for `Aqueous`                             |
 | Noctalia (external) | Bar / shell (`qs -c noctalia-shell`)              |
 | tuigreet (external) | Login greeter                                     |
 
@@ -37,7 +37,7 @@ dotnet build Aqueous.slnx
 ### Test
 
 ```bash
-dotnet test Aqueous.WM.Tests/Aqueous.WM.Tests.csproj
+dotnet test Aqueous.Tests/Aqueous.Tests.csproj
 ```
 
 ### Run (nested River session)
@@ -46,11 +46,11 @@ dotnet test Aqueous.WM.Tests/Aqueous.WM.Tests.csproj
 ./launch_river.sh
 ```
 
-This starts a nested River instance, launches `Aqueous.WM`, and spawns
+This starts a nested River instance, launches `Aqueous`, and spawns
 Noctalia (`qs -c noctalia-shell`) as the bar. Logs land in `/tmp/`:
 
 - `/tmp/river_log.txt` — River compositor + WAYLAND_DEBUG trace
-- `/tmp/aqueous_wm.log` — Aqueous.WM stdout/stderr
+- `/tmp/aqueous_wm.log` — Aqueous stdout/stderr
 - `/tmp/noctalia.log` — Noctalia stdout/stderr
 
 ---
@@ -64,5 +64,5 @@ keybindings, outputs, etc. See the file in this repo for an annotated example.
 
 ### Packaging
 
-A reference Arch `PKGBUILD` is included; it builds `Aqueous.WM` AOT and
+A reference Arch `PKGBUILD` is included; it builds `Aqueous` AOT and
 declares `noctalia-shell` and `tuigreet` as runtime dependencies.

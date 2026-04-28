@@ -31,7 +31,7 @@ pkgver() {
 
 build() {
     local rid=$(_rid_map)
-    dotnet publish "$srcdir/aqueous/Aqueous.WM/Aqueous.WM.csproj" \
+    dotnet publish "$srcdir/aqueous/Aqueous/Aqueous.csproj" \
         -c Release \
         -r "$rid" \
         --self-contained true \
@@ -40,11 +40,11 @@ build() {
 }
 
 package() {
-    # Aqueous.WM binary
+    # Aqueous binary
     install -d "$pkgdir/usr/lib/aqueous-wm"
     cp -r "$srcdir/publish-wm/"* "$pkgdir/usr/lib/aqueous-wm/"
     install -d "$pkgdir/usr/bin"
-    ln -s /usr/lib/aqueous-wm/Aqueous.WM "$pkgdir/usr/bin/aqueous-wm"
+    ln -s /usr/lib/aqueous-wm/Aqueous "$pkgdir/usr/bin/aqueous-wm"
 
     # Default WM config
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
