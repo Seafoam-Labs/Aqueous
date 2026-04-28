@@ -122,7 +122,11 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // during the drag would be silently overwritten on the next
                 // manage cycle. Ignoring the request here keeps the WM out of a
                 // half-armed drag state instead of pretending to move the window.
-                if (!IsFloatLayoutActive())
+                // Fix #5: gate on the dragged window's output, not the focused
+                // window's, so a resize/move gesture that landed before the
+                // CSD-driven focus update isn't silently dropped because focus
+                // happens to live on another output running a tiling layout.
+                if (!IsFloatLayoutActive(w.Output))
                 {
                     break;
                 }
@@ -152,21 +156,32 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // overwritten by the tiling engine on the next manage cycle.
                 // The protocol explicitly permits the WM to ignore this
                 // event entirely, so simply do nothing.
-                if (edges == 0 || !IsFloatLayoutActive())
+                if (edges == 0 || !IsFloatLayoutActive(w.Output))
                 {
                     break;
                 }
 
-                // Capture starting geometry. Width/height fall back to the
-                // last hint or proposed value when the client has not yet
-                // committed a real size, mirroring what the float layer
-                // uses for its FloatW/FloatH.
+                // Fix #2: capture starting geometry with a richer fallback
+                // chain. For a freshly-mapped floating window where the user
+                // grabs a corner *before* `dimensions` has fired, w.W/LastHintW/
+                // ProposedW can all still be 0; falling through to FloatW (set
+                // by LayoutProposer's float seed) and finally to the same
+                // 800x600 seed it uses keeps the first OpDelta from clamping
+                // newW = 0 + dx down to MinW and snapping the window to 1px.
                 _activeDragWindow = w;
                 _activeDragSeat = resizeSeatProxy;
                 _dragStartX = w.X;
                 _dragStartY = w.Y;
-                _dragStartW = w.W > 0 ? w.W : (w.LastHintW > 0 ? w.LastHintW : w.ProposedW);
-                _dragStartH = w.H > 0 ? w.H : (w.LastHintH > 0 ? w.LastHintH : w.ProposedH);
+                _dragStartW = w.W > 0 ? w.W
+                            : w.FloatW > 0 ? w.FloatW
+                            : w.LastHintW > 0 ? w.LastHintW
+                            : w.ProposedW > 0 ? w.ProposedW
+                            : 800;
+                _dragStartH = w.H > 0 ? w.H
+                            : w.FloatH > 0 ? w.FloatH
+                            : w.LastHintH > 0 ? w.LastHintH
+                            : w.ProposedH > 0 ? w.ProposedH
+                            : 600;
                 _dragEdges = edges;
                 // Same _dragStarted/_dragFinished reset as the move arm: a
                 // sticky flag from a prior gesture would otherwise prevent

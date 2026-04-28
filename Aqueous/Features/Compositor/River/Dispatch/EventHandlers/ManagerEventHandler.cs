@@ -60,6 +60,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         Log("enabled Super+BTN_LEFT pointer binding");
                     }
 
+                    // Same enable handshake for the Super+BTN_RIGHT
+                    // drag-resize binding registered alongside the move
+                    // binding in the SeatInformation handler below.
+                    if (_dragResizePointerBindingNeedsEnable && _dragResizePointerBinding != IntPtr.Zero)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            _dragResizePointerBinding, 1, IntPtr.Zero, 0, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        _dragResizePointerBindingNeedsEnable = false;
+                        Log("enabled Super+BTN_RIGHT pointer binding");
+                    }
+
                     if (_dragFinished)
                     {
                         // If the just-finalised drag was an interactive resize
@@ -469,6 +481,35 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         {
                             Log(
                                 $"skipping get_pointer_binding; river_window_manager_v1 v{_managerVersion} < 4 (River 0.4.3 ships v3)");
+                        }
+
+                        // Second pointer binding: Super+BTN_RIGHT for
+                        // drag-to-resize (Option 3 plan). Same registration
+                        // dance as BTN_LEFT above; the dispatcher routes
+                        // both proxies to OnDragPointerBindingEvent which
+                        // distinguishes them by the firing proxy and
+                        // derives _dragEdges from the pointer's quadrant
+                        // inside the hovered window.
+                        if (_dragResizePointerBinding == IntPtr.Zero && _managerVersion >= 4)
+                        {
+                            const uint BTN_RIGHT = 0x111;
+                            uint modMask = Mods.PrimaryMask;
+                            _dragResizePointerBinding = WaylandInterop.wl_proxy_marshal_flags(
+                                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _managerVersion, 0,
+                                IntPtr.Zero, (IntPtr)BTN_RIGHT, (IntPtr)modMask,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                            if (_dragResizePointerBinding != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_add_dispatcher(
+                                    _dragResizePointerBinding,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    GCHandle.ToIntPtr(_selfHandle),
+                                    IntPtr.Zero);
+                                _dragResizePointerBindingNeedsEnable = true;
+                                Log(
+                                    $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{_managerVersion})");
+                            }
                         }
                     }
 

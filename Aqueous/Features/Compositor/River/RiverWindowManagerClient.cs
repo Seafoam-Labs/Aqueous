@@ -136,7 +136,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private bool _dragResizeInformed;
     private IntPtr _dragPointerBinding;
     private bool _dragPointerBindingNeedsEnable;
+    // Second pointer binding for Super+RMB drag-to-resize (Option 3 plan).
+    // Lets the WM initiate resize on undecorated/SSD-expecting clients
+    // (alacritty, Firefox without libdecor, …) by deriving _dragEdges from
+    // the pointer's quadrant inside the focused window, then arming the
+    // same drag pipeline that pointer_resize_requested uses.
+    private IntPtr _dragResizePointerBinding;
+    private bool _dragResizePointerBindingNeedsEnable;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
+    // Latest pointer position per seat in the compositor's logical
+    // coordinate space, updated from river_seat_v1::pointer_position. Used
+    // by the Super+RMB drag-resize binding to determine which corner of
+    // the focused window the user clicked on.
+    private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos = new();
 
     // --- wayland state -------------------------------------------------
 

@@ -81,12 +81,21 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     // layout is active; in tile/scrolling/monocle/grid the per-
                     // window Floating override is suppressed by LayoutProposer
                     // bucketing and any FloatX/Y/W/H written here would be
-                    // overwritten on the next manage cycle. Bail cleanly so a
-                    // stale armed drag (e.g. one that survived a layout switch)
-                    // is a true no-op rather than mutating Float* state for a
-                    // window that is about to be re-tiled.
-                    if (!IsFloatLayoutActive())
+                    // overwritten on the next manage cycle. Fix #4: rather
+                    // than just `break`-ing (which would leave _dragEdges /
+                    // _dragResizeInformed sticky if the layout was switched
+                    // away from float mid-gesture), treat a not-float OpDelta
+                    // as an abandoned drag and tear down the same way a
+                    // release would, so the next legitimate drag starts
+                    // clean.
+                    if (!IsFloatLayoutActive(adw.Output))
                     {
+                        // Mark for finalisation; ManagerEventHandler will
+                        // emit inform_resize_end (if needed) and
+                        // op_finish_pointer on the next manage cycle and
+                        // clear all drag state.
+                        _dragFinished = true;
+                        ScheduleManage();
                         break;
                     }
 
@@ -100,8 +109,29 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         adw.HasFloatRect = true;
                         adw.FloatX = adw.X;
                         adw.FloatY = adw.Y;
-                        adw.FloatW = adw.W > 0 ? adw.W : (adw.LastHintW > 0 ? adw.LastHintW : adw.ProposedW);
-                        adw.FloatH = adw.H > 0 ? adw.H : (adw.LastHintH > 0 ? adw.LastHintH : adw.ProposedH);
+                        // Fix #6: only overwrite FloatW/FloatH when we have a
+                        // positive committed/hinted value. For a freshly-
+                        // mapped window where dimensions hasn't fired yet,
+                        // W/LastHintW/ProposedW are all 0; clobbering FloatW
+                        // (seeded to 800 by LayoutProposer's initial-rect
+                        // logic) with 0 would cause the next manage cycle to
+                        // skip propose_dimensions (pw<=0) and leave the
+                        // window with a permanent FloatW=0, which a later
+                        // resize gesture would then read as _dragStartW=0.
+                        int newFw = adw.W > 0 ? adw.W
+                                  : adw.LastHintW > 0 ? adw.LastHintW
+                                  : adw.ProposedW;
+                        int newFh = adw.H > 0 ? adw.H
+                                  : adw.LastHintH > 0 ? adw.LastHintH
+                                  : adw.ProposedH;
+                        if (newFw > 0)
+                        {
+                            adw.FloatW = newFw;
+                        }
+                        if (newFh > 0)
+                        {
+                            adw.FloatH = newFh;
+                        }
                     }
                     else
                     {
@@ -203,6 +233,16 @@ internal sealed unsafe partial class RiverWindowManagerClient
             case RiverProtocolOpcodes.Seat.OpRelease:
                 Log($"seat 0x{proxy.ToString("x")} pointer operation released");
                 _dragFinished = true;
+                break;
+            case RiverProtocolOpcodes.Seat.PointerPosition:
+                // Cache latest pointer position per seat so the
+                // Super+RMB drag-resize binding (DragPointerBindingEventHandler)
+                // can derive the resize edges from the click position
+                // relative to the hovered window's rect. Per protocol
+                // (river_seat_v1::pointer_position) the coordinates are in
+                // the compositor's logical coordinate space, matching the
+                // window X/Y we already track.
+                _seatPointerPos[proxy] = (args[0].i, args[1].i);
                 break;
             default:
                 Log($"seat 0x{proxy.ToString("x")} event opcode={opcode}");
