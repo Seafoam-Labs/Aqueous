@@ -7,7 +7,7 @@
 
 [layout]
 # Global default layout id. One of: tile | monocle | grid | float | scrolling
-default       = "tile"
+default       = "float"
 
 # Gaps (px). Outer = around the screen edge; inner = between tiles.
 gaps_outer    = 8        # default 8
