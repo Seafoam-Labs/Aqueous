@@ -76,6 +76,19 @@ internal sealed unsafe partial class RiverWindowManagerClient
     {
         bool isResize = (proxy == _dragResizePointerBinding) && _dragResizePointerBinding != IntPtr.Zero;
 
+        // SnapZones activator gate: if this event came from one of the
+        // Super+<activator>+BTN_LEFT pointer bindings, remember which
+        // activator armed the drag so TryResolveSnapForDrag can match
+        // the per-layout Activator. Otherwise default to Always (the
+        // plain Super+LMB / Super+RMB bindings — only Always-activated
+        // snap layouts are eligible).
+        Aqueous.Features.SnapZones.SnapActivator pressActivator =
+            Aqueous.Features.SnapZones.SnapActivator.Always;
+        if (_snapActivatorBindings.TryGetValue(proxy, out var act))
+        {
+            pressActivator = act;
+        }
+
         if (opcode == RiverProtocolOpcodes.Binding.Pressed)
         {
             // Find a seat that has a currently-hovered window and start a drag for it.
@@ -110,6 +123,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                 _activeDragWindow = w;
                 _activeDragSeat = seat;
+                _activeDragActivator = pressActivator;
                 _dragStartX = w.X;
                 _dragStartY = w.Y;
                 // Reset lifecycle flags so ManagerEventHandler issues a

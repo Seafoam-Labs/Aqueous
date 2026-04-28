@@ -143,6 +143,26 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // same drag pipeline that pointer_resize_requested uses.
     private IntPtr _dragResizePointerBinding;
     private bool _dragResizePointerBindingNeedsEnable;
+
+    // SnapZones activator pointer bindings (one per distinct activator
+    // modifier configured in [[snapzones]]). River pointer bindings carry
+    // a static modifier mask, so live mod-state during a drag is not
+    // observable: instead, we register an additional Super+<activator>+
+    // BTN_LEFT binding for each activator the user requests, and remember
+    // which one fired the active drag. The SnapZones gate then matches
+    // the drag's activator against the per-layout Activator field.
+    //
+    // Map: pointer-binding proxy → SnapActivator value it was registered
+    // with. Lookups happen in the drag dispatcher (which already routes
+    // by proxy). Empty when no activator-gated layouts are configured.
+    private readonly Dictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> _snapActivatorBindings = new();
+    private readonly Dictionary<IntPtr, bool> _snapActivatorBindingNeedsEnable = new();
+    // Activator that armed the currently-active drag. Always for the
+    // plain Super+LMB binding; Shift/Ctrl/Alt for the snap-activator
+    // bindings; reset to Always on drag-release. Read by
+    // TryResolveSnapForDrag to gate snapping per layout.
+    private Aqueous.Features.SnapZones.SnapActivator _activeDragActivator =
+        Aqueous.Features.SnapZones.SnapActivator.Always;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
     // Latest pointer position per seat in the compositor's logical
     // coordinate space, updated from river_seat_v1::pointer_position. Used
