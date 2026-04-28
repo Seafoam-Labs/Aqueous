@@ -63,16 +63,12 @@ public sealed class TileLayout : ILayoutEngine
         IReadOnlyList<WindowEntryView> windows, int offset,
         List<WindowPlacement> result)
     {
-        int totalGap = gap * (count - 1);
-        int eachH = Math.Max(1, (totalH - totalGap) / count);
-        int leftover = Math.Max(0, totalH - totalGap - eachH * count);
-        int curY = y;
-        for (int i = 0; i < count; i++)
+        var rows = LayoutMath.SplitAxis(totalH, count, gap);
+        for (int i = 0; i < rows.Count; i++)
         {
-            int h = eachH + (i == count - 1 ? leftover : 0);
-            var rect = new Rect(x, curY, w, h);
+            var (dy, h) = rows[i];
+            var rect = new Rect(x, y + dy, w, h);
             result.Add(new WindowPlacement(windows[offset + i].Handle, rect, 0, true, BorderSpec.None));
-            curY += h + gap;
         }
     }
 }

@@ -66,6 +66,15 @@ public sealed class LayoutController
     }
 
     /// <summary>
+    /// <see cref="LayoutId"/>-typed overload of
+    /// <see cref="SetLayoutForOutput(IntPtr, string)"/>. Plugin-friendly
+    /// entry point — see <see cref="LayoutId"/> for the normalization
+    /// rules.
+    /// </summary>
+    public void SetLayoutForOutput(IntPtr output, LayoutId layoutId) =>
+        SetLayoutForOutput(output, layoutId.Value);
+
+    /// <summary>
     /// Switch every currently-tracked output to <paramref name="layoutId"/>.
     /// Outputs that haven't been seen yet will adopt the new id on their
     /// next <see cref="ResolveLayoutId"/> via the controller's default
@@ -105,6 +114,11 @@ public sealed class LayoutController
             SetLayoutForOutput(o, layoutId);
         }
     }
+
+    /// <summary>
+    /// <see cref="LayoutId"/>-typed overload of <see cref="SetLayout(string)"/>.
+    /// </summary>
+    public void SetLayout(LayoutId layoutId) => SetLayout(layoutId.Value);
 
     /// <summary>
     /// Resolve which layout an output should be using, considering (in order):
