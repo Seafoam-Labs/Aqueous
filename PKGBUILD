@@ -9,11 +9,11 @@ url="https://github.com/your-username/aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'river'
-         'noctalia-shell' 'tuigreet' 'libdecor', 'grim', 'aqueous-config')
-optdepends=('ghostty: recommended terminal emulator',
-'nemo: recommended file manager',
-'shelly: recommended package manager',
-'starfish: helpful package helper',
+         'noctalia-shell' 'tuigreet' 'libdecor' 'grim' 'aqueous-config')
+optdepends=('ghostty: recommended terminal emulator'
+'nemo: recommended file manager'
+'shelly: recommended package manager'
+'starfish: helpful package helper'
 'firefox: web browser')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git')
 provides=('aqueous')
