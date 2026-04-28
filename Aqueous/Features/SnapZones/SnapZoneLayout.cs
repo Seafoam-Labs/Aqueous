@@ -4,6 +4,22 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.SnapZones;
 
 /// <summary>
+/// Modifier (in addition to the primary drag modifier — Super/Alt) that
+/// must be held for snapping to engage during a Super+LMB move-drag.
+/// <c>Always</c> means snap unconditionally (no extra key needed); the
+/// other values gate snap on the corresponding modifier being held when
+/// the pointer binding fires. KZones-equivalent of the activator option.
+/// </summary>
+public enum SnapActivator
+{
+    Always,
+    Shift,
+    Ctrl,
+    Alt,
+    Super,
+}
+
+/// <summary>
 /// A named bag of <see cref="SnapZone"/>s. Pure data + two pure
 /// functions (<see cref="Resolve"/> and <see cref="Hit"/>); both are
 /// trivially unit-testable without any Wayland surface.
@@ -23,6 +39,16 @@ public sealed class SnapZoneLayout
 
     /// <summary>The zones, in declaration order.</summary>
     public IReadOnlyList<SnapZone> Zones { get; init; } = System.Array.Empty<SnapZone>();
+
+    /// <summary>
+    /// Activator modifier required (in addition to the primary
+    /// Super/Alt drag modifier) for the snap to engage. Defaults to
+    /// <see cref="SnapActivator.Always"/>, which preserves the v1
+    /// behaviour where any move-drag could snap. Setting e.g.
+    /// <c>"Shift"</c> in <c>wm.toml</c> makes snapping opt-in per
+    /// drag (KZones-style).
+    /// </summary>
+    public SnapActivator Activator { get; init; } = SnapActivator.Always;
 
     /// <summary>
     /// Resolve a single zone's normalized rect against an output's

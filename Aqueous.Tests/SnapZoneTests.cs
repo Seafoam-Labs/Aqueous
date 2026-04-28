@@ -286,4 +286,54 @@ public class SnapZoneTests
         Assert.False(cfg.SnapZones.IsEmpty);
         Assert.Equal("full", cfg.SnapZones.LayoutsFor("*")[0].Zones[0].Name);
     }
+
+    [Fact]
+    public void Loader_DefaultActivator_IsAlways()
+    {
+        const string toml = """
+            [[snapzones]]
+            output = "*"
+
+            [[snapzones.zone]]
+            name = "z"
+            x = 0.0
+            y = 0.0
+            w = 1.0
+            h = 1.0
+            """;
+        var cfg = LayoutConfig.Parse(toml);
+        var l = cfg.SnapZones.LayoutsFor("*")[0];
+        Assert.Equal(SnapActivator.Always, l.Activator);
+    }
+
+    [Theory]
+    [InlineData("Shift", SnapActivator.Shift)]
+    [InlineData("shift", SnapActivator.Shift)]
+    [InlineData("Ctrl", SnapActivator.Ctrl)]
+    [InlineData("control", SnapActivator.Ctrl)]
+    [InlineData("Alt", SnapActivator.Alt)]
+    [InlineData("Super", SnapActivator.Super)]
+    [InlineData("meta", SnapActivator.Super)]
+    [InlineData("logo", SnapActivator.Super)]
+    [InlineData("none", SnapActivator.Always)]
+    [InlineData("always", SnapActivator.Always)]
+    [InlineData("nonsense", SnapActivator.Always)]
+    public void Loader_ParsesActivatorKey(string raw, SnapActivator expected)
+    {
+        string toml = $$"""
+            [[snapzones]]
+            output = "*"
+            activator = "{{raw}}"
+
+            [[snapzones.zone]]
+            name = "z"
+            x = 0.0
+            y = 0.0
+            w = 1.0
+            h = 1.0
+            """;
+        var cfg = LayoutConfig.Parse(toml);
+        var l = cfg.SnapZones.LayoutsFor("*")[0];
+        Assert.Equal(expected, l.Activator);
+    }
 }

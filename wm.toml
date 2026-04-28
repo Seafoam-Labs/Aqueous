@@ -353,8 +353,20 @@ focus_follows_mouse = false
 #
 # Schema:
 #   [[snapzones]]                           # one bucket per (output, layout)
-#   output = "DP-1"                         # river_output_v1.name; "*" = any
-#   layout = "default"                      # optional name (KZones-style)
+#   output    = "DP-1"                      # river_output_v1.name; "*" = any
+#   layout    = "default"                   # optional name (KZones-style)
+#   activator = "Shift"                     # optional modifier gate (KZones-style):
+#                                           #   "always" / "none" / omitted = snap on
+#                                           #     any Super+LMB drag (default)
+#                                           #   "Shift" / "Ctrl" / "Alt" / "Super"
+#                                           #     = snap only when that extra modifier
+#                                           #     is held *at the moment the drag
+#                                           #     starts* (in addition to Super).
+#                                           # Internally Aqueous registers an extra
+#                                           # Super+<activator>+BTN_LEFT pointer
+#                                           # binding for each distinct activator
+#                                           # value declared here, so live mid-drag
+#                                           # mod release does not cancel snapping.
 #
 #   [[snapzones.zone]]                      # repeat for each zone
 #   name = "left-half"

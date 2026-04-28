@@ -121,6 +121,22 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return false;
         }
 
+        // Activator gate (KZones-style opt-in modifier). When the
+        // layout requires a non-Always activator, snap only when the
+        // drag was armed by the matching Super+<activator>+BTN_LEFT
+        // pointer binding. Always-activated layouts continue to snap
+        // for any move-drag (the v1 behaviour). The activator is
+        // baked into the drag at press time — releasing the modifier
+        // mid-drag does NOT cancel the snap, because river pointer
+        // bindings only carry their static modifier mask. This is a
+        // conscious trade-off; see the registration code in
+        // ManagerEventHandler.SeatInformation for the rationale.
+        if (layout.Activator != SnapActivator.Always &&
+            layout.Activator != _activeDragActivator)
+        {
+            return false;
+        }
+
         var hit = layout.Hit(px, py, usable);
         if (hit == null)
         {
@@ -260,4 +276,66 @@ internal sealed unsafe partial class RiverWindowManagerClient
     // current drag. Lives in this partial so the field declaration sits
     // alongside the only code that reads/writes it.
     private string? _dragLastSnapZone;
+
+    /// <summary>
+    /// Enumerates every <see cref="SnapZoneLayout"/> currently in the
+    /// store, grouped by output. Used at seat-info time to discover the
+    /// distinct activator modifiers that need their own pointer
+    /// bindings registered.
+    /// </summary>
+    private System.Collections.Generic.IEnumerable<System.Collections.Generic.IReadOnlyList<SnapZoneLayout>> CollectAllSnapLayouts()
+    {
+        var store = _layoutConfig.SnapZones;
+        if (store.IsEmpty)
+        {
+            yield break;
+        }
+
+        // The store doesn't expose its dictionary; iterate the known
+        // outputs (incl. the wildcard) and dedup.
+        var seen = new System.Collections.Generic.HashSet<SnapZoneLayout>();
+        var names = new System.Collections.Generic.List<string?> { null, SnapZoneStore.Wildcard };
+        foreach (var kv in _outputs)
+        {
+            names.Add(ResolveOutputName(kv.Key));
+        }
+
+        foreach (var n in names)
+        {
+            var list = store.LayoutsFor(n);
+            if (list.Count == 0)
+            {
+                continue;
+            }
+
+            var fresh = new System.Collections.Generic.List<SnapZoneLayout>();
+            foreach (var l in list)
+            {
+                if (seen.Add(l))
+                {
+                    fresh.Add(l);
+                }
+            }
+
+            if (fresh.Count > 0)
+            {
+                yield return fresh;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maps a <see cref="SnapActivator"/> to the river_seat_v1 modifier
+    /// bitmask used when registering pointer bindings. Returns 0 for
+    /// <see cref="SnapActivator.Always"/> (which is handled by the
+    /// plain Super+LMB binding and does not need a separate proxy).
+    /// </summary>
+    private static uint ActivatorToMask(SnapActivator a) => a switch
+    {
+        SnapActivator.Shift => Mods.ModShift,
+        SnapActivator.Ctrl  => Mods.ModCtrl,
+        SnapActivator.Alt   => Mods.ModAlt,
+        SnapActivator.Super => Mods.ModSuper,
+        _ => 0u,
+    };
 }
