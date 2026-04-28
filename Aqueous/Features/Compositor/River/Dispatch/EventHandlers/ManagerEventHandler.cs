@@ -232,44 +232,71 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     return WindowState.Tiled;
                 }
 
-                // Pass 1: tiled (and unknown).
-                foreach (var kvp in _windows)
+                // Bring-to-front on focus: within each layer pass, defer
+                // the focused window so its EmitWindow (which internally
+                // emits river_node_v1::place_top, opcode 2) runs LAST in
+                // its layer. Because each pass's last place_top wins
+                // stacking within that layer, this raises the focused
+                // window above its peers without an extra post-pass
+                // request (the previous post-pass call used opcode 1,
+                // which is set_position(0,0) — that teleported the
+                // focused window to the top-left every frame).
+                WindowState focusedState = _focusedWindow != IntPtr.Zero
+                    ? ClassifyState(_focusedWindow)
+                    : WindowState.Tiled;
+                bool HasFocusedInLayer(WindowState layer) =>
+                    _focusedWindow != IntPtr.Zero
+                    && _windows.ContainsKey(_focusedWindow)
+                    && focusedState == layer;
+
+                void EmitPass(Func<WindowState, bool> match, WindowState layer)
                 {
-                    var s = ClassifyState(kvp.Key);
-                    if (s == WindowState.Tiled)
+                    bool deferFocused = HasFocusedInLayer(layer);
+                    foreach (var kvp in _windows)
                     {
+                        var s = ClassifyState(kvp.Key);
+                        if (!match(s)) continue;
+                        if (deferFocused && kvp.Key == _focusedWindow) continue;
                         EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    if (deferFocused
+                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                    {
+                        EmitWindow(_focusedWindow, fw);
                     }
                 }
 
+                // Pass 1: tiled (and unknown).
+                EmitPass(s => s == WindowState.Tiled, WindowState.Tiled);
+
                 // Pass 2: maximized.
-                foreach (var kvp in _windows)
-                {
-                    if (ClassifyState(kvp.Key) == WindowState.Maximized)
-                    {
-                        EmitWindow(kvp.Key, kvp.Value);
-                    }
-                }
+                EmitPass(s => s == WindowState.Maximized, WindowState.Maximized);
 
                 // Pass 3: floating (and Scratchpad — visible scratchpads
                 // are rendered as floating dropdown windows above tiles).
-                foreach (var kvp in _windows)
+                // Scratchpad-focused windows are deferred under the
+                // Scratchpad layer key; Floating-focused under Floating.
                 {
-                    var s = ClassifyState(kvp.Key);
-                    if (s == WindowState.Floating || s == WindowState.Scratchpad)
+                    bool deferFocused = _focusedWindow != IntPtr.Zero
+                        && _windows.ContainsKey(_focusedWindow)
+                        && (focusedState == WindowState.Floating
+                            || focusedState == WindowState.Scratchpad);
+                    foreach (var kvp in _windows)
                     {
+                        var s = ClassifyState(kvp.Key);
+                        if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
+                        if (deferFocused && kvp.Key == _focusedWindow) continue;
                         EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    if (deferFocused
+                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                    {
+                        EmitWindow(_focusedWindow, fw);
                     }
                 }
 
                 // Pass 4: fullscreen (last so its place_top wins).
-                foreach (var kvp in _windows)
-                {
-                    if (ClassifyState(kvp.Key) == WindowState.Fullscreen)
-                    {
-                        EmitWindow(kvp.Key, kvp.Value);
-                    }
-                }
+                EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
 
                 SendManagerRequest(4); // render_finish opcode = 4
                 break;
@@ -280,9 +307,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        // (0,0) shadowing each other's input region.
-                        int cascadeIndex = _windows.Count;
-                        var entry = new WindowEntry { Proxy = proxy, X = cascadeIndex * 40, Y = cascadeIndex * 40 };
+                        // Floating layer: do NOT seed a cascade (X,Y) here.
+                        // Leaving HasFloatRect == false lets the floating
+                        // branch in LayoutProposer.ProposeForArea (lines
+                        // ~376-383) compute a centred initial rect against
+                        // the *real* usableArea of the output the window
+                        // ultimately binds to. The previous cascade put
+                        // every new window at the top-left of the global
+                        // compositor space. A user-provided initial rect
+                        // (drag, dimensions_hint, or controller's
+                        // FloatingGeom seed) sets HasFloatRect = true and
+                        // is then preserved across manage cycles.
+                        var entry = new WindowEntry { Proxy = proxy };
                         entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
                             proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
