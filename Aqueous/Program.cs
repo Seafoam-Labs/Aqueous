@@ -1,44 +1,66 @@
 ﻿using System;
+using System.Runtime.InteropServices;
 using System.Threading;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Microsoft.Extensions.Logging;
 
 namespace Aqueous;
 
 class Program
 {
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
-        Console.WriteLine("[Aqueous] Starting standalone River Window Manager client...");
-        Console.Error.WriteLine(
-            $"[Aqueous] primary modifier = {Mods.PrimaryName} " +
-            $"(mask=0x{Mods.PrimaryMask:x}, keysym=0x{Mods.PrimaryKeysym:x}, " +
-            $"AQUEOUS_MOD={Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>"})");
+        // Configure logging from AQUEOUS_LOG=trace|debug|info|warn|error.
+        Logging.ConfigureFromEnvironment();
+        var log = Logging.For<Program>();
 
-        // B1a: become a river_window_manager_v1 client
-        var wm = RiverWindowManagerClient.TryStart();
-        if (wm == null)
+        log.LogInformation("Starting standalone River Window Manager client...");
+        log.LogInformation(
+            "primary modifier = {Name} (mask=0x{Mask:x}, keysym=0x{Sym:x}, AQUEOUS_MOD={Env})",
+            Mods.PrimaryName, Mods.PrimaryMask, Mods.PrimaryKeysym,
+            Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>");
+
+        // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
+        using var lifetimeCts = new CancellationTokenSource();
+
+        Console.CancelKeyPress += (_, e) =>
         {
-            Console.Error.WriteLine("[Aqueous] Failed to connect to River as window manager. Are you running inside River with AQUEOUS_RIVER_WM=1?");
-            Environment.Exit(1);
-        }
-
-        Console.WriteLine("[Aqueous] Connected. Entering event loop.");
-
-        // Keep the application running indefinitely while the Wayland connection remains active.
-        // In a real scenario, you'd poll the Wayland display file descriptor using epoll or select,
-        // or rely on a main loop wrapper. RiverWindowManagerClient has its own thread/loop in TryStart?
-        // Let's check how it handles events. If it dispatches on its own thread, we just need to block.
-
-        // We use an infinite loop or wait handle to keep the main thread alive.
-        var resetEvent = new ManualResetEventSlim(false);
-        Console.CancelKeyPress += (sender, e) =>
-        {
-            Console.WriteLine("[Aqueous] Shutting down...");
+            log.LogInformation("SIGINT received; shutting down...");
             e.Cancel = true;
-            resetEvent.Set();
+            lifetimeCts.Cancel();
         };
 
-        resetEvent.Wait();
-        wm.Dispose();
+        using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>
+        {
+            log.LogInformation("SIGTERM received; shutting down...");
+            ctx.Cancel = true;
+            lifetimeCts.Cancel();
+        });
+
+        // B1a: become a river_window_manager_v1 client.
+        var startResult = RiverWindowManagerClient.TryStart(lifetimeCts.Token);
+        if (!startResult.IsOk)
+        {
+            log.LogError(
+                "Failed to connect to River as window manager: {Error}. Are you running inside River with AQUEOUS_RIVER_WM=1?",
+                startResult.Error);
+            return 1;
+        }
+
+        var wm = startResult.Value!;
+        log.LogInformation("Connected. Entering event loop.");
+
+        // Block the main thread; the pump runs on its own background
+        // thread and observes lifetimeCts.Token directly.
+        try
+        {
+            lifetimeCts.Token.WaitHandle.WaitOne();
+        }
+        finally
+        {
+            wm.Dispose();
+        }
+        return 0;
     }
 }

@@ -5,11 +5,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 using Aqueous.Features.Tags;
+using Microsoft.Extensions.Logging;
 
 namespace Aqueous.Features.Compositor.River;
 
@@ -52,11 +54,54 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // --- logging -------------------------------------------------------
 
     /// <summary>
-    /// All protocol activity funnels through this action. By default logs
-    /// to stderr; host code may replace it with a GLib-aware sink.
+    /// Process-wide <see cref="ILogger"/> for the River feature, lazily
+    /// resolved against <see cref="Logging.Factory"/> on first access.
     /// </summary>
-    public static Action<string> Log { get; set; } =
-        msg => Console.Error.WriteLine("[river-wm] " + msg);
+    private static readonly ILogger Logger = Logging.For<RiverWindowManagerClient>();
+
+    /// <summary>
+    /// All protocol activity funnels through this delegate; the default
+    /// implementation routes to <see cref="Logger"/> using a small content
+    /// heuristic (messages starting with <c>ERROR</c>/<c>failed</c>/etc map
+    /// to <see cref="LogLevel.Error"/>, <c>warn</c>/<c>unavailable</c>
+    /// to <see cref="LogLevel.Warning"/>, everything else to
+    /// <see cref="LogLevel.Debug"/>). Host code (or tests) may replace it
+    /// with a custom sink — call sites stay <c>Log(string)</c> so no
+    /// per-site churn is required.
+    /// </summary>
+    public static Action<string> Log { get; set; } = DefaultLog;
+
+    private static void DefaultLog(string msg)
+    {
+        var level = ClassifyLogLevel(msg);
+#pragma warning disable CA1848, CA2254 // call sites pre-date the structured-logging migration
+        Logger.Log(level, "{Message}", msg);
+#pragma warning restore CA1848, CA2254
+    }
+
+    private static LogLevel ClassifyLogLevel(string msg)
+    {
+        if (string.IsNullOrEmpty(msg)) return LogLevel.Debug;
+        // Quick prefix-based classification; the previous code emitted
+        // distinguishing tokens like "ERROR", "failed", "unavailable",
+        // "warn" inline — exploit them rather than re-tagging 88 sites.
+        if (msg.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("could not", StringComparison.OrdinalIgnoreCase))
+            return LogLevel.Error;
+        if (msg.Contains("warn", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("giving up", StringComparison.OrdinalIgnoreCase))
+            return LogLevel.Warning;
+        if (msg.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("disconnect", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("manage_start", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("session_locked", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("session_unlocked", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("finished", StringComparison.OrdinalIgnoreCase))
+            return LogLevel.Information;
+        return LogLevel.Debug;
+    }
 
     // --- state tracked from events ------------------------------------
     // WindowEntry / OutputEntry / SeatEntry live in Model/*.cs.
@@ -175,46 +220,54 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // --- lifecycle -----------------------------------------------------
 
     /// <summary>
-    /// Starts the client if <c>AQUEOUS_RIVER_WM=1</c> and the WM global is
-    /// advertised to us. Returns <c>null</c> silently in every other case
+    /// Starts the client if <c>AQUEOUS_RIVER_WM=1</c> and the WM global
+    /// is advertised to us. Returns a <see cref="Result{T}"/> carrying
+    /// either the live client or a human-readable failure description.
+    /// The optional <paramref name="cancellationToken"/> is plumbed
+    /// through to the event-pump so a process-wide SIGINT/SIGTERM can
+    /// shut the client down cleanly.
     /// </summary>
-    public static RiverWindowManagerClient? TryStart()
+    public static Result<RiverWindowManagerClient> TryStart(CancellationToken cancellationToken = default)
     {
         if (Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM") != "1")
         {
-            return null;
+            return Result<RiverWindowManagerClient>.Fail(
+                "AQUEOUS_RIVER_WM is not set to 1; refusing to attach as a window manager");
         }
 
         try
         {
             var c = new RiverWindowManagerClient();
-            if (!c.Connect())
+            var connected = c.Connect();
+            if (!connected.IsOk)
             {
                 c.Dispose();
-                return null;
+                return Result<RiverWindowManagerClient>.Fail(connected.Error!);
             }
 
-            c.StartPump();
+            c.StartPump(cancellationToken);
             Log($"attached as window manager (v{c._managerVersion})");
-            return c;
+            return Result<RiverWindowManagerClient>.Ok(c);
         }
-        catch (DllNotFoundException)
+        catch (DllNotFoundException e)
         {
-            return null;
+            return Result<RiverWindowManagerClient>.Fail(
+                "libwayland-client could not be loaded: " + e.Message);
         }
         catch (Exception e)
         {
             Log("TryStart failed: " + e.Message);
-            return null;
+            return Result<RiverWindowManagerClient>.Fail("TryStart threw: " + e.Message);
         }
     }
 
-    private bool Connect()
+    private Result Connect()
     {
-        if (!_connection.Connect())
+        var connectResult = _connection.Connect();
+        if (!connectResult.IsOk)
         {
-            Log("wl_display_connect returned null");
-            return false;
+            Log("wl_display_connect failed: " + connectResult.Error);
+            return connectResult;
         }
 
         WlInterfaces.EnsureBuilt();
@@ -225,7 +278,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
         {
             Log("get_registry failed");
-            return false;
+            return Result.Fail("wl_display_get_registry returned null");
         }
 
         _registry.Discovered += OnGlobalDiscovered;
@@ -236,10 +289,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         _connection.Roundtrip();
         _connection.Roundtrip();
 
-        return _manager != IntPtr.Zero;
+        if (_manager == IntPtr.Zero)
+        {
+            return Result.Fail(
+                "river_window_manager_v1 global was not advertised — is River 0.4+ running with WM support?");
+        }
+        return Result.Ok;
     }
 
-    private void StartPump() => _pump.Start();
+    private void StartPump(CancellationToken cancellationToken = default) =>
+        _pump.Start(cancellationToken);
 
     public void Dispose()
     {

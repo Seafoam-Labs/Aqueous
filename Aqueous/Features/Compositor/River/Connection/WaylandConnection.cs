@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 
 namespace Aqueous.Features.Compositor.River.Connection;
 
@@ -30,20 +31,28 @@ internal sealed class WaylandConnection : IDisposable
 
     /// <summary>
     /// Opens a connection to the default Wayland display
-    /// (<c>WAYLAND_DISPLAY</c> environment variable). Returns
-    /// <see langword="true"/> on success; on failure the connection
-    /// remains closed and <see cref="Display"/> stays
-    /// <see cref="IntPtr.Zero"/>.
+    /// (<c>WAYLAND_DISPLAY</c> environment variable). On failure the
+    /// connection remains closed and <see cref="Display"/> stays
+    /// <see cref="IntPtr.Zero"/>; the returned <see cref="Result"/>'s
+    /// <c>Error</c> describes the failure for callers to surface.
     /// </summary>
-    public bool Connect()
+    public Result Connect()
     {
         if (Display != IntPtr.Zero)
         {
-            return true;
+            return Result.Ok;
         }
 
         Display = WaylandInterop.wl_display_connect(IntPtr.Zero);
-        return Display != IntPtr.Zero;
+        if (Display == IntPtr.Zero)
+        {
+            var wd = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+            return Result.Fail(
+                string.IsNullOrEmpty(wd)
+                    ? "wl_display_connect returned null (WAYLAND_DISPLAY not set)"
+                    : $"wl_display_connect returned null (WAYLAND_DISPLAY={wd})");
+        }
+        return Result.Ok;
     }
 
     /// <summary>
