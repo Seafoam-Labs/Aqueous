@@ -332,3 +332,97 @@ focus_follows_mouse = false
 [input.trackpoint]
 # accel_profile = "flat"
 # accel_speed   = 0.0
+
+
+# -----------------------------------------------------------------------------
+# SnapZones (KWin KZones / Windows FancyZones equivalent).
+#
+# A user-defined grid of rectangles per output that floating windows snap
+# into when a Super+BTN_LEFT drag is released. Zones are declared in
+# normalized output coordinates ([0.0, 1.0] on each axis), so the same
+# config survives resolution changes and HiDPI scaling.
+#
+# Activation:
+#   * Drag a floating window with Super+BTN_LEFT (the existing move drag).
+#   * On release, if the pointer is inside a zone for the window's output,
+#     the window snaps to that zone's resolved rectangle.
+#   * Resize-drags (Super+BTN_RIGHT) are never snapped.
+#   * The float-layout gate still applies: snapping only happens on
+#     outputs running the `float` layout (or with a per-window Floating
+#     override). Non-floating windows are not snapped.
+#
+# Schema:
+#   [[snapzones]]                           # one bucket per (output, layout)
+#   output    = "DP-1"                      # river_output_v1.name; "*" = any
+#   layout    = "default"                   # optional name (KZones-style)
+#   activator = "Shift"                     # optional modifier gate (KZones-style):
+#                                           #   "always" / "none" / omitted = snap on
+#                                           #     any Super+LMB drag (default)
+#                                           #   "Shift" / "Ctrl" / "Alt" / "Super"
+#                                           #     = snap only when that extra modifier
+#                                           #     is held *at the moment the drag
+#                                           #     starts* (in addition to Super).
+#                                           # Internally Aqueous registers an extra
+#                                           # Super+<activator>+BTN_LEFT pointer
+#                                           # binding for each distinct activator
+#                                           # value declared here, so live mid-drag
+#                                           # mod release does not cancel snapping.
+#
+#   [[snapzones.zone]]                      # repeat for each zone
+#   name = "left-half"
+#   x = 0.0    # ∈ [0.0, 1.0]; out-of-range values are clamped
+#   y = 0.0
+#   w = 0.5
+#   h = 1.0
+#
+# An output-specific bucket wins over the wildcard "*" — they are not
+# concatenated. Zone overlap is permitted; the first match in declaration
+# order wins. Zones smaller than a window's min_size are refused
+# (the window stays where it was dropped).
+#
+# Examples — uncomment to try:
+
+# [[snapzones]]
+# output = "*"
+# layout = "halves"
+#
+# [[snapzones.zone]]
+# name = "left-half"
+# x = 0.0
+# y = 0.0
+# w = 0.5
+# h = 1.0
+#
+# [[snapzones.zone]]
+# name = "right-half"
+# x = 0.5
+# y = 0.0
+# w = 0.5
+# h = 1.0
+
+
+# Thirds layout — three vertical columns:
+# [[snapzones]]
+# output = "DP-1"
+# layout = "thirds"
+#
+# [[snapzones.zone]]
+# name = "left"
+# x = 0.0
+# y = 0.0
+# w = 0.3333
+# h = 1.0
+#
+# [[snapzones.zone]]
+# name = "center"
+# x = 0.3333
+# y = 0.0
+# w = 0.3334
+# h = 1.0
+#
+# [[snapzones.zone]]
+# name = "right"
+# x = 0.6667
+# y = 0.0
+# w = 0.3333
+# h = 1.0
