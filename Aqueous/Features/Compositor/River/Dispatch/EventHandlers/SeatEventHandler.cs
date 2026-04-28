@@ -232,6 +232,19 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 break;
             case RiverProtocolOpcodes.Seat.OpRelease:
                 Log($"seat 0x{proxy.ToString("x")} pointer operation released");
+                // SnapZones: only for interactive moves (resize ignored).
+                // If the pointer landed inside a configured zone for the
+                // window's output, override the just-computed FloatX/Y/W/H
+                // with the resolved zone rect so ManagerEventHandler
+                // emits propose_dimensions with the snapped geometry on
+                // the next manage cycle. The protocol op_finish_pointer
+                // is still issued by the existing finalisation path —
+                // SnapZones piggy-backs on that, no new wire traffic.
+                if (_activeDragWindow != null && _dragEdges == 0)
+                {
+                    TrySnapDraggedWindowToZone(proxy);
+                }
+
                 _dragFinished = true;
                 break;
             case RiverProtocolOpcodes.Seat.PointerPosition:

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Aqueous.Features.Input;
+using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
 
 [assembly: InternalsVisibleTo("Aqueous.Tests")]
@@ -49,6 +50,15 @@ public sealed class LayoutConfig
 
     /// <summary>Phase B1e — <c>[state]</c> + <c>[scratchpad]</c> sections.</summary>
     public StateConfig State { get; init; } = StateConfig.Default;
+
+    /// <summary>
+    /// SnapZones store parsed from <c>[[snapzones]]</c> /
+    /// <c>[[snapzones.zone]]</c> arrays-of-tables. KZones-style: a
+    /// floating window dropped over a zone snaps to that zone's
+    /// resolved rectangle. Defaults to an empty store, which the
+    /// drag pipeline treats as "snap-zones disabled".
+    /// </summary>
+    public SnapZoneStore SnapZones { get; init; } = SnapZoneStore.Empty;
 
     /// <summary>Compiled-in fallback config (used when no file is present).</summary>
     public static LayoutConfig Default { get; } = new();
