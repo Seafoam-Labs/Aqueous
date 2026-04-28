@@ -260,3 +260,75 @@ anchor      = "center"
 [scratchpad.spawn]
 # term  = "ghostty --class=aqueous-scratch-term"
 # notes = "obsidian"
+
+
+# -----------------------------------------------------------------------------
+# Input / focus policy.
+# -----------------------------------------------------------------------------
+[input]
+# Sloppy focus: when true (default), moving the pointer over a window
+# transfers keyboard focus to it. When false, focus only changes via
+# click, keybind, or directional focus (Super+H/J/K/L).
+focus_follows_mouse = false
+
+# -----------------------------------------------------------------------------
+# Pointer drag bindings (hardcoded; documented here for reference).
+#
+# River draws no decorations and does not implement server-side decorations,
+# so undecorated clients (alacritty, foot, …) and CSD apps without libdecor
+# cannot initiate resize/move on their own. Aqueous therefore binds the
+# primary modifier (Super, see Mods.PrimaryMask) + mouse button as a
+# WM-driven drag, i3/sway-style:
+#
+#   Super + BTN_LEFT  drag → move the floating window under the pointer
+#   Super + BTN_RIGHT drag → resize the floating window; the edge is
+#                            derived from the pointer's quadrant inside
+#                            the window rect (top=1/bottom=2/left=4/right=8;
+#                            center third falls back to the SE corner).
+#
+# Both gestures are gated on the dragged window's output running the
+# `float` layout — in tile/scrolling/monocle/grid the gesture is ignored
+# cleanly. Switch the output to float (or set [layout].default = "float")
+# to enable. Requires `river_window_manager_v1` >= 4.
+# -----------------------------------------------------------------------------
+
+# Legacy flat keys (still honoured). Prefer [input.mouse] below for
+# fine-grained control; these map onto Mouse.accel-profile / accel-speed
+# when the per-device sub-table is omitted.
+# pointer_acceleration        = true   # true=adaptive, false=flat
+# pointer_acceleration_factor = 0.0    # libinput speed in [-1.0, 1.0]
+
+
+# -----------------------------------------------------------------------------
+# Per-device libinput configuration (niri-compatible schema).
+#
+# River 0.4 owns libinput but exposes no API for a WM client to configure
+# it, so Aqueous forwards these to `aqueous-inputd` over a Unix socket
+# at $XDG_RUNTIME_DIR/aqueous-inputd.sock. The daemon owns its own
+# libinput context and applies values on device-add and on every config
+# reload (live, no relog).
+#
+# Start the daemon once:
+#   systemctl --user enable --now aqueous-inputd
+# (or run /usr/bin/aqueous-inputd directly). The user must be in the
+# `input` group, or replace the daemon's open_restricted with logind.
+# -----------------------------------------------------------------------------
+[input.mouse]
+# accel_profile = "flat"   # "adaptive" | "flat"
+# accel_speed   = 0.0          # [-1.0, 1.0]; 0.0 = libinput neutral
+# natural_scroll = false
+# left_handed   = false
+# middle_emulation = false
+
+[input.touchpad]
+# accel_profile  = "flat"
+# accel_speed    = 0.0
+# tap            = true
+# dwt            = true
+# natural_scroll = true
+# click_method   = "clickfinger"   # "clickfinger" | "button-areas"
+# scroll_method  = "two-finger"    # "two-finger" | "edge" | "no-scroll"
+
+[input.trackpoint]
+# accel_profile = "flat"
+# accel_speed   = 0.0

@@ -65,14 +65,26 @@ public static class LayoutConfigLoader
         var kbCustom = new Dictionary<string, string>(StringComparer.Ordinal);
         var knownActions = new HashSet<string>(KeybindConfig.KnownActions, StringComparer.Ordinal);
 
-        // Phase B1e — [state] + [scratchpad] + [scratchpad.spawn].
-        bool stFsHidesBar = StateConfig.Default.FullscreenHidesBar;
-        bool stMaxFullOutput = StateConfig.Default.MaximizeFullOutput;
-        string spOnEmpty = ScratchpadConfig.Default.OnEmpty;
-        double spWidthFrac = ScratchpadConfig.Default.WidthFrac;
-        double spHeightFrac = ScratchpadConfig.Default.HeightFrac;
-        string spAnchor = ScratchpadConfig.Default.Anchor;
+        // Scratchpad
+        var stFsHidesBar = StateConfig.Default.FullscreenHidesBar;
+        var stMaxFullOutput = StateConfig.Default.MaximizeFullOutput;
+        var spOnEmpty = ScratchpadConfig.Default.OnEmpty;
+        var spWidthFrac = ScratchpadConfig.Default.WidthFrac;
+        var spHeightFrac = ScratchpadConfig.Default.HeightFrac;
+        var spAnchor = ScratchpadConfig.Default.Anchor;
         var spSpawn = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        //Input Config
+        var inFocusFollowsMouse = InputConfig.Default.FocusFollowsMouse;
+        var pointerAcceleration = InputConfig.Default.PointerAcceleration;
+        var pointerAccelerationFactor = InputConfig.Default.PointerAccelerationFactor;
+        // Per-device libinput knobs ([input.mouse|touchpad|trackpoint]).
+        // Mutable PerDeviceInput-shaped buffers populated by the section
+        // switch below; flushed into immutable PerDeviceInput records at
+        // the end of Parse.
+        var devMouse = new PerDeviceBuf();
+        var devTouch = new PerDeviceBuf();
+        var devTrack = new PerDeviceBuf();
 
         string? curSection = null;
         // Used by [[output]] tables.
@@ -106,6 +118,7 @@ public static class LayoutConfigLoader
                 curSection = end > 2 ? "[[" + line.Substring(2, end - 2).Trim() + "]]" : line;
                 continue;
             }
+
             if (line.StartsWith("["))
             {
                 FlushOutput();
@@ -146,6 +159,7 @@ public static class LayoutConfigLoader
                         case "border_normal": borderNormal = ParseColor(val, borderNormal); break;
                         case "border_urgent": borderUrgent = ParseColor(val, borderUrgent); break;
                     }
+
                     break;
                 case "layout.slots":
                     switch (key)
@@ -155,6 +169,7 @@ public static class LayoutConfigLoader
                         case "tertiary": tertiary = val; break;
                         case "quaternary": quaternary = val; break;
                     }
+
                     break;
                 case "[[output]]":
                     if (key == "name")
@@ -172,21 +187,23 @@ public static class LayoutConfigLoader
                     {
                         kbBuiltins[key] = ParseChordList(valRaw);
                     }
+
                     // Unknown action names are ignored (forward-compat).
                     break;
                 case "keybinds.custom":
-                    {
-                        // key is the chord (it may have been wrapped in quotes).
-                        var chord = StripQuotes(key);
-                        kbCustom[chord] = val;
-                        break;
-                    }
+                {
+                    // key is the chord (it may have been wrapped in quotes).
+                    var chord = StripQuotes(key);
+                    kbCustom[chord] = val;
+                    break;
+                }
                 case "state":
                     switch (key)
                     {
                         case "fullscreen_hides_bar": stFsHidesBar = ParseBool(val, stFsHidesBar); break;
                         case "maximize_full_output": stMaxFullOutput = ParseBool(val, stMaxFullOutput); break;
                     }
+
                     break;
                 case "scratchpad":
                     switch (key)
@@ -196,10 +213,29 @@ public static class LayoutConfigLoader
                         case "height_frac": spHeightFrac = ParseDouble(val, spHeightFrac); break;
                         case "anchor": spAnchor = val; break;
                     }
+
                     break;
                 case "scratchpad.spawn":
                     spSpawn[StripQuotes(key)] = val;
                     break;
+                case "input":
+                    switch (key)
+                    {
+                        case "focus_follows_mouse":
+                            inFocusFollowsMouse = ParseBool(val, inFocusFollowsMouse);
+                            break;
+                        case "pointer_acceleration":
+                            pointerAcceleration = ParseBool(val, pointerAcceleration);
+                            break;
+                        case "pointer_acceleration_factor":
+                            pointerAccelerationFactor = ParseDouble(val, pointerAccelerationFactor);
+                            break;
+                    }
+
+                    break;
+                case "input.mouse":      ParseDeviceKey(devMouse, key, val); break;
+                case "input.touchpad":   ParseDeviceKey(devTouch, key, val); break;
+                case "input.trackpoint": ParseDeviceKey(devTrack, key, val); break;
                 default:
                     if (curSection != null && curSection.StartsWith("layout.options.", StringComparison.Ordinal))
                     {
@@ -211,9 +247,11 @@ public static class LayoutConfigLoader
 
                         bag[key] = val;
                     }
+
                     break;
             }
         }
+
         FlushOutput();
 
         var defaults = new LayoutOptions(
@@ -239,6 +277,7 @@ public static class LayoutConfigLoader
                     default: extra[kv2.Key] = kv2.Value; break;
                 }
             }
+
             perLayoutOpts[kv.Key] = new LayoutOptions(pGo, pGi, pMr, pMc, extra);
         }
 
@@ -276,7 +315,91 @@ public static class LayoutConfigLoader
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Keybinds = keybinds,
             State = stateConfig,
+            Input = new InputConfig()
+            {
+                FocusFollowsMouse = inFocusFollowsMouse,
+                PointerAcceleration = pointerAcceleration,
+                PointerAccelerationFactor = pointerAccelerationFactor,
+                Mouse      = devMouse.ToRecord(),
+                Touchpad   = devTouch.ToRecord(),
+                Trackpoint = devTrack.ToRecord(),
+            }
         };
+    }
+
+    /// <summary>
+    /// Mutable scratch buffer that mirrors <see cref="PerDeviceInput"/>'s
+    /// nullable fields. Used while parsing <c>[input.mouse|touchpad|trackpoint]</c>
+    /// sub-tables, then frozen via <see cref="ToRecord"/>.
+    /// </summary>
+    private sealed class PerDeviceBuf
+    {
+        public string? AccelProfile;
+        public double? AccelSpeed;
+        public bool? NaturalScroll;
+        public bool? Tap;
+        public bool? Dwt;
+        public bool? LeftHanded;
+        public string? ClickMethod;
+        public string? ScrollMethod;
+        public bool? MiddleEmulation;
+
+        public PerDeviceInput ToRecord() => new()
+        {
+            AccelProfile    = AccelProfile,
+            AccelSpeed      = AccelSpeed,
+            NaturalScroll   = NaturalScroll,
+            Tap             = Tap,
+            Dwt             = Dwt,
+            LeftHanded      = LeftHanded,
+            ClickMethod     = ClickMethod,
+            ScrollMethod    = ScrollMethod,
+            MiddleEmulation = MiddleEmulation,
+        };
+    }
+
+    /// <summary>
+    /// Maps one <c>key = value</c> from an <c>[input.&lt;device&gt;]</c>
+    /// sub-table onto <paramref name="d"/>. Key names mirror niri's KDL
+    /// schema (with <c>-</c> normalised to <c>_</c>) so configs port
+    /// trivially.
+    /// </summary>
+    private static void ParseDeviceKey(PerDeviceBuf d, string key, string val)
+    {
+        // Accept both "accel-speed" and "accel_speed" — niri uses dashes,
+        // most TOML tooling prefers underscores.
+        var k = key.Replace('-', '_');
+        var v = StripQuotes(val);
+        switch (k)
+        {
+            case "accel_profile":
+                d.AccelProfile = v;
+                break;
+            case "accel_speed":
+                d.AccelSpeed = ParseDouble(val, 0.0);
+                break;
+            case "natural_scroll":
+                d.NaturalScroll = ParseBool(val, false);
+                break;
+            case "tap":
+                d.Tap = ParseBool(val, false);
+                break;
+            case "dwt":
+                d.Dwt = ParseBool(val, false);
+                break;
+            case "left_handed":
+                d.LeftHanded = ParseBool(val, false);
+                break;
+            case "click_method":
+                d.ClickMethod = v;
+                break;
+            case "scroll_method":
+                d.ScrollMethod = v;
+                break;
+            case "middle_emulation":
+                d.MiddleEmulation = ParseBool(val, false);
+                break;
+        }
     }
 
     /// <summary>
@@ -302,6 +425,7 @@ public static class LayoutConfigLoader
             {
                 return list; // = []
             }
+
             // split on commas not inside quotes
             int start = 0;
             bool inStr = false;
@@ -323,8 +447,10 @@ public static class LayoutConfigLoader
                     start = i + 1;
                 }
             }
+
             return list;
         }
+
         var single = StripQuotes(s);
         if (single.Length > 0)
         {
@@ -358,6 +484,7 @@ public static class LayoutConfigLoader
                 return i;
             }
         }
+
         return -1;
     }
 
@@ -385,6 +512,7 @@ public static class LayoutConfigLoader
                 return hex.Length == 6 ? 0xFF000000u | v : v;
             }
         }
+
         return uint.TryParse(s, out var p) ? p : fallback;
     }
 }

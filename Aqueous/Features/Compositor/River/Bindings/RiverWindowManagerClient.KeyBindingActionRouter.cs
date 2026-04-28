@@ -197,6 +197,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
             var fresh = LayoutConfig.Load(GetDefaultConfigPath());
             _layoutConfig = fresh;
             _layoutController.ReplaceConfig(fresh);
+            // Re-apply libinput config to the sidecar so [input.*] edits
+            // take effect live (niri-style hot reload). No-op if daemon
+            // isn't running.
+            InputDaemonClient.Apply(fresh.Input);
             Log("config reloaded");
             // Note: chord rebinding hot-swap is not done here —
             // existing xkb bindings remain (River v3 has no

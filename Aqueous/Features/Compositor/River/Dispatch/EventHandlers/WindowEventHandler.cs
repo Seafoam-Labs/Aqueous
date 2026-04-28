@@ -14,7 +14,7 @@ using Aqueous.Features.Tags;
 namespace Aqueous.Features.Compositor.River;
 
 // river_window_v1 event handler — extracted into its own partial-class file during the
-// Phase 2 readability refactor (Step 4: split per-interface event handlers).
+// Phase 2 readability refactor.
 internal sealed unsafe partial class RiverWindowManagerClient
 {
     private void OnWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
@@ -28,7 +28,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             case RiverProtocolOpcodes.Window.Closed:
                 Log($"window 0x{proxy.ToString("x")} closed");
-                // Phase B1e Pass B: tear down per-window state so the
+                // tear down per-window state so the
                 // controller's invariants (single-FS slot, MRU stack,
                 // scratchpad ownership) drop their references to the
                 // dead proxy before _windows loses the entry.
@@ -52,6 +52,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     _activeDragSeat = IntPtr.Zero;
                     _dragStarted = false;
                     _dragFinished = false;
+                    _dragEdges = 0;
+                    // The window is gone, so we cannot — and must not — send
+                    // inform_resize_end on a destroyed proxy. Just clear the
+                    // flag; no balancing request is required because the
+                    // server tears the resize down implicitly with the
+                    // closed event.
+                    _dragResizeInformed = false;
                 }
 
                 if (_pendingFocusWindow == proxy)
@@ -108,11 +115,82 @@ internal sealed unsafe partial class RiverWindowManagerClient
             case RiverProtocolOpcodes.Window.PointerMoveRequested:
                 IntPtr seatProxy = args[0].o;
                 Log($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
+                // Per the intended UX, interactive move is only honoured while the
+                // float layout is active. In tile/scrolling/monocle/grid the per-
+                // window Floating override is suppressed by the bucketing pass
+                // (see LayoutProposer ~lines 200-220), so any FloatX/Y written
+                // during the drag would be silently overwritten on the next
+                // manage cycle. Ignoring the request here keeps the WM out of a
+                // half-armed drag state instead of pretending to move the window.
+                // Fix #5: gate on the dragged window's output, not the focused
+                // window's, so a resize/move gesture that landed before the
+                // CSD-driven focus update isn't silently dropped because focus
+                // happens to live on another output running a tiling layout.
+                if (!IsFloatLayoutActive(w.Output))
+                {
+                    break;
+                }
+
                 _activeDragWindow = w;
                 _activeDragSeat = seatProxy;
                 _dragStartX = w.X;
                 _dragStartY = w.Y;
+                _dragEdges = 0;
+                // Reset the drag lifecycle flags so ManagerEventHandler will
+                // actually issue op_start_pointer on the next manage cycle.
+                // If a previous drag's release path didn't clear _dragStarted
+                // (e.g. a focus-change race), the new gesture would otherwise
+                // never produce an op_delta stream.
+                _dragStarted = false;
+                _dragFinished = false;
                 break;
+            case RiverProtocolOpcodes.Window.PointerResizeRequested:
+            {
+                IntPtr resizeSeatProxy = args[0].o;
+                uint edges = args[1].u;
+                Log($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
+                // Intended UX: interactive resize is only allowed while the
+                // float layout is active. Outside float, the per-window
+                // Floating override is suppressed by LayoutProposer bucketing
+                // and any FloatW/FloatH written during op_delta would be
+                // overwritten by the tiling engine on the next manage cycle.
+                // The protocol explicitly permits the WM to ignore this
+                // event entirely, so simply do nothing.
+                if (edges == 0 || !IsFloatLayoutActive(w.Output))
+                {
+                    break;
+                }
+
+                // Fix #2: capture starting geometry with a richer fallback
+                // chain. For a freshly-mapped floating window where the user
+                // grabs a corner *before* `dimensions` has fired, w.W/LastHintW/
+                // ProposedW can all still be 0; falling through to FloatW (set
+                // by LayoutProposer's float seed) and finally to the same
+                // 800x600 seed it uses keeps the first OpDelta from clamping
+                // newW = 0 + dx down to MinW and snapping the window to 1px.
+                _activeDragWindow = w;
+                _activeDragSeat = resizeSeatProxy;
+                _dragStartX = w.X;
+                _dragStartY = w.Y;
+                _dragStartW = w.W > 0 ? w.W
+                            : w.FloatW > 0 ? w.FloatW
+                            : w.LastHintW > 0 ? w.LastHintW
+                            : w.ProposedW > 0 ? w.ProposedW
+                            : 800;
+                _dragStartH = w.H > 0 ? w.H
+                            : w.FloatH > 0 ? w.FloatH
+                            : w.LastHintH > 0 ? w.LastHintH
+                            : w.ProposedH > 0 ? w.ProposedH
+                            : 600;
+                _dragEdges = edges;
+                // Same _dragStarted/_dragFinished reset as the move arm: a
+                // sticky flag from a prior gesture would otherwise prevent
+                // ManagerEventHandler from emitting op_start_pointer for the
+                // new resize, leaving the delta stream dead-on-arrival.
+                _dragStarted = false;
+                _dragFinished = false;
+                break;
+            }
             case RiverProtocolOpcodes.Window.MaximizeRequested:
                 if (!_windowStates.TryGetValue(proxy, out var sMax)
                     || sMax.State != WindowState.Maximized)
