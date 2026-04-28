@@ -62,3 +62,23 @@ during the early prototype.
   the file-size split passes did not touch a single behavior site, and
   that's the standard.
 
+## Layouts and plugins
+- Layout ids are `LayoutId` (a `readonly record struct` over a normalized
+  lower-case string), not raw `string`, on every API seam.
+  `string`-typed overloads survive on `LayoutRegistry`, `LayoutController`,
+  and `LayoutConfig.OptionsFor` for callers that hold a raw protocol id;
+  call `LayoutId.From(...)` once at TOML / keybind / CLI entry points.
+- `LayoutRegistry` is case-insensitive (`StringComparer.OrdinalIgnoreCase`)
+  and last-wins on duplicate `Register(...)` calls; this supports plugin
+  hot-reload during development.
+- Plugin authors implement `ILayoutFactory` and call
+  `registry.Register(...)` before the first `Arrange` on their layout.
+  Unknown ids in `wm.toml` survive parsing — the loader is permissive on
+  purpose so plugins can be registered after config is parsed.
+- Custom plugin knobs go through `LayoutOptions.Extra`; the loader copies
+  every unrecognized key under `[layout.options.<id>]` into that bag.
+  Use `opts.GetExtra` / `GetExtraDouble` / `GetExtraBool` to read them.
+- `LayoutMath` is a `public static` SDK helper — built-in engines and
+  plugins call it for `Shrink`, `SplitAxis`, and `ClampToHints`.
+- See `docs/layout.md` for the hello-world plugin example.
+
