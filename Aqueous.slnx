@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Aqueous/Aqueous.csproj" />
   <Project Path="Aqueous.Tests/Aqueous.Tests.csproj" />
+  <Project Path="Aqueous.InputDaemon/Aqueous.InputDaemon.csproj" />
   <Folder Name="/Solution/">
     <File Path="README.md" />
     <File Path="wm.toml" />

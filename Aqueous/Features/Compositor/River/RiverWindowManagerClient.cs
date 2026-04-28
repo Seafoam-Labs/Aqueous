@@ -124,9 +124,31 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private bool _dragStarted;
     private int _dragStartX;
     private int _dragStartY;
+    // Resize state — non-zero _dragEdges means the active drag is a resize, not a move.
+    // Edges are the river_window_v1 bitfield: top=1, bottom=2, left=4, right=8.
+    private uint _dragEdges;
+    private int _dragStartW;
+    private int _dragStartH;
+    // Tracks whether we have already issued inform_resize_start for the current
+    // drag so that we know to emit a matching inform_resize_end on finalisation.
+    // Without this, libdecor / GTK clients ignore the live propose_dimensions
+    // stream during an interactive resize.
+    private bool _dragResizeInformed;
     private IntPtr _dragPointerBinding;
     private bool _dragPointerBindingNeedsEnable;
+    // Second pointer binding for Super+RMB drag-to-resize (Option 3 plan).
+    // Lets the WM initiate resize on undecorated/SSD-expecting clients
+    // (alacritty, Firefox without libdecor, …) by deriving _dragEdges from
+    // the pointer's quadrant inside the focused window, then arming the
+    // same drag pipeline that pointer_resize_requested uses.
+    private IntPtr _dragResizePointerBinding;
+    private bool _dragResizePointerBindingNeedsEnable;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
+    // Latest pointer position per seat in the compositor's logical
+    // coordinate space, updated from river_seat_v1::pointer_position. Used
+    // by the Super+RMB drag-resize binding to determine which corner of
+    // the focused window the user clicked on.
+    private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos = new();
 
     // --- wayland state -------------------------------------------------
 
@@ -203,6 +225,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         _scratchpadRegistry = new ScratchpadRegistry();
         _windowState = new WindowStateController(
             new RiverWindowStateHost(this), _scratchpadRegistry);
+
+        // Push libinput config to the privileged sidecar (aqueous-inputd).
+        // Best-effort: silently logs and proceeds if the daemon isn't up.
+        // River 0.4 owns libinput but exposes no API to a WM client, so
+        // pointer accel etc. can only be applied out-of-process. Mirrors
+        // niri's "apply on startup + on config reload" model — the same
+        // call lives in ReloadConfig (KeyBindingActionRouter).
+        InputDaemonClient.Apply(_layoutConfig.Input);
     }
 
     private static string GetDefaultConfigPath()

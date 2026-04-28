@@ -59,7 +59,11 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
             else if (target == self._dragPointerBinding)
             {
-                self.OnDragPointerBindingEvent(opcode, a);
+                self.OnDragPointerBindingEvent(target, opcode, a);
+            }
+            else if (self._dragResizePointerBinding != IntPtr.Zero && target == self._dragResizePointerBinding)
+            {
+                self.OnDragPointerBindingEvent(target, opcode, a);
             }
             else if (self._windows.ContainsKey(target))
             {

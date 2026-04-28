@@ -407,6 +407,26 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     (IntPtr)pw, (IntPtr)ph,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
+
+            // Fix #3: co-emit set_position with propose_dimensions during the
+            // manage cycle. The render branch (ManagerEventHandler ~line 232)
+            // also issues set_position when X/Y change, but during a high-
+            // frequency interactive drag of a left/top edge the manage and
+            // render cycles can be split such that propose_dimensions lands
+            // before the matching set_position, leaving the dragged corner
+            // visually anchored for a frame. Emitting it here as well keeps
+            // the geometry pair atomic from the client's point of view (the
+            // render-path emit becomes a no-op via the LastPosX/Y diff-gate).
+            if (w.NodeProxy != IntPtr.Zero
+                && (w.LastPosX != w.X || w.LastPosY != w.Y))
+            {
+                WaylandInterop.wl_proxy_marshal_flags(
+                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                    (IntPtr)w.X, (IntPtr)w.Y,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                w.LastPosX = w.X;
+                w.LastPosY = w.Y;
+            }
         }
 
         // -------- Phase B1e Pass C: Maximized layer --------------------
@@ -517,7 +537,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
     internal bool IsFloatLayoutActive()
     {
         IntPtr output = IntPtr.Zero;
-        string? outputName = null;
         if (_focusedWindow != IntPtr.Zero &&
             _windows.TryGetValue(_focusedWindow, out var fw) &&
             fw.Output != IntPtr.Zero)
@@ -533,7 +552,30 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
-        return _layoutController.ResolveLayoutId(output, outputName) == "float";
+        return IsFloatLayoutActive(output);
+    }
+
+    /// <summary>
+    /// Output-parametrised overload of <see cref="IsFloatLayoutActive()"/>.
+    /// Used by the drag arming/OpDelta paths so the gate is resolved against
+    /// the *dragged* window's output, not the focused window's output. This
+    /// matters when CSD click handling (Firefox/libdecor) does not raise
+    /// focus to the WM until the click is released — without this overload
+    /// the resize gesture would be silently dropped if focus happened to be
+    /// on a different output that uses a non-float layout.
+    /// </summary>
+    internal bool IsFloatLayoutActive(IntPtr output)
+    {
+        if (output == IntPtr.Zero)
+        {
+            foreach (var k in _outputs.Keys)
+            {
+                output = k;
+                break;
+            }
+        }
+
+        return _layoutController.ResolveLayoutId(output, null) == "float";
     }
 
 

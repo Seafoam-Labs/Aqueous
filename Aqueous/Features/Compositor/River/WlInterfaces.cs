@@ -34,31 +34,85 @@ namespace Aqueous.Features.Compositor.River;
 /// </summary>
 internal static unsafe class WlInterfaces
 {
+    /// <summary><c>wl_registry</c> v1 — used for <c>bind</c> and to read <c>global</c> / <c>global_remove</c> events.</summary>
+    /// <remarks>Passed as the <c>iface</c> argument to <see cref="WaylandInterop.wl_proxy_marshal_flags"/>.</remarks>
     public static WaylandInterop.WlInterface* WlRegistry;
+
+    /// <summary><c>wl_seat</c> v7 — interface identity only; we never issue requests on it, only forward its proxy to <c>activate</c>.</summary>
     public static WaylandInterop.WlInterface* WlSeat;
+
+    /// <summary><c>wl_surface</c> v1 placeholder.</summary>
+    /// <remarks>We never create or talk to <c>wl_surface</c>; this entry exists only so signatures referencing <c>wl_surface</c> (e.g. <c>set_rectangle</c>) have a non-null type pointer.</remarks>
     public static WaylandInterop.WlInterface* WlSurface;      // used as null placeholder for rectangle()
+
+    /// <summary><c>wl_output</c> v1 placeholder.</summary>
+    /// <remarks>Used only to type <c>output_enter</c> / <c>output_leave</c> / <c>set_fullscreen</c> arguments; we never receive events on a <c>wl_output</c> proxy.</remarks>
     public static WaylandInterop.WlInterface* WlOutput;       // used as null placeholder for output_enter/leave
+
+    /// <summary><c>zwlr_foreign_toplevel_manager_v1</c> v3.</summary>
     public static WaylandInterop.WlInterface* ZwlrManager;
+
+    /// <summary><c>zwlr_foreign_toplevel_handle_v1</c> v3.</summary>
     public static WaylandInterop.WlInterface* ZwlrHandle;
 
     // river_window_management_v1 v4 graph (B1a skeleton).
+
+    /// <summary><c>river_window_manager_v1</c> v4 — top-level entry point of the River window management protocol.</summary>
     public static WaylandInterop.WlInterface* RiverWindowManager;
+
+    /// <summary><c>river_window_v1</c> v4 — per-window proxy emitted by <c>river_window_manager_v1.window</c>.</summary>
     public static WaylandInterop.WlInterface* RiverWindow;
+
+    /// <summary><c>river_decoration_v1</c> v4 — server-side decoration sub-object of a window.</summary>
     public static WaylandInterop.WlInterface* RiverDecoration;
+
+    /// <summary><c>river_shell_surface_v1</c> v4 — shell-surface proxy obtained via <c>get_shell_surface</c>.</summary>
     public static WaylandInterop.WlInterface* RiverShellSurface;
+
+    /// <summary><c>river_node_v1</c> v4 — scene-graph node attached to a window or shell-surface.</summary>
     public static WaylandInterop.WlInterface* RiverNode;
+
+    /// <summary><c>river_output_v1</c> v4 — per-output proxy emitted by <c>river_window_manager_v1.output</c>.</summary>
     public static WaylandInterop.WlInterface* RiverOutput;
+
+    /// <summary><c>river_layer_shell_v1</c> v1 — layer-shell global; produces <c>river_layer_surface_v1</c> objects.</summary>
     public static WaylandInterop.WlInterface* RiverLayerShell;
+
+    /// <summary><c>river_layer_surface_v1</c> v1 — layer-surface proxy.</summary>
     public static WaylandInterop.WlInterface* RiverLayerSurface;
+
+    /// <summary><c>river_seat_v1</c> v4 — per-seat proxy emitted by <c>river_window_manager_v1.seat</c>.</summary>
     public static WaylandInterop.WlInterface* RiverSeat;
+
+    /// <summary><c>river_pointer_binding_v1</c> v4 — pointer-button binding obtained from a <c>river_seat_v1</c>.</summary>
     public static WaylandInterop.WlInterface* RiverPointerBinding;
+
+    /// <summary><c>river_xkb_bindings_v1</c> v3 — keyboard binding global.</summary>
     public static WaylandInterop.WlInterface* RiverXkbBindings;
+
+    /// <summary><c>river_xkb_binding_v1</c> v3 — single keyboard binding entry.</summary>
     public static WaylandInterop.WlInterface* RiverXkbBinding;
+
+    /// <summary><c>river_xkb_bindings_seat_v1</c> v1 — per-seat keyboard binding context.</summary>
     public static WaylandInterop.WlInterface* RiverXkbBindingsSeat;
 
+    /// <summary>Set to <c>true</c> once <see cref="BuildAll"/> has fully populated every interface table.</summary>
+    /// <remarks>Read lock-free via a fast path in <see cref="EnsureBuilt"/>; written only under <see cref="_lock"/>.</remarks>
     private static bool _built;
+
+    /// <summary>Mutex guarding the one-time build; prevents racing initialisation from multiple threads.</summary>
     private static readonly object _lock = new();
 
+    /// <summary>
+    /// Lazily allocates the unmanaged <c>wl_interface</c> tables exactly once.
+    /// </summary>
+    /// <remarks>
+    /// Implemented as a double-checked-locking pattern so steady-state callers
+    /// pay only a single field read. This must succeed before any
+    /// <see cref="WaylandInterop.wl_proxy_marshal_flags"/> call that uses one
+    /// of the public <c>WlInterface*</c> fields; failure is unrecoverable —
+    /// without these tables we cannot speak Wayland at all.
+    /// </remarks>
     public static void EnsureBuilt()
     {
         if (_built)
@@ -80,10 +134,30 @@ internal static unsafe class WlInterfaces
 
     // ---------- builders ----------
 
-    // C# can't use pointer types as generic type args, so we keep a
-    // pre-made empty array handy for messages with no typed args.
+    /// <summary>
+    /// Pre-allocated empty <c>WlInterface*[]</c> used for messages whose
+    /// signature has no typed arguments.
+    /// </summary>
+    /// <remarks>
+    /// C# disallows pointer types as generic type arguments, so
+    /// <c>Array.Empty&lt;WlInterface*&gt;()</c> is not available; we hold a
+    /// single shared instance instead.
+    /// </remarks>
     private static readonly WaylandInterop.WlInterface*[] NoTypes = new WaylandInterop.WlInterface*[0];
 
+    /// <summary>
+    /// Allocates a NUL-terminated UTF-8 copy of <paramref name="s"/> on the
+    /// unmanaged heap and returns a pointer to it.
+    /// </summary>
+    /// <param name="s">String to copy.</param>
+    /// <returns>Pointer to the allocated UTF-8 buffer.</returns>
+    /// <remarks>
+    /// The returned memory is intentionally leaked: every string produced by
+    /// this helper is referenced from a <see cref="WaylandInterop.WlInterface"/>
+    /// or <see cref="WaylandInterop.WlMessage"/> that lives for the entire
+    /// process lifetime. Callers MUST NOT pass the result to
+    /// <see cref="Marshal.FreeHGlobal"/>.
+    /// </remarks>
     private static IntPtr AllocStringUtf8(string s)
     {
         var bytes = Encoding.UTF8.GetBytes(s);
@@ -93,6 +167,21 @@ internal static unsafe class WlInterfaces
         return p;
     }
 
+    /// <summary>
+    /// Allocates a fully populated <see cref="WaylandInterop.WlInterface"/>
+    /// in unmanaged memory.
+    /// </summary>
+    /// <param name="name">Wire-protocol interface name (e.g. <c>"wl_registry"</c>).</param>
+    /// <param name="version">Interface version supported by this description.</param>
+    /// <param name="requests">Request messages, indexed by opcode.</param>
+    /// <param name="events">Event messages, indexed by opcode.</param>
+    /// <returns>Pointer to the new interface struct (process-lifetime).</returns>
+    /// <remarks>
+    /// Currently unused by <see cref="BuildAll"/>, which prefers the
+    /// <see cref="AllocEmpty"/> + <see cref="Populate"/> two-phase pattern so
+    /// that interfaces can mutually reference each other. Kept available for
+    /// callers that build standalone interfaces with no forward references.
+    /// </remarks>
     private static WaylandInterop.WlInterface* AllocInterface(string name, int version, WaylandInterop.WlMessage[] requests, WaylandInterop.WlMessage[] events)
     {
         var iface = (WaylandInterop.WlInterface*)Marshal.AllocHGlobal(sizeof(WaylandInterop.WlInterface));
@@ -105,6 +194,17 @@ internal static unsafe class WlInterfaces
         return iface;
     }
 
+    /// <summary>
+    /// Copies <paramref name="messages"/> into a freshly allocated, contiguous
+    /// <see cref="WaylandInterop.WlMessage"/> array on the unmanaged heap.
+    /// </summary>
+    /// <param name="messages">Message descriptors to copy.</param>
+    /// <returns>
+    /// Pointer to the unmanaged array, or <see cref="IntPtr.Zero"/> when
+    /// <paramref name="messages"/> is empty (libwayland accepts a null
+    /// pointer for empty method/event tables).
+    /// </returns>
+    /// <remarks>The allocation is intentionally leaked; see <see cref="AllocStringUtf8"/>.</remarks>
     private static IntPtr AllocMessages(WaylandInterop.WlMessage[] messages)
     {
         if (messages.Length == 0)
@@ -121,6 +221,24 @@ internal static unsafe class WlInterfaces
         return (IntPtr)p;
     }
 
+    /// <summary>
+    /// Builds a single <see cref="WaylandInterop.WlMessage"/> describing one
+    /// request or event on the wire.
+    /// </summary>
+    /// <param name="name">Wire name of the message (e.g. <c>"global"</c>).</param>
+    /// <param name="signature">
+    /// libwayland signature string. Type codes:
+    /// <c>i</c> int, <c>u</c> uint, <c>f</c> fixed, <c>s</c> string,
+    /// <c>o</c> object, <c>n</c> new_id, <c>a</c> array, <c>h</c> fd.
+    /// May be prefixed by a decimal "since" version (e.g. <c>"2?o"</c> = since
+    /// version 2, nullable object).
+    /// </param>
+    /// <param name="types">
+    /// Per-argument interface pointers. Length must equal the number of
+    /// arguments in <paramref name="signature"/>; entries for non-object args
+    /// are <c>null</c>.
+    /// </param>
+    /// <returns>Fully populated <see cref="WaylandInterop.WlMessage"/> value.</returns>
     private static WaylandInterop.WlMessage Msg(string name, string signature, WaylandInterop.WlInterface*[] types)
     {
         return new WaylandInterop.WlMessage
@@ -131,6 +249,16 @@ internal static unsafe class WlInterfaces
         };
     }
 
+    /// <summary>
+    /// Copies <paramref name="types"/> into a freshly allocated
+    /// <c>wl_interface**</c> array on the unmanaged heap.
+    /// </summary>
+    /// <param name="types">Per-argument interface pointers.</param>
+    /// <returns>
+    /// Pointer to the unmanaged array, or <see cref="IntPtr.Zero"/> when
+    /// <paramref name="types"/> is empty.
+    /// </returns>
+    /// <remarks>The allocation is intentionally leaked; see <see cref="AllocStringUtf8"/>.</remarks>
     private static IntPtr AllocTypes(WaylandInterop.WlInterface*[] types)
     {
         if (types.Length == 0)
@@ -154,6 +282,26 @@ internal static unsafe class WlInterfaces
     // populate their message tables. This mirrors how wayland-scanner
     // emits C code with forward declarations.
 
+    /// <summary>
+    /// Builds every <see cref="WaylandInterop.WlInterface"/> consumed by the
+    /// rest of the codebase.
+    /// </summary>
+    /// <remarks>
+    /// Interfaces reference each other (e.g. the manager's <c>toplevel</c>
+    /// event yields a <c>new_id&lt;handle&gt;</c>) so the function runs in
+    /// two phases: first <see cref="AllocEmpty"/> reserves storage for every
+    /// interface, then <see cref="Populate"/> fills in the message tables.
+    /// This mirrors how wayland-scanner emits C with forward declarations.
+    /// <para>
+    /// Layout:
+    /// <list type="bullet">
+    /// <item><c>wl_registry</c> — bind / global / global_remove.</item>
+    /// <item><c>wl_seat</c>, <c>wl_surface</c>, <c>wl_output</c> — identity-only placeholders.</item>
+    /// <item><c>zwlr_foreign_toplevel_manager_v1</c> v3 + <c>zwlr_foreign_toplevel_handle_v1</c> v3.</item>
+    /// <item>The full <c>river_window_management_v1</c> v4 graph (delegated to <see cref="BuildRiverWindowManagement"/>).</item>
+    /// </list>
+    /// </para>
+    /// </remarks>
     private static void BuildAll()
     {
         // 1. Allocate empty interface structs so later messages can point at them.
@@ -258,18 +406,24 @@ internal static unsafe class WlInterfaces
     }
 
     // ---------- river_window_management_v1 (v4) ----------
-    //
-    // Extracted from /usr/share/river-protocols/stable/river-window-management-v1.xml
-    // via the repo's /tmp/extract_sigs.py helper. Every request and event
-    // is declared with its exact signature string and nested interface
-    // pointers so libwayland-client can marshal the wire protocol.
-    //
-    // NB: "since" numbers (e.g. "2") in a signature string are valid
-    // per libwayland's docs (see `wl_message::signature` docs) and indicate
-    // the message is only available from that interface version onward.
-    // Because every message in this protocol is gated by at most version 4
-    // and we always bind the manager at version 4, the since prefixes are
-    // harmless padding.
+
+    /// <summary>
+    /// Builds the <c>river_window_management_v1</c> v4 interface graph.
+    /// </summary>
+    /// <remarks>
+    /// Signatures and opcodes are extracted verbatim from
+    /// <c>/usr/share/river-protocols/stable/river-window-management-v1.xml</c>
+    /// (helper script <c>/tmp/extract_sigs.py</c>). Every request and event
+    /// is declared with its exact signature string and nested interface
+    /// pointers so libwayland-client can marshal the wire protocol.
+    /// <para>
+    /// Note: the leading decimal "since" digits in some signatures
+    /// (e.g. <c>"2iiii"</c>) are valid per libwayland's
+    /// <c>wl_message::signature</c> docs and gate availability on the
+    /// interface version. Because we always bind the manager at version 4
+    /// and every gated message exists by then, the prefixes are harmless.
+    /// </para>
+    /// </remarks>
     private static void BuildRiverWindowManagement()
     {
         RiverWindowManager = AllocEmpty("river_window_manager_v1", 4);
@@ -502,6 +656,14 @@ internal static unsafe class WlInterfaces
             events: Array.Empty<WaylandInterop.WlMessage>());
     }
 
+    /// <summary>
+    /// Phase-1 allocator: reserves a forward-declared
+    /// <see cref="WaylandInterop.WlInterface"/> with no requests or events.
+    /// </summary>
+    /// <param name="name">Wire-protocol interface name.</param>
+    /// <param name="version">Interface version.</param>
+    /// <returns>Pointer to the reserved struct, ready to be filled in by <see cref="Populate"/>.</returns>
+    /// <remarks>Used so interfaces that reference each other can be allocated up-front before their message tables are built.</remarks>
     private static WaylandInterop.WlInterface* AllocEmpty(string name, int version)
     {
         var iface = (WaylandInterop.WlInterface*)Marshal.AllocHGlobal(sizeof(WaylandInterop.WlInterface));
@@ -514,6 +676,14 @@ internal static unsafe class WlInterfaces
         return iface;
     }
 
+    /// <summary>
+    /// Phase-2 filler: writes <paramref name="requests"/> and
+    /// <paramref name="events"/> into an interface previously reserved by
+    /// <see cref="AllocEmpty"/>.
+    /// </summary>
+    /// <param name="iface">Target interface (must be writable unmanaged memory).</param>
+    /// <param name="requests">Request messages, indexed by opcode.</param>
+    /// <param name="events">Event messages, indexed by opcode.</param>
     private static void Populate(WaylandInterop.WlInterface* iface, WaylandInterop.WlMessage[] requests, WaylandInterop.WlMessage[] events)
     {
         iface->method_count = requests.Length;

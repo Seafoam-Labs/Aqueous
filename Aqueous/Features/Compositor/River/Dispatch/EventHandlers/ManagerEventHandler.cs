@@ -60,8 +60,35 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         Log("enabled Super+BTN_LEFT pointer binding");
                     }
 
+                    // Same enable handshake for the Super+BTN_RIGHT
+                    // drag-resize binding registered alongside the move
+                    // binding in the SeatInformation handler below.
+                    if (_dragResizePointerBindingNeedsEnable && _dragResizePointerBinding != IntPtr.Zero)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            _dragResizePointerBinding, 1, IntPtr.Zero, 0, 0,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        _dragResizePointerBindingNeedsEnable = false;
+                        Log("enabled Super+BTN_RIGHT pointer binding");
+                    }
+
                     if (_dragFinished)
                     {
+                        // If the just-finalised drag was an interactive resize
+                        // and we previously emitted inform_resize_start, send
+                        // the matching inform_resize_end before tearing down
+                        // drag state. Per protocol (river-window-management-v1
+                        // lines 739-762) this request must live inside a manage
+                        // sequence, which this branch already is.
+                        if (_dragResizeInformed && _activeDragWindow != null)
+                        {
+                            // river_window_v1::inform_resize_end is request opcode 13.
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragWindow.Proxy, 13, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            Log($"inform_resize_end on window 0x{_activeDragWindow.Proxy.ToString("x")}");
+                        }
+
                         WaylandInterop.wl_proxy_marshal_flags(
                             _activeDragSeat, 5, IntPtr.Zero, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -70,6 +97,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         _activeDragSeat = IntPtr.Zero;
                         _dragFinished = false;
                         _dragStarted = false;
+                        _dragEdges = 0;
+                        _dragResizeInformed = false;
                     }
 
                     if (_activeDragSeat != IntPtr.Zero && _activeDragWindow != null && !_dragStarted)
@@ -78,6 +107,22 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             _activeDragSeat, 4, IntPtr.Zero, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         _dragStarted = true;
+
+                        // For interactive resize, also emit inform_resize_start
+                        // so that toolkits like libdecor / GTK paint the live
+                        // size affordance and actually commit the live
+                        // propose_dimensions stream during the drag. Without
+                        // this, the wire traffic is correct but the client
+                        // appears unresponsive until release.
+                        if (_dragEdges != 0 && !_dragResizeInformed)
+                        {
+                            // river_window_v1::inform_resize_start is request opcode 12.
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragWindow.Proxy, 12, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            _dragResizeInformed = true;
+                            Log($"inform_resize_start on window 0x{_activeDragWindow.Proxy.ToString("x")} edges={_dragEdges}");
+                        }
                     }
 
                     if (_pendingFocusSeat != IntPtr.Zero)
@@ -232,44 +277,71 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     return WindowState.Tiled;
                 }
 
-                // Pass 1: tiled (and unknown).
-                foreach (var kvp in _windows)
+                // Bring-to-front on focus: within each layer pass, defer
+                // the focused window so its EmitWindow (which internally
+                // emits river_node_v1::place_top, opcode 2) runs LAST in
+                // its layer. Because each pass's last place_top wins
+                // stacking within that layer, this raises the focused
+                // window above its peers without an extra post-pass
+                // request (the previous post-pass call used opcode 1,
+                // which is set_position(0,0) — that teleported the
+                // focused window to the top-left every frame).
+                WindowState focusedState = _focusedWindow != IntPtr.Zero
+                    ? ClassifyState(_focusedWindow)
+                    : WindowState.Tiled;
+                bool HasFocusedInLayer(WindowState layer) =>
+                    _focusedWindow != IntPtr.Zero
+                    && _windows.ContainsKey(_focusedWindow)
+                    && focusedState == layer;
+
+                void EmitPass(Func<WindowState, bool> match, WindowState layer)
                 {
-                    var s = ClassifyState(kvp.Key);
-                    if (s == WindowState.Tiled)
+                    bool deferFocused = HasFocusedInLayer(layer);
+                    foreach (var kvp in _windows)
                     {
+                        var s = ClassifyState(kvp.Key);
+                        if (!match(s)) continue;
+                        if (deferFocused && kvp.Key == _focusedWindow) continue;
                         EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    if (deferFocused
+                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                    {
+                        EmitWindow(_focusedWindow, fw);
                     }
                 }
 
+                // Pass 1: tiled (and unknown).
+                EmitPass(s => s == WindowState.Tiled, WindowState.Tiled);
+
                 // Pass 2: maximized.
-                foreach (var kvp in _windows)
-                {
-                    if (ClassifyState(kvp.Key) == WindowState.Maximized)
-                    {
-                        EmitWindow(kvp.Key, kvp.Value);
-                    }
-                }
+                EmitPass(s => s == WindowState.Maximized, WindowState.Maximized);
 
                 // Pass 3: floating (and Scratchpad — visible scratchpads
                 // are rendered as floating dropdown windows above tiles).
-                foreach (var kvp in _windows)
+                // Scratchpad-focused windows are deferred under the
+                // Scratchpad layer key; Floating-focused under Floating.
                 {
-                    var s = ClassifyState(kvp.Key);
-                    if (s == WindowState.Floating || s == WindowState.Scratchpad)
+                    bool deferFocused = _focusedWindow != IntPtr.Zero
+                        && _windows.ContainsKey(_focusedWindow)
+                        && (focusedState == WindowState.Floating
+                            || focusedState == WindowState.Scratchpad);
+                    foreach (var kvp in _windows)
                     {
+                        var s = ClassifyState(kvp.Key);
+                        if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
+                        if (deferFocused && kvp.Key == _focusedWindow) continue;
                         EmitWindow(kvp.Key, kvp.Value);
+                    }
+                    if (deferFocused
+                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                    {
+                        EmitWindow(_focusedWindow, fw);
                     }
                 }
 
                 // Pass 4: fullscreen (last so its place_top wins).
-                foreach (var kvp in _windows)
-                {
-                    if (ClassifyState(kvp.Key) == WindowState.Fullscreen)
-                    {
-                        EmitWindow(kvp.Key, kvp.Value);
-                    }
-                }
+                EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
 
                 SendManagerRequest(4); // render_finish opcode = 4
                 break;
@@ -280,10 +352,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        // Bug 3 fix: cascade new windows so two windows do not sit stacked at
-                        // (0,0) shadowing each other's input region.
-                        int cascadeIndex = _windows.Count;
-                        var entry = new WindowEntry { Proxy = proxy, X = cascadeIndex * 40, Y = cascadeIndex * 40 };
+                        // Floating layer: do NOT seed a cascade (X,Y) here.
+                        // Leaving HasFloatRect == false lets the floating
+                        // branch in LayoutProposer.ProposeForArea (lines
+                        // ~376-383) compute a centred initial rect against
+                        // the *real* usableArea of the output the window
+                        // ultimately binds to. The previous cascade put
+                        // every new window at the top-left of the global
+                        // compositor space. A user-provided initial rect
+                        // (drag, dimensions_hint, or controller's
+                        // FloatingGeom seed) sets HasFloatRect = true and
+                        // is then preserved across manage cycles.
+                        var entry = new WindowEntry { Proxy = proxy };
                         entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
                             proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -401,6 +481,35 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         {
                             Log(
                                 $"skipping get_pointer_binding; river_window_manager_v1 v{_managerVersion} < 4 (River 0.4.3 ships v3)");
+                        }
+
+                        // Second pointer binding: Super+BTN_RIGHT for
+                        // drag-to-resize (Option 3 plan). Same registration
+                        // dance as BTN_LEFT above; the dispatcher routes
+                        // both proxies to OnDragPointerBindingEvent which
+                        // distinguishes them by the firing proxy and
+                        // derives _dragEdges from the pointer's quadrant
+                        // inside the hovered window.
+                        if (_dragResizePointerBinding == IntPtr.Zero && _managerVersion >= 4)
+                        {
+                            const uint BTN_RIGHT = 0x111;
+                            uint modMask = Mods.PrimaryMask;
+                            _dragResizePointerBinding = WaylandInterop.wl_proxy_marshal_flags(
+                                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _managerVersion, 0,
+                                IntPtr.Zero, (IntPtr)BTN_RIGHT, (IntPtr)modMask,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                            if (_dragResizePointerBinding != IntPtr.Zero)
+                            {
+                                WaylandInterop.wl_proxy_add_dispatcher(
+                                    _dragResizePointerBinding,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    GCHandle.ToIntPtr(_selfHandle),
+                                    IntPtr.Zero);
+                                _dragResizePointerBindingNeedsEnable = true;
+                                Log(
+                                    $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{_managerVersion})");
+                            }
                         }
                     }
 

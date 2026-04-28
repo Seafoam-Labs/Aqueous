@@ -26,7 +26,7 @@ internal sealed class WindowEntry
     public bool BordersSent;
     public bool ShowSent;
 
-    // Phase B1e (partial): per-window floating override + remembered
+    // per-window floating override + remembered
     // floating rect. Set when the user drags a window with
     // Super+BTN_LEFT; honoured by ProposeForArea so floating windows
     // bypass the active layout engine and keep their dragged
