@@ -72,6 +72,30 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         Log("enabled Super+BTN_RIGHT pointer binding");
                     }
 
+                    // Snap-activator bindings (Super + <activator> + BTN_LEFT)
+                    // share the same enable handshake. The proxies were
+                    // created lazily once the seat appeared; until manage_start
+                    // they are inert.
+                    if (_snapActivatorBindingNeedsEnable.Count > 0)
+                    {
+                        foreach (var pb in new System.Collections.Generic.List<IntPtr>(_snapActivatorBindingNeedsEnable.Keys))
+                        {
+                            if (!_snapActivatorBindingNeedsEnable[pb])
+                            {
+                                continue;
+                            }
+
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                pb, 1, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            _snapActivatorBindingNeedsEnable[pb] = false;
+                            if (_snapActivatorBindings.TryGetValue(pb, out var act))
+                            {
+                                Log($"enabled Super+{act}+BTN_LEFT snap-activator pointer binding");
+                            }
+                        }
+                    }
+
                     if (_dragFinished)
                     {
                         // If the just-finalised drag was an interactive resize
@@ -95,6 +119,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                         _activeDragWindow = null;
                         _activeDragSeat = IntPtr.Zero;
+                        _activeDragActivator = Aqueous.Features.SnapZones.SnapActivator.Always;
                         _dragFinished = false;
                         _dragStarted = false;
                         _dragEdges = 0;
@@ -509,6 +534,63 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                 _dragResizePointerBindingNeedsEnable = true;
                                 Log(
                                     $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{_managerVersion})");
+                            }
+                        }
+
+                        // SnapZones activator bindings: for each distinct
+                        // non-Always activator referenced by a configured
+                        // [[snapzones]] layout, register an extra
+                        // {Primary}+{activator}+BTN_LEFT pointer binding.
+                        // The drag dispatcher will stamp
+                        // _activeDragActivator from the firing proxy and
+                        // TryResolveSnapForDrag will gate snapping on
+                        // matching layout.Activator. Always-activated
+                        // layouts continue to work via the plain
+                        // {Primary}+BTN_LEFT binding registered above.
+                        if (_managerVersion >= 4 && _snapActivatorBindings.Count == 0)
+                        {
+                            const uint BTN_LEFT = 0x110;
+                            var seenActivators = new System.Collections.Generic.HashSet<Aqueous.Features.SnapZones.SnapActivator>();
+                            foreach (var layoutList in CollectAllSnapLayouts())
+                            {
+                                foreach (var l in layoutList)
+                                {
+                                    if (l.Activator == Aqueous.Features.SnapZones.SnapActivator.Always)
+                                    {
+                                        continue;
+                                    }
+
+                                    if (!seenActivators.Add(l.Activator))
+                                    {
+                                        continue;
+                                    }
+
+                                    uint extraMask = ActivatorToMask(l.Activator);
+                                    if (extraMask == 0)
+                                    {
+                                        continue;
+                                    }
+
+                                    uint combinedMask = Mods.PrimaryMask | extraMask;
+                                    var pb = WaylandInterop.wl_proxy_marshal_flags(
+                                        proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _managerVersion, 0,
+                                        IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)combinedMask,
+                                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                    if (pb == IntPtr.Zero)
+                                    {
+                                        continue;
+                                    }
+
+                                    _snapActivatorBindings[pb] = l.Activator;
+                                    _snapActivatorBindingNeedsEnable[pb] = true;
+                                    WaylandInterop.wl_proxy_add_dispatcher(
+                                        pb,
+                                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                        GCHandle.ToIntPtr(_selfHandle),
+                                        IntPtr.Zero);
+                                    string maskHex = combinedMask.ToString("x");
+                                    Log($"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
+                                }
                             }
                         }
                     }

@@ -125,9 +125,10 @@ public static class LayoutConfigLoader
         // pending zone and bucket; end-of-file flushes both.
         // ---------------------------------------------------------------
         // Ordered (output → ordered list of (layoutName, zones)).
-        var snapByOutput = new Dictionary<string, List<(string Name, List<SnapZone> Zones)>>(StringComparer.Ordinal);
+        var snapByOutput = new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
         string? snapPendingOutput = null;
         string? snapPendingLayout = null;
+        SnapActivator snapPendingActivator = SnapActivator.Always;
         List<SnapZone>? snapPendingZones = null;
         // Pending [[snapzones.zone]] fields.
         string? zPendingName = null;
@@ -161,6 +162,7 @@ public static class LayoutConfigLoader
             {
                 snapPendingOutput = null;
                 snapPendingLayout = null;
+                snapPendingActivator = SnapActivator.Always;
                 snapPendingZones = null;
                 return;
             }
@@ -169,14 +171,15 @@ public static class LayoutConfigLoader
             {
                 if (!snapByOutput.TryGetValue(snapPendingOutput, out var list))
                 {
-                    snapByOutput[snapPendingOutput] = list = new List<(string, List<SnapZone>)>();
+                    snapByOutput[snapPendingOutput] = list = new List<(string, SnapActivator, List<SnapZone>)>();
                 }
 
-                list.Add((snapPendingLayout ?? "default", snapPendingZones));
+                list.Add((snapPendingLayout ?? "default", snapPendingActivator, snapPendingZones));
             }
 
             snapPendingOutput = null;
             snapPendingLayout = null;
+            snapPendingActivator = SnapActivator.Always;
             snapPendingZones = null;
         }
 
@@ -204,6 +207,7 @@ public static class LayoutConfigLoader
                     FlushSnapBucket();
                     snapPendingOutput = SnapZoneStore.Wildcard;
                     snapPendingLayout = null;
+                    snapPendingActivator = SnapActivator.Always;
                     snapPendingZones = new List<SnapZone>();
                 }
                 else if (curSection == "[[snapzones.zone]]")
@@ -294,6 +298,19 @@ public static class LayoutConfigLoader
                             break;
                         case "layout":
                             snapPendingLayout = val;
+                            break;
+                        case "activator":
+                            // Optional modifier gate. Unknown / empty / "none"
+                            // / "always" all map to Always (= no extra gate).
+                            snapPendingActivator = StripQuotes(val).ToLowerInvariant() switch
+                            {
+                                "" or "none" or "always" => SnapActivator.Always,
+                                "shift"                  => SnapActivator.Shift,
+                                "ctrl" or "control"      => SnapActivator.Ctrl,
+                                "alt" or "mod1"          => SnapActivator.Alt,
+                                "super" or "logo" or "meta" or "mod4" => SnapActivator.Super,
+                                _ => SnapActivator.Always,
+                            };
                             break;
                     }
 
@@ -395,12 +412,13 @@ public static class LayoutConfigLoader
         foreach (var kv in snapByOutput)
         {
             var layouts = new List<SnapZoneLayout>(kv.Value.Count);
-            foreach (var (lname, zones) in kv.Value)
+            foreach (var (lname, activator, zones) in kv.Value)
             {
                 layouts.Add(new SnapZoneLayout
                 {
                     Name = lname,
                     Zones = zones,
+                    Activator = activator,
                 });
             }
 
