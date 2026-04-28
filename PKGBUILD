@@ -9,8 +9,10 @@ url="https://github.com/your-username/aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'river'
-         'noctalia-shell' 'tuigreet' 'libdecor' 'grim' 'aqueous-config')
-optdepends=('ghostty: recommended terminal emulator'
+         'noctalia-shell' 'libdecor' 'grim')
+optdepends=('tuigreet: greeter for greetd login manager (AUR)'
+'aqueous-config: default Aqueous configuration (AUR)'
+'ghostty: recommended terminal emulator'
 'nemo: recommended file manager'
 'shelly: recommended package manager'
 'starfish: helpful package helper'
