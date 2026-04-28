@@ -203,6 +203,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         _scratchpadRegistry = new ScratchpadRegistry();
         _windowState = new WindowStateController(
             new RiverWindowStateHost(this), _scratchpadRegistry);
+
+        // Push libinput config to the privileged sidecar (aqueous-inputd).
+        // Best-effort: silently logs and proceeds if the daemon isn't up.
+        // River 0.4 owns libinput but exposes no API to a WM client, so
+        // pointer accel etc. can only be applied out-of-process. Mirrors
+        // niri's "apply on startup + on config reload" model — the same
+        // call lives in ReloadConfig (KeyBindingActionRouter).
+        InputDaemonClient.Apply(_layoutConfig.Input);
     }
 
     private static string GetDefaultConfigPath()

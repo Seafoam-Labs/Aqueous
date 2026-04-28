@@ -48,7 +48,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     _seatHoveredWindow[proxy] = hovered;
                     Log($"seat 0x{proxy.ToString("x")} pointer_enter window 0x{hovered.ToString("x")}");
                     // Sloppy focus: follow the pointer so keystrokes go where the user is looking.
-                    if (hovered != IntPtr.Zero && _windows.ContainsKey(hovered) && hovered != _focusedWindow)
+                    if (_layoutConfig.Input.FocusFollowsMouse
+                        &&hovered != IntPtr.Zero
+                        && _windows.ContainsKey(hovered)
+                        && hovered != _focusedWindow)
                     {
                         SetFocusedWindow(hovered, proxy);
                     }

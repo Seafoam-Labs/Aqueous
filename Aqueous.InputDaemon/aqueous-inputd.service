@@ -1,0 +1,17 @@
+[Unit]
+Description=Aqueous libinput sidecar (pointer accel, per-device input config)
+Documentation=https://codeberg.org/Aqueous/aqueous
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aqueous-inputd
+Restart=on-failure
+RestartSec=2
+# The daemon talks to /dev/input/event* via libinput; either run as a
+# user that's in the 'input' group, or replace ExecStart with a logind
+# wrapper. UDS lives under XDG_RUNTIME_DIR.
+
+[Install]
+WantedBy=graphical-session.target
