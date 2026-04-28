@@ -82,3 +82,22 @@ during the early prototype.
   plugins call it for `Shrink`, `SplitAxis`, and `ClampToHints`.
 - See `docs/layout.md` for the hello-world plugin example.
 
+### Diagnostics conventions
+
+- **Logging.** All logging routes through `Microsoft.Extensions.Logging`
+  via the `Aqueous.Diagnostics.Logging` ambient factory. Configure with
+  the `AQUEOUS_LOG=trace|debug|info|warn|error` environment variable.
+  River-feature call sites use the legacy `Log(string)` chokepoint
+  which classifies messages by content; new code should call
+  `Logging.For<T>()` and use structured logging directly.
+- **Cancellation.** `EventPump.Start` and
+  `RiverWindowManagerClient.TryStart` accept a `CancellationToken`.
+  `Program.cs` wires `Console.CancelKeyPress` (SIGINT) and a
+  `PosixSignalRegistration` for SIGTERM into a single
+  `CancellationTokenSource` used as the process lifetime.
+- **`Result<T>` vs. exceptions.** Use `Aqueous.Diagnostics.Result` /
+  `Result<T>` for failures the caller is expected to surface to the
+  user (no Wayland display, missing manager global, parse warnings).
+  Throw exceptions for "should never happen" programmer-error
+  conditions (null `wl_proxy*`, dispatcher self-locate failure).
+
