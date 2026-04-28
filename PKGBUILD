@@ -20,9 +20,8 @@ optdepends=('tuigreet: greeter for greetd login manager (AUR)'
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git')
 provides=('aqueous')
 conflicts=('aqueous')
-source=("aqueous::git+${url}.git"
-        'aqueous.desktop')
-sha256sums=('SKIP' 'SKIP')
+source=("aqueous::git+${url}.git")
+sha256sums=('SKIP')
 
 _rid_map() {
     case "$CARCH" in
@@ -33,9 +32,13 @@ _rid_map() {
 }
 
 pkgver() {
-    cd aqueous
-    git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' \
-        || echo "0.1.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
+    cd "$srcdir/aqueous"
+    local ver
+    ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
+    if [[ -z "$ver" ]]; then
+        ver="0.1.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
+    fi
+    echo "$ver"
 }
 
 build() {
@@ -52,13 +55,22 @@ package() {
     # Aqueous binary
     install -d "$pkgdir/usr/lib/aqueous-wm"
     cp -r "$srcdir/publish-wm/"* "$pkgdir/usr/lib/aqueous-wm/"
-    install -d "$pkgdir/usr/bin"
-    ln -s /usr/lib/aqueous-wm/Aqueous "$pkgdir/usr/bin/aqueous-wm"
+    install -Dm755 "$srcdir/publish-wm/Aqueous" "$pkgdir/usr/bin/aqueous-wm"
 
     # Default WM config
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
+    install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
+
+    # User config — only if not already present
+    local real_user="${SUDO_USER:-$USER}"
+    local home
+    home=$(getent passwd "$real_user" | cut -d: -f6)
+    local cfg="$home/.config/aqueous/wm.toml"
+    if [[ -n "$home" && ! -f "$cfg" ]]; then
+        install -Dm644 -o "$real_user" "$srcdir/aqueous/wm.toml" "$cfg"
+    fi
 
     # Wayland session entry (used by greetd/tuigreet etc.)
-    install -Dm644 "$srcdir/aqueous.desktop" \
+    install -Dm644 "$srcdir/aqueous/aqueous.desktop" \
         "$pkgdir/usr/share/wayland-sessions/aqueous.desktop"
 }
