@@ -65,6 +65,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 self.OnDragPointerBindingEvent(target, opcode, a);
             }
+            else if (self._snapActivatorBindings.ContainsKey(target))
+            {
+                // Snap-activator pointer bindings reuse the same drag
+                // dispatcher — the handler stamps _activeDragActivator
+                // from the firing proxy and otherwise behaves identically
+                // to the plain Super+LMB binding.
+                self.OnDragPointerBindingEvent(target, opcode, a);
+            }
             else if (self._windows.ContainsKey(target))
             {
                 self.OnWindowEvent(target, opcode, a);

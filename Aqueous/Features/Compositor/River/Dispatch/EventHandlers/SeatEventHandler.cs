@@ -132,6 +132,20 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         {
                             adw.FloatH = newFh;
                         }
+
+                        // SnapZones live preview: if the pointer is
+                        // currently over a configured zone, override
+                        // the free-drag rect we just wrote with the
+                        // resolved zone rect. The dragged window
+                        // itself becomes the preview ghost — Aqueous
+                        // is a river-window-management *client* and
+                        // does not bind wl_compositor / wl_shm, so a
+                        // separate overlay surface is not available
+                        // (see RiverWindowManagerClient.SnapZones.cs
+                        // for the rationale). When the pointer leaves
+                        // the zone the next OpDelta sample writes the
+                        // free-drag rect again, undoing the preview.
+                        ApplyLiveSnapPreview(proxy);
                     }
                     else
                     {
@@ -232,6 +246,19 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 break;
             case RiverProtocolOpcodes.Seat.OpRelease:
                 Log($"seat 0x{proxy.ToString("x")} pointer operation released");
+                // SnapZones: only for interactive moves (resize ignored).
+                // If the pointer landed inside a configured zone for the
+                // window's output, override the just-computed FloatX/Y/W/H
+                // with the resolved zone rect so ManagerEventHandler
+                // emits propose_dimensions with the snapped geometry on
+                // the next manage cycle. The protocol op_finish_pointer
+                // is still issued by the existing finalisation path —
+                // SnapZones piggy-backs on that, no new wire traffic.
+                if (_activeDragWindow != null && _dragEdges == 0)
+                {
+                    TrySnapDraggedWindowToZone(proxy);
+                }
+
                 _dragFinished = true;
                 break;
             case RiverProtocolOpcodes.Seat.PointerPosition:
