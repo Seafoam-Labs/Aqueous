@@ -124,6 +124,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private bool _dragStarted;
     private int _dragStartX;
     private int _dragStartY;
+    // Resize state — non-zero _dragEdges means the active drag is a resize, not a move.
+    // Edges are the river_window_v1 bitfield: top=1, bottom=2, left=4, right=8.
+    private uint _dragEdges;
+    private int _dragStartW;
+    private int _dragStartH;
+    // Tracks whether we have already issued inform_resize_start for the current
+    // drag so that we know to emit a matching inform_resize_end on finalisation.
+    // Without this, libdecor / GTK clients ignore the live propose_dimensions
+    // stream during an interactive resize.
+    private bool _dragResizeInformed;
     private IntPtr _dragPointerBinding;
     private bool _dragPointerBindingNeedsEnable;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window

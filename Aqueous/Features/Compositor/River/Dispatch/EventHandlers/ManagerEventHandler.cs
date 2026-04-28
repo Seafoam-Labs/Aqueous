@@ -62,6 +62,21 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                     if (_dragFinished)
                     {
+                        // If the just-finalised drag was an interactive resize
+                        // and we previously emitted inform_resize_start, send
+                        // the matching inform_resize_end before tearing down
+                        // drag state. Per protocol (river-window-management-v1
+                        // lines 739-762) this request must live inside a manage
+                        // sequence, which this branch already is.
+                        if (_dragResizeInformed && _activeDragWindow != null)
+                        {
+                            // river_window_v1::inform_resize_end is request opcode 13.
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragWindow.Proxy, 13, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            Log($"inform_resize_end on window 0x{_activeDragWindow.Proxy.ToString("x")}");
+                        }
+
                         WaylandInterop.wl_proxy_marshal_flags(
                             _activeDragSeat, 5, IntPtr.Zero, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -70,6 +85,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         _activeDragSeat = IntPtr.Zero;
                         _dragFinished = false;
                         _dragStarted = false;
+                        _dragEdges = 0;
+                        _dragResizeInformed = false;
                     }
 
                     if (_activeDragSeat != IntPtr.Zero && _activeDragWindow != null && !_dragStarted)
@@ -78,6 +95,22 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             _activeDragSeat, 4, IntPtr.Zero, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         _dragStarted = true;
+
+                        // For interactive resize, also emit inform_resize_start
+                        // so that toolkits like libdecor / GTK paint the live
+                        // size affordance and actually commit the live
+                        // propose_dimensions stream during the drag. Without
+                        // this, the wire traffic is correct but the client
+                        // appears unresponsive until release.
+                        if (_dragEdges != 0 && !_dragResizeInformed)
+                        {
+                            // river_window_v1::inform_resize_start is request opcode 12.
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                _activeDragWindow.Proxy, 12, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                            _dragResizeInformed = true;
+                            Log($"inform_resize_start on window 0x{_activeDragWindow.Proxy.ToString("x")} edges={_dragEdges}");
+                        }
                     }
 
                     if (_pendingFocusSeat != IntPtr.Zero)

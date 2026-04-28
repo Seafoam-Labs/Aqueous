@@ -76,29 +76,127 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 if (_activeDragWindow != null)
                 {
                     var adw = _activeDragWindow;
-                    adw.X = _dragStartX + dx;
-                    adw.Y = _dragStartY + dy;
-                    // Promote the dragged window to the floating layer and
-                    // remember its rect so subsequent manage cycles do not
-                    // overwrite the drag-derived position with the active
-                    // layout engine's choice. Width/height come from the
-                    // last known committed dimensions; if the client has
-                    // not committed a size yet, fall back to the last
-                    // proposed hint.
-                    // Drag-to-float promotion is only meaningful when the
-                    // active layout is the float engine; otherwise the tiling
-                    // engine owns geometry and a per-window Floating override
-                    // would be ignored anyway (see ProposeForArea).
-                    if (IsFloatLayoutActive())
+
+                    // Drag (move or resize) is only meaningful while the float
+                    // layout is active; in tile/scrolling/monocle/grid the per-
+                    // window Floating override is suppressed by LayoutProposer
+                    // bucketing and any FloatX/Y/W/H written here would be
+                    // overwritten on the next manage cycle. Bail cleanly so a
+                    // stale armed drag (e.g. one that survived a layout switch)
+                    // is a true no-op rather than mutating Float* state for a
+                    // window that is about to be re-tiled.
+                    if (!IsFloatLayoutActive())
                     {
-                        adw.Floating = true;
+                        break;
                     }
 
-                    adw.HasFloatRect = true;
-                    adw.FloatX = adw.X;
-                    adw.FloatY = adw.Y;
-                    adw.FloatW = adw.W > 0 ? adw.W : (adw.LastHintW > 0 ? adw.LastHintW : adw.ProposedW);
-                    adw.FloatH = adw.H > 0 ? adw.H : (adw.LastHintH > 0 ? adw.LastHintH : adw.ProposedH);
+                    adw.Floating = true;
+
+                    if (_dragEdges == 0)
+                    {
+                        // ----- interactive move -----
+                        adw.X = _dragStartX + dx;
+                        adw.Y = _dragStartY + dy;
+                        adw.HasFloatRect = true;
+                        adw.FloatX = adw.X;
+                        adw.FloatY = adw.Y;
+                        adw.FloatW = adw.W > 0 ? adw.W : (adw.LastHintW > 0 ? adw.LastHintW : adw.ProposedW);
+                        adw.FloatH = adw.H > 0 ? adw.H : (adw.LastHintH > 0 ? adw.LastHintH : adw.ProposedH);
+                    }
+                    else
+                    {
+                        // ----- interactive resize -----
+                        // Edges bitfield (river_window_v1): top=1, bottom=2, left=4, right=8.
+                        // Per protocol guarantees, top+bottom and left+right are never both
+                        // set simultaneously, so the per-axis branches are unambiguous.
+                        int newX = _dragStartX;
+                        int newY = _dragStartY;
+                        int newW = _dragStartW;
+                        int newH = _dragStartH;
+
+                        if ((_dragEdges & 8u) != 0) // right
+                        {
+                            newW = _dragStartW + dx;
+                        }
+                        else if ((_dragEdges & 4u) != 0) // left
+                        {
+                            newW = _dragStartW - dx;
+                            newX = _dragStartX + dx;
+                        }
+
+                        if ((_dragEdges & 2u) != 0) // bottom
+                        {
+                            newH = _dragStartH + dy;
+                        }
+                        else if ((_dragEdges & 1u) != 0) // top
+                        {
+                            newH = _dragStartH - dy;
+                            newY = _dragStartY + dy;
+                        }
+
+                        // Clamp to client-advertised min/max hints. A hint
+                        // value of 0 means "no preference" per the protocol.
+                        int minW = adw.MinW > 0 ? adw.MinW : 1;
+                        int minH = adw.MinH > 0 ? adw.MinH : 1;
+                        if (newW < minW)
+                        {
+                            // If shrinking from the left edge would go below
+                            // min width, pin the left edge to keep the right
+                            // edge fixed at its starting position.
+                            if ((_dragEdges & 4u) != 0)
+                            {
+                                newX = _dragStartX + (_dragStartW - minW);
+                            }
+
+                            newW = minW;
+                        }
+
+                        if (newH < minH)
+                        {
+                            if ((_dragEdges & 1u) != 0)
+                            {
+                                newY = _dragStartY + (_dragStartH - minH);
+                            }
+
+                            newH = minH;
+                        }
+
+                        if (adw.MaxW > 0 && newW > adw.MaxW)
+                        {
+                            if ((_dragEdges & 4u) != 0)
+                            {
+                                newX = _dragStartX + (_dragStartW - adw.MaxW);
+                            }
+
+                            newW = adw.MaxW;
+                        }
+
+                        if (adw.MaxH > 0 && newH > adw.MaxH)
+                        {
+                            if ((_dragEdges & 1u) != 0)
+                            {
+                                newY = _dragStartY + (_dragStartH - adw.MaxH);
+                            }
+
+                            newH = adw.MaxH;
+                        }
+
+                        adw.X = newX;
+                        adw.Y = newY;
+                        adw.HasFloatRect = true;
+                        adw.FloatX = newX;
+                        adw.FloatY = newY;
+                        adw.FloatW = newW;
+                        adw.FloatH = newH;
+
+                        // Force the float layer of ProposeForArea to emit
+                        // a fresh propose_dimensions next manage cycle so
+                        // the client actually grows/shrinks. Without this
+                        // the diff-gate on LastHintW/H would still fire,
+                        // but ScheduleManage guarantees we get a cycle
+                        // even when the WM is otherwise idle.
+                        ScheduleManage();
+                    }
                 }
 
                 break;
