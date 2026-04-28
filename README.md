@@ -72,24 +72,5 @@ declares `noctalia-shell` and `tuigreet` as runtime dependencies.
 
 ### TODO
 
-- [x] Pointer acceleration: apply `[input]` settings at runtime via the
-  `aqueous-inputd` libinput sidecar (River 0.4 has no Wayland-side API
-  for this; the daemon owns its own libinput context, niri-style).
-- [x] Per-device input config (`[input.mouse]`, `[input.touchpad]`,
-  `[input.trackpoint]`) matching niri's KDL schema for easy migration.
-- [x] Live-reload of `[input]` settings on config reload keybind
-  (Aqueous re-sends `apply` to the daemon; daemon re-applies to all
-  open devices).
-- [ ] `aqueous-inputd`: replace `open(O_RDWR)` with `logind`'s
-  `TakeDevice` D-Bus call so the daemon doesn't need the user to be in
-  the `input` group.
-- [ ] Route floating placement through `FloatingLayout` engine instead of
-  the bespoke loop in `LayoutProposer`, and propagate `FloatRect` through
-  `WindowEntryView`.
-- [ ] Decoration-node based stacking (`get_decoration_above` /
-  `get_decoration_below`) for sub-cycle stacking control.
-- [ ] Runtime behavioural tests under a live River 0.4 session
-  (bring-to-front, focus-follows-mouse, floating centre-on-open).
-- [ ] More layout engines and per-output layout overrides.
-- [ ] Scratchpad polish: animations, multi-scratchpad bindings.
-- [ ] Documentation: annotated `wm.toml` reference and keybind cheatsheet.
+- [ ] Reserved space for the bar (currently hardcoded to 24px)
+- [ ] Support for multiple outputs (Technically  works but a bit hacky)
