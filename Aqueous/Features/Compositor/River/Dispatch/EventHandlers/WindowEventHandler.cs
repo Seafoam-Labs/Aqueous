@@ -14,7 +14,7 @@ using Aqueous.Features.Tags;
 namespace Aqueous.Features.Compositor.River;
 
 // river_window_v1 event handler — extracted into its own partial-class file during the
-// Phase 2 readability refactor (Step 4: split per-interface event handlers).
+// Phase 2 readability refactor.
 internal sealed unsafe partial class RiverWindowManagerClient
 {
     private void OnWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
@@ -28,7 +28,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             case RiverProtocolOpcodes.Window.Closed:
                 Log($"window 0x{proxy.ToString("x")} closed");
-                // Phase B1e Pass B: tear down per-window state so the
+                // tear down per-window state so the
                 // controller's invariants (single-FS slot, MRU stack,
                 // scratchpad ownership) drop their references to the
                 // dead proxy before _windows loses the entry.
