@@ -57,12 +57,8 @@ build() {
 }
 
 package() {
-    # AOT runtime layout (private libdir for native side-by-side libs).
-    install -d "$pkgdir/usr/lib/aqueous"
-    cp -a "$srcdir/publish/Aqueous/."             "$pkgdir/usr/lib/aqueous/"
-    cp -a "$srcdir/publish/Aqueous.InputDaemon/." "$pkgdir/usr/lib/aqueous/"
-
-    # User-facing binaries on PATH.
+    # AOT publish output is a single self-contained ELF per project; install
+    # the binaries directly to /usr/bin.
     install -Dm755 "$srcdir/publish/Aqueous/aqueous" \
         "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/publish/Aqueous.InputDaemon/aqueous-inputd" \
