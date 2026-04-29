@@ -62,9 +62,9 @@ package() {
     cp -a "$srcdir/publish/Aqueous.InputDaemon/." "$pkgdir/usr/lib/aqueous/"
 
     # User-facing binaries on PATH.
-    install -Dm755 "$srcdir/publish/Aqueous/Aqueous" \
+    install -Dm755 "$srcdir/publish/Aqueous/aqueous" \
         "$pkgdir/usr/bin/aqueous"
-    install -Dm755 "$srcdir/publish/Aqueous.InputDaemon/Aqueous.InputDaemon" \
+    install -Dm755 "$srcdir/publish/Aqueous.InputDaemon/aqueous-inputd" \
         "$pkgdir/usr/bin/aqueous-inputd"
 
     # Session launcher.
