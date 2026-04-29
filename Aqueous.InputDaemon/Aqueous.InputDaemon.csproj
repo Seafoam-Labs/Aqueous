@@ -12,4 +12,16 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <AssemblyName>aqueous-inputdaemon</AssemblyName>
+    <AssemblyVersion>0.0.1</AssemblyVersion>
+    <AssemblyTitle>aqueous-inputdaemon</AssemblyTitle>
+    <Description>An input daemon for Aquoues Window Manager</Description>
+    <Company>Seafoam Labs</Company>
+    <Product>Aqueoues Window Manager Input daemon</Product>
+    <Copyright>2026 Seafoam Labs</Copyright>
+  </PropertyGroup>
+
 </Project>

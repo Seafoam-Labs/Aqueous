@@ -8,6 +8,18 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <AssemblyName>aqueous</AssemblyName>
+    <AssemblyVersion>0.0.1</AssemblyVersion>
+    <AssemblyTitle>aqueous</AssemblyTitle>
+    <Description>A Window Manager with a focus on ultrawide (32:9) monitors</Description>
+    <Company>Seafoam Labs</Company>
+    <Product>Aqueoues Window Manager</Product>
+    <Copyright>2026 Seafoam Labs</Copyright>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
