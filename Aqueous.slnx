@@ -7,6 +7,16 @@
     <File Path="wm.toml" />
     <File Path="launch_river.sh" />
     <File Path="PKGBUILD" />
+    <File Path="aqueous.desktop" />
     <File Path="docs/contributing.md"/>
+  </Folder>
+  <Folder Name="/Solution/packaging/">
+    <File Path="packaging/aqueous-wm.sh" />
+    <File Path="packaging/aqueous-inputd.service" />
+    <File Path="packaging/aqueous-inputd.socket" />
+    <File Path="packaging/aqueous.install" />
+  </Folder>
+  <Folder Name="/Solution/packaging/greetd/">
+    <File Path="packaging/greetd/config.toml.example" />
   </Folder>
 </Solution>

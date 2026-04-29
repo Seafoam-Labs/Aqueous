@@ -1,0 +1,23 @@
+# Example /etc/greetd/config.toml for Aqueous + tuigreet.
+#
+# Install:
+#   pacman -S greetd greetd-tuigreet
+#   cp packaging/greetd/config.toml.example /etc/greetd/config.toml
+#   systemctl enable --now greetd
+#
+# tuigreet will list every *.desktop entry under /usr/share/wayland-sessions,
+# including 'Aqueous' (shipped by aqueous-git). --remember-session keeps the
+# last selection sticky.
+
+[terminal]
+vt = 1
+
+[default_session]
+command = "tuigreet --remember --remember-session --time --asterisks --sessions /usr/share/wayland-sessions --cmd aqueous-wm"
+user = "greeter"
+
+# Uncomment for autologin straight into Aqueous (replace 'zoey' with your user):
+#
+# [initial_session]
+# command = "aqueous-wm"
+# user = "zoey"

@@ -88,8 +88,23 @@ useful.
 
 ### Packaging
 
-A reference Arch `PKGBUILD` is included; it builds `Aqueous` AOT and
-declares `noctalia-shell` and `tuigreet` as runtime dependencies.
+A reference Arch `PKGBUILD` is included; it builds `Aqueous` and
+`aqueous-inputd` AOT and ships:
+
+- `/usr/bin/aqueous`, `/usr/bin/aqueous-inputd`, `/usr/bin/aqueous-wm`
+  (session launcher).
+- `/usr/share/wayland-sessions/aqueous.desktop` so any Wayland-capable
+  display manager (greetd/tuigreet, GDM, SDDM, …) lists **Aqueous** in
+  its session picker.
+- `/etc/xdg/aqueous/wm.toml` as the system default; `aqueous-wm` seeds
+  `~/.config/aqueous/wm.toml` on first login if missing.
+- `aqueous-inputd.{service,socket}` systemd user units (opt-in via
+  `systemctl --user enable --now aqueous-inputd.socket`; otherwise the
+  launcher spawns the daemon directly).
+
+For a turn-key login experience see
+`packaging/greetd/config.toml.example` (greetd + tuigreet, with an
+optional autologin snippet).
 
 ---
 

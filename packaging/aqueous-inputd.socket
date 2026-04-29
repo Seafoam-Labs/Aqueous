@@ -1,0 +1,9 @@
+[Unit]
+Description=Aqueous input daemon socket
+
+[Socket]
+ListenStream=%t/aqueous-inputd.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

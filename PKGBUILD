@@ -2,7 +2,7 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous-git
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Aqueous Wayland window manager (River-based) with Noctalia bar"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -10,22 +10,22 @@ license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'river'
          'noctalia-shell' 'libdecor' 'grim')
-optdepends=('tuigreet: greeter for greetd login manager (AUR)'
-'aqueous-config: default Aqueous configuration (AUR)'
-'ghostty: recommended terminal emulator'
-'nemo: recommended file manager'
-'shelly: recommended package manager'
-'starfish: helpful package helper'
-'firefox: web browser')
+optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
+            'greetd: minimal login manager for tuigreet'
+            'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
+            'ghostty: recommended terminal emulator'
+            'nemo: recommended file manager'
+            'firefox: web browser')
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git')
 provides=('aqueous')
 conflicts=('aqueous')
+install=packaging/aqueous.install
 source=("aqueous::git+${url}.git")
 sha256sums=('SKIP')
 
 _rid_map() {
     case "$CARCH" in
-        x86_64) echo "linux-x64" ;;
+        x86_64)  echo "linux-x64" ;;
         aarch64) echo "linux-arm64" ;;
         *) return 1 ;;
     esac
@@ -42,35 +42,62 @@ pkgver() {
 }
 
 build() {
-    local rid=$(_rid_map)
-    dotnet publish "$srcdir/aqueous/Aqueous/Aqueous.csproj" \
-        -c Release \
-        -r "$rid" \
-        --self-contained true \
-        -o "$srcdir/publish-wm" \
-        /p:PublishAot=true
+    local rid; rid=$(_rid_map)
+    cd "$srcdir/aqueous"
+    for proj in Aqueous/Aqueous.csproj Aqueous.InputDaemon/Aqueous.InputDaemon.csproj; do
+        local name; name=$(basename "$proj" .csproj)
+        dotnet publish "$proj" \
+            -c Release \
+            -r "$rid" \
+            --self-contained true \
+            /p:PublishAot=true \
+            -o "$srcdir/publish/$name"
+    done
 }
 
 package() {
-    # Aqueous binary
-    install -d "$pkgdir/usr/lib/aqueous-wm"
-    cp -r "$srcdir/publish-wm/"* "$pkgdir/usr/lib/aqueous-wm/"
-    install -Dm755 "$srcdir/publish-wm/Aqueous" "$pkgdir/usr/bin/aqueous-wm"
+    # AOT runtime layout (private libdir for native side-by-side libs).
+    install -d "$pkgdir/usr/lib/aqueous"
+    cp -a "$srcdir/publish/Aqueous/."             "$pkgdir/usr/lib/aqueous/"
+    cp -a "$srcdir/publish/Aqueous.InputDaemon/." "$pkgdir/usr/lib/aqueous/"
 
-    # Default WM config
-    install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
-    install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
+    # User-facing binaries on PATH.
+    install -Dm755 "$srcdir/publish/Aqueous/Aqueous" \
+        "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/publish/Aqueous.InputDaemon/Aqueous.InputDaemon" \
+        "$pkgdir/usr/bin/aqueous-inputd"
 
-    # User config — only if not already present
-    local real_user="${SUDO_USER:-$USER}"
-    local home
-    home=$(getent passwd "$real_user" | cut -d: -f6)
-    local cfg="$home/.config/aqueous/wm.toml"
-    if [[ -n "$home" && ! -f "$cfg" ]]; then
-        install -Dm644 -o "$real_user" "$srcdir/aqueous/wm.toml" "$cfg"
-    fi
+    # Session launcher.
+    install -Dm755 "$srcdir/aqueous/packaging/aqueous-wm.sh" \
+        "$pkgdir/usr/bin/aqueous-wm"
 
-    # Wayland session entry (used by greetd/tuigreet etc.)
+    # Wayland session entry (DM/greeter picks this up).
     install -Dm644 "$srcdir/aqueous/aqueous.desktop" \
         "$pkgdir/usr/share/wayland-sessions/aqueous.desktop"
+
+    # Default config — system-wide. The launcher seeds the user copy on
+    # first login if ~/.config/aqueous/wm.toml is absent.
+    install -Dm644 "$srcdir/aqueous/wm.toml" \
+        "$pkgdir/etc/xdg/aqueous/wm.toml"
+    install -Dm644 "$srcdir/aqueous/wm.toml" \
+        "$pkgdir/usr/share/aqueous/wm.toml"
+
+    # systemd user units for the input daemon (optional; launcher falls
+    # back to spawning the daemon directly if the unit is inactive).
+    install -Dm644 "$srcdir/aqueous/packaging/aqueous-inputd.service" \
+        "$pkgdir/usr/lib/systemd/user/aqueous-inputd.service"
+    install -Dm644 "$srcdir/aqueous/packaging/aqueous-inputd.socket" \
+        "$pkgdir/usr/lib/systemd/user/aqueous-inputd.socket"
+
+    # Documented greetd example (not auto-installed to /etc).
+    install -Dm644 "$srcdir/aqueous/packaging/greetd/config.toml.example" \
+        "$pkgdir/usr/share/doc/$pkgname/greetd-config.toml.example"
+
+    # Docs / license.
+    install -Dm644 "$srcdir/aqueous/README.md" \
+        "$pkgdir/usr/share/doc/$pkgname/README.md"
+    if [[ -f "$srcdir/aqueous/LICENSE" ]]; then
+        install -Dm644 "$srcdir/aqueous/LICENSE" \
+            "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    fi
 }

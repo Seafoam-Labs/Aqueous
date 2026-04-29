@@ -1,6 +1,8 @@
 [Desktop Entry]
 Name=Aqueous
-Comment=Aqueous Wayland window manager (River-based) with Noctalia bar
+Comment=Aqueous Wayland window manager (River + Noctalia)
 Exec=aqueous-wm
+TryExec=aqueous-wm
 Type=Application
 DesktopNames=Aqueous
+Keywords=wm;wayland;river;
