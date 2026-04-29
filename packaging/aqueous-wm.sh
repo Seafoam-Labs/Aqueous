@@ -59,5 +59,8 @@ if ! systemctl --user is-active --quiet aqueous-inputd.service 2>/dev/null; then
     fi
 fi
 
-# River runs the compositor; Aqueous is its init child.
-exec river -c '/usr/bin/aqueous'
+# River runs the compositor; aqueous-init is its `-c` child. The init
+# wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
+# inability to set the render size before the session starts) and
+# spawns the long-running daemon, before exec'ing Aqueous itself.
+exec river -c '/usr/bin/aqueous-init'

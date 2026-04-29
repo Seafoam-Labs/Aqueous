@@ -2,6 +2,8 @@
   <Project Path="Aqueous/Aqueous.csproj" />
   <Project Path="Aqueous.Tests/Aqueous.Tests.csproj" />
   <Project Path="Aqueous.InputDaemon/Aqueous.InputDaemon.csproj" />
+  <Project Path="Aqueous.OutputDaemon/Aqueous.OutputDaemon.csproj" />
+  <Project Path="Aqueous.OutputDaemon.Tests/Aqueous.OutputDaemon.Tests.csproj" />
   <Folder Name="/Solution/">
     <File Path="README.md" />
     <File Path="wm.toml" />
@@ -14,6 +16,9 @@
     <File Path="packaging/aqueous-wm.sh" />
     <File Path="packaging/aqueous-inputd.service" />
     <File Path="packaging/aqueous-inputd.socket" />
+    <File Path="packaging/aqueous-outputd.service" />
+    <File Path="packaging/aqueous-init" />
+    <File Path="packaging/quickshell/OutputControl.qml" />
     <File Path="packaging/aqueous.install" />
   </Folder>
   <Folder Name="/Solution/packaging/greetd/">

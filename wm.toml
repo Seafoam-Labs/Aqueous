@@ -59,19 +59,92 @@ center_focused  = "true"    # auto-pan so focused column is centred
 
 # -----------------------------------------------------------------------------
 # Per-output overrides. Repeat the [[output]] block once per monitor.
+#
 # `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
+# `edid` (optional) is the SHA-256 of make|model|serial as reported by
+#        `wlr-randr --json`; preferred over `name` because connector
+#        names shuffle between boots and dock states.
+#
+# Display fields (mode/scale/transform/position/enabled/adaptive_sync)
+# are applied by `aqueous-outputd`, NOT by Aqueous itself — River 0.4
+# exposes no in-process output-management protocol to a WM client, so
+# the daemon (running inside River's `-c` control context) calls
+# `wlr-randr` for us. The init wrapper /usr/bin/aqueous-init applies
+# these once before Aqueous draws its first frame, fixing the greetd
+# render-size handoff.
+#
+# Schema:
+#   name          = "DP-1"            connector name (or "*" wildcard)
+#   edid          = "sha256:..."      preferred matcher; survives replug
+#   layout        = "scrolling"       Aqueous layout id (existing field)
+#   enabled       = true              false → wlr-randr --output X --off
+#   mode          = "1920x1080@60"    "WIDTHxHEIGHT[@RATE]"
+#   scale         = 1.25              0.5 – 3.0; fractional allowed
+#   transform     = "normal"          normal | 90 | 180 | 270 |
+#                                     flipped | flipped-90 | flipped-180 |
+#                                     flipped-270
+#   position      = [0, 0]            [x, y] in layout coords
+#   adaptive_sync = false             VRR; only honoured if advertised
+#   primary       = false             at most one output may set this
 # -----------------------------------------------------------------------------
 #[[output]]
 #name   = "DP-1"
 #layout = "scrolling"
+#mode   = "2560x1440@144"
+#scale  = 1.0
+#position = [0, 0]
 #
 #[[output]]
-#name   = "HDMI-A-1"
-#layout = "tile"
+#name    = "HDMI-A-1"
+#layout  = "tile"
+#mode    = "1920x1080@60"
+#scale   = 1.0
+#position = [2560, 0]
 #
 #[[output]]
-#name   = "eDP-1"
-#layout = "monocle"
+#name    = "eDP-1"
+#layout  = "monocle"
+#scale   = 1.5
+#enabled = true
+
+
+# -----------------------------------------------------------------------------
+# Display-side global behaviour. Consumed by `aqueous-outputd` —
+# Aqueous itself only forwards these to the daemon.
+# -----------------------------------------------------------------------------
+#[display]
+#apply_on_start   = true       # apply [[output]] block before Aqueous draws
+#apply_on_reload  = true       # re-apply on Super+R
+#fallback_profile = "safe"     # name of a [[display.profile]] used if apply fails
+#identify_by      = "edid"     # "edid" | "name"
+#rollback_seconds = 15         # GNOME-style "keep these settings?" timeout; 0 disables
+
+
+# -----------------------------------------------------------------------------
+# Named display profiles — bind to a chord via [keybinds.custom] using the
+# "builtin:display_profile:<name>" verb (handled by aqueous-outputd's
+# `apply_profile` op).
+# -----------------------------------------------------------------------------
+#[[display.profile]]
+#name = "docked"
+#
+#[[display.profile.output]]
+#name     = "DP-1"
+#mode     = "3840x2160@60"
+#scale    = 1.5
+#position = [0, 0]
+#
+#[[display.profile.output]]
+#name    = "eDP-1"
+#enabled = false
+#
+#[[display.profile]]
+#name = "safe"
+#
+#[[display.profile.output]]
+#name  = "*"
+#mode  = "1920x1080@60"
+#scale = 1.0
 
 
 # -----------------------------------------------------------------------------

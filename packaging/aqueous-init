@@ -1,0 +1,41 @@
+#!/bin/sh
+# Aqueous init wrapper.
+#
+# Installed as /usr/bin/aqueous-init and run by River as its `-c` child:
+#
+#     exec river -c '/usr/bin/aqueous-init'
+#
+# Why this wrapper exists:
+#
+#   1. River's `-c` only accepts ONE command. We need to call multiple
+#      programs inside River's control context (the only place where
+#      WAYLAND_DISPLAY is set and `wlr-randr`/`riverctl` actually work).
+#
+#   2. greetd performs no DRM mode setup of its own — it simply exec's
+#      this session script. Under SDDM the kernel/DRM had a sane mode
+#      pre-picked; under greetd we have to apply the persisted output
+#      configuration *before* Aqueous draws its first frame, otherwise
+#      the screen comes up at the connector's preferred mode and there
+#      is no opportunity to renegotiate it from a Wayland client.
+#
+# Phase 1 — apply once, blocking, before Aqueous starts.
+# Phase 2 — fork the long-running daemon for live changes from Aqueous
+#           and Noctalia.
+# Phase 3 — exec Aqueous.
+set -u
+
+LOG="${XDG_RUNTIME_DIR:-/tmp}/aqueous-outputd.log"
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
+
+if [ -x /usr/bin/aqueous-outputd ]; then
+    # apply-once is fire-and-forget. Never fatal: a bad output config
+    # must not black out the session — fall through to Aqueous either way.
+    /usr/bin/aqueous-outputd --apply-once --config "$CFG" >>"$LOG" 2>&1 || true
+
+    # Skip the inline fork if a systemd user unit is already managing it.
+    if ! systemctl --user is-active --quiet aqueous-outputd.service 2>/dev/null; then
+        /usr/bin/aqueous-outputd --serve >>"$LOG" 2>&1 &
+    fi
+fi
+
+exec /usr/bin/aqueous
