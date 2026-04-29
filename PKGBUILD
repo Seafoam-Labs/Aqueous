@@ -1,8 +1,9 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous-git
-pkgver=0.1.0
-pkgrel=4
+pkgbase=aqueous
+pkgver=0.0.1.r0.g63455cf
+pkgrel=1
 pkgdesc="Aqueous Wayland window manager (River-based) with Noctalia bar"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -19,7 +20,7 @@ optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
 makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git')
 provides=('aqueous')
 conflicts=('aqueous')
-install=packaging/aqueous.install
+install=aqueous.install
 source=("aqueous::git+${url}.git")
 sha256sums=('SKIP')
 
