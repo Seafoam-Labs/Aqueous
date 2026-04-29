@@ -61,6 +61,29 @@ Noctalia (`qs -c noctalia-shell`) as the bar. Logs land in `/tmp/`:
 `wm.toml` (place at `~/.config/aqueous/wm.toml`) configures layouts, gaps,
 keybindings, outputs, etc. See the file in this repo for an annotated example.
 
+### Autostart
+
+Aqueous launches supervised commands itself via `[[exec]]` blocks in
+`wm.toml`. Each entry fires once after River advertises all its globals
+(so layer-shell clients like the bar attach successfully on first
+connect). Commands run via `/bin/sh -c` detached with `setsid`.
+
+```toml
+[[exec]]
+name    = "noctalia"
+command = "qs -c noctalia-shell"
+when    = "startup"          # "startup" (default) | "reload" | "always"
+once    = true               # don't relaunch on --reload
+restart = false              # respawn (with backoff) on non-zero exit
+log     = "/tmp/noctalia.log"
+env     = { QT_QPA_PLATFORM = "wayland" }
+```
+
+Backoff for `restart = true` follows 250 ms → 500 → 1 s → 2 s → 4 s →
+8 s → cap 10 s, and resets on a clean (`exit 0`) termination. Setting
+`restart = true` on a `when = "reload"` entry is allowed but rarely
+useful.
+
 ---
 
 ### Packaging

@@ -14,7 +14,10 @@ pkill -9 -f '^river '                                  2>/dev/null
 sleep 0.3
 
 WM_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/Aqueous"
-BAR_CMD="qs -c noctalia-shell"
+# NOTE: the bar (qs -c noctalia-shell) is now launched by Aqueous itself
+# via the [[exec]] section in wm.toml. The pre-kill above stays — Aqueous
+# is not running yet at that point, so a stale Noctalia from a previous
+# crash still needs to be reaped before Aqueous claims ownership.
 
 # Detect "nested" run: if a host Wayland/X session is already visible, fall
 # back to Alt for Aqueous bindings so drag-to-move / resize still work
@@ -28,6 +31,6 @@ else
 fi
 echo "[launch_river] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
 
-INNER="'$WM_BIN' >/tmp/aqueous_wm.log 2>&1 & sleep 1; exec $BAR_CMD >/tmp/noctalia.log 2>&1"
+INNER="exec '$WM_BIN' >/tmp/aqueous_wm.log 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     river -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

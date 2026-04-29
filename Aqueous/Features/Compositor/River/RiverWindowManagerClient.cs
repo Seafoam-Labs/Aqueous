@@ -9,6 +9,7 @@ using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Startup;
 using Aqueous.Features.State;
 using Aqueous.Features.Tags;
 using Microsoft.Extensions.Logging;
@@ -233,6 +234,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
     private readonly ScratchpadRegistry _scratchpadRegistry;
     private readonly WindowStateController _windowState;
+    // Phase B1f: [[exec]] autostart runner. Owns the once/restart state for
+    // the supervised commands listed in wm.toml; fired after the initial
+    // roundtrip in Connect().
+    private readonly StartupExecRunner _startupExec;
+    private readonly RiverWindowStateHost _stateHost;
 
     private RiverWindowManagerClient()
     {
@@ -243,8 +249,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
         _tagController = new TagController(this);
         _scratchpadRegistry = new ScratchpadRegistry();
+        _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
-            new RiverWindowStateHost(this), _scratchpadRegistry);
+            _stateHost, _scratchpadRegistry);
+        _startupExec = new StartupExecRunner(_stateHost, _layoutConfig.Exec);
 
         // Push libinput config to the privileged sidecar (aqueous-inputd).
         // Best-effort: silently logs and proceeds if the daemon isn't up.
@@ -343,6 +351,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         {
             return Result.Fail(
                 "river_window_manager_v1 global was not advertised — is River 0.4+ running with WM support?");
+        }
+
+        // Phase B1f: with the WM global bound and globals advertised, fire
+        // the [[exec]] on_startup / when=always entries from wm.toml. This
+        // runs synchronously on the connect thread, but each command is
+        // detached via setsid so it returns immediately.
+        try
+        {
+            _startupExec.OnStartup();
+        }
+        catch (Exception ex)
+        {
+            Log($"startup exec failed: {ex.Message}");
         }
         return Result.Ok;
     }

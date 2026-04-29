@@ -75,6 +75,40 @@ center_focused  = "true"    # auto-pan so focused column is centred
 
 
 # -----------------------------------------------------------------------------
+# Autostart — supervised commands that Aqueous launches itself, after River
+# has advertised all its globals (so layer-shell clients like the bar can
+# attach successfully on first connect).
+#
+# Schema (one [[exec]] table per command):
+#   name    = "id"           required — identifier used in logs / IPC
+#   command = "sh command"   required — passed to /bin/sh -c, detached via setsid
+#   when    = "startup"      "startup" (default) | "reload" | "always"
+#   once    = true           don't relaunch on --reload
+#   restart = false          respawn (with backoff) on non-zero exit
+#   log     = "/tmp/x.log"   redirect stdout+stderr; default = /dev/null
+#   env     = { K = "v" }    per-entry env overrides
+# -----------------------------------------------------------------------------
+[[exec]]
+name    = "noctalia"
+command = "qs -c noctalia-shell"
+when    = "startup"
+once    = true
+restart = false
+log     = "/tmp/noctalia.log"
+
+# Additional examples:
+# [[exec]]
+# name    = "wallpaper"
+# command = "swaybg -i ~/Pictures/wall.png -m fill"
+#
+# [[exec]]
+# name    = "polkit"
+# command = "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+# when    = "always"
+# restart = true
+
+
+# -----------------------------------------------------------------------------
 # Keybindings.
 #
 # Each built-in action maps to either:

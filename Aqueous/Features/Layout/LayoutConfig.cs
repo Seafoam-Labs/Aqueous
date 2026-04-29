@@ -60,6 +60,13 @@ public sealed class LayoutConfig
     /// </summary>
     public SnapZoneStore SnapZones { get; init; } = SnapZoneStore.Empty;
 
+    /// <summary>
+    /// <c>[[exec]]</c> autostart entries — supervised commands that
+    /// Aqueous launches after the compositor advertises its globals
+    /// (the bar, wallpaper daemon, polkit agent, …).
+    /// </summary>
+    public ExecConfig Exec { get; init; } = ExecConfig.Empty;
+
     /// <summary>Compiled-in fallback config (used when no file is present).</summary>
     public static LayoutConfig Default { get; } = new();
 

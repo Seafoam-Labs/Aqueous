@@ -104,6 +104,76 @@ public static class LayoutConfigLoader
         }
 
         // ---------------------------------------------------------------
+        // [[exec]] autostart entries (Phase B1f). Each [[exec]] table
+        // becomes one ExecEntry. Required keys (`name`, `command`) must
+        // both be present; otherwise the entry is silently dropped (a
+        // warning is logged once we have a logger seam here).
+        // Duplicate `name`s: first wins.
+        // ---------------------------------------------------------------
+        var execEntries = new List<ExecEntry>();
+        var execNames = new HashSet<string>(StringComparer.Ordinal);
+        string? execPendingName = null;
+        string? execPendingCommand = null;
+        ExecWhen execPendingWhen = ExecWhen.Startup;
+        bool execPendingOnce = true;
+        bool execPendingRestart = false;
+        string? execPendingLogPath = null;
+        Dictionary<string, string> execPendingEnv = new(StringComparer.Ordinal);
+        bool execHasPending = false;
+
+        void FlushExec()
+        {
+            if (!execHasPending)
+            {
+                return;
+            }
+            execHasPending = false;
+            if (string.IsNullOrWhiteSpace(execPendingName)
+                || string.IsNullOrWhiteSpace(execPendingCommand))
+            {
+                // Silently drop incomplete entries — same permissive
+                // posture as the rest of the loader.
+                execPendingName = null;
+                execPendingCommand = null;
+                execPendingWhen = ExecWhen.Startup;
+                execPendingOnce = true;
+                execPendingRestart = false;
+                execPendingLogPath = null;
+                execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
+                return;
+            }
+            if (!execNames.Add(execPendingName!))
+            {
+                // Duplicate name: first wins.
+                execPendingName = null;
+                execPendingCommand = null;
+                execPendingWhen = ExecWhen.Startup;
+                execPendingOnce = true;
+                execPendingRestart = false;
+                execPendingLogPath = null;
+                execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
+                return;
+            }
+            execEntries.Add(new ExecEntry
+            {
+                Name = execPendingName!,
+                Command = execPendingCommand!,
+                When = execPendingWhen,
+                Once = execPendingOnce,
+                Restart = execPendingRestart,
+                LogPath = execPendingLogPath,
+                Env = execPendingEnv,
+            });
+            execPendingName = null;
+            execPendingCommand = null;
+            execPendingWhen = ExecWhen.Startup;
+            execPendingOnce = true;
+            execPendingRestart = false;
+            execPendingLogPath = null;
+            execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        // ---------------------------------------------------------------
         // Snap-zone parsing state.
         //
         // Schema (line-oriented to fit this hand-rolled parser):
@@ -193,8 +263,9 @@ public static class LayoutConfigLoader
 
             if (line.StartsWith("[["))
             {
-                // array-of-tables — [[output]], [[snapzones]], [[snapzones.zone]].
+                // array-of-tables — [[output]], [[snapzones]], [[snapzones.zone]], [[exec]].
                 FlushOutput();
+                FlushExec();
                 int end = line.IndexOf("]]", StringComparison.Ordinal);
                 curSection = end > 2 ? "[[" + line.Substring(2, end - 2).Trim() + "]]" : line;
 
@@ -215,6 +286,13 @@ public static class LayoutConfigLoader
                     FlushZone();
                     zPendingActive = true;
                 }
+                else if (curSection == "[[exec]]")
+                {
+                    // Open a fresh exec entry buffer.
+                    FlushSnapBucket();
+                    execHasPending = true;
+                    execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
+                }
                 else
                 {
                     // A non-snapzone aoT closes any open snap bucket.
@@ -227,6 +305,7 @@ public static class LayoutConfigLoader
             if (line.StartsWith("["))
             {
                 FlushOutput();
+                FlushExec();
                 FlushSnapBucket();
                 int end = line.IndexOf(']');
                 curSection = end > 1 ? line.Substring(1, end - 1).Trim() : line;
@@ -285,6 +364,38 @@ public static class LayoutConfigLoader
                     else if (key == "layout")
                     {
                         pendingOutputLayout = val;
+                    }
+
+                    break;
+                case "[[exec]]":
+                    switch (key)
+                    {
+                        case "name":
+                            execPendingName = val;
+                            break;
+                        case "command":
+                            execPendingCommand = val;
+                            break;
+                        case "when":
+                            execPendingWhen = val.ToLowerInvariant() switch
+                            {
+                                "reload" => ExecWhen.Reload,
+                                "always" => ExecWhen.Always,
+                                _ => ExecWhen.Startup,
+                            };
+                            break;
+                        case "once":
+                            execPendingOnce = ParseBool(val, execPendingOnce);
+                            break;
+                        case "restart":
+                            execPendingRestart = ParseBool(val, execPendingRestart);
+                            break;
+                        case "log":
+                            execPendingLogPath = string.IsNullOrEmpty(val) ? null : val;
+                            break;
+                        case "env":
+                            ParseInlineEnvTable(valRaw, execPendingEnv);
+                            break;
                     }
 
                     break;
@@ -404,6 +515,7 @@ public static class LayoutConfigLoader
         }
 
         FlushOutput();
+        FlushExec();
         FlushSnapBucket();
 
         // Build the SnapZoneStore from the parsed buckets. The map is
@@ -489,6 +601,7 @@ public static class LayoutConfigLoader
             Keybinds = keybinds,
             State = stateConfig,
             SnapZones = snapZones,
+            Exec = new ExecConfig { Entries = execEntries },
             Input = new InputConfig()
             {
                 FocusFollowsMouse = inFocusFollowsMouse,
@@ -632,6 +745,81 @@ public static class LayoutConfigLoader
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Parses a single-line TOML inline table of the form
+    /// <c>{ KEY = "value", OTHER = "v" }</c> and merges its key/value
+    /// pairs into <paramref name="into"/>. Best-effort: malformed input
+    /// is ignored. Used by <c>[[exec]] env = { … }</c>.
+    /// </summary>
+    private static void ParseInlineEnvTable(string raw, IDictionary<string, string> into)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return;
+        }
+        var s = raw.Trim();
+        // Strip outer braces.
+        int lb = s.IndexOf('{');
+        int rb = s.LastIndexOf('}');
+        if (lb < 0 || rb <= lb)
+        {
+            return;
+        }
+        var body = s.Substring(lb + 1, rb - lb - 1).Trim();
+        if (body.Length == 0)
+        {
+            return;
+        }
+
+        // Split on top-level commas (i.e. commas that are NOT inside
+        // double-quoted spans).
+        var parts = new List<string>();
+        var cur = new System.Text.StringBuilder();
+        bool inQuotes = false;
+        for (int i = 0; i < body.Length; i++)
+        {
+            char c = body[i];
+            if (c == '"' && (i == 0 || body[i - 1] != '\\'))
+            {
+                inQuotes = !inQuotes;
+                cur.Append(c);
+                continue;
+            }
+            if (c == ',' && !inQuotes)
+            {
+                parts.Add(cur.ToString());
+                cur.Clear();
+                continue;
+            }
+            cur.Append(c);
+        }
+        if (cur.Length > 0)
+        {
+            parts.Add(cur.ToString());
+        }
+
+        foreach (var p in parts)
+        {
+            var pair = p.Trim();
+            if (pair.Length == 0)
+            {
+                continue;
+            }
+            int eq = pair.IndexOf('=');
+            if (eq <= 0)
+            {
+                continue;
+            }
+            var k = pair.Substring(0, eq).Trim();
+            var v = StripQuotes(pair.Substring(eq + 1).Trim());
+            if (k.Length == 0)
+            {
+                continue;
+            }
+            into[k] = v;
+        }
     }
 
     private static string StripQuotes(string s)

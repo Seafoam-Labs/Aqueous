@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 
@@ -136,7 +138,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
             try
             {
-                var psi = new System.Diagnostics.ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
                     FileName = "/bin/sh",
                     UseShellExecute = false,
@@ -144,11 +146,89 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 };
                 psi.ArgumentList.Add("-c");
                 psi.ArgumentList.Add($"setsid -f sh -c {EscapeForShell(command)} >/dev/null 2>&1");
-                System.Diagnostics.Process.Start(psi);
+                Process.Start(psi);
             }
             catch (Exception ex)
             {
                 RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}");
+            }
+        }
+
+        public void Spawn(SpawnRequest request)
+        {
+            if (request is null || string.IsNullOrEmpty(request.Command))
+            {
+                return;
+            }
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "/bin/sh",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                };
+
+                // Per-entry env overrides; merged on top of inherited env.
+                if (request.Env is { Count: > 0 } envOverrides)
+                {
+                    foreach (var (k, v) in envOverrides)
+                    {
+                        psi.Environment[k] = v;
+                    }
+                }
+
+                // For supervised entries (OnExit set) we run the command
+                // *foregrounded* under sh so Process.HasExited / Exited
+                // fire when the child terminates. For fire-and-forget
+                // entries we keep the existing setsid -f detach semantics
+                // — same as the keybind spawn path.
+                var redirect = string.IsNullOrEmpty(request.LogPath)
+                    ? ">/dev/null 2>&1"
+                    : $">>{EscapeForShell(request.LogPath!)} 2>&1";
+
+                string inner;
+                if (request.OnExit is null)
+                {
+                    inner = $"setsid -f sh -c {EscapeForShell(request.Command)} {redirect}";
+                }
+                else
+                {
+                    // setsid (without -f) keeps us as the parent so we
+                    // observe the exit; the child still gets a fresh
+                    // session so Ctrl+C in our TTY doesn't kill it.
+                    inner = $"setsid sh -c {EscapeForShell(request.Command)} {redirect}";
+                }
+
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(inner);
+
+                var proc = Process.Start(psi);
+                if (proc is null)
+                {
+                    RiverWindowManagerClient.Log($"exec spawn failed: Process.Start returned null for cmd={request.Command}");
+                    return;
+                }
+
+                if (request.OnExit is { } onExit)
+                {
+                    proc.EnableRaisingEvents = true;
+                    proc.Exited += (_, _) =>
+                    {
+                        try { onExit(proc.ExitCode); }
+                        catch (Exception ex)
+                        {
+                            RiverWindowManagerClient.Log($"exec OnExit threw: {ex.Message}");
+                        }
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                RiverWindowManagerClient.Log($"exec spawn failed: {ex.Message}");
             }
         }
 

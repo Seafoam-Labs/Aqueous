@@ -1,8 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.State;
+
+/// <summary>
+/// Phase B1f — extended spawn request used by <c>[[exec]]</c> autostart
+/// entries. Carries optional log redirection, per-entry environment
+/// overrides, and an exit callback used by the supervisor for restart
+/// scheduling. <see cref="IWindowStateHost.Spawn(string)"/> remains the
+/// fast path for keybind-driven spawns.
+/// </summary>
+public sealed record SpawnRequest(
+    string Command,
+    string? LogPath = null,
+    IReadOnlyDictionary<string, string>? Env = null,
+    Action<int>? OnExit = null);
 
 /// <summary>
 /// Phase B1e — protocol-agnostic surface that <see cref="WindowStateController"/>
@@ -56,6 +70,44 @@ public interface IWindowStateHost
 
     /// <summary>Spawn a configured scratchpad command (best-effort fork/exec).</summary>
     void Spawn(string command);
+
+    /// <summary>
+    /// Spawn an autostart command with optional log redirection, env
+    /// overrides, and an exit callback. The default implementation
+    /// degrades to <see cref="Spawn(string)"/> so existing fakes that
+    /// don't care about supervision keep compiling unchanged; the river
+    /// adapter overrides this with the full <c>setsid</c> + redirect +
+    /// env path.
+    /// </summary>
+    void Spawn(SpawnRequest request)
+    {
+        if (request is null || string.IsNullOrEmpty(request.Command))
+        {
+            return;
+        }
+        Spawn(request.Command);
+    }
+
+    /// <summary>
+    /// Schedule <paramref name="callback"/> to run on the WM dispatcher
+    /// after <paramref name="delay"/>. Used by the autostart supervisor
+    /// to back off between restart attempts. The default implementation
+    /// uses a <see cref="Timer"/> directly — fakes can override to drive
+    /// virtual time in tests.
+    /// </summary>
+    void ScheduleAfter(TimeSpan delay, Action callback)
+    {
+        if (callback is null)
+        {
+            return;
+        }
+        Timer? t = null;
+        t = new Timer(_ =>
+        {
+            try { callback(); }
+            finally { t?.Dispose(); }
+        }, null, delay, Timeout.InfiniteTimeSpan);
+    }
 
     /// <summary>Structured info-level log message.</summary>
     void Log(string message);
