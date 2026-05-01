@@ -140,6 +140,8 @@ public sealed class WindowStateController
 
         _host.SetFullscreenWindow(output, WindowProxy.Zero);
         _host.EmitForeignToplevelUnfullscreen(w.Handle);
+        w.PreFsGeom = null;
+        _host.RequestRender(output);
     }
 
     // ------------------------------------------------------------------

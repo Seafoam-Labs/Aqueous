@@ -232,6 +232,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     // Per-output single-FS slot (single-fullscreen-per-output rule).
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
+    // Fix #3: snapshot of window handles that were in the fullscreen bucket on
+    // the previous ProposeForArea cycle. On the cycle a window leaves the FS
+    // bucket (unfullscreen) we must force a re-propose because the tiled/
+    // floating bucket may compute the same pixel rect as the FS rect, leaving
+    // LastHintW/H unchanged and no propose_dimensions emitted — which makes the
+    // client appear stuck at the FS size. Accessed only from the manage cycle
+    // thread (ProposeForArea), so a plain HashSet is fine.
+    private readonly HashSet<IntPtr> _prevFullscreenHandles = new();
     private readonly ScratchpadRegistry _scratchpadRegistry;
     private readonly WindowStateController _windowState;
     // Phase B1f: [[exec]] autostart runner. Owns the once/restart state for

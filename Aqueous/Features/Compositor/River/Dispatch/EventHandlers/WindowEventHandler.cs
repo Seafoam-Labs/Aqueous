@@ -34,6 +34,17 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // dead proxy before _windows loses the entry.
                 _windowState.OnWindowDestroyed(new WindowProxy(proxy));
                 _windowStates.TryRemove(proxy, out _);
+                // clear *all* tracking that points at this proxy
+                // BEFORE removing it from _windows. The layout pass uses
+                // _windows.TryGetValue as its only "is this handle alive?"
+                // check before marshalling opcode 3 onto the proxy. If we
+                // remove from _windows first, a concurrent ProposeForArea
+                // can still find the dead handle in _outputFullscreen /
+                // _prevFullscreenHandles, fall into the FS bucket, and
+                // (because the new ContainsKey guard fires AFTER the
+                // bucketing pass had already captured the handle) marshal
+                // a propose_dimensions on a freed proxy — protocol error,
+                // River drops our connection.
                 foreach (var ofs in _outputFullscreen)
                 {
                     if (ofs.Value == proxy)
@@ -41,6 +52,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         _outputFullscreen.TryRemove(ofs.Key, out _);
                     }
                 }
+                _prevFullscreenHandles.Remove(proxy);
 
                 _windows.TryRemove(proxy, out _);
                 // Clean up all dangling references to the destroyed proxy so subsequent
@@ -98,7 +110,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.W = args[0].i;
                 w.H = args[1].i;
                 Log($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
-                // Fix #3: as soon as the client commits a real size, run a fresh
+                // as soon as the client commits a real size, run a fresh
                 // manage/render cycle so set_clip_box is emitted on the first frame
                 // the size is known. Otherwise the initial frame ships without a
                 // clip box and pointer/keyboard input falls outside the input region.
@@ -122,7 +134,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // during the drag would be silently overwritten on the next
                 // manage cycle. Ignoring the request here keeps the WM out of a
                 // half-armed drag state instead of pretending to move the window.
-                // Fix #5: gate on the dragged window's output, not the focused
+                // gate on the dragged window's output, not the focused
                 // window's, so a resize/move gesture that landed before the
                 // CSD-driven focus update isn't silently dropped because focus
                 // happens to live on another output running a tiling layout.
@@ -161,13 +173,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     break;
                 }
 
-                // Fix #2: capture starting geometry with a richer fallback
-                // chain. For a freshly-mapped floating window where the user
-                // grabs a corner *before* `dimensions` has fired, w.W/LastHintW/
-                // ProposedW can all still be 0; falling through to FloatW (set
-                // by LayoutProposer's float seed) and finally to the same
-                // 800x600 seed it uses keeps the first OpDelta from clamping
-                // newW = 0 + dx down to MinW and snapping the window to 1px.
                 _activeDragWindow = w;
                 _activeDragSeat = resizeSeatProxy;
                 _dragStartX = w.X;
@@ -202,7 +207,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 break;
             case RiverProtocolOpcodes.Window.UnmaximizeRequested:
                 if (_windowStates.TryGetValue(proxy, out var stateData)
-                    && stateData.State == WindowState.Minimized)
+                    && stateData.State == WindowState.Maximized)
                 {
                     _windowState.ToggleMaximize(new WindowProxy(proxy));
                 }

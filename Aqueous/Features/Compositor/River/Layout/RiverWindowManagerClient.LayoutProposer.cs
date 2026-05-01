@@ -278,6 +278,46 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
+        // Fix #3: when a window leaves the FS bucket this cycle, force a
+        // re-propose by zeroing its placement caches. The layout engine may
+        // recompute the same pixel rect as the FS rect (e.g. Monocle on a
+        // single-window tag), in which case the regular `pw != w.LastHintW`
+        // gate downstream would suppress propose_dimensions and the client
+        // would stay visually stuck at the FS size with no way to redraw.
+        if (_prevFullscreenHandles.Count > 0)
+        {
+            List<IntPtr>? toDrop = null;
+            foreach (var prev in _prevFullscreenHandles)
+            {
+                bool stillFs = false;
+                for (int i = 0; i < fullscreenHandles.Count; i++)
+                {
+                    if (fullscreenHandles[i] == prev) { stillFs = true; break; }
+                }
+                if (stillFs)
+                {
+                    continue;
+                }
+                if (_windows.TryGetValue(prev, out var pw))
+                {
+                    pw.LastHintW = 0;
+                    pw.LastHintH = 0;
+                    pw.LastPosX = int.MinValue;
+                    pw.LastPosY = int.MinValue;
+                    pw.LastClipW = 0;
+                    pw.LastClipH = 0;
+                }
+                (toDrop ??= new List<IntPtr>()).Add(prev);
+            }
+            if (toDrop != null)
+            {
+                for (int i = 0; i < toDrop.Count; i++)
+                {
+                    _prevFullscreenHandles.Remove(toDrop[i]);
+                }
+            }
+        }
+
         // -------- Tiled windows: drive through the layout engine --------
         if (tiledSnapshot.Count > 0)
         {
@@ -408,15 +448,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
 
-            // Fix #3: co-emit set_position with propose_dimensions during the
-            // manage cycle. The render branch (ManagerEventHandler ~line 232)
-            // also issues set_position when X/Y change, but during a high-
-            // frequency interactive drag of a left/top edge the manage and
-            // render cycles can be split such that propose_dimensions lands
-            // before the matching set_position, leaving the dragged corner
-            // visually anchored for a frame. Emitting it here as well keeps
-            // the geometry pair atomic from the client's point of view (the
-            // render-path emit becomes a no-op via the LastPosX/Y diff-gate).
             if (w.NodeProxy != IntPtr.Zero
                 && (w.LastPosX != w.X || w.LastPosY != w.Y))
             {
@@ -429,7 +460,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
-        // -------- Phase B1e Pass C: Maximized layer --------------------
         // Maximized windows cover the usable area of their pinned
         // output (or this output, when not pinned). Geometry follows
         // exactly the same diff-gating discipline as the floating
@@ -468,7 +498,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
-        // -------- Phase B1e Pass C: Fullscreen layer -------------------
         // Fullscreen windows cover the raw output rect (no struts,
         // no gaps). The single-FS-per-output invariant is enforced
         // up in the snapshot pass; here we trust the bucket.
@@ -493,7 +522,23 @@ internal sealed unsafe partial class RiverWindowManagerClient
         for (int i = 0; i < fullscreenHandles.Count; i++)
         {
             var handle = fullscreenHandles[i];
+            // Fix #4: defence-in-depth before we marshal opcode 3 onto a
+            // possibly-dead Wayland proxy. The bucketing pass above held a
+            // reference to the WindowEntry, but a Closed event can land on
+            // the dispatch thread between snapshot and emit; if we then
+            // call wl_proxy_marshal_flags on a freed handle River
+            // terminates our connection (the "eventually crashes" symptom).
+            // Guard with a fresh ContainsKey AND require the FS slot to
+            // still point at this handle — if the controller demoted the
+            // window mid-cycle we must not re-propose the FS rect.
             if (!_windows.TryGetValue(handle, out var w))
+            {
+                continue;
+            }
+            if (output != IntPtr.Zero &&
+                _outputFullscreen.TryGetValue(output, out var slotOwner) &&
+                slotOwner != IntPtr.Zero &&
+                slotOwner != handle)
             {
                 continue;
             }
@@ -522,6 +567,11 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     (IntPtr)pw, (IntPtr)ph,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
+
+            // Fix #3: record this handle as fullscreen-this-cycle so the
+            // next ProposeForArea call can detect when it leaves the FS
+            // bucket and force a re-propose on the tiled/floating side.
+            _prevFullscreenHandles.Add(handle);
         }
     }
 
