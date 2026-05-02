@@ -110,5 +110,68 @@ optional autologin snippet).
 
 ### TODO
 
-- [ ] Reserved space for the bar (currently hardcoded to 24px)
-- [ ] Support for multiple outputs (Technically  works but a bit hacky)
+#### Known bugs
+
+- [ ] Monocle layout crashes the WM — `LayoutProposer` drops `Visible=false`
+      placements with `Rect.Empty` on the floor (zero-dimension guard fires
+      before the visibility check). See
+      `scratches/monocole_currently_causes_wm_crash.md`.
+- [ ] Fullscreen demote path is fragile; there is no dedicated
+      `exit_fullscreen` action — only the `toggle_fullscreen` chord
+      (`Super+Shift+F`) can leave fullscreen. See
+      `scratches/currently_fullscreening_a_window_cannot.md` and
+      `scratches/keycombo_to_unfullscreen.md`.
+
+#### Compositor / shell integration
+
+- [ ] Reserved space for the bar (currently hardcoded to 24px) — implement
+      proper `wlr-layer-shell` exclusive-zone negotiation so bars of any
+      height and on any edge work.
+- [ ] Support for multiple outputs (technically works but a bit hacky) —
+      per-output tag state, hot-plug add/remove, per-output
+      layout/scale/transform persistence, "move window/workspace to next
+      output" semantics.
+- [ ] `[[output]]` config block: mode, scale, position, transform, VRR /
+      adaptive-sync, DPMS / power management.
+- [ ] Fractional-scale (`wp-fractional-scale-v1`) and `viewporter` story for
+      mixed-DPI setups.
+- [ ] `gamma-control` / night-light support.
+- [ ] Cursor theme and size configuration.
+
+#### IPC / control surface
+
+- [ ] `aqueousctl` IPC socket: query focused tag/window/title, dispatch any
+      `KeyBindingAction`, trigger config reload, drive status bars and
+      scripts (`swaymsg`-style). Today only `aqueous-inputd.sock` exists
+      and it is libinput-only.
+- [ ] On-the-fly config reload from a keybind / external tool, with error
+      reporting when `wm.toml` is malformed.
+- [ ] Man page, shell completions, log rotation (logs currently land in
+      `/tmp/*.log` from `launch_river.sh`).
+
+#### Window management features
+
+- [ ] Window rules (`[[rule]]` matching `app_id` / `class` / `title` →
+      float / tile / tag / size / position / sticky). Required for things
+      like "always float `pavucontrol`" or "send `firefox` to tag 2".
+- [ ] XWayland policy / rules engine (Steam, JetBrains splash, Zoom, …).
+- [ ] Floating-window keybinds: toggle-float on focused tile, move/resize
+      by keys, center-on-spawn, remembered geometry.
+- [ ] Surface `Features/SnapZones` as a daily-use feature (pointer
+      drag-to-snap for floating windows).
+- [ ] Dedicated `exit_fullscreen` action (separate from
+      `toggle_fullscreen`) and audit of all state-transition bindings.
+- [ ] Scratchpad / iconify-equivalent semantics.
+- [ ] `xdg-activation-v1` "demand attention" → tag urgency highlight for
+      bars.
+
+#### Session services
+
+- [ ] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
+      `lock_command` config key. Watching video should inhibit blanking.
+- [ ] Screencopy + `xdg-desktop-portal-wlr` integration so browser /
+      Discord / OBS screen sharing works out of the box.
+- [ ] Clipboard-persistence daemon (or document `wl-clip-persist`) and
+      primary-selection guarantees beyond what River provides.
+- [ ] Per-seat keyboard layout switching exposed as a `KeyBindingAction`
+      (today only the input daemon applies static config).
