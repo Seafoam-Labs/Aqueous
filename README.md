@@ -112,11 +112,11 @@ optional autologin snippet).
 
 #### Known bugs
 
-- [ ] Monocle layout crashes the WM — `LayoutProposer` drops `Visible=false`
+- [x] Monocle layout crashes the WM — `LayoutProposer` drops `Visible=false`
       placements with `Rect.Empty` on the floor (zero-dimension guard fires
       before the visibility check). See
       `scratches/monocole_currently_causes_wm_crash.md`.
-- [ ] Fullscreen demote path is fragile; there is no dedicated
+- [x] Fullscreen demote path is fragile; there is no dedicated
       `exit_fullscreen` action — only the `toggle_fullscreen` chord
       (`Super+Shift+F`) can leave fullscreen. See
       `scratches/currently_fullscreening_a_window_cannot.md` and
