@@ -341,6 +341,16 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     continue;
                 }
 
+                if (!p.Visible)
+                {
+                    w.Visible    = false;
+                    w.TagVisible = false;
+                    // Do NOT update LastHintW/H — we want the next visible
+                    // cycle to fire propose exactly once if size changed.
+                    continue;
+                }
+
+
                 int pw = p.Geometry.W;
                 int ph = p.Geometry.H;
                 if (pw <= 0 || ph <= 0)
@@ -522,7 +532,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         for (int i = 0; i < fullscreenHandles.Count; i++)
         {
             var handle = fullscreenHandles[i];
-            // Fix #4: defence-in-depth before we marshal opcode 3 onto a
+            // defence-in-depth before we marshal opcode 3 onto a
             // possibly-dead Wayland proxy. The bucketing pass above held a
             // reference to the WindowEntry, but a Closed event can land on
             // the dispatch thread between snapshot and emit; if we then
