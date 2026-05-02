@@ -120,13 +120,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public void EmitForeignToplevelFullscreen(WindowProxy window, OutputProxy output)
         {
-            // Pass B: foreign-toplevel sync deferred. See
-            // none_of_the_new_keybinds_are_functional.md step 6.
+
         }
 
         public void EmitForeignToplevelUnfullscreen(WindowProxy window)
         {
-            // Pass B: foreign-toplevel sync deferred.
+
         }
 
         public void Spawn(string command)
