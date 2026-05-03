@@ -11,7 +11,7 @@ license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite')
-makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git' 'zig>=0.16.0' 'wayland-protocols')
+makedepends=('dotnet-sdk-10.0' 'clang' 'zlib' 'krb5' 'git' 'wayland-protocols')
 optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
             'greetd: minimal login manager for tuigreet'
             'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
@@ -46,6 +46,25 @@ pkgver() {
 }
 
 build() {
+    # Verify zig is new enough (RiverDelta requires >= 0.16.0).
+    # We enforce this here instead of via a pacman version constraint because
+    # the repo `zig` package is currently 0.15.x and Zig 0.16 is only available
+    # via `zig-master-bin` (AUR), which provides unversioned `zig`.
+    if ! command -v zig >/dev/null 2>&1; then
+        error "zig not found. Install zig-master-bin from the AUR (or another zig >= 0.16.0)."
+        return 1
+    fi
+    local zig_ver zig_base
+    zig_ver=$(zig version)
+    # Strip any -dev.NNN+hash pre-release suffix so we compare the numeric base
+    # version with sort -V (which has inconsistent semantics around bare `-`).
+    zig_base="${zig_ver%%-*}"
+    if ! printf '0.16.0\n%s\n' "$zig_base" | sort -V -C; then
+        error "Zig >= 0.16.0 required, found $zig_ver. Install zig-master-bin from the AUR."
+        return 1
+    fi
+    msg2 "Using zig $zig_ver"
+
     # Build Aqueous components
     local rid; rid=$(_rid_map)
     cd "$srcdir/aqueous"
@@ -71,6 +90,7 @@ package() {
 
     # Install RiverDelta share data (man pages, etc.)
     if [ -d "$srcdir/river-dist/share" ]; then
+        install -d "$pkgdir/usr/share"
         cp -dr --no-preserve=ownership "$srcdir/river-dist/share/"* "$pkgdir/usr/share/"
     fi
 
