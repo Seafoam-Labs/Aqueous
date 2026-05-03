@@ -192,16 +192,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // Headless / no outputs reported yet: fall back to a single
                         // virtual 1920x1080 area so windows still get a reasonable
                         // initial proposal (matches old behaviour + tile layout).
-                        ProposeForArea(IntPtr.Zero, null, new Rect(0, 0, 1920, 1080));
+                        Rect rect = ApplyStruts(new Rect(0, 0, 1920, 1080));
+                        ProposeForArea(IntPtr.Zero, null, rect);
                     }
                     else
                     {
                         foreach (var outputKvp in _outputs)
                         {
-                            var oe = outputKvp.Value;
-                            int aw = oe.Width > 0 ? oe.Width : 1920;
-                            int ah = oe.Height > 0 ? oe.Height : 1080;
-                            ProposeForArea(outputKvp.Key, null, new Rect(oe.X, oe.Y, aw, ah));
+                            OutputEntry oe = outputKvp.Value;
+                            var aw = oe.Width > 0 ? oe.Width : 1920;
+                            var ah = oe.Height > 0 ? oe.Height : 1080;
+                            Rect rect = ApplyStruts(new Rect(oe.X, oe.Y, aw, ah));
+                            ProposeForArea(outputKvp.Key, null, rect);
                         }
                     }
 

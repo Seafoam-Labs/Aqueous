@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Input;
 using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
@@ -18,6 +19,8 @@ public sealed class LayoutConfig
 {
     /// <summary>Global default layout id (used when nothing else applies).</summary>
     public string DefaultLayout { get; init; } = "tile";
+
+    public StrutsConfig Struts { get; init; } = new();
 
     public InputConfig Input { get; init; } = InputConfig.Default;
 
@@ -97,6 +100,7 @@ public sealed class LayoutConfig
                 MasterCount: perLayout.MasterCount > 0 ? perLayout.MasterCount : Defaults.MasterCount,
                 Extra: perLayout.Extra);
         }
+
         return Defaults;
     }
 

@@ -107,7 +107,11 @@ center_focused  = "true"    # auto-pan so focused column is centred
 #scale   = 1.5
 #enabled = true
 
-
+[struts]
+top    = 32   # Noctalia bar height
+bottom = 0
+left   = 0
+right  = 0
 # -----------------------------------------------------------------------------
 # Display-side global behaviour. Consumed by `aqueous-outputd` —
 # Aqueous itself only forwards these to the daemon.

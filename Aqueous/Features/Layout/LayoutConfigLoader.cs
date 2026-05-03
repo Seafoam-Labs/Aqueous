@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Input;
 using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
@@ -58,6 +59,7 @@ public static class LayoutConfigLoader
         var perLayout = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         var perOutput = new Dictionary<string, string>(StringComparer.Ordinal);
         int gapsOuter = 8, gapsInner = 4, masterCount = 1, borderWidth = 2;
+        int strutTop = 0, strutBottom = 0, strutLeft = 0, strutRight = 0;
         double masterRatio = 0.55;
         uint borderFocused = 0xFF88C0D0u, borderNormal = 0xFF3B4252u, borderUrgent = 0xFFBF616Au;
 
@@ -127,6 +129,7 @@ public static class LayoutConfigLoader
             {
                 return;
             }
+
             execHasPending = false;
             if (string.IsNullOrWhiteSpace(execPendingName)
                 || string.IsNullOrWhiteSpace(execPendingCommand))
@@ -142,6 +145,7 @@ public static class LayoutConfigLoader
                 execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
                 return;
             }
+
             if (!execNames.Add(execPendingName!))
             {
                 // Duplicate name: first wins.
@@ -154,6 +158,7 @@ public static class LayoutConfigLoader
                 execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
                 return;
             }
+
             execEntries.Add(new ExecEntry
             {
                 Name = execPendingName!,
@@ -195,7 +200,8 @@ public static class LayoutConfigLoader
         // pending zone and bucket; end-of-file flushes both.
         // ---------------------------------------------------------------
         // Ordered (output → ordered list of (layoutName, zones)).
-        var snapByOutput = new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
+        var snapByOutput =
+            new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
         string? snapPendingOutput = null;
         string? snapPendingLayout = null;
         SnapActivator snapPendingActivator = SnapActivator.Always;
@@ -416,9 +422,9 @@ public static class LayoutConfigLoader
                             snapPendingActivator = StripQuotes(val).ToLowerInvariant() switch
                             {
                                 "" or "none" or "always" => SnapActivator.Always,
-                                "shift"                  => SnapActivator.Shift,
-                                "ctrl" or "control"      => SnapActivator.Ctrl,
-                                "alt" or "mod1"          => SnapActivator.Alt,
+                                "shift" => SnapActivator.Shift,
+                                "ctrl" or "control" => SnapActivator.Ctrl,
+                                "alt" or "mod1" => SnapActivator.Alt,
                                 "super" or "logo" or "meta" or "mod4" => SnapActivator.Super,
                                 _ => SnapActivator.Always,
                             };
@@ -495,9 +501,19 @@ public static class LayoutConfigLoader
                     }
 
                     break;
-                case "input.mouse":      ParseDeviceKey(devMouse, key, val); break;
-                case "input.touchpad":   ParseDeviceKey(devTouch, key, val); break;
+                case "input.mouse": ParseDeviceKey(devMouse, key, val); break;
+                case "input.touchpad": ParseDeviceKey(devTouch, key, val); break;
                 case "input.trackpoint": ParseDeviceKey(devTrack, key, val); break;
+                case "struts":
+                    switch (key)
+                    {
+                        case "top": strutTop = ParseInt(val, strutTop); break;
+                        case "bottom": strutBottom = ParseInt(val, strutBottom); break;
+                        case "left": strutLeft = ParseInt(val, strutLeft); break;
+                        case "right": strutRight = ParseInt(val, strutRight); break;
+                    }
+
+                    break;
                 default:
                     if (curSection != null && curSection.StartsWith("layout.options.", StringComparison.Ordinal))
                     {
@@ -542,6 +558,13 @@ public static class LayoutConfigLoader
         var defaults = new LayoutOptions(
             gapsOuter, gapsInner, masterRatio, masterCount,
             new Dictionary<string, string>());
+        var struts = new StrutsConfig()
+        {
+            Top = Math.Max(0, strutTop),
+            Bottom = Math.Max(0, strutBottom),
+            Left = Math.Max(0, strutLeft),
+            Right = Math.Max(0, strutRight),
+        };
 
         // Build per-layout options. Scalars inherit from defaults unless
         // overridden via dedicated keys (gaps_outer, gaps_inner, master_*).
@@ -607,10 +630,11 @@ public static class LayoutConfigLoader
                 FocusFollowsMouse = inFocusFollowsMouse,
                 PointerAcceleration = pointerAcceleration,
                 PointerAccelerationFactor = pointerAccelerationFactor,
-                Mouse      = devMouse.ToRecord(),
-                Touchpad   = devTouch.ToRecord(),
+                Mouse = devMouse.ToRecord(),
+                Touchpad = devTouch.ToRecord(),
                 Trackpoint = devTrack.ToRecord(),
-            }
+            },
+            Struts = struts,
         };
     }
 
@@ -633,14 +657,14 @@ public static class LayoutConfigLoader
 
         public PerDeviceInput ToRecord() => new()
         {
-            AccelProfile    = AccelProfile,
-            AccelSpeed      = AccelSpeed,
-            NaturalScroll   = NaturalScroll,
-            Tap             = Tap,
-            Dwt             = Dwt,
-            LeftHanded      = LeftHanded,
-            ClickMethod     = ClickMethod,
-            ScrollMethod    = ScrollMethod,
+            AccelProfile = AccelProfile,
+            AccelSpeed = AccelSpeed,
+            NaturalScroll = NaturalScroll,
+            Tap = Tap,
+            Dwt = Dwt,
+            LeftHanded = LeftHanded,
+            ClickMethod = ClickMethod,
+            ScrollMethod = ScrollMethod,
             MiddleEmulation = MiddleEmulation,
         };
     }
@@ -759,6 +783,7 @@ public static class LayoutConfigLoader
         {
             return;
         }
+
         var s = raw.Trim();
         // Strip outer braces.
         int lb = s.IndexOf('{');
@@ -767,6 +792,7 @@ public static class LayoutConfigLoader
         {
             return;
         }
+
         var body = s.Substring(lb + 1, rb - lb - 1).Trim();
         if (body.Length == 0)
         {
@@ -787,14 +813,17 @@ public static class LayoutConfigLoader
                 cur.Append(c);
                 continue;
             }
+
             if (c == ',' && !inQuotes)
             {
                 parts.Add(cur.ToString());
                 cur.Clear();
                 continue;
             }
+
             cur.Append(c);
         }
+
         if (cur.Length > 0)
         {
             parts.Add(cur.ToString());
@@ -807,17 +836,20 @@ public static class LayoutConfigLoader
             {
                 continue;
             }
+
             int eq = pair.IndexOf('=');
             if (eq <= 0)
             {
                 continue;
             }
+
             var k = pair.Substring(0, eq).Trim();
             var v = StripQuotes(pair.Substring(eq + 1).Trim());
             if (k.Length == 0)
             {
                 continue;
             }
+
             into[k] = v;
         }
     }
