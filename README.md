@@ -23,6 +23,7 @@ written in C# / .NET 10. The bar/shell is provided by the external
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
 - [River](https://codeberg.org/river/river) compositor
 - [Noctalia](https://github.com/noctalia-dev/noctalia-shell) (`qs` / Quickshell)
+- [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) — rootless XWayland bridge (River has no built-in XWayland; satellite is launched by Aqueous via `[[exec]]` in `wm.toml`).
 - [tuigreet](https://github.com/apognu/tuigreet) (optional, for login)
 - `wayland`, `wayland-protocols`, `libxkbcommon`, `libinput`, `pixman`,
   `libdrm`, `libevdev`
@@ -154,7 +155,15 @@ optional autologin snippet).
 - [ ] Window rules (`[[rule]]` matching `app_id` / `class` / `title` →
       float / tile / tag / size / position / sticky). Required for things
       like "always float `pavucontrol`" or "send `firefox` to tag 2".
-- [ ] XWayland policy / rules engine (Steam, JetBrains splash, Zoom, …).
+- [x] XWayland transport (rule-free): `xwayland-satellite` launched via
+      `[[exec]]` in `wm.toml`; session launcher exports `DISPLAY=:0`,
+      `QT_QPA_PLATFORM=wayland;xcb`, `GDK_BACKEND=wayland,x11`,
+      `SDL_VIDEODRIVER=wayland,x11`, `MOZ_ENABLE_WAYLAND=1`,
+      `_JAVA_AWT_WM_NONREPARENTING=1`, and `XCURSOR_*`.
+- [ ] XWayland policy / rules engine (Steam, JetBrains splash, Zoom, …) —
+      `xwayland_shell_v1` binding, `RuleMatch.XWayland`, auto-float
+      heuristics for `_NET_WM_WINDOW_TYPE` (`DIALOG`, `UTILITY`, `SPLASH`,
+      …) and non-null `WM_TRANSIENT_FOR`.
 - [ ] Floating-window keybinds: toggle-float on focused tile, move/resize
       by keys, center-on-spawn, remembered geometry.
 - [ ] Surface `Features/SnapZones` as a daily-use feature (pointer

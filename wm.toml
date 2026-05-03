@@ -173,6 +173,21 @@ once    = true
 restart = false
 log     = "/tmp/noctalia.log"
 
+# XWayland transport. River has no built-in XWayland; xwayland-satellite is a
+# rootless XWayland server that connects to River as a regular Wayland client
+# and re-exports each X11 toplevel as an xdg_toplevel via xwayland-shell-v1.
+# X11 clients (Steam, JetBrains, Zoom, …) find it through DISPLAY=:0, which
+# Aqueous's session launcher exports before any [[exec]] children are spawned.
+# Setting restart = true keeps the bridge alive across satellite crashes; X11
+# clients will reconnect on the next display-socket retry.
+[[exec]]
+name    = "xwayland-satellite"
+command = "xwayland-satellite :0"
+when    = "startup"
+restart = true
+log     = "/tmp/xwayland-satellite.log"
+env     = { DISPLAY = ":0" }
+
 # Additional examples:
 # [[exec]]
 # name    = "wallpaper"

@@ -31,6 +31,21 @@ else
 fi
 echo "[launch_river] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
 
+# XWayland session env. xwayland-satellite is started by Aqueous itself via
+# the [[exec]] block in wm.toml; here we only export the env vars that X11
+# clients need to find the bridge and that toolkits read at startup. In a
+# nested run we do NOT clobber a pre-existing DISPLAY (that would point X11
+# clients spawned inside the nested River at the host's X server, which is
+# almost never what we want for testing).
+if [ "$AQUEOUS_NESTED" = "0" ]; then
+    export DISPLAY=":0"
+fi
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
+export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
+export _JAVA_AWT_WM_NONREPARENTING=1
+
 INNER="exec '$WM_BIN' >/tmp/aqueous_wm.log 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     river -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

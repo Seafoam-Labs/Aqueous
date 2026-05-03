@@ -10,7 +10,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'river' 'wlr-randr'
-         'noctalia-shell' 'libdecor' 'grim')
+         'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite')
 optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
             'greetd: minimal login manager for tuigreet'
             'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
