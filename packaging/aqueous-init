@@ -9,7 +9,7 @@
 #
 #   1. River's `-c` only accepts ONE command. We need to call multiple
 #      programs inside River's control context (the only place where
-#      WAYLAND_DISPLAY is set and `wlr-randr`/`riverctl` actually work).
+#      WAYLAND_DISPLAY is set and `wlr-randr` actually work).
 #
 #   2. greetd performs no DRM mode setup of its own — it simply exec's
 #      this session script. Under SDDM the kernel/DRM had a sane mode
