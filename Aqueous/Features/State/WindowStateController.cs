@@ -171,6 +171,11 @@ public sealed class WindowStateController
         if (w.State == WindowState.Maximized)
         {
             w.State = w.PreviousState;
+            if (w.State == WindowState.Floating && w.PreFsGeom is { } g)
+            {
+                w.FloatingGeom = g;
+            }
+            w.PreFsGeom = null;
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} maximized→{w.State}");
         }
         else
