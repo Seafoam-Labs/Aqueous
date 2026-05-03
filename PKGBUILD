@@ -18,8 +18,8 @@ optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser')
-provides=('aqueous' 'river')
-conflicts=('aqueous' 'river')
+provides=('aqueous' 'riverdelta')
+conflicts=('aqueous' 'riverdelta')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git"
@@ -66,8 +66,8 @@ package() {
     install -Dm755 "$srcdir/publish/Aqueous.InputDaemon/aqueous-inputd" "$pkgdir/usr/bin/aqueous-inputd"
     install -Dm755 "$srcdir/publish/Aqueous.OutputDaemon/aqueous-outputd" "$pkgdir/usr/bin/aqueous-outputd"
 
-    # Install RiverDelta (riverctl is intentionally omitted as it no longer exists)
-    install -Dm755 "$srcdir/river-dist/bin/river" "$pkgdir/usr/bin/river"
+    # Install RiverDelta binary as 'riverdelta' instead of 'river'
+    install -Dm755 "$srcdir/river-dist/bin/riverdelta" "$pkgdir/usr/bin/riverdelta"
 
     # Install RiverDelta share data (man pages, etc.)
     if [ -d "$srcdir/river-dist/share" ]; then

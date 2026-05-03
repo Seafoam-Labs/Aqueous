@@ -17,7 +17,7 @@ using Microsoft.Extensions.Logging;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// B1a "survive a session" skeleton that binds the River 0.4+
+/// B1a "survive a session" skeleton that binds the RiverDelta
 /// <c>river_window_manager_v1</c> global and keeps the compositor alive by
 /// immediately acknowledging every <c>manage_start</c> / <c>render_start</c>
 /// event with the corresponding <c>manage_finish</c> / <c>render_finish</c>
@@ -358,7 +358,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         if (_manager == IntPtr.Zero)
         {
             return Result.Fail(
-                "river_window_manager_v1 global was not advertised — is River 0.4+ running with WM support?");
+                "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
         }
 
         // Phase B1f: with the WM global bound and globals advertised, fire

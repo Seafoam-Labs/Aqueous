@@ -1,14 +1,14 @@
 #!/bin/sh
 # Aqueous init wrapper.
 #
-# Installed as /usr/bin/aqueous-init and run by River as its `-c` child:
+# Installed as /usr/bin/aqueous-init and run by RiverDelta as its `-c` child:
 #
-#     exec river -c '/usr/bin/aqueous-init'
+#     exec riverdelta -c '/usr/bin/aqueous-init'
 #
 # Why this wrapper exists:
 #
-#   1. River's `-c` only accepts ONE command. We need to call multiple
-#      programs inside River's control context (the only place where
+#   1. RiverDelta's `-c` only accepts ONE command. We need to call multiple
+#      programs inside RiverDelta's control context (the only place where
 #      WAYLAND_DISPLAY is set and `wlr-randr` actually work).
 #
 #   2. greetd performs no DRM mode setup of its own — it simply exec's

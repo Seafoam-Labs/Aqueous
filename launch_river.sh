@@ -10,8 +10,28 @@ dotnet build Aqueous/Aqueous.csproj
 # Kill any stale instances from a previous session.
 pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous' 2>/dev/null
 pkill -9 -f 'qs -c noctalia-shell'                    2>/dev/null
-pkill -9 -f '^river '                                  2>/dev/null
+pkill -9 -f '^riverdelta '                             2>/dev/null
 sleep 0.3
+
+# Ensure RiverDelta is available
+if ! command -v riverdelta &>/dev/null && [ ! -f "./bin/riverdelta" ]; then
+    echo "[launch_river] riverdelta not found in PATH or ./bin/. Attempting to build..."
+    RD_SRC="../RiverDelta"
+    if [ ! -d "$RD_SRC" ]; then
+        echo "[launch_river] Cloning RiverDelta to $RD_SRC..."
+        git clone https://github.com/Seafoam-Labs/RiverDelta.git "$RD_SRC"
+    fi
+
+    echo "[launch_river] Building RiverDelta..."
+    (cd "$RD_SRC" && zig build -Doptimize=ReleaseSafe -Dxwayland)
+
+    mkdir -p ./bin
+    cp "$RD_SRC/zig-out/bin/river" ./bin/riverdelta
+    echo "[launch_river] RiverDelta built and placed in ./bin/riverdelta"
+fi
+
+RIVER_BIN=$(command -v riverdelta || echo "$(pwd)/bin/riverdelta")
+echo "[launch_river] Using compositor: $RIVER_BIN"
 
 WM_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/aqueous"
 # NOTE: the bar (qs -c noctalia-shell) is now launched by Aqueous itself
@@ -48,4 +68,4 @@ export _JAVA_AWT_WM_NONREPARENTING=1
 
 INNER="exec '$WM_BIN' >/tmp/aqueous_wm.log 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
-    river -c "sh -c \"$INNER\"" &>/tmp/river_log.txt
+    "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

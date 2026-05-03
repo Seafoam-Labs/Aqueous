@@ -21,7 +21,7 @@ master_count  = 1        # default 1     (windows in master area)
 border_width   = 2
 border_focused = 0xFF88C0D0   # Nord frost
 border_normal  = 0xFF3B4252   # Nord polar night
-border_urgent  = 0xFFBF616Au  # Nord aurora red
+border_urgent  = 0xFFBF616A   # Nord aurora red
 
 
 # -----------------------------------------------------------------------------
@@ -68,7 +68,7 @@ center_focused  = "true"    # auto-pan so focused column is centred
 # Display fields (mode/scale/transform/position/enabled/adaptive_sync)
 # are applied by `aqueous-outputd`, NOT by Aqueous itself — River 0.4
 # exposes no in-process output-management protocol to a WM client, so
-# the daemon (running inside River's `-c` control context) calls
+# the daemon (running inside RiverDelta's `-c` control context) calls
 # `wlr-randr` for us. The init wrapper /usr/bin/aqueous-init applies
 # these once before Aqueous draws its first frame, fixing the greetd
 # render-size handoff.

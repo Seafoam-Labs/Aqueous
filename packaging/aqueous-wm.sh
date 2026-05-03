@@ -17,7 +17,7 @@ export SDL_VIDEODRIVER="wayland,x11"
 export CLUTTER_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
 # Fixes the grey-blob / non-reparenting Java/Swing/JetBrains bug under any
-# non-reparenting WM (River + xwayland-satellite included).
+# non-reparenting WM (RiverDelta + xwayland-satellite included).
 export _JAVA_AWT_WM_NONREPARENTING=1
 
 # DISPLAY for the rootless XWayland bridge. xwayland-satellite is launched by
@@ -32,7 +32,7 @@ export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 
-# Required by Aqueous to attach to River as the window manager. Without
+# Required by Aqueous to attach to RiverDelta as the window manager. Without
 # this the compositor refuses to attach (see RiverWindowManagerClient)
 # and the session ends up as a black screen under sddm/greetd.
 export AQUEOUS_RIVER_WM=1
@@ -80,8 +80,8 @@ if ! systemctl --user is-active --quiet aqueous-inputd.service 2>/dev/null; then
     fi
 fi
 
-# River runs the compositor; aqueous-init is its `-c` child. The init
+# RiverDelta runs the compositor; aqueous-init is its `-c` child. The init
 # wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
 # inability to set the render size before the session starts) and
 # spawns the long-running daemon, before exec'ing Aqueous itself.
-exec river -c '/usr/bin/aqueous-init'
+exec riverdelta -c '/usr/bin/aqueous-init'
