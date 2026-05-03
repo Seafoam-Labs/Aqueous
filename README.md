@@ -124,7 +124,7 @@ optional autologin snippet).
 
 #### Compositor / shell integration
 
-- [ ] Reserved space for the bar (currently hardcoded to 24px) — implement
+- [x] Reserved space for the bar (currently hardcoded to 24px) — implement
       proper `wlr-layer-shell` exclusive-zone negotiation so bars of any
       height and on any edge work.
 - [ ] Support for multiple outputs (technically works but a bit hacky) —
