@@ -79,7 +79,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
             ["toggle_window_tag_8"] = KeyBindingAction.ToggleWindowTag8,
             ["toggle_window_tag_9"] = KeyBindingAction.ToggleWindowTag9,
             ["swap_last_tagset"] = KeyBindingAction.SwapLastTagset,
-            // Phase B1e — Window state ops (Pass B integration).
             ["toggle_fullscreen"] = KeyBindingAction.ToggleFullscreen,
             ["toggle_maximize"] = KeyBindingAction.ToggleMaximize,
             ["toggle_floating"] = KeyBindingAction.ToggleFloating,
@@ -87,6 +86,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             ["unminimize_last"] = KeyBindingAction.UnminimizeLast,
             ["toggle_scratchpad"] = KeyBindingAction.ToggleScratchpad,
             ["send_to_scratchpad"] = KeyBindingAction.SendToScratchpad,
+            ["lock_screen"] = KeyBindingAction.LockScreen,
             // toggle_scratchpad_named / send_to_scratchpad_named are not
             // mapped here: they require a :arg suffix and are reachable
             // only via [keybinds.custom] -> RunCustomAction's builtin:

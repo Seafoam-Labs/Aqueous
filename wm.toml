@@ -188,6 +188,15 @@ restart = true
 log     = "/tmp/xwayland-satellite.log"
 env     = { DISPLAY = ":0" }
 
+# Idle daemon: locks the screen after 5 minutes of inactivity and before sleep.
+[[exec]]
+name    = "swayidle"
+command = "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' before-sleep 'swaylock -f -c 000000'"
+when    = "startup"
+once    = true
+restart = true
+log     = "/tmp/swayidle.log"
+
 # Additional examples:
 # [[exec]]
 # name    = "wallpaper"
@@ -312,6 +321,9 @@ toggle_minimize       = "Super+N"              # default — hide from layout
 unminimize_last       = "Super+Shift+N"        # default — restore most-recent minimized
 toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "default" pad
 send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
+
+# Lock screen:
+lock_screen     = "Super+Shift+L"      # default
 
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]

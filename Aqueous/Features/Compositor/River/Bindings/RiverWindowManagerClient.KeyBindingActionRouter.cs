@@ -54,6 +54,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             [KeyBindingAction.UnminimizeLast]       = c => c._windowState.UnminimizeLast(),
             [KeyBindingAction.ToggleScratchpad]     = c => c._windowState.ToggleScratchpad(ScratchpadRegistry.DefaultPad),
             [KeyBindingAction.SendToScratchpad]     = c => c.OnFocused("send_to_scratchpad", w => c._windowState.SendToScratchpad(w, ScratchpadRegistry.DefaultPad)),
+            [KeyBindingAction.LockScreen]           = c => c.LockScreen(),
         };
 
     /// <summary>
@@ -224,6 +225,28 @@ internal sealed unsafe partial class RiverWindowManagerClient
         else
         {
             Log($"{actionName}: no focused window");
+        }
+    }
+
+    private void LockScreen()
+    {
+        try
+        {
+            Log("locking screen");
+            const string targetPath = "/usr/bin/swaylock";
+            const string args = "-f -c 000000";
+            var psi = new ProcessStartInfo
+            {
+                FileName = targetPath,
+                Arguments = args,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            Log("failed to spawn terminal: " + ex.Message);
         }
     }
 }

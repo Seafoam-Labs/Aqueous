@@ -178,7 +178,7 @@ optional autologin snippet).
 
 #### Session services
 
-- [ ] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
+- [x] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
       `lock_command` config key. Watching video should inhibit blanking.
 - [x] Screencopy: `wlr-screencopy-unstable-v1` (v3) is exposed by
       RiverDelta and bound in-process by `WlrScreencopyClient`

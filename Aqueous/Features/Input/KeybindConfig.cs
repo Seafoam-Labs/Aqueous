@@ -38,7 +38,6 @@ public sealed class KeybindConfig
         "reload_config",
         "set_layout_primary", "set_layout_secondary",
         "set_layout_tertiary", "set_layout_quaternary",
-        // Phase B1c — Tag actions.
         "view_tag_1","view_tag_2","view_tag_3","view_tag_4","view_tag_5",
         "view_tag_6","view_tag_7","view_tag_8","view_tag_9","view_tag_all",
         "send_tag_1","send_tag_2","send_tag_3","send_tag_4","send_tag_5",
@@ -48,7 +47,6 @@ public sealed class KeybindConfig
         "toggle_window_tag_1","toggle_window_tag_2","toggle_window_tag_3","toggle_window_tag_4","toggle_window_tag_5",
         "toggle_window_tag_6","toggle_window_tag_7","toggle_window_tag_8","toggle_window_tag_9",
         "swap_last_tagset",
-        // Phase B1e — Window state ops.
         "toggle_fullscreen",
         "toggle_maximize",
         "toggle_floating",
@@ -58,6 +56,7 @@ public sealed class KeybindConfig
         "toggle_scratchpad_named",   // requires :name argument via custom binding
         "send_to_scratchpad",        // default pad
         "send_to_scratchpad_named",  // requires :name argument via custom binding
+        "lock_screen"
     };
 
     /// <summary>Compiled-in fallback chords for each built-in action.</summary>
@@ -76,7 +75,7 @@ public sealed class KeybindConfig
             ["scroll_viewport_right"] = "Super+Period",
             ["move_column_left"] = "Super+Shift+H",
             ["move_column_right"] = "Super+Shift+L",
-            // reload_config / set_layout_* are unbound by default — opt-in.
+            ["reload_config"] = "Super+R",
 
             // Phase B1c — Tag default chords.
             ["view_tag_1"] = "Super+1",
@@ -118,8 +117,6 @@ public sealed class KeybindConfig
             ["toggle_window_tag_8"] = "Super+Shift+Ctrl+8",
             ["toggle_window_tag_9"] = "Super+Shift+Ctrl+9",
             ["swap_last_tagset"] = "Super+grave",
-
-            // Phase B1e — Window state ops.
             ["toggle_fullscreen"] = "Super+Shift+F",
             ["toggle_maximize"] = "Super+Shift+M",
             ["toggle_floating"] = "Super+Shift+Space",
@@ -127,6 +124,7 @@ public sealed class KeybindConfig
             ["unminimize_last"] = "Super+Shift+N",
             ["toggle_scratchpad"] = "Super+Backslash",
             ["send_to_scratchpad"] = "Super+Shift+Backslash",
+            ["lock_screen"] = "Super+Shift+L"
             // toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
         };
 

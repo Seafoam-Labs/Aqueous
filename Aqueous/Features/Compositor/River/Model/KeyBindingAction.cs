@@ -33,11 +33,6 @@ internal enum KeyBindingAction
     SetLayoutSecondary,
     SetLayoutTertiary,
     SetLayoutQuaternary,
-
-    // Phase B1c — Tag actions. Indexed by 0-based tag bit (0..9
-    // for tag1..10) so the dispatcher can compute the mask via
-    // 1u << (action - ViewTag1). Tag10 is bound to the digit
-    // key '0' because keymaps order digits 1234567890.
     ViewTag1,
     ViewTag2,
     ViewTag3,
@@ -77,8 +72,6 @@ internal enum KeyBindingAction
     ToggleWindowTag8,
     ToggleWindowTag9,
     SwapLastTagset,
-
-    // Phase B1e — Window state ops (Pass B integration).
     ToggleFullscreen,
     ToggleMaximize,
     ToggleFloating,
@@ -87,4 +80,5 @@ internal enum KeyBindingAction
     ToggleScratchpad,
     SendToScratchpad,
     Custom,
+    LockScreen
 }
