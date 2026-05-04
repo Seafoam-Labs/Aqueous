@@ -122,6 +122,8 @@ optional autologin snippet).
       (`Super+Shift+F`) can leave fullscreen. See
       `scratches/currently_fullscreening_a_window_cannot.md` and
       `scratches/keycombo_to_unfullscreen.md`.
+- [ ] The scrolling layout is broken – it stacks windows on top of each other
+      instead of scrolling them.
 
 #### Compositor / shell integration
 
