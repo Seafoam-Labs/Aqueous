@@ -157,12 +157,13 @@ public sealed class WindowStateController
     public bool ToggleMaximize(WindowProxy window)
     {
         var w = _host.Get(window);
+        _host.Log($"DEBUG: ToggleMaximize entry state={w?.State} handle=0x{window.Handle.ToInt64():x}");
         if (w is null)
         {
             return false;
         }
 
-        var output = !w.PinnedOutput.IsZero ? w.PinnedOutput : _host.FocusedOutput;
+        OutputProxy output = !w.PinnedOutput.IsZero ? w.PinnedOutput : _host.FocusedOutput;
         if (output.IsZero)
         {
             return false;
@@ -171,10 +172,12 @@ public sealed class WindowStateController
         if (w.State == WindowState.Maximized)
         {
             w.State = w.PreviousState;
-            if (w.State == WindowState.Floating && w.PreFsGeom is { } g)
+            if (w is { State: WindowState.Floating, PreFsGeom: { } g })
             {
                 w.FloatingGeom = g;
             }
+            _host.InvalidateFloatRect(window);
+            _host.Log($"DEBUG:  floating geom: {w.PreFsGeom}");
             w.PreFsGeom = null;
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} maximized→{w.State}");
         }
@@ -187,10 +190,12 @@ public sealed class WindowStateController
                 return false;
             }
 
-            w.PreFsGeom = _host.CurrentGeometry(window);
+            w.PreFsGeom = w.FloatingGeom ?? _host.CurrentGeometry(window);
+
             w.PreviousState = w.State;
             w.State = WindowState.Maximized;
             w.PinnedOutput = output;
+            _host.Log($"DEBUG:  floating geom: {w.PreFsGeom}");
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} {w.PreviousState}→maximized");
         }
         _host.RequestRender(output);
@@ -346,6 +351,7 @@ public sealed class WindowStateController
             stack.Push(buf[i]);
         }
     }
+
 
     // ------------------------------------------------------------------
     // Scratchpad

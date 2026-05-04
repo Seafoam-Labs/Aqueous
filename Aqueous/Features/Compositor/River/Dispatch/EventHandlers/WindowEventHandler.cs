@@ -197,7 +197,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 break;
             }
             case RiverProtocolOpcodes.Window.MaximizeRequested:
-                if (!_windowStates.TryGetValue(proxy, out var sMax)
+                if (!_windowStates.TryGetValue(proxy, out WindowStateData? sMax)
                     || sMax.State != WindowState.Maximized)
                 {
                     _windowState.ToggleMaximize(new WindowProxy(proxy));
@@ -206,7 +206,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.UnmaximizeRequested:
-                if (_windowStates.TryGetValue(proxy, out var stateData)
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? stateData)
                     && stateData.State == WindowState.Maximized)
                 {
                     _windowState.ToggleMaximize(new WindowProxy(proxy));

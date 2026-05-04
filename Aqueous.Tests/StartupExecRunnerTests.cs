@@ -40,6 +40,8 @@ public class StartupExecRunnerTests
         public void Spawn(string cmd) =>
             Spawns.Add(new SpawnRequest(cmd));
 
+        public void InvalidateFloatRect(WindowProxy window) => throw new NotImplementedException();
+
         // Capturing overrides --------------------------------------------
         public void Spawn(SpawnRequest request) => Spawns.Add(request);
         public void ScheduleAfter(TimeSpan delay, Action callback) =>

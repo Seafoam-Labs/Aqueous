@@ -72,6 +72,12 @@ public interface IWindowStateHost
     void Spawn(string command);
 
     /// <summary>
+    /// Invalidate the floating geometry for <paramref name="window"/>.
+    /// </summary>
+    /// <param name="window"></param>
+    void InvalidateFloatRect(WindowProxy window);
+
+    /// <summary>
     /// Spawn an autostart command with optional log redirection, env
     /// overrides, and an exit callback. The default implementation
     /// degrades to <see cref="Spawn(string)"/> so existing fakes that
@@ -85,6 +91,7 @@ public interface IWindowStateHost
         {
             return;
         }
+
         Spawn(request.Command);
     }
 
@@ -101,11 +108,18 @@ public interface IWindowStateHost
         {
             return;
         }
+
         Timer? t = null;
         t = new Timer(_ =>
         {
-            try { callback(); }
-            finally { t?.Dispose(); }
+            try
+            {
+                callback();
+            }
+            finally
+            {
+                t?.Dispose();
+            }
         }, null, delay, Timeout.InfiniteTimeSpan);
     }
 

@@ -64,6 +64,9 @@ public class WindowStateTests
         public void EmitForeignToplevelFullscreen(WindowProxy w, OutputProxy o) => FsEmits.Add((w, o));
         public void EmitForeignToplevelUnfullscreen(WindowProxy w) => UnfsEmits.Add(w);
         public void Spawn(string cmd) => Spawned.Add(cmd);
+        public readonly List<WindowProxy> InvalidatedFloatRects = new();
+        public void InvalidateFloatRect(WindowProxy window) => InvalidatedFloatRects.Add(window);
+
         public void Log(string m) => Logs.Add(m);
         public Rect CurrentGeometry(WindowProxy w) => Geom.TryGetValue(w, out var r) ? r : new Rect(100, 100, 400, 300);
     }
@@ -145,6 +148,62 @@ public class WindowStateTests
         ctrl.ToggleFullscreen(w1);
         Assert.False(ctrl.ToggleMaximize(w1));
         Assert.Equal(WindowState.Fullscreen, host.Data[w1].State);
+    }
+
+    // --------- InvalidateFloatRect (maximize-restore round-trip) ---------
+
+    [Fact]
+    public void ToggleMaximize_Enter_DoesNotInvalidateFloatRect()
+    {
+        // Entering Maximized must not call InvalidateFloatRect — the
+        // floating loop's diff-gates need to be preserved so that the
+        // maximize emit itself is the one that updates LastPos/LastHint.
+        var (host, ctrl, w1, _, _) = Setup();
+        Assert.True(ctrl.ToggleMaximize(w1));
+        Assert.Empty(host.InvalidatedFloatRects);
+    }
+
+    [Fact]
+    public void ToggleMaximize_RestoreToFloating_InvalidatesFloatRect()
+    {
+        // Repro for the maximize-button regression: on the way OUT of
+        // Maximized into Floating, the controller must call
+        // _host.InvalidateFloatRect(window) so LayoutProposer re-seeds
+        // FloatX/Y/W/H from the restored FloatingGeom and re-arms its
+        // position/size diff-gates. Without this, the restored window
+        // stays glued to the maximized rect.
+        var (host, ctrl, w1, _, _) = Setup();
+        // Pre-arm: window is Floating with a remembered geometry.
+        host.Data[w1].State = WindowState.Floating;
+        host.Data[w1].FloatingGeom = new Rect(120, 80, 640, 480);
+
+        Assert.True(ctrl.ToggleMaximize(w1));     // Floating → Maximized
+        Assert.Empty(host.InvalidatedFloatRects); // not on enter
+        Assert.True(ctrl.ToggleMaximize(w1));     // Maximized → Floating
+        Assert.Equal(WindowState.Floating, host.Data[w1].State);
+        Assert.Single(host.InvalidatedFloatRects);
+        Assert.Equal(w1, host.InvalidatedFloatRects[0]);
+    }
+
+    [Fact]
+    public void ToggleMaximize_RestoreToFloating_RestoresPreFsGeom()
+    {
+        // The InvalidateFloatRect call only matters if the controller
+        // also writes the pre-maximize rect back into FloatingGeom; pin
+        // that contract here so a future refactor can't silently drop it.
+        var (host, ctrl, w1, _, _) = Setup();
+        host.Data[w1].State = WindowState.Floating;
+        host.Data[w1].FloatingGeom = new Rect(120, 80, 640, 480);
+        host.Geom[w1] = new Rect(120, 80, 640, 480);
+
+        ctrl.ToggleMaximize(w1);
+        // Mutate the remembered float rect while maximized to prove the
+        // restore branch overwrites it from PreFsGeom (not the other way).
+        host.Data[w1].FloatingGeom = new Rect(0, 0, 1, 1);
+        ctrl.ToggleMaximize(w1);
+
+        Assert.Equal(new Rect(120, 80, 640, 480), host.Data[w1].FloatingGeom);
+        Assert.Single(host.InvalidatedFloatRects);
     }
 
     // --------- Floating --------------------------------------------------

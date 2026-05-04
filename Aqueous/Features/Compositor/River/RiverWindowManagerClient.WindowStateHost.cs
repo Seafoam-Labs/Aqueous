@@ -153,6 +153,20 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
+        public void InvalidateFloatRect(WindowProxy window)
+        {
+            if (!_c._windows.TryGetValue(window.Handle, out WindowEntry? windowHandle))
+            {
+                return;
+            }
+
+            windowHandle.HasFloatRect = false;
+            windowHandle.LastPosX = int.MinValue;
+            windowHandle.LastPosY = int.MinValue;
+            windowHandle.LastHintW = int.MinValue;
+            windowHandle.LastHintH = int.MinValue;
+        }
+
         public void Spawn(SpawnRequest request)
         {
             if (request is null || string.IsNullOrEmpty(request.Command))

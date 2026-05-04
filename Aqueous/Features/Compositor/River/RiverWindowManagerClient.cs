@@ -124,19 +124,25 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private bool _dragFinished;
     private bool _dragStarted;
     private int _dragStartX;
+
     private int _dragStartY;
+
     // Resize state — non-zero _dragEdges means the active drag is a resize, not a move.
     // Edges are the river_window_v1 bitfield: top=1, bottom=2, left=4, right=8.
     private uint _dragEdges;
     private int _dragStartW;
+
     private int _dragStartH;
+
     // Tracks whether we have already issued inform_resize_start for the current
     // drag so that we know to emit a matching inform_resize_end on finalisation.
     // Without this, libdecor / GTK clients ignore the live propose_dimensions
     // stream during an interactive resize.
     private bool _dragResizeInformed;
     private IntPtr _dragPointerBinding;
+
     private bool _dragPointerBindingNeedsEnable;
+
     // Second pointer binding for Super+RMB drag-to-resize (Option 3 plan).
     // Lets the WM initiate resize on undecorated/SSD-expecting clients
     // (alacritty, Firefox without libdecor, …) by deriving _dragEdges from
@@ -157,14 +163,18 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // with. Lookups happen in the drag dispatcher (which already routes
     // by proxy). Empty when no activator-gated layouts are configured.
     private readonly Dictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> _snapActivatorBindings = new();
+
     private readonly Dictionary<IntPtr, bool> _snapActivatorBindingNeedsEnable = new();
+
     // Activator that armed the currently-active drag. Always for the
     // plain Super+LMB binding; Shift/Ctrl/Alt for the snap-activator
     // bindings; reset to Always on drag-release. Read by
     // TryResolveSnapForDrag to gate snapping per layout.
     private Aqueous.Features.SnapZones.SnapActivator _activeDragActivator =
         Aqueous.Features.SnapZones.SnapActivator.Always;
+
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
+
     // Latest pointer position per seat in the compositor's logical
     // coordinate space, updated from river_seat_v1::pointer_position. Used
     // by the Super+RMB drag-resize binding to determine which corner of
@@ -194,6 +204,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// <see cref="OnGlobalDiscovered"/> handler below.
     /// </summary>
     private readonly RegistryBinder _registry = new();
+
     private IntPtr _manager;
     private IntPtr _layerShell;
     private IntPtr _xkbBindings;
@@ -249,6 +260,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     // Per-output single-FS slot (single-fullscreen-per-output rule).
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
+
     // Fix #3: snapshot of window handles that were in the fullscreen bucket on
     // the previous ProposeForArea cycle. On the cycle a window leaves the FS
     // bucket (unfullscreen) we must force a re-propose because the tiled/
@@ -258,7 +270,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // thread (ProposeForArea), so a plain HashSet is fine.
     private readonly HashSet<IntPtr> _prevFullscreenHandles = new();
     private readonly ScratchpadRegistry _scratchpadRegistry;
+
     private readonly WindowStateController _windowState;
+
     // Phase B1f: [[exec]] autostart runner. Owns the once/restart state for
     // the supervised commands listed in wm.toml; fired after the initial
     // roundtrip in Connect().
@@ -390,6 +404,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         {
             Log($"startup exec failed: {ex.Message}");
         }
+
         return Result.Ok;
     }
 
@@ -526,6 +541,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             pick = kv.Value;
             break;
         }
+
         if (pick is null)
         {
             return null;
@@ -553,9 +569,4 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             return t.GetAwaiter().GetResult();
         }, captured, System.Threading.Tasks.TaskScheduler.Default);
     }
-
-
-
-
-
 }
