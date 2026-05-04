@@ -78,6 +78,20 @@ public interface IWindowStateHost
     void InvalidateFloatRect(WindowProxy window);
 
     /// <summary>
+    /// Update the xdg-shell maximized state flag for
+    /// <paramref name="window"/>. Strict xdg-shell clients (Chromium,
+    /// Alacritty, GTK/libdecor) drive their layout from the
+    /// <c>xdg_toplevel.configure</c> state array independently of the
+    /// size/position hints; until <c>maximized</c> is dropped from
+    /// that array on restore, those clients refuse to leave maximized
+    /// layout (Alacritty) or burn one click on reconciliation
+    /// (Chromium). Called by
+    /// <see cref="WindowStateController.ToggleMaximize"/> on both
+    /// edges of the transition.
+    /// </summary>
+    void SetToplevelMaximizedState(WindowProxy window, bool maximized);
+
+    /// <summary>
     /// Spawn an autostart command with optional log redirection, env
     /// overrides, and an exit callback. The default implementation
     /// degrades to <see cref="Spawn(string)"/> so existing fakes that

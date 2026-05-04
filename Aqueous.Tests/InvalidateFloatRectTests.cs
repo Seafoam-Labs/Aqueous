@@ -151,6 +151,50 @@ public class InvalidateFloatRectTests
     }
 
     [Fact]
+    public void SetToplevelMaximizedState_TogglesXdgFlagAndRearmsSizeGate()
+    {
+        // Mirror of the Chromium / Alacritty fix: the host hook must
+        // flip the per-entry XdgMaximized flag (consumed by any future
+        // xdg_toplevel.configure marshal) and re-arm the size diff-gate
+        // so a fresh propose_dimensions goes out together with the new
+        // state array even if the size happens to be unchanged.
+        var h = Build();
+        var handle = new IntPtr(0xBEEF);
+        var entry = new WindowEntry
+        {
+            XdgMaximized = false,
+            LastHintW = 1024,
+            LastHintH = 768,
+        };
+        h.Windows[handle] = entry;
+
+        h.Host.SetToplevelMaximizedState(new WindowProxy(handle), maximized: true);
+        Assert.True(entry.XdgMaximized);
+        Assert.NotEqual(1024, entry.LastHintW);
+        Assert.NotEqual(768, entry.LastHintH);
+
+        // Re-stamp Last* to plausible values, then drop maximized.
+        entry.LastHintW = 1024;
+        entry.LastHintH = 768;
+        h.Host.SetToplevelMaximizedState(new WindowProxy(handle), maximized: false);
+        Assert.False(entry.XdgMaximized);
+        Assert.NotEqual(1024, entry.LastHintW);
+        Assert.NotEqual(768, entry.LastHintH);
+    }
+
+    [Fact]
+    public void SetToplevelMaximizedState_UnknownHandle_IsNoOp()
+    {
+        var h = Build();
+        // Must tolerate unknown / zero proxies the same way
+        // InvalidateFloatRect does.
+        h.Host.SetToplevelMaximizedState(new WindowProxy(new IntPtr(0xDEAD0)), true);
+        h.Host.SetToplevelMaximizedState(WindowProxy.Zero, false);
+        Assert.False(h.Windows.ContainsKey(new IntPtr(0xDEAD0)));
+        Assert.False(h.Windows.ContainsKey(IntPtr.Zero));
+    }
+
+    [Fact]
     public void InvalidateFloatRect_IsIdempotent()
     {
         var h = Build();

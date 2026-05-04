@@ -177,6 +177,7 @@ public sealed class WindowStateController
                 w.FloatingGeom = g;
             }
             _host.InvalidateFloatRect(window);
+            _host.SetToplevelMaximizedState(window, false);
             _host.Log($"DEBUG:  floating geom: {w.PreFsGeom}");
             w.PreFsGeom = null;
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} maximized→{w.State}");
@@ -195,6 +196,7 @@ public sealed class WindowStateController
             w.PreviousState = w.State;
             w.State = WindowState.Maximized;
             w.PinnedOutput = output;
+            _host.SetToplevelMaximizedState(window, true);
             _host.Log($"DEBUG:  floating geom: {w.PreFsGeom}");
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} {w.PreviousState}→maximized");
         }

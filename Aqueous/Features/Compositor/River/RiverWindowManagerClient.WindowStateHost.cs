@@ -167,6 +167,22 @@ internal sealed unsafe partial class RiverWindowManagerClient
             windowHandle.LastHintH = int.MinValue;
         }
 
+        public void SetToplevelMaximizedState(WindowProxy window, bool maximized)
+        {
+            if (!_c._windows.TryGetValue(window.Handle, out WindowEntry? entry))
+            {
+                return;
+            }
+
+            entry.XdgMaximized = maximized;
+            // Force the size diff-gate to re-fire on the next manage
+            // cycle so the new state array goes out together with a
+            // fresh propose_dimensions, even if the size happens to be
+            // unchanged across the transition.
+            entry.LastHintW = int.MinValue;
+            entry.LastHintH = int.MinValue;
+        }
+
         public void Spawn(SpawnRequest request)
         {
             if (request is null || string.IsNullOrEmpty(request.Command))

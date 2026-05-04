@@ -41,6 +41,7 @@ public class StartupExecRunnerTests
             Spawns.Add(new SpawnRequest(cmd));
 
         public void InvalidateFloatRect(WindowProxy window) => throw new NotImplementedException();
+        public void SetToplevelMaximizedState(WindowProxy window, bool maximized) { }
 
         // Capturing overrides --------------------------------------------
         public void Spawn(SpawnRequest request) => Spawns.Add(request);

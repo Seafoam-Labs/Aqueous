@@ -66,6 +66,9 @@ public class WindowStateTests
         public void Spawn(string cmd) => Spawned.Add(cmd);
         public readonly List<WindowProxy> InvalidatedFloatRects = new();
         public void InvalidateFloatRect(WindowProxy window) => InvalidatedFloatRects.Add(window);
+        public readonly List<(WindowProxy win, bool maximized)> MaximizedStateEmits = new();
+        public void SetToplevelMaximizedState(WindowProxy window, bool maximized) =>
+            MaximizedStateEmits.Add((window, maximized));
 
         public void Log(string m) => Logs.Add(m);
         public Rect CurrentGeometry(WindowProxy w) => Geom.TryGetValue(w, out var r) ? r : new Rect(100, 100, 400, 300);
@@ -183,6 +186,56 @@ public class WindowStateTests
         Assert.Equal(WindowState.Floating, host.Data[w1].State);
         Assert.Single(host.InvalidatedFloatRects);
         Assert.Equal(w1, host.InvalidatedFloatRects[0]);
+    }
+
+    [Fact]
+    public void ToggleMaximize_Enter_EmitsMaximizedTrue()
+    {
+        // Strict xdg-shell clients (Chromium, Alacritty) read the
+        // xdg_toplevel.configure state array, not the size hint, to
+        // decide layout. The controller must announce maximized=true
+        // on entry so that array carries the maximized flag.
+        var (host, ctrl, w1, _, _) = Setup();
+        Assert.True(ctrl.ToggleMaximize(w1));
+        Assert.Single(host.MaximizedStateEmits);
+        Assert.Equal((w1, true), host.MaximizedStateEmits[0]);
+    }
+
+    [Fact]
+    public void ToggleMaximize_RestoreToFloating_EmitsMaximizedFalse()
+    {
+        // Repro for Chromium "two clicks to restore" / Alacritty "never
+        // restores": the controller must announce maximized=false on
+        // restore so the state array drops the maximized flag and strict
+        // clients accept the float-size configure on the first cycle.
+        var (host, ctrl, w1, _, _) = Setup();
+        host.Data[w1].State = WindowState.Floating;
+        host.Data[w1].FloatingGeom = new Rect(120, 80, 640, 480);
+
+        ctrl.ToggleMaximize(w1);     // enter
+        ctrl.ToggleMaximize(w1);     // restore
+
+        Assert.Equal(2, host.MaximizedStateEmits.Count);
+        Assert.Equal((w1, true), host.MaximizedStateEmits[0]);
+        Assert.Equal((w1, false), host.MaximizedStateEmits[1]);
+    }
+
+    [Fact]
+    public void ToggleMaximize_RestoreToTiled_EmitsMaximizedFalse()
+    {
+        // Same contract as the floating-restore path, but exercising
+        // the Tiled previous-state branch — most CSD-button maximize
+        // clicks land here, not in Floating.
+        var (host, ctrl, w1, _, _) = Setup();
+        host.Data[w1].State = WindowState.Tiled;
+
+        ctrl.ToggleMaximize(w1);
+        ctrl.ToggleMaximize(w1);
+
+        Assert.Equal(WindowState.Tiled, host.Data[w1].State);
+        Assert.Equal(2, host.MaximizedStateEmits.Count);
+        Assert.Equal((w1, true), host.MaximizedStateEmits[0]);
+        Assert.Equal((w1, false), host.MaximizedStateEmits[1]);
     }
 
     [Fact]

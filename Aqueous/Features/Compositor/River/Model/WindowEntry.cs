@@ -72,4 +72,11 @@ internal sealed class WindowEntry
     // visibility transition; without this we would re-send hide
     // every manage cycle for every off-tag window.
     public bool HideSent;
+    // xdg-shell maximized state-array flag mirror. Updated by
+    // IWindowStateHost.SetToplevelMaximizedState on every
+    // enter/restore transition driven by ToggleMaximize. Read by
+    // any future xdg_toplevel.configure marshal so the state array
+    // it sends to strict xdg-shell clients (Chromium, Alacritty)
+    // matches Aqueous's idea of the window's maximized state.
+    public bool XdgMaximized;
 }
