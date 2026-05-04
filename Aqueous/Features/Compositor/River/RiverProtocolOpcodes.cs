@@ -87,4 +87,53 @@ internal static class RiverProtocolOpcodes
         internal const uint Pressed = 0;
         internal const uint Released = 1;
     }
+
+    /// <summary><c>wl_shm</c> request opcodes.</summary>
+    internal static class WlShm
+    {
+        internal const uint CreatePool = 0;
+    }
+
+    /// <summary><c>wl_shm_pool</c> request opcodes.</summary>
+    internal static class WlShmPool
+    {
+        internal const uint CreateBuffer = 0;
+        internal const uint Destroy = 1;
+        internal const uint Resize = 2;
+    }
+
+    /// <summary><c>wl_buffer</c> request / event opcodes.</summary>
+    internal static class WlBuffer
+    {
+        internal const uint Destroy = 0;       // request
+        internal const uint Release = 0;       // event
+    }
+
+    /// <summary><c>zwlr_screencopy_manager_v1</c> request opcodes.</summary>
+    internal static class ScreencopyManager
+    {
+        internal const uint CaptureOutput = 0;
+        internal const uint CaptureOutputRegion = 1;
+        internal const uint Destroy = 2;
+    }
+
+    /// <summary><c>zwlr_screencopy_frame_v1</c> request opcodes.</summary>
+    internal static class ScreencopyFrameRequest
+    {
+        internal const uint Copy = 0;
+        internal const uint Destroy = 1;
+        internal const uint CopyWithDamage = 2;
+    }
+
+    /// <summary><c>zwlr_screencopy_frame_v1</c> event opcodes.</summary>
+    internal static class ScreencopyFrame
+    {
+        internal const uint Buffer = 0;
+        internal const uint Flags = 1;
+        internal const uint Ready = 2;
+        internal const uint Failed = 3;
+        internal const uint Damage = 4;
+        internal const uint LinuxDmabuf = 5;
+        internal const uint BufferDone = 6;
+    }
 }

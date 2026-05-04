@@ -178,8 +178,11 @@ optional autologin snippet).
 
 - [ ] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
       `lock_command` config key. Watching video should inhibit blanking.
-- [ ] Screencopy + `xdg-desktop-portal-wlr` integration so browser /
-      Discord / OBS screen sharing works out of the box.
+- [x] Screencopy: `wlr-screencopy-unstable-v1` (v3) is exposed by
+      RiverDelta and bound in-process by `WlrScreencopyClient`
+      (`wl_shm` + `memfd_create` path). `xdg-desktop-portal-wlr` rides
+      on the same global, so browser / Discord / OBS screen sharing
+      works out of the box once the portal package is installed.
 - [ ] Clipboard-persistence daemon (or document `wl-clip-persist`) and
       primary-selection guarantees beyond what River provides.
 - [ ] Per-seat keyboard layout switching exposed as a `KeyBindingAction`

@@ -199,6 +199,23 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private IntPtr _xkbBindings;
     private IntPtr _superKeyBinding;
 
+    // --- screencopy (wlr-screencopy-unstable-v1) ----------------------
+    //
+    // Bound opportunistically when RiverDelta advertises both
+    // `wl_shm` and `zwlr_screencopy_manager_v1`. We deliberately do NOT
+    // bind a `wl_output` proxy here: a real bind delivers a flurry of
+    // standard wl_output events (geometry/mode/scale/name/description/
+    // done) to the WM's display, and any descriptor mismatch tears down
+    // the connection — which once silently broke window mapping. Instead
+    // we cache the registry `RegistryGlobal` for each advertised
+    // wl_output and bind on-demand inside the capture path, then
+    // destroy the proxy as soon as the frame finishes.
+    private IntPtr _wlShm;
+    private IntPtr _screencopyManager;
+    private uint _screencopyVersion;
+    private WlrScreencopyClient? _screencopy;
+    private readonly ConcurrentDictionary<uint, RegistryGlobal> _wlOutputGlobals = new();
+
     // --- key bindings -------------------------------------------------
 
     private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
@@ -441,6 +458,100 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
+        else if (global.Interface == "wl_shm" && _wlShm == IntPtr.Zero)
+        {
+            _wlShm = _registry.Bind(global.Name, WlInterfaces.WlShm, 1);
+            Log("bound wl_shm");
+            TryActivateScreencopy();
+        }
+        else if (global.Interface == "wl_output")
+        {
+            // Lazy-bind path: only remember the global. We bind a real
+            // wl_output proxy on demand from CaptureOutputAsync and
+            // destroy it immediately after capture. This avoids
+            // surfacing the wl_output event stream on the WM's display
+            // at all, which is what previously stalled toplevel
+            // delivery and prevented windows from opening.
+            _wlOutputGlobals[global.Name] = global;
+        }
+        else if (global.Interface == "zwlr_screencopy_manager_v1" && _screencopyManager == IntPtr.Zero)
+        {
+            _screencopyVersion = Math.Min(global.Version, 3u);
+            _screencopyManager = _registry.Bind(
+                global.Name, WlInterfaces.ZwlrScreencopyManager, _screencopyVersion);
+            Log($"bound zwlr_screencopy_manager_v1 (version {_screencopyVersion})");
+            TryActivateScreencopy();
+        }
+    }
+
+    /// <summary>
+    /// Brings up <see cref="_screencopy"/> once both <c>wl_shm</c> and
+    /// <c>zwlr_screencopy_manager_v1</c> have been bound. Order of registry
+    /// events is not guaranteed, so this is called from each binding site.
+    /// </summary>
+    private void TryActivateScreencopy()
+    {
+        if (_screencopy != null || _screencopyManager == IntPtr.Zero || _wlShm == IntPtr.Zero)
+        {
+            return;
+        }
+
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch;
+        _screencopy = new WlrScreencopyClient(
+            _screencopyManager,
+            _screencopyVersion,
+            _wlShm,
+            GCHandle.ToIntPtr(_selfHandle),
+            dispatcher);
+        Log("screencopy ready (wl_shm + zwlr_screencopy_manager_v1)");
+    }
+
+    /// <summary>
+    /// Captures a full frame for the first known <c>wl_output</c>. Returns
+    /// <c>null</c> if screencopy is unavailable. Intended for diagnostic /
+    /// thumbnail consumers within the WM process; portal apps speak to
+    /// RiverDelta directly.
+    /// </summary>
+    /// <param name="overlayCursor">Whether to composite the cursor.</param>
+    public System.Threading.Tasks.Task<ScreencopyResult>? CaptureFirstOutputAsync(bool overlayCursor = false)
+    {
+        if (_screencopy == null)
+        {
+            return null;
+        }
+
+        RegistryGlobal? pick = null;
+        foreach (var kv in _wlOutputGlobals)
+        {
+            pick = kv.Value;
+            break;
+        }
+        if (pick is null)
+        {
+            return null;
+        }
+
+        // Bind a real wl_output proxy *just* for this capture. Version 1
+        // is sufficient — capture_output only needs the object identity.
+        // We destroy it after the frame completes so the wl_output event
+        // stream never lingers on the WM's display.
+        IntPtr output = _registry.Bind(pick.Value.Name, WlInterfaces.WlOutput, 1);
+        if (output == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var task = _screencopy.CaptureOutputAsync(output, overlayCursor);
+        // Destroy the proxy as soon as the capture finishes (success or
+        // failure). The screencopy frame holds its own ref on the
+        // wl_output for the duration of the capture, so an early destroy
+        // on this side is safe.
+        IntPtr captured = output;
+        return task.ContinueWith(static (t, state) =>
+        {
+            WaylandInterop.wl_proxy_destroy((IntPtr)state!);
+            return t.GetAwaiter().GetResult();
+        }, captured, System.Threading.Tasks.TaskScheduler.Default);
     }
 
 

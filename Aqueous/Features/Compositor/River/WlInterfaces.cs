@@ -96,6 +96,23 @@ internal static unsafe class WlInterfaces
     /// <summary><c>river_xkb_bindings_seat_v1</c> v1 — per-seat keyboard binding context.</summary>
     public static WaylandInterop.WlInterface* RiverXkbBindingsSeat;
 
+    // wlr-screencopy-unstable-v1 (v3) -----------------------------------
+
+    /// <summary><c>wl_shm</c> v1 — shared-memory buffer factory used by the screencopy shm path.</summary>
+    public static WaylandInterop.WlInterface* WlShm;
+
+    /// <summary><c>wl_shm_pool</c> v1 — pool created from a shm fd; produces <c>wl_buffer</c> objects.</summary>
+    public static WaylandInterop.WlInterface* WlShmPool;
+
+    /// <summary><c>wl_buffer</c> v1 — shm buffer handed to <c>zwlr_screencopy_frame_v1.copy</c>.</summary>
+    public static WaylandInterop.WlInterface* WlBuffer;
+
+    /// <summary><c>zwlr_screencopy_manager_v1</c> v3 — entry point of the wlr-screencopy protocol.</summary>
+    public static WaylandInterop.WlInterface* ZwlrScreencopyManager;
+
+    /// <summary><c>zwlr_screencopy_frame_v1</c> v3 — single in-flight capture handle.</summary>
+    public static WaylandInterop.WlInterface* ZwlrScreencopyFrame;
+
     /// <summary>Set to <c>true</c> once <see cref="BuildAll"/> has fully populated every interface table.</summary>
     /// <remarks>Read lock-free via a fast path in <see cref="EnsureBuilt"/>; written only under <see cref="_lock"/>.</remarks>
     private static bool _built;
@@ -308,7 +325,7 @@ internal static unsafe class WlInterfaces
         WlRegistry = AllocEmpty("wl_registry", 1);
         WlSeat = AllocEmpty("wl_seat", 7);
         WlSurface = AllocEmpty("wl_surface", 1);
-        WlOutput = AllocEmpty("wl_output", 1);
+        WlOutput = AllocEmpty("wl_output", 4);
         ZwlrManager = AllocEmpty("zwlr_foreign_toplevel_manager_v1", 3);
         ZwlrHandle = AllocEmpty("zwlr_foreign_toplevel_handle_v1", 3);
         RiverLayerShell = AllocEmpty("river_layer_shell_v1", 1);
@@ -336,7 +353,34 @@ internal static unsafe class WlInterfaces
         //    are unused (we never create these ourselves and never
         //    interpret their events).
         Populate(WlSurface, Array.Empty<WaylandInterop.WlMessage>(), Array.Empty<WaylandInterop.WlMessage>());
-        Populate(WlOutput, Array.Empty<WaylandInterop.WlMessage>(), Array.Empty<WaylandInterop.WlMessage>());
+
+        // wl_output (version 4)
+        //   request 0: release()                                       [since v3, destructor]
+        //   events:
+        //     0 geometry(int x, int y, int phys_w, int phys_h, int subpixel, string make, string model, int transform)
+        //     1 mode(uint flags, int width, int height, int refresh)
+        //     2 done()                                                  [since v2]
+        //     3 scale(int factor)                                       [since v2]
+        //     4 name(string)                                            [since v4]
+        //     5 description(string)                                     [since v4]
+        //
+        // We don't consume any of these, but the descriptor MUST list them so
+        // libwayland's dispatcher can route the events without raising a
+        // protocol error and tearing down the connection.
+        Populate(WlOutput,
+            requests: new[]
+            {
+                Msg("release", "3", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("geometry",    "iiiiissi", new WaylandInterop.WlInterface*[] { null, null, null, null, null, null, null, null }),
+                Msg("mode",        "uiii",     new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("done",        "2",        NoTypes),
+                Msg("scale",       "2i",       new WaylandInterop.WlInterface*[] { null }),
+                Msg("name",        "4s",       new WaylandInterop.WlInterface*[] { null }),
+                Msg("description", "4s",       new WaylandInterop.WlInterface*[] { null }),
+            });
 
         // 5. zwlr_foreign_toplevel_manager_v1 (version 3)
         //    request 0: stop()
@@ -403,6 +447,112 @@ internal static unsafe class WlInterfaces
             });
 
         BuildRiverWindowManagement();
+        BuildWlrScreencopy();
+    }
+
+    // ---------- wlr-screencopy-unstable-v1 (v3) ----------
+
+    /// <summary>
+    /// Builds the <c>wl_shm</c> / <c>wl_shm_pool</c> / <c>wl_buffer</c> trio
+    /// and the two <c>zwlr_screencopy_*</c> interfaces from
+    /// <c>Protocols/wlr-screencopy-unstable-v1.xml</c>.
+    /// </summary>
+    /// <remarks>
+    /// Signatures and opcodes are extracted verbatim from the upstream
+    /// wlr-protocols XML. The shm trio carries only the requests and events
+    /// this client actually invokes (create_pool, create_buffer, destroy
+    /// requests on the manager-side; release event on wl_buffer).
+    /// </remarks>
+    private static void BuildWlrScreencopy()
+    {
+        WlShm                  = AllocEmpty("wl_shm", 1);
+        WlShmPool              = AllocEmpty("wl_shm_pool", 1);
+        WlBuffer               = AllocEmpty("wl_buffer", 1);
+        ZwlrScreencopyManager  = AllocEmpty("zwlr_screencopy_manager_v1", 3);
+        ZwlrScreencopyFrame    = AllocEmpty("zwlr_screencopy_frame_v1", 3);
+
+        // wl_shm
+        //   request 0: create_pool(new_id<wl_shm_pool>, fd, size)
+        //   event   0: format(uint)
+        Populate(WlShm,
+            requests: new[]
+            {
+                Msg("create_pool", "nhi", new WaylandInterop.WlInterface*[] { WlShmPool, null, null }),
+            },
+            events: new[]
+            {
+                Msg("format", "u", new WaylandInterop.WlInterface*[] { null }),
+            });
+
+        // wl_shm_pool
+        //   request 0: create_buffer(new_id<wl_buffer>, offset, width, height, stride, format)
+        //   request 1: destroy()                [destructor]
+        //   request 2: resize(size)
+        Populate(WlShmPool,
+            requests: new[]
+            {
+                Msg("create_buffer", "niiiiu", new WaylandInterop.WlInterface*[] { WlBuffer, null, null, null, null, null }),
+                Msg("destroy",       "",      NoTypes),
+                Msg("resize",        "i",     new WaylandInterop.WlInterface*[] { null }),
+            },
+            events: Array.Empty<WaylandInterop.WlMessage>());
+
+        // wl_buffer
+        //   request 0: destroy()                [destructor]
+        //   event   0: release()
+        Populate(WlBuffer,
+            requests: new[]
+            {
+                Msg("destroy", "", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("release", "", NoTypes),
+            });
+
+        // zwlr_screencopy_manager_v1 (version 3)
+        //   request 0: capture_output(new_id<frame>, int overlay_cursor, object<wl_output>)
+        //   request 1: capture_output_region(new_id<frame>, int overlay_cursor, object<wl_output>, int x, int y, int width, int height)
+        //   request 2: destroy()                [destructor]
+        Populate(ZwlrScreencopyManager,
+            requests: new[]
+            {
+                Msg("capture_output",        "nio",      new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput }),
+                Msg("capture_output_region", "nioiiii",  new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput, null, null, null, null }),
+                Msg("destroy",               "",         NoTypes),
+            },
+            events: Array.Empty<WaylandInterop.WlMessage>());
+
+        // zwlr_screencopy_frame_v1 (version 3)
+        //   requests:
+        //     0 copy(object<wl_buffer>)
+        //     1 destroy()                       [destructor]
+        //     2 copy_with_damage(object<wl_buffer>)
+        //   events:
+        //     0 buffer(uint format, uint width, uint height, uint stride)
+        //     1 flags(uint flags)
+        //     2 ready(uint tv_sec_hi, uint tv_sec_lo, uint tv_nsec)
+        //     3 failed()
+        //     4 damage(uint x, uint y, uint width, uint height)        [since v2]
+        //     5 linux_dmabuf(uint format, uint width, uint height)     [since v3]
+        //     6 buffer_done()                                          [since v3]
+        Populate(ZwlrScreencopyFrame,
+            requests: new[]
+            {
+                Msg("copy",              "o",  new WaylandInterop.WlInterface*[] { WlBuffer }),
+                Msg("destroy",           "",   NoTypes),
+                Msg("copy_with_damage",  "o",  new WaylandInterop.WlInterface*[] { WlBuffer }),
+            },
+            events: new[]
+            {
+                Msg("buffer",        "uuuu",  new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("flags",         "u",     new WaylandInterop.WlInterface*[] { null }),
+                Msg("ready",         "uuu",   new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("failed",        "",      NoTypes),
+                Msg("damage",        "2uuuu", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("linux_dmabuf",  "3uuu",  new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("buffer_done",   "3",     NoTypes),
+            });
     }
 
     // ---------- river_window_management_v1 (v4) ----------
