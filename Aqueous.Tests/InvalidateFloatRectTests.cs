@@ -150,6 +150,32 @@ public class InvalidateFloatRectTests
         Assert.Equal(44, keep.LastHintH);
     }
 
+    // Installs a recording hook in place of the real wl_proxy_marshal_flags
+    // call inside SetToplevelMaximizedState. Returns the recorder list and
+    // a disposable that restores the previous hook (or null) on dispose so
+    // tests don't leak the override into one another.
+    private static (System.Collections.Generic.List<(IntPtr handle, uint opcode)> log, IDisposable scope)
+        InstallMarshalRecorder()
+    {
+        var hostType = typeof(RiverWindowManagerClient).GetNestedType(
+            "RiverWindowStateHost", BindingFlags.NonPublic);
+        Assert.NotNull(hostType);
+        var field = hostType!.GetField("MaximizedMarshalOverride",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+
+        var prev = field!.GetValue(null);
+        var log = new System.Collections.Generic.List<(IntPtr, uint)>();
+        Action<IntPtr, uint> hook = (h, op) => log.Add((h, op));
+        field.SetValue(null, hook);
+        return (log, new ResetScope(() => field.SetValue(null, prev)));
+    }
+
+    private sealed class ResetScope(Action onDispose) : IDisposable
+    {
+        public void Dispose() => onDispose();
+    }
+
     [Fact]
     public void SetToplevelMaximizedState_TogglesXdgFlagAndRearmsSizeGate()
     {
@@ -158,6 +184,9 @@ public class InvalidateFloatRectTests
         // xdg_toplevel.configure marshal) and re-arm the size diff-gate
         // so a fresh propose_dimensions goes out together with the new
         // state array even if the size happens to be unchanged.
+        var (_, scope) = InstallMarshalRecorder();
+        using var _s = scope;
+
         var h = Build();
         var handle = new IntPtr(0xBEEF);
         var entry = new WindowEntry
@@ -185,13 +214,42 @@ public class InvalidateFloatRectTests
     [Fact]
     public void SetToplevelMaximizedState_UnknownHandle_IsNoOp()
     {
+        var (log, scope) = InstallMarshalRecorder();
+        using var _s = scope;
+
         var h = Build();
         // Must tolerate unknown / zero proxies the same way
-        // InvalidateFloatRect does.
+        // InvalidateFloatRect does — and must NOT marshal anything,
+        // since there's no entry to inform River about.
         h.Host.SetToplevelMaximizedState(new WindowProxy(new IntPtr(0xDEAD0)), true);
         h.Host.SetToplevelMaximizedState(WindowProxy.Zero, false);
         Assert.False(h.Windows.ContainsKey(new IntPtr(0xDEAD0)));
         Assert.False(h.Windows.ContainsKey(IntPtr.Zero));
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public void SetToplevelMaximizedState_MarshalsInformMaximizedOpcodes()
+    {
+        // The wire-level contract: enter must marshal opcode 15
+        // (river_window_v1.inform_maximized) on the window's proxy;
+        // restore must marshal opcode 16 (inform_unmaximized). Both
+        // are zero-arg requests on the river_window_v1 proxy. Without
+        // these wire emits Chromium reconciles a stale state array
+        // (3-click bug) and Alacritty refuses to leave maximized.
+        var (log, scope) = InstallMarshalRecorder();
+        using var _s = scope;
+
+        var h = Build();
+        var handle = new IntPtr(0xBEEF);
+        h.Windows[handle] = new WindowEntry();
+
+        h.Host.SetToplevelMaximizedState(new WindowProxy(handle), maximized: true);
+        h.Host.SetToplevelMaximizedState(new WindowProxy(handle), maximized: false);
+
+        Assert.Equal(2, log.Count);
+        Assert.Equal((handle, 15u), log[0]);
+        Assert.Equal((handle, 16u), log[1]);
     }
 
     [Fact]

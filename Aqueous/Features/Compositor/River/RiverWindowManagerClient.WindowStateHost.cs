@@ -31,6 +31,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
     {
         private readonly RiverWindowManagerClient _c;
 
+        // Test-only seam for the inform_(un)maximized wire emit. When set
+        // to non-null, SetToplevelMaximizedState calls this in lieu of
+        // wl_proxy_marshal_flags so unit tests can drive the host with
+        // synthetic IntPtr handles without segfaulting in libwayland.
+        // Production keeps this null and the real marshal runs.
+        internal static Action<IntPtr, uint>? MaximizedMarshalOverride;
+
         public RiverWindowStateHost(RiverWindowManagerClient c)
         {
             _c = c;
@@ -181,6 +188,35 @@ internal sealed unsafe partial class RiverWindowManagerClient
             // unchanged across the transition.
             entry.LastHintW = int.MinValue;
             entry.LastHintH = int.MinValue;
+
+            // Wire-level: tell River to update the xdg_toplevel state
+            // array on its next configure to the client. Without this
+            // call strict xdg-shell clients (Chromium, Alacritty) keep
+            // seeing state=[activated, maximized] across a restore and
+            // either reconcile (Chromium burns one click) or refuse to
+            // shrink (Alacritty stays glued at the maximized rect).
+            // Opcodes per WlInterfaces.cs river_window_v1 request list:
+            //   inform_maximized   = 15
+            //   inform_unmaximized = 16
+            // Both are zero-arg requests on the river_window_v1 proxy
+            // (which is `window.Handle` — same proxy used for opcode 3
+            // propose_dimensions in the LayoutProposer).
+            if (window.Handle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            uint opcode = maximized ? 15u : 16u;
+            var hook = MaximizedMarshalOverride;
+            if (hook is not null)
+            {
+                hook(window.Handle, opcode);
+                return;
+            }
+
+            WaylandInterop.wl_proxy_marshal_flags(
+                window.Handle, opcode, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         }
 
         public void Spawn(SpawnRequest request)
