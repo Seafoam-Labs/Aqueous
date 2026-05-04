@@ -506,6 +506,17 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     (IntPtr)pw, (IntPtr)ph,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
+
+            if (w.NodeProxy != IntPtr.Zero
+                && (w.LastPosX != w.X || w.LastPosY != w.Y))
+            {
+                WaylandInterop.wl_proxy_marshal_flags(
+                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                    (IntPtr)w.X, (IntPtr)w.Y,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                w.LastPosX = w.X;
+                w.LastPosY = w.Y;
+            }
         }
 
         // Fullscreen windows cover the raw output rect (no struts,
