@@ -2,7 +2,10 @@
 # Aqueous session launcher.
 # Installed as /usr/bin/aqueous-wm and referenced by the Wayland
 # session entry at /usr/share/wayland-sessions/aqueous.desktop.
-set -e
+#
+# NOTE: deliberately *not* using `set -e` — a single non-fatal failure
+# (e.g. mkdir on an already-correct XDG_RUNTIME_DIR under SDDM) must not
+# abort the whole session.
 
 export XDG_CURRENT_DESKTOP=Aqueous
 export XDG_SESSION_TYPE=wayland
@@ -20,10 +23,10 @@ export MOZ_ENABLE_WAYLAND=1
 # non-reparenting WM (RiverDelta + xwayland-satellite included).
 export _JAVA_AWT_WM_NONREPARENTING=1
 
-# DISPLAY for the rootless XWayland bridge. xwayland-satellite is launched by
-# Aqueous via [[exec]] in wm.toml; X11 clients spawned by the session connect
-# to this socket. Keep in sync with the satellite's command-line argument.
-export DISPLAY="${DISPLAY:-:0}"
+# DO NOT set DISPLAY here — xwayland-satellite owns it and will export the
+# correct value once the bridge is up. Setting DISPLAY=:0 collides with
+# SDDM's greeter X server and breaks X11 client auth.
+unset DISPLAY
 
 # XWayland reads cursor settings only at server startup — set them here so
 # X11 apps get a sane cursor on first map.
@@ -38,19 +41,36 @@ export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0
 
-# Ensure XDG_RUNTIME_DIR exists (greetd normally provides this).
+# Ensure XDG_RUNTIME_DIR exists (greetd/sddm normally provide this via
+# pam_systemd). Tolerate failures: under SDDM the directory may already
+# exist with strict ownership we cannot chmod.
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
-[ -d "$XDG_RUNTIME_DIR" ] || mkdir -p "$XDG_RUNTIME_DIR"
+[ -d "$XDG_RUNTIME_DIR" ] || mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
 chmod 0700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
 # Redirect stdout/stderr to a per-user log so failures launching from
 # sddm/greetd (where there is no attached terminal) are diagnosable.
-# `journalctl --user` typically won't capture this since the session is
-# not started by systemd --user; the file is the source of truth.
-exec >>"$XDG_RUNTIME_DIR/aqueous-wm.log" 2>&1
-echo "[aqueous-wm] $(date -Is) starting (uid=$(id -u) DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-})"
+# Truncate (not append) — XDG_RUNTIME_DIR is tmpfs but auto-login +
+# systemd lingering can otherwise grow this without bound.
+LOG="$XDG_RUNTIME_DIR/aqueous-wm.log"
+exec >"$LOG" 2>&1
+echo "[aqueous-wm] $(date -Is) starting uid=$(id -u) greeter=${XDG_GREETER_DATA_DIR:-unknown}"
+
+# Push session env into systemd --user / dbus so xdg-desktop-portal and
+# user units actually see the Wayland environment. SDDM does not do this
+# for us the way greetd's PAM stack tends to.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user import-environment \
+        DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
+        XDG_SESSION_DESKTOP XCURSOR_THEME XCURSOR_SIZE PATH 2>/dev/null || true
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd \
+            DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
+            XDG_SESSION_DESKTOP 2>/dev/null || true
+    fi
+fi
 
 # Seed user config from the system default if missing. Never overwrite.
 cfg="$HOME/.config/aqueous/wm.toml"
@@ -58,7 +78,7 @@ if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     # Non-fatal: a quirky $HOME/.config (e.g. odd ownership during a
     # greetd autologin handoff) must not abort the whole session. Aqueous
     # will fall back to /etc/xdg/aqueous/wm.toml at runtime.
-    install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" || true
+    install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" 2>/dev/null || true
 fi
 
 # Start the input daemon sidecar if a systemd user unit isn't already
@@ -68,8 +88,6 @@ cleanup() {
     if [ -n "$INPUTD_PID" ]; then
         kill "$INPUTD_PID" 2>/dev/null || true
     fi
-    # Best-effort: kill stragglers spawned by Aqueous via [[exec]] blocks.
-    pkill -u "$(id -u)" -x "qs" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -84,4 +102,10 @@ fi
 # wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
 # inability to set the render size before the session starts) and
 # spawns the long-running daemon, before exec'ing Aqueous itself.
-exec riverdelta -c '/usr/bin/aqueous-init'
+#
+# Run (not exec) so the EXIT trap fires and we can clean up the input
+# daemon. Use absolute path because SDDM session PATH is minimal.
+/usr/bin/riverdelta -c /usr/bin/aqueous-init
+status=$?
+echo "[aqueous-wm] $(date -Is) riverdelta exited status=$status"
+exit $status
