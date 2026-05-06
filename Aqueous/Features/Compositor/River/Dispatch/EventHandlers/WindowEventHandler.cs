@@ -117,11 +117,11 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.AppId:
-                w.AppId = MarshalUtf8(args[0].s);
+                w.AppId = MarshalUtf8(args[0].s) ?? string.Empty;
                 Log($"window 0x{proxy.ToString("x")} app_id={w.AppId}");
                 break;
             case RiverProtocolOpcodes.Window.Title:
-                w.Title = MarshalUtf8(args[0].s);
+                w.Title = MarshalUtf8(args[0].s) ?? string.Empty;
                 Log($"window 0x{proxy.ToString("x")} title={w.Title}");
                 break;
             case RiverProtocolOpcodes.Window.PointerMoveRequested:
