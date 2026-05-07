@@ -396,12 +396,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
                         _windows[proxy] = entry;
-                        WaylandInterop.wl_proxy_add_dispatcher(
-                            proxy,
-                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
-                            GCHandle.ToIntPtr(_selfHandle),
-                            IntPtr.Zero);
-                        Log($"+ window 0x{proxy.ToString("x")}");
 
                         // Spawn-to-front: always focus the freshly mapped window.
                         // Previously this was guarded by `_focusedWindow == IntPtr.Zero`,
@@ -409,7 +403,16 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // still on the start-menu / previously-focused window, so the
                         // guard would skip RequestFocus and the new window would map
                         // without keyboard/pointer focus ("no input" symptom).
+                        // Note: we MUST add to _windows before RequestFocus/ScheduleManage
+                        // so the layout/focus logic sees the new entry.
                         RequestFocus(proxy);
+
+                        WaylandInterop.wl_proxy_add_dispatcher(
+                            proxy,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            GCHandle.ToIntPtr(_selfHandle),
+                            IntPtr.Zero);
+                        Log($"+ window 0x{proxy.ToString("x")}");
 
                         // Flush pending focus + clip box / position on this cycle so the
                         // very first committed frame of the new client has a valid input

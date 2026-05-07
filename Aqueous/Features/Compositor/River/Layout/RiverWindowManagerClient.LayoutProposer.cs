@@ -231,9 +231,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
             var w = hiddenThisCycle[hi];
             if (!w.HideSent)
             {
-                WaylandInterop.wl_proxy_marshal_flags(
-                    w.Proxy, 4, IntPtr.Zero, 0, 0,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(w.Proxy))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        w.Proxy, 4, IntPtr.Zero, 0, 0,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
                 w.HideSent = true;
                 // Force re-propose / re-position on next show.
                 w.LastHintW = 0;
@@ -248,12 +251,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
             w.Visible = false;
         }
 
-        // Adoption fallback: if we are the *only* output and no
-        // window has been assigned yet (happens on first cycle
-        // because windows start at cascade offsets that may sit
-        // outside the reported usableArea), adopt every unassigned
-        // window onto us so they are not silently dropped.
-        if (!isFallback && tiledSnapshot.Count == 0 && floatingHandles.Count == 0 && _outputs.Count == 1)
+        // Adoption fallback: if we are the *only* output, ensure every
+        // unassigned window is adopted onto us. Previously this was
+        // only triggered if no windows were yet tiled or floating,
+        // which caused newly-opened windows to be ignored if any
+        // window already existed on the output.
+        if (!isFallback && _outputs.Count == 1)
         {
             foreach (var kvp in _windows)
             {
@@ -261,19 +264,30 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 if (w.Output == IntPtr.Zero)
                 {
                     w.Output = output;
-                }
 
-                bool treatAsFloating = floatIsActive && w.Floating;
-                if (floatIsActive || treatAsFloating)
-                {
-                    floatingHandles.Add(kvp.Key);
-                }
-                else
-                {
-                    tiledSnapshot.Add(new WindowEntryView(
-                        Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
-                        MaxW: w.MaxW, MaxH: w.MaxH,
-                        Floating: false, Fullscreen: false, Tags: 0u));
+                    // If we just adopted a window that wasn't in any bucket,
+                    // ensure it gets into one now so we don't have to wait
+                    // for the next manage cycle.
+                    bool treatAsFloating = (floatIsActive || w.Floating);
+                    if (floatIsActive || treatAsFloating)
+                    {
+                        if (!floatingHandles.Contains(kvp.Key))
+                            floatingHandles.Add(kvp.Key);
+                    }
+                    else
+                    {
+                        // Check if already in tiledSnapshot to avoid duplicates
+                        bool alreadyTiled = false;
+                        for(int ti=0; ti<tiledSnapshot.Count; ti++) if(tiledSnapshot[ti].Handle == kvp.Key) { alreadyTiled = true; break; }
+
+                        if (!alreadyTiled)
+                        {
+                            tiledSnapshot.Add(new WindowEntryView(
+                                Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
+                                MaxW: w.MaxW, MaxH: w.MaxH,
+                                Floating: false, Fullscreen: false, Tags: w.Tags));
+                        }
+                    }
                 }
             }
         }
@@ -399,10 +413,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.X = p.Geometry.X;
                 w.Y = p.Geometry.Y;
 
-                WaylandInterop.wl_proxy_marshal_flags(
-                    p.Handle, 3, IntPtr.Zero, 0, 0,
-                    (IntPtr)pw, (IntPtr)ph,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(p.Handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        p.Handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
             }
         }
 
@@ -452,19 +469,25 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                WaylandInterop.wl_proxy_marshal_flags(
-                    handle, 3, IntPtr.Zero, 0, 0,
-                    (IntPtr)pw, (IntPtr)ph,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
             }
 
             if (w.NodeProxy != IntPtr.Zero
                 && (w.LastPosX != w.X || w.LastPosY != w.Y))
             {
-                WaylandInterop.wl_proxy_marshal_flags(
-                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
-                    (IntPtr)w.X, (IntPtr)w.Y,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                        (IntPtr)w.X, (IntPtr)w.Y,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
                 w.LastPosX = w.X;
                 w.LastPosY = w.Y;
             }
@@ -501,19 +524,25 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                WaylandInterop.wl_proxy_marshal_flags(
-                    handle, 3, IntPtr.Zero, 0, 0,
-                    (IntPtr)pw, (IntPtr)ph,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
             }
 
             if (w.NodeProxy != IntPtr.Zero
                 && (w.LastPosX != w.X || w.LastPosY != w.Y))
             {
-                WaylandInterop.wl_proxy_marshal_flags(
-                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
-                    (IntPtr)w.X, (IntPtr)w.Y,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                        (IntPtr)w.X, (IntPtr)w.Y,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
                 w.LastPosX = w.X;
                 w.LastPosY = w.Y;
             }
@@ -583,10 +612,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                WaylandInterop.wl_proxy_marshal_flags(
-                    handle, 3, IntPtr.Zero, 0, 0,
-                    (IntPtr)pw, (IntPtr)ph,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (_windows.ContainsKey(handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        handle, 3, IntPtr.Zero, 0, 0,
+                        (IntPtr)pw, (IntPtr)ph,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
             }
 
             // Fix #3: record this handle as fullscreen-this-cycle so the

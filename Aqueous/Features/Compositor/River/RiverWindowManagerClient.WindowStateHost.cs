@@ -291,6 +291,36 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
+        public void ScheduleAfter(TimeSpan delay, Action callback)
+        {
+            if (callback is null)
+            {
+                return;
+            }
+
+            // Using Timer is the specified fallback in IWindowStateHost, but we must
+            // ensure the callback doesn't race with the main Wayland loop or
+            // other threads if the callback modifies internal state.
+            // StartupExecRunner.Launch (the primary user) is relatively safe as
+            // it uses Process.Start and adds to the supervisor list.
+            Timer? t = null;
+            t = new Timer(_ =>
+            {
+                try
+                {
+                    callback();
+                }
+                catch (Exception ex)
+                {
+                    RiverWindowManagerClient.Log($"ScheduleAfter callback threw: {ex.Message}");
+                }
+                finally
+                {
+                    t?.Dispose();
+                }
+            }, null, delay, Timeout.InfiniteTimeSpan);
+        }
+
         public void Log(string message) => RiverWindowManagerClient.Log(message);
 
         public Rect CurrentGeometry(WindowProxy window)
