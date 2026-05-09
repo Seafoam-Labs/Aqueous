@@ -83,12 +83,24 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 if (w.Output == IntPtr.Zero)
                 {
                     // Adopt onto an output: prefer one whose area
-                    // contains the current (X,Y); else skip — another
-                    // output's ProposeForArea call will adopt it.
+                    // contains the current (X,Y); else, in single-
+                    // output configurations, adopt unconditionally.
+                    // A freshly-mapped native Wayland window (e.g.
+                    // alacritty) reports (0,0) before the WM sends
+                    // the first propose_dimensions. If the sole
+                    // output's usableArea has been shifted off the
+                    // origin by a status bar / exclusive zone /
+                    // gaps, the strict `inside` test would silently
+                    // drop every native Wayland window after the
+                    // first — which is exactly the "alacritty opens
+                    // but no further windows do" symptom. In multi-
+                    // output setups we still require the coordinate
+                    // match so the right output adopts the window.
                     bool inside =
                         w.X >= usableArea.X && w.X < usableArea.X + usableArea.W &&
                         w.Y >= usableArea.Y && w.Y < usableArea.Y + usableArea.H;
-                    if (inside)
+                    bool adopt = inside || _outputs.Count == 1;
+                    if (adopt)
                     {
                         w.Output = output;
                         // Phase B1c: inherit the output's currently
