@@ -1,0 +1,173 @@
+// SPDX-FileCopyrightText: © 2024 The River Developers
+// SPDX-License-Identifier: GPL-3.0-only
+
+const InputPopup = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const wlr = @import("wlroots");
+const wl = @import("wayland").server.wl;
+
+const server = &@import("main.zig").server;
+const util = @import("util.zig");
+
+const InputRelay = @import("InputRelay.zig");
+const SceneNodeData = @import("SceneNodeData.zig");
+
+link: wl.list.Link,
+input_relay: *InputRelay,
+
+wlr_popup: *wlr.InputPopupSurfaceV2,
+surface_tree: *wlr.SceneTree,
+
+destroy: wl.Listener(void) = .init(handleDestroy),
+map: wl.Listener(void) = .init(handleMap),
+unmap: wl.Listener(void) = .init(handleUnmap),
+commit: wl.Listener(*wlr.Surface) = .init(handleCommit),
+
+pub fn create(wlr_popup: *wlr.InputPopupSurfaceV2, input_relay: *InputRelay) !void {
+    const input_popup = try util.gpa.create(InputPopup);
+    errdefer util.gpa.destroy(input_popup);
+
+    input_popup.* = .{
+        .link = undefined,
+        .input_relay = input_relay,
+        .wlr_popup = wlr_popup,
+        .surface_tree = try server.scene.hidden_tree.createSceneSubsurfaceTree(wlr_popup.surface),
+    };
+
+    input_relay.input_popups.append(input_popup);
+
+    input_popup.wlr_popup.events.destroy.add(&input_popup.destroy);
+    input_popup.wlr_popup.surface.events.map.add(&input_popup.map);
+    input_popup.wlr_popup.surface.events.unmap.add(&input_popup.unmap);
+    input_popup.wlr_popup.surface.events.commit.add(&input_popup.commit);
+
+    input_popup.update();
+}
+
+fn handleDestroy(listener: *wl.Listener(void)) void {
+    const input_popup: *InputPopup = @fieldParentPtr("destroy", listener);
+
+    input_popup.destroy.link.remove();
+    input_popup.map.link.remove();
+    input_popup.unmap.link.remove();
+    input_popup.commit.link.remove();
+
+    input_popup.link.remove();
+
+    util.gpa.destroy(input_popup);
+}
+
+fn handleMap(listener: *wl.Listener(void)) void {
+    const input_popup: *InputPopup = @fieldParentPtr("map", listener);
+
+    input_popup.update();
+}
+
+fn handleUnmap(listener: *wl.Listener(void)) void {
+    const input_popup: *InputPopup = @fieldParentPtr("unmap", listener);
+
+    input_popup.surface_tree.node.reparent(server.scene.hidden_tree);
+}
+
+fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
+    const input_popup: *InputPopup = @fieldParentPtr("commit", listener);
+
+    input_popup.update();
+}
+
+pub fn update(input_popup: *InputPopup) void {
+    const text_input = input_popup.input_relay.text_input orelse {
+        input_popup.surface_tree.node.reparent(server.scene.hidden_tree);
+        return;
+    };
+
+    if (!input_popup.wlr_popup.surface.mapped) return;
+
+    // This seems like it could be null if the focused surface is destroyed
+    const focused_surface = text_input.wlr_text_input.focused_surface orelse return;
+
+    // Focus should never be sent to subsurfaces
+    assert(focused_surface.getRootSurface() == focused_surface);
+
+    const focused = SceneNodeData.fromSurface(focused_surface) orelse return;
+
+    const popup_tree = switch (focused.data) {
+        .window => |window| window.popup_tree,
+        .shell_surface => |shell_surface| shell_surface.popup_tree,
+        // TODO fix positioning for lock surfaces not at 0,0 in layout coords
+        .lock_surface => server.scene.layers.popups,
+        .layer_surface => |layer_surface| layer_surface.popup_tree,
+        // Xwayland doesn't use the text-input protocol
+        .override_redirect => unreachable,
+    };
+
+    input_popup.surface_tree.node.reparent(popup_tree);
+
+    if (!text_input.wlr_text_input.current.features.cursor_rectangle) {
+        // If the text-input client does not inform us where in the surface
+        // the active text input is there's not much we can do. Placing the
+        // popup at the top left corner of the window is nice and simple
+        // while not looking terrible.
+        input_popup.surface_tree.node.setPosition(0, 0);
+        return;
+    }
+
+    var focused_x: c_int = undefined;
+    var focused_y: c_int = undefined;
+    _ = focused.node.coords(&focused_x, &focused_y);
+
+    // Relative to the surface with the active text input
+    var cursor_box = text_input.wlr_text_input.current.cursor_rectangle;
+
+    const wlr_output = server.om.outputAt(
+        @floatFromInt(focused_x + cursor_box.x),
+        @floatFromInt(focused_y + cursor_box.y),
+    ) orelse return;
+
+    var output_box: wlr.Box = undefined;
+    server.om.output_layout.getBox(wlr_output, &output_box);
+
+    // Adjust to be relative to the output
+    cursor_box.x += focused_x - output_box.x;
+    cursor_box.y += focused_y - output_box.y;
+
+    // Choose popup x/y relative to the output:
+
+    // Align the left edge of the popup with the left edge of the cursor.
+    // If the popup wouldn't fit on the output instead align the right edge
+    // of the popup with the right edge of the cursor.
+    const popup_x = blk: {
+        const popup_width = input_popup.wlr_popup.surface.current.width;
+        if (output_box.width - cursor_box.x >= popup_width) {
+            break :blk cursor_box.x;
+        } else {
+            break :blk cursor_box.x + cursor_box.width - popup_width;
+        }
+    };
+
+    // Align the top edge of the popup with the bottom edge of the cursor.
+    // If the popup wouldn't fit on the output instead align the bottom edge
+    // of the popup with the top edge of the cursor.
+    const popup_y = blk: {
+        const popup_height = input_popup.wlr_popup.surface.current.height;
+        if (output_box.height - (cursor_box.y + cursor_box.height) >= popup_height) {
+            break :blk cursor_box.y + cursor_box.height;
+        } else {
+            break :blk cursor_box.y - popup_height;
+        }
+    };
+
+    // Scene node position is relative to the parent so adjust popup x/y to
+    // be relative to the focused surface.
+    input_popup.surface_tree.node.setPosition(
+        popup_x - focused_x + output_box.x,
+        popup_y - focused_y + output_box.y,
+    );
+
+    // The text input rectangle sent to the input method is relative to the popup.
+    cursor_box.x -= popup_x;
+    cursor_box.y -= popup_y;
+    input_popup.wlr_popup.sendTextInputRectangle(&cursor_box);
+}

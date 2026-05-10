@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: © 2020 The River Developers
+# SPDX-License-Identifier: 0BSD
+
+.zig-cache/
+zig-out/
+zig-pkg/

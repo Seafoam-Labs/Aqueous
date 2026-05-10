@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: © 2024 The River Developers
+# SPDX-License-Identifier: 0BSD
+
+name: Bug Report
+description: File a bug report
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide as many details as possible, we must be able to
+        understand the bug in order to fix it.
+
+        Don't forget to search the issue tracker in case there is
+        already an open issue for the bug you found.
+  - type: input
+    id: river-version
+    attributes:
+      label: River Version
+      description: |
+        The output of `river -version`.
+        If the version starts with 0.3, please open an issue on the
+        [river-classic](https://codeberg.org/river/river-classic/) repository instead.
+      placeholder: "0.4.0-dev.247+a050b8b"
+    validations:
+      required: true
+  - type: input
+    id: wm
+    attributes:
+      label: Window Manager
+    validations:
+      required: true
+  - type: input
+    id: wm-version
+    attributes:
+      label: Window Manager Version
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Description of Bug and Steps to Reproduce
+      description: Exactly what steps can someone else take to see the bug themselves? What happens?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Please provide as many details as possible, we must be able to
+        understand the bug in order to fix it.
+
+        Use a debug build of river if possible to get a better quality
+        stacktrace in the case of a crash:
+        ```
+        zig build -Doptimize=Debug <other desired options>
+        ```
+
+        Set the log level to debug and redirect river's stderr to a file:
+        ```
+        river -log-level debug 2> river.log
+        ```
+        Reproduce your problem and exit river.
+
+        If the issue is with a specific Wayland client (e.g. firefox) a log of the
+        Wayland protocol messages between the client and river is often very helpful.
+        Obtain one by setting WAYLAND_DEBUG=1 and redirecting stderr to a file.
+        ```
+        WAYLAND_DEBUG=1 firefox 2> firefox.log
+        ```
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs, Stacktraces, etc.
