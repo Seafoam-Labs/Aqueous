@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2020 The River Developers
+// SPDX-FileCopyrightText: © 20206 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 const Seat = @This();
@@ -746,6 +746,37 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
                 seat.cursor.constraint = @ptrCast(@alignCast(wlr_constraint.data));
                 assert(seat.cursor.constraint != null);
             }
+        }
+    }
+    seat.flushStalePressedKeys();
+}
+
+/// Removes extraneous keyboard inputs that are storing passed the focus limit.
+/// This is called to prevent the buffer overflow that will cause keyboard inputs to be lost
+/// when the window manager is being used in float mode
+fn flushStalePressedKeys(seat: *Seat) void{
+    var iterator = seat.keyboard_groups.iterator(.forward);
+    while(iterator.next()) |group|
+    {
+        var buffer: [KeyboardGroup.pressed_count_max]u32 = undefined;
+        var stale: std.ArrayList(u32) = .initBuffer(&buffer);
+        for(group.pressed.keys(), group.pressed.values()) |keycode,press| {
+            if(press.consumer != .focus){
+                stale.appendAssumeCapacity(keycode);
+            }
+        }
+        var ts: std.os.linux.timespec = undefined;
+        _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts);
+        const now: u32 = @truncate(@as(u64, @intCast(ts.sec)) *% 1000 +%
+            @as(u64, @intCast(ts.nsec)) / 1_000_000);
+        for(stale.items) |keycode| {
+            var key_event: wlr.Keyboard.event.Key = .{
+                .time_msec = now,
+                .keycode = keycode,
+                .update_state = true,
+                .state = .released,
+            };
+            group.state.notifyKey(&key_event);
         }
     }
 }
