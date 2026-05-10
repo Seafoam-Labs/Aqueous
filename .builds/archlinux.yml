@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: © 2022 The River Developers
+# SPDX-License-Identifier: 0BSD
+
+submitter:
+  git.sr.ht:
+    enabled: false
+
+image: archlinux
+packages:
+  - libdisplay-info
+  - libevdev
+  - libinput
+  - libxkbcommon
+  - mesa
+  - meson
+  - pixman
+  - wayland
+  - wayland-protocols
+  - hwdata
+  - xcb-util-errors
+  - xcb-util-image
+  - xcb-util-renderutil
+  - xcb-util-wm
+  - xorg-xwayland
+  - reuse
+  - seatd
+  - tar
+  - wget
+  - xz
+sources:
+  - https://codeberg.org/river/river
+  - https://gitlab.freedesktop.org/wlroots/wlroots.git
+tasks:
+  - install_deps: |
+      cd wlroots
+      git checkout 0.20.0
+      meson setup build --auto-features=enabled -Drenderers=gles2 \
+            -Dcolor-management=disabled -Dlibliftoff=disabled \
+            -Dexamples=false -Dwerror=false -Db_ndebug=false \
+            -Dxcb-errors=disabled --prefix /usr
+      sudo ninja -C build/ install
+      cd ..
+
+      # Eat Github's resources rather than the Zig Software Foundation's resources!
+      wget -nv https://github.com/ifreund/zig-tarball-mirror/releases/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+      tar xf zig-x86_64-linux-0.16.0.tar.xz
+      sudo mv zig-x86_64-linux-0.16.0/zig /usr/bin/
+      sudo mv zig-x86_64-linux-0.16.0/lib /usr/lib/zig
+  - build: |
+      cd river
+      # Arch's glibc version has SFrame sections in crt objects, force llvm/lld usage as a workaround
+      # https://codeberg.org/ziglang/zig/issues/31272
+      zig build -Dllvm --summary all
+  - build_xwayland: |
+      cd river
+      zig build -Dllvm --summary all -Dxwayland
+  - fmt: |
+      cd river
+      zig fmt --check river/
+      zig fmt --check build.zig
+      zig fmt --check build.zig.zon
+  - reuse: |
+      cd river
+      reuse lint

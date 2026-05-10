@@ -1,0 +1,36 @@
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
+// SPDX-License-Identifier: GPL-3.0-only
+.{
+    .name = .riverdelta,
+    // While a river release is in development, this string should contain
+    // the version in development with the "-dev" suffix.
+    // When a release is tagged, the "-dev" suffix should be removed for the
+    // commit that gets tagged.
+    // Directly after the tagged commit, the version should be bumped and the
+    // "-dev" suffix added.
+    .version = "0.5.0-dev",
+    .paths = .{""},
+    .dependencies = .{
+        .pixman = .{
+            .url = "https://codeberg.org/ifreund/zig-pixman/archive/v0.3.0.tar.gz",
+            .hash = "pixman-0.3.0-LClMnz2VAAAs7QSCGwLimV5VUYx0JFnX5xWU6HwtMuDX",
+        },
+        .wayland = .{
+            .url = "https://codeberg.org/ifreund/zig-wayland/archive/v0.6.0.tar.gz",
+            .hash = "wayland-0.6.0-lQa1kqz8AQADQmdNJsNhLoNHcnEGEUjrOaPV-dtEnEmX",
+        },
+        .wlroots = .{
+            .url = "https://codeberg.org/ifreund/zig-wlroots/archive/v0.20.1.tar.gz",
+            .hash = "wlroots-0.20.1-jmOlcqNVBAB3uB5oqBTzpRlwu-FmMyyZMVAWCe5kmcSt",
+        },
+        .xkbcommon = .{
+            .url = "https://codeberg.org/ifreund/zig-xkbcommon/archive/v0.4.0.tar.gz",
+            .hash = "xkbcommon-0.4.0-VDqIe0i2AgDRsok2GpMFYJ8SVhQS10_PI2M_CnHXsJJZ",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c/#57c559cf581b1fcad90494eda219f98abeb155ce",
+            .hash = "translate_c-0.0.0-Q_BUWlX1BgCD1wo6uo97prlp9VJ4gxAjwN_vZ7nsSjGN",
+        },
+    },
+    .fingerprint = 0x44cc54777bc8b2aa,
+}

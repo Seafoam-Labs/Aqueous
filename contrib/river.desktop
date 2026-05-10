@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: © 2022 Seafoam Labs
+# SPDX-License-Identifier: 0BSD
+
+[Desktop Entry]
+Name=River
+Comment=A non-monolithic Wayland compositor
+Exec=river
+Type=Application
