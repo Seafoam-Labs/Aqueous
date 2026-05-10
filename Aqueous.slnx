@@ -24,4 +24,14 @@
   <Folder Name="/Solution/packaging/greetd/">
     <File Path="packaging/greetd/config.toml.example" />
   </Folder>
+  <Folder Name="/Solution/scripts/">
+    <File Path="scripts/build-compositor.sh" />
+  </Folder>
+  <Folder Name="/Solution/compositor/">
+    <File Path="compositor/build.zig" />
+    <File Path="compositor/build.zig.zon" />
+    <File Path="compositor/PACKAGING.md" />
+    <File Path="compositor/README.md" />
+    <File Path="compositor/ORIGIN.md" />
+  </Folder>
 </Solution>

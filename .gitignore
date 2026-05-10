@@ -3,3 +3,11 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+
+# RiverDelta (Zig) build artifacts
+compositor/zig-cache/
+compositor/zig-out/
+compositor/.zig-cache/
+
+# Aggregated native binaries
+/bin/riverdelta

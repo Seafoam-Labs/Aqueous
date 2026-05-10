@@ -13,24 +13,28 @@ pkill -9 -f 'qs -c noctalia-shell'                    2>/dev/null
 pkill -9 -f '^riverdelta '                             2>/dev/null
 sleep 0.3
 
-# Ensure RiverDelta is available
-if ! command -v riverdelta &>/dev/null && [ ! -f "./bin/riverdelta" ]; then
-    echo "[launch_river] riverdelta not found in PATH or ./bin/. Attempting to build..."
-    RD_SRC="../RiverDelta"
-    if [ ! -d "$RD_SRC" ]; then
-        echo "[launch_river] Cloning RiverDelta to $RD_SRC..."
-        git clone https://github.com/Seafoam-Labs/RiverDelta.git "$RD_SRC"
+# Ensure RiverDelta is available. Prefer an explicit override, then the
+# locally-built ./bin/riverdelta (built from compositor/ in this repo).
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LOCAL_RIVER="$HERE/bin/riverdelta"
+if [ -n "${AQUEOUS_RIVER_BIN:-}" ] && [ -x "$AQUEOUS_RIVER_BIN" ]; then
+    RIVER_BIN="$AQUEOUS_RIVER_BIN"
+else
+    needs_build=0
+    if [ ! -x "$LOCAL_RIVER" ]; then
+        needs_build=1
+    else
+        # Rebuild if any compositor source is newer than the staged binary.
+        if [ -n "$(find "$HERE/compositor" \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$LOCAL_RIVER" -print -quit 2>/dev/null)" ]; then
+            needs_build=1
+        fi
     fi
-
-    echo "[launch_river] Building RiverDelta..."
-    (cd "$RD_SRC" && zig build -Doptimize=ReleaseSafe -Dxwayland)
-
-    mkdir -p ./bin
-    cp "$RD_SRC/zig-out/bin/river" ./bin/riverdelta
-    echo "[launch_river] RiverDelta built and placed in ./bin/riverdelta"
+    if [ "$needs_build" = "1" ]; then
+        echo "[launch_river] Building in-tree RiverDelta from compositor/..."
+        RIVERDELTA_OPTIMIZE="${RIVERDELTA_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
+    fi
+    RIVER_BIN="$LOCAL_RIVER"
 fi
-
-RIVER_BIN=$(command -v riverdelta || echo "$(pwd)/bin/riverdelta")
 echo "[launch_river] Using compositor: $RIVER_BIN"
 
 WM_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/aqueous"

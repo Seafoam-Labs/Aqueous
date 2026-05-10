@@ -1,8 +1,13 @@
 # Aqueous
-
-A minimal Wayland window manager built on top of [River](https://codeberg.org/river/river),
+A minimal Wayland window manager built on top of **RiverDelta** — a fork of
+[River](https://codeberg.org/river/river) vendored in-tree at `compositor/` —
 written in C# / .NET 10. The bar/shell is provided by the external
 [Noctalia](https://github.com/noctalia-dev/noctalia-shell) project.
+
+Aqueous is a single-repo project: the .NET window manager and the Zig
+compositor live side-by-side. No submodules, no extra clone steps —
+`git clone` is enough. See `compositor/ORIGIN.md` and
+`docs/architecture.md` for the why.
 
 ---
 
@@ -21,20 +26,35 @@ written in C# / .NET 10. The bar/shell is provided by the external
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
-- [River](https://codeberg.org/river/river) compositor
+- [Zig](https://ziglang.org/) ≥ 0.16.0 — needed to build the in-tree
+  RiverDelta compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
+  currently provides 0.16.x.
 - [Noctalia](https://github.com/noctalia-dev/noctalia-shell) (`qs` / Quickshell)
 - [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) — rootless XWayland bridge (River has no built-in XWayland; satellite is launched by Aqueous via `[[exec]]` in `wm.toml`).
 - [tuigreet](https://github.com/apognu/tuigreet) (optional, for login)
 - `wayland`, `wayland-protocols`, `libxkbcommon`, `libinput`, `pixman`,
-  `libdrm`, `libevdev`
+  `libdrm`, `libevdev` (full list mirrors `compositor/PACKAGING.md`).
 
 ---
 
 ### Build
 
 ```bash
+# Window manager (.NET)
 dotnet build Aqueous.slnx
+
+# Compositor (Zig). Produces ./bin/riverdelta.
+scripts/build-compositor.sh
 ```
+
+`launch_river.sh` rebuilds the compositor on demand if `./bin/riverdelta`
+is missing or older than the sources under `compositor/`, so for normal
+dev iteration you can just `./launch_river.sh`. For compositor-only
+iteration: `cd compositor && zig build`.
+
+To skip the in-tree compositor and use a system one (or a prebuilt
+path), set `AQUEOUS_RIVER_BIN=/path/to/riverdelta` before running
+`launch_river.sh`.
 
 ### Test
 

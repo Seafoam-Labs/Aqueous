@@ -24,9 +24,8 @@ conflicts=('aqueous' 'riverdelta')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git"
-    "riverdelta::git+https://github.com/Seafoam-Labs/RiverDelta.git"
 )
-sha256sums=('SKIP' 'SKIP')
+sha256sums=('SKIP')
 
 _rid_map() {
     case "$CARCH" in
@@ -74,10 +73,12 @@ build() {
         dotnet publish "$proj" -c Release -r "$rid" --self-contained true /p:PublishAot=true -o "$srcdir/publish/$name"
     done
 
-    # Build RiverDelta
+    # Build RiverDelta (in-tree at compositor/)
     msg2 "Building RiverDelta..."
-    cd "$srcdir/riverdelta"
-    zig build -Doptimize=ReleaseSafe -Dxwayland --prefix "$srcdir/river-dist" install
+    cd "$srcdir/aqueous/compositor"
+    # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
+    # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
+    zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm --prefix "$srcdir/river-dist" install
 }
 
 package() {
@@ -126,5 +127,14 @@ package() {
     if [[ -f "$srcdir/aqueous/LICENSE" ]]; then
         install -Dm644 "$srcdir/aqueous/LICENSE" \
             "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    fi
+
+    # In-tree compositor licenses (RiverDelta is multi-licensed; ship the
+    # license texts alongside Aqueous's own license for attribution).
+    if [[ -d "$srcdir/aqueous/compositor/LICENSES" ]]; then
+        install -d "$pkgdir/usr/share/licenses/$pkgname/riverdelta"
+        cp -dr --no-preserve=ownership \
+            "$srcdir/aqueous/compositor/LICENSES/." \
+            "$pkgdir/usr/share/licenses/$pkgname/riverdelta/"
     fi
 }
