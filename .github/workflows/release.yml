@@ -1,9 +1,9 @@
 name: Release
 
 # Build compilation outputs (Aqueous .NET binaries + RiverDelta compositor)
-# and attach them to a GitHub Release. Mirrors the Shelly-ALPM release
-# workflow style: no makepkg, no Arch container — just `dotnet publish`,
-# `zig build`, tar, upload.
+# and attach them to a GitHub Release. Runs inside an Arch Linux container
+# so we inherit Arch's patched `wayland-protocols` (which carries
+# `wp_color_manager_v1` v2) — Ubuntu/upstream tarballs do not have it yet.
 
 on:
   push:
@@ -23,49 +23,54 @@ jobs:
   release:
     name: Build and publish release artifacts
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --user root
 
     steps:
+      - name: Refresh pacman and install base tools (incl. nodejs for Actions)
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            base-devel git curl tar xz nodejs \
+            clang llvm lld zlib icu \
+            wayland wayland-protocols wayland-utils \
+            libxkbcommon libinput \
+            pixman libdrm libevdev \
+            mesa libglvnd systemd-libs seatd \
+            libdecor \
+            pkgconf ninja meson
+
       - name: Checkout sources
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Mark workspace safe for git
+        shell: bash
+        run: git config --global --add safe.directory '*'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install system build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang zlib1g-dev \
-            libwayland-dev \
-            libxkbcommon-dev libinput-dev \
-            libpixman-1-dev libdrm-dev libevdev-dev \
-            libgbm-dev libudev-dev libseat-dev \
-            libdecor-0-dev \
-            meson ninja-build pkg-config ca-certificates xz-utils curl
-
-      - name: Install wayland-protocols 1.45 (needs >= 1.41 for color-management v2)
-        run: |
-          set -euxo pipefail
-          WP_VER=1.45
-          curl -fsSL "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${WP_VER}/downloads/wayland-protocols-${WP_VER}.tar.xz" -o wp.tar.xz
-          tar xf wp.tar.xz
-          cd "wayland-protocols-${WP_VER}"
-          meson setup build --prefix=/usr -Dtests=false
-          sudo meson install -C build
-          pkg-config --modversion wayland-protocols
-          grep -E 'name="wp_color_manager_v1" version="2"' \
-            /usr/share/wayland-protocols/staging/color-management/color-management-v1.xml
-
       - name: Setup Zig 0.16.0
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 
+      - name: Verify wayland-protocols carries wp_color_manager_v1 v2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman -Q wayland-protocols
+          grep -E 'name="wp_color_manager_v1" version="2"' \
+            /usr/share/wayland-protocols/staging/color-management/color-management-v1.xml
+
       - name: Publish Aqueous (WM)
+        shell: bash
         run: |
           dotnet publish Aqueous/Aqueous.csproj \
             -c Release -r linux-x64 --self-contained true \
@@ -73,6 +78,7 @@ jobs:
             -o publish/Aqueous
 
       - name: Publish Aqueous.InputDaemon
+        shell: bash
         run: |
           dotnet publish Aqueous.InputDaemon/Aqueous.InputDaemon.csproj \
             -c Release -r linux-x64 --self-contained true \
@@ -80,6 +86,7 @@ jobs:
             -o publish/Aqueous.InputDaemon
 
       - name: Publish Aqueous.OutputDaemon
+        shell: bash
         run: |
           dotnet publish Aqueous.OutputDaemon/Aqueous.OutputDaemon.csproj \
             -c Release -r linux-x64 --self-contained true \
@@ -87,12 +94,14 @@ jobs:
             -o publish/Aqueous.OutputDaemon
 
       - name: Build RiverDelta (compositor)
+        shell: bash
         run: |
           cd compositor
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
             --prefix "$GITHUB_WORKSPACE/publish/riverdelta" install
 
       - name: Stage bundle
+        shell: bash
         run: |
           set -euxo pipefail
           mkdir -p publish/aqueous-linux-x64/bin
@@ -144,6 +153,7 @@ jobs:
           find publish/aqueous-linux-x64 -type f \( -name '*.dbg' -o -name '*.pdb' \) -delete
 
       - name: Create tarballs
+        shell: bash
         run: |
           set -euxo pipefail
           cd publish
@@ -154,6 +164,7 @@ jobs:
           tar -czf RiverDelta-linux-x64.tar.gz          -C riverdelta .
 
       - name: Generate SHA256 checksums
+        shell: bash
         run: |
           set -euxo pipefail
           cd publish
