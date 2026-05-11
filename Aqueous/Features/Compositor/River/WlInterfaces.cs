@@ -664,6 +664,8 @@ internal static unsafe class WlInterfaces
                 Msg("unreliable_pid",            "2i",   new WaylandInterop.WlInterface*[] { null }),
                 Msg("presentation_hint",         "4u",   new WaylandInterop.WlInterface*[] { null }),
                 Msg("identifier",                "4s",   new WaylandInterop.WlInterface*[] { null }),
+                Msg("activate_requested",        "5",    NoTypes),
+                Msg("unminimize_requested",      "5",    NoTypes),
             });
 
         // river_decoration_v1

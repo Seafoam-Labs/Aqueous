@@ -277,6 +277,10 @@ wlr_toplevel_sent: struct {
     parent: ?*wlr.ForeignToplevelHandleV1 = null,
 } = .{},
 
+/// Set of wlr_outputs currently "entered" on the wlr_toplevel_handle.
+/// Used so we only emit outputEnter / outputLeave on diffs.
+wlr_toplevel_outputs: std.AutoArrayHashMapUnmanaged(*wlr.Output, void) = .{},
+
 /// Listeners for foreign-toplevel-management client requests
 /// (e.g. clicking a window in the Noctalia dock). They are wired up when
 /// `wlr_toplevel_handle` is created and removed when it is destroyed.
@@ -854,6 +858,9 @@ pub fn manageFinish(window: *Window) bool {
             handle.setParent(parent_handle);
             sent.parent = parent_handle;
         }
+        // Push per-output enter/leave so foreign-toplevel clients can scope
+        // windows to monitors (Noctalia onlySameOutput, waybar wlr-taskbar, …).
+        window.syncForeignToplevelOutputs();
     }
 
     const width, const height = blk: {
@@ -1254,6 +1261,8 @@ pub fn unmap(window: *Window) void {
         handle.destroy();
         window.wlr_toplevel_handle = null;
         window.wlr_toplevel_sent = .{};
+        window.wlr_toplevel_outputs.deinit(util.gpa);
+        window.wlr_toplevel_outputs = .{};
     }
 }
 
@@ -1287,6 +1296,63 @@ pub fn notifyAppId(window: *Window) void {
     }
 }
 
+/// Diff-emit outputEnter / outputLeave on the wlr_toplevel_handle so that
+/// foreign-toplevel clients (Noctalia, waybar wlr-taskbar per-monitor, etc.)
+/// can correctly scope windows to outputs.
+///
+/// A window is considered "on" an output if its scene-graph box intersects
+/// that output's layout box AND the window is currently visible (mapped and
+/// not rendering-hidden). Hidden / unmapped windows leave all outputs.
+pub fn syncForeignToplevelOutputs(window: *Window) void {
+    const handle = window.wlr_toplevel_handle orelse return;
+
+    const visible = window.state == .mapped and !window.rendering_requested.hidden;
+
+    // Compute the set of wlr_outputs this window currently overlaps.
+    var desired: std.AutoArrayHashMapUnmanaged(*wlr.Output, void) = .{};
+    defer desired.deinit(util.gpa);
+
+    if (visible and window.box.width > 0 and window.box.height > 0) {
+        var it = server.om.outputs.iterator(.forward);
+        while (it.next()) |output| {
+            const wlr_output = output.wlr_output orelse continue;
+            var output_box: wlr.Box = undefined;
+            server.om.output_layout.getBox(wlr_output, &output_box);
+            if (output_box.empty()) continue;
+            var overlap: wlr.Box = undefined;
+            if (!overlap.intersection(&output_box, &window.box)) continue;
+            desired.put(util.gpa, wlr_output, {}) catch return;
+        }
+    }
+
+    // Leave outputs that are no longer in `desired`.
+    {
+        var sent_it = window.wlr_toplevel_outputs.iterator();
+        while (sent_it.next()) |entry| {
+            if (!desired.contains(entry.key_ptr.*)) {
+                handle.outputLeave(entry.key_ptr.*);
+            }
+        }
+    }
+
+    // Enter outputs newly added.
+    {
+        var d_it = desired.iterator();
+        while (d_it.next()) |entry| {
+            if (!window.wlr_toplevel_outputs.contains(entry.key_ptr.*)) {
+                handle.outputEnter(entry.key_ptr.*);
+            }
+        }
+    }
+
+    // Swap stored set for next diff.
+    window.wlr_toplevel_outputs.clearRetainingCapacity();
+    var d_it2 = desired.iterator();
+    while (d_it2.next()) |entry| {
+        window.wlr_toplevel_outputs.put(util.gpa, entry.key_ptr.*, {}) catch {};
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Phase 4: foreign-toplevel-management client request handlers.
 //
@@ -1313,11 +1379,20 @@ fn handleFtmRequestMinimize(
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_minimize", listener);
     if (window.state != .mapped and window.state != .initialized) return;
-    // The wm protocol only carries a "please minimize" request — un-minimize
-    // is expressed by activating the window, which docks do via request_activate.
     if (event.minimized) {
+        // "Please minimize" — schedule it for the next manage sequence; the wm
+        // client receives it via river_window_v1.minimize_requested.
         window.wm_scheduled.minimize_requested = true;
         server.wm.dirtyWindowing();
+    } else {
+        // "Please un-minimize" — forward to the wm via the dedicated
+        // unminimize_requested event (river-window-management-v1 >= 5).
+        // Older wm clients won't see this; they should rely on activate.
+        const window_v1 = window.object orelse return;
+        if (window_v1.getVersion() >= 5) {
+            window_v1.sendUnminimizeRequested();
+            server.wm.dirtyWindowing();
+        }
     }
 }
 
@@ -1328,12 +1403,15 @@ fn handleFtmRequestActivate(
     const window: *Window = @fieldParentPtr("ftm_request_activate", listener);
     _ = event; // seat is informational; the wm picks the focus seat itself.
     if (window.state != .mapped and window.state != .initialized) return;
-    // The river-window-management protocol has no dedicated "activate"
-    // request, so we approximate by clearing any pending minimize and asking
-    // the wm to (re-)consider this window's state. A future protocol
-    // extension could add an explicit `activate_requested` event.
-    window.wm_scheduled.minimize_requested = false;
-    server.wm.dirtyWindowing();
+    // Forward to the wm client via the dedicated activate_requested event
+    // (river-window-management-v1 >= 5). The wm client decides focus policy
+    // (tag switching, output following, etc.); the compositor never makes
+    // focus decisions on its own.
+    const window_v1 = window.object orelse return;
+    if (window_v1.getVersion() >= 5) {
+        window_v1.sendActivateRequested();
+        server.wm.dirtyWindowing();
+    }
 }
 
 fn handleFtmRequestFullscreen(

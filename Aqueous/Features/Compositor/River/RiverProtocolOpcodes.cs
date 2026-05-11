@@ -50,6 +50,8 @@ internal static class RiverProtocolOpcodes
         internal const uint UnreliablePid = 15;
         internal const uint PresentationHint = 16;
         internal const uint Identifier = 17;
+        internal const uint ActivateRequested = 18;
+        internal const uint UnminimizeRequested = 19;
     }
 
     /// <summary><c>river_output_v1</c> events.</summary>

@@ -228,6 +228,36 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 _windowState.ToggleMinimize(new WindowProxy(proxy));
                 ScheduleManage();
                 break;
+            case RiverProtocolOpcodes.Window.ActivateRequested:
+                // An external client (dock/taskbar via wlr-foreign-toplevel-management)
+                // asked us to focus this window. Reuse the canonical focus path so
+                // tag-switch / output-follow policy stays in one place.
+                Log($"window 0x{proxy.ToString("x")} activate_requested");
+                // If currently minimized, restore it first — most docks treat
+                // "click while minimized" as un-minimize+focus.
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? actState)
+                    && actState.State == WindowState.Minimized)
+                {
+                    _windowState.ToggleMinimize(new WindowProxy(proxy));
+                }
+
+                RequestFocus(proxy);
+                ScheduleManage();
+                break;
+            case RiverProtocolOpcodes.Window.UnminimizeRequested:
+                // Strict un-minimize: only act if the window is actually minimized,
+                // otherwise ToggleMinimize would hide a visible window.
+                Log($"window 0x{proxy.ToString("x")} unminimize_requested");
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? unminState)
+                    && unminState.State == WindowState.Minimized)
+                {
+                    _windowState.ToggleMinimize(new WindowProxy(proxy));
+                    // Most docks expect un-minimize to also raise/focus.
+                    RequestFocus(proxy);
+                }
+
+                ScheduleManage();
+                break;
             case RiverProtocolOpcodes.Window.Identifier:
                 Log($"window 0x{proxy.ToString("x")} identifier={MarshalUtf8(args[0].s)}"); break;
             default:
