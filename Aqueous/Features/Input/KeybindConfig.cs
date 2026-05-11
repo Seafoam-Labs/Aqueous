@@ -124,7 +124,7 @@ public sealed class KeybindConfig
             ["unminimize_last"] = "Super+Shift+N",
             ["toggle_scratchpad"] = "Super+Backslash",
             ["send_to_scratchpad"] = "Super+Shift+Backslash",
-            ["lock_screen"] = "Super+Shift+L"
+            ["lock_screen"] = "Super+Ctrl+L"
             // toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
         };
 

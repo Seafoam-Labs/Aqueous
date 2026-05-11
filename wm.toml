@@ -323,7 +323,7 @@ toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "def
 send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
 
 # Lock screen:
-lock_screen     = "Super+Shift+L"      # default
+lock_screen     = "Super+Ctrl+L"      # default
 
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
