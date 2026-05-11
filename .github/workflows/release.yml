@@ -47,10 +47,10 @@ jobs:
             libdecor-0-dev \
             ninja-build pkg-config
 
-      - name: Setup Zig (>= 0.16)
+      - name: Setup Zig 0.16.0
         uses: mlugg/setup-zig@v2
         with:
-          version: master
+          version: 0.16.0
 
       - name: Publish Aqueous (WM)
         run: |
