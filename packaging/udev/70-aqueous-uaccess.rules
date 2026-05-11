@@ -1,0 +1,10 @@
+# Grant the active local session ACL access to input devices so
+# aqueous-inputd can open /dev/input/event* without requiring the
+# user to be in the 'input' group.
+#
+# TAG+="uaccess" tells systemd-logind to add an ACL for the user
+# owning the currently active seat session, matching the approach
+# used by niri and other modern Wayland compositors.
+#
+# Shipped by the aqueous package; see packaging/aqueous.install.
+KERNEL=="event[0-9]*", SUBSYSTEM=="input", TAG+="uaccess"

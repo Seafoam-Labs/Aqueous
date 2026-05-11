@@ -448,8 +448,12 @@ focus_follows_mouse = false
 #
 # Start the daemon once:
 #   systemctl --user enable --now aqueous-inputd
-# (or run /usr/bin/aqueous-inputd directly). The user must be in the
-# `input` group, or replace the daemon's open_restricted with logind.
+# (or run /usr/bin/aqueous-inputd directly). Access to /dev/input/event*
+# is granted by the udev rule shipped with the package
+# (/usr/lib/udev/rules.d/70-aqueous-uaccess.rules) via logind's
+# `uaccess` tag, so no `input` group membership is required. If you
+# installed Aqueous outside the package, either install that rule
+# yourself or add your user to the `input` group as a fallback.
 # -----------------------------------------------------------------------------
 [input.mouse]
 # accel_profile = "flat"   # "adaptive" | "flat"

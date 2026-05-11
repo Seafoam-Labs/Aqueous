@@ -112,6 +112,13 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-outputd.service" \
         "$pkgdir/usr/lib/systemd/user/aqueous-outputd.service"
 
+    # udev rule: tag /dev/input/event* with uaccess so the active local
+    # session user gets an ACL on input devices automatically. This makes
+    # aqueous-inputd work out of the box without adding users to the
+    # 'input' group (matches niri's approach).
+    install -Dm644 "$srcdir/aqueous/packaging/udev/70-aqueous-uaccess.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/70-aqueous-uaccess.rules"
+
     # Quickshell/Noctalia bridge for the output daemon. Imported as
     #   import "file:///usr/share/aqueous/quickshell" as Aqueous
     install -Dm644 "$srcdir/aqueous/packaging/quickshell/OutputControl.qml" \
