@@ -40,12 +40,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang zlib1g-dev \
-            libwayland-dev wayland-protocols \
+            libwayland-dev \
             libxkbcommon-dev libinput-dev \
             libpixman-1-dev libdrm-dev libevdev-dev \
             libgbm-dev libudev-dev libseat-dev \
             libdecor-0-dev \
-            ninja-build pkg-config
+            meson ninja-build pkg-config ca-certificates xz-utils curl
+
+      - name: Install wayland-protocols 1.45 (needs >= 1.41 for color-management v2)
+        run: |
+          set -euxo pipefail
+          WP_VER=1.45
+          curl -fsSL "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${WP_VER}/downloads/wayland-protocols-${WP_VER}.tar.xz" -o wp.tar.xz
+          tar xf wp.tar.xz
+          cd "wayland-protocols-${WP_VER}"
+          meson setup build --prefix=/usr -Dtests=false
+          sudo meson install -C build
+          pkg-config --modversion wayland-protocols
+          grep -E 'name="wp_color_manager_v1" version="2"' \
+            /usr/share/wayland-protocols/staging/color-management/color-management-v1.xml
 
       - name: Setup Zig 0.16.0
         uses: mlugg/setup-zig@v2
