@@ -40,7 +40,11 @@ jobs:
             pixman libdrm libevdev \
             mesa libglvnd systemd-libs seatd \
             libdecor \
-            pkgconf ninja meson
+            pkgconf ninja meson \
+            wlroots0.20 \
+            libdisplay-info libliftoff lcms2 vulkan-icd-loader \
+            xcb-util-errors xcb-util-renderutil xcb-util-wm \
+            xorg-xwayland
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -92,6 +96,14 @@ jobs:
             -c Release -r linux-x64 --self-contained true \
             -p:PublishAot=true \
             -o publish/Aqueous.OutputDaemon
+
+      - name: Verify wlroots 0.20 is installed
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman -Q wlroots0.20
+          ls -l /usr/lib/libwlroots-0.20.so* || true
+          pkg-config --modversion wlroots-0.20 || true
 
       - name: Build RiverDelta (compositor)
         shell: bash
