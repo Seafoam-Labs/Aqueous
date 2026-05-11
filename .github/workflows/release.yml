@@ -39,7 +39,7 @@ jobs:
           # git is needed for the PKGBUILD's git+ source and for actions/checkout.
           # sudo is required by makepkg when run as root won't be allowed; we
           # create an unprivileged build user below.
-          pacman -S --noconfirm --needed base-devel git sudo
+          pacman -S --noconfirm --needed base-devel git sudo nodejs
 
       - name: Create unprivileged build user
         shell: bash
@@ -76,13 +76,24 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          # Make sure pacman/libalpm are fully upgraded BEFORE we build paru,
+          # so paru-bin links against the current libalpm.so soname. If the
+          # base image was older than the mirror, an earlier `pacman -Syu`
+          # could otherwise leave a pre-baked paru linked to an obsolete
+          # libalpm.so.X (e.g. libalpm.so.15 after a pacman 7.1 soname bump).
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed base-devel git
           sudo -u builder bash -lc '
             set -euxo pipefail
             cd /tmp
+            rm -rf paru-bin
             git clone https://aur.archlinux.org/paru-bin.git
             cd paru-bin
             makepkg -si --noconfirm --needed
           '
+          # Sanity check: this is the invocation that was failing with
+          # `libalpm.so.15: cannot open shared object file`.
+          sudo -u builder bash -lc 'paru --version'
 
       - name: Install AUR / non-core dependencies via paru
         shell: bash
@@ -93,6 +104,24 @@ jobs:
           # the official repos yet either; the AUR package name is the same.
           # noctalia-shell, xwayland-satellite, wlr-randr, wlroots0.20,
           # xdg-desktop-portal-wlr, grim — try repos first, fall back to AUR.
+          #
+          # Self-heal: if paru is broken because libalpm soname changed
+          # between the previous step and now (or the image cached an old
+          # paru), rebuild paru-bin against the current libalpm before
+          # running the AUR install.
+          if ! sudo -u builder bash -lc 'paru --version' >/dev/null 2>&1; then
+            echo "paru appears broken (likely libalpm soname mismatch); rebuilding paru-bin"
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm --needed base-devel git
+            sudo -u builder bash -lc '
+              set -euxo pipefail
+              cd /tmp
+              rm -rf paru-bin
+              git clone https://aur.archlinux.org/paru-bin.git
+              cd paru-bin
+              makepkg -si --noconfirm --needed
+            '
+          fi
           sudo -u builder bash -lc '
             set -euxo pipefail
             paru -S --noconfirm --needed --skipreview \
