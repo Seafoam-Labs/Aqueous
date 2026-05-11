@@ -268,6 +268,29 @@ box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 foreign_toplevel_handle: ?*wlr.ExtForeignToplevelHandleV1 = null,
 wlr_toplevel_handle: ?*wlr.ForeignToplevelHandleV1 = null,
 
+/// State last pushed to wlr_toplevel_handle, so we don't re-send identical updates.
+wlr_toplevel_sent: struct {
+    activated: bool = false,
+    maximized: bool = false,
+    minimized: bool = false,
+    fullscreen: bool = false,
+    parent: ?*wlr.ForeignToplevelHandleV1 = null,
+} = .{},
+
+/// Listeners for foreign-toplevel-management client requests
+/// (e.g. clicking a window in the Noctalia dock). They are wired up when
+/// `wlr_toplevel_handle` is created and removed when it is destroyed.
+ftm_request_maximize: wl.Listener(*wlr.ForeignToplevelHandleV1.event.Maximized) =
+    .init(handleFtmRequestMaximize),
+ftm_request_minimize: wl.Listener(*wlr.ForeignToplevelHandleV1.event.Minimized) =
+    .init(handleFtmRequestMinimize),
+ftm_request_activate: wl.Listener(*wlr.ForeignToplevelHandleV1.event.Activated) =
+    .init(handleFtmRequestActivate),
+ftm_request_fullscreen: wl.Listener(*wlr.ForeignToplevelHandleV1.event.Fullscreen) =
+    .init(handleFtmRequestFullscreen),
+ftm_request_close: wl.Listener(*wlr.ForeignToplevelHandleV1) =
+    .init(handleFtmRequestClose),
+
 pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     assert(impl != .destroying);
 
@@ -434,8 +457,17 @@ pub fn manageStart(window: *Window) void {
                 if (window.wlr_toplevel_handle == null) {
                     if (wlr.ForeignToplevelHandleV1.create(server.wlr_foreign_toplevel_manager)) |handle| {
                         window.wlr_toplevel_handle = handle;
+                        handle.data = window;
                         if (window.getTitle()) |title| handle.setTitle(title);
                         if (window.getAppId()) |app_id| handle.setAppId(app_id);
+                        // Phase 4: forward dock/taskbar requests into the wm.
+                        handle.events.request_maximize.add(&window.ftm_request_maximize);
+                        handle.events.request_minimize.add(&window.ftm_request_minimize);
+                        handle.events.request_activate.add(&window.ftm_request_activate);
+                        handle.events.request_fullscreen.add(&window.ftm_request_fullscreen);
+                        handle.events.request_close.add(&window.ftm_request_close);
+                        // Reset cached sent-state so the next manageFinish pushes fresh state.
+                        window.wlr_toplevel_sent = .{};
                     } else |_| {
                         log.err("failed to create wlr foreign toplevel handle", .{});
                     }
@@ -792,7 +824,36 @@ pub fn manageFinish(window: *Window) bool {
     };
 
     if (window.wlr_toplevel_handle) |handle| {
-        handle.setActivated(activated);
+        const sent = &window.wlr_toplevel_sent;
+        if (sent.activated != activated) {
+            handle.setActivated(activated);
+            sent.activated = activated;
+        }
+        const maximized = wm_requested.maximized;
+        if (sent.maximized != maximized) {
+            handle.setMaximized(maximized);
+            sent.maximized = maximized;
+        }
+        const fullscreen = wm_requested.fullscreen != null or wm_requested.inform_fullscreen;
+        if (sent.fullscreen != fullscreen) {
+            handle.setFullscreen(fullscreen);
+            sent.fullscreen = fullscreen;
+        }
+        // The wm communicates "minimized" by hiding the window in the scene.
+        const minimized = window.rendering_requested.hidden;
+        if (sent.minimized != minimized) {
+            handle.setMinimized(minimized);
+            sent.minimized = minimized;
+        }
+        // Parent relationship — only mirror if both parent and self have a handle.
+        const parent_handle: ?*wlr.ForeignToplevelHandleV1 = blk: {
+            const parent = window.getParent() orelse break :blk null;
+            break :blk parent.wlr_toplevel_handle;
+        };
+        if (sent.parent != parent_handle) {
+            handle.setParent(parent_handle);
+            sent.parent = parent_handle;
+        }
     }
 
     const width, const height = blk: {
@@ -1185,8 +1246,14 @@ pub fn unmap(window: *Window) void {
     }
 
     if (window.wlr_toplevel_handle) |handle| {
+        window.ftm_request_maximize.link.remove();
+        window.ftm_request_minimize.link.remove();
+        window.ftm_request_activate.link.remove();
+        window.ftm_request_fullscreen.link.remove();
+        window.ftm_request_close.link.remove();
         handle.destroy();
         window.wlr_toplevel_handle = null;
+        window.wlr_toplevel_sent = .{};
     }
 }
 
@@ -1218,4 +1285,80 @@ pub fn notifyAppId(window: *Window) void {
     if (window.wlr_toplevel_handle) |handle| {
         if (window.getAppId()) |app_id| handle.setAppId(app_id);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: foreign-toplevel-management client request handlers.
+//
+// External docks/taskbars (Noctalia, waybar's wlr-taskbar, etc.) can ask the
+// compositor to activate / close / maximize / minimize / fullscreen a window
+// via zwlr_foreign_toplevel_manager_v1. We forward those into the same
+// `wm_scheduled.*_requested` fields that XDG clients use, so the river WM
+// client sees them as ordinary requests and can react identically.
+// ---------------------------------------------------------------------------
+
+fn handleFtmRequestMaximize(
+    listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Maximized),
+    event: *wlr.ForeignToplevelHandleV1.event.Maximized,
+) void {
+    const window: *Window = @fieldParentPtr("ftm_request_maximize", listener);
+    if (window.state != .mapped and window.state != .initialized) return;
+    window.wm_scheduled.maximize_requested = if (event.maximized) .maximize else .unmaximize;
+    server.wm.dirtyWindowing();
+}
+
+fn handleFtmRequestMinimize(
+    listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Minimized),
+    event: *wlr.ForeignToplevelHandleV1.event.Minimized,
+) void {
+    const window: *Window = @fieldParentPtr("ftm_request_minimize", listener);
+    if (window.state != .mapped and window.state != .initialized) return;
+    // The wm protocol only carries a "please minimize" request — un-minimize
+    // is expressed by activating the window, which docks do via request_activate.
+    if (event.minimized) {
+        window.wm_scheduled.minimize_requested = true;
+        server.wm.dirtyWindowing();
+    }
+}
+
+fn handleFtmRequestActivate(
+    listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Activated),
+    event: *wlr.ForeignToplevelHandleV1.event.Activated,
+) void {
+    const window: *Window = @fieldParentPtr("ftm_request_activate", listener);
+    _ = event; // seat is informational; the wm picks the focus seat itself.
+    if (window.state != .mapped and window.state != .initialized) return;
+    // The river-window-management protocol has no dedicated "activate"
+    // request, so we approximate by clearing any pending minimize and asking
+    // the wm to (re-)consider this window's state. A future protocol
+    // extension could add an explicit `activate_requested` event.
+    window.wm_scheduled.minimize_requested = false;
+    server.wm.dirtyWindowing();
+}
+
+fn handleFtmRequestFullscreen(
+    listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Fullscreen),
+    event: *wlr.ForeignToplevelHandleV1.event.Fullscreen,
+) void {
+    const window: *Window = @fieldParentPtr("ftm_request_fullscreen", listener);
+    if (window.state != .mapped and window.state != .initialized) return;
+    if (event.fullscreen) {
+        const output_hint: ?*Output = if (@intFromPtr(event.output) != 0)
+            @ptrCast(@alignCast(event.output.data))
+        else
+            null;
+        window.wm_scheduled.fullscreen_requested = .{ .fullscreen = output_hint };
+    } else {
+        window.wm_scheduled.fullscreen_requested = .exit;
+    }
+    server.wm.dirtyWindowing();
+}
+
+fn handleFtmRequestClose(
+    listener: *wl.Listener(*wlr.ForeignToplevelHandleV1),
+    _: *wlr.ForeignToplevelHandleV1,
+) void {
+    const window: *Window = @fieldParentPtr("ftm_request_close", listener);
+    if (window.state != .mapped and window.state != .initialized) return;
+    window.close();
 }
