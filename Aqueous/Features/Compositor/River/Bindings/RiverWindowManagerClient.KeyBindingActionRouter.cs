@@ -233,20 +233,40 @@ internal sealed unsafe partial class RiverWindowManagerClient
         try
         {
             Log("locking screen");
-            const string targetPath = "/usr/bin/swaylock";
-            const string args = "-f -c 000000";
+
+            // Noctalia owns the lock screen (ext-session-lock-v1). It listens
+            // for logind's Lock signal, so `loginctl lock-session` is the
+            // dependency-free trigger that works whether Noctalia is started
+            // by Aqueous or by the user's session.
             var psi = new ProcessStartInfo
             {
-                FileName = targetPath,
-                Arguments = args,
+                FileName = "/bin/sh",
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            psi.ArgumentList.Add("-c");
+            // Prefer Noctalia's IPC if available, fall back to loginctl.
+            psi.ArgumentList.Add(
+                "qs -c noctalia-shell ipc call lockScreen lock " +
+                ">/dev/null 2>&1 || loginctl lock-session");
+
+            var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+            var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+            if (!string.IsNullOrEmpty(wayland))
+            {
+                psi.EnvironmentVariables["WAYLAND_DISPLAY"] = wayland;
+            }
+
+            if (!string.IsNullOrEmpty(runtime))
+            {
+                psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
+            }
+
             Process.Start(psi);
         }
         catch (Exception ex)
         {
-            Log("failed to spawn terminal: " + ex.Message);
+            Log("failed to lock screen: " + ex.Message);
         }
     }
 }

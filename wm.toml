@@ -188,14 +188,18 @@ restart = true
 log     = "/tmp/xwayland-satellite.log"
 env     = { DISPLAY = ":0" }
 
-# Idle daemon: locks the screen after 5 minutes of inactivity and before sleep.
-[[exec]]
-name    = "swayidle"
-command = "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' before-sleep 'swaylock -f -c 000000'"
-when    = "startup"
-once    = true
-restart = true
-log     = "/tmp/swayidle.log"
+# Idle + lock are handled by Noctalia (see autostart block above). The previous
+# swayidle/swaylock launcher is intentionally removed; configure timeouts in
+# Noctalia Settings (or ~/.config/noctalia/settings.json).
+#
+# Rollback (re-enable if Noctalia idle/lock breaks):
+# [[exec]]
+# name    = "swayidle"
+# command = "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' before-sleep 'swaylock -f -c 000000'"
+# when    = "startup"
+# once    = true
+# restart = true
+# log     = "/tmp/swayidle.log"
 
 # Additional examples:
 # [[exec]]

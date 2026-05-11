@@ -1,0 +1,183 @@
+name: Release (makepkg)
+
+# Build the same artifacts that `makepkg` produces from the in-tree PKGBUILD
+# and publish them to a GitHub Release. Triggered on version tags (v*) and
+# also exposed as a manual dispatch so you can produce a one-off build.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish under (e.g. v0.1.0). Created if missing.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  makepkg:
+    name: Build with makepkg (Arch Linux)
+    runs-on: ubuntu-latest
+    # Run inside an Arch container so we have makepkg, pacman, and the same
+    # toolchain assumptions as the PKGBUILD (dotnet-sdk-10.0, zig >= 0.16,
+    # wlroots0.20, etc.).
+    container:
+      image: archlinux:latest
+      options: --user root
+
+    steps:
+      - name: Refresh pacman and install base build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman -Syu --noconfirm
+          # base-devel pulls in makepkg, fakeroot, binutils, etc.
+          # git is needed for the PKGBUILD's git+ source and for actions/checkout.
+          # sudo is required by makepkg when run as root won't be allowed; we
+          # create an unprivileged build user below.
+          pacman -S --noconfirm --needed base-devel git sudo
+
+      - name: Create unprivileged build user
+        shell: bash
+        run: |
+          set -euxo pipefail
+          useradd -m -G wheel builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed so PKGBUILD's pkgver() can run `git describe`
+
+      - name: Mark workspace safe for git (container runs as root, checkout owns files)
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory '*'
+
+      - name: Install runtime + make dependencies declared by PKGBUILD
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Mirrors `depends` + `makedepends` from PKGBUILD. Anything not in
+          # the official repos (zig 0.16, noctalia-shell, xwayland-satellite,
+          # wlr-randr if missing) is handled in the AUR step below.
+          pacman -S --noconfirm --needed \
+            wayland wayland-protocols libxkbcommon libinput \
+            pixman libdrm libevdev libdecor \
+            dotnet-sdk clang zlib krb5
+
+      - name: Install AUR helper (paru-bin) as builder
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo -u builder bash -lc '
+            set -euxo pipefail
+            cd /tmp
+            git clone https://aur.archlinux.org/paru-bin.git
+            cd paru-bin
+            makepkg -si --noconfirm --needed
+          '
+
+      - name: Install AUR / non-core dependencies via paru
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # zig-master-bin: required because PKGBUILD enforces zig >= 0.16.0
+          # (the repo `zig` package is 0.15.x). dotnet-sdk-10.0 may not be in
+          # the official repos yet either; the AUR package name is the same.
+          # noctalia-shell, xwayland-satellite, wlr-randr, wlroots0.20,
+          # xdg-desktop-portal-wlr, grim — try repos first, fall back to AUR.
+          sudo -u builder bash -lc '
+            set -euxo pipefail
+            paru -S --noconfirm --needed --skipreview \
+              zig-master-bin \
+              dotnet-sdk-10.0 \
+              wlroots0.20 \
+              noctalia-shell \
+              xwayland-satellite \
+              wlr-randr \
+              xdg-desktop-portal-wlr \
+              grim
+          '
+
+      - name: Stage PKGBUILD build tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # makepkg expects the `install=` file to live next to the PKGBUILD.
+          # In this repo it lives under packaging/, so copy it into place.
+          mkdir -p build
+          cp PKGBUILD build/PKGBUILD
+          cp packaging/aqueous.install build/aqueous.install
+          chown -R builder:builder build
+
+      - name: Run makepkg
+        shell: bash
+        env:
+          # Speed up dotnet inside the container.
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+          DOTNET_NOLOGO: '1'
+        run: |
+          set -euxo pipefail
+          sudo -u builder bash -lc '
+            set -euxo pipefail
+            cd "$GITHUB_WORKSPACE/build"
+            # --syncdeps would re-resolve deps; we already installed them.
+            # --noconfirm avoids any prompts. --skipinteg because the only
+            # source is a git checkout with sha256sums=SKIP already.
+            makepkg -f --noconfirm --skipinteg
+            ls -la
+          '
+
+      - name: Collect artifacts
+        id: collect
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          shopt -s nullglob
+          for f in build/*.pkg.tar.zst build/*.pkg.tar.zst.sig; do
+            cp "$f" dist/
+          done
+          # Also produce a plain tarball of the staged package contents so
+          # users on non-Arch systems can inspect / extract the same file
+          # layout that `makepkg` would install. This mirrors the
+          # `package()` output rooted at `/`.
+          if [ -d build/pkg ]; then
+            pkgroot=$(find build/pkg -mindepth 1 -maxdepth 1 -type d | head -n1)
+            if [ -n "${pkgroot:-}" ]; then
+              tar -C "$pkgroot" -czf "dist/aqueous-rootfs.tar.gz" .
+            fi
+          fi
+          ls -la dist/
+          {
+            echo "files<<EOF"
+            ls dist/
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqueous-makepkg
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.zst.sig
+            dist/aqueous-rootfs.tar.gz
+          fail_on_unmatched_files: false

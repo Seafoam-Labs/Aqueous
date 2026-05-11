@@ -23,9 +23,20 @@
 #           and Noctalia.
 # Phase 3 — exec Aqueous.
 set -u
-
 LOG="${XDG_RUNTIME_DIR:-/tmp}/aqueous-outputd.log"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
+
+# Seed Noctalia defaults on first launch. Idempotent and non-destructive:
+# only runs when the user has no settings.json yet. Aqueous ships sensible
+# defaults (idle/lock timeouts, blurred lock screen, default wallpapers
+# pointing at /usr/share/aqueous/wallpapers).
+NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
+NOCTALIA_DEFAULTS="/usr/share/aqueous/noctalia/settings.json"
+if [ ! -e "$NOCTALIA_USER_CFG_DIR/settings.json" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
+    mkdir -p "$NOCTALIA_USER_CFG_DIR"
+    cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/settings.json"
+    chmod 600 "$NOCTALIA_USER_CFG_DIR/settings.json"
+fi
 
 if [ -x /usr/bin/aqueous-outputd ]; then
     # apply-once is fire-and-forget. Never fatal: a bad output config
