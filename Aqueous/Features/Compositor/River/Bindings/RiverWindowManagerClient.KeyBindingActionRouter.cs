@@ -245,10 +245,16 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 CreateNoWindow = true,
             };
             psi.ArgumentList.Add("-c");
-            // Prefer Noctalia's IPC if available, fall back to loginctl.
+            // Detach via setsid -f so the lock helper leaves the compositor's
+            // process group/session; otherwise a fast-failing `qs` chained to
+            // `loginctl lock-session` via `||` can tear down the graphical
+            // session instead of locking it. Prefer Noctalia's IPC if
+            // available, fall back to loginctl.
             psi.ArgumentList.Add(
+                "setsid -f sh -c '" +
                 "qs -c noctalia-shell ipc call lockScreen lock " +
-                ">/dev/null 2>&1 || loginctl lock-session");
+                ">/dev/null 2>&1 || loginctl lock-session" +
+                "' >/dev/null 2>&1");
 
             var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
             var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
@@ -261,6 +267,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
             }
+
+            psi.EnvironmentVariables["XDG_SESSION_TYPE"] = "wayland";
+            psi.EnvironmentVariables["XDG_CURRENT_DESKTOP"] = "Aqueous";
+            psi.EnvironmentVariables.Remove("DISPLAY");
 
             Process.Start(psi);
         }
