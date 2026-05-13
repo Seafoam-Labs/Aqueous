@@ -73,11 +73,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     _dragResizeInformed = false;
                 }
 
-                if (_pendingFocusWindow == proxy)
-                {
-                    _pendingFocusWindow = IntPtr.Zero;
-                }
-
                 foreach (var k in _seatHoveredWindow.Keys)
                 {
                     if (_seatHoveredWindow.TryGetValue(k, out var v) && v == proxy)
@@ -96,6 +91,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 {
                     _focusedWindow = IntPtr.Zero;
                     FocusAnyOtherWindow(proxy);
+                }
+
+                // Clear pending focus AFTER FocusAnyOtherWindow runs. The neighbour
+                // pick may have re-armed _pendingFocusWindow with a different proxy,
+                // and if a cascade close (e.g. Electron/GTK tearing down a transient
+                // surface in the same dispatch pump) targets that pick before the
+                // next manage_start, we must invalidate it here. Also clear if the
+                // pending target has gone stale relative to _windows for any reason.
+                if (_pendingFocusWindow == proxy ||
+                    (_pendingFocusWindow != IntPtr.Zero && !_windows.ContainsKey(_pendingFocusWindow)))
+                {
+                    _pendingFocusWindow = IntPtr.Zero;
                 }
 
                 break;
