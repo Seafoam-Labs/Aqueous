@@ -40,6 +40,18 @@ export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 # and the session ends up as a black screen under sddm/greetd.
 export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0
+# DRM atomic-modesetting opt-out (Bet #3 workaround for the
+# "Super+Tab onto Rider drops to greeter" class of crash when the
+# kernel journal shows amdgpu/i915 page-flip errors). Set
+# AQUEOUS_DISABLE_DRM_ATOMIC=1 to force wlroots' legacy DRM backend,
+# which avoids JBR/GBM explicit-sync interactions that have been
+# observed to abort the compositor mid-focus-switch. Off by default
+# because the legacy path costs latency on healthy hardware — only
+# enable after `sudo journalctl -b -k | grep -Ei 'drm|page.flip'`
+# confirms a DRM-side fault on the failing TTY repro.
+if [ "${AQUEOUS_DISABLE_DRM_ATOMIC:-0}" = "1" ]; then
+    export WLR_DRM_NO_ATOMIC=1
+fi
 
 # Ensure XDG_RUNTIME_DIR exists (greetd/sddm normally provide this via
 # pam_systemd). Tolerate failures: under SDDM the directory may already
