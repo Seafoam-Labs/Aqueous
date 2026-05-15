@@ -139,12 +139,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
         }
         // river_xkb_bindings_v1::get_xkb_binding opcode=1
         // args: seat(o), id(new_id), keysym(u), modifiers(u)
-        // Typed new_id ('n' with non-null interface in types[]): libwayland
-        // allocates the proxy itself and does NOT consume a variadic slot for it,
-        // so we must omit a placeholder and pass only seat/keysym/modifiers.
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
             _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
-            seatProxy, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
         if (binding == IntPtr.Zero)
         {
             return;
@@ -169,12 +166,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return;
         }
 
-        // Typed new_id ('n' with non-null interface in types[]): libwayland
-        // allocates the proxy itself and does NOT consume a variadic slot for it,
-        // so we must omit a placeholder and pass only seat/keysym/modifiers.
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
             _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
-            seatProxy, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
         if (binding == IntPtr.Zero)
         {
             return;
