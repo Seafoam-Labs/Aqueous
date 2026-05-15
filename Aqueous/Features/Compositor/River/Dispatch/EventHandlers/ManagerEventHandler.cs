@@ -152,20 +152,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                     if (_pendingFocusSeat != IntPtr.Zero)
                     {
-                        if (_pendingFocusWindow != IntPtr.Zero && _windows.ContainsKey(_pendingFocusWindow))
+                        if (_pendingFocusWindow != IntPtr.Zero)
                         {
                             WaylandInterop.wl_proxy_marshal_flags(_pendingFocusSeat, 1, IntPtr.Zero, 0, 0,
                                 _pendingFocusWindow, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
                                 IntPtr.Zero);
                             Log($"gave focus to window 0x{_pendingFocusWindow.ToString("x")}");
-                        }
-                        else if (_pendingFocusWindow != IntPtr.Zero)
-                        {
-                            // Pending focus target was destroyed between SetFocusedWindow
-                            // and this manage flush. Skip the marshal — issuing focus_window
-                            // on a freed river_window_v1 proxy is a protocol error that
-                            // tears down the WM connection.
-                            Log($"skip stale pending focus 0x{_pendingFocusWindow.ToString("x")}");
                         }
                         else if (_pendingFocusShellSurface != IntPtr.Zero)
                         {

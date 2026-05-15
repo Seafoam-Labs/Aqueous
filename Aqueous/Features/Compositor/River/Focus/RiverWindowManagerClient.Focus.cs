@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -43,14 +42,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
             _pendingFocusShellSurface == IntPtr.Zero)
         {
             return; // already focused and applied
-        }
-
-        // Don't arm a pending focus for a proxy that's already gone. A stale
-        // _pendingFocusWindow would be marshalled by the next manage_start
-        // flush against a freed river_window_v1 — protocol error, WM exit.
-        if (windowProxy != IntPtr.Zero && !_windows.ContainsKey(windowProxy))
-        {
-            return;
         }
 
         _pendingFocusWindow = windowProxy;
@@ -114,13 +105,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Pick any window (prefer not-currently-focused) and focus it. No-op if empty.</summary>
     private void FocusAnyOtherWindow(IntPtr avoid)
     {
-        // Snapshot keys so a concurrent close during iteration can't make us
-        // return an already-removed proxy. ConcurrentDictionary's enumerator
-        // is weakly-consistent, not snapshot — observed keys may have been
-        // removed by the time RequestFocus runs.
-        var keys = _windows.Keys.ToArray();
         IntPtr pick = IntPtr.Zero;
-        foreach (var k in keys)
+        foreach (var k in _windows.Keys)
         {
             if (k == avoid)
             {
@@ -133,15 +119,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         if (pick == IntPtr.Zero)
         {
-            foreach (var k in keys)
+            foreach (var k in _windows.Keys)
             {
                 pick = k;
                 break;
             }
         }
 
-        // Re-validate liveness immediately before issuing the focus request.
-        if (pick != IntPtr.Zero && _windows.ContainsKey(pick))
+        if (pick != IntPtr.Zero)
         {
             RequestFocus(pick);
         }
@@ -159,14 +144,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return;
         }
 
-        // Snapshot _windows.Keys before iterating. After the first Alt+Tab,
-        // _focusedWindow and "first key in _windows" diverge, and a close
-        // event landing between the loop and RequestFocus would otherwise let
-        // us hand a freed proxy to the manage flush.
-        var keys = _windows.Keys.ToArray();
         IntPtr next = IntPtr.Zero;
         bool takeNext = false;
-        foreach (var k in keys)
+        foreach (var k in _windows.Keys)
         {
             if (next == IntPtr.Zero)
             {
@@ -186,7 +166,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
         }
 
-        if (next != IntPtr.Zero && _windows.ContainsKey(next))
+        if (next != IntPtr.Zero)
         {
             RequestFocus(next);
         }

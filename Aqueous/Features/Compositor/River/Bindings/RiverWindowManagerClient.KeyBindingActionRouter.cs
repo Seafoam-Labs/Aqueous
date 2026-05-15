@@ -181,12 +181,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     private void CloseFocusedWindow()
     {
-        // _focusedWindow is a cached handle: only cleared when its own Closed
-        // event arrives. If the server has already destroyed the window but
-        // we haven't dispatched its Closed event yet, marshalling close (or
-        // any request) on the freed proxy is a protocol error that tears the
-        // WM down. Validate against _windows before the marshal.
-        if (_focusedWindow == IntPtr.Zero || !_windows.ContainsKey(_focusedWindow))
+        if (_focusedWindow == IntPtr.Zero)
         {
             return;
         }

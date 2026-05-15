@@ -20,7 +20,7 @@ LOCAL_RIVER="$HERE/bin/riverdelta"
 if [ -n "${AQUEOUS_RIVER_BIN:-}" ] && [ -x "$AQUEOUS_RIVER_BIN" ]; then
     RIVER_BIN="$AQUEOUS_RIVER_BIN"
 else
-    needs_build=1
+    needs_build=0
     if [ ! -x "$LOCAL_RIVER" ]; then
         needs_build=1
     else
