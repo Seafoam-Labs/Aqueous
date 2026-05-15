@@ -27,7 +27,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
 {
     public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
-        AssertOnDispatchThread();
         // Fix #1: skip no-op focus changes. SetFocusedWindow is called from
         // pointer_enter on every mouse crossing; without a correct guard each
         // enter event would issue manage_dirty, creating a manage/render storm
@@ -67,7 +66,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// </summary>
     private void RequestFocus(IntPtr windowProxy)
     {
-        AssertOnDispatchThread();
         IntPtr seat = _primarySeat;
         if (seat == IntPtr.Zero)
         {
@@ -89,7 +87,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Clear focus on the primary seat (river_seat_v1::clear_focus, opcode 3).</summary>
     private void ClearFocus()
     {
-        AssertOnDispatchThread();
         IntPtr seat = _primarySeat;
         if (seat == IntPtr.Zero)
         {
@@ -117,7 +114,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Pick any window (prefer not-currently-focused) and focus it. No-op if empty.</summary>
     private void FocusAnyOtherWindow(IntPtr avoid)
     {
-        AssertOnDispatchThread();
         // Snapshot keys so a concurrent close during iteration can't make us
         // return an already-removed proxy. ConcurrentDictionary's enumerator
         // is weakly-consistent, not snapshot — observed keys may have been
@@ -158,7 +154,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Advance keyboard focus to the next window in _windows iteration order.</summary>
     private void CycleFocus()
     {
-        AssertOnDispatchThread();
         if (_windows.Count == 0)
         {
             return;
@@ -227,7 +222,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
-        AssertOnDispatchThread();
         _pendingFocusShellSurface = shellSurfaceProxy;
         _pendingFocusWindow = IntPtr.Zero;
         _pendingFocusSeat = seatProxy;

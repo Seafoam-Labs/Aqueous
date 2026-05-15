@@ -35,12 +35,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 return 0;
             }
 
-            // Latch the dispatch thread on first tick and drain any work
-            // posted from background threads. See DispatchThread.cs for the
-            // rationale — every WM-state mutator asserts it's running here.
-            self.EnsureDispatchThreadCaptured();
-            self.DrainPostedWork();
-
             var a = (WlArgument*)args;
 
             if (target == self._registry.Handle)
