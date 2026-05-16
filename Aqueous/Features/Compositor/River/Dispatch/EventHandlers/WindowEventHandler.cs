@@ -225,7 +225,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.MinimizeRequested:
-                _windowState.ToggleMinimize(new WindowProxy(proxy));
+                Log($"window 0x{proxy.ToString("x")} minimize_requested");
+                if (!_windowStates.TryGetValue(proxy, out WindowStateData? minState)
+                    || minState.State != WindowState.Minimized)
+                {
+                    _windowState.ToggleMinimize(new WindowProxy(proxy));
+                }
+
                 ScheduleManage();
                 break;
             case RiverProtocolOpcodes.Window.ActivateRequested:
