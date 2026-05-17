@@ -116,9 +116,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     return;
                 }
 
-                if (_focusedWindow != IntPtr.Zero)
+                if (TryGetFocusedAlive(out var focusedForScratchpad))
                 {
-                    _windowState.SendToScratchpad(new WindowProxy(_focusedWindow), barg);
+                    _windowState.SendToScratchpad(new WindowProxy(focusedForScratchpad), barg);
                 }
                 else
                 {

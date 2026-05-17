@@ -24,6 +24,32 @@ namespace Aqueous.Features.Compositor.River;
 /// </summary>
 internal sealed unsafe partial class RiverWindowManagerClient
 {
+    /// <summary>
+    /// Return true and yield the focused window proxy only if it is still
+    /// tracked in <c>_windows</c>. Self-heals a stale <c>_focusedWindow</c>
+    /// handle when the underlying proxy has already been destroyed (e.g.
+    /// Discord tearing down its toplevel on minimize before River dispatches
+    /// <c>window.closed</c>). Marshaling into a freed proxy aborts libwayland
+    /// and tears down the compositor process, which the session manager
+    /// reports as a "logout".
+    /// </summary>
+    private bool TryGetFocusedAlive(out IntPtr proxy)
+    {
+        proxy = _focusedWindow;
+        if (proxy == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (!_windows.ContainsKey(proxy))
+        {
+            _focusedWindow = IntPtr.Zero;
+            return false;
+        }
+
+        return true;
+    }
+
     public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
         // Fix #1: skip no-op focus changes. SetFocusedWindow is called from

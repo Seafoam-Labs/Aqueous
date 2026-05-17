@@ -181,13 +181,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     private void CloseFocusedWindow()
     {
-        if (_focusedWindow == IntPtr.Zero)
+        if (!TryGetFocusedAlive(out var focused))
         {
             return;
         }
 
         // river_window_v1::close opcode=1 (0 is destroy)
-        WaylandInterop.wl_proxy_marshal_flags(_focusedWindow, 1, IntPtr.Zero, 0, 0,
+        WaylandInterop.wl_proxy_marshal_flags(focused, 1, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
 
@@ -218,9 +218,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Run <paramref name="action"/> only if a window has focus; log <paramref name="actionName"/> otherwise.</summary>
     private void OnFocused(string actionName, Action<WindowProxy> action)
     {
-        if (_focusedWindow != IntPtr.Zero)
+        if (TryGetFocusedAlive(out var focused))
         {
-            action(new WindowProxy(_focusedWindow));
+            action(new WindowProxy(focused));
         }
         else
         {
