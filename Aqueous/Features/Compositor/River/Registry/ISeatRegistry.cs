@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace Aqueous.Features.Compositor.River.Registry;
@@ -79,4 +80,13 @@ internal interface ISeatRegistry
 
     /// <summary>Mark an entry dirty and raise <see cref="Changed"/>.</summary>
     void NotifyChanged(SeatEntry entry);
+
+    /// <summary>
+    /// Direct access to the backing <see cref="ConcurrentDictionary{TKey,TValue}"/>.
+    /// Exposed so legacy partials of <see cref="RiverWindowManagerClient"/> can
+    /// continue to compile during the multi-PR migration. New code should
+    /// use <see cref="Track"/> / <see cref="Untrack"/> / <see cref="TryGet"/> /
+    /// <see cref="Snapshot"/> instead.
+    /// </summary>
+    ConcurrentDictionary<IntPtr, SeatEntry> Entries { get; }
 }

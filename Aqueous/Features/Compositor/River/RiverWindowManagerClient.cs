@@ -108,9 +108,18 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // --- state tracked from events ------------------------------------
     // WindowEntry / OutputEntry / SeatEntry live in Model/*.cs.
 
-    private readonly ConcurrentDictionary<IntPtr, WindowEntry> _windows = new();
-    private readonly ConcurrentDictionary<IntPtr, OutputEntry> _outputs = new();
-    private readonly ConcurrentDictionary<IntPtr, SeatEntry> _seats = new();
+    // Step 10 (sub-steps 4-6) of the IWindowRegistry / IOutputRegistry /
+    // ISeatRegistry plan: the three per-entity dictionaries are now owned
+    // by the corresponding registry singletons. These shims keep the 90+
+    // call sites in the partial-class siblings (Layout / Tags / Focus /
+    // SnapZones / Dispatch event handlers / WindowStateHost) compiling
+    // unchanged — each site sees the same ConcurrentDictionary instance
+    // it always saw, just sourced from the registry. New code in those
+    // partials should prefer _windowRegistry.Track / Untrack / TryGet /
+    // Snapshot directly.
+    private ConcurrentDictionary<IntPtr, WindowEntry> _windows => _windowRegistry.Entries;
+    private ConcurrentDictionary<IntPtr, OutputEntry> _outputs => _outputRegistry.Entries;
+    private ConcurrentDictionary<IntPtr, SeatEntry> _seats => _seatRegistry.Entries;
 
     // --- interaction service -------------------------------------------
 
@@ -194,8 +203,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     // Registry seams (Phase 2 readability refactor — DI step).
     // Owned by the DI container; the parameterless ctor falls back to
     // freshly-allocated instances so unit tests and the legacy code
-    // path keep working. Field-level consumer migration of
-    // _windows/_outputs/_seats is a separate PR.
+    // path keep working. The legacy _windows/_outputs/_seats names are
+    // preserved as get-only shim properties above (delegating to
+    // _windowRegistry.Entries etc.) so partial-class call sites
+    // continue to compile while individual sites migrate to the typed
+    // Track/Untrack/TryGet/Snapshot API.
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
@@ -486,6 +498,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             // behaviour in libwayland.
             _pump.Stop(PumpJoinTimeout);
             _connection.Dispose();
+
+            // Step 10 (sub-step 7): clear the three registries after the
+            // pump is stopped so no late event handler observes a
+            // half-torn dictionary, and so shutdown does not emit a
+            // Removed storm to any subscribers.
+            _windowRegistry.Clear();
+            _outputRegistry.Clear();
+            _seatRegistry.Clear();
         }
         catch
         {

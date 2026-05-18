@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace Aqueous.Features.Compositor.River.Registry;
@@ -95,4 +96,13 @@ internal interface IOutputRegistry
     /// the entry's fields before invoking this method.
     /// </summary>
     void NotifyChanged(OutputEntry entry);
+
+    /// <summary>
+    /// Direct access to the backing <see cref="ConcurrentDictionary{TKey,TValue}"/>.
+    /// Exposed so legacy partials of <see cref="RiverWindowManagerClient"/> can
+    /// continue to compile during the multi-PR migration. New code should
+    /// use <see cref="Track"/> / <see cref="Untrack"/> / <see cref="TryGet"/> /
+    /// <see cref="Snapshot"/> instead.
+    /// </summary>
+    ConcurrentDictionary<IntPtr, OutputEntry> Entries { get; }
 }

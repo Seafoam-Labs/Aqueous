@@ -33,6 +33,8 @@ internal sealed class WindowRegistry : IWindowRegistry
 
     public int Count => _byProxy.Count;
 
+    public ConcurrentDictionary<IntPtr, WindowEntry> Entries => _byProxy;
+
     public event Action<WindowEntry>? Added;
     public event Action<WindowEntry>? Removed;
     public event Action<WindowEntry>? Changed;

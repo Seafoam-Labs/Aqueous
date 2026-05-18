@@ -30,6 +30,8 @@ internal sealed class SeatRegistry : ISeatRegistry
 
     public int Count => _byProxy.Count;
 
+    public ConcurrentDictionary<IntPtr, SeatEntry> Entries => _byProxy;
+
     public event Action<SeatEntry>? Added;
     public event Action<SeatEntry>? Removed;
     public event Action<SeatEntry>? Changed;

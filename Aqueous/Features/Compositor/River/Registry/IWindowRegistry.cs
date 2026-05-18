@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace Aqueous.Features.Compositor.River.Registry;
@@ -85,4 +86,15 @@ internal interface IWindowRegistry
     /// fields before invoking this method.
     /// </summary>
     void NotifyChanged(WindowEntry entry);
+
+    /// <summary>
+    /// Direct access to the backing <see cref="ConcurrentDictionary{TKey,TValue}"/>.
+    /// Exposed so legacy partials of <see cref="RiverWindowManagerClient"/> that
+    /// still iterate <c>.Keys</c>, call <c>TryRemove</c>, or index by proxy can
+    /// continue to compile against the registry during the multi-PR migration
+    /// away from direct dictionary mutation. New code should use
+    /// <see cref="Track"/> / <see cref="Untrack"/> / <see cref="TryGet"/> /
+    /// <see cref="Snapshot"/> instead.
+    /// </summary>
+    ConcurrentDictionary<IntPtr, WindowEntry> Entries { get; }
 }

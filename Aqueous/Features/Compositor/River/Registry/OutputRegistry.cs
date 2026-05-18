@@ -31,6 +31,8 @@ internal sealed class OutputRegistry : IOutputRegistry
 
     public int Count => _byProxy.Count;
 
+    public ConcurrentDictionary<IntPtr, OutputEntry> Entries => _byProxy;
+
     public event Action<OutputEntry>? Added;
     public event Action<OutputEntry>? Removed;
     public event Action<OutputEntry>? Changed;
