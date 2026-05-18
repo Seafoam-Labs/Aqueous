@@ -3,7 +3,11 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Registry;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aqueous;
 
@@ -20,6 +24,21 @@ class Program
             "primary modifier = {Name} (mask=0x{Mask:x}, keysym=0x{Sym:x}, AQUEOUS_MOD={Env})",
             Mods.PrimaryName, Mods.PrimaryMask, Mods.PrimaryKeysym,
             Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>");
+
+        // Build the DI container. The set of registrations here matches
+        // the seams promoted out of the RiverWindowManagerClient god class
+        // to date: IWaylandConnection and the three I*Registry services.
+        // Further extractions (EventPump, TagController, ...) will land in
+        // their own PRs and add singletons here alongside these.
+        var services = new ServiceCollection();
+        services.AddSingleton(typeof(ILoggerFactory),
+            (object?)Logging.Factory ?? NullLoggerFactory.Instance);
+        services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+        services.AddSingleton<IWaylandConnection, WaylandConnection>();
+        services.AddSingleton<IWindowRegistry, WindowRegistry>();
+        services.AddSingleton<IOutputRegistry, OutputRegistry>();
+        services.AddSingleton<ISeatRegistry, SeatRegistry>();
+        using var provider = services.BuildServiceProvider();
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
         using var lifetimeCts = new CancellationTokenSource();
@@ -39,7 +58,7 @@ class Program
         });
 
         // B1a: become a river_window_manager_v1 client.
-        var startResult = RiverWindowManagerClient.TryStart(lifetimeCts.Token);
+        var startResult = RiverWindowManagerClient.TryStart(provider, lifetimeCts.Token);
         if (!startResult.IsOk)
         {
             log.LogError(

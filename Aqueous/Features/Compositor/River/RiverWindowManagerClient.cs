@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.Startup;
@@ -188,7 +189,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// file reaches the native display via <see cref="_display"/>, which
     /// proxies to <see cref="IWaylandConnection.Display"/>.
     /// </summary>
-    private readonly IWaylandConnection _connection = new WaylandConnection();
+    private readonly IWaylandConnection _connection;
+
+    // Registry seams (Phase 2 readability refactor — DI step).
+    // Owned by the DI container; the parameterless ctor falls back to
+    // freshly-allocated instances so unit tests and the legacy code
+    // path keep working. Field-level consumer migration of
+    // _windows/_outputs/_seats is a separate PR.
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly IOutputRegistry _outputRegistry;
+    private readonly ISeatRegistry _seatRegistry;
 
     /// <summary>
     /// Drives <c>wl_display_dispatch</c> on a background thread. Started
@@ -284,7 +294,24 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private readonly RiverWindowStateHost _stateHost;
 
     private RiverWindowManagerClient()
+        : this(
+            new WaylandConnection(),
+            new WindowRegistry(),
+            new OutputRegistry(),
+            new SeatRegistry())
     {
+    }
+
+    private RiverWindowManagerClient(
+        IWaylandConnection connection,
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry,
+        ISeatRegistry seatRegistry)
+    {
+        _connection = connection;
+        _windowRegistry = windowRegistry;
+        _outputRegistry = outputRegistry;
+        _seatRegistry = seatRegistry;
         _pump = new EventPump(
             _connection,
             Diagnostics.Logging.For<EventPump>(),
@@ -332,6 +359,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// shut the client down cleanly.
     /// </summary>
     public static Result<RiverWindowManagerClient> TryStart(CancellationToken cancellationToken = default)
+        => TryStart(serviceProvider: null, cancellationToken);
+
+    /// <summary>
+    /// DI-aware overload. When <paramref name="serviceProvider"/> is
+    /// non-null, <see cref="IWaylandConnection"/> and the three
+    /// <c>I*Registry</c> seams are resolved from it; otherwise the
+    /// legacy field-initialised defaults are used.
+    /// </summary>
+    public static Result<RiverWindowManagerClient> TryStart(
+        IServiceProvider? serviceProvider,
+        CancellationToken cancellationToken = default)
     {
         if (Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM") != "1")
         {
@@ -341,7 +379,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
         try
         {
-            var c = new RiverWindowManagerClient();
+            var c = serviceProvider is null
+                ? new RiverWindowManagerClient()
+                : new RiverWindowManagerClient(
+                    (IWaylandConnection?)serviceProvider.GetService(typeof(IWaylandConnection)) ?? new WaylandConnection(),
+                    (IWindowRegistry?)serviceProvider.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
+                    (IOutputRegistry?)serviceProvider.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
+                    (ISeatRegistry?)serviceProvider.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry());
             var connected = c.Connect();
             if (!connected.IsOk)
             {
