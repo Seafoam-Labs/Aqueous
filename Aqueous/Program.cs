@@ -4,6 +4,7 @@ using System.Threading;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -40,6 +41,16 @@ class Program
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
         services.AddSingleton<EventPumpOptions>();
         services.AddSingleton<IEventPump, EventPump>();
+
+        // Step 4 (Phase 2 refactor): the managed event-dispatch seam.
+        // IEventHandler implementations are registered explicitly here
+        // as they are extracted out of RiverWindowManagerClient in later
+        // PRs (one AddSingleton<IEventHandler, ...>() per interface, no
+        // assembly scanning — keeps the trimmer / NativeAOT happy). Until
+        // then EventDispatcher resolves an empty IEnumerable<IEventHandler>
+        // and acts as a no-op router; the native [UnmanagedCallersOnly]
+        // dispatcher in RiverWindowManagerClient remains the live path.
+        services.AddSingleton<IEventDispatcher, EventDispatcher>();
         using var provider = services.BuildServiceProvider();
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
