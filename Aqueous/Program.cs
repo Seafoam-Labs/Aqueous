@@ -38,6 +38,8 @@ class Program
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
+        services.AddSingleton<EventPumpOptions>();
+        services.AddSingleton<IEventPump, EventPump>();
         using var provider = services.BuildServiceProvider();
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.

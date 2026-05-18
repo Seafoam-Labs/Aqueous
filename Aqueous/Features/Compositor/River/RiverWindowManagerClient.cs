@@ -310,7 +310,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             new WaylandConnection(),
             new WindowRegistry(),
             new OutputRegistry(),
-            new SeatRegistry())
+            new SeatRegistry(),
+            pump: null)
     {
     }
 
@@ -318,13 +319,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         IWaylandConnection connection,
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
-        ISeatRegistry seatRegistry)
+        ISeatRegistry seatRegistry,
+        IEventPump? pump)
     {
         _connection = connection;
         _windowRegistry = windowRegistry;
         _outputRegistry = outputRegistry;
         _seatRegistry = seatRegistry;
-        _pump = new EventPump(
+        _pump = pump ?? new EventPump(
             _connection,
             Diagnostics.Logging.For<EventPump>(),
             new EventPumpOptions());
@@ -397,7 +399,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
                     (IWaylandConnection?)serviceProvider.GetService(typeof(IWaylandConnection)) ?? new WaylandConnection(),
                     (IWindowRegistry?)serviceProvider.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
                     (IOutputRegistry?)serviceProvider.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
-                    (ISeatRegistry?)serviceProvider.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry());
+                    (ISeatRegistry?)serviceProvider.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry(),
+                    (IEventPump?)serviceProvider.GetService(typeof(IEventPump)));
             var connected = c.Connect();
             if (!connected.IsOk)
             {
