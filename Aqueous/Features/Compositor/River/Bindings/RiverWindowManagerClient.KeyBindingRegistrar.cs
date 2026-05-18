@@ -18,6 +18,16 @@ namespace Aqueous.Features.Compositor.River;
 /// </summary>
 internal sealed unsafe partial class RiverWindowManagerClient
 {
+    // Dedupe sets keyed by (seat, keysym, modifiers, action-name) so the same
+    // (seat, chord, action) triple isn't registered twice when SeatInformation
+    // fires more than once or a second seat appears. Stored on the instance
+    // because the dedupe must persist across multiple RegisterAllBindings
+    // calls for different seats.
+    private readonly HashSet<(IntPtr seat, uint keysym, uint mods, KeyBindingAction action)> _registeredBuiltins = new();
+    private readonly HashSet<(IntPtr seat, uint keysym, uint mods, string verb)> _registeredCustoms = new();
+    // Dedupe for pointer bindings per seat — second seat must not double-register.
+    private readonly HashSet<IntPtr> _seatsWithPointerBindings = new();
+
     // action_name -> KeyBindingAction (for built-in chord overrides via [keybinds]).
     private static readonly Dictionary<string, KeyBindingAction> BuiltinActionMap =
         new(StringComparer.Ordinal)
@@ -137,13 +147,21 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             return;
         }
+        if (!_registeredBuiltins.Add((seatProxy, keysym, modifiers, action)))
+        {
+            return; // already registered for this seat
+        }
         // river_xkb_bindings_v1::get_xkb_binding opcode=1
         // args: seat(o), id(new_id), keysym(u), modifiers(u)
+        // Bind the child proxy at the parent's advertised version (not a hardcoded literal),
+        // otherwise a future river bump asserts inside libwayland on first event dispatch.
+        uint childVersion = _xkbBindingsVersion == 0 ? 1u : _xkbBindingsVersion;
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
-            _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
+            _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, childVersion, 0,
             seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
         if (binding == IntPtr.Zero)
         {
+            _registeredBuiltins.Remove((seatProxy, keysym, modifiers, action));
             return;
         }
 
@@ -166,11 +184,17 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return;
         }
 
+        if (!_registeredCustoms.Add((seatProxy, keysym, modifiers, action)))
+        {
+            return;
+        }
+        uint childVersion = _xkbBindingsVersion == 0 ? 1u : _xkbBindingsVersion;
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
-            _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, 3, 0,
+            _xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, childVersion, 0,
             seatProxy, IntPtr.Zero, (IntPtr)keysym, (IntPtr)modifiers, IntPtr.Zero, IntPtr.Zero);
         if (binding == IntPtr.Zero)
         {
+            _registeredCustoms.Remove((seatProxy, keysym, modifiers, action));
             return;
         }
 
@@ -196,6 +220,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         if (!_keyBindings.TryGetValue(proxy, out var action))
         {
+            // Step 1 diagnostic: silent drops here were the original
+            // "keychord stops firing after second window" symptom. Log so the
+            // class of regression is visible in the next bug report.
+            Log($"key binding miss proxy=0x{proxy.ToString("x")} opcode={opcode}");
             return;
         }
 

@@ -397,15 +397,21 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                         _windows[proxy] = entry;
 
-                        // Spawn-to-front: always focus the freshly mapped window.
-                        // Previously this was guarded by `_focusedWindow == IntPtr.Zero`,
-                        // but at the moment a new window event arrives focus is usually
-                        // still on the start-menu / previously-focused window, so the
-                        // guard would skip RequestFocus and the new window would map
-                        // without keyboard/pointer focus ("no input" symptom).
-                        // Note: we MUST add to _windows before RequestFocus/ScheduleManage
-                        // so the layout/focus logic sees the new entry.
-                        RequestFocus(proxy);
+                        // Spawn-to-front: focus the freshly mapped window, but only
+                        // when we have a live seat AND the window is still tracked.
+                        // Without these guards a stale window proxy (from a prior
+                        // manage cycle whose source window self-destroyed) or a
+                        // pre-seat WindowInformation event would marshal a focus
+                        // request on a dead object id, causing river to abort the
+                        // protocol and crash the whole desktop on second-window map.
+                        if (_primarySeat != IntPtr.Zero && _windows.ContainsKey(proxy))
+                        {
+                            RequestFocus(proxy);
+                        }
+                        else
+                        {
+                            Log($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat != IntPtr.Zero}, tracked={_windows.ContainsKey(proxy)})");
+                        }
 
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
@@ -473,7 +479,15 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // surface with keyboard focus. Binding the bare Super_L/Alt_L keysym
                         // would route every modifier press/release to the WM and prevent
                         // *any* modified keystroke from reaching the focused surface.
-                        if (_xkbBindings != IntPtr.Zero && _keyBindings.Count == 0)
+                        //
+                        // Always register per-seat (no `_keyBindings.Count == 0` short-circuit):
+                        // a second SeatInformation — from a re-broadcast, hot-plugged keyboard,
+                        // or multi-seat config — would otherwise leave that seat with no
+                        // bindings, so chords would silently drop after the new seat takes
+                        // keyboard focus. RegisterKeyBinding / RegisterCustomKeyBinding are
+                        // idempotent per (seat, keysym, mods, action) via _registeredBuiltins /
+                        // _registeredCustoms, so repeat SeatInformation events are safe.
+                        if (_xkbBindings != IntPtr.Zero)
                         {
                             RegisterAllBindings(proxy);
                         }
@@ -483,7 +497,17 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // dragged. BTN_LEFT = 0x110. The modifier (Super=64 / Alt=8) is selected
                         // via AQUEOUS_MOD so nested river (where the host eats Super) still works.
                         // Requires river_window_management_v1 version >= 4 (River 0.4.3 ships v3).
-                        if (_dragPointerBinding == IntPtr.Zero && _managerVersion >= 4)
+                        // Pointer bindings: register once per seat. The two
+                        // global fields below are sufficient as a first-seat
+                        // cache for routing in ProxyDispatcher; the per-seat
+                        // guard (`_seatsWithPointerBindings`) prevents a
+                        // second SeatInformation from re-marshalling the
+                        // same get_pointer_binding request and overwriting
+                        // them mid-flight, which previously had the second
+                        // seat's dispatcher closure re-enter managed code
+                        // concurrently with the first and crash under AOT.
+                        bool firstPointerBindingForSeat = _seatsWithPointerBindings.Add(proxy);
+                        if (firstPointerBindingForSeat && _dragPointerBinding == IntPtr.Zero && _managerVersion >= 4)
                         {
                             const uint BTN_LEFT = 0x110;
                             uint modMask = Mods.PrimaryMask;
@@ -520,7 +544,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // distinguishes them by the firing proxy and
                         // derives _dragEdges from the pointer's quadrant
                         // inside the hovered window.
-                        if (_dragResizePointerBinding == IntPtr.Zero && _managerVersion >= 4)
+                        if (firstPointerBindingForSeat && _dragResizePointerBinding == IntPtr.Zero && _managerVersion >= 4)
                         {
                             const uint BTN_RIGHT = 0x111;
                             uint modMask = Mods.PrimaryMask;
