@@ -400,6 +400,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
                         _windows[proxy] = entry;
+                        // Stage 0: record the window + its river_node child for
+                        // future interface-name based routing (see _proxyInterface).
+                        TrackProxyInterface(proxy, "river_window_v1");
+                        TrackProxyInterface(entry.NodeProxy, "river_node_v1");
 
                         // Spawn-to-front: focus the freshly mapped window, but only
                         // when we have a live seat AND the window is still tracked.
@@ -443,6 +447,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
+                        TrackProxyInterface(proxy, "river_output_v1");
                         Log($"+ output 0x{proxy.ToString("x")}");
                     }
 
@@ -459,6 +464,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
+                        TrackProxyInterface(proxy, "river_seat_v1");
                         Log($"+ seat 0x{proxy.ToString("x")}");
 
                         if (_primarySeat == IntPtr.Zero)
@@ -530,6 +536,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
+                                TrackProxyInterface(_dragPointerBinding, "river_pointer_binding_v1");
                                 _dragPointerBindingNeedsEnable = true;
                                 Log(
                                     $"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{_managerVersion})");
@@ -564,6 +571,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
+                                TrackProxyInterface(_dragResizePointerBinding, "river_pointer_binding_v1");
                                 _dragResizePointerBindingNeedsEnable = true;
                                 Log(
                                     $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{_managerVersion})");
@@ -621,6 +629,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                         (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                                         GCHandle.ToIntPtr(_selfHandle),
                                         IntPtr.Zero);
+                                    TrackProxyInterface(pb, "river_pointer_binding_v1");
                                     string maskHex = combinedMask.ToString("x");
                                     Log($"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
                                 }

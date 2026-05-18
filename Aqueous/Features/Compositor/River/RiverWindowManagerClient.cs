@@ -257,6 +257,46 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
 
+    // --- Stage 0 of god-class decomposition: proxy → interface name ---
+    //
+    // The native [UnmanagedCallersOnly] callback in ProxyDispatcher.cs
+    // currently routes events by raw `target` (IntPtr) identity against
+    // the dictionaries scattered throughout this class. Stage 0 of the
+    // decomposition plan introduces a parallel `IntPtr → interface name`
+    // map populated at every proxy-bind site. It is intentionally
+    // write-only for now: Stage 8 will be the first reader, when the
+    // native callback is rewritten to construct WlEvent.InterfaceName
+    // by looking up the firing proxy here and then delegating to
+    // IEventDispatcher.Dispatch.
+    //
+    // Routing today still goes through ProxyDispatcher's if/else chain,
+    // so populating this map cannot break dispatch — at worst a missed
+    // population would surface as a no-op lookup in Stage 8.
+    //
+    // Single-threaded by construction: every populating site runs
+    // either on the connect thread (registry binds) or on the pump
+    // thread (handler-driven binds), never both concurrently. Backed
+    // by ProxyInterfaceMap so the population logic is unit-testable
+    // without needing to construct a god-class instance.
+    private readonly Aqueous.Features.Compositor.River.Dispatch.ProxyInterfaceMap _proxyInterface = new();
+
+    /// <summary>
+    /// Record the Wayland interface name of a freshly bound proxy.
+    /// Tolerant of <see cref="IntPtr.Zero"/> and null/empty names so
+    /// call sites can invoke it immediately after
+    /// <c>wl_proxy_marshal_flags</c> without an inline null check.
+    /// </summary>
+    internal void TrackProxyInterface(IntPtr proxy, string interfaceName)
+    {
+        _proxyInterface.Track(proxy, interfaceName);
+    }
+
+    /// <summary>Test/diagnostic accessor: number of proxies currently tracked.</summary>
+    internal int TrackedProxyCount => _proxyInterface.Count;
+
+    /// <summary>Test/diagnostic accessor: lookup the recorded interface name.</summary>
+    internal string? TryGetProxyInterface(IntPtr proxy) => _proxyInterface.TryGet(proxy);
+
     // For KeyBindingAction.Custom — chord proxy → free-form action verb.
     private readonly Dictionary<IntPtr, string> _customBindingActions = new();
 
@@ -444,6 +484,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             return Result.Fail("wl_display_get_registry returned null");
         }
 
+        // Stage 0: record the registry proxy → interface mapping. The
+        // RegistryBinder owns the proxy; we read it back here purely to
+        // populate _proxyInterface for the eventual interface-name based
+        // dispatch in Stage 8.
+        TrackProxyInterface(_registry.Handle, "wl_registry");
+
         _registry.Discovered += OnGlobalDiscovered;
 
         // Flush globals; then a second roundtrip so any events the
@@ -541,6 +587,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                     GCHandle.ToIntPtr(_selfHandle),
                     IntPtr.Zero);
+                TrackProxyInterface(_manager, "river_window_manager_v1");
                 Log($"bound river_window_manager_v1 (version {_managerVersion})");
             }
         }
@@ -552,6 +599,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
                 (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
                 GCHandle.ToIntPtr(_selfHandle),
                 IntPtr.Zero);
+            TrackProxyInterface(_layerShell, "river_layer_shell_v1");
             Log("bound river_layer_shell_v1");
         }
         else if (global.Interface == "river_xkb_bindings_v1")
@@ -559,11 +607,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             uint xkbVersion = Math.Min(global.Version, 2u);
             _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
             _xkbBindingsVersion = xkbVersion;
+            TrackProxyInterface(_xkbBindings, "river_xkb_bindings_v1");
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
         else if (global.Interface == "wl_shm" && _wlShm == IntPtr.Zero)
         {
             _wlShm = _registry.Bind(global.Name, WlInterfaces.WlShm, 1);
+            TrackProxyInterface(_wlShm, "wl_shm");
             Log("bound wl_shm");
             TryActivateScreencopy();
         }
@@ -582,6 +632,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
             _screencopyVersion = Math.Min(global.Version, 3u);
             _screencopyManager = _registry.Bind(
                 global.Name, WlInterfaces.ZwlrScreencopyManager, _screencopyVersion);
+            TrackProxyInterface(_screencopyManager, "zwlr_screencopy_manager_v1");
             Log($"bound zwlr_screencopy_manager_v1 (version {_screencopyVersion})");
             TryActivateScreencopy();
         }

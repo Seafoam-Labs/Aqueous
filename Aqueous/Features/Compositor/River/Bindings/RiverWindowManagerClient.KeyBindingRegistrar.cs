@@ -166,6 +166,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         }
 
         _keyBindings[binding] = action;
+        TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
@@ -200,6 +201,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         _keyBindings[binding] = KeyBindingAction.Custom;
         _customBindingActions[binding] = action;
+        TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
