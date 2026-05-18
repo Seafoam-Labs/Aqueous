@@ -5,7 +5,7 @@ namespace Aqueous.Features.Compositor.River.Connection;
 
 /// <summary>
 /// Runs the Wayland event-dispatch loop on a dedicated background
-/// thread. Each iteration calls <see cref="WaylandConnection.Dispatch"/>;
+/// thread. Each iteration calls <see cref="IWaylandConnection.Dispatch"/>;
 /// the loop exits when libwayland reports an error (return value &lt; 0),
 /// when <see cref="Stop"/> is invoked, or when the
 /// <see cref="CancellationToken"/> passed to <see cref="Start"/> is
@@ -16,7 +16,7 @@ namespace Aqueous.Features.Compositor.River.Connection;
 /// The pump does not own the connection — it only reads from it — so
 /// shutdown is the caller's responsibility: typically
 /// <see cref="Stop"/> first (to leave the loop), then
-/// <see cref="WaylandConnection.Disconnect"/> (to release the
+/// <see cref="IWaylandConnection.Dispose"/> (to release the
 /// <c>wl_display*</c>).
 /// </para>
 /// <para>
@@ -31,14 +31,14 @@ namespace Aqueous.Features.Compositor.River.Connection;
 /// </remarks>
 internal sealed class EventPump : IDisposable
 {
-    private readonly WaylandConnection _connection;
+    private readonly IWaylandConnection _connection;
     private readonly Action<string> _log;
     private Thread? _thread;
     private volatile bool _running;
     private CancellationTokenSource? _internalCts;
     private CancellationTokenRegistration _externalRegistration;
 
-    public EventPump(WaylandConnection connection, Action<string> log)
+    public EventPump(IWaylandConnection connection, Action<string> log)
     {
         _connection = connection;
         _log = log;

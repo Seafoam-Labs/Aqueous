@@ -186,9 +186,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// <summary>
     /// Owns the <c>wl_display*</c> lifetime; everything else in this
     /// file reaches the native display via <see cref="_display"/>, which
-    /// proxies to <see cref="WaylandConnection.Display"/>.
+    /// proxies to <see cref="IWaylandConnection.Display"/>.
     /// </summary>
-    private readonly WaylandConnection _connection = new();
+    private readonly IWaylandConnection _connection = new WaylandConnection();
 
     /// <summary>
     /// Drives <c>wl_display_dispatch</c> on a background thread. Started
@@ -421,7 +421,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         try
         {
             _pump.Stop();
-            _connection.Disconnect();
+            _connection.Dispose();
         }
         catch
         {
