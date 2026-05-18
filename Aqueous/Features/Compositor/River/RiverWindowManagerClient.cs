@@ -193,8 +193,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     /// <summary>
     /// Drives <c>wl_display_dispatch</c> on a background thread. Started
     /// from <see cref="StartPump"/>, stopped from <see cref="Dispose"/>.
+    /// Consumed via the <see cref="IEventPump"/> seam so the pump can
+    /// be replaced or faked in tests; the field is upcast to the
+    /// interface to keep this class from reaching into pump internals.
     /// </summary>
-    private readonly EventPump _pump;
+    private readonly IEventPump _pump;
 
     private IntPtr _display => _connection.Display;
 
@@ -282,7 +285,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
 
     private RiverWindowManagerClient()
     {
-        _pump = new EventPump(_connection, msg => Log(msg));
+        _pump = new EventPump(
+            _connection,
+            Diagnostics.Logging.For<EventPump>(),
+            new EventPumpOptions());
         _seatInteractionService = new SeatInteractionService(this);
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
@@ -412,6 +418,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private void StartPump(CancellationToken cancellationToken = default) =>
         _pump.Start(cancellationToken);
 
+    /// <summary>
+    /// Join timeout applied to <see cref="IEventPump.Stop"/> during
+    /// <see cref="Dispose"/>. Long enough to let an in-flight
+    /// <c>wl_display_dispatch</c> return after we cancel; short enough
+    /// that a wedged libwayland never blocks shutdown indefinitely.
+    /// </summary>
+    private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
+
     public void Dispose()
     {
         // river_window_manager_v1::stop (opcode 0) is intentionally NOT
@@ -421,7 +435,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         // disconnected WM the same way as a stopped one and cleans up.
         try
         {
-            _pump.Stop();
+            // Critical ordering: stop the pump first so it is no
+            // longer touching the wl_display, then dispose the
+            // connection. Disposing the display while the pump is
+            // blocked inside wl_display_dispatch is undefined
+            // behaviour in libwayland.
+            _pump.Stop(PumpJoinTimeout);
             _connection.Dispose();
         }
         catch

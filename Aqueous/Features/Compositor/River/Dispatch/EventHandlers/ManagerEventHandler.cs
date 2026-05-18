@@ -24,11 +24,15 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             case RiverProtocolOpcodes.Manager.Unavailable:
                 Log("river_window_manager_v1.unavailable — another WM is active; giving up");
-                _pump.Stop(0);
+                // Zero timeout: we're being called *from* the pump
+                // thread, so a real Join would deadlock. Signalling
+                // exit is enough — the loop unwinds on its own next
+                // iteration boundary.
+                _pump.Stop(TimeSpan.Zero);
                 break;
             case RiverProtocolOpcodes.Manager.Finished:
                 Log("river_window_manager_v1.finished");
-                _pump.Stop(0);
+                _pump.Stop(TimeSpan.Zero);
                 break;
             case RiverProtocolOpcodes.Manager.ManageStart:
                 _insideManageSequence = true;

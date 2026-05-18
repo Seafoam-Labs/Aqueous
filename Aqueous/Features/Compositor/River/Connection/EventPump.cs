@@ -1,139 +1,295 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aqueous.Features.Compositor.River.Connection;
 
 /// <summary>
-/// Runs the Wayland event-dispatch loop on a dedicated background
-/// thread. Each iteration calls <see cref="IWaylandConnection.Dispatch"/>;
-/// the loop exits when libwayland reports an error (return value &lt; 0),
-/// when <see cref="Stop"/> is invoked, or when the
-/// <see cref="CancellationToken"/> passed to <see cref="Start"/> is
-/// cancelled.
+/// Default <see cref="IEventPump"/> implementation. Runs a single
+/// background thread that invokes
+/// <see cref="IWaylandConnection.Dispatch"/> in a loop until told
+/// otherwise. See <see cref="IEventPump"/> for the full contract.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The pump does not own the connection — it only reads from it — so
-/// shutdown is the caller's responsibility: typically
-/// <see cref="Stop"/> first (to leave the loop), then
-/// <see cref="IWaylandConnection.Dispose"/> (to release the
-/// <c>wl_display*</c>).
-/// </para>
-/// <para>
-/// <b>Cancellation contract:</b> <c>wl_display_dispatch</c> blocks on
-/// the display fd until an event arrives. The cancellation token is
-/// therefore checked on every iteration <em>boundary</em>, not while
-/// waiting on the fd. In practice River sends frequent events so this
-/// is responsive in normal operation; for a hard guarantee, callers can
-/// invoke <see cref="Stop"/> directly which sets the running flag and
-/// joins.
-/// </para>
-/// </remarks>
-internal sealed class EventPump : IDisposable
+internal sealed class EventPump : IEventPump
 {
     private readonly IWaylandConnection _connection;
-    private readonly Action<string> _log;
+    private readonly ILogger<EventPump> _logger;
+    private readonly EventPumpOptions _options;
+
+    // Single lock guarding lifecycle transitions (Start/Stop). The
+    // pump loop itself does not take the lock; it observes _running
+    // and the linked-token instead.
+    private readonly object _gate = new();
+
     private Thread? _thread;
     private volatile bool _running;
     private CancellationTokenSource? _internalCts;
     private CancellationTokenRegistration _externalRegistration;
+    private TaskCompletionSource? _stoppedTcs;
+    private PumpStopReason _stopReason;
+    private bool _stopRequested;
 
-    public EventPump(IWaylandConnection connection, Action<string> log)
+    public EventPump(IWaylandConnection connection)
+        : this(connection, NullLogger<EventPump>.Instance, new EventPumpOptions())
     {
-        _connection = connection;
-        _log = log;
     }
 
-    /// <summary>True while the pump thread is actively dispatching.</summary>
+    public EventPump(IWaylandConnection connection, ILogger<EventPump> logger, EventPumpOptions options)
+    {
+        _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    /// <inheritdoc />
     public bool IsRunning => _running;
 
-    /// <summary>
-    /// Spawns the background pump thread. Idempotent: a second call
-    /// while already running is a no-op. If <paramref name="externalToken"/>
-    /// is cancelled, the pump exits at the next iteration boundary.
-    /// </summary>
-    public void Start(CancellationToken externalToken = default)
+    /// <inheritdoc />
+    public event Action<PumpStopReason>? Stopped;
+
+    /// <inheritdoc />
+    public void Start(CancellationToken ct = default)
     {
-        if (_running)
+        lock (_gate)
         {
-            return;
+            if (_running)
+            {
+                return;
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                // Caller already cancelled — don't spawn a thread that
+                // would immediately exit. No Stopped event because we
+                // never started.
+                return;
+            }
+
+            _stopRequested = false;
+            _stopReason = PumpStopReason.StopRequested;
+            _stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _internalCts = new CancellationTokenSource();
+            _externalRegistration = ct.CanBeCanceled
+                ? ct.Register(static cts => ((CancellationTokenSource)cts!).Cancel(), _internalCts)
+                : default;
+
+            _running = true;
+            _thread = new Thread(PumpLoop)
+            {
+                IsBackground = true,
+                Name = _options.ThreadName,
+            };
+            _thread.Start();
         }
-
-        if (externalToken.IsCancellationRequested)
-        {
-            // Caller already cancelled — don't spawn a thread that
-            // would immediately exit.
-            return;
-        }
-
-        _internalCts = new CancellationTokenSource();
-        _externalRegistration = externalToken.CanBeCanceled
-            ? externalToken.Register(static cts => ((CancellationTokenSource)cts!).Cancel(), _internalCts)
-            : default;
-
-        _running = true;
-        _thread = new Thread(PumpLoop)
-        {
-            IsBackground = true,
-            Name = "Aqueous.RiverWindowManager",
-        };
-        _thread.Start();
     }
 
-    /// <summary>
-    /// Signals the pump to exit at the next iteration boundary and waits
-    /// up to <paramref name="joinTimeoutMs"/> milliseconds for the
-    /// thread to terminate. Idempotent.
-    /// </summary>
-    public void Stop(int joinTimeoutMs = 500)
+    /// <inheritdoc />
+    public void Stop(TimeSpan joinTimeout)
     {
-        _running = false;
-        try
+        Thread? thread;
+        lock (_gate)
         {
-            _internalCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Already disposed — fine.
+            thread = _thread;
+            if (thread is null)
+            {
+                // Already stopped (or never started). Strict no-op.
+                return;
+            }
+
+            _stopRequested = true;
+            _running = false;
+            try
+            {
+                _internalCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed — fine.
+            }
         }
 
+        // If Stop() is invoked from inside the pump thread itself
+        // (e.g. a protocol event handler calling _pump.Stop(...)),
+        // joining would deadlock and tearing down _internalCts /
+        // _stoppedTcs out from under the pump's finally block races
+        // the Stopped event. Just signal exit and return; the pump
+        // unwinds on its own and CleanupAfterStop runs on the next
+        // external Stop()/Dispose call.
+        if (Thread.CurrentThread == thread)
+        {
+            return;
+        }
+
+        // Join outside the lock so the pump thread can complete its
+        // own teardown (raising Stopped, completing the TCS).
         try
         {
-            _thread?.Join(joinTimeoutMs);
+            thread.Join(joinTimeout);
         }
         catch
         {
-            // Joining a never-started thread or one that's already gone
-            // is fine; we don't have a useful action to take here.
+            // Joining a never-started thread or one that's already
+            // gone is fine; we don't have a useful action to take.
         }
 
-        _externalRegistration.Dispose();
-        _externalRegistration = default;
-        _internalCts?.Dispose();
-        _internalCts = null;
-        _thread = null;
+        CleanupAfterStop();
+    }
+
+    /// <inheritdoc />
+    public async Task StopAsync(TimeSpan joinTimeout, CancellationToken ct = default)
+    {
+        Task? task;
+        lock (_gate)
+        {
+            if (_thread is null)
+            {
+                return;
+            }
+
+            task = _stoppedTcs?.Task;
+            _stopRequested = true;
+            _running = false;
+            try
+            {
+                _internalCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed — fine.
+            }
+        }
+
+        if (task is not null)
+        {
+            try
+            {
+                await task.WaitAsync(joinTimeout, ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Propagate per the documented contract; do NOT clean
+                // up because the pump thread is still running and
+                // owns _internalCts / _externalRegistration.
+                throw;
+            }
+        }
+
+        // Best-effort join (the TCS already completed, so this is
+        // essentially zero-wait) before tearing down shared state.
+        Thread? thread;
+        lock (_gate)
+        {
+            thread = _thread;
+        }
+
+        try
+        {
+            thread?.Join(joinTimeout);
+        }
+        catch
+        {
+            // See Stop() rationale.
+        }
+
+        CleanupAfterStop();
+    }
+
+    private void CleanupAfterStop()
+    {
+        lock (_gate)
+        {
+            _externalRegistration.Dispose();
+            _externalRegistration = default;
+            _internalCts?.Dispose();
+            _internalCts = null;
+            _thread = null;
+            _stoppedTcs = null;
+        }
     }
 
     private void PumpLoop()
     {
         var token = _internalCts?.Token ?? CancellationToken.None;
+        PumpStopReason reason = PumpStopReason.StopRequested;
         try
         {
-            while (_running && !token.IsCancellationRequested)
+            while (_running)
             {
-                int r = _connection.Dispatch();
+                if (token.IsCancellationRequested)
+                {
+                    reason = _stopRequested
+                        ? PumpStopReason.StopRequested
+                        : PumpStopReason.Cancelled;
+                    break;
+                }
+
+                int r;
+                try
+                {
+                    r = _connection.Dispatch();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "pump crashed inside wl_display_dispatch");
+                    reason = PumpStopReason.Crashed;
+                    break;
+                }
+
+                if (_options.VerboseDispatchTrace)
+                {
+                    _logger.LogTrace("wl_display_dispatch returned {Code}", r);
+                }
+
                 if (r < 0)
                 {
-                    _log("wl_display_dispatch returned < 0; pump exiting");
+                    _logger.LogWarning("wl_display_dispatch returned {Code}; pump exiting", r);
+                    reason = PumpStopReason.DispatchError;
                     break;
                 }
             }
+
+            // If the while-condition itself fell through (_running was
+            // set false without internal-cancellation firing first),
+            // that means Stop() raced us; treat as StopRequested.
+            if (!_running && !token.IsCancellationRequested && reason == PumpStopReason.StopRequested)
+            {
+                reason = PumpStopReason.StopRequested;
+            }
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            _log("pump crashed: " + e.Message);
+            // Defensive: anything escaping the inner try/catch is
+            // still bounded here so the process is never taken down
+            // by the pump thread.
+            _logger.LogError(ex, "pump loop crashed");
+            reason = PumpStopReason.Crashed;
+        }
+        finally
+        {
+            _running = false;
+            _stopReason = reason;
+
+            // Complete the TCS first so StopAsync can return, then
+            // raise the event. Capturing locals avoids racing with
+            // CleanupAfterStop() (which may null _stoppedTcs after
+            // Stop()'s Join returns).
+            var tcs = _stoppedTcs;
+            tcs?.TrySetResult();
+
+            try
+            {
+                Stopped?.Invoke(reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Stopped handler threw");
+            }
         }
     }
 
-    public void Dispose() => Stop();
+    /// <inheritdoc />
+    public void Dispose() => Stop(_options.DefaultJoinTimeout);
 }
