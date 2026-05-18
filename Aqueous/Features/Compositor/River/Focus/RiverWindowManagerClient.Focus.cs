@@ -83,6 +83,18 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// </summary>
     private void RequestFocus(IntPtr windowProxy)
     {
+        // Guard: never schedule focus on a window proxy that isn't tracked.
+        // Between the WindowInformation event that originally queued the focus
+        // and the manage cycle that drains it, a transient window (splash,
+        // self-closing dialog) can already have been destroyed by river. The
+        // resulting marshal on a dead object id is a fatal protocol error
+        // that aborts river and tears down the entire desktop.
+        if (windowProxy == IntPtr.Zero || !_windows.ContainsKey(windowProxy))
+        {
+            Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
+            return;
+        }
+
         IntPtr seat = _primarySeat;
         if (seat == IntPtr.Zero)
         {

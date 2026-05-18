@@ -208,6 +208,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private IntPtr _manager;
     private IntPtr _layerShell;
     private IntPtr _xkbBindings;
+    private uint _xkbBindingsVersion;
     private IntPtr _superKeyBinding;
 
     // --- screencopy (wlr-screencopy-unstable-v1) ----------------------
@@ -471,6 +472,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         {
             uint xkbVersion = Math.Min(global.Version, 2u);
             _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
+            _xkbBindingsVersion = xkbVersion;
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
         else if (global.Interface == "wl_shm" && _wlShm == IntPtr.Zero)
