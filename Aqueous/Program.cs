@@ -123,6 +123,13 @@ class Program
         services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
             sp.GetRequiredService<RiverWindowManagerClient>().ScreencopyFrameHandler);
 
+        // Stage 9 PR 9.2: register the IHostedService shell. Constructed
+        // lazily; StartAsync/StopAsync is driven manually from Main below
+        // (we deliberately avoid pulling in the full Generic Host here to
+        // keep the SIGINT/SIGTERM signal wiring intact). PRs 9.3–9.12
+        // progressively move Connect/Dispose responsibilities onto the host.
+        services.AddSingleton<Aqueous.Features.Compositor.River.RiverCompositorHost>();
+
         using var provider = services.BuildServiceProvider();
 
         Console.CancelKeyPress += (_, e) =>
@@ -139,12 +146,14 @@ class Program
             lifetimeCts.Cancel();
         });
 
-        // B1a: become a river_window_manager_v1 client. Triggers the
-        // singleton factory above which runs TryStart exactly once.
-        RiverWindowManagerClient wm;
+        // Stage 9 PR 9.2: drive startup + shutdown through the
+        // RiverCompositorHost IHostedService shell. StartAsync resolves
+        // RiverWindowManagerClient (triggering its singleton factory =
+        // TryStart = Connect + roundtrip + StartPump). StopAsync disposes it.
+        var host = provider.GetRequiredService<Aqueous.Features.Compositor.River.RiverCompositorHost>();
         try
         {
-            wm = provider.GetRequiredService<RiverWindowManagerClient>();
+            host.StartAsync(lifetimeCts.Token).GetAwaiter().GetResult();
         }
         catch (InvalidOperationException)
         {
@@ -163,7 +172,7 @@ class Program
         }
         finally
         {
-            wm.Dispose();
+            host.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
         return 0;
     }
