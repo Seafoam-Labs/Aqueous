@@ -126,6 +126,19 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 _activeDragActivator = pressActivator;
                 _dragStartX = w.X;
                 _dragStartY = w.Y;
+                // Capture cursor at drag-start so OpDelta can synthesize
+                // live pointer coords for snap-zone hit-testing (river
+                // does not emit pointer_position during a drag).
+                if (_seatPointerPos.TryGetValue(seat, out var dpbP0))
+                {
+                    _dragStartPointerX = dpbP0.X;
+                    _dragStartPointerY = dpbP0.Y;
+                }
+                else
+                {
+                    _dragStartPointerX = w.X;
+                    _dragStartPointerY = w.Y;
+                }
                 // Reset lifecycle flags so ManagerEventHandler issues a
                 // fresh op_start_pointer on the next manage cycle even if
                 // a prior drag's release path didn't clear them.

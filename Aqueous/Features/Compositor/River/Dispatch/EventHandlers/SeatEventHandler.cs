@@ -73,6 +73,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
             case RiverProtocolOpcodes.Seat.OpDelta:
                 int dx = args[0].i;
                 int dy = args[1].i;
+                // River does NOT emit pointer_position while a drag is
+                // active — only cumulative op_delta. Synthesize the live
+                // cursor from drag-start pointer + cumulative delta so
+                // snap-zone hit-testing reads the actual release location
+                // instead of the stale click location (which always lands
+                // in whichever zone covers the click point — usually
+                // Top-Left for windows near the origin).
+                _seatPointerPos[proxy] = (_dragStartPointerX + dx, _dragStartPointerY + dy);
                 if (_activeDragWindow != null)
                 {
                     var adw = _activeDragWindow;
@@ -265,10 +273,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // Cache latest pointer position per seat so the
                 // Super+RMB drag-resize binding (DragPointerBindingEventHandler)
                 // can derive the resize edges from the click position
-                // relative to the hovered window's rect. Per protocol
-                // (river_seat_v1::pointer_position) the coordinates are in
-                // the compositor's logical coordinate space, matching the
-                // window X/Y we already track.
+                // relative to the hovered window's rect.
+                //
+                // river_window_management_v1::pointer_position declares
+                // its args as type="int" in the protocol XML — global
+                // logical coordinates already in pixel space, NOT
+                // wl_fixed. A prior fix mistakenly applied a >> 8 shift
+                // here, which divided cursor positions by 256 and snapped
+                // every drag to a tiny rect near the origin. Cache as-is.
                 _seatPointerPos[proxy] = (args[0].i, args[1].i);
                 break;
             default:

@@ -90,7 +90,31 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
             else if (self._seatRegistry.Entries.ContainsKey(target))
             {
-                self.OnSeatEvent(target, opcode, a);
+                // PR 8.3 staged rollout — opcode allowlist bisect.
+                // Safe, side-effect-light opcodes route through the new
+                // managed SeatEventHandler; risky opcodes (focus-follow,
+                // window/shell-surface interaction, drag delta/release)
+                // stay on the original partial until proven equivalent.
+                // Expand the `routeManaged` set one opcode at a time per
+                // the rollout plan; see comments in Stage 8 PR 8.3.
+                bool routeManaged = opcode switch
+                {
+                    RiverProtocolOpcodes.Seat.Removed => true,
+                    RiverProtocolOpcodes.Seat.WlSeat => true,
+                    RiverProtocolOpcodes.Seat.PointerLeave => true,
+                    RiverProtocolOpcodes.Seat.PointerPosition => true,
+                    _ => false,
+                };
+                if (routeManaged)
+                {
+                    self._eventDispatcher.Dispatch(
+                        new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
+                            "river_seat_v1", target, opcode, (IntPtr)a, 2));
+                }
+                else
+                {
+                    self.OnSeatEvent(target, opcode, a);
+                }
             }
             else if (self._screencopyService.TryDispatchFrameEvent(target, opcode, a))
             {

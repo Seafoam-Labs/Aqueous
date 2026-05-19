@@ -98,7 +98,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISnapZoneService
         // manage sequence), fall back to the window's current top-left. That
         // still produces a sensible snap for a drag that lands near the edge.
         int px, py;
-        if (_seatPointerPos.TryGetValue(seat, out var pos))
+        bool pointerCacheHit = _seatPointerPos.TryGetValue(seat, out var pos);
+        if (pointerCacheHit)
         {
             px = pos.X;
             py = pos.Y;
@@ -108,6 +109,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISnapZoneService
             px = adw.X;
             py = adw.Y;
         }
+
+        // Diagnostic: identify whether snap-zone failures are caused by
+        // a stale/empty pointer cache, mis-resolved output, or activator
+        // mismatch. Remove once the post-PR-8.3 snap regression is
+        // diagnosed and the real root cause is fixed.
+        Log($"snap-resolve seat=0x{seat.ToString("x")} src={(pointerCacheHit ? "cache" : "fallback")} px={px} py={py} activeDragActivator={_activeDragActivator}");
 
         // Resolve the dragged window's output rect. The drag is gated on
         // float-layout-active, which guarantees adw.Output is set.
@@ -148,10 +155,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISnapZoneService
         if (layout.Activator != SnapActivator.Always &&
             layout.Activator != _activeDragActivator)
         {
+            Log($"snap-resolve activator-gate-skip layout.Activator={layout.Activator} activeDrag={_activeDragActivator}");
             return false;
         }
 
         var hit = layout.Hit(px, py, usable);
+        Log($"snap-hit usable={usable.X},{usable.Y},{usable.W}x{usable.H} layoutActivator={layout.Activator} hit={(hit?.Name ?? "<none>")}");
         if (hit == null)
         {
             return false;

@@ -135,6 +135,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     private int _dragStartY;
 
+    // Pointer position at drag-start. Combined with op_delta's cumulative
+    // (dx, dy) this lets us reconstruct the live cursor position during a
+    // drag — river does NOT emit pointer_position while a drag is active.
+    // Seeded at every drag-start site (PointerMove/Resize requested + Super
+    // pointer-binding pressed); read by OpDelta to refresh _seatPointerPos.
+    private int _dragStartPointerX;
+    private int _dragStartPointerY;
+
     // Resize state — non-zero _dragEdges means the active drag is a resize, not a move.
     // Edges are the river_window_v1 bitfield: top=1, bottom=2, left=4, right=8.
     private uint _dragEdges;
@@ -456,6 +464,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log),
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler(
                     _windowRegistry, _outputRegistry, this, Log),
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler(
+                    _seatRegistry, _windowRegistry,
+                    _seatHoveredWindow, _seatPointerPos,
+                    this, Log),
             });
     }
 

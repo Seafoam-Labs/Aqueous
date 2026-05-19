@@ -56,11 +56,12 @@ class Program
         // each as handlers leave the god class.
         services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler,
             Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler>();
-        // Stage 8 PR 8.2: OutputEventHandler is constructed in the
-        // RiverWindowManagerClient ctor (field-init pattern) because it
-        // depends on IOutputHandlerCollaborators (the god class itself).
-        // DI registration is deferred to Stage 9 when the god class
-        // collapses and the bridge retires.
+        // Stage 8 PR 8.2 / 8.3: OutputEventHandler + SeatEventHandler are
+        // constructed in the RiverWindowManagerClient ctor (field-init
+        // pattern) because they depend on collaborator bridges
+        // (IOutputHandlerCollaborators, ISeatHandlerCollaborators) which
+        // are the god class itself. DI registration is deferred to Stage 9
+        // when the god class collapses and the bridges retire.
         using var provider = services.BuildServiceProvider();
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.

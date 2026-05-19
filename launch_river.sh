@@ -69,7 +69,18 @@ export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
 export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
 export _JAVA_AWT_WM_NONREPARENTING=1
-
-INNER="exec '$WM_BIN' >/tmp/aqueous_wm.log 2>&1"
+# Decide where Aqueous logs go. AQUEOUS_LOG_SINK overrides; else if launched
+# from a tty, stream live to that tty; else fall back to /tmp/aqueous_wm.log.
+if [ -n "${AQUEOUS_LOG_SINK:-}" ]; then
+    AQ_SINK="$AQUEOUS_LOG_SINK"
+elif [ -t 1 ] && AQ_TTY=$(tty 2>/dev/null) && [ -n "$AQ_TTY" ] && [ -w "$AQ_TTY" ]; then
+    AQ_SINK="$AQ_TTY"
+else
+    AQ_SINK="/tmp/aqueous_wm.log"
+fi
+echo "[launch_river] Aqueous logs -> $AQ_SINK"
+# Surface snap-zone + dispatcher diagnostics by default during smoke runs.
+export AQUEOUS_LOG="${AQUEOUS_LOG:-debug}"
+INNER="exec '$WM_BIN' >'$AQ_SINK' 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt
