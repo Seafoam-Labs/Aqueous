@@ -372,6 +372,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // roundtrip in Connect().
     private readonly StartupExecRunner _startupExec;
     private readonly RiverWindowStateHost _stateHost;
+    // Stage 8 PR 8.1: managed dispatch seam. The native [UnmanagedCallersOnly]
+    // callback in ProxyDispatcher routes per-interface branches through this
+    // dispatcher as each handler is extracted out of the god class. PR 8.1
+    // registers only LayerShellEventHandler; PRs 8.2-8.7 add the rest.
+    private readonly Aqueous.Features.Compositor.River.Dispatch.IEventDispatcher _eventDispatcher;
 
     private RiverWindowManagerClient()
         : this(
@@ -440,6 +445,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // niri's "apply on startup + on config reload" model — the same
         // call lives in ReloadConfig (KeyBindingActionRouter).
         InputDaemonClient.Apply(_layoutConfig.Input);
+
+        // Stage 8 PR 8.1: construct the managed dispatch table with the
+        // handlers extracted so far. PRs 8.2-8.7 will append additional
+        // IEventHandler entries to this list as each per-interface body
+        // leaves the god class.
+        _eventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.EventDispatcher(
+            new Aqueous.Features.Compositor.River.Dispatch.IEventHandler[]
+            {
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log),
+            });
     }
 
     private static string GetDefaultConfigPath()

@@ -47,7 +47,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
             else if (target == self._layerShell)
             {
-                self.OnLayerShellEvent(opcode, a);
+                // Stage 8 PR 8.1: routed through the managed IEventDispatcher
+                // (LayerShellEventHandler). The native callback constructs the
+                // WlEvent here; the handler decodes args via WlArgumentDecoder.
+                self._eventDispatcher.Dispatch(
+                    new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
+                        "river_layer_shell_v1", target, opcode, (IntPtr)a, 1));
             }
             else if (self._superKeyBinding != IntPtr.Zero && target == self._superKeyBinding)
             {

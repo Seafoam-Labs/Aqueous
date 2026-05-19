@@ -51,6 +51,11 @@ class Program
         // and acts as a no-op router; the native [UnmanagedCallersOnly]
         // dispatcher in RiverWindowManagerClient remains the live path.
         services.AddSingleton<IEventDispatcher, EventDispatcher>();
+        // Stage 8 PR 8.1: first IEventHandler extracted. Subsequent PRs
+        // (8.2-8.7) will add one AddSingleton<IEventHandler, ...>() line
+        // each as handlers leave the god class.
+        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler,
+            Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler>();
         using var provider = services.BuildServiceProvider();
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
