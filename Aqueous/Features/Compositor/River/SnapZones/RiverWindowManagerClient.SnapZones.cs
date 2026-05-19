@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Aqueous.Features.Compositor.River.SnapZones;
 using Aqueous.Features.Layout;
 using Aqueous.Features.SnapZones;
 
@@ -45,8 +47,20 @@ namespace Aqueous.Features.Compositor.River;
 //     for the toplevel's min size is refused; a zone larger than the
 //     toplevel's max size is soft-clamped to the max anchored at the
 //     zone's top-left.
-internal sealed unsafe partial class RiverWindowManagerClient
+internal sealed unsafe partial class RiverWindowManagerClient : ISnapZoneServiceCollaborators
 {
+    // --- Stage 6 Part 1 bridge: ISnapZoneServiceCollaborators ----------
+    // Explicit-interface impls forward to the existing private helpers
+    // below. Retired in Stage 8 when the seat drag pipeline lifts out.
+
+    void ISnapZoneServiceCollaborators.ApplyLiveSnapPreviewImpl(IntPtr seat) =>
+        ApplyLiveSnapPreview(seat);
+
+    void ISnapZoneServiceCollaborators.TrySnapDraggedWindowToZoneImpl(IntPtr seat) =>
+        TrySnapDraggedWindowToZone(seat);
+
+    IEnumerable<IReadOnlyList<SnapZoneLayout>> ISnapZoneServiceCollaborators.CollectAllSnapLayoutsImpl() =>
+        CollectAllSnapLayouts();
     /// <summary>
     /// Resolves the SnapZone the pointer is currently hovering for the
     /// active drag-window, returning the screen-space rectangle the

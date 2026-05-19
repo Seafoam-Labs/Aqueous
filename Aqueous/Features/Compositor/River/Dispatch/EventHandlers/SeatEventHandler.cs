@@ -145,7 +145,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // for the rationale). When the pointer leaves
                         // the zone the next OpDelta sample writes the
                         // free-drag rect again, undoing the preview.
-                        ApplyLiveSnapPreview(proxy);
+                        _snapZoneService.ApplyLiveSnapPreview(proxy);
                     }
                     else
                     {
@@ -256,7 +256,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // SnapZones piggy-backs on that, no new wire traffic.
                 if (_activeDragWindow != null && _dragEdges == 0)
                 {
-                    TrySnapDraggedWindowToZone(proxy);
+                    _snapZoneService.TrySnapDraggedWindowToZone(proxy);
                 }
 
                 _dragFinished = true;

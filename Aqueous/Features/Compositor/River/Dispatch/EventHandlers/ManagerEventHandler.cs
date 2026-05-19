@@ -592,7 +592,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         {
                             const uint BTN_LEFT = 0x110;
                             var seenActivators = new System.Collections.Generic.HashSet<Aqueous.Features.SnapZones.SnapActivator>();
-                            foreach (var layoutList in CollectAllSnapLayouts())
+                            foreach (var layoutList in _snapZoneService.CollectAllSnapLayouts())
                             {
                                 foreach (var l in layoutList)
                                 {
@@ -606,7 +606,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                         continue;
                                     }
 
-                                    uint extraMask = ActivatorToMask(l.Activator);
+                                    uint extraMask = _snapZoneService.ActivatorToMask(l.Activator);
                                     if (extraMask == 0)
                                     {
                                         continue;

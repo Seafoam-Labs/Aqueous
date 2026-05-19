@@ -317,6 +317,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // Stage 5: Wayland-send seam. Owned by this class for lifetime
     // management; Init() is called from OnGlobalDiscovered once the
     // river_window_manager_v1 proxy has been bound.
+    // Stage 6 Part 1: facade over the SnapZones partial.
+    private readonly Aqueous.Features.SnapZones.ISnapZoneService _snapZoneService;
+
     private readonly Aqueous.Features.Layout.IManagerRequestSender _managerRequestSender =
         new Aqueous.Features.Layout.ManagerRequestSender();
 
@@ -408,6 +411,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // bridge (deleted); ScheduleManage routed through IManagerRequestSender.
         _tagController = new TagService(
             _windowRegistry, _outputRegistry, _focusService, _managerRequestSender);
+        // Stage 6 Part 1: SnapZoneService facade over the existing
+        // partial; handlers depend on ISnapZoneService rather than
+        // god-class privates. Literal drag-state lift in Stage 8.
+        _snapZoneService = new Aqueous.Features.SnapZones.SnapZoneService(this);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
