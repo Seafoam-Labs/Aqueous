@@ -85,7 +85,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 self.OnSeatEvent(target, opcode, a);
             }
-            else if (self._screencopy != null && self._screencopy.OnFrameEvent(target, opcode, a))
+            else if (self._screencopyService.TryDispatchFrameEvent(target, opcode, a))
             {
                 // consumed by zwlr_screencopy_frame_v1
             }

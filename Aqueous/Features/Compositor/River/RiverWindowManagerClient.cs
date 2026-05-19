@@ -248,7 +248,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private IntPtr _wlShm;
     private IntPtr _screencopyManager;
     private uint _screencopyVersion;
-    private WlrScreencopyClient? _screencopy;
+    // Stage 6 Part 2: WlrScreencopyClient ownership moved to ScreencopyService.
+    private readonly Aqueous.Features.Screencopy.IScreencopyService _screencopyService =
+        new Aqueous.Features.Screencopy.ScreencopyService();
     private readonly ConcurrentDictionary<uint, RegistryGlobal> _wlOutputGlobals = new();
 
     // --- key bindings -------------------------------------------------
@@ -680,25 +682,25 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     }
 
     /// <summary>
-    /// Brings up <see cref="_screencopy"/> once both <c>wl_shm</c> and
-    /// <c>zwlr_screencopy_manager_v1</c> have been bound. Order of registry
-    /// events is not guaranteed, so this is called from each binding site.
+    /// Brings up the <see cref="Aqueous.Features.Screencopy.IScreencopyService"/> once
+    /// both <c>wl_shm</c> and <c>zwlr_screencopy_manager_v1</c> have been bound. Order
+    /// of registry events is not guaranteed, so this is called from each binding site
+    /// and is idempotent in the service.
     /// </summary>
     private void TryActivateScreencopy()
     {
-        if (_screencopy != null || _screencopyManager == IntPtr.Zero || _wlShm == IntPtr.Zero)
-        {
-            return;
-        }
-
+        bool wasReady = _screencopyService.IsReady;
         IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch;
-        _screencopy = new WlrScreencopyClient(
+        _screencopyService.TryActivate(
             _screencopyManager,
             _screencopyVersion,
             _wlShm,
             GCHandle.ToIntPtr(_selfHandle),
             dispatcher);
-        Log("screencopy ready (wl_shm + zwlr_screencopy_manager_v1)");
+        if (!wasReady && _screencopyService.IsReady)
+        {
+            Log("screencopy ready (wl_shm + zwlr_screencopy_manager_v1)");
+        }
     }
 
     /// <summary>
@@ -710,7 +712,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// <param name="overlayCursor">Whether to composite the cursor.</param>
     public System.Threading.Tasks.Task<ScreencopyResult>? CaptureFirstOutputAsync(bool overlayCursor = false)
     {
-        if (_screencopy == null)
+        if (!_screencopyService.IsReady)
         {
             return null;
         }
@@ -737,7 +739,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             return null;
         }
 
-        var task = _screencopy.CaptureOutputAsync(output, overlayCursor);
+        var task = _screencopyService.CaptureOutputAsync(output, overlayCursor);
+        if (task is null)
+        {
+            WaylandInterop.wl_proxy_destroy(output);
+            return null;
+        }
         // Destroy the proxy as soon as the capture finishes (success or
         // failure). The screencopy frame holds its own ref on the
         // wl_output for the duration of the capture, so an early destroy

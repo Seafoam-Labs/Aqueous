@@ -1,0 +1,61 @@
+using System;
+using System.Threading.Tasks;
+using Aqueous.Features.Compositor.River;
+
+namespace Aqueous.Features.Screencopy;
+
+/// <summary>
+/// Stage 6 Part 2 facade — owns the <see cref="WlrScreencopyClient"/> instance
+/// and routes the screencopy branch of the native callback. No collaborator
+/// bridge is required: the service has no callbacks back into
+/// <c>RiverWindowManagerClient</c> (first bridge-less Stage in the
+/// decomposition).
+/// </summary>
+internal sealed class ScreencopyService : IScreencopyService, IDisposable
+{
+    /// <summary>
+    /// Test seam only — overrides the <see cref="WlrScreencopyClient"/>
+    /// constructor used by <see cref="TryActivate"/>. Production callers must
+    /// never set this; it exists exclusively so unit tests can avoid
+    /// constructing the real (P/Invoke-heavy) client.
+    /// </summary>
+    internal Func<IntPtr, uint, IntPtr, IntPtr, IntPtr, WlrScreencopyClient?>? ClientFactory { get; init; }
+
+    private WlrScreencopyClient? _client;
+
+    public bool IsReady => _client is not null;
+
+    public void TryActivate(IntPtr screencopyManager, uint version, IntPtr shm, IntPtr selfHandle, IntPtr dispatcher)
+    {
+        if (_client is not null)
+        {
+            return;
+        }
+
+        if (screencopyManager == IntPtr.Zero || shm == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (ClientFactory is { } factory)
+        {
+            _client = factory(screencopyManager, version, shm, selfHandle, dispatcher);
+        }
+        else
+        {
+            _client = new WlrScreencopyClient(screencopyManager, version, shm, selfHandle, dispatcher);
+        }
+    }
+
+    public Task<ScreencopyResult>? CaptureOutputAsync(IntPtr output, bool overlayCursor = false)
+        => _client?.CaptureOutputAsync(output, overlayCursor);
+
+    public unsafe bool TryDispatchFrameEvent(IntPtr frame, uint opcode, WlArgument* args)
+        => _client is not null && _client.OnFrameEvent(frame, opcode, args);
+
+    public void Dispose()
+    {
+        _client?.Dispose();
+        _client = null;
+    }
+}
