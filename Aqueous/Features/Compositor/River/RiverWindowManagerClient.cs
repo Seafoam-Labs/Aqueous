@@ -51,7 +51,7 @@ namespace Aqueous.Features.Compositor.River;
 /// two lifecycle acks required to advance the sequence loop.
 /// </para>
 /// </summary>
-internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, TagController.ITagHost
+internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 {
     // --- logging -------------------------------------------------------
 
@@ -314,7 +314,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
     private LayoutConfig _layoutConfig;
 
     // --- tags subsystem (Phase B1c) -----------------------------------
-    private readonly TagController _tagController;
+    private readonly ITagService _tagController;
 
     // --- window-state subsystem (Phase B1e — Pass B) ------------------
     // Per-window state projection (FS/Max/Float/Min/Scratchpad) used by
@@ -372,7 +372,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable, Tag
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
         _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
-        _tagController = new TagController(this);
+        _tagController = new TagService(_windowRegistry, _outputRegistry, this);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
