@@ -19,7 +19,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 {
     private void OnSeatEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        if (!_seats.TryGetValue(proxy, out var s))
+        if (!_seatRegistry.Entries.TryGetValue(proxy, out var s))
         {
             return;
         }
@@ -28,7 +28,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             case RiverProtocolOpcodes.Seat.Removed:
                 Log($"seat 0x{proxy.ToString("x")} removed");
-                _seats.TryRemove(proxy, out _);
+                _seatRegistry.Entries.TryRemove(proxy, out _);
                 break;
             case RiverProtocolOpcodes.Seat.WlSeat:
                 s.WlSeatName = args[0].u;
@@ -50,7 +50,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     // Sloppy focus: follow the pointer so keystrokes go where the user is looking.
                     if (_layoutConfig.Input.FocusFollowsMouse
                         &&hovered != IntPtr.Zero
-                        && _windows.ContainsKey(hovered)
+                        && _windowRegistry.Entries.ContainsKey(hovered)
                         && hovered != _focusedWindow)
                     {
                         SetFocusedWindow(hovered, proxy);

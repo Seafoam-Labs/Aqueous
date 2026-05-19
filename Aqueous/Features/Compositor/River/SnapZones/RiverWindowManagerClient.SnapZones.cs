@@ -97,7 +97,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         // Resolve the dragged window's output rect. The drag is gated on
         // float-layout-active, which guarantees adw.Output is set.
-        if (!_outputs.TryGetValue(adw.Output, out var output))
+        if (!_outputRegistry.Entries.TryGetValue(adw.Output, out var output))
         {
             return false;
         }
@@ -295,7 +295,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // outputs (incl. the wildcard) and dedup.
         var seen = new System.Collections.Generic.HashSet<SnapZoneLayout>();
         var names = new System.Collections.Generic.List<string?> { null, SnapZoneStore.Wildcard };
-        foreach (var kv in _outputs)
+        foreach (var kv in _outputRegistry.Entries)
         {
             names.Add(ResolveOutputName(kv.Key));
         }

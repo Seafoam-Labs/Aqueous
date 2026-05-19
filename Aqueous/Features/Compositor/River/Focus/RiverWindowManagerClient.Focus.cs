@@ -18,7 +18,7 @@ namespace Aqueous.Features.Compositor.River;
 /// (SetFocusedWindow / RequestFocus / ClearFocus / FocusAnyOtherWindow /
 /// CycleFocus / HandleDirectionalFocus / SetFocusedShellSurface) in one
 /// place. Kept as a partial class because every method reaches into
-/// private fields (_windows, _seats, _primarySeat, _layoutController,
+/// private fields (_windowRegistry.Entries, _seatRegistry.Entries, _primarySeat, _layoutController,
 /// ScheduleManage); a fully extracted FocusController belongs after the
 /// façade reduction in Step 7.
 /// </summary>
@@ -26,7 +26,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 {
     /// <summary>
     /// Return true and yield the focused window proxy only if it is still
-    /// tracked in <c>_windows</c>. Self-heals a stale <c>_focusedWindow</c>
+    /// tracked in <c>_windowRegistry.Entries</c>. Self-heals a stale <c>_focusedWindow</c>
     /// handle when the underlying proxy has already been destroyed (e.g.
     /// Discord tearing down its toplevel on minimize before River dispatches
     /// <c>window.closed</c>). Marshaling into a freed proxy aborts libwayland
@@ -41,7 +41,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return false;
         }
 
-        if (!_windows.ContainsKey(proxy))
+        if (!_windowRegistry.Entries.ContainsKey(proxy))
         {
             _focusedWindow = IntPtr.Zero;
             return false;
@@ -89,7 +89,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // self-closing dialog) can already have been destroyed by river. The
         // resulting marshal on a dead object id is a fatal protocol error
         // that aborts river and tears down the entire desktop.
-        if (windowProxy == IntPtr.Zero || !_windows.ContainsKey(windowProxy))
+        if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(windowProxy))
         {
             Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
             return;
@@ -98,7 +98,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         IntPtr seat = _primarySeat;
         if (seat == IntPtr.Zero)
         {
-            foreach (var k in _seats.Keys)
+            foreach (var k in _seatRegistry.Entries.Keys)
             {
                 seat = k;
                 break;
@@ -119,7 +119,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         IntPtr seat = _primarySeat;
         if (seat == IntPtr.Zero)
         {
-            foreach (var k in _seats.Keys)
+            foreach (var k in _seatRegistry.Entries.Keys)
             {
                 seat = k;
                 break;
@@ -144,7 +144,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
     private void FocusAnyOtherWindow(IntPtr avoid)
     {
         IntPtr pick = IntPtr.Zero;
-        foreach (var k in _windows.Keys)
+        foreach (var k in _windowRegistry.Entries.Keys)
         {
             if (k == avoid)
             {
@@ -157,7 +157,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         if (pick == IntPtr.Zero)
         {
-            foreach (var k in _windows.Keys)
+            foreach (var k in _windowRegistry.Entries.Keys)
             {
                 pick = k;
                 break;
@@ -174,17 +174,17 @@ internal sealed unsafe partial class RiverWindowManagerClient
         }
     }
 
-    /// <summary>Advance keyboard focus to the next window in _windows iteration order.</summary>
+    /// <summary>Advance keyboard focus to the next window in _windowRegistry.Entries iteration order.</summary>
     private void CycleFocus()
     {
-        if (_windows.Count == 0)
+        if (_windowRegistry.Entries.Count == 0)
         {
             return;
         }
 
         IntPtr next = IntPtr.Zero;
         bool takeNext = false;
-        foreach (var k in _windows.Keys)
+        foreach (var k in _windowRegistry.Entries.Keys)
         {
             if (next == IntPtr.Zero)
             {
@@ -212,13 +212,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     private void HandleDirectionalFocus(FocusDirection dir)
     {
-        if (_focusedWindow == IntPtr.Zero || _windows.Count == 0)
+        if (_focusedWindow == IntPtr.Zero || _windowRegistry.Entries.Count == 0)
         {
             CycleFocus();
             return;
         }
 
-        if (!_windows.TryGetValue(_focusedWindow, out var fw))
+        if (!_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             CycleFocus();
             return;
@@ -228,7 +228,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         string? outputName = ResolveOutputName(output);
         var snapshot = BuildSnapshotFor(output);
         var target = _layoutController.FocusNeighbor(output, outputName, _focusedWindow, dir, snapshot);
-        if (target is { } t && t != IntPtr.Zero && _windows.ContainsKey(t))
+        if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
         {
             ScheduleManage(); // engine may need to recentre viewport
             RequestFocus(t);

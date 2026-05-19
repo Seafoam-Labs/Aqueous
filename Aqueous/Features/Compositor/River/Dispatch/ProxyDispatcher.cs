@@ -73,15 +73,15 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // to the plain Super+LMB binding.
                 self.OnDragPointerBindingEvent(target, opcode, a);
             }
-            else if (self._windows.ContainsKey(target))
+            else if (self._windowRegistry.Entries.ContainsKey(target))
             {
                 self.OnWindowEvent(target, opcode, a);
             }
-            else if (self._outputs.ContainsKey(target))
+            else if (self._outputRegistry.Entries.ContainsKey(target))
             {
                 self.OnOutputEvent(target, opcode, a);
             }
-            else if (self._seats.ContainsKey(target))
+            else if (self._seatRegistry.Entries.ContainsKey(target))
             {
                 self.OnSeatEvent(target, opcode, a);
             }

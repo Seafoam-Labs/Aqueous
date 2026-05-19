@@ -19,7 +19,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 {
     private void OnOutputEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        if (!_outputs.TryGetValue(proxy, out var o))
+        if (!_outputRegistry.Entries.TryGetValue(proxy, out var o))
         {
             return;
         }
@@ -30,7 +30,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 Log($"output 0x{proxy.ToString("x")} removed");
                 // Phase B1e Pass B: forward the removal to the window
                 // state controller so it can demote any FS/Max windows
-                // pinned to this output before _outputs forgets it.
+                // pinned to this output before _outputRegistry.Entries forgets it.
                 {
                     var goneOutputWindows = new List<WindowStateData>();
                     var outputProxy = new OutputProxy(proxy);
@@ -44,10 +44,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     _windowState.OnOutputRemoved(outputProxy, goneOutputWindows);
                     _outputFullscreen.TryRemove(proxy, out _);
                 }
-                _outputs.TryRemove(proxy, out _);
+                _outputRegistry.Entries.TryRemove(proxy, out _);
                 // Detach windows from the gone output so the next
                 // manage cycle re-adopts them onto a surviving one.
-                foreach (var wkvp in _windows)
+                foreach (var wkvp in _windowRegistry.Entries)
                 {
                     if (wkvp.Value.Output == proxy)
                     {

@@ -50,7 +50,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 return null;
             }
 
-            if (!_c._windows.ContainsKey(window.Handle))
+            if (!_c._windowRegistry.Entries.ContainsKey(window.Handle))
             {
                 return null;
             }
@@ -73,7 +73,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public Rect OutputRect(OutputProxy output)
         {
-            if (!output.IsZero && _c._outputs.TryGetValue(output.Handle, out var o))
+            if (!output.IsZero && _c._outputRegistry.Entries.TryGetValue(output.Handle, out var o))
             {
                 return new Rect(o.X, o.Y, o.Width, o.Height);
             }
@@ -162,7 +162,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public void InvalidateFloatRect(WindowProxy window)
         {
-            if (!_c._windows.TryGetValue(window.Handle, out WindowEntry? windowHandle))
+            if (!_c._windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? windowHandle))
             {
                 return;
             }
@@ -176,7 +176,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public void SetToplevelMaximizedState(WindowProxy window, bool maximized)
         {
-            if (!_c._windows.TryGetValue(window.Handle, out WindowEntry? entry))
+            if (!_c._windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
             {
                 return;
             }
@@ -325,7 +325,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
         public Rect CurrentGeometry(WindowProxy window)
         {
-            if (!window.IsZero && _c._windows.TryGetValue(window.Handle, out var w))
+            if (!window.IsZero && _c._windowRegistry.Entries.TryGetValue(window.Handle, out var w))
             {
                 return new Rect(w.X, w.Y, w.W, w.H);
             }

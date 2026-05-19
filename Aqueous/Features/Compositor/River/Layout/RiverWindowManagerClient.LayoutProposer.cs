@@ -55,12 +55,12 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // hide(opcode 4) so the compositor stops drawing them;
         // see the transition pass below.
         uint outputVisibleTags = Aqueous.Features.Tags.TagState.AllTags;
-        if (!isFallback && _outputs.TryGetValue(output, out var oeForTags))
+        if (!isFallback && _outputRegistry.Entries.TryGetValue(output, out var oeForTags))
         {
             outputVisibleTags = oeForTags.VisibleTags;
         }
 
-        var tiledSnapshot = new List<WindowEntryView>(_windows.Count);
+        var tiledSnapshot = new List<WindowEntryView>(_windowRegistry.Entries.Count);
         var floatingHandles = new List<IntPtr>();
         // Phase B1e Pass C: per-window state overrides. Fullscreen
         // and Maximized bypass the layout engine and route directly
@@ -74,7 +74,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // share the existing one-shot hide(opcode 4) + cache-invalidation
         // treatment further down.
         var hiddenThisCycle = new List<WindowEntry>();
-        foreach (var kvp in _windows)
+        foreach (var kvp in _windowRegistry.Entries)
         {
             var w = kvp.Value;
 
@@ -99,7 +99,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     bool inside =
                         w.X >= usableArea.X && w.X < usableArea.X + usableArea.W &&
                         w.Y >= usableArea.Y && w.Y < usableArea.Y + usableArea.H;
-                    bool adopt = inside || _outputs.Count == 1;
+                    bool adopt = inside || _outputRegistry.Entries.Count == 1;
                     if (adopt)
                     {
                         w.Output = output;
@@ -243,7 +243,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             var w = hiddenThisCycle[hi];
             if (!w.HideSent)
             {
-                if (_windows.ContainsKey(w.Proxy))
+                if (_windowRegistry.Entries.ContainsKey(w.Proxy))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         w.Proxy, 4, IntPtr.Zero, 0, 0,
@@ -268,9 +268,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // only triggered if no windows were yet tiled or floating,
         // which caused newly-opened windows to be ignored if any
         // window already existed on the output.
-        if (!isFallback && _outputs.Count == 1)
+        if (!isFallback && _outputRegistry.Entries.Count == 1)
         {
-            foreach (var kvp in _windows)
+            foreach (var kvp in _windowRegistry.Entries)
             {
                 var w = kvp.Value;
                 if (w.Output == IntPtr.Zero)
@@ -324,7 +324,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 {
                     continue;
                 }
-                if (_windows.TryGetValue(prev, out var pw))
+                if (_windowRegistry.Entries.TryGetValue(prev, out var pw))
                 {
                     pw.LastHintW = 0;
                     pw.LastHintH = 0;
@@ -362,7 +362,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             for (int i = 0; i < placements.Count; i++)
             {
                 var p = placements[i];
-                if (!_windows.TryGetValue(p.Handle, out var w))
+                if (!_windowRegistry.Entries.TryGetValue(p.Handle, out var w))
                 {
                     continue;
                 }
@@ -425,7 +425,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.X = p.Geometry.X;
                 w.Y = p.Geometry.Y;
 
-                if (_windows.ContainsKey(p.Handle))
+                if (_windowRegistry.Entries.ContainsKey(p.Handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         p.Handle, 3, IntPtr.Zero, 0, 0,
@@ -447,7 +447,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         for (int i = 0; i < floatingHandles.Count; i++)
         {
             var handle = floatingHandles[i];
-            if (!_windows.TryGetValue(handle, out var w))
+            if (!_windowRegistry.Entries.TryGetValue(handle, out var w))
             {
                 continue;
             }
@@ -481,7 +481,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                if (_windows.ContainsKey(handle))
+                if (_windowRegistry.Entries.ContainsKey(handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
@@ -493,7 +493,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             if (w.NodeProxy != IntPtr.Zero
                 && (w.LastPosX != w.X || w.LastPosY != w.Y))
             {
-                if (_windows.ContainsKey(handle))
+                if (_windowRegistry.Entries.ContainsKey(handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         w.NodeProxy, 1, IntPtr.Zero, 0, 0,
@@ -512,7 +512,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         for (int i = 0; i < maximizedHandles.Count; i++)
         {
             var handle = maximizedHandles[i];
-            if (!_windows.TryGetValue(handle, out var w))
+            if (!_windowRegistry.Entries.TryGetValue(handle, out var w))
             {
                 continue;
             }
@@ -536,7 +536,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                if (_windows.ContainsKey(handle))
+                if (_windowRegistry.Entries.ContainsKey(handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
@@ -548,7 +548,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             if (w.NodeProxy != IntPtr.Zero
                 && (w.LastPosX != w.X || w.LastPosY != w.Y))
             {
-                if (_windows.ContainsKey(handle))
+                if (_windowRegistry.Entries.ContainsKey(handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         w.NodeProxy, 1, IntPtr.Zero, 0, 0,
@@ -574,7 +574,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // identical geometry — which is the documented Pass C
         // behaviour without C1 reservations.
         Rect outputRect = usableArea;
-        if (output != IntPtr.Zero && _outputs.TryGetValue(output, out var oeFull))
+        if (output != IntPtr.Zero && _outputRegistry.Entries.TryGetValue(output, out var oeFull))
         {
             outputRect = new Rect(oeFull.X, oeFull.Y,
                 oeFull.Width > 0 ? oeFull.Width : usableArea.W,
@@ -593,7 +593,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             // Guard with a fresh ContainsKey AND require the FS slot to
             // still point at this handle — if the controller demoted the
             // window mid-cycle we must not re-propose the FS rect.
-            if (!_windows.TryGetValue(handle, out var w))
+            if (!_windowRegistry.Entries.TryGetValue(handle, out var w))
             {
                 continue;
             }
@@ -624,7 +624,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 w.LastHintH = ph;
                 w.ProposedW = pw;
                 w.ProposedH = ph;
-                if (_windows.ContainsKey(handle))
+                if (_windowRegistry.Entries.ContainsKey(handle))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         handle, 3, IntPtr.Zero, 0, 0,
@@ -653,14 +653,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
     {
         IntPtr output = IntPtr.Zero;
         if (_focusedWindow != IntPtr.Zero &&
-            _windows.TryGetValue(_focusedWindow, out var fw) &&
+            _windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw) &&
             fw.Output != IntPtr.Zero)
         {
             output = fw.Output;
         }
         else
         {
-            foreach (var k in _outputs.Keys)
+            foreach (var k in _outputRegistry.Entries.Keys)
             {
                 output = k;
                 break;
@@ -683,7 +683,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
     {
         if (output == IntPtr.Zero)
         {
-            foreach (var k in _outputs.Keys)
+            foreach (var k in _outputRegistry.Entries.Keys)
             {
                 output = k;
                 break;
@@ -706,7 +706,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     private void HandleScrollViewport(int deltaColumns)
     {
-        if (_focusedWindow == IntPtr.Zero || !_windows.TryGetValue(_focusedWindow, out var fw))
+        if (_focusedWindow == IntPtr.Zero || !_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             return;
         }
@@ -717,7 +717,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
     private void HandleMoveColumn(FocusDirection dir)
     {
-        if (_focusedWindow == IntPtr.Zero || !_windows.TryGetValue(_focusedWindow, out var fw))
+        if (_focusedWindow == IntPtr.Zero || !_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             return;
         }
@@ -731,8 +731,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
     private List<WindowEntryView> BuildSnapshotFor(IntPtr output)
     {
-        var list = new List<WindowEntryView>(_windows.Count);
-        foreach (var kvp in _windows)
+        var list = new List<WindowEntryView>(_windowRegistry.Entries.Count);
+        foreach (var kvp in _windowRegistry.Entries)
         {
             var w = kvp.Value;
             if (output != IntPtr.Zero && w.Output != IntPtr.Zero && w.Output != output)

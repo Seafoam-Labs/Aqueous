@@ -101,7 +101,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     continue;
                 }
 
-                if (!_windows.TryGetValue(hovered, out var w))
+                if (!_windowRegistry.Entries.TryGetValue(hovered, out var w))
                 {
                     continue;
                 }

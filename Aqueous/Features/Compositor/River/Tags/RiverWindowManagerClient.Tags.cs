@@ -25,9 +25,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
     {
         // 1. Output of the focused window.
         if (_focusedWindow != IntPtr.Zero &&
-            _windows.TryGetValue(_focusedWindow, out var fw) &&
+            _windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw) &&
             fw.Output != IntPtr.Zero &&
-            _outputs.TryGetValue(fw.Output, out var oeFromFocus))
+            _outputRegistry.Entries.TryGetValue(fw.Output, out var oeFromFocus))
         {
             return oeFromFocus;
         }
@@ -35,7 +35,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         // 2. First output (deterministic enough for single-output;
         //    pointer-position output resolution can be added when
         //    SeatInteractionService exposes it).
-        foreach (var kv in _outputs)
+        foreach (var kv in _outputRegistry.Entries)
         {
             return kv.Value;
         }
@@ -91,7 +91,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return false;
         }
 
-        if (!_windows.TryGetValue(_focusedWindow, out var fw))
+        if (!_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             return false;
         }
@@ -113,7 +113,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             return false;
         }
 
-        if (!_windows.TryGetValue(_focusedWindow, out var fw))
+        if (!_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             return false;
         }
@@ -140,10 +140,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
     void TagController.ITagHost.RepairFocusAfterTagChange()
     {
         if (_focusedWindow != IntPtr.Zero &&
-            _windows.TryGetValue(_focusedWindow, out var fw))
+            _windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
         {
             uint mask = TagState.AllTags;
-            if (fw.Output != IntPtr.Zero && _outputs.TryGetValue(fw.Output, out var oe))
+            if (fw.Output != IntPtr.Zero && _outputRegistry.Entries.TryGetValue(fw.Output, out var oe))
             {
                 mask = oe.VisibleTags;
             }
@@ -161,7 +161,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         uint focusedMask = focusedOe?.VisibleTags ?? TagState.AllTags;
         IntPtr focusedOutput = focusedOe?.Proxy ?? IntPtr.Zero;
 
-        foreach (var kv in _windows)
+        foreach (var kv in _windowRegistry.Entries)
         {
             var w = kv.Value;
             if (focusedOutput != IntPtr.Zero && w.Output != focusedOutput)

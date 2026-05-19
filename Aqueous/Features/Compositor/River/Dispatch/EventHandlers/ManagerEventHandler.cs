@@ -38,15 +38,15 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 _insideManageSequence = true;
                 try
                 {
-                    Log($"manage_start (windows={_windows.Count} outputs={_outputs.Count} seats={_seats.Count})");
+                    Log($"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count})");
 
                     // Self-heal focus: if we think nothing is focused but windows exist, pick one.
                     // This catches the case where the previously focused window was destroyed
                     // between sequences and ensures the keyboard always has somewhere to go.
                     if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero &&
-                        _pendingFocusShellSurface == IntPtr.Zero && _windows.Count > 0)
+                        _pendingFocusShellSurface == IntPtr.Zero && _windowRegistry.Entries.Count > 0)
                     {
-                        foreach (var wk in _windows.Keys)
+                        foreach (var wk in _windowRegistry.Entries.Keys)
                         {
                             RequestFocus(wk);
                             break;
@@ -191,7 +191,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     // new size, preserving the bandwidth-saving behaviour the previous
                     // hard-coded 800x600 loop relied on.
                     // ----------------------------------------------------------------
-                    if (_outputs.IsEmpty)
+                    if (_outputRegistry.Entries.IsEmpty)
                     {
                         // Headless / no outputs reported yet: fall back to a single
                         // virtual 1920x1080 area so windows still get a reasonable
@@ -201,7 +201,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     }
                     else
                     {
-                        foreach (var outputKvp in _outputs)
+                        foreach (var outputKvp in _outputRegistry.Entries)
                         {
                             OutputEntry oe = outputKvp.Value;
                             var aw = oe.Width > 0 ? oe.Width : 1920;
@@ -322,13 +322,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     : WindowState.Tiled;
                 bool HasFocusedInLayer(WindowState layer) =>
                     _focusedWindow != IntPtr.Zero
-                    && _windows.ContainsKey(_focusedWindow)
+                    && _windowRegistry.Entries.ContainsKey(_focusedWindow)
                     && focusedState == layer;
 
                 void EmitPass(Func<WindowState, bool> match, WindowState layer)
                 {
                     bool deferFocused = HasFocusedInLayer(layer);
-                    foreach (var kvp in _windows)
+                    foreach (var kvp in _windowRegistry.Entries)
                     {
                         var s = ClassifyState(kvp.Key);
                         if (!match(s)) continue;
@@ -336,7 +336,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         EmitWindow(kvp.Key, kvp.Value);
                     }
                     if (deferFocused
-                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                        && _windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
                     {
                         EmitWindow(_focusedWindow, fw);
                     }
@@ -354,10 +354,10 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // Scratchpad layer key; Floating-focused under Floating.
                 {
                     bool deferFocused = _focusedWindow != IntPtr.Zero
-                        && _windows.ContainsKey(_focusedWindow)
+                        && _windowRegistry.Entries.ContainsKey(_focusedWindow)
                         && (focusedState == WindowState.Floating
                             || focusedState == WindowState.Scratchpad);
-                    foreach (var kvp in _windows)
+                    foreach (var kvp in _windowRegistry.Entries)
                     {
                         var s = ClassifyState(kvp.Key);
                         if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
@@ -365,7 +365,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         EmitWindow(kvp.Key, kvp.Value);
                     }
                     if (deferFocused
-                        && _windows.TryGetValue(_focusedWindow, out var fw))
+                        && _windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
                     {
                         EmitWindow(_focusedWindow, fw);
                     }
@@ -399,7 +399,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-                        _windows[proxy] = entry;
+                        _windowRegistry.Entries[proxy] = entry;
                         // Stage 0: record the window + its river_node child for
                         // future interface-name based routing (see _proxyInterface).
                         TrackProxyInterface(proxy, "river_window_v1");
@@ -412,13 +412,13 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // pre-seat WindowInformation event would marshal a focus
                         // request on a dead object id, causing river to abort the
                         // protocol and crash the whole desktop on second-window map.
-                        if (_primarySeat != IntPtr.Zero && _windows.ContainsKey(proxy))
+                        if (_primarySeat != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(proxy))
                         {
                             RequestFocus(proxy);
                         }
                         else
                         {
-                            Log($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat != IntPtr.Zero}, tracked={_windows.ContainsKey(proxy)})");
+                            Log($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat != IntPtr.Zero}, tracked={_windowRegistry.Entries.ContainsKey(proxy)})");
                         }
 
                         WaylandInterop.wl_proxy_add_dispatcher(
@@ -441,7 +441,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        _outputs[proxy] = new OutputEntry { Proxy = proxy };
+                        _outputRegistry.Entries[proxy] = new OutputEntry { Proxy = proxy };
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
@@ -458,7 +458,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     IntPtr proxy = args[0].o;
                     if (proxy != IntPtr.Zero)
                     {
-                        _seats[proxy] = new SeatEntry { Proxy = proxy };
+                        _seatRegistry.Entries[proxy] = new SeatEntry { Proxy = proxy };
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
                             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
@@ -475,9 +475,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // Bug 1 fix: if windows already arrived before the seat, focus one now.
                         // Otherwise the initial RequestFocus short-circuited (seat == 0) and
                         // the first window never gets keyboard focus.
-                        if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _windows.Count > 0)
+                        if (_focusedWindow == IntPtr.Zero && _pendingFocusWindow == IntPtr.Zero && _windowRegistry.Entries.Count > 0)
                         {
-                            foreach (var wk in _windows.Keys)
+                            foreach (var wk in _windowRegistry.Entries.Keys)
                             {
                                 RequestFocus(wk);
                                 break;

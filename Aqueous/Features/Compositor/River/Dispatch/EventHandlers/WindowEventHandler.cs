@@ -19,7 +19,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 {
     private void OnWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        if (!_windows.TryGetValue(proxy, out var w))
+        if (!_windowRegistry.Entries.TryGetValue(proxy, out var w))
         {
             return;
         }
@@ -31,14 +31,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 // tear down per-window state so the
                 // controller's invariants (single-FS slot, MRU stack,
                 // scratchpad ownership) drop their references to the
-                // dead proxy before _windows loses the entry.
+                // dead proxy before _windowRegistry.Entries loses the entry.
                 _windowState.OnWindowDestroyed(new WindowProxy(proxy));
                 _windowStates.TryRemove(proxy, out _);
                 // clear *all* tracking that points at this proxy
-                // BEFORE removing it from _windows. The layout pass uses
-                // _windows.TryGetValue as its only "is this handle alive?"
+                // BEFORE removing it from _windowRegistry.Entries. The layout pass uses
+                // _windowRegistry.Entries.TryGetValue as its only "is this handle alive?"
                 // check before marshalling opcode 3 onto the proxy. If we
-                // remove from _windows first, a concurrent ProposeForArea
+                // remove from _windowRegistry.Entries first, a concurrent ProposeForArea
                 // can still find the dead handle in _outputFullscreen /
                 // _prevFullscreenHandles, fall into the FS bucket, and
                 // (because the new ContainsKey guard fires AFTER the
@@ -54,7 +54,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                 }
                 _prevFullscreenHandles.Remove(proxy);
 
-                _windows.TryRemove(proxy, out _);
+                _windowRegistry.Entries.TryRemove(proxy, out _);
                 // Clean up all dangling references to the destroyed proxy so subsequent
                 // manage_start sequences don't send requests against a dead object (which
                 // would be a protocol error and terminate the WM).
