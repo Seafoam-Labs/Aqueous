@@ -43,7 +43,30 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
             else if (target == self._manager)
             {
-                self.OnManagerEvent(opcode, a);
+                // PR 8.5 staged rollout — opcode allowlist bisect.
+                // The managed ManagerEventHandler is wired into
+                // IEventDispatcher and currently delegates every
+                // opcode back to the original partial OnManagerEvent
+                // via IManagerHandlerCollaborators.HandleByPartial,
+                // so behaviour is byte-for-byte equivalent regardless
+                // of which branch fires. Expand the `routeManaged`
+                // set one opcode at a time (with a manual River smoke
+                // gate per opcode), mirroring the PR 8.3/8.4 rollout
+                // pattern. Allowlist starts empty.
+                bool routeManaged = opcode switch
+                {
+                    _ => false,
+                };
+                if (routeManaged)
+                {
+                    self._eventDispatcher.Dispatch(
+                        new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
+                            "river_window_manager_v1", target, opcode, (IntPtr)a, 4));
+                }
+                else
+                {
+                    self.OnManagerEvent(opcode, a);
+                }
             }
             else if (target == self._layerShell)
             {
