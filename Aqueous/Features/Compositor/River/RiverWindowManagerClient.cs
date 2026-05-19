@@ -432,6 +432,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler KeyBindingHandler => _keyBindingHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler ScreencopyFrameHandler => _screencopyFrameHandler;
 
+    // PR 9.4 Stage 9: pass-through accessors that retire the
+    // IKeyBindingHandlerCollaborators / ISuperKeyBindingHandlerCollaborators
+    // bridges. The body of OnKeyBindingEvent / OnSuperKeyBindingEvent still
+    // lives in the existing partials (they read god-class private dicts
+    // and call private helpers — final lift is Stage 9 cleanup); routing
+    // here keeps managed-handler behaviour byte-for-byte equivalent.
+    internal unsafe void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
+        => OnKeyBindingEvent(target, opcode, args);
+    internal unsafe void HandleSuperKeyBindingEvent(uint opcode, WlArgument* args)
+        => OnSuperKeyBindingEvent(opcode, args);
+
     private RiverWindowManagerClient()
         : this(
             new WaylandConnection(),

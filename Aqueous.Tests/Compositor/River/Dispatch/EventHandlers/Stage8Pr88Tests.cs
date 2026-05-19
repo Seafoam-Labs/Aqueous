@@ -36,11 +36,15 @@ public class Stage8Pr88Tests
     [Fact]
     public void KeyBindingEventHandler_implements_IEventHandler_with_river_xkb_binding_v1()
     {
+        // PR 9.4 Stage 9: handler now takes the real RiverWindowManagerClient
+        // (not safe to construct in a unit test); verify type contract only.
         Assert.True(typeof(IEventHandler).IsAssignableFrom(typeof(KeyBindingEventHandler)));
         Assert.True(typeof(KeyBindingEventHandler).IsSealed);
-
-        var h = new KeyBindingEventHandler(new FakeKeyBinding());
-        Assert.Equal("river_xkb_binding_v1", h.InterfaceName);
+        var ctors = typeof(KeyBindingEventHandler).GetConstructors();
+        Assert.Single(ctors);
+        Assert.Equal(
+            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient),
+            ctors[0].GetParameters()[0].ParameterType);
     }
 
     [Fact]
@@ -59,11 +63,6 @@ public class Stage8Pr88Tests
         Assert.Throws<ArgumentNullException>(() => new RegistryEventHandler(null!));
     }
 
-    [Fact]
-    public void KeyBindingEventHandler_ctor_null_guards()
-    {
-        Assert.Throws<ArgumentNullException>(() => new KeyBindingEventHandler(null!));
-    }
 
     [Fact]
     public void ScreencopyFrameHandler_ctor_null_guards()
@@ -100,26 +99,10 @@ public class Stage8Pr88Tests
         Assert.Equal(0u, observed);
     }
 
-    [Fact]
-    public unsafe void KeyBindingEventHandler_forwards_to_bridge()
-    {
-        var bridge = new FakeKeyBinding();
-        var h = new KeyBindingEventHandler(bridge);
-        var args = stackalloc WlArgument[1];
-        h.Handle(new WlEvent("river_xkb_binding_v1", new IntPtr(0xBB), 2, (IntPtr)args, 1));
-        Assert.Equal(1, bridge.Calls);
-        Assert.Equal((uint)2, bridge.LastOpcode);
-        Assert.Equal(new IntPtr(0xBB), bridge.LastTarget);
-    }
-
-    [Fact]
-    public unsafe void KeyBindingEventHandler_zero_target_is_skipped()
-    {
-        var bridge = new FakeKeyBinding();
-        var h = new KeyBindingEventHandler(bridge);
-        h.Handle(new WlEvent("river_xkb_binding_v1", IntPtr.Zero, 2, IntPtr.Zero, 0));
-        Assert.Equal(0, bridge.Calls);
-    }
+    // PR 9.4 Stage 9: KeyBindingEventHandler forwarding tests dropped
+    // because the handler now takes the real RiverWindowManagerClient
+    // (not safe to construct in a unit test). Coverage moved to
+    // Stage9Pr94Tests structural guards.
 
     [Fact]
     public unsafe void ScreencopyFrameHandler_forwards_to_service()
@@ -175,17 +158,8 @@ public class Stage8Pr88Tests
     // PR 9.3 Stage 9 retired IRegistryHandlerCollaborators; see
     // Stage9Pr93Tests for the replacement regression guards.
 
-    [Fact]
-    public void IKeyBindingHandlerCollaborators_has_only_HandleKeyBindingEvent()
-    {
-        var t = typeof(IEventHandler).Assembly
-            .GetType("Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IKeyBindingHandlerCollaborators");
-        Assert.NotNull(t);
-        Assert.True(t!.IsInterface);
-        var methods = t.GetMethods();
-        Assert.Single(methods);
-        Assert.Equal("HandleKeyBindingEvent", methods[0].Name);
-    }
+    // PR 9.4 Stage 9 retired IKeyBindingHandlerCollaborators; see
+    // Stage9Pr94Tests for the replacement regression guards.
 
     [Fact]
     public void ScreencopyFrameHandler_has_no_companion_bridge_interface()
@@ -197,34 +171,26 @@ public class Stage8Pr88Tests
         Assert.Null(t);
     }
 
-    [Fact]
-    public void RiverWindowManagerClient_implements_new_bridges()
-    {
-        var t = typeof(IEventHandler).Assembly
-            .GetType("Aqueous.Features.Compositor.River.RiverWindowManagerClient");
-        Assert.NotNull(t);
-        var ifaces = t!.GetInterfaces().Select(i => i.FullName).ToArray();
-        // PR 9.3 Stage 9 retired IRegistryHandlerCollaborators (assertion
-        // dropped); the remaining bridge guards continue to hold.
-        Assert.Contains(
-            "Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IKeyBindingHandlerCollaborators",
-            ifaces);
-    }
+    // PR 9.4 Stage 9 retired IKeyBindingHandlerCollaborators; the
+    // "RiverWindowManagerClient implements new bridges" test was
+    // replaced by per-PR regression guards (Stage9Pr93Tests, Stage9Pr94Tests).
 
     // ----- integration: dispatch a synthetic event through real EventDispatcher
 
     [Fact]
     public unsafe void IEventDispatcher_routes_three_new_handlers_by_interface_name()
     {
+        // PR 9.4 Stage 9: KeyBindingEventHandler now requires the real
+        // RiverWindowManagerClient (no bridge), which can't be constructed
+        // in a unit test, so the integration test exercises only the two
+        // bridge-less handlers (RegistryEventHandler + ScreencopyFrameHandler).
         var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
         uint regCalls = 0;
         binder.Removed += _ => regCalls++;
-        var key = new FakeKeyBinding();
         var svc = new FakeScreencopy();
         var ed = new EventDispatcher(new IEventHandler[]
         {
             new RegistryEventHandler(binder),
-            new KeyBindingEventHandler(key),
             new ScreencopyFrameHandler(svc),
         });
 
@@ -232,11 +198,9 @@ public class Stage8Pr88Tests
         args[0].u = 7u;
 
         ed.Dispatch(new WlEvent("wl_registry", new IntPtr(0x11), Aqueous.Features.Compositor.River.RiverProtocolOpcodes.Registry.GlobalRemove, (IntPtr)args, 1));
-        ed.Dispatch(new WlEvent("river_xkb_binding_v1", new IntPtr(0x22), 0, (IntPtr)args, 1));
         ed.Dispatch(new WlEvent("zwlr_screencopy_frame_v1", new IntPtr(0x33), 0, (IntPtr)args, 1));
 
         Assert.Equal(1u, regCalls);
-        Assert.Equal(1, key.Calls);
         Assert.Equal(1, svc.DispatchCalls);
     }
 
@@ -245,18 +209,9 @@ public class Stage8Pr88Tests
     // PR 9.3 Stage 9: FakeRegistry retired with IRegistryHandlerCollaborators;
     // tests now drive RegistryEventHandler against a real RegistryBinder.
 
-    private sealed class FakeKeyBinding : IKeyBindingHandlerCollaborators
-    {
-        public int Calls;
-        public uint LastOpcode;
-        public IntPtr LastTarget;
-        public unsafe void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
-        {
-            Calls++;
-            LastOpcode = opcode;
-            LastTarget = target;
-        }
-    }
+    // PR 9.4 Stage 9: FakeKeyBinding retired with IKeyBindingHandlerCollaborators;
+    // KeyBindingEventHandler is now tested via Stage9Pr94Tests structural guards
+    // (real RiverWindowManagerClient construction is not safe in unit tests).
 
     private sealed class FakeScreencopy : IScreencopyService
     {
