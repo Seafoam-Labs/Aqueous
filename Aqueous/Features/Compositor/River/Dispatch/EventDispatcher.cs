@@ -105,13 +105,22 @@ internal sealed class EventDispatcher : IEventDispatcher
     private void AssertPumpThread()
     {
 #if DEBUG
+        // Capture the dispatch thread lazily on first Dispatch() call,
+        // NOT in the ctor (which runs on the DI/main thread, not on the
+        // libwayland callback thread that actually invokes Dispatch).
+        //
+        // On drift, log a warning and continue — do NOT throw. Throwing
+        // inside a [UnmanagedCallersOnly] try/catch silently swallows
+        // every event for the affected interface, which previously
+        // caused River's 3-second liveness ping to time out and kill
+        // the connection.
         var current = Environment.CurrentManagedThreadId;
         var captured = Interlocked.CompareExchange(ref _pumpThreadId, current, 0);
         if (captured != 0 && captured != current)
         {
-            throw new InvalidOperationException(
-                $"EventDispatcher.Dispatch called on thread {current} but is " +
-                $"pinned to pump thread {captured}.");
+            _log.LogWarning(
+                "EventDispatcher.Dispatch thread drift: first={First} now={Now}",
+                captured, current);
         }
 #endif
     }

@@ -473,6 +473,15 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(this, Log),
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log),
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(this, Log),
+                // PR 8.8 — interface-name-routed handlers for the
+                // formerly proxy-pointer-keyed branches in
+                // ProxyDispatcher (wl_registry, river_xkb_binding_v1,
+                // and zwlr_screencopy_frame_v1). Each delegates back
+                // to the existing partial / service so behaviour is
+                // byte-for-byte equivalent.
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(this, Log),
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log),
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler(_screencopyService, Log),
             });
     }
 

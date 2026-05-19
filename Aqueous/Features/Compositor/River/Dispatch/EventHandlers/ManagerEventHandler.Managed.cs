@@ -45,6 +45,13 @@ internal sealed unsafe class ManagerEventHandler : IEventHandler
 
     public void Handle(WlEvent ev)
     {
+        // DIAG: prove the manager handler is actually reached after the
+        // PR 8.8 native-callback rewrite. If River pings the WM (~1s
+        // cadence) and these lines don't appear, the manager target is
+        // missing from _proxyInterface; if they do appear but the
+        // connection still times out, the partial's OnManagerEvent
+        // isn't replying.
+        _log?.Invoke("MGR opcode=" + ev.Opcode + " target=0x" + ev.Target.ToString("x") + " argCount=" + ev.ArgCount + " argsPtr=0x" + ev.ArgsPtr.ToString("x"));
         // Unlike windows/outputs/seats there is no registry to validate
         // the target against — the manager is a singleton proxy resolved
         // at bind time. ProxyDispatcher gates this branch on

@@ -12,7 +12,7 @@
 &lt;/SessionState&gt;</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=7ce84f90_002D6ae2_002D4e9e_002D860e_002Deb90f45871f3/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="Junie Session" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
   &lt;TestAncestor&gt;
-    &lt;TestId&gt;xUnit::C79428EC-6A58-F325-3C56-67C0BF48B87F::net10.0::Aqueous.Tests.Features.Bindings.Stage7Tests&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::C79428EC-6A58-F325-3C56-67C0BF48B87F::net10.0::Aqueous.Tests.Compositor.River.Dispatch.EventDispatcherTests&lt;/TestId&gt;
   &lt;/TestAncestor&gt;
 &lt;/SessionState&gt;</s:String>
 	</wpf:ResourceDictionary>
