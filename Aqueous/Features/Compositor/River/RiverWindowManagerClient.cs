@@ -386,6 +386,50 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // registers only LayerShellEventHandler; PRs 8.2-8.7 add the rest.
     private readonly Aqueous.Features.Compositor.River.Dispatch.IEventDispatcher _eventDispatcher;
 
+    // Stage 9 PR 9.1: typed handler fields so each can be exposed via DI
+    // factory registration. The instances stored here are the same ones
+    // composing _eventDispatcher's table; we keep both references so the
+    // dispatcher routing remains byte-for-byte equivalent.
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler _layerShellHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler _outputHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler _seatHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler _windowHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler _managerHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler _superKeyBindingHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler _dragPointerBindingHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler _registryHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler _keyBindingHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler _screencopyFrameHandler;
+
+    // Stage 9 PR 9.1: DI accessors. Every service constructed inline in
+    // the ctor (Stages 2–8 collaborator-bridge pattern) is exposed here
+    // so Program.cs can register each one as a DI singleton via factory
+    // lambda — closing the "fix DI" tech-debt the decomposition has been
+    // tracking. These properties will be deleted in PR 9.12 once each
+    // service is registered directly (no longer via the god class).
+    internal Aqueous.Features.Compositor.River.Dispatch.IEventDispatcher EventDispatcher => _eventDispatcher;
+    internal Aqueous.Features.Focus.IFocusService FocusService => _focusService;
+    internal Aqueous.Features.Tags.ITagService TagService => _tagController;
+    internal Aqueous.Features.Layout.IManagerRequestSender ManagerRequestSender => _managerRequestSender;
+    internal Aqueous.Features.Layout.ILayoutProposer LayoutProposer => _layoutProposer;
+    internal Aqueous.Features.SnapZones.ISnapZoneService SnapZoneService => _snapZoneService;
+    internal Aqueous.Features.Screencopy.IScreencopyService ScreencopyService => _screencopyService;
+    internal Aqueous.Features.Bindings.IProcessLauncher ProcessLauncher => _processLauncher;
+    internal Aqueous.Features.Bindings.ICustomActionRunner CustomActionRunner => _customActionRunner;
+    internal Aqueous.Features.Bindings.IKeyBindingRegistrar KeyBindingRegistrar => _keyBindingRegistrar;
+    internal Aqueous.Features.Bindings.IKeyBindingRouter KeyBindingRouter => _keyBindingRouter;
+
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler SeatHandler => _seatHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler WindowHandler => _windowHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler ManagerHandler => _managerHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler SuperKeyBindingHandler => _superKeyBindingHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler DragPointerBindingHandler => _dragPointerBindingHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler RegistryHandler => _registryHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler KeyBindingHandler => _keyBindingHandler;
+    internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler ScreencopyFrameHandler => _screencopyFrameHandler;
+
     private RiverWindowManagerClient()
         : this(
             new WaylandConnection(),
@@ -454,34 +498,39 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // call lives in ReloadConfig (KeyBindingActionRouter).
         InputDaemonClient.Apply(_layoutConfig.Input);
 
-        // Stage 8 PR 8.1: construct the managed dispatch table with the
-        // handlers extracted so far. PRs 8.2-8.7 will append additional
-        // IEventHandler entries to this list as each per-interface body
-        // leaves the god class.
+        // Stage 9 PR 9.1: instantiate each handler into a typed field so it
+        // can be exposed via DI factory registration (Program.cs). The
+        // dispatcher table below references the same instances — routing
+        // remains byte-for-byte equivalent to Stage 8.
+        _layerShellHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log);
+        _outputHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler(
+            _windowRegistry, _outputRegistry, this, Log);
+        _seatHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler(
+            _seatRegistry, _windowRegistry,
+            _seatHoveredWindow, _seatPointerPos,
+            this, Log);
+        _windowHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
+            _windowRegistry, this, Log);
+        _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(this, Log);
+        _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);
+        _dragPointerBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(this, Log);
+        _registryHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(this, Log);
+        _keyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log);
+        _screencopyFrameHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler(_screencopyService, Log);
+
         _eventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.EventDispatcher(
             new Aqueous.Features.Compositor.River.Dispatch.IEventHandler[]
             {
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler(
-                    _windowRegistry, _outputRegistry, this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler(
-                    _seatRegistry, _windowRegistry,
-                    _seatHoveredWindow, _seatPointerPos,
-                    this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
-                    _windowRegistry, this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(this, Log),
-                // PR 8.8 — interface-name-routed handlers for the
-                // formerly proxy-pointer-keyed branches in
-                // ProxyDispatcher (wl_registry, river_xkb_binding_v1,
-                // and zwlr_screencopy_frame_v1). Each delegates back
-                // to the existing partial / service so behaviour is
-                // byte-for-byte equivalent.
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log),
-                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler(_screencopyService, Log),
+                _layerShellHandler,
+                _outputHandler,
+                _seatHandler,
+                _windowHandler,
+                _managerHandler,
+                _superKeyBindingHandler,
+                _dragPointerBindingHandler,
+                _registryHandler,
+                _keyBindingHandler,
+                _screencopyFrameHandler,
             });
     }
 
