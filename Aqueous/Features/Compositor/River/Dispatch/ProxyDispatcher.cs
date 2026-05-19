@@ -108,21 +108,39 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 self.OnKeyBindingEvent(target, opcode, a);
             }
-            else if (target == self._dragPointerBinding)
+            else if (target == self._dragPointerBinding
+                  || (self._dragResizePointerBinding != IntPtr.Zero && target == self._dragResizePointerBinding)
+                  || self._snapActivatorBindings.ContainsKey(target))
             {
-                self.OnDragPointerBindingEvent(target, opcode, a);
-            }
-            else if (self._dragResizePointerBinding != IntPtr.Zero && target == self._dragResizePointerBinding)
-            {
-                self.OnDragPointerBindingEvent(target, opcode, a);
-            }
-            else if (self._snapActivatorBindings.ContainsKey(target))
-            {
-                // Snap-activator pointer bindings reuse the same drag
-                // dispatcher — the handler stamps _activeDragActivator
-                // from the firing proxy and otherwise behaves identically
-                // to the plain Super+LMB binding.
-                self.OnDragPointerBindingEvent(target, opcode, a);
+                // PR 8.7 staged rollout — opcode allowlist bisect.
+                // The managed DragPointerBindingEventHandler is wired into
+                // IEventDispatcher and currently delegates every opcode
+                // back to the original partial OnDragPointerBindingEvent
+                // via IDragPointerBindingHandlerCollaborators.HandleByPartial,
+                // so behaviour is byte-for-byte equivalent regardless of
+                // which branch fires. Expand the `routeManaged` set one
+                // opcode at a time (with a manual River smoke gate per
+                // opcode), mirroring the PR 8.3/8.4/8.5/8.6 rollout pattern.
+                // Allowlist starts empty.
+                //
+                // All three trigger sources (Super+LMB move, Super+RMB
+                // resize, snap-activator) share the same handler — the
+                // partial stamps _activeDragActivator from the firing
+                // proxy and otherwise behaves identically.
+                bool routeManaged = opcode switch
+                {
+                    _ => false,
+                };
+                if (routeManaged)
+                {
+                    self._eventDispatcher.Dispatch(
+                        new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
+                            "river_pointer_binding_v1", target, opcode, (IntPtr)a, 0));
+                }
+                else
+                {
+                    self.OnDragPointerBindingEvent(target, opcode, a);
+                }
             }
             else if (self._windowRegistry.Entries.ContainsKey(target))
             {
