@@ -84,7 +84,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
             }
             else if (self._outputRegistry.Entries.ContainsKey(target))
             {
-                self.OnOutputEvent(target, opcode, a);
+                self._eventDispatcher.Dispatch(
+                    new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
+                        "river_output_v1", target, opcode, (IntPtr)a, 2));
             }
             else if (self._seatRegistry.Entries.ContainsKey(target))
             {

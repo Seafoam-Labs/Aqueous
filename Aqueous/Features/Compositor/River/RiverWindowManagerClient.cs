@@ -454,6 +454,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             new Aqueous.Features.Compositor.River.Dispatch.IEventHandler[]
             {
                 new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log),
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler(
+                    _windowRegistry, _outputRegistry, this, Log),
             });
     }
 
