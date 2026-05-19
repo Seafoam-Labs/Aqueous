@@ -4,22 +4,22 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
 /// PR 8.7: managed <see cref="IEventHandler"/> for
-/// <c>river_pointer_binding_v1</c>. Currently a pass-through to the
-/// existing partial via <see cref="IDragPointerBindingHandlerCollaborators"/>;
-/// staged-rollout allowlist in <c>ProxyDispatcher</c> graduates opcodes
-/// from the partial into managed inline impls one at a time (mirrors
-/// PR 8.3/8.4/8.5/8.6 pattern).
+/// <c>river_pointer_binding_v1</c>. PR 9.5 (Stage 9) retired the
+/// <c>IDragPointerBindingHandlerCollaborators</c> bridge; the handler
+/// now takes <see cref="RiverWindowManagerClient"/> directly and
+/// forwards via the <c>HandleDragPointerBindingEvent</c> accessor
+/// (same pattern PR 9.3/9.4 established).
 /// </summary>
 internal sealed unsafe class DragPointerBindingEventHandler : IEventHandler
 {
-    private readonly IDragPointerBindingHandlerCollaborators _river;
+    private readonly RiverWindowManagerClient _client;
     private readonly Action<string>? _log;
 
     public DragPointerBindingEventHandler(
-        IDragPointerBindingHandlerCollaborators river,
+        RiverWindowManagerClient client,
         Action<string>? log = null)
     {
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _client = client ?? throw new ArgumentNullException(nameof(client));
         _log = log;
     }
 
@@ -28,6 +28,6 @@ internal sealed unsafe class DragPointerBindingEventHandler : IEventHandler
     public void Handle(WlEvent ev)
     {
         var args = (WlArgument*)ev.ArgsPtr;
-        _river.HandleByPartial(ev.Target, ev.Opcode, args);
+        _client.HandleDragPointerBindingEvent(ev.Target, ev.Opcode, args);
     }
 }

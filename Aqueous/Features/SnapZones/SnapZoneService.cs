@@ -1,36 +1,34 @@
 using System;
 using System.Collections.Generic;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.SnapZones;
 
 namespace Aqueous.Features.SnapZones;
 
 /// <summary>
 /// Stage 6 Part 1 facade over <c>RiverWindowManagerClient.SnapZones</c>.
-/// Thin delegate: every member forwards to
-/// <see cref="ISnapZoneServiceCollaborators"/>. The literal lift of
-/// drag state happens in Stage 8 when the seat drag pipeline is
-/// itself extracted; until then this seam exists so handler call
-/// sites can depend on the service interface instead of god-class
-/// privates.
+/// PR 9.5 (Stage 9) retired the <c>ISnapZoneServiceCollaborators</c>
+/// bridge; the service now consumes <see cref="RiverWindowManagerClient"/>
+/// directly via the <c>HandleApplyLiveSnapPreview</c> /
+/// <c>HandleTrySnapDraggedWindowToZone</c> / <c>HandleCollectAllSnapLayouts</c>
+/// pass-through accessors (same pattern PR 9.3/9.4 established).
 /// </summary>
 internal sealed class SnapZoneService : ISnapZoneService
 {
-    private readonly ISnapZoneServiceCollaborators _river;
+    private readonly RiverWindowManagerClient _client;
 
-    public SnapZoneService(ISnapZoneServiceCollaborators river)
+    public SnapZoneService(RiverWindowManagerClient client)
     {
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _client = client ?? throw new ArgumentNullException(nameof(client));
     }
 
     public void ApplyLiveSnapPreview(IntPtr seat) =>
-        _river.ApplyLiveSnapPreviewImpl(seat);
+        _client.HandleApplyLiveSnapPreview(seat);
 
     public void TrySnapDraggedWindowToZone(IntPtr seat) =>
-        _river.TrySnapDraggedWindowToZoneImpl(seat);
+        _client.HandleTrySnapDraggedWindowToZone(seat);
 
     public IEnumerable<IReadOnlyList<SnapZoneLayout>> CollectAllSnapLayouts() =>
-        _river.CollectAllSnapLayoutsImpl();
+        _client.HandleCollectAllSnapLayouts();
 
     /// <summary>
     /// Pure mapping; no god-class dependency. Identical to the

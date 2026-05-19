@@ -442,6 +442,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         => OnKeyBindingEvent(target, opcode, args);
     internal unsafe void HandleSuperKeyBindingEvent(uint opcode, WlArgument* args)
         => OnSuperKeyBindingEvent(opcode, args);
+    // PR 9.5: retires IDragPointerBindingHandlerCollaborators bridge.
+    internal unsafe void HandleDragPointerBindingEvent(IntPtr target, uint opcode, WlArgument* args)
+        => OnDragPointerBindingEvent(target, opcode, args);
 
     private RiverWindowManagerClient()
         : this(
