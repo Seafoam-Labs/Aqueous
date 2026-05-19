@@ -29,7 +29,7 @@ public class Stage8Pr88Tests
         Assert.True(typeof(IEventHandler).IsAssignableFrom(typeof(RegistryEventHandler)));
         Assert.True(typeof(RegistryEventHandler).IsSealed);
 
-        var h = new RegistryEventHandler(new FakeRegistry());
+        var h = new RegistryEventHandler(new Aqueous.Features.Compositor.River.Connection.RegistryBinder());
         Assert.Equal("wl_registry", h.InterfaceName);
     }
 
@@ -74,23 +74,30 @@ public class Stage8Pr88Tests
     // ----- pass-through forwarding via bridges --------------------------
 
     [Fact]
-    public unsafe void RegistryEventHandler_forwards_to_bridge()
+    public unsafe void RegistryEventHandler_forwards_to_RegistryBinder()
     {
-        var bridge = new FakeRegistry();
-        var h = new RegistryEventHandler(bridge);
+        // PR 9.3 Stage 9: bridge retired; handler consumes RegistryBinder
+        // directly. Subscribe to Removed (opcode 1 = global_remove) to
+        // observe routing.
+        var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
+        uint observed = 0;
+        binder.Removed += name => observed = name;
+        var h = new RegistryEventHandler(binder);
         var args = stackalloc WlArgument[1];
-        h.Handle(new WlEvent("wl_registry", new IntPtr(0xAA), 1, (IntPtr)args, 1));
-        Assert.Equal(1, bridge.Calls);
-        Assert.Equal((uint)1, bridge.LastOpcode);
+        args[0].u = 42u;
+        h.Handle(new WlEvent("wl_registry", new IntPtr(0xAA), Aqueous.Features.Compositor.River.RiverProtocolOpcodes.Registry.GlobalRemove, (IntPtr)args, 1));
+        Assert.Equal(42u, observed);
     }
 
     [Fact]
     public unsafe void RegistryEventHandler_zero_argsptr_is_skipped()
     {
-        var bridge = new FakeRegistry();
-        var h = new RegistryEventHandler(bridge);
-        h.Handle(new WlEvent("wl_registry", new IntPtr(0xAA), 1, IntPtr.Zero, 0));
-        Assert.Equal(0, bridge.Calls);
+        var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
+        uint observed = 0;
+        binder.Removed += name => observed = name;
+        var h = new RegistryEventHandler(binder);
+        h.Handle(new WlEvent("wl_registry", new IntPtr(0xAA), Aqueous.Features.Compositor.River.RiverProtocolOpcodes.Registry.GlobalRemove, IntPtr.Zero, 0));
+        Assert.Equal(0u, observed);
     }
 
     [Fact]
@@ -165,17 +172,8 @@ public class Stage8Pr88Tests
 
     // ----- bridge shape guards ------------------------------------------
 
-    [Fact]
-    public void IRegistryHandlerCollaborators_has_only_HandleRegistryEvent()
-    {
-        var t = typeof(IEventHandler).Assembly
-            .GetType("Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IRegistryHandlerCollaborators");
-        Assert.NotNull(t);
-        Assert.True(t!.IsInterface);
-        var methods = t.GetMethods();
-        Assert.Single(methods);
-        Assert.Equal("HandleRegistryEvent", methods[0].Name);
-    }
+    // PR 9.3 Stage 9 retired IRegistryHandlerCollaborators; see
+    // Stage9Pr93Tests for the replacement regression guards.
 
     [Fact]
     public void IKeyBindingHandlerCollaborators_has_only_HandleKeyBindingEvent()
@@ -206,9 +204,8 @@ public class Stage8Pr88Tests
             .GetType("Aqueous.Features.Compositor.River.RiverWindowManagerClient");
         Assert.NotNull(t);
         var ifaces = t!.GetInterfaces().Select(i => i.FullName).ToArray();
-        Assert.Contains(
-            "Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IRegistryHandlerCollaborators",
-            ifaces);
+        // PR 9.3 Stage 9 retired IRegistryHandlerCollaborators (assertion
+        // dropped); the remaining bridge guards continue to hold.
         Assert.Contains(
             "Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IKeyBindingHandlerCollaborators",
             ifaces);
@@ -219,39 +216,34 @@ public class Stage8Pr88Tests
     [Fact]
     public unsafe void IEventDispatcher_routes_three_new_handlers_by_interface_name()
     {
-        var reg = new FakeRegistry();
+        var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
+        uint regCalls = 0;
+        binder.Removed += _ => regCalls++;
         var key = new FakeKeyBinding();
         var svc = new FakeScreencopy();
         var ed = new EventDispatcher(new IEventHandler[]
         {
-            new RegistryEventHandler(reg),
+            new RegistryEventHandler(binder),
             new KeyBindingEventHandler(key),
             new ScreencopyFrameHandler(svc),
         });
 
         var args = stackalloc WlArgument[1];
+        args[0].u = 7u;
 
-        ed.Dispatch(new WlEvent("wl_registry", new IntPtr(0x11), 0, (IntPtr)args, 1));
+        ed.Dispatch(new WlEvent("wl_registry", new IntPtr(0x11), Aqueous.Features.Compositor.River.RiverProtocolOpcodes.Registry.GlobalRemove, (IntPtr)args, 1));
         ed.Dispatch(new WlEvent("river_xkb_binding_v1", new IntPtr(0x22), 0, (IntPtr)args, 1));
         ed.Dispatch(new WlEvent("zwlr_screencopy_frame_v1", new IntPtr(0x33), 0, (IntPtr)args, 1));
 
-        Assert.Equal(1, reg.Calls);
+        Assert.Equal(1u, regCalls);
         Assert.Equal(1, key.Calls);
         Assert.Equal(1, svc.DispatchCalls);
     }
 
     // -------------------- fakes -----------------------------------------
 
-    private sealed class FakeRegistry : IRegistryHandlerCollaborators
-    {
-        public int Calls;
-        public uint LastOpcode;
-        public unsafe void HandleRegistryEvent(uint opcode, WlArgument* args)
-        {
-            Calls++;
-            LastOpcode = opcode;
-        }
-    }
+    // PR 9.3 Stage 9: FakeRegistry retired with IRegistryHandlerCollaborators;
+    // tests now drive RegistryEventHandler against a real RegistryBinder.
 
     private sealed class FakeKeyBinding : IKeyBindingHandlerCollaborators
     {

@@ -74,6 +74,11 @@ class Program
         // service is constructed twice; these factories return the same
         // instance the god class ctor created. Registrations retire one
         // at a time in PRs 9.2–9.12 as state migrates out of the bridge.
+        // PR 9.3 Stage 9: RegistryBinder is now DI-resolvable (consumed
+        // by RegistryEventHandler directly — IRegistryHandlerCollaborators
+        // bridge retired).
+        services.AddSingleton<Aqueous.Features.Compositor.River.Connection.RegistryBinder>(sp =>
+            sp.GetRequiredService<RiverWindowManagerClient>().RegistryBinder);
         services.AddSingleton<IEventDispatcher>(sp =>
             sp.GetRequiredService<RiverWindowManagerClient>().EventDispatcher);
         services.AddSingleton<Aqueous.Features.Focus.IFocusService>(sp =>

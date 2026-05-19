@@ -1,30 +1,30 @@
 using System;
+using Aqueous.Features.Compositor.River.Connection;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 8.8 Stage 8 — managed <see cref="IEventHandler"/> for the
+/// PR 9.3 Stage 9 — managed <see cref="IEventHandler"/> for the
 /// <c>wl_registry</c> interface. The native dispatcher routes the
 /// registry's <c>global</c>/<c>global_remove</c> events here via
 /// interface-name lookup (the registry handle is tracked in
 /// <c>_proxyInterface</c> at connect time).
 ///
-/// Pass-through to the existing
-/// <see cref="Aqueous.Features.Compositor.River.Connection.RegistryBinder.HandleEvent"/>
-/// through the transient <see cref="IRegistryHandlerCollaborators"/>
-/// bridge. Behaviour is byte-for-byte equivalent to the previous
-/// <c>if (target == self._registry.Handle)</c> branch in
-/// <c>ProxyDispatcher</c>.
+/// PR 9.3 retires the transient <c>IRegistryHandlerCollaborators</c>
+/// bridge and consumes <see cref="RegistryBinder"/> directly — it has
+/// always been a self-contained class with no god-class coupling, so
+/// the bridge was indirection-without-purpose. Behaviour is byte-for-byte
+/// equivalent to the previous bridge call.
 /// </summary>
 internal sealed unsafe class RegistryEventHandler : IEventHandler
 {
-    private readonly IRegistryHandlerCollaborators _river;
+    private readonly RegistryBinder _binder;
     private readonly Action<string>? _log;
 
-    public RegistryEventHandler(IRegistryHandlerCollaborators river, Action<string>? log = null)
+    public RegistryEventHandler(RegistryBinder binder, Action<string>? log = null)
     {
-        ArgumentNullException.ThrowIfNull(river);
-        _river = river;
+        ArgumentNullException.ThrowIfNull(binder);
+        _binder = binder;
         _log = log;
     }
 
@@ -38,6 +38,6 @@ internal sealed unsafe class RegistryEventHandler : IEventHandler
             return;
         }
 
-        _river.HandleRegistryEvent(ev.Opcode, (WlArgument*)ev.ArgsPtr);
+        _binder.HandleEvent(ev.Opcode, (WlArgument*)ev.ArgsPtr);
     }
 }

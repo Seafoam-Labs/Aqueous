@@ -408,6 +408,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // tracking. These properties will be deleted in PR 9.12 once each
     // service is registered directly (no longer via the god class).
     internal Aqueous.Features.Compositor.River.Dispatch.IEventDispatcher EventDispatcher => _eventDispatcher;
+    // PR 9.3 Stage 9: expose RegistryBinder so it can be DI-registered as a singleton.
+    internal Aqueous.Features.Compositor.River.Connection.RegistryBinder RegistryBinder => _registry;
     internal Aqueous.Features.Focus.IFocusService FocusService => _focusService;
     internal Aqueous.Features.Tags.ITagService TagService => _tagController;
     internal Aqueous.Features.Layout.IManagerRequestSender ManagerRequestSender => _managerRequestSender;
@@ -514,7 +516,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(this, Log);
         _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);
         _dragPointerBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(this, Log);
-        _registryHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(this, Log);
+        _registryHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(_registry, Log);
         _keyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log);
         _screencopyFrameHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler(_screencopyService, Log);
 
