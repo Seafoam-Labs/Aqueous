@@ -2,6 +2,7 @@ using System;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Compositor.River.Tags;
+using Aqueous.Features.Focus;
 
 namespace Aqueous.Features.Tags;
 
@@ -30,16 +31,19 @@ internal sealed class TagService : ITagService, TagController.ITagHost
 {
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
+    private readonly IFocusService _focusService;
     private readonly ITagServiceCollaborators _river;
     private readonly TagController _controller;
 
     internal TagService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
+        IFocusService focusService,
         ITagServiceCollaborators river)
     {
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
         _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _river = river ?? throw new ArgumentNullException(nameof(river));
         _controller = new TagController(this);
     }
@@ -65,7 +69,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     private OutputEntry? GetFocusedOutputEntry()
     {
         // 1. Output of the focused window.
-        var focused = _river.FocusedWindow;
+        var focused = _focusService.FocusedWindow;
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw) &&
             fw.Output != IntPtr.Zero &&
@@ -129,7 +133,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
 
     bool TagController.ITagHost.SetFocusedWindowTags(uint mask)
     {
-        var focused = _river.FocusedWindow;
+        var focused = _focusService.FocusedWindow;
         if (focused == IntPtr.Zero)
         {
             return false;
@@ -153,7 +157,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
 
     bool TagController.ITagHost.ToggleFocusedWindowTags(uint mask)
     {
-        var focused = _river.FocusedWindow;
+        var focused = _focusService.FocusedWindow;
         if (focused == IntPtr.Zero)
         {
             return false;
@@ -186,7 +190,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     /// </summary>
     void TagController.ITagHost.RepairFocusAfterTagChange()
     {
-        var focused = _river.FocusedWindow;
+        var focused = _focusService.FocusedWindow;
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw))
         {
@@ -228,11 +232,11 @@ internal sealed class TagService : ITagService, TagController.ITagHost
 
         if (replacement == IntPtr.Zero)
         {
-            _river.ClearFocus();
+            _focusService.ClearFocus();
         }
         else
         {
-            _river.RequestFocus(replacement);
+            _focusService.RequestFocus(replacement);
         }
     }
 

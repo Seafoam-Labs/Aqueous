@@ -6,37 +6,22 @@ namespace Aqueous.Features.Compositor.River.Tags;
 /// Transient collaborator bridge for <see cref="Aqueous.Features.Tags.TagService"/>.
 ///
 /// <para>
-/// Each member is a temporary hook back into <see cref="RiverWindowManagerClient"/>
-/// to be retired by a later decomposition stage. The XML-doc on each member
-/// names the stage that deletes it. When the last member is gone, this
-/// interface itself goes away.
+/// As of Stage 4 only one member remains: the manage-cycle hook
+/// (<see cref="ScheduleManage"/>). The three focus-related members
+/// (<c>FocusedWindow</c>, <c>ClearFocus</c>, <c>RequestFocus</c>) were
+/// retired and replaced by <see cref="Aqueous.Features.Focus.IFocusService"/>
+/// injected directly into <c>TagService</c>.
 /// </para>
 ///
 /// <para>
-/// Single-implementation by design: only <see cref="RiverWindowManagerClient"/>
-/// implements it explicitly. Tests fake this interface directly.
+/// The remaining member retires in Stage 5 once
+/// <c>ILayoutProposer.RequestRender</c> takes over manage-cycle
+/// scheduling. At that point this interface and its single-implementing
+/// partial on <see cref="RiverWindowManagerClient"/> disappear.
 /// </para>
 /// </summary>
 internal interface ITagServiceCollaborators
 {
-    /// <summary>
-    /// Currently keyboard-focused window, or <see cref="IntPtr.Zero"/>
-    /// if none. -> retired in Stage 4 (becomes <c>IFocusService.FocusedWindow</c>).
-    /// </summary>
-    IntPtr FocusedWindow { get; }
-
-    /// <summary>
-    /// Clear the keyboard focus. -> retired in Stage 4 (becomes
-    /// <c>IFocusService.ClearFocus</c>).
-    /// </summary>
-    void ClearFocus();
-
-    /// <summary>
-    /// Request keyboard focus on the given window proxy.
-    /// -> retired in Stage 4 (becomes <c>IFocusService.RequestFocus</c>).
-    /// </summary>
-    void RequestFocus(IntPtr windowProxy);
-
     /// <summary>
     /// Schedule a manage cycle so the layout engine re-runs with the
     /// updated tag-filtered window set. -> retired in Stage 5 (becomes

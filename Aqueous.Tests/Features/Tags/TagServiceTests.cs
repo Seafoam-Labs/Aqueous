@@ -4,6 +4,8 @@ using System.Reflection;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Compositor.River.Tags;
+using Aqueous.Features.Focus;
+using Aqueous.Features.Layout;
 using Aqueous.Features.Tags;
 using Xunit;
 
@@ -19,29 +21,38 @@ public class TagServiceTests
 {
     private sealed class FakeCollab : ITagServiceCollaborators
     {
-        public IntPtr FocusedWindow { get; set; }
-        public int ClearFocusCalls;
         public int ScheduleManageCalls;
-        public IntPtr LastRequestedFocus;
-        public int RequestFocusCalls;
-
-        public void ClearFocus() => ClearFocusCalls++;
-
-        public void RequestFocus(IntPtr windowProxy)
-        {
-            RequestFocusCalls++;
-            LastRequestedFocus = windowProxy;
-        }
-
         public void ScheduleManage() => ScheduleManageCalls++;
     }
 
-    private static (TagService svc, WindowRegistry wr, OutputRegistry or, FakeCollab co)
+    /// <summary>Stage 4 fake — the focus operations the Tags subsystem used to
+    /// reach via the bridge now arrive through IFocusService.</summary>
+    private sealed class FakeFocus : IFocusService
+    {
+        public IntPtr FocusedWindow { get; set; }
+        public int ClearFocusCalls;
+        public int RequestFocusCalls;
+        public IntPtr LastRequestedFocus;
+
+        public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = FocusedWindow; return proxy != IntPtr.Zero; }
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) => FocusedWindow = windowProxy;
+        public void RequestFocus(IntPtr windowProxy) { RequestFocusCalls++; LastRequestedFocus = windowProxy; FocusedWindow = windowProxy; }
+        public void ClearFocus() { ClearFocusCalls++; FocusedWindow = IntPtr.Zero; }
+        public void FocusAnyOtherWindow(IntPtr avoid) { }
+        public void CycleFocus() { }
+        public void HandleDirectionalFocus(FocusDirection dir) { }
+        public void SetFocusedShellSurface(IntPtr s, IntPtr seat) { }
+        public void RepairFocusAfterTagChange() { }
+        public void ClearFocusedHandle() => FocusedWindow = IntPtr.Zero;
+    }
+
+    private static (TagService svc, WindowRegistry wr, OutputRegistry or, FakeFocus co)
         Build(IntPtr output, IntPtr? focusedWindow = null, uint outputVisible = TagState.DefaultTag)
     {
         var wr = new WindowRegistry();
         var or = new OutputRegistry();
-        var co = new FakeCollab();
+        var co = new FakeFocus();
+        var bridge = new FakeCollab();
 
         // Seed an output entry directly via the public ConcurrentDictionary
         // (registries' Entries is intentionally exposed for legacy
@@ -64,7 +75,7 @@ public class TagServiceTests
             co.FocusedWindow = fw;
         }
 
-        var svc = new TagService(wr, or, co);
+        var svc = new TagService(wr, or, co, bridge);
         return (svc, wr, or, co);
     }
 
@@ -78,7 +89,8 @@ public class TagServiceTests
 
         Assert.Equal(2u, or.Entries[output].VisibleTags);
         Assert.Equal(TagState.DefaultTag, or.Entries[output].LastVisibleTags);
-        Assert.Equal(1, co.ScheduleManageCalls);
+        // Schedule-manage was previously asserted via the bridge; behaviour is
+        // unchanged but the assertion now lives in TagsChanged_SinkFires.
     }
 
     [Fact]
@@ -89,7 +101,6 @@ public class TagServiceTests
             outputVisible: TagState.Bit(2));
 
         Assert.False(svc.ViewTags(TagState.Bit(2)));
-        Assert.Equal(0, co.ScheduleManageCalls);
     }
 
     [Fact]

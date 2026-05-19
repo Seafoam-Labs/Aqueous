@@ -1,253 +1,106 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using Aqueous.Features.Compositor.River.Connection;
-using Aqueous.Features.Input;
+using Aqueous.Features.Compositor.River.Focus;
 using Aqueous.Features.Layout;
-using Aqueous.Features.State;
-using Aqueous.Features.Tags;
+
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Focus-related operations for <see cref="RiverWindowManagerClient"/>.
-/// Extracted in Phase 2 Step 5 to consolidate focus state mutations
-/// (SetFocusedWindow / RequestFocus / ClearFocus / FocusAnyOtherWindow /
-/// CycleFocus / HandleDirectionalFocus / SetFocusedShellSurface) in one
-/// place. Kept as a partial class because every method reaches into
-/// private fields (_windowRegistry.Entries, _seatRegistry.Entries, _primarySeat, _layoutController,
-/// ScheduleManage); a fully extracted FocusController belongs after the
-/// façade reduction in Step 7.
+/// Stage 4 of the <see cref="RiverWindowManagerClient"/> decomposition:
+/// the focus-related behaviour has moved into
+/// <see cref="Aqueous.Features.Focus.FocusService"/>, accessed via
+/// <see cref="IFocusService"/>. This partial now holds two things:
+///
+/// <list type="number">
+/// <item>The explicit implementation of
+/// <see cref="IFocusServiceCollaborators"/> — the transient bridge
+/// that lets <c>FocusService</c> read/write the god class's
+/// <c>_focusedWindow</c> / <c>_pendingFocus*</c> fields and call back
+/// into the still-entangled manage-cycle and layout helpers. Each
+/// member is XML-doc'd in the interface with the stage that retires
+/// it.</item>
+/// <item>Thin instance-method wrappers (<c>RequestFocus</c>,
+/// <c>ClearFocus</c>, <c>CycleFocus</c>, etc.) that forward to
+/// <c>_focusService</c>. The wrappers exist solely so the
+/// not-yet-extracted partials (Seat/Window/Manager event handlers,
+/// LayoutProposer, WindowStateHost, CustomActionRunner) keep
+/// compiling unchanged. Each wrapper disappears when its caller is
+/// extracted in Stage 8.</item>
+/// </list>
 /// </summary>
-internal sealed unsafe partial class RiverWindowManagerClient
+internal sealed unsafe partial class RiverWindowManagerClient : IFocusServiceCollaborators
 {
-    /// <summary>
-    /// Return true and yield the focused window proxy only if it is still
-    /// tracked in <c>_windowRegistry.Entries</c>. Self-heals a stale <c>_focusedWindow</c>
-    /// handle when the underlying proxy has already been destroyed (e.g.
-    /// Discord tearing down its toplevel on minimize before River dispatches
-    /// <c>window.closed</c>). Marshaling into a freed proxy aborts libwayland
-    /// and tears down the compositor process, which the session manager
-    /// reports as a "logout".
-    /// </summary>
-    private bool TryGetFocusedAlive(out IntPtr proxy)
+    // -- Thin wrappers (call-site compatibility) -----------------------
+
+    private bool TryGetFocusedAlive(out IntPtr proxy) => _focusService.TryGetFocusedAlive(out proxy);
+
+    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) =>
+        _focusService.SetFocusedWindow(windowProxy, seatProxy);
+
+    private void RequestFocus(IntPtr windowProxy) =>
+        _focusService.RequestFocus(windowProxy);
+
+    private void ClearFocus() => _focusService.ClearFocus();
+
+    private void FocusAnyOtherWindow(IntPtr avoid) =>
+        _focusService.FocusAnyOtherWindow(avoid);
+
+    private void CycleFocus() => _focusService.CycleFocus();
+
+    private void HandleDirectionalFocus(FocusDirection dir) =>
+        _focusService.HandleDirectionalFocus(dir);
+
+    public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) =>
+        _focusService.SetFocusedShellSurface(shellSurfaceProxy, seatProxy);
+
+    // -- IFocusServiceCollaborators (explicit) -------------------------
+
+    IntPtr IFocusServiceCollaborators.FocusedWindow
     {
-        proxy = _focusedWindow;
-        if (proxy == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        if (!_windowRegistry.Entries.ContainsKey(proxy))
-        {
-            _focusedWindow = IntPtr.Zero;
-            return false;
-        }
-
-        return true;
+        get => _focusedWindow;
+        set => _focusedWindow = value;
     }
 
-    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
+    IntPtr IFocusServiceCollaborators.PrimarySeat => _primarySeat;
+
+    IEnumerable<IntPtr> IFocusServiceCollaborators.SeatProxies => _seatRegistry.Entries.Keys;
+
+    IntPtr IFocusServiceCollaborators.PendingFocusWindow => _pendingFocusWindow;
+
+    IntPtr IFocusServiceCollaborators.PendingFocusShellSurface => _pendingFocusShellSurface;
+
+    void IFocusServiceCollaborators.SetPendingFocusWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
-        // Fix #1: skip no-op focus changes. SetFocusedWindow is called from
-        // pointer_enter on every mouse crossing; without a correct guard each
-        // enter event would issue manage_dirty, creating a manage/render storm
-        // that starves other clients' wl_display pings (they die after ~60s).
-        // The previous guard only fired when both pending fields were zero,
-        // but _pendingFocusWindow stays non-zero between manage_start cycles,
-        // so the guard never tripped again during pointer motion.
-        if (windowProxy == _focusedWindow && _pendingFocusWindow == windowProxy)
-        {
-            return; // same focus already pending
-        }
-
-        if (windowProxy == _focusedWindow && _pendingFocusWindow == IntPtr.Zero &&
-            _pendingFocusShellSurface == IntPtr.Zero)
-        {
-            return; // already focused and applied
-        }
-
         _pendingFocusWindow = windowProxy;
         _pendingFocusShellSurface = IntPtr.Zero;
         _pendingFocusSeat = seatProxy;
-        _focusedWindow = windowProxy;
-        ScheduleManage();
     }
 
-    /// <summary>
-    /// Request focus for the given window. Uses the primary seat when no seat is provided.
-    /// The focus request is stashed and flushed during the next manage_start.
-    /// </summary>
-    private void RequestFocus(IntPtr windowProxy)
-    {
-        // Guard: never schedule focus on a window proxy that isn't tracked.
-        // Between the WindowInformation event that originally queued the focus
-        // and the manage cycle that drains it, a transient window (splash,
-        // self-closing dialog) can already have been destroyed by river. The
-        // resulting marshal on a dead object id is a fatal protocol error
-        // that aborts river and tears down the entire desktop.
-        if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(windowProxy))
-        {
-            Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
-            return;
-        }
-
-        IntPtr seat = _primarySeat;
-        if (seat == IntPtr.Zero)
-        {
-            foreach (var k in _seatRegistry.Entries.Keys)
-            {
-                seat = k;
-                break;
-            }
-        }
-
-        if (seat == IntPtr.Zero)
-        {
-            return;
-        }
-
-        SetFocusedWindow(windowProxy, seat);
-    }
-
-    /// <summary>Clear focus on the primary seat (river_seat_v1::clear_focus, opcode 3).</summary>
-    private void ClearFocus()
-    {
-        IntPtr seat = _primarySeat;
-        if (seat == IntPtr.Zero)
-        {
-            foreach (var k in _seatRegistry.Entries.Keys)
-            {
-                seat = k;
-                break;
-            }
-        }
-
-        _pendingFocusWindow = IntPtr.Zero;
-        _pendingFocusShellSurface = IntPtr.Zero;
-        _pendingFocusSeat = IntPtr.Zero;
-        _focusedWindow = IntPtr.Zero;
-        if (seat != IntPtr.Zero)
-        {
-            WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
-                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            Log($"clear_focus on seat 0x{seat.ToString("x")}");
-        }
-
-        ScheduleManage();
-    }
-
-    /// <summary>Pick any window (prefer not-currently-focused) and focus it. No-op if empty.</summary>
-    private void FocusAnyOtherWindow(IntPtr avoid)
-    {
-        IntPtr pick = IntPtr.Zero;
-        foreach (var k in _windowRegistry.Entries.Keys)
-        {
-            if (k == avoid)
-            {
-                continue;
-            }
-
-            pick = k;
-            break;
-        }
-
-        if (pick == IntPtr.Zero)
-        {
-            foreach (var k in _windowRegistry.Entries.Keys)
-            {
-                pick = k;
-                break;
-            }
-        }
-
-        if (pick != IntPtr.Zero)
-        {
-            RequestFocus(pick);
-        }
-        else
-        {
-            ClearFocus();
-        }
-    }
-
-    /// <summary>Advance keyboard focus to the next window in _windowRegistry.Entries iteration order.</summary>
-    private void CycleFocus()
-    {
-        if (_windowRegistry.Entries.Count == 0)
-        {
-            return;
-        }
-
-        IntPtr next = IntPtr.Zero;
-        bool takeNext = false;
-        foreach (var k in _windowRegistry.Entries.Keys)
-        {
-            if (next == IntPtr.Zero)
-            {
-                next = k; // fallback to first
-            }
-
-            if (takeNext)
-            {
-                next = k;
-                takeNext = false;
-                break;
-            }
-
-            if (k == _focusedWindow)
-            {
-                takeNext = true;
-            }
-        }
-
-        if (next != IntPtr.Zero)
-        {
-            RequestFocus(next);
-        }
-    }
-
-    private void HandleDirectionalFocus(FocusDirection dir)
-    {
-        if (_focusedWindow == IntPtr.Zero || _windowRegistry.Entries.Count == 0)
-        {
-            CycleFocus();
-            return;
-        }
-
-        if (!_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
-        {
-            CycleFocus();
-            return;
-        }
-
-        IntPtr output = fw.Output;
-        string? outputName = ResolveOutputName(output);
-        var snapshot = BuildSnapshotFor(output);
-        var target = _layoutController.FocusNeighbor(output, outputName, _focusedWindow, dir, snapshot);
-        if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
-        {
-            ScheduleManage(); // engine may need to recentre viewport
-            RequestFocus(t);
-            return;
-        }
-
-        CycleFocus();
-    }
-
-    public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
+    void IFocusServiceCollaborators.SetPendingFocusShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
         _pendingFocusShellSurface = shellSurfaceProxy;
         _pendingFocusWindow = IntPtr.Zero;
         _pendingFocusSeat = seatProxy;
-        // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus
-        // is actually flushed on the next manage cycle. Without this, if a
-        // layer-shell surface (e.g. the start menu) grabs focus just before a
-        // new window maps, the pending focus never ships and the new window
-        // can't grab keyboard focus either.
-        ScheduleManage();
     }
+
+    void IFocusServiceCollaborators.ScheduleManage() => ScheduleManage();
+
+    void IFocusServiceCollaborators.SendClearFocus(IntPtr seatProxy)
+    {
+        WaylandInterop.wl_proxy_marshal_flags(seatProxy, 3, IntPtr.Zero, 0, 0,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    string? IFocusServiceCollaborators.ResolveOutputName(IntPtr outputProxy) =>
+        ResolveOutputName(outputProxy);
+
+    IReadOnlyList<WindowEntryView> IFocusServiceCollaborators.BuildSnapshotFor(IntPtr outputProxy) =>
+        BuildSnapshotFor(outputProxy);
+
+    IntPtr? IFocusServiceCollaborators.LayoutFocusNeighbor(
+        IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot) =>
+        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
+
+    void IFocusServiceCollaborators.Log(string message) => Log(message);
 }

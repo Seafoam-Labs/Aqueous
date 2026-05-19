@@ -45,13 +45,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : ITagServiceColla
         return null;
     }
 
-    // ---- ITagServiceCollaborators (transient bridge, Stage 3) --------
-
-    IntPtr ITagServiceCollaborators.FocusedWindow => _focusedWindow;
-
-    void ITagServiceCollaborators.ClearFocus() => ClearFocus();
-
-    void ITagServiceCollaborators.RequestFocus(IntPtr windowProxy) => RequestFocus(windowProxy);
+    // ---- ITagServiceCollaborators (transient bridge, Stage 4 shrunk) -
 
     void ITagServiceCollaborators.ScheduleManage() => ScheduleManage();
 }

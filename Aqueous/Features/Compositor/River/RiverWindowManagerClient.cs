@@ -313,6 +313,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private LayoutController _layoutController;
     private LayoutConfig _layoutConfig;
 
+    // --- focus subsystem (Stage 4) ------------------------------------
+    private readonly Aqueous.Features.Focus.IFocusService _focusService;
+
     // --- tags subsystem (Phase B1c) -----------------------------------
     private readonly ITagService _tagController;
 
@@ -372,7 +375,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
         _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
-        _tagController = new TagService(_windowRegistry, _outputRegistry, this);
+        _focusService = new Aqueous.Features.Focus.FocusService(
+            _windowRegistry, _outputRegistry, _seatRegistry, this);
+        _tagController = new TagService(_windowRegistry, _outputRegistry, _focusService, this);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
