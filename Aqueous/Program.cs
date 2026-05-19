@@ -65,6 +65,7 @@ class Program
                 throw new InvalidOperationException(
                     "RiverWindowManagerClient.TryStart failed: " + result.Error);
             }
+
             return result.Value!;
         });
 
@@ -167,6 +168,7 @@ class Program
                 startupFailure ?? "<unknown>");
             return 1;
         }
+
         log.LogInformation("Connected. Entering event loop.");
 
         // Block the main thread; the pump runs on its own background
@@ -179,6 +181,7 @@ class Program
         {
             host.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
+
         return 0;
     }
 }
