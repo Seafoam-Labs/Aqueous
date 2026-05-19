@@ -53,7 +53,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 self.OnSuperKeyBindingEvent(opcode, a);
             }
-            else if (self._keyBindings.ContainsKey(target))
+            else if (self._keyBindingRegistrar.IsRegistered(target))
             {
                 self.OnKeyBindingEvent(target, opcode, a);
             }

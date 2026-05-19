@@ -417,6 +417,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // partial; handlers depend on ISnapZoneService rather than
         // god-class privates. Literal drag-state lift in Stage 8.
         _snapZoneService = new Aqueous.Features.SnapZones.SnapZoneService(this);
+        // Stage 7: bindings trio facade — IKeyBindingRegistrar /
+        // IKeyBindingRouter / ICustomActionRunner all forward to the
+        // existing god-class partials via IKeyBindingsCollaborators.
+        // IProcessLauncher is a clean AOT-safe extraction with no
+        // god-class coupling. Literal lift of the 671-line bindings
+        // partials is deferred to Stage 7b/8 (see bridge XML-doc).
+        _processLauncher = new Aqueous.Features.Bindings.ProcessLauncher();
+        _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);
+        _keyBindingRouter = new Aqueous.Features.Bindings.KeyBindingRouter(this);
+        _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(this);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
