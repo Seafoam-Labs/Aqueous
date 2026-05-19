@@ -1,26 +1,21 @@
 using System;
-using Aqueous.Features.Compositor.River.Tags;
-
 namespace Aqueous.Features.Compositor.River;
-
 /// <summary>
 /// Residual tag-related partial of <see cref="RiverWindowManagerClient"/>
-/// after the Stage 3 extraction (<see cref="Aqueous.Features.Tags.TagService"/>).
+/// after the Stage 3 + Stage 5 extractions
+/// (<see cref="Aqueous.Features.Tags.TagService"/> +
+/// <see cref="Aqueous.Features.Layout.IManagerRequestSender"/>).
 ///
 /// <para>
-/// The previous <c>ITagHost</c> implementation moved into
-/// <see cref="Aqueous.Features.Tags.TagService"/>. What stays here:
+/// As of Stage 5 the <c>ITagServiceCollaborators</c> bridge has been
+/// deleted in full — its sole remaining member (<c>ScheduleManage</c>)
+/// is now consumed via <c>IManagerRequestSender</c> directly. What
+/// stays here is <see cref="GetFocusedOutputEntry"/> only, still
+/// called from <c>RiverWindowStateHost</c>; this method retires when
+/// Stage 2's lift is completed in Stage 5b / 8.
 /// </para>
-/// <list type="bullet">
-/// <item><see cref="GetFocusedOutputEntry"/> — still called from
-///       <c>RiverWindowStateHost</c> (out of scope for Stage 3; will move
-///       when Stage 4 introduces <c>IFocusService</c>).</item>
-/// <item>Explicit <see cref="ITagServiceCollaborators"/> implementation —
-///       the transient bridge that <c>TagService</c> uses to drive focus
-///       and relayout. Members are retired one-by-one in Stages 4–5.</item>
-/// </list>
 /// </summary>
-internal sealed unsafe partial class RiverWindowManagerClient : ITagServiceCollaborators
+internal sealed unsafe partial class RiverWindowManagerClient
 {
     /// <summary>
     /// Returns the OutputEntry the keyboard focus currently lives on.
@@ -36,16 +31,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : ITagServiceColla
         {
             return oeFromFocus;
         }
-
         foreach (var kv in _outputRegistry.Entries)
         {
             return kv.Value;
         }
-
         return null;
     }
-
-    // ---- ITagServiceCollaborators (transient bridge, Stage 4 shrunk) -
-
-    void ITagServiceCollaborators.ScheduleManage() => ScheduleManage();
 }

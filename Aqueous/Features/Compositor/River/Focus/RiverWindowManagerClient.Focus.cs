@@ -84,23 +84,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IFocusServiceCol
         _pendingFocusSeat = seatProxy;
     }
 
-    void IFocusServiceCollaborators.ScheduleManage() => ScheduleManage();
+    // Stage 5: ScheduleManage / ResolveOutputName / BuildSnapshotFor /
+    // LayoutFocusNeighbor were retired from IFocusServiceCollaborators.
+    // FocusService now consumes IManagerRequestSender + ILayoutProposer
+    // directly.
 
     void IFocusServiceCollaborators.SendClearFocus(IntPtr seatProxy)
     {
         WaylandInterop.wl_proxy_marshal_flags(seatProxy, 3, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
-
-    string? IFocusServiceCollaborators.ResolveOutputName(IntPtr outputProxy) =>
-        ResolveOutputName(outputProxy);
-
-    IReadOnlyList<WindowEntryView> IFocusServiceCollaborators.BuildSnapshotFor(IntPtr outputProxy) =>
-        BuildSnapshotFor(outputProxy);
-
-    IntPtr? IFocusServiceCollaborators.LayoutFocusNeighbor(
-        IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot) =>
-        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
 
     void IFocusServiceCollaborators.Log(string message) => Log(message);
 }

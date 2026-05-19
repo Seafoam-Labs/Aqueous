@@ -27,7 +27,10 @@ public sealed class FocusServiceTests
         var outputs = new OutputRegistry();
         var seats = new SeatRegistry();
         var river = new FakeCollab { PrimarySeat = primarySeat };
-        var svc = new FocusService(windows, outputs, seats, river);
+        // Stage 5: FakeCollab also implements IManagerRequestSender +
+        // ILayoutProposer so it can carry the ScheduleManageCalls /
+        // NextLayoutNeighbor counters the tests assert against.
+        var svc = new FocusService(windows, outputs, seats, river, river, river);
         return (svc, river, windows, outputs, seats);
     }
 
@@ -44,15 +47,33 @@ public sealed class FocusServiceTests
     [Fact]
     public void Ctor_NullWindowRegistry_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() =>
-            new FocusService(null!, new OutputRegistry(), new SeatRegistry(), new FakeCollab()));
+        var f = new FakeCollab();
+        Assert.Throws<ArgumentNullException>((Action)(() =>
+            new FocusService(null!, new OutputRegistry(), new SeatRegistry(), f, f, f)));
     }
 
     [Fact]
     public void Ctor_NullCollaborator_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() =>
-            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), null!));
+        var f = new FakeCollab();
+        Assert.Throws<ArgumentNullException>((Action)(() =>
+            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), null!, f, f)));
+    }
+
+    [Fact]
+    public void Ctor_NullManagerRequestSender_Throws()
+    {
+        var f = new FakeCollab();
+        Assert.Throws<ArgumentNullException>((Action)(() =>
+            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), f, null!, f)));
+    }
+
+    [Fact]
+    public void Ctor_NullLayoutProposer_Throws()
+    {
+        var f = new FakeCollab();
+        Assert.Throws<ArgumentNullException>((Action)(() =>
+            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), f, f, null!)));
     }
 
     // ---- FocusedWindow getter ----------------------------------------
@@ -327,24 +348,28 @@ public sealed class FocusServiceTests
     // ---- Regression guards ------------------------------------------
 
     [Fact]
-    public void TagServiceCollaborators_DoesNotDeclare_FocusedWindow()
+    public void TagServiceCollaborators_Interface_FullyDeleted_InStage5()
     {
-        Assert.Null(typeof(Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators)
-            .GetProperty("FocusedWindow"));
+        // Stage 5: the entire bridge interface was retired; it shouldn't
+        // resolve from the production assembly anymore.
+        var prodAsm = typeof(RiverWindowManagerClient).Assembly;
+        Assert.Null(prodAsm.GetType(
+            "Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators",
+            throwOnError: false));
     }
 
     [Fact]
-    public void TagServiceCollaborators_DoesNotDeclare_ClearFocus()
+    public void FocusServiceCollaborators_StageFive_RetiredScheduleManage()
     {
-        Assert.Null(typeof(Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators)
-            .GetMethod("ClearFocus"));
+        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("ScheduleManage"));
     }
 
     [Fact]
-    public void TagServiceCollaborators_DoesNotDeclare_RequestFocus()
+    public void FocusServiceCollaborators_StageFive_RetiredLayoutMembers()
     {
-        Assert.Null(typeof(Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators)
-            .GetMethod("RequestFocus"));
+        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("ResolveOutputName"));
+        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("BuildSnapshotFor"));
+        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("LayoutFocusNeighbor"));
     }
 
     [Fact]
@@ -357,8 +382,18 @@ public sealed class FocusServiceTests
 
     // ===== fake collaborator =========================================
 
-    private sealed class FakeCollab : IFocusServiceCollaborators
+    private sealed class FakeCollab : IFocusServiceCollaborators, IManagerRequestSender, ILayoutProposer
     {
+        // IManagerRequestSender impl
+        public bool InsideManageSequence { get; set; }
+        public bool IsBound => true;
+        public void Init(IntPtr managerProxy, IntPtr display) { }
+        public void SendManagerRequest(uint opcode) { }
+        // ILayoutProposer impl (delegates to bridge-style getters)
+        public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea) { }
+        public bool IsFloatLayoutActive() => false;
+        public bool IsFloatLayoutActive(IntPtr output) => false;
+        // (Continued below for IFocusServiceCollaborators members.)
         public IntPtr FocusedWindow { get; set; }
         public IntPtr PrimarySeat { get; set; }
         public List<IntPtr> Seats { get; } = new();

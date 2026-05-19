@@ -301,9 +301,31 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     private IntPtr _primarySeat;
     private IntPtr _focusedWindow;
-    private bool _insideManageSequence;
+    // Stage 5: backing for the manage-cycle flush flag now lives on
+    // IManagerRequestSender. The property below preserves the original
+    // field name for the many partial/handler call sites that still
+    // read/write it directly; deleted in Stage 9 when those call sites
+    // route through the interface.
+    private bool _insideManageSequence
+    {
+        get => _managerRequestSender.InsideManageSequence;
+        set => _managerRequestSender.InsideManageSequence = value;
+    }
     private uint _managerVersion;
     private GCHandle _selfHandle;
+
+    // Stage 5: Wayland-send seam. Owned by this class for lifetime
+    // management; Init() is called from OnGlobalDiscovered once the
+    // river_window_manager_v1 proxy has been bound.
+    private readonly Aqueous.Features.Layout.IManagerRequestSender _managerRequestSender =
+        new Aqueous.Features.Layout.ManagerRequestSender();
+
+    // Stage 5: ILayoutProposer facade — a thin delegate over the
+    // existing LayoutProposer partial. The 762-line math/state
+    // migration is deferred to Stage 5b; the seam exists today only
+    // so FocusService + future handlers can take the interface as a
+    // constructor dependency.
+    private readonly Aqueous.Features.Layout.ILayoutProposer _layoutProposer;
 
     // --- layout subsystem ----------------------------------------------
     // Pluggable layout engine (Phase 1.1 / B1b). The controller owns
@@ -375,9 +397,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
         _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
+        // Stage 5: LayoutProposer facade is a thin delegate over the
+        // existing partial; FocusService now takes IManagerRequestSender
+        // + ILayoutProposer directly (retiring 4 bridge members).
+        _layoutProposer = new Aqueous.Features.Layout.LayoutProposer(this);
         _focusService = new Aqueous.Features.Focus.FocusService(
-            _windowRegistry, _outputRegistry, _seatRegistry, this);
-        _tagController = new TagService(_windowRegistry, _outputRegistry, _focusService, this);
+            _windowRegistry, _outputRegistry, _seatRegistry,
+            this, _managerRequestSender, _layoutProposer);
+        // Stage 5: TagService no longer needs the ITagServiceCollaborators
+        // bridge (deleted); ScheduleManage routed through IManagerRequestSender.
+        _tagController = new TagService(
+            _windowRegistry, _outputRegistry, _focusService, _managerRequestSender);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new RiverWindowStateHost(this);
         _windowState = new WindowStateController(
@@ -591,6 +621,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                     GCHandle.ToIntPtr(_selfHandle),
                     IntPtr.Zero);
                 TrackProxyInterface(_manager, "river_window_manager_v1");
+                _managerRequestSender.Init(_manager, _display);
                 Log($"bound river_window_manager_v1 (version {_managerVersion})");
             }
         }

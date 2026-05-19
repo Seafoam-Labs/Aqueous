@@ -31,17 +31,24 @@ internal sealed class FocusService : IFocusService
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
     private readonly IFocusServiceCollaborators _river;
-
+    // Stage 5: injected services that replaced bridge members
+    // (ScheduleManage, ResolveOutputName, BuildSnapshotFor, LayoutFocusNeighbor).
+    private readonly IManagerRequestSender _managerRequestSender;
+    private readonly ILayoutProposer _layoutProposer;
     internal FocusService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         ISeatRegistry seatRegistry,
-        IFocusServiceCollaborators river)
+        IFocusServiceCollaborators river,
+        IManagerRequestSender managerRequestSender,
+        ILayoutProposer layoutProposer)
     {
-        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
-        _seatRegistry   = seatRegistry   ?? throw new ArgumentNullException(nameof(seatRegistry));
-        _river          = river          ?? throw new ArgumentNullException(nameof(river));
+        _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry        = outputRegistry        ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _seatRegistry          = seatRegistry          ?? throw new ArgumentNullException(nameof(seatRegistry));
+        _river                 = river                 ?? throw new ArgumentNullException(nameof(river));
+        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
     }
 
     public IntPtr FocusedWindow => _river.FocusedWindow;
@@ -86,7 +93,7 @@ internal sealed class FocusService : IFocusService
 
         _river.SetPendingFocusWindow(windowProxy, seatProxy);
         _river.FocusedWindow = windowProxy;
-        _river.ScheduleManage();
+        _managerRequestSender.ScheduleManage();
     }
 
     public void RequestFocus(IntPtr windowProxy)
@@ -125,7 +132,7 @@ internal sealed class FocusService : IFocusService
             _river.Log($"clear_focus on seat 0x{seat.ToString("x")}");
         }
 
-        _river.ScheduleManage();
+        _managerRequestSender.ScheduleManage();
     }
 
     public void FocusAnyOtherWindow(IntPtr avoid)
@@ -213,12 +220,12 @@ internal sealed class FocusService : IFocusService
         }
 
         IntPtr output = fw.Output;
-        string? outputName = _river.ResolveOutputName(output);
-        var snapshot = _river.BuildSnapshotFor(output);
-        var target = _river.LayoutFocusNeighbor(output, outputName, current, dir, snapshot);
+        string? outputName = _layoutProposer.ResolveOutputName(output);
+        var snapshot = _layoutProposer.BuildSnapshotFor(output);
+        var target = _layoutProposer.LayoutFocusNeighbor(output, outputName, current, dir, snapshot);
         if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
         {
-            _river.ScheduleManage(); // engine may need to recentre viewport
+            _managerRequestSender.ScheduleManage(); // engine may need to recentre viewport
             RequestFocus(t);
             return;
         }
@@ -234,7 +241,7 @@ internal sealed class FocusService : IFocusService
         // layer-shell surface (e.g. the start menu) grabs focus just before a
         // new window maps, the pending focus never ships and the new window
         // can't grab keyboard focus either.
-        _river.ScheduleManage();
+        _managerRequestSender.ScheduleManage();
     }
 
     public void RepairFocusAfterTagChange()

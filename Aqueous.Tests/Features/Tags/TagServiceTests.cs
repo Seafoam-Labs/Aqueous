@@ -3,7 +3,6 @@ using System.Linq;
 using System.Reflection;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
-using Aqueous.Features.Compositor.River.Tags;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Layout;
 using Aqueous.Features.Tags;
@@ -14,14 +13,20 @@ namespace Aqueous.Tests.Features.Tags;
 /// <summary>
 /// Stage 3 unit tests for the extracted <see cref="TagService"/>.
 /// Exercises the real class against an in-memory <see cref="WindowRegistry"/>
-/// + <see cref="OutputRegistry"/> and a hand-rolled
-/// <see cref="ITagServiceCollaborators"/> fake.
+/// + <see cref="OutputRegistry"/>. Stage 5 retired the
+/// <c>ITagServiceCollaborators</c> bridge entirely; the fake is now an
+/// <see cref="IManagerRequestSender"/>.
 /// </summary>
 public class TagServiceTests
 {
-    private sealed class FakeCollab : ITagServiceCollaborators
+    private sealed class FakeSender : IManagerRequestSender
     {
         public int ScheduleManageCalls;
+        public int SendManagerRequestCalls;
+        public bool InsideManageSequence { get; set; }
+        public bool IsBound => true;
+        public void Init(IntPtr managerProxy, IntPtr display) { }
+        public void SendManagerRequest(uint opcode) => SendManagerRequestCalls++;
         public void ScheduleManage() => ScheduleManageCalls++;
     }
 
@@ -52,7 +57,7 @@ public class TagServiceTests
         var wr = new WindowRegistry();
         var or = new OutputRegistry();
         var co = new FakeFocus();
-        var bridge = new FakeCollab();
+        var sender = new FakeSender();
 
         // Seed an output entry directly via the public ConcurrentDictionary
         // (registries' Entries is intentionally exposed for legacy
@@ -75,7 +80,7 @@ public class TagServiceTests
             co.FocusedWindow = fw;
         }
 
-        var svc = new TagService(wr, or, co, bridge);
+        var svc = new TagService(wr, or, co, sender);
         return (svc, wr, or, co);
     }
 
@@ -222,11 +227,16 @@ public class TagServiceTests
     }
 
     [Fact]
-    public void TagsServicePartial_RegressionGuard_ImplementsCollaborators()
+    public void TagsServicePartial_RegressionGuard_CollaboratorsInterfaceDeleted()
     {
-        // Conversely: the god class MUST still expose
-        // ITagServiceCollaborators (the Stage 3 bridge).
-        var t = typeof(RiverWindowManagerClient);
-        Assert.Contains(typeof(ITagServiceCollaborators), t.GetInterfaces());
+        // Stage 5: ITagServiceCollaborators was deleted in full. The
+        // type should no longer exist anywhere in the production
+        // assembly; if it ever returns, ScheduleManage routing is
+        // probably wrong again.
+        var prodAsm = typeof(RiverWindowManagerClient).Assembly;
+        var stillThere = prodAsm.GetType(
+            "Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators",
+            throwOnError: false);
+        Assert.Null(stillThere);
     }
 }

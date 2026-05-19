@@ -1,8 +1,8 @@
 using System;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
-using Aqueous.Features.Compositor.River.Tags;
 using Aqueous.Features.Focus;
+using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.Tags;
 
@@ -32,20 +32,21 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly IFocusService _focusService;
-    private readonly ITagServiceCollaborators _river;
+    // Stage 5: ScheduleManage now goes through IManagerRequestSender;
+    // ITagServiceCollaborators retired (deleted) entirely.
+    private readonly IManagerRequestSender _managerRequestSender;
     private readonly TagController _controller;
-
     internal TagService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         IFocusService focusService,
-        ITagServiceCollaborators river)
+        IManagerRequestSender managerRequestSender)
     {
-        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
-        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
-        _river = river ?? throw new ArgumentNullException(nameof(river));
-        _controller = new TagController(this);
+        _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry       = outputRegistry       ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _focusService         = focusService         ?? throw new ArgumentNullException(nameof(focusService));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _controller           = new TagController(this);
     }
 
     // ---- ITagService (façade forwarding to TagController) ------------
@@ -180,7 +181,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
         return true;
     }
 
-    void TagController.ITagHost.RequestRelayout() => _river.ScheduleManage();
+    void TagController.ITagHost.RequestRelayout() => _managerRequestSender.ScheduleManage();
 
     /// <summary>
     /// Self-heal focus when the previously-focused window has just
