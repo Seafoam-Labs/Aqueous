@@ -468,6 +468,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                     _seatRegistry, _windowRegistry,
                     _seatHoveredWindow, _seatPointerPos,
                     this, Log),
+                new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
+                    _windowRegistry, this, Log),
             });
     }
 
