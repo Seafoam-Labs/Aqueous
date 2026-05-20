@@ -1,33 +1,49 @@
 using System;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// PR 9.12 §2.13 — handles the Super+BTN_LEFT / Super+BTN_RIGHT (and
-/// per-snap-layout activator) pointer-binding "pressed"/"released"
+/// PR 9.12 §2.13 Step 5 — handles the Super+BTN_LEFT / Super+BTN_RIGHT
+/// (and per-snap-layout activator) pointer-binding pressed/released
 /// events used to arm interactive move/resize drags.
 ///
-/// Lifted out of the deleted
-/// <c>partial class RiverWindowManagerClient</c> file
-/// <c>DragPointerBindingEventHandler.cs</c> into a standalone service
-/// so the god class loses one more partial. The body still reads/
-/// writes drag-lifecycle state that lives on
-/// <see cref="RiverWindowManagerClient"/> (active drag window/seat/
-/// activator, drag-start coords, edges bitfield, seat→hovered-window
-/// map, snap-activator binding registry, <c>_dragResizePointerBinding</c>
-/// proxy, <c>ScheduleManage</c>); each is consumed through a
-/// dedicated internal accessor on the god class and retires together
-/// with it in the final demolition step.
+/// <para>
+/// Step 5 cutover: the service no longer references
+/// <see cref="RiverWindowManagerClient"/>. All drag-lifecycle state
+/// (active drag window/seat/activator, drag-start coords, edges
+/// bitfield, seat→hovered-window map, drag-resize pointer-binding
+/// proxy, snap-activator binding registry) is consumed from
+/// <see cref="DragStateStore"/> and <see cref="PointerBindingStore"/>;
+/// window lookup goes through <see cref="IWindowRegistry"/>; the
+/// float-layout gate goes through <see cref="ILayoutProposer"/>; and
+/// the manage-cycle ack goes through
+/// <see cref="IManagerRequestSender"/>.
+/// </para>
 /// </summary>
 internal sealed unsafe class DragPointerBindingService
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly DragStateStore _dragState;
+    private readonly PointerBindingStore _pointerBindings;
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly ILayoutProposer _layoutProposer;
+    private readonly IManagerRequestSender _managerRequestSender;
 
-    public DragPointerBindingService(RiverWindowManagerClient client)
+    public DragPointerBindingService(
+        DragStateStore dragState,
+        PointerBindingStore pointerBindings,
+        IWindowRegistry windowRegistry,
+        ILayoutProposer layoutProposer,
+        IManagerRequestSender managerRequestSender)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _dragState            = dragState            ?? throw new ArgumentNullException(nameof(dragState));
+        _pointerBindings      = pointerBindings      ?? throw new ArgumentNullException(nameof(pointerBindings));
+        _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _layoutProposer       = layoutProposer       ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
     }
 
     // Edge bitfield matching river_window_v1: top=1, bottom=2, left=4, right=8.
@@ -72,7 +88,8 @@ internal sealed unsafe class DragPointerBindingService
 
     public void HandleEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        bool isResize = (proxy == _client.DragResizePointerBinding) && _client.DragResizePointerBinding != IntPtr.Zero;
+        bool isResize = (proxy == _pointerBindings.DragResizePointerBinding)
+            && _pointerBindings.DragResizePointerBinding != IntPtr.Zero;
 
         // SnapZones activator gate: if this event came from one of the
         // Super+<activator>+BTN_LEFT pointer bindings, remember which
@@ -82,7 +99,7 @@ internal sealed unsafe class DragPointerBindingService
         // snap layouts are eligible).
         Aqueous.Features.SnapZones.SnapActivator pressActivator =
             Aqueous.Features.SnapZones.SnapActivator.Always;
-        if (_client.SnapActivatorBindings.TryGetValue(proxy, out var act))
+        if (_pointerBindings.SnapActivatorBindings.TryGetValue(proxy, out var act))
         {
             pressActivator = act;
         }
@@ -90,7 +107,7 @@ internal sealed unsafe class DragPointerBindingService
         if (opcode == RiverProtocolOpcodes.Binding.Pressed)
         {
             // Find a seat that has a currently-hovered window and start a drag for it.
-            foreach (var kvp in _client.SeatHoveredWindow)
+            foreach (var kvp in _dragState.SeatHoveredWindow)
             {
                 IntPtr seat = kvp.Key;
                 IntPtr hovered = kvp.Value;
@@ -99,7 +116,7 @@ internal sealed unsafe class DragPointerBindingService
                     continue;
                 }
 
-                if (!_client.WindowRegistry.Entries.TryGetValue(hovered, out var w))
+                if (!_windowRegistry.Entries.TryGetValue(hovered, out var w))
                 {
                     continue;
                 }
@@ -108,35 +125,35 @@ internal sealed unsafe class DragPointerBindingService
                 // same "only when float layout is active" UX as the
                 // client-driven pointer_move_requested /
                 // pointer_resize_requested paths.
-                if (!_client.IsFloatLayoutActive(w.Output))
+                if (!_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     RiverLog.Write($"super+{(isResize ? "RMB" : "LMB")} drag ignored: float layout not active for window 0x{hovered.ToString("x")}");
                     break;
                 }
 
-                _client.SetActiveDragWindow(w);
-                _client.SetActiveDragSeat(seat);
-                _client.SetActiveDragActivator(pressActivator);
-                _client.SetDragStartX(w.X);
-                _client.SetDragStartY(w.Y);
+                _dragState.ActiveDragWindow = w;
+                _dragState.ActiveDragSeat = seat;
+                _dragState.ActiveDragActivator = pressActivator;
+                _dragState.DragStartX = w.X;
+                _dragState.DragStartY = w.Y;
                 // Capture cursor at drag-start so OpDelta can synthesize
                 // live pointer coords for snap-zone hit-testing (river
                 // does not emit pointer_position during a drag).
-                if (_client.SeatPointerPos.TryGetValue(seat, out var dpbP0))
+                if (_dragState.SeatPointerPos.TryGetValue(seat, out var dpbP0))
                 {
-                    _client.SetDragStartPointerX(dpbP0.X);
-                    _client.SetDragStartPointerY(dpbP0.Y);
+                    _dragState.DragStartPointerX = dpbP0.X;
+                    _dragState.DragStartPointerY = dpbP0.Y;
                 }
                 else
                 {
-                    _client.SetDragStartPointerX(w.X);
-                    _client.SetDragStartPointerY(w.Y);
+                    _dragState.DragStartPointerX = w.X;
+                    _dragState.DragStartPointerY = w.Y;
                 }
                 // Reset lifecycle flags so ManagerEventHandler issues a
                 // fresh op_start_pointer on the next manage cycle even if
                 // a prior drag's release path didn't clear them.
-                _client.SetDragStarted(false);
-                _client.SetDragFinished(false);
+                _dragState.DragStarted = false;
+                _dragState.DragFinished = false;
 
                 if (isResize)
                 {
@@ -150,28 +167,28 @@ internal sealed unsafe class DragPointerBindingService
                         : w.LastHintH > 0 ? w.LastHintH
                         : w.ProposedH > 0 ? w.ProposedH
                         : 600;
-                    _client.SetDragStartW(dragStartW);
-                    _client.SetDragStartH(dragStartH);
+                    _dragState.DragStartW = dragStartW;
+                    _dragState.DragStartH = dragStartH;
 
                     int px = w.X + dragStartW / 2;
                     int py = w.Y + dragStartH / 2;
-                    if (_client.SeatPointerPos.TryGetValue(seat, out var pos))
+                    if (_dragState.SeatPointerPos.TryGetValue(seat, out var pos))
                     {
                         px = pos.X;
                         py = pos.Y;
                     }
 
                     uint edges = DeriveEdges(px, py, w.X, w.Y, dragStartW, dragStartH);
-                    _client.SetDragEdges(edges);
+                    _dragState.DragEdges = edges;
                     RiverLog.Write($"super+RMB drag-resize start on window 0x{hovered.ToString("x")} via seat 0x{seat.ToString("x")} edges={edges} from pointer ({px},{py}) inside ({w.X},{w.Y} {dragStartW}x{dragStartH})");
                 }
                 else
                 {
-                    _client.SetDragEdges(0);
+                    _dragState.DragEdges = 0;
                     RiverLog.Write($"super+LMB drag-move start on window 0x{hovered.ToString("x")} via seat 0x{seat.ToString("x")}");
                 }
 
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
             }
         }

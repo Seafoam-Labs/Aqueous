@@ -129,59 +129,92 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         get => _dragStateStore.ActiveDragWindow;
         set => _dragStateStore.ActiveDragWindow = value;
     }
-    private IntPtr _activeDragSeat;
-    private bool _dragFinished;
-    private bool _dragStarted;
-    private int _dragStartX;
-
-    private int _dragStartY;
-
-    // Pointer position at drag-start. Combined with op_delta's cumulative
-    // (dx, dy) this lets us reconstruct the live cursor position during a
-    // drag — river does NOT emit pointer_position while a drag is active.
-    // Seeded at every drag-start site (PointerMove/Resize requested + Super
-    // pointer-binding pressed); read by OpDelta to refresh _seatPointerPos.
-    private int _dragStartPointerX;
-    private int _dragStartPointerY;
-
-    // Resize state — non-zero _dragEdges means the active drag is a resize, not a move.
-    // Edges are the river_window_v1 bitfield: top=1, bottom=2, left=4, right=8.
-    private uint _dragEdges;
-    private int _dragStartW;
-
-    private int _dragStartH;
-
-    // Tracks whether we have already issued inform_resize_start for the current
-    // drag so that we know to emit a matching inform_resize_end on finalisation.
-    // Without this, libdecor / GTK clients ignore the live propose_dimensions
-    // stream during an interactive resize.
-    private bool _dragResizeInformed;
-    private IntPtr _dragPointerBinding;
-
-    private bool _dragPointerBindingNeedsEnable;
-
-    // Second pointer binding for Super+RMB drag-to-resize (Option 3 plan).
-    // Lets the WM initiate resize on undecorated/SSD-expecting clients
-    // (alacritty, Firefox without libdecor, …) by deriving _dragEdges from
-    // the pointer's quadrant inside the focused window, then arming the
-    // same drag pipeline that pointer_resize_requested uses.
-    private IntPtr _dragResizePointerBinding;
-    private bool _dragResizePointerBindingNeedsEnable;
-
-    // SnapZones activator pointer bindings (one per distinct activator
-    // modifier configured in [[snapzones]]). River pointer bindings carry
-    // a static modifier mask, so live mod-state during a drag is not
-    // observable: instead, we register an additional Super+<activator>+
-    // BTN_LEFT binding for each activator the user requests, and remember
-    // which one fired the active drag. The SnapZones gate then matches
-    // the drag's activator against the per-layout Activator field.
-    //
-    // Map: pointer-binding proxy → SnapActivator value it was registered
-    // with. Lookups happen in the drag dispatcher (which already routes
-    // by proxy). Empty when no activator-gated layouts are configured.
-    private readonly Dictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> _snapActivatorBindings = new();
-
-    private readonly Dictionary<IntPtr, bool> _snapActivatorBindingNeedsEnable = new();
+    // PR 9.12 §2.13 Step 5 — drag-lifecycle / drag-rect / pointer-binding
+    // state now lives on DragStateStore + PointerBindingStore singletons.
+    // The field-style properties below preserve original names so the
+    // few remaining in-class readers (Connect / event-handler ctor wiring)
+    // keep compiling unchanged; the manager / window / drag-pointer event
+    // services consume the stores directly via ctor injection.
+    private IntPtr _activeDragSeat
+    {
+        get => _dragStateStore.ActiveDragSeat;
+        set => _dragStateStore.ActiveDragSeat = value;
+    }
+    private bool _dragFinished
+    {
+        get => _dragStateStore.DragFinished;
+        set => _dragStateStore.DragFinished = value;
+    }
+    private bool _dragStarted
+    {
+        get => _dragStateStore.DragStarted;
+        set => _dragStateStore.DragStarted = value;
+    }
+    private int _dragStartX
+    {
+        get => _dragStateStore.DragStartX;
+        set => _dragStateStore.DragStartX = value;
+    }
+    private int _dragStartY
+    {
+        get => _dragStateStore.DragStartY;
+        set => _dragStateStore.DragStartY = value;
+    }
+    private int _dragStartPointerX
+    {
+        get => _dragStateStore.DragStartPointerX;
+        set => _dragStateStore.DragStartPointerX = value;
+    }
+    private int _dragStartPointerY
+    {
+        get => _dragStateStore.DragStartPointerY;
+        set => _dragStateStore.DragStartPointerY = value;
+    }
+    private uint _dragEdges
+    {
+        get => _dragStateStore.DragEdges;
+        set => _dragStateStore.DragEdges = value;
+    }
+    private int _dragStartW
+    {
+        get => _dragStateStore.DragStartW;
+        set => _dragStateStore.DragStartW = value;
+    }
+    private int _dragStartH
+    {
+        get => _dragStateStore.DragStartH;
+        set => _dragStateStore.DragStartH = value;
+    }
+    private bool _dragResizeInformed
+    {
+        get => _dragStateStore.DragResizeInformed;
+        set => _dragStateStore.DragResizeInformed = value;
+    }
+    private readonly Aqueous.Features.Input.PointerBindingStore _pointerBindingStore;
+    private IntPtr _dragPointerBinding
+    {
+        get => _pointerBindingStore.DragPointerBinding;
+        set => _pointerBindingStore.DragPointerBinding = value;
+    }
+    private bool _dragPointerBindingNeedsEnable
+    {
+        get => _pointerBindingStore.DragPointerBindingNeedsEnable;
+        set => _pointerBindingStore.DragPointerBindingNeedsEnable = value;
+    }
+    private IntPtr _dragResizePointerBinding
+    {
+        get => _pointerBindingStore.DragResizePointerBinding;
+        set => _pointerBindingStore.DragResizePointerBinding = value;
+    }
+    private bool _dragResizePointerBindingNeedsEnable
+    {
+        get => _pointerBindingStore.DragResizePointerBindingNeedsEnable;
+        set => _pointerBindingStore.DragResizePointerBindingNeedsEnable = value;
+    }
+    private Dictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> _snapActivatorBindings
+        => _pointerBindingStore.SnapActivatorBindings;
+    private Dictionary<IntPtr, bool> _snapActivatorBindingNeedsEnable
+        => _pointerBindingStore.SnapActivatorBindingNeedsEnable;
 
     // Activator that armed the currently-active drag. Always for the
     // plain Super+LMB binding; Shift/Ctrl/Alt for the snap-activator
@@ -193,7 +226,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         set => _dragStateStore.ActiveDragActivator = value;
     }
 
-    private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
+    // PR 9.12 §2.13 Step 5 — seat-hovered map now lives on DragStateStore.
+    private ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow => _dragStateStore.SeatHoveredWindow;
 
     // Latest pointer position per seat in the compositor's logical
     // coordinate space, updated from river_seat_v1::pointer_position. Used
@@ -305,13 +339,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private readonly Aqueous.Features.Bindings.KeyBindingsRegistry _keyBindingsRegistry;
     private Dictionary<IntPtr, KeyBindingAction> _keyBindings => _keyBindingsRegistry.KeyBindings;
 
-    // Pointer-binding per-seat dedupe (consumed by the Manager event
-    // handler partial when it issues get_pointer_binding requests).
-    // Lifted out of the deleted KeyBindingRegistrar.cs partial in
-    // PR 9.12 §2.13 because it's pointer-binding state, not key-binding
-    // state, and stays on the god class until the Manager handler
-    // ctor is migrated off `this`.
-    private readonly HashSet<IntPtr> _seatsWithPointerBindings = new();
+    // PR 9.12 §2.13 Step 5 — _seatsWithPointerBindings now lives on
+    // PointerBindingStore.
+    private HashSet<IntPtr> _seatsWithPointerBindings => _pointerBindingStore.SeatsWithPointerBindings;
 
     // --- Stage 0 of god-class decomposition: proxy → interface name ---
     //
@@ -395,12 +425,25 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // field name for the many partial/handler call sites that still
     // read/write it directly; deleted in Stage 9 when those call sites
     // route through the interface.
+    // PR 9.12 §2.13 Step 5 — manage-cycle scoped flags live on
+    // ManageCycleState (DI singleton). The IManagerRequestSender backed
+    // _insideManageSequence was a Stage 5 mirror — moved here in Step 5
+    // to share a single source of truth with the ManagerEventService.
+    private readonly Aqueous.Features.State.ManageCycleState _manageCycleState;
     private bool _insideManageSequence
     {
-        get => _managerRequestSender.InsideManageSequence;
-        set => _managerRequestSender.InsideManageSequence = value;
+        get => _manageCycleState.InsideManageSequence;
+        set
+        {
+            _manageCycleState.InsideManageSequence = value;
+            _managerRequestSender.InsideManageSequence = value;
+        }
     }
-    private uint _managerVersion;
+    private uint _managerVersion
+    {
+        get => _manageCycleState.ManagerVersion;
+        set => _manageCycleState.ManagerVersion = value;
+    }
     // PR 9.12 §2.13: GCHandle is now pinned via NativeCallbackContext rather
     // than directly on `this`. `_selfHandle` is rehydrated from the context's
     // IntPtr so all existing `GCHandle.ToIntPtr(_selfHandle)` call sites
@@ -825,7 +868,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                new Aqueous.Features.Focus.PrimarySeatTracker(),
                new Aqueous.Features.Input.DragStateStore(),
                new Aqueous.Features.State.PrevFullscreenStore(),
-               new Aqueous.Features.Bindings.KeyBindingsRegistry())
+               new Aqueous.Features.Bindings.KeyBindingsRegistry(),
+               new Aqueous.Features.Input.PointerBindingStore(),
+               new Aqueous.Features.State.ManageCycleState())
     {
     }
 
@@ -847,7 +892,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         Aqueous.Features.Focus.PrimarySeatTracker primarySeatTracker,
         Aqueous.Features.Input.DragStateStore dragStateStore,
         Aqueous.Features.State.PrevFullscreenStore prevFullscreenStore,
-        Aqueous.Features.Bindings.KeyBindingsRegistry keyBindingsRegistry)
+        Aqueous.Features.Bindings.KeyBindingsRegistry keyBindingsRegistry,
+        Aqueous.Features.Input.PointerBindingStore pointerBindingStore,
+        Aqueous.Features.State.ManageCycleState manageCycleState)
     {
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
@@ -858,6 +905,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _dragStateStore = dragStateStore ?? throw new ArgumentNullException(nameof(dragStateStore));
         _prevFullscreenStore = prevFullscreenStore ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
+        _pointerBindingStore = pointerBindingStore ?? throw new ArgumentNullException(nameof(pointerBindingStore));
+        _manageCycleState = manageCycleState ?? throw new ArgumentNullException(nameof(manageCycleState));
         _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
@@ -988,13 +1037,58 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _seatRegistry, _windowRegistry,
             _seatHoveredWindow, _seatPointerPos,
             _seatInteractionService, Log);
-        _windowEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService(this);
+        // PR 9.12 §2.13 Step 5: WindowEventService no longer references
+        // the god class. All state comes from fine-grained stores +
+        // services injected through ctor.
+        _windowEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService(
+            _windowRegistry,
+            _windowStates,
+            _outputFullscreen,
+            _prevFullscreenStore,
+            _dragStateStore,
+            _pendingFocusStore,
+            _focusService,
+            _focusedWindowTracker,
+            _windowState,
+            _layoutProposer,
+            _managerRequestSender);
         _windowHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
             _windowRegistry, _windowEventService, Log);
-        _managerEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService(this);
+        // PR 9.12 §2.13 Step 5: ManagerEventService no longer references
+        // the god class. All state/services come from fine-grained DI.
+        _managerEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService(
+            _pump,
+            _windowRegistry,
+            _outputRegistry,
+            _seatRegistry,
+            _focusedWindowTracker,
+            _pendingFocusStore,
+            _primarySeatTracker,
+            _focusService,
+            _dragStateStore,
+            _pointerBindingStore,
+            _manageCycleState,
+            _windowStates,
+            _layoutController,
+            _layoutProposer,
+            _snapZoneService,
+            _managerRequestSender,
+            _keyBindingRegistrar,
+            _bindSiteState,
+            _keyBindingsRegistry);
         _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(_managerEventService, Log);
         _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);
-        _dragPointerBindingService = new Aqueous.Features.Input.DragPointerBindingService(this);
+        // PR 9.12 §2.13 Step 5: DragPointerBindingService no longer
+        // references the god class. Drag state comes from DragStateStore;
+        // pointer-binding wiring from PointerBindingStore; window lookup
+        // through IWindowRegistry; the float-layout gate through
+        // ILayoutProposer; manage-cycle ack through IManagerRequestSender.
+        _dragPointerBindingService = new Aqueous.Features.Input.DragPointerBindingService(
+            _dragStateStore,
+            _pointerBindingStore,
+            _windowRegistry,
+            _layoutProposer,
+            _managerRequestSender);
         _dragPointerBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(_dragPointerBindingService, Log);
         _registryHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(_registry, Log);
         _keyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log);

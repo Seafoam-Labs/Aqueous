@@ -1,30 +1,91 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using Aqueous.Diagnostics;
+using Aqueous.Features.Bindings;
+using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
 
 /// <summary>
-/// PR 9.12 §2.13 — handles river_window_manager_v1 events
-/// (manage_start / render_start / *_information / session_*). Lifted
-/// from the deleted partial-class file
-/// <c>ManagerEventHandler.cs</c> into a standalone service. State the
-/// service mutates still lives on <see cref="RiverWindowManagerClient"/>
-/// (registries, pending-focus, drag state, pointer-binding caches,
-/// pump). Each is consumed via internal accessors and retires together
-/// with the god class.
+/// PR 9.12 §2.13 Step 5 — handles river_window_manager_v1 events
+/// (manage_start / render_start / *_information / session_*).
+///
+/// <para>
+/// Step 5 cutover: the service no longer references
+/// <see cref="RiverWindowManagerClient"/>. All state is consumed via
+/// fine-grained DI singletons (registries, drag/pointer-binding/
+/// manage-cycle stores, focus/key-binding services, layout proposer,
+/// manager request sender, bind-site state).
+/// </para>
 /// </summary>
 internal sealed unsafe class ManagerEventService
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly IEventPump _pump;
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly IOutputRegistry _outputRegistry;
+    private readonly ISeatRegistry _seatRegistry;
+    private readonly FocusedWindowTracker _focusedWindowTracker;
+    private readonly PendingFocusStore _pendingFocus;
+    private readonly PrimarySeatTracker _primarySeat;
+    private readonly IFocusService _focusService;
+    private readonly DragStateStore _dragState;
+    private readonly PointerBindingStore _pointerBindings;
+    private readonly ManageCycleState _manageCycle;
+    private readonly WindowStateStore _windowStates;
+    private readonly LayoutController _layoutController;
+    private readonly ILayoutProposer _layoutProposer;
+    private readonly ISnapZoneService _snapZoneService;
+    private readonly IManagerRequestSender _managerRequestSender;
+    private readonly IKeyBindingRegistrar _keyBindingRegistrar;
+    private readonly WaylandBindSiteState _bindSiteState;
+    private readonly KeyBindingsRegistry _keyBindingsRegistry;
 
-    public ManagerEventService(RiverWindowManagerClient client)
+    public ManagerEventService(
+        IEventPump pump,
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry,
+        ISeatRegistry seatRegistry,
+        FocusedWindowTracker focusedWindowTracker,
+        PendingFocusStore pendingFocus,
+        PrimarySeatTracker primarySeat,
+        IFocusService focusService,
+        DragStateStore dragState,
+        PointerBindingStore pointerBindings,
+        ManageCycleState manageCycle,
+        WindowStateStore windowStates,
+        LayoutController layoutController,
+        ILayoutProposer layoutProposer,
+        ISnapZoneService snapZoneService,
+        IManagerRequestSender managerRequestSender,
+        IKeyBindingRegistrar keyBindingRegistrar,
+        WaylandBindSiteState bindSiteState,
+        KeyBindingsRegistry keyBindingsRegistry)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _pump                 = pump                 ?? throw new ArgumentNullException(nameof(pump));
+        _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry       = outputRegistry       ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _seatRegistry         = seatRegistry         ?? throw new ArgumentNullException(nameof(seatRegistry));
+        _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _pendingFocus         = pendingFocus         ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _primarySeat          = primarySeat          ?? throw new ArgumentNullException(nameof(primarySeat));
+        _focusService         = focusService         ?? throw new ArgumentNullException(nameof(focusService));
+        _dragState            = dragState            ?? throw new ArgumentNullException(nameof(dragState));
+        _pointerBindings      = pointerBindings      ?? throw new ArgumentNullException(nameof(pointerBindings));
+        _manageCycle          = manageCycle          ?? throw new ArgumentNullException(nameof(manageCycle));
+        _windowStates         = windowStates         ?? throw new ArgumentNullException(nameof(windowStates));
+        _layoutController     = layoutController     ?? throw new ArgumentNullException(nameof(layoutController));
+        _layoutProposer       = layoutProposer       ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _snapZoneService      = snapZoneService      ?? throw new ArgumentNullException(nameof(snapZoneService));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _keyBindingRegistrar  = keyBindingRegistrar  ?? throw new ArgumentNullException(nameof(keyBindingRegistrar));
+        _bindSiteState        = bindSiteState        ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _keyBindingsRegistry  = keyBindingsRegistry  ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
     }
 
     public void HandleEvent(uint opcode, WlArgument* args)
@@ -33,11 +94,11 @@ internal sealed unsafe class ManagerEventService
         {
             case RiverProtocolOpcodes.Manager.Unavailable:
                 RiverLog.Write("river_window_manager_v1.unavailable — another WM is active; giving up");
-                _client.Pump.Stop(TimeSpan.Zero);
+                _pump.Stop(TimeSpan.Zero);
                 break;
             case RiverProtocolOpcodes.Manager.Finished:
                 RiverLog.Write("river_window_manager_v1.finished");
-                _client.Pump.Stop(TimeSpan.Zero);
+                _pump.Stop(TimeSpan.Zero);
                 break;
             case RiverProtocolOpcodes.Manager.ManageStart:
                 HandleManageStart();
@@ -65,48 +126,49 @@ internal sealed unsafe class ManagerEventService
 
     private void HandleManageStart()
     {
-        _client.InsideManageSequenceFlag = true;
+        _manageCycle.InsideManageSequence = true;
+        _managerRequestSender.InsideManageSequence = true;
         try
         {
-            RiverLog.Write($"manage_start (windows={_client.WindowRegistry.Entries.Count} outputs={_client.OutputRegistry.Entries.Count} seats={_client.SeatRegistry.Entries.Count})");
+            RiverLog.Write($"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count})");
 
             // Self-heal focus.
-            if (_client.FocusedWindowHandle == IntPtr.Zero
-                && _client.PendingFocusWindow == IntPtr.Zero
-                && _client.PendingFocusShellSurface == IntPtr.Zero
-                && _client.WindowRegistry.Entries.Count > 0)
+            if (_focusedWindowTracker.Current == IntPtr.Zero
+                && _pendingFocus.Window == IntPtr.Zero
+                && _pendingFocus.ShellSurface == IntPtr.Zero
+                && _windowRegistry.Entries.Count > 0)
             {
-                foreach (var wk in _client.WindowRegistry.Entries.Keys)
+                foreach (var wk in _windowRegistry.Entries.Keys)
                 {
-                    _client.RequestFocusExternal(wk);
+                    _focusService.RequestFocus(wk);
                     break;
                 }
             }
 
             // Enable the pointer binding (must be issued inside a manage sequence).
-            if (_client.DragPointerBindingNeedsEnable && _client.DragPointerBinding != IntPtr.Zero)
+            if (_pointerBindings.DragPointerBindingNeedsEnable && _pointerBindings.DragPointerBinding != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_marshal_flags(
-                    _client.DragPointerBinding, 1, IntPtr.Zero, 0, 0,
+                    _pointerBindings.DragPointerBinding, 1, IntPtr.Zero, 0, 0,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                _client.DragPointerBindingNeedsEnable = false;
+                _pointerBindings.DragPointerBindingNeedsEnable = false;
                 RiverLog.Write("enabled Super+BTN_LEFT pointer binding");
             }
 
-            if (_client.DragResizePointerBindingNeedsEnable && _client.DragResizePointerBinding != IntPtr.Zero)
+            if (_pointerBindings.DragResizePointerBindingNeedsEnable && _pointerBindings.DragResizePointerBinding != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_marshal_flags(
-                    _client.DragResizePointerBinding, 1, IntPtr.Zero, 0, 0,
+                    _pointerBindings.DragResizePointerBinding, 1, IntPtr.Zero, 0, 0,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                _client.DragResizePointerBindingNeedsEnable = false;
+                _pointerBindings.DragResizePointerBindingNeedsEnable = false;
                 RiverLog.Write("enabled Super+BTN_RIGHT pointer binding");
             }
 
-            if (_client.SnapActivatorBindingNeedsEnable.Count > 0)
+            if (_pointerBindings.SnapActivatorBindingNeedsEnable.Count > 0)
             {
-                foreach (var pb in new List<IntPtr>(_client.SnapActivatorBindingNeedsEnable.Keys))
+                foreach (var pb in new List<IntPtr>(_pointerBindings.SnapActivatorBindingNeedsEnable.Keys))
                 {
-                    if (!_client.SnapActivatorBindingNeedsEnable[pb])
+                    if (!_pointerBindings.SnapActivatorBindingNeedsEnable[pb])
                     {
                         continue;
                     }
@@ -114,8 +176,8 @@ internal sealed unsafe class ManagerEventService
                     WaylandInterop.wl_proxy_marshal_flags(
                         pb, 1, IntPtr.Zero, 0, 0,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    _client.SnapActivatorBindingNeedsEnable[pb] = false;
-                    if (_client.SnapActivatorBindings.TryGetValue(pb, out var act))
+                    _pointerBindings.SnapActivatorBindingNeedsEnable[pb] = false;
+                    if (_pointerBindings.SnapActivatorBindings.TryGetValue(pb, out var act))
                     {
                         RiverLog.Write($"enabled Super+{act}+BTN_LEFT snap-activator pointer binding");
                     }
@@ -123,91 +185,92 @@ internal sealed unsafe class ManagerEventService
             }
 
             // Drag finish path.
-            if (_client.DragFinishedFlag)
+            if (_dragState.DragFinished)
             {
-                if (_client.DragResizeInformed && _client.ActiveDragWindow != null)
+                if (_dragState.DragResizeInformed && _dragState.ActiveDragWindow != null)
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
-                        _client.ActiveDragWindow.Proxy, 13, IntPtr.Zero, 0, 0,
+                        _dragState.ActiveDragWindow.Proxy, 13, IntPtr.Zero, 0, 0,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    RiverLog.Write($"inform_resize_end on window 0x{_client.ActiveDragWindow.Proxy.ToString("x")}");
+                    RiverLog.Write($"inform_resize_end on window 0x{_dragState.ActiveDragWindow.Proxy.ToString("x")}");
                 }
 
                 WaylandInterop.wl_proxy_marshal_flags(
-                    _client.ActiveDragSeatHandle, 5, IntPtr.Zero, 1, 0,
+                    _dragState.ActiveDragSeat, 5, IntPtr.Zero, 1, 0,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-                _client.SetActiveDragWindow(null);
-                _client.SetActiveDragSeat(IntPtr.Zero);
-                _client.SetActiveDragActivator(Aqueous.Features.SnapZones.SnapActivator.Always);
-                _client.SetDragFinished(false);
-                _client.SetDragStarted(false);
-                _client.SetDragEdges(0);
-                _client.DragResizeInformed = false;
+                _dragState.ActiveDragWindow = null;
+                _dragState.ActiveDragSeat = IntPtr.Zero;
+                _dragState.ActiveDragActivator = SnapActivator.Always;
+                _dragState.DragFinished = false;
+                _dragState.DragStarted = false;
+                _dragState.DragEdges = 0;
+                _dragState.DragResizeInformed = false;
             }
 
-            if (_client.ActiveDragSeatHandle != IntPtr.Zero && _client.ActiveDragWindow != null && !_client.DragStartedFlag)
+            if (_dragState.ActiveDragSeat != IntPtr.Zero && _dragState.ActiveDragWindow != null && !_dragState.DragStarted)
             {
                 WaylandInterop.wl_proxy_marshal_flags(
-                    _client.ActiveDragSeatHandle, 4, IntPtr.Zero, 1, 0,
+                    _dragState.ActiveDragSeat, 4, IntPtr.Zero, 1, 0,
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                _client.SetDragStarted(true);
+                _dragState.DragStarted = true;
 
-                if (_client.DragEdgesValue != 0 && !_client.DragResizeInformed)
+                if (_dragState.DragEdges != 0 && !_dragState.DragResizeInformed)
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
-                        _client.ActiveDragWindow.Proxy, 12, IntPtr.Zero, 0, 0,
+                        _dragState.ActiveDragWindow.Proxy, 12, IntPtr.Zero, 0, 0,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    _client.DragResizeInformed = true;
-                    uint edges = _client.DragEdgesValue;
-                    RiverLog.Write($"inform_resize_start on window 0x{_client.ActiveDragWindow.Proxy.ToString("x")} edges={edges}");
+                    _dragState.DragResizeInformed = true;
+                    uint edges = _dragState.DragEdges;
+                    RiverLog.Write($"inform_resize_start on window 0x{_dragState.ActiveDragWindow.Proxy.ToString("x")} edges={edges}");
                 }
             }
 
-            if (_client.PendingFocusSeatField != IntPtr.Zero)
+            if (_pendingFocus.Seat != IntPtr.Zero)
             {
-                if (_client.PendingFocusWindow != IntPtr.Zero)
+                if (_pendingFocus.Window != IntPtr.Zero)
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(_client.PendingFocusSeatField, 1, IntPtr.Zero, 0, 0,
-                        _client.PendingFocusWindow, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                    WaylandInterop.wl_proxy_marshal_flags(_pendingFocus.Seat, 1, IntPtr.Zero, 0, 0,
+                        _pendingFocus.Window, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
                         IntPtr.Zero);
-                    RiverLog.Write($"gave focus to window 0x{_client.PendingFocusWindow.ToString("x")}");
+                    RiverLog.Write($"gave focus to window 0x{_pendingFocus.Window.ToString("x")}");
                 }
-                else if (_client.PendingFocusShellSurface != IntPtr.Zero)
+                else if (_pendingFocus.ShellSurface != IntPtr.Zero)
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(_client.PendingFocusSeatField, 2, IntPtr.Zero, 0, 0,
-                        _client.PendingFocusShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                    WaylandInterop.wl_proxy_marshal_flags(_pendingFocus.Seat, 2, IntPtr.Zero, 0, 0,
+                        _pendingFocus.ShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
                         IntPtr.Zero);
-                    RiverLog.Write($"gave focus to shell surface 0x{_client.PendingFocusShellSurface.ToString("x")}");
+                    RiverLog.Write($"gave focus to shell surface 0x{_pendingFocus.ShellSurface.ToString("x")}");
                 }
 
-                _client.PendingFocusSeatField = IntPtr.Zero;
-                _client.PendingFocusWindowMutable = IntPtr.Zero;
-                _client.PendingFocusShellSurfaceMutable = IntPtr.Zero;
+                _pendingFocus.Seat = IntPtr.Zero;
+                _pendingFocus.Window = IntPtr.Zero;
+                _pendingFocus.ShellSurface = IntPtr.Zero;
             }
 
-            if (_client.OutputRegistry.Entries.IsEmpty)
+            if (_outputRegistry.Entries.IsEmpty)
             {
-                Rect rect = StrutsCalculator.Apply(new Rect(0, 0, 1920, 1080), _client.LayoutConfig?.Struts);
-                _client.ProposeForArea(IntPtr.Zero, null, rect);
+                Rect rect = StrutsCalculator.Apply(new Rect(0, 0, 1920, 1080), _layoutController.Config?.Struts);
+                _layoutProposer.ProposeForArea(IntPtr.Zero, null, rect);
             }
             else
             {
-                foreach (var outputKvp in _client.OutputRegistry.Entries)
+                foreach (var outputKvp in _outputRegistry.Entries)
                 {
                     OutputEntry oe = outputKvp.Value;
                     var aw = oe.Width > 0 ? oe.Width : 1920;
                     var ah = oe.Height > 0 ? oe.Height : 1080;
-                    Rect rect = StrutsCalculator.Apply(new Rect(oe.X, oe.Y, aw, ah), _client.LayoutConfig?.Struts);
-                    _client.ProposeForArea(outputKvp.Key, null, rect);
+                    Rect rect = StrutsCalculator.Apply(new Rect(oe.X, oe.Y, aw, ah), _layoutController.Config?.Struts);
+                    _layoutProposer.ProposeForArea(outputKvp.Key, null, rect);
                 }
             }
 
-            _client.SendManagerRequestExternal(2); // manage_finish
+            _managerRequestSender.SendManagerRequest(2); // manage_finish
         }
         finally
         {
-            _client.InsideManageSequenceFlag = false;
+            _manageCycle.InsideManageSequence = false;
+            _managerRequestSender.InsideManageSequence = false;
         }
     }
 
@@ -240,7 +303,7 @@ internal sealed unsafe class ManagerEventService
                 }
             }
 
-            if (_client.ManagerVersion >= 2 && we.W > 0 && we.H > 0 &&
+            if (_manageCycle.ManagerVersion >= 2 && we.W > 0 && we.H > 0 &&
                 (we.LastClipW != we.W || we.LastClipH != we.H))
             {
                 WaylandInterop.wl_proxy_marshal_flags(
@@ -254,7 +317,7 @@ internal sealed unsafe class ManagerEventService
 
         WindowState ClassifyState(IntPtr handle)
         {
-            if (_client.WindowStates.TryGetValue(handle, out var sd) && sd != null)
+            if (_windowStates.TryGetValue(handle, out var sd) && sd != null)
             {
                 return sd.State;
             }
@@ -262,19 +325,19 @@ internal sealed unsafe class ManagerEventService
             return WindowState.Tiled;
         }
 
-        IntPtr focused = _client.FocusedWindowHandle;
+        IntPtr focused = _focusedWindowTracker.Current;
         WindowState focusedState = focused != IntPtr.Zero
             ? ClassifyState(focused)
             : WindowState.Tiled;
         bool HasFocusedInLayer(WindowState layer) =>
             focused != IntPtr.Zero
-            && _client.WindowRegistry.Entries.ContainsKey(focused)
+            && _windowRegistry.Entries.ContainsKey(focused)
             && focusedState == layer;
 
         void EmitPass(Func<WindowState, bool> match, WindowState layer)
         {
             bool deferFocused = HasFocusedInLayer(layer);
-            foreach (var kvp in _client.WindowRegistry.Entries)
+            foreach (var kvp in _windowRegistry.Entries)
             {
                 var s = ClassifyState(kvp.Key);
                 if (!match(s)) continue;
@@ -282,7 +345,7 @@ internal sealed unsafe class ManagerEventService
                 EmitWindow(kvp.Key, kvp.Value);
             }
             if (deferFocused
-                && _client.WindowRegistry.Entries.TryGetValue(focused, out var fw))
+                && _windowRegistry.Entries.TryGetValue(focused, out var fw))
             {
                 EmitWindow(focused, fw);
             }
@@ -293,10 +356,10 @@ internal sealed unsafe class ManagerEventService
 
         {
             bool deferFocused = focused != IntPtr.Zero
-                && _client.WindowRegistry.Entries.ContainsKey(focused)
+                && _windowRegistry.Entries.ContainsKey(focused)
                 && (focusedState == WindowState.Floating
                     || focusedState == WindowState.Scratchpad);
-            foreach (var kvp in _client.WindowRegistry.Entries)
+            foreach (var kvp in _windowRegistry.Entries)
             {
                 var s = ClassifyState(kvp.Key);
                 if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
@@ -304,7 +367,7 @@ internal sealed unsafe class ManagerEventService
                 EmitWindow(kvp.Key, kvp.Value);
             }
             if (deferFocused
-                && _client.WindowRegistry.Entries.TryGetValue(focused, out var fw))
+                && _windowRegistry.Entries.TryGetValue(focused, out var fw))
             {
                 EmitWindow(focused, fw);
             }
@@ -312,7 +375,7 @@ internal sealed unsafe class ManagerEventService
 
         EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
 
-        _client.SendManagerRequestExternal(4); // render_finish
+        _managerRequestSender.SendManagerRequest(4); // render_finish
     }
 
     private void HandleWindowInformation(WlArgument* args)
@@ -328,27 +391,27 @@ internal sealed unsafe class ManagerEventService
             proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-        _client.WindowRegistry.Entries[proxy] = entry;
-        _client.TrackProxyInterface(proxy, "river_window_v1");
-        _client.TrackProxyInterface(entry.NodeProxy, "river_node_v1");
+        _windowRegistry.Entries[proxy] = entry;
+        _bindSiteState.TrackProxyInterface(proxy, "river_window_v1");
+        _bindSiteState.TrackProxyInterface(entry.NodeProxy, "river_node_v1");
 
-        if (_client.PrimarySeat != IntPtr.Zero && _client.WindowRegistry.Entries.ContainsKey(proxy))
+        if (_primarySeat.Current != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(proxy))
         {
-            _client.RequestFocusExternal(proxy);
+            _focusService.RequestFocus(proxy);
         }
         else
         {
-            RiverLog.Write($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_client.PrimarySeat != IntPtr.Zero}, tracked={_client.WindowRegistry.Entries.ContainsKey(proxy)})");
+            RiverLog.Write($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat.Current != IntPtr.Zero}, tracked={_windowRegistry.Entries.ContainsKey(proxy)})");
         }
 
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-            _client.SelfHandlePtr,
+            _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
         RiverLog.Write($"+ window 0x{proxy.ToString("x")}");
 
-        _client.ScheduleManageExternal();
+        _managerRequestSender.ScheduleManage();
     }
 
     private void HandleOutputInformation(WlArgument* args)
@@ -359,13 +422,13 @@ internal sealed unsafe class ManagerEventService
             return;
         }
 
-        _client.OutputRegistry.Entries[proxy] = new OutputEntry { Proxy = proxy };
+        _outputRegistry.Entries[proxy] = new OutputEntry { Proxy = proxy };
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-            _client.SelfHandlePtr,
+            _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
-        _client.TrackProxyInterface(proxy, "river_output_v1");
+        _bindSiteState.TrackProxyInterface(proxy, "river_output_v1");
         RiverLog.Write($"+ output 0x{proxy.ToString("x")}");
     }
 
@@ -377,95 +440,96 @@ internal sealed unsafe class ManagerEventService
             return;
         }
 
-        _client.SeatRegistry.Entries[proxy] = new SeatEntry { Proxy = proxy };
+        _seatRegistry.Entries[proxy] = new SeatEntry { Proxy = proxy };
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-            _client.SelfHandlePtr,
+            _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
-        _client.TrackProxyInterface(proxy, "river_seat_v1");
+        _bindSiteState.TrackProxyInterface(proxy, "river_seat_v1");
         RiverLog.Write($"+ seat 0x{proxy.ToString("x")}");
 
-        if (_client.PrimarySeat == IntPtr.Zero)
+        if (_primarySeat.Current == IntPtr.Zero)
         {
-            _client.PrimarySeatMutable = proxy;
+            _primarySeat.Current = proxy;
         }
 
-        if (_client.FocusedWindowHandle == IntPtr.Zero && _client.PendingFocusWindow == IntPtr.Zero && _client.WindowRegistry.Entries.Count > 0)
+        if (_focusedWindowTracker.Current == IntPtr.Zero && _pendingFocus.Window == IntPtr.Zero && _windowRegistry.Entries.Count > 0)
         {
-            foreach (var wk in _client.WindowRegistry.Entries.Keys)
+            foreach (var wk in _windowRegistry.Entries.Keys)
             {
-                _client.RequestFocusExternal(wk);
+                _focusService.RequestFocus(wk);
                 break;
             }
         }
 
-        if (_client.XkbBindings != IntPtr.Zero)
+        if (_bindSiteState.XkbBindings != IntPtr.Zero)
         {
-            _client.KeyBindingRegistrar.RegisterAllBindings(proxy);
+            _keyBindingRegistrar.RegisterAllBindings(proxy);
         }
 
-        bool firstPointerBindingForSeat = _client.SeatsWithPointerBindings.Add(proxy);
-        if (firstPointerBindingForSeat && _client.DragPointerBinding == IntPtr.Zero && _client.ManagerVersion >= 4)
+        bool firstPointerBindingForSeat = _pointerBindings.SeatsWithPointerBindings.Add(proxy);
+        uint managerVersion = _manageCycle.ManagerVersion;
+        if (firstPointerBindingForSeat && _pointerBindings.DragPointerBinding == IntPtr.Zero && managerVersion >= 4)
         {
             const uint BTN_LEFT = 0x110;
             uint modMask = Mods.PrimaryMask;
-            _client.DragPointerBinding = WaylandInterop.wl_proxy_marshal_flags(
-                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _client.ManagerVersion, 0,
+            _pointerBindings.DragPointerBinding = WaylandInterop.wl_proxy_marshal_flags(
+                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, managerVersion, 0,
                 IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)modMask,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-            if (_client.DragPointerBinding != IntPtr.Zero)
+            if (_pointerBindings.DragPointerBinding != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
-                    _client.DragPointerBinding,
+                    _pointerBindings.DragPointerBinding,
                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-                    _client.SelfHandlePtr,
+                    _keyBindingsRegistry.SelfHandlePtr,
                     IntPtr.Zero);
-                _client.TrackProxyInterface(_client.DragPointerBinding, "river_pointer_binding_v1");
-                _client.DragPointerBindingNeedsEnable = true;
+                _bindSiteState.TrackProxyInterface(_pointerBindings.DragPointerBinding, "river_pointer_binding_v1");
+                _pointerBindings.DragPointerBindingNeedsEnable = true;
                 RiverLog.Write(
-                    $"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{_client.ManagerVersion})");
+                    $"registered {Mods.PrimaryName}+BTN_LEFT pointer binding for window drag (mask=0x{modMask:x}, v{managerVersion})");
             }
         }
-        else if (_client.DragPointerBinding == IntPtr.Zero && _client.ManagerVersion < 4)
+        else if (_pointerBindings.DragPointerBinding == IntPtr.Zero && managerVersion < 4)
         {
             RiverLog.Write(
-                $"skipping get_pointer_binding; river_window_manager_v1 v{_client.ManagerVersion} < 4 (River 0.4.3 ships v3)");
+                $"skipping get_pointer_binding; river_window_manager_v1 v{managerVersion} < 4 (River 0.4.3 ships v3)");
         }
 
-        if (firstPointerBindingForSeat && _client.DragResizePointerBinding == IntPtr.Zero && _client.ManagerVersion >= 4)
+        if (firstPointerBindingForSeat && _pointerBindings.DragResizePointerBinding == IntPtr.Zero && managerVersion >= 4)
         {
             const uint BTN_RIGHT = 0x111;
             uint modMask = Mods.PrimaryMask;
-            _client.DragResizePointerBindingMutable = WaylandInterop.wl_proxy_marshal_flags(
-                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _client.ManagerVersion, 0,
+            _pointerBindings.DragResizePointerBinding = WaylandInterop.wl_proxy_marshal_flags(
+                proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, managerVersion, 0,
                 IntPtr.Zero, (IntPtr)BTN_RIGHT, (IntPtr)modMask,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-            if (_client.DragResizePointerBinding != IntPtr.Zero)
+            if (_pointerBindings.DragResizePointerBinding != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
-                    _client.DragResizePointerBinding,
+                    _pointerBindings.DragResizePointerBinding,
                     (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-                    _client.SelfHandlePtr,
+                    _keyBindingsRegistry.SelfHandlePtr,
                     IntPtr.Zero);
-                _client.TrackProxyInterface(_client.DragResizePointerBinding, "river_pointer_binding_v1");
-                _client.DragResizePointerBindingNeedsEnable = true;
+                _bindSiteState.TrackProxyInterface(_pointerBindings.DragResizePointerBinding, "river_pointer_binding_v1");
+                _pointerBindings.DragResizePointerBindingNeedsEnable = true;
                 RiverLog.Write(
-                    $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{_client.ManagerVersion})");
+                    $"registered {Mods.PrimaryName}+BTN_RIGHT pointer binding for window drag-resize (mask=0x{modMask:x}, v{managerVersion})");
             }
         }
 
-        if (_client.ManagerVersion >= 4 && _client.SnapActivatorBindings.Count == 0)
+        if (managerVersion >= 4 && _pointerBindings.SnapActivatorBindings.Count == 0)
         {
             const uint BTN_LEFT = 0x110;
-            var seenActivators = new HashSet<Aqueous.Features.SnapZones.SnapActivator>();
-            foreach (var layoutList in _client.SnapZoneService.CollectAllSnapLayouts())
+            var seenActivators = new HashSet<SnapActivator>();
+            foreach (var layoutList in _snapZoneService.CollectAllSnapLayouts())
             {
                 foreach (var l in layoutList)
                 {
-                    if (l.Activator == Aqueous.Features.SnapZones.SnapActivator.Always)
+                    if (l.Activator == SnapActivator.Always)
                     {
                         continue;
                     }
@@ -475,7 +539,7 @@ internal sealed unsafe class ManagerEventService
                         continue;
                     }
 
-                    uint extraMask = _client.SnapZoneService.ActivatorToMask(l.Activator);
+                    uint extraMask = _snapZoneService.ActivatorToMask(l.Activator);
                     if (extraMask == 0)
                     {
                         continue;
@@ -483,7 +547,7 @@ internal sealed unsafe class ManagerEventService
 
                     uint combinedMask = Mods.PrimaryMask | extraMask;
                     var pb = WaylandInterop.wl_proxy_marshal_flags(
-                        proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, _client.ManagerVersion, 0,
+                        proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, managerVersion, 0,
                         IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)combinedMask,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     if (pb == IntPtr.Zero)
@@ -491,14 +555,14 @@ internal sealed unsafe class ManagerEventService
                         continue;
                     }
 
-                    _client.SnapActivatorBindingsMutable[pb] = l.Activator;
-                    _client.SnapActivatorBindingNeedsEnable[pb] = true;
+                    _pointerBindings.SnapActivatorBindings[pb] = l.Activator;
+                    _pointerBindings.SnapActivatorBindingNeedsEnable[pb] = true;
                     WaylandInterop.wl_proxy_add_dispatcher(
                         pb,
                         (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-                        _client.SelfHandlePtr,
+                        _keyBindingsRegistry.SelfHandlePtr,
                         IntPtr.Zero);
-                    _client.TrackProxyInterface(pb, "river_pointer_binding_v1");
+                    _bindSiteState.TrackProxyInterface(pb, "river_pointer_binding_v1");
                     string maskHex = combinedMask.ToString("x");
                     RiverLog.Write($"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
                 }

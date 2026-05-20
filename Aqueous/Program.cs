@@ -101,6 +101,17 @@ class Program
         services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
         services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
 
+        // PR 9.12 §2.13 Step 5: PointerBindingStore + ManageCycleState own
+        // the per-seat pointer-binding wiring (drag/resize/snap-activator
+        // binding proxies + their needs-enable flags + per-seat dedupe) and
+        // the manage-cycle scoped flags (ManagerVersion / InsideManageSequence)
+        // that previously lived on the god class. ManagerEventService,
+        // WindowEventService and DragPointerBindingService consume them
+        // directly; RWMC keeps property aliases backed by the stores until
+        // any remaining in-class readers retire.
+        services.AddSingleton<Aqueous.Features.Input.PointerBindingStore>();
+        services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -124,7 +135,9 @@ class Program
                 sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>(),
                 sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>(),
                 sp.GetRequiredService<Aqueous.Features.State.PrevFullscreenStore>(),
-                sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>()));
+                sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>(),
+                sp.GetRequiredService<Aqueous.Features.Input.PointerBindingStore>(),
+                sp.GetRequiredService<Aqueous.Features.State.ManageCycleState>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the

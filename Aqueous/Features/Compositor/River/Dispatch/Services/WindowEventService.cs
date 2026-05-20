@@ -1,27 +1,84 @@
 using System;
 using System.Runtime.InteropServices;
 using Aqueous.Diagnostics;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Focus;
+using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
 
 /// <summary>
-/// PR 9.12 §2.13 — handles river_window_v1 events. Lifted from the
-/// deleted partial-class file <c>WindowEventHandler.cs</c> into a
-/// standalone service. State the service mutates still lives on
-/// <see cref="RiverWindowManagerClient"/> (window registry, window
-/// states, fullscreen map, drag state, focus state, seat-hover map).
-/// Each is consumed via internal accessors and retires together with
-/// the god class.
+/// PR 9.12 §2.13 Step 5 — handles river_window_v1 events.
+///
+/// <para>
+/// The service no longer references <see cref="RiverWindowManagerClient"/>.
+/// All state previously read/written through god-class accessors is
+/// now consumed via fine-grained DI singletons:
+/// </para>
+/// <list type="bullet">
+///   <item><description><see cref="IWindowRegistry"/> — window lookup
+///   and removal on Closed.</description></item>
+///   <item><description><see cref="WindowStateStore"/>,
+///   <see cref="OutputFullscreenMap"/>,
+///   <see cref="PrevFullscreenStore"/> — per-window/output state
+///   buckets cleared on Closed and queried by the
+///   Maximize/Fullscreen/Minimize cases.</description></item>
+///   <item><description><see cref="DragStateStore"/> — drag-lifecycle
+///   coords/edges/started/finished/seat-hovered map. Pointer
+///   Move/Resize requested cases arm a new drag on this store.</description></item>
+///   <item><description><see cref="IFocusService"/> — focus
+///   self-repair on Closed and explicit RequestFocus on Activate/
+///   Unminimize.</description></item>
+///   <item><description><see cref="PendingFocusStore"/> — clear the
+///   stale pending-focus handle on Closed.</description></item>
+///   <item><description><see cref="WindowStateController"/> — the
+///   maximize/minimize/fullscreen state machine.</description></item>
+///   <item><description><see cref="ILayoutProposer"/> — float-layout
+///   gate for client-driven drag-arm requests.</description></item>
+///   <item><description><see cref="IManagerRequestSender"/> —
+///   ScheduleManage acks.</description></item>
+/// </list>
 /// </summary>
 internal sealed unsafe class WindowEventService
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly WindowStateStore _windowStates;
+    private readonly OutputFullscreenMap _outputFullscreen;
+    private readonly PrevFullscreenStore _prevFullscreenStore;
+    private readonly DragStateStore _dragState;
+    private readonly PendingFocusStore _pendingFocus;
+    private readonly IFocusService _focusService;
+    private readonly FocusedWindowTracker _focusedWindowTracker;
+    private readonly WindowStateController _windowStateController;
+    private readonly ILayoutProposer _layoutProposer;
+    private readonly IManagerRequestSender _managerRequestSender;
 
-    public WindowEventService(RiverWindowManagerClient client)
+    public WindowEventService(
+        IWindowRegistry windowRegistry,
+        WindowStateStore windowStates,
+        OutputFullscreenMap outputFullscreen,
+        PrevFullscreenStore prevFullscreenStore,
+        DragStateStore dragState,
+        PendingFocusStore pendingFocus,
+        IFocusService focusService,
+        FocusedWindowTracker focusedWindowTracker,
+        WindowStateController windowStateController,
+        ILayoutProposer layoutProposer,
+        IManagerRequestSender managerRequestSender)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _windowStates          = windowStates          ?? throw new ArgumentNullException(nameof(windowStates));
+        _outputFullscreen      = outputFullscreen      ?? throw new ArgumentNullException(nameof(outputFullscreen));
+        _prevFullscreenStore   = prevFullscreenStore   ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
+        _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
+        _pendingFocus          = pendingFocus          ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _focusService          = focusService          ?? throw new ArgumentNullException(nameof(focusService));
+        _focusedWindowTracker  = focusedWindowTracker  ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _windowStateController = windowStateController ?? throw new ArgumentNullException(nameof(windowStateController));
+        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
     }
 
     private static string? MarshalUtf8(IntPtr p) =>
@@ -29,7 +86,7 @@ internal sealed unsafe class WindowEventService
 
     public void HandleEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        if (!_client.WindowRegistry.Entries.TryGetValue(proxy, out var w))
+        if (!_windowRegistry.Entries.TryGetValue(proxy, out var w))
         {
             return;
         }
@@ -38,46 +95,46 @@ internal sealed unsafe class WindowEventService
         {
             case RiverProtocolOpcodes.Window.Closed:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} closed");
-                _client.WindowStateController.OnWindowDestroyed(new WindowProxy(proxy));
-                _client.WindowStates.TryRemove(proxy, out _);
-                foreach (var ofs in _client.OutputFullscreen)
+                _windowStateController.OnWindowDestroyed(new WindowProxy(proxy));
+                _windowStates.TryRemove(proxy, out _);
+                foreach (var ofs in _outputFullscreen)
                 {
                     if (ofs.Value == proxy)
                     {
-                        _client.OutputFullscreen.TryRemove(ofs.Key, out _);
+                        _outputFullscreen.TryRemove(ofs.Key, out _);
                     }
                 }
-                _client.PrevFullscreenHandles.Remove(proxy);
+                _prevFullscreenStore.Handles.Remove(proxy);
 
-                _client.WindowRegistry.Entries.TryRemove(proxy, out _);
+                _windowRegistry.Entries.TryRemove(proxy, out _);
 
-                if (_client.ActiveDragWindow != null && _client.ActiveDragWindow.Proxy == proxy)
+                if (_dragState.ActiveDragWindow != null && _dragState.ActiveDragWindow.Proxy == proxy)
                 {
-                    _client.SetActiveDragWindow(null);
-                    _client.SetActiveDragSeat(IntPtr.Zero);
-                    _client.SetDragStarted(false);
-                    _client.SetDragFinished(false);
-                    _client.SetDragEdges(0);
-                    _client.DragResizeInformed = false;
+                    _dragState.ActiveDragWindow = null;
+                    _dragState.ActiveDragSeat = IntPtr.Zero;
+                    _dragState.DragStarted = false;
+                    _dragState.DragFinished = false;
+                    _dragState.DragEdges = 0;
+                    _dragState.DragResizeInformed = false;
                 }
 
-                if (_client.PendingFocusWindow == proxy)
+                if (_pendingFocus.Window == proxy)
                 {
-                    _client.PendingFocusWindowMutable = IntPtr.Zero;
+                    _pendingFocus.Window = IntPtr.Zero;
                 }
 
-                foreach (var k in _client.SeatHoveredWindow.Keys)
+                foreach (var k in _dragState.SeatHoveredWindow.Keys)
                 {
-                    if (_client.SeatHoveredWindow.TryGetValue(k, out var v) && v == proxy)
+                    if (_dragState.SeatHoveredWindow.TryGetValue(k, out var v) && v == proxy)
                     {
-                        _client.SeatHoveredWindow[k] = IntPtr.Zero;
+                        _dragState.SeatHoveredWindow[k] = IntPtr.Zero;
                     }
                 }
 
-                if (_client.FocusedWindow == proxy)
+                if (_focusedWindowTracker.Current == proxy)
                 {
-                    _client.FocusedWindow = IntPtr.Zero;
-                    _client.FocusAnyOtherWindowExternal(proxy);
+                    _focusService.ClearFocusedHandle();
+                    _focusService.FocusAnyOtherWindow(proxy);
                 }
                 break;
 
@@ -93,7 +150,7 @@ internal sealed unsafe class WindowEventService
                 w.W = args[0].i;
                 w.H = args[1].i;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.AppId:
@@ -110,29 +167,29 @@ internal sealed unsafe class WindowEventService
             {
                 IntPtr seatProxy = args[0].o;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
-                if (!_client.IsFloatLayoutActive(w.Output))
+                if (!_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     break;
                 }
 
-                _client.SetActiveDragWindow(w);
-                _client.SetActiveDragSeat(seatProxy);
-                _client.SetDragStartX(w.X);
-                _client.SetDragStartY(w.Y);
-                if (_client.SeatPointerPos.TryGetValue(seatProxy, out var pmrP0))
+                _dragState.ActiveDragWindow = w;
+                _dragState.ActiveDragSeat = seatProxy;
+                _dragState.DragStartX = w.X;
+                _dragState.DragStartY = w.Y;
+                if (_dragState.SeatPointerPos.TryGetValue(seatProxy, out var pmrP0))
                 {
-                    _client.SetDragStartPointerX(pmrP0.X);
-                    _client.SetDragStartPointerY(pmrP0.Y);
+                    _dragState.DragStartPointerX = pmrP0.X;
+                    _dragState.DragStartPointerY = pmrP0.Y;
                 }
                 else
                 {
-                    _client.SetDragStartPointerX(w.X);
-                    _client.SetDragStartPointerY(w.Y);
+                    _dragState.DragStartPointerX = w.X;
+                    _dragState.DragStartPointerY = w.Y;
                 }
 
-                _client.SetDragEdges(0);
-                _client.SetDragStarted(false);
-                _client.SetDragFinished(false);
+                _dragState.DragEdges = 0;
+                _dragState.DragStarted = false;
+                _dragState.DragFinished = false;
                 break;
             }
 
@@ -141,24 +198,24 @@ internal sealed unsafe class WindowEventService
                 IntPtr resizeSeatProxy = args[0].o;
                 uint edges = args[1].u;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
-                if (edges == 0 || !_client.IsFloatLayoutActive(w.Output))
+                if (edges == 0 || !_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     break;
                 }
 
-                _client.SetActiveDragWindow(w);
-                _client.SetActiveDragSeat(resizeSeatProxy);
-                _client.SetDragStartX(w.X);
-                _client.SetDragStartY(w.Y);
-                if (_client.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
+                _dragState.ActiveDragWindow = w;
+                _dragState.ActiveDragSeat = resizeSeatProxy;
+                _dragState.DragStartX = w.X;
+                _dragState.DragStartY = w.Y;
+                if (_dragState.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
                 {
-                    _client.SetDragStartPointerX(prrP0.X);
-                    _client.SetDragStartPointerY(prrP0.Y);
+                    _dragState.DragStartPointerX = prrP0.X;
+                    _dragState.DragStartPointerY = prrP0.Y;
                 }
                 else
                 {
-                    _client.SetDragStartPointerX(w.X);
-                    _client.SetDragStartPointerY(w.Y);
+                    _dragState.DragStartPointerX = w.X;
+                    _dragState.DragStartPointerY = w.Y;
                 }
 
                 int startW = w.W > 0 ? w.W
@@ -171,76 +228,76 @@ internal sealed unsafe class WindowEventService
                             : w.LastHintH > 0 ? w.LastHintH
                             : w.ProposedH > 0 ? w.ProposedH
                             : 600;
-                _client.SetDragStartW(startW);
-                _client.SetDragStartH(startH);
-                _client.SetDragEdges(edges);
-                _client.SetDragStarted(false);
-                _client.SetDragFinished(false);
+                _dragState.DragStartW = startW;
+                _dragState.DragStartH = startH;
+                _dragState.DragEdges = edges;
+                _dragState.DragStarted = false;
+                _dragState.DragFinished = false;
                 break;
             }
 
             case RiverProtocolOpcodes.Window.MaximizeRequested:
-                if (!_client.WindowStates.TryGetValue(proxy, out WindowStateData? sMax)
+                if (!_windowStates.TryGetValue(proxy, out WindowStateData? sMax)
                     || sMax.State != WindowState.Maximized)
                 {
-                    _client.WindowStateController.ToggleMaximize(new WindowProxy(proxy));
+                    _windowStateController.ToggleMaximize(new WindowProxy(proxy));
                 }
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.UnmaximizeRequested:
-                if (_client.WindowStates.TryGetValue(proxy, out WindowStateData? stateData)
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? stateData)
                     && stateData.State == WindowState.Maximized)
                 {
-                    _client.WindowStateController.ToggleMaximize(new WindowProxy(proxy));
+                    _windowStateController.ToggleMaximize(new WindowProxy(proxy));
                 }
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.FullscreenRequested:
             {
                 var outputProxy = args[0].o;
-                _client.WindowStateController.OnClientRequestedFullscreen(new WindowProxy(proxy),
+                _windowStateController.OnClientRequestedFullscreen(new WindowProxy(proxy),
                     outputProxy == IntPtr.Zero ? null : new OutputProxy(outputProxy));
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
             }
 
             case RiverProtocolOpcodes.Window.ExitFullscreenRequested:
-                _client.WindowStateController.OnClientRequestedUnfullscreen(new WindowProxy(proxy));
-                _client.ScheduleManageExternal();
+                _windowStateController.OnClientRequestedUnfullscreen(new WindowProxy(proxy));
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.MinimizeRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} minimize_requested");
-                if (!_client.WindowStates.TryGetValue(proxy, out WindowStateData? minState)
+                if (!_windowStates.TryGetValue(proxy, out WindowStateData? minState)
                     || minState.State != WindowState.Minimized)
                 {
-                    _client.WindowStateController.ToggleMinimize(new WindowProxy(proxy));
+                    _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                 }
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.ActivateRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} activate_requested");
-                if (_client.WindowStates.TryGetValue(proxy, out WindowStateData? actState)
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? actState)
                     && actState.State == WindowState.Minimized)
                 {
-                    _client.WindowStateController.ToggleMinimize(new WindowProxy(proxy));
+                    _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                 }
-                _client.RequestFocusExternal(proxy);
-                _client.ScheduleManageExternal();
+                _focusService.RequestFocus(proxy);
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.UnminimizeRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} unminimize_requested");
-                if (_client.WindowStates.TryGetValue(proxy, out WindowStateData? unminState)
+                if (_windowStates.TryGetValue(proxy, out WindowStateData? unminState)
                     && unminState.State == WindowState.Minimized)
                 {
-                    _client.WindowStateController.ToggleMinimize(new WindowProxy(proxy));
-                    _client.RequestFocusExternal(proxy);
+                    _windowStateController.ToggleMinimize(new WindowProxy(proxy));
+                    _focusService.RequestFocus(proxy);
                 }
-                _client.ScheduleManageExternal();
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.Identifier:

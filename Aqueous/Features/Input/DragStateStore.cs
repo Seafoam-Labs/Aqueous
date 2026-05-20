@@ -47,4 +47,22 @@ internal sealed class DragStateStore
     }
 
     public ConcurrentDictionary<IntPtr, (int X, int Y)> SeatPointerPos { get; } = new();
+
+    // PR 9.12 §2.13 Step 5 — drag-rect / lifecycle state previously owned
+    // as private fields on RiverWindowManagerClient. Pump-thread only.
+    public IntPtr ActiveDragSeat { get; set; }
+    public bool DragStarted { get; set; }
+    public bool DragFinished { get; set; }
+    public uint DragEdges { get; set; }
+    public int DragStartX { get; set; }
+    public int DragStartY { get; set; }
+    public int DragStartW { get; set; }
+    public int DragStartH { get; set; }
+    public int DragStartPointerX { get; set; }
+    public int DragStartPointerY { get; set; }
+    public bool DragResizeInformed { get; set; }
+
+    // seat -> hovered window proxy. Concurrent because pointer-enter/leave
+    // events can race with the manage cycle reading this map.
+    public ConcurrentDictionary<IntPtr, IntPtr> SeatHoveredWindow { get; } = new();
 }
