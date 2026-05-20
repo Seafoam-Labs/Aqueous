@@ -78,6 +78,30 @@ public interface IWindowStateHost
     void InvalidateFloatRect(WindowProxy window);
 
     /// <summary>
+    /// Reset the per-window visibility latches on the layout
+    /// <c>WindowEntry</c> (<c>HideSent</c>, <c>LastHintW/H</c>,
+    /// <c>LastPosX/Y</c>, <c>LastClipW/H</c>) so the next
+    /// <c>ProposeForArea</c> deterministically re-enters the show
+    /// path for <paramref name="window"/>. Mirrors the cache
+    /// invalidation already performed on the hide pass; called by
+    /// <see cref="WindowStateController"/> on Minimized → previous
+    /// transitions so the toggle is symmetric. Default impl is a
+    /// no-op for in-memory test fakes.
+    /// </summary>
+    void ResetVisibilityLatches(WindowProxy window) { }
+
+    /// <summary>
+    /// True iff <paramref name="window"/> is currently in a layout
+    /// bucket (has a non-zero output and is tag-visible) and can
+    /// safely receive a <c>focus_window</c> request. Used by
+    /// <see cref="WindowStateController.UnminimizeLast"/> to avoid
+    /// focusing a window whose surface River has just torn down via
+    /// <c>hide()</c>. Default impl returns <c>true</c> so test fakes
+    /// behave as before.
+    /// </summary>
+    bool IsWindowLayoutReady(WindowProxy window) => true;
+
+    /// <summary>
     /// Update the xdg-shell maximized state flag for
     /// <paramref name="window"/>. Strict xdg-shell clients (Chromium,
     /// Alacritty, GTK/libdecor) drive their layout from the

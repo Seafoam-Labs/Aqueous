@@ -273,6 +273,15 @@ public sealed class WindowStateController
             w.State = w.PreviousState;
             // Drop from MRU (it might not be on top).
             RemoveFromMru(_minimizedMru, window);
+            // Symmetric counterpart to the hide-pass cache invalidation
+            // in ProposeForArea: clear HideSent / LastHint / LastPos so
+            // the next manage cycle deterministically re-enters the
+            // show path (re-issuing propose_dimensions + set_position).
+            // Without this, a Minimized → Tiled toggle can leave the
+            // entry with HideSent=true and zeroed placement caches,
+            // and the next dispatch against the stale proxy crashes
+            // under AOT.
+            _host.ResetVisibilityLatches(window);
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} minimized→{w.State}");
         }
         else
@@ -321,9 +330,23 @@ public sealed class WindowStateController
             }
 
             w.State = w.PreviousState;
-            _host.Focus(win);
-            _host.Log($"state ws=0x{win.Handle.ToInt64():x} minimized→{w.State} (unminimize_last)");
+            // Symmetric latch reset (see ToggleMinimize) — the layout
+            // proposer must re-enter the show path on the next manage
+            // cycle before we attempt to give this window focus.
+            _host.ResetVisibilityLatches(win);
             _host.RequestRender(_host.FocusedOutput);
+            // Guard against focusing a window whose River-side surface
+            // is still torn down (hide() was sent but the next manage
+            // cycle hasn't re-shown it yet). Without this guard a
+            // focus_window dispatch against a stale proxy crashes
+            // under AOT. If the window isn't ready yet, the next
+            // manage cycle's normal focus handling will pick it up
+            // (state is no longer Minimized so it participates again).
+            if (_host.IsWindowLayoutReady(win))
+            {
+                _host.Focus(win);
+            }
+            _host.Log($"state ws=0x{win.Handle.ToInt64():x} minimized→{w.State} (unminimize_last)");
             return true;
         }
         return false;

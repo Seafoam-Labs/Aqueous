@@ -57,6 +57,49 @@ internal sealed unsafe partial class RiverWindowManagerClient
     }
 
     /// <summary>
+    /// Symmetric counterpart to the hide-pass cache invalidation in
+    /// <c>RiverWindowManagerClient.LayoutProposer.ProposeForArea</c>:
+    /// clears <c>HideSent</c> and zeroes the placement/size caches so
+    /// the next manage cycle re-issues <c>propose_dimensions</c> /
+    /// <c>set_position</c> and walks the show path for a window that
+    /// just left the Minimized / tag-hidden / scratchpad-dismissed
+    /// bucket. No-op if the handle is unknown (window already
+    /// destroyed).
+    /// </summary>
+    internal void ResetVisibilityLatchesForHost(IntPtr handle)
+    {
+        if (!_windowRegistry.Entries.TryGetValue(handle, out WindowEntry? entry))
+        {
+            return;
+        }
+
+        entry.HideSent = false;
+        entry.LastHintW = 0;
+        entry.LastHintH = 0;
+        entry.LastPosX = int.MinValue;
+        entry.LastPosY = int.MinValue;
+        entry.LastClipW = 0;
+        entry.LastClipH = 0;
+    }
+
+    /// <summary>
+    /// Probe used by <c>WindowStateController.UnminimizeLast</c> to
+    /// guard the <c>focus_window</c> call against a window that
+    /// hasn't been re-shown yet. Returns true when the entry is in a
+    /// layout bucket (non-zero output, tag-visible, not awaiting a
+    /// hide-flush).
+    /// </summary>
+    internal bool IsWindowLayoutReadyForHost(IntPtr handle)
+    {
+        if (!_windowRegistry.Entries.TryGetValue(handle, out WindowEntry? entry))
+        {
+            return false;
+        }
+
+        return entry.Output != IntPtr.Zero && entry.TagVisible && !entry.HideSent;
+    }
+
+    /// <summary>
     /// Sets the XdgMaximized flag + force-invalidates LastHintW/H on
     /// the matching window entry. Returns true iff the entry exists
     /// (the caller then proceeds to emit the wire-level marshal).

@@ -160,6 +160,26 @@ internal sealed class WindowStateHost : IWindowStateHost
         _c.InvalidateFloatRectForHost(window.Handle);
     }
 
+    public void ResetVisibilityLatches(WindowProxy window)
+    {
+        if (window.Handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _c.ResetVisibilityLatchesForHost(window.Handle);
+    }
+
+    public bool IsWindowLayoutReady(WindowProxy window)
+    {
+        if (window.Handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return _c.IsWindowLayoutReadyForHost(window.Handle);
+    }
+
     public void SetToplevelMaximizedState(WindowProxy window, bool maximized)
     {
         if (!_c.SetXdgMaximizedForHost(window.Handle, maximized))
