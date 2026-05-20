@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
 
 namespace Aqueous.Features.Screencopy;
 
@@ -32,4 +34,18 @@ internal interface IScreencopyService
     /// call from either bind-site as their arrival order is not guaranteed.
     /// </summary>
     void TryActivate(IntPtr screencopyManager, uint version, IntPtr shm, IntPtr selfHandle, IntPtr dispatcher);
+
+    /// <summary>
+    /// PR 9.12 §2.11 — picks the first known <c>wl_output</c> global from
+    /// <paramref name="outputGlobals"/>, binds it via <paramref name="bindOutput"/>
+    /// (typically <c>IWaylandConnection.Registry.Bind</c>), captures a single
+    /// frame, then destroys the proxy via <paramref name="destroyProxy"/>.
+    /// Returns <c>null</c> if the service is not ready or no output globals
+    /// are present.
+    /// </summary>
+    Task<ScreencopyResult>? CaptureFirstOutputAsync(
+        IEnumerable<RegistryGlobal> outputGlobals,
+        Func<uint, IntPtr> bindOutput,
+        Action<IntPtr> destroyProxy,
+        bool overlayCursor = false);
 }

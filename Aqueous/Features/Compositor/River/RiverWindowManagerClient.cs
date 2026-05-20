@@ -990,49 +990,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// </summary>
     /// <param name="overlayCursor">Whether to composite the cursor.</param>
     public System.Threading.Tasks.Task<ScreencopyResult>? CaptureFirstOutputAsync(bool overlayCursor = false)
-    {
-        if (!_screencopyService.IsReady)
-        {
-            return null;
-        }
-
-        RegistryGlobal? pick = null;
-        foreach (var kv in _wlOutputGlobals)
-        {
-            pick = kv.Value;
-            break;
-        }
-
-        if (pick is null)
-        {
-            return null;
-        }
-
-        // Bind a real wl_output proxy *just* for this capture. Version 1
-        // is sufficient — capture_output only needs the object identity.
-        // We destroy it after the frame completes so the wl_output event
-        // stream never lingers on the WM's display.
-        IntPtr output = _registry.Bind(pick.Value.Name, WlInterfaces.WlOutput, 1);
-        if (output == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        var task = _screencopyService.CaptureOutputAsync(output, overlayCursor);
-        if (task is null)
-        {
-            WaylandInterop.wl_proxy_destroy(output);
-            return null;
-        }
-        // Destroy the proxy as soon as the capture finishes (success or
-        // failure). The screencopy frame holds its own ref on the
-        // wl_output for the duration of the capture, so an early destroy
-        // on this side is safe.
-        IntPtr captured = output;
-        return task.ContinueWith(static (t, state) =>
-        {
-            WaylandInterop.wl_proxy_destroy((IntPtr)state!);
-            return t.GetAwaiter().GetResult();
-        }, captured, System.Threading.Tasks.TaskScheduler.Default);
-    }
+        => _screencopyService.CaptureFirstOutputAsync(
+            _wlOutputGlobals.Values,
+            name => _registry.Bind(name, WlInterfaces.WlOutput, 1),
+            WaylandInterop.wl_proxy_destroy,
+            overlayCursor);
 }

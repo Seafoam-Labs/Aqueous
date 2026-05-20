@@ -228,5 +228,10 @@ public class Stage8Pr88Tests
             return true;
         }
         public void TryActivate(IntPtr screencopyManager, uint version, IntPtr shm, IntPtr selfHandle, IntPtr dispatcher) { }
+        public System.Threading.Tasks.Task<ScreencopyResult>? CaptureFirstOutputAsync(
+            System.Collections.Generic.IEnumerable<Aqueous.Features.Compositor.River.Connection.RegistryGlobal> outputGlobals,
+            Func<uint, IntPtr> bindOutput,
+            Action<IntPtr> destroyProxy,
+            bool overlayCursor = false) => null;
     }
 }

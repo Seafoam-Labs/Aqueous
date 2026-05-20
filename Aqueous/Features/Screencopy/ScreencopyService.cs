@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
 
 namespace Aqueous.Features.Screencopy;
 
@@ -49,6 +51,50 @@ internal sealed class ScreencopyService : IScreencopyService, IDisposable
 
     public Task<ScreencopyResult>? CaptureOutputAsync(IntPtr output, bool overlayCursor = false)
         => _client?.CaptureOutputAsync(output, overlayCursor);
+
+    public Task<ScreencopyResult>? CaptureFirstOutputAsync(
+        IEnumerable<RegistryGlobal> outputGlobals,
+        Func<uint, IntPtr> bindOutput,
+        Action<IntPtr> destroyProxy,
+        bool overlayCursor = false)
+    {
+        if (!IsReady)
+        {
+            return null;
+        }
+
+        RegistryGlobal? pick = null;
+        foreach (var g in outputGlobals)
+        {
+            pick = g;
+            break;
+        }
+
+        if (pick is null)
+        {
+            return null;
+        }
+
+        IntPtr output = bindOutput(pick.Value.Name);
+        if (output == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var task = CaptureOutputAsync(output, overlayCursor);
+        if (task is null)
+        {
+            destroyProxy(output);
+            return null;
+        }
+
+        IntPtr captured = output;
+        return task.ContinueWith((t, state) =>
+        {
+            destroyProxy((IntPtr)state!);
+            return t.GetAwaiter().GetResult();
+        }, captured, TaskScheduler.Default);
+    }
 
     public unsafe bool TryDispatchFrameEvent(IntPtr frame, uint opcode, WlArgument* args)
         => _client is not null && _client.OnFrameEvent(frame, opcode, args);
