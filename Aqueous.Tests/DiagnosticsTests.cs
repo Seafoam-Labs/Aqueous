@@ -63,8 +63,8 @@ public class LoggingTests
     [Fact]
     public void Factory_DefaultsToNull()
     {
-        // Default is NullLoggerFactory unless configured. We only assert
-        // the property is non-null and resolves a logger without throwing.
+        // Default is NullLoggerFactory unless configured. We only assert the property is non-null and
+        // resolves a logger without throwing.
         var logger = Logging.For<LoggingTests>();
         Assert.NotNull(logger);
         // Should swallow without throwing on any level.
@@ -80,31 +80,36 @@ public class LoggingTests
 
 public class EventPumpCancellationTests
 {
-    // A trivial fake exposing the same Dispatch API EventPump consumes.
-    // We don't go through real Wayland — EventPump only needs an int
-    // returning Dispatch() and the public surface; we replace that
-    // through the existing internal type by using a delay loop.
+    // A trivial fake exposing the same Dispatch API EventPump consumes. We don't go through real
+    // Wayland — EventPump only needs an int returning Dispatch and the public surface; we replace
+    // that through the existing internal type by using a delay loop. the static TryStart factory was
+    // retired; lifecycle gating now lives in RiverEnvironmentGuard, driven by
+    // RiverCompositorHost.StartAsync. These two tests pin the env-var contract directly against the
+    // guard.
     [Fact]
-    public async Task TokenCancelledBeforeStart_DoesNotSpawnThread()
+    public async Task EnvironmentGuard_ReportsDisabled_WhenEnvUnset()
     {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        // Using the public seam: EventPump is internal, but the
-        // RiverWindowManagerClient.TryStart contract is what we're
-        // pinning. AQUEOUS_RIVER_WM is unset in tests so TryStart
-        // should fail with a deterministic Result.Fail.
-        var r = Aqueous.Features.Compositor.River.RiverWindowManagerClient.TryStart(cts.Token);
-        Assert.False(r.IsOk);
-        Assert.Contains("AQUEOUS_RIVER_WM", r.Error);
+        var prior = Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM");
+        try
+        {
+            Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", null);
+            Assert.False(Aqueous.Features.Compositor.River.RiverEnvironmentGuard.IsEnabled());
+            Assert.Contains(
+                "AQUEOUS_RIVER_WM",
+                Aqueous.Features.Compositor.River.RiverEnvironmentGuard.NotEnabledMessage);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", prior);
+        }
         await Task.CompletedTask;
     }
 
     [Fact]
-    public void TryStart_WithoutEnv_FailsWithReason()
+    public void EnvironmentGuard_NotEnabledMessage_IsNonEmpty()
     {
-        var r = Aqueous.Features.Compositor.River.RiverWindowManagerClient.TryStart();
-        Assert.False(r.IsOk);
-        Assert.NotNull(r.Error);
-        Assert.NotEmpty(r.Error!);
+        var msg = Aqueous.Features.Compositor.River.RiverEnvironmentGuard.NotEnabledMessage;
+        Assert.NotNull(msg);
+        Assert.NotEmpty(msg);
     }
 }

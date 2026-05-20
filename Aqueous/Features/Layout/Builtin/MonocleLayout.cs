@@ -4,11 +4,10 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// One window at a time fills the usable area; every other visible
-/// window has <c>Visible = false</c> so the controller skips its
-/// <c>OP_SHOW</c>. The "current" handle is remembered per-output and
-/// falls back to <see cref="ILayoutEngine.Arrange"/>'s
-/// <c>focusedWindow</c> if the previously-current one disappears.
+/// One window at a time fills the usable area; every other visible window has <c>Visible =
+/// false</c> so the controller skips its <c>OP_SHOW</c>. The "current" handle is remembered
+/// per-output and falls back to <see cref="ILayoutEngine.Arrange"/>'s <c>focusedWindow</c> if the
+/// previously-current one disappears.
 /// </summary>
 public sealed class MonocleLayout : ILayoutEngine
 {
@@ -61,9 +60,8 @@ public sealed class MonocleLayout : ILayoutEngine
         {
             var w = windows[i];
             bool isCurrent = w.Handle == state.Current;
-            // Non-current windows still get a placement record so the
-            // controller knows the engine is aware of them. Visible=false
-            // means "do not OP_SHOW this frame".
+            // Non-current windows still get a placement record so the controller knows the engine is aware of
+            // them. Visible=false means "do not OP_SHOW this frame".
             result.Add(new WindowPlacement(
                 w.Handle,
                 isCurrent ? area : Rect.Empty,

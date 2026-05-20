@@ -1,18 +1,14 @@
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Stable identifier for every built-in chord action that
-/// <see cref="RiverWindowManagerClient"/> can dispatch. Promoted out of
-/// the nested-enum declaration during the Phase 2 readability refactor
-/// — values and ordering are unchanged.
+/// Stable identifier for every built-in chord action that <see cref="RiverWindowManagerClient"/>
+/// can dispatch. Promoted out of the nested-enum declaration.
 /// </summary>
 /// <remarks>
-/// Tag actions (<c>ViewTag1..ViewTag9</c>, <c>SendTag1..SendTag9</c>,
-/// <c>ToggleViewTag1..</c>, <c>ToggleWindowTag1..</c>) are
-/// intentionally laid out as contiguous ranges so the dispatcher can
-/// compute the tag mask from
-/// <c>1u &lt;&lt; (action - ViewTag1)</c>. <c>Tag10</c> is bound to the
-/// digit key '0' to mirror keymap order <c>1234567890</c>.
+/// Tag actions (<c>ViewTag1..ViewTag9</c>, <c>SendTag1..SendTag9</c>, <c>ToggleViewTag1..</c>,
+/// <c>ToggleWindowTag1..</c>) are intentionally laid out as contiguous ranges so the dispatcher
+/// can compute the tag mask from <c>1u &lt;&lt; (action - ViewTag1)</c>. <c>Tag10</c> is bound to
+/// the digit key '0' to mirror keymap order <c>1234567890</c>.
 /// </remarks>
 internal enum KeyBindingAction
 {

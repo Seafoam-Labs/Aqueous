@@ -9,9 +9,8 @@ using System.Text;
 namespace Aqueous.OutputDaemon;
 
 /// <summary>
-/// Thin wrapper around the <c>wlr-randr</c> CLI.
-/// All argv is built explicitly (no shell), so user-supplied output names
-/// and modes are passed as separate <c>ArgumentList</c> entries.
+/// Thin wrapper around the <c>wlr-randr</c> CLI. All argv is built explicitly (no shell), so
+/// user-supplied output names and modes are passed as separate <c>ArgumentList</c> entries.
 /// </summary>
 internal static class WlrRandr
 {
@@ -41,7 +40,9 @@ internal static class WlrRandr
         public List<Mode> Modes = new();
     }
 
-    /// <summary>Run <c>wlr-randr --json</c> and parse the result.</summary>
+    /// <summary>
+    /// Run <c>wlr-randr --json</c> and parse the result.
+    /// </summary>
     public static List<Output> List(out string? error)
     {
         error = null;
@@ -76,8 +77,8 @@ internal static class WlrRandr
             op.Serial = d.GetString("serial_number") ?? d.GetString("serial");
             op.Enabled = d.GetBool("enabled") ?? true;
 
-            // Position lives under "position": {"x":..,"y":..} on newer wlr-randr
-            // and under top-level x/y on older builds.
+            // Position lives under "position": {"x":. "y":.} on newer wlr-randr and under top-level x/y on
+            // older builds.
             if (d.TryGetValue("position", out var posObj) && posObj is Dictionary<string, object?> pd)
             {
                 op.X = (int)(pd.GetDouble("x") ?? 0);
@@ -106,7 +107,7 @@ internal static class WlrRandr
                         Preferred = md.GetBool("preferred") ?? false,
                         Current = md.GetBool("current") ?? false,
                     };
-                    // wlr-randr reports refresh in mHz; normalize to Hz.
+                    // Wlr-randr reports refresh in mHz; normalize to Hz.
                     if (mode.Refresh > 1000) mode.Refresh /= 1000.0;
                     op.Modes.Add(mode);
                     if (mode.Current) op.CurrentMode = mode;
@@ -132,8 +133,8 @@ internal static class WlrRandr
     }
 
     /// <summary>
-    /// Build and run a single <c>wlr-randr</c> invocation that applies all
-    /// changes atomically (one KMS commit).
+    /// Build and run a single <c>wlr-randr</c> invocation that applies all changes atomically (one KMS
+    /// commit).
     /// </summary>
     public static (int rc, string stdout, string stderr) Apply(IEnumerable<OutputChange> changes)
     {
@@ -188,8 +189,7 @@ internal static class WlrRandr
 }
 
 /// <summary>
-/// One pending change to one output. Any field that is null means
-/// "do not touch".
+/// One pending change to one output. Any field that is null means "do not touch".
 /// </summary>
 internal sealed class OutputChange
 {

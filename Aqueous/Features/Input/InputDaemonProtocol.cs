@@ -4,18 +4,16 @@ using System.Text;
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// Wire format between Aqueous (WM client) and <c>aqueous-inputd</c>
-/// (privileged libinput sidecar). One JSON object per line; the daemon
-/// answers with a single-line JSON ack. The schema is intentionally
-/// flat and hand-serialised — the daemon ships AOT and we don't want
-/// to drag in <c>System.Text.Json</c>'s reflection-based fallback.
+/// Wire format between Aqueous (WM client) and <c>aqueous-inputd</c> (privileged libinput
+/// sidecar). One JSON object per line; the daemon answers with a single-line JSON ack. The schema
+/// is intentionally flat and hand-serialised — the daemon ships AOT and we don't want to drag in
+/// <c>System.Text.Json</c>'s reflection-based fallback.
 /// </summary>
 internal static class InputDaemonProtocol
 {
     /// <summary>
-    /// Path to the per-user UDS the daemon listens on. Lives under
-    /// <c>$XDG_RUNTIME_DIR</c> so it inherits the directory's <c>0700</c>
-    /// permissions and is automatically cleaned up on logout.
+    /// Path to the per-user UDS the daemon listens on. Lives under <c>$XDG_RUNTIME_DIR</c> so it
+    /// inherits the directory's <c>0700</c> permissions and is automatically cleaned up on logout.
     /// </summary>
     public static string SocketPath()
     {
@@ -27,8 +25,10 @@ internal static class InputDaemonProtocol
         return System.IO.Path.Combine(rt, "aqueous-inputd.sock");
     }
 
-    /// <summary>Serialise an <see cref="InputConfig"/> as a single-line
-    /// <c>apply</c> request. Caller appends <c>'\n'</c>.</summary>
+    /// <summary>
+    /// Serialise an <see cref="InputConfig"/> as a single-line <c>apply</c> request. Caller appends
+    /// <c>'\n'</c>.
+    /// </summary>
     public static string SerializeApply(InputConfig cfg)
     {
         var sb = new StringBuilder(512);
@@ -44,10 +44,9 @@ internal static class InputDaemonProtocol
     }
 
     /// <summary>
-    /// Apply the legacy flat keys (<c>pointer_acceleration</c>,
-    /// <c>pointer_acceleration_factor</c>) onto the per-device mouse
-    /// config when the dedicated <c>[input.mouse]</c> sub-table didn't
-    /// override them. Keeps backwards compatibility.
+    /// Apply the flat keys (<c>pointer_acceleration</c>, <c>pointer_acceleration_factor</c>) onto the
+    /// per-device mouse config when the dedicated <c>[input.mouse]</c> sub-table didn't override them.
+    /// Keeps backwards compatibility.
     /// </summary>
     private static PerDeviceInput EffectiveMouse(InputConfig cfg)
     {

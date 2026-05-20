@@ -13,36 +13,42 @@ using System.Threading.Tasks;
 namespace Aqueous.OutputDaemon;
 
 /// <summary>
-/// <c>aqueous-outputd</c> — session-scoped output configuration sidecar
-/// for Aqueous/River.
+/// <c>aqueous-outputd</c> — Session-scoped output configuration sidecar for Aqueous/River.
 /// <para>
-/// River 0.4 exposes no in-process output-management protocol to a WM
-/// client, and <c>wlr-randr</c> only works inside River's <c>-c</c>
-/// control context. This daemon parks itself there (launched from
-/// <c>aqueous-init</c> which River exec's via <c>river -c</c>), owns
-/// the only mouth that can talk to wlroots's output manager, and fans
-/// that capability out over a Unix socket to:
+/// River 0.4 exposes no in-process output-management protocol to a WM client, and <c>wlr-randr</c>
+/// only works inside River's <c>-c</c> control context. This daemon parks itself there (launched
+/// from <c>aqueous-init</c> which River exec's via <c>river -c</c>), owns the only mouth that can
+/// talk to wlroots's output manager, and fans that capability out over a Unix socket to:
 /// <list type="bullet">
-///   <item>Aqueous itself (live mode/scale changes from <c>wm.toml</c>),</item>
-///   <item>shells like Noctalia (display panel UI),</item>
-///   <item><c>aqueous-init</c> at session start (fixes the greetd
-///         render-size bug by applying persisted config before Aqueous
-///         draws its first frame).</item>
+/// <item>
+/// Aqueous itself (live mode/scale changes from <c>wm.toml</c>),
+/// </item>
+/// <item>
+/// shells like Noctalia (display panel UI),
+/// </item>
+/// <item>
+/// <c>aqueous-init</c> at session start (fixes the greetd render-size bug by applying persisted
+/// config before Aqueous draws its first frame).
+/// </item>
 /// </list>
 /// </para>
 /// <para>
 /// Two run modes:
 /// <list type="bullet">
-///   <item><c>--apply-once</c>: read <c>wm.toml</c> + <c>outputs.toml</c>,
-///         apply via one <c>wlr-randr</c> call, exit.</item>
-///   <item><c>--serve</c> (default): listen on
-///         <c>$XDG_RUNTIME_DIR/aqueous/outputd.sock</c> for JSON requests.</item>
+/// <item>
+/// <c>--apply-once</c>: read <c>wm.toml</c> + <c>outputs.toml</c>, apply via one <c>wlr-randr</c>
+/// call, exit.
+/// </item>
+/// <item>
+/// <c>--serve</c> (default): listen on <c>$XDG_RUNTIME_DIR/aqueous/outputd.sock</c> for JSON
+/// requests.
+/// </item>
 /// </list>
 /// </para>
 /// </summary>
 internal static class Program
 {
-    // ---- shared state (guarded by _lock) -------------------------------
+    // -- Shared state (guarded by _lock) -------------------------------
 
     private static readonly object _lock = new();
     private static List<WlrRandr.Output> _snapshot = new();
@@ -51,7 +57,7 @@ internal static class Program
 
     private const int ProtocolVersion = 1;
 
-    // ---- entry ---------------------------------------------------------
+    // -- Entry ---------------------------------------------------------
 
     private static int Main(string[] args)
     {
@@ -86,7 +92,7 @@ internal static class Program
         return 64;
     }
 
-    // ---- --apply-once --------------------------------------------------
+    // -- --Apply-once --------------------------------------------------
 
     private static int CmdApplyOnce(string? configPath, string? profileName)
     {
@@ -98,8 +104,8 @@ internal static class Program
             return 0; // never block session start
         }
 
-        // Choose source of truth: explicit profile arg → cfg.Profiles[name]
-        // → cfg.Outputs (top-level [[output]]) → persisted outputs.toml.
+        // Choose source of truth: explicit profile arg → cfg.Profiles[name] → cfg.Outputs (top-level
+        // [[output]]) → persisted outputs.toml.
         List<TomlConfig.OutputSpec> source = ResolveSource(cfg, persisted, profileName, out var sourceLabel);
         if (source.Count == 0)
         {
@@ -168,7 +174,7 @@ internal static class Program
         => o.Mode is not null || o.Scale is not null || o.Transform is not null ||
            o.Position is not null || o.Enabled is not null || o.AdaptiveSync is not null;
 
-    // ---- --serve -------------------------------------------------------
+    // -- --Serve -------------------------------------------------------
 
     private static int CmdServe(string? configPath)
     {
@@ -292,8 +298,8 @@ internal static class Program
 
                 await writer.WriteLineAsync(Json.Write(resp));
 
-                // After a subscribe response, keep the connection open and
-                // pump events from the subscriber's queue.
+                // After a subscribe response, keep the connection open and pump events from the subscriber's
+                // queue.
                 if (sub is not null)
                 {
                     await PumpSubscriber(sub, writer, ct);
@@ -327,7 +333,7 @@ internal static class Program
         catch { /* fall through to cleanup */ }
     }
 
-    // ---- ops -----------------------------------------------------------
+    // -- Ops -----------------------------------------------------------
 
     private static Dictionary<string, object?> HandleSet(Dictionary<string, object?> req)
     {
@@ -433,8 +439,8 @@ internal static class Program
             var path = OutputsTomlPath();
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var sb = new StringBuilder();
-            // Append (or create) a [[display.profile]] block. We never
-            // rewrite existing entries — keep the file diff-friendly.
+            // Append (or create) a [[display.profile]] block. We never rewrite existing entries — keep the
+            // file diff-friendly.
             if (File.Exists(path)) sb.Append(File.ReadAllText(path));
             sb.AppendLine();
             sb.AppendLine("[[display.profile]]");
@@ -473,14 +479,14 @@ internal static class Program
 
     private static Dictionary<string, object?> HandleReload(string? configPath)
     {
-        // Just refresh snapshot; the config is re-read on demand by --apply-once
-        // and apply_profile. Surface that the reload happened.
+        // Just refresh snapshot; the config is re-read on demand by --apply-once and apply_profile.
+        // Surface that the reload happened.
         RefreshSnapshot();
         BroadcastOutputChanged();
         return new() { ["ok"] = true };
     }
 
-    // ---- snapshot + broadcast -----------------------------------------
+    // -- Snapshot + broadcast -----------------------------------------
 
     private static void RefreshSnapshot()
     {
@@ -549,7 +555,7 @@ internal static class Program
             s.Events.Writer.TryWrite(line);
     }
 
-    // ---- hotplug poll --------------------------------------------------
+    // -- Hotplug poll --------------------------------------------------
 
     private static async Task HotplugLoop(CancellationToken ct)
     {
@@ -588,7 +594,7 @@ internal static class Program
         }
     }
 
-    // ---- config loading ------------------------------------------------
+    // -- Config loading ------------------------------------------------
 
     private static (TomlConfig? cfg, TomlConfig? persisted) LoadConfigs(string? configPath)
     {
@@ -614,7 +620,7 @@ internal static class Program
         return Path.Combine(xdg, "aqueous", "outputs.toml");
     }
 
-    // ---- helpers -------------------------------------------------------
+    // -- Helpers -------------------------------------------------------
 
     private static (string mode, string? configPath, string? profile) ParseArgs(string[] args)
     {
@@ -645,7 +651,7 @@ internal static class Program
     private static void Log(string msg) =>
         Console.WriteLine($"[aqueous-outputd] {msg}");
 
-    // ---- SO_PEERCRED ---------------------------------------------------
+    // -- SO_PEERCRED ---------------------------------------------------
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Ucred
@@ -682,7 +688,7 @@ internal static class Program
     [DllImport("libc")]
     private static extern int getuid();
 
-    // ---- subscriber ----------------------------------------------------
+    // -- Subscriber ----------------------------------------------------
 
     private sealed class Subscriber
     {

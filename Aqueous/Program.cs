@@ -3,7 +3,15 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Dispatch;
+using Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
+using Aqueous.Features.Compositor.River.Dispatch.Services;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aqueous;
 
@@ -21,8 +29,150 @@ class Program
             Mods.PrimaryName, Mods.PrimaryMask, Mods.PrimaryKeysym,
             Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>");
 
-        // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
         using var lifetimeCts = new CancellationTokenSource();
+
+        // Final demolition. The RiverWindowManagerClient god class is gone. Every service it formerly
+        // built in its ctor is now registered directly with DI. RiverCompositorHost takes the same ctor
+        // args via DI and owns the Wayland lifecycle outright.
+        var services = new ServiceCollection();
+        services.AddSingleton(typeof(ILoggerFactory),
+            (object?)Logging.Factory ?? NullLoggerFactory.Instance);
+        services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+
+        // - Connection & transport state ---------------------------------
+        services.AddSingleton<IWaylandConnection, WaylandConnection>();
+        services.AddSingleton<IWindowRegistry, WindowRegistry>();
+        services.AddSingleton<IOutputRegistry, OutputRegistry>();
+        services.AddSingleton<ISeatRegistry, SeatRegistry>();
+        services.AddSingleton<EventPumpOptions>();
+        services.AddSingleton<IEventPump, EventPump>();
+        services.AddSingleton<WaylandBindSiteState>();
+        services.AddSingleton<RegistryBinder>();
+
+        // - Fine-grained state singletons --------------------------------
+        services.AddSingleton<Aqueous.Features.Focus.FocusedWindowTracker>();
+        services.AddSingleton<Aqueous.Features.State.OutputFullscreenMap>();
+        services.AddSingleton<Aqueous.Features.State.WindowStateStore>();
+        services.AddSingleton<Aqueous.Features.Focus.PendingFocusStore>();
+        services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
+        services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
+        services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
+        services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
+        services.AddSingleton<Aqueous.Features.Input.PointerBindingStore>();
+        services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
+        services.AddSingleton<Aqueous.Features.State.ScratchpadRegistry>();
+
+        // - Layout subsystem ---------------------------------------------
+        services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
+        services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>
+            Aqueous.Features.Layout.LayoutConfig.Load(DefaultConfigPath.Resolve()));
+        services.AddSingleton<Aqueous.Features.Layout.LayoutController>();
+        services.AddSingleton<Aqueous.Features.Layout.IManagerRequestSender,
+            Aqueous.Features.Layout.ManagerRequestSender>();
+        services.AddSingleton<Aqueous.Features.Layout.ILayoutProposer,
+            Aqueous.Features.Layout.LayoutProposer>();
+        services.AddSingleton<Aqueous.Features.Layout.ViewportInteractionService>();
+
+        // - Focus / Tags / SnapZones / Screencopy ------------------------
+        services.AddSingleton<Aqueous.Features.Focus.IFocusService,
+            Aqueous.Features.Focus.FocusService>();
+        services.AddSingleton<Aqueous.Features.Tags.ITagService,
+            Aqueous.Features.Tags.TagService>();
+        services.AddSingleton<Aqueous.Features.SnapZones.ISnapZoneService,
+            Aqueous.Features.SnapZones.SnapZoneService>();
+        services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService,
+            Aqueous.Features.Screencopy.ScreencopyService>();
+
+        // - Seat / drag ---------------------------------------------------
+        services.AddSingleton<SeatInteractionService>();
+        services.AddSingleton<Aqueous.Features.Input.DragPointerBindingService>();
+
+        // - Bindings ------------------------------------------------------
+        services.AddSingleton<Aqueous.Features.Bindings.IProcessLauncher,
+            Aqueous.Features.Bindings.ProcessLauncher>();
+        services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRouter,
+            Aqueous.Features.Bindings.KeyBindingRouter>();
+        services.AddSingleton<Aqueous.Features.Bindings.ICustomActionRunner,
+            Aqueous.Features.Bindings.CustomActionRunner>();
+        services.AddSingleton<Aqueous.Features.Bindings.KeyBindingRegistrar>();
+        services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRegistrar>(sp =>
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingRegistrar>());
+
+        // - Window-state subsystem ---------------------------------------
+        services.AddSingleton<Aqueous.Features.State.WindowStateHost>();
+        services.AddSingleton<Aqueous.Features.State.IWindowStateHost>(sp =>
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateHost>());
+        services.AddSingleton<Aqueous.Features.State.WindowStateController>();
+        services.AddSingleton<Aqueous.Features.Startup.StartupExecRunner>(sp =>
+            new Aqueous.Features.Startup.StartupExecRunner(
+                sp.GetRequiredService<Aqueous.Features.State.IWindowStateHost>(),
+                sp.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>().Exec));
+
+        // - Manager / window event services ------------------------------
+        services.AddSingleton<ManagerEventService>();
+        services.AddSingleton<WindowEventService>();
+
+        // - Event-handler registrations (the dispatcher table) -----------
+        services.AddSingleton<IEventHandler>(_ => new LayerShellEventHandler(RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new OutputEventHandler(
+            sp.GetRequiredService<IWindowRegistry>(),
+            sp.GetRequiredService<IOutputRegistry>(),
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateController>(),
+            sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp =>
+        {
+            var drag = sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>();
+            return new SeatEventHandler(
+                sp.GetRequiredService<ISeatRegistry>(),
+                sp.GetRequiredService<IWindowRegistry>(),
+                drag.SeatHoveredWindow,
+                drag.SeatPointerPos,
+                sp.GetRequiredService<SeatInteractionService>(),
+                RiverLog.Write);
+        });
+        services.AddSingleton<IEventHandler>(sp => new WindowEventHandler(
+            sp.GetRequiredService<IWindowRegistry>(),
+            sp.GetRequiredService<WindowEventService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new ManagerEventHandler(
+            sp.GetRequiredService<ManagerEventService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(_ => new SuperKeyBindingEventHandler(RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new DragPointerBindingEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.DragPointerBindingService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new RegistryEventHandler(
+            sp.GetRequiredService<RegistryBinder>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new KeyBindingEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingRegistrar>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new ScreencopyFrameHandler(
+            sp.GetRequiredService<Aqueous.Features.Screencopy.IScreencopyService>(),
+            RiverLog.Write));
+
+        // - Top-level dispatcher + host ----------------------------------
+        services.AddSingleton<IEventDispatcher>(sp => new EventDispatcher(
+            sp.GetServices<IEventHandler>()));
+        services.AddSingleton<RiverCompositorHost>();
+
+        using var provider = services.BuildServiceProvider();
+
+        // Push libinput config to the privileged sidecar (aqueous-inputd). Best-effort: silently logs and
+        // proceeds if the daemon isn't up. River 0.4 owns libinput but exposes no API to a WM client, so
+        // pointer accel etc. can only be applied out-of-process. Mirrors niri's "apply on startup + on
+        // config reload" model — the same call lives in ReloadConfig (KeyBindingActionRouter).
+        try
+        {
+            var cfg = provider.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>();
+            Aqueous.Features.Input.InputDaemonClient.Apply(cfg.Input);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "InputDaemonClient.Apply failed");
+        }
 
         Console.CancelKeyPress += (_, e) =>
         {
@@ -38,29 +188,30 @@ class Program
             lifetimeCts.Cancel();
         });
 
-        // B1a: become a river_window_manager_v1 client.
-        var startResult = RiverWindowManagerClient.TryStart(lifetimeCts.Token);
-        if (!startResult.IsOk)
+        var host = provider.GetRequiredService<RiverCompositorHost>();
+        try
+        {
+            host.StartAsync(lifetimeCts.Token).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException ex)
         {
             log.LogError(
                 "Failed to connect to River as window manager: {Error}. Are you running inside River with AQUEOUS_RIVER_WM=1?",
-                startResult.Error);
+                ex.Message);
             return 1;
         }
 
-        var wm = startResult.Value!;
         log.LogInformation("Connected. Entering event loop.");
 
-        // Block the main thread; the pump runs on its own background
-        // thread and observes lifetimeCts.Token directly.
         try
         {
             lifetimeCts.Token.WaitHandle.WaitOne();
         }
         finally
         {
-            wm.Dispose();
+            host.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
+
         return 0;
     }
 }

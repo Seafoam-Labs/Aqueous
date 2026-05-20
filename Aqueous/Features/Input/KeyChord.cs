@@ -5,21 +5,19 @@ using Aqueous.Features.Compositor.River;
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// Parsed representation of a textual key chord (e.g. <c>"Super+Shift+H"</c>)
-/// into the river_xkb_bindings_v1 modifier bitmask + XKB keysym pair used
-/// by <c>get_xkb_binding</c>.
-///
+/// Parsed representation of a textual key chord (e.g. <c>"Super+Shift+H"</c>) into the
+/// river_xkb_bindings_v1 modifier bitmask + XKB keysym pair used by <c>get_xkb_binding</c>.
 /// Modifier tokens (case-insensitive): <c>Super</c>/<c>Mod4</c>/<c>Logo</c>,
-/// <c>Ctrl</c>/<c>Control</c>, <c>Alt</c>/<c>Mod1</c>, <c>Shift</c>.
-/// Key tokens: single ASCII character, named keys (<c>Return</c>, <c>Space</c>,
-/// <c>Tab</c>, <c>Comma</c>, <c>Period</c>, <c>Escape</c>, <c>BackSpace</c>,
-/// <c>Left</c>/<c>Right</c>/<c>Up</c>/<c>Down</c>), or <c>F1</c>–<c>F24</c>.
+/// <c>Ctrl</c>/<c>Control</c>, <c>Alt</c>/<c>Mod1</c>, <c>Shift</c>. Key tokens: single ASCII
+/// character, named keys (<c>Return</c>, <c>Space</c>, <c>Tab</c>, <c>Comma</c>, <c>Period</c>,
+/// <c>Escape</c>, <c>BackSpace</c>, <c>Left</c>/<c>Right</c>/<c>Up</c>/<c>Down</c>), or
+/// <c>F1</c>–<c>F24</c>.
 /// </summary>
 public readonly record struct KeyChord(uint Modifiers, uint Keysym)
 {
     /// <summary>
-    /// Parses a chord string like <c>"Super+H"</c>, <c>"Ctrl+Alt+F1"</c>,
-    /// <c>"Super+Shift+L"</c>. Returns <c>null</c> on malformed input.
+    /// Parses a chord string like <c>"Super+H"</c>, <c>"Ctrl+Alt+F1"</c>, <c>"Super+Shift+L"</c>.
+    /// Returns <c>null</c> on malformed input.
     /// </summary>
     public static KeyChord? Parse(string? text)
     {
@@ -119,7 +117,7 @@ public readonly record struct KeyChord(uint Modifiers, uint Keysym)
             return v;
         }
 
-        // Function keys F1..F24 → 0xffbe..0xffd5
+        // Function keys F1.F24 → 0xffbe.0xffd5
         if ((token.Length == 2 || token.Length == 3) &&
             (token[0] == 'F' || token[0] == 'f'))
         {
@@ -129,8 +127,8 @@ public readonly record struct KeyChord(uint Modifiers, uint Keysym)
             }
         }
 
-        // Single character — fall back to lowercase ASCII codepoint.
-        // (xkbcommon's keysym values match Latin-1 codepoints for printable ASCII.)
+        // Single character — fall back to lowercase ASCII codepoint. (xkbcommon's keysym values match
+        // Latin-1 codepoints for printable ASCII.)
         if (token.Length == 1)
         {
             char c = token[0];

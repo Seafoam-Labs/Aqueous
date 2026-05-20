@@ -50,7 +50,7 @@ public class WlrRandrTests
         Assert.Equal(1.0, dp.Scale);
         Assert.Equal("normal", dp.Transform);
         Assert.Equal(2, dp.Modes.Count);
-        // refresh in mHz normalised to Hz
+        // Refresh in mHz normalised to Hz
         Assert.Equal(144.0, dp.Modes[0].Refresh);
         Assert.True(dp.Modes[0].Current);
         Assert.NotNull(dp.CurrentMode);

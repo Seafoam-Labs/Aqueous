@@ -6,7 +6,7 @@ namespace Aqueous.Tests;
 
 public class KeybindTests
 {
-    // ---- KeyChord.Parse ----------------------------------------------
+    // -- KeyChord.Parse ----------------------------------------------
 
     [Fact]
     public void KeyChord_Parse_SimpleSuperLetter()
@@ -51,11 +51,11 @@ public class KeybindTests
         Assert.Null(KeyChord.Parse(null));
         Assert.Null(KeyChord.Parse("Super+"));
         Assert.Null(KeyChord.Parse("Super+NoSuchKey"));
-        // two key tokens
+        // Two key tokens
         Assert.Null(KeyChord.Parse("H+L"));
     }
 
-    // ---- KeybindConfig parsing ---------------------------------------
+    // -- KeybindConfig parsing ---------------------------------------
 
     [Fact]
     public void KeybindConfig_DefaultsWhenAbsent()
@@ -128,7 +128,7 @@ public class KeybindTests
         Assert.Equal("Alt+H", cfg.Keybinds.ChordsFor("focus_left")[0]);
     }
 
-    // ---- LayoutController.SetLayout -----------------------------------
+    // -- LayoutController.SetLayout -----------------------------------
 
     [Fact]
     public void Controller_SetLayout_PromotesDefaultWhenNoOutputs()

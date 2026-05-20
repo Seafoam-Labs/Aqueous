@@ -4,28 +4,35 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// Keybind configuration parsed from <c>[keybinds]</c> and
-/// <c>[keybinds.custom]</c> sections of <c>wm.toml</c>.
-///
-/// <para><b>Built-ins</b> map a canonical action name (e.g. <c>"focus_left"</c>,
-/// <c>"cycle_focus"</c>, <c>"reload_config"</c>) to one or more chord strings.
-/// An empty list explicitly unbinds the default chord.</para>
-///
-/// <para><b>Custom</b> maps a chord string directly to an action verb:
-/// <c>spawn:&lt;cmd&gt;</c>, <c>set_layout:&lt;id-or-slot&gt;</c>, or
-/// <c>builtin:&lt;name&gt;</c>.</para>
+/// Keybind configuration parsed from <c>[keybinds]</c> and <c>[keybinds.custom]</c> sections of
+/// <c>wm.toml</c>.
+/// <para>
+/// <b>Built-ins</b> map a canonical action name (e.g. <c>"focus_left"</c>, <c>"cycle_focus"</c>,
+/// <c>"reload_config"</c>) to one or more chord strings. An empty list explicitly unbinds the
+/// default chord.
+/// </para>
+/// <para>
+/// <b>Custom</b> maps a chord string directly to an action verb: <c>spawn:&lt;cmd&gt;</c>,
+/// <c>set_layout:&lt;id-or-slot&gt;</c>, or <c>builtin:&lt;name&gt;</c>.
+/// </para>
 /// </summary>
 public sealed class KeybindConfig
 {
-    /// <summary>action_name → list of chord strings (empty = unbind).</summary>
+    /// <summary>
+    /// Action_name → list of chord strings (empty = unbind).
+    /// </summary>
     public Dictionary<string, List<string>> Builtins { get; init; } =
         new(StringComparer.Ordinal);
 
-    /// <summary>chord-string → action verb.</summary>
+    /// <summary>
+    /// Chord-string → action verb.
+    /// </summary>
     public Dictionary<string, string> Custom { get; init; } =
         new(StringComparer.Ordinal);
 
-    /// <summary>Built-in action names recognised by the WM. Single source of truth.</summary>
+    /// <summary>
+    /// Built-in action names recognised by the WM. Single source of truth.
+    /// </summary>
     public static readonly string[] KnownActions =
     {
         "toggle_start_menu",
@@ -59,7 +66,9 @@ public sealed class KeybindConfig
         "lock_screen"
     };
 
-    /// <summary>Compiled-in fallback chords for each built-in action.</summary>
+    /// <summary>
+    /// Compiled-in fallback chords for each built-in action.
+    /// </summary>
     public static IReadOnlyDictionary<string, string> Defaults { get; } =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -125,13 +134,12 @@ public sealed class KeybindConfig
             ["toggle_scratchpad"] = "Super+Backslash",
             ["send_to_scratchpad"] = "Super+Shift+Backslash",
             ["lock_screen"] = "Super+Ctrl+L"
-            // toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
+            // Toggle_scratchpad_named / send_to_scratchpad_named: opt-in via [keybinds.custom] only.
         };
 
     /// <summary>
-    /// Returns the effective chord list for <paramref name="action"/>:
-    /// the user override if present (empty list = unbind), else the
-    /// compiled-in default (or empty list if no default exists).
+    /// Returns the effective chord list for <paramref name="action"/>: the user override if present
+    /// (empty list = unbind), else the compiled-in default (or empty list if no default exists).
     /// </summary>
     public IReadOnlyList<string> ChordsFor(string action)
     {

@@ -6,9 +6,8 @@ using System.Text.RegularExpressions;
 namespace Aqueous.OutputDaemon;
 
 /// <summary>
-/// Input validation for <c>set</c> requests. Rejects malformed mode
-/// strings, out-of-range scales, unknown transforms, and unresolvable
-/// output identifiers BEFORE invoking <c>wlr-randr</c>.
+/// Input validation for <c>set</c> requests. Rejects malformed mode strings, out-of-range scales,
+/// unknown transforms, and unresolvable output identifiers BEFORE invoking <c>wlr-randr</c>.
 /// </summary>
 internal static class Validator
 {
@@ -25,9 +24,8 @@ internal static class Validator
     public const double MaxScale = 3.0;
 
     /// <summary>
-    /// Resolve and validate one change spec from the wire (a JSON dict)
-    /// against the live snapshot. Returns null + populated <paramref name="error"/>
-    /// if invalid.
+    /// Resolve and validate one change spec from the wire (a JSON dict) against the live snapshot.
+    /// Returns null + populated <paramref name="error"/> if invalid.
     /// </summary>
     public static OutputChange? Resolve(
         Dictionary<string, object?> spec,

@@ -5,9 +5,9 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Pins the contract of <see cref="LayoutId"/> — equality, normalization,
-/// dictionary-key behaviour, and the documented invariant that
-/// <c>IsBuiltin</c> is informational only (resolution never branches on it).
+/// Pins the contract of <see cref="LayoutId"/> — equality, normalization, dictionary-key
+/// behaviour, and the documented invariant that <c>IsBuiltin</c> is informational only (resolution
+/// never branches on it).
 /// </summary>
 public class LayoutIdTests
 {

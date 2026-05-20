@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// Standard NxM grid: <c>cols = ceil(sqrt(N))</c>, <c>rows = ceil(N/cols)</c>.
-/// The last row may be short; it is centred horizontally.
+/// Standard NxM grid: <c>cols = ceil(sqrt(N))</c>, <c>rows = ceil(N/cols)</c>. The last row may be
+/// short; it is centred horizontally.
 /// </summary>
 public sealed class GridLayout : ILayoutEngine
 {

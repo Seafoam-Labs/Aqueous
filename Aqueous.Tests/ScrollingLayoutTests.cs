@@ -7,9 +7,8 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase 3 — coverage tests for <see cref="ScrollingLayout"/>. The engine
-/// is pure (state lives in the <c>perOutputState</c> bag passed in by
-/// reference) so these tests need no compositor fixture.
+/// Coverage tests for <see cref="ScrollingLayout"/>. The engine is pure (state lives in the
+/// <c>perOutputState</c> bag passed in by reference) so these tests need no compositor fixture.
 /// </summary>
 public class ScrollingLayoutTests
 {
@@ -24,7 +23,7 @@ public class ScrollingLayoutTests
 
     private static readonly Rect Area = new(0, 0, 1000, 800);
 
-    // covers Arrange empty-input fast-path
+    // Covers Arrange empty-input fast-path
     [Fact]
     public void Arrange_NoWindows_ReturnsEmpty_AndResetsState()
     {
@@ -35,8 +34,8 @@ public class ScrollingLayoutTests
         Assert.NotNull(state);
     }
 
-    // covers normal arrange path: column width derived from "column_width"
-    // extra and centering on focused window.
+    // Covers normal arrange path: column width derived from "column_width" extra and centering on
+    // focused window.
     [Fact]
     public void Arrange_AssignsColumnWidth_FromExtra()
     {
@@ -46,14 +45,14 @@ public class ScrollingLayoutTests
         object? state = null;
         var r = engine.Arrange(Area, wins, new IntPtr(1), Opts(extra: extra), ref state);
         Assert.Equal(3, r.Count);
-        // column width = 1000 * 0.4 = 400
+        // Column width = 1000 * 0.4 = 400
         Assert.All(r, p => Assert.Equal(400, p.Geometry.W));
-        // focused window (handle 1) is at idx 0 and gets ZOrder 1
+        // Focused window (handle 1) is at idx 0 and gets ZOrder 1
         Assert.Equal(1, r[0].ZOrder);
         Assert.Equal(0, r[1].ZOrder);
     }
 
-    // covers MinW override: a window whose MinW exceeds colW gets its MinW.
+    // Covers MinW override: a window whose MinW exceeds colW gets its MinW.
     [Fact]
     public void Arrange_RespectsMinWOverride()
     {
@@ -64,8 +63,8 @@ public class ScrollingLayoutTests
         Assert.Equal(700, r[1].Geometry.W);
     }
 
-    // covers reconciliation path: removed handles drop out of the column
-    // ordering on the next Arrange.
+    // Covers reconciliation path: removed handles drop out of the column ordering on the next
+    // Arrange.
     [Fact]
     public void Arrange_DropsRemovedHandles_OnReconcile()
     {
@@ -81,7 +80,7 @@ public class ScrollingLayoutTests
         Assert.Contains(r, p => p.Handle == new IntPtr(3));
     }
 
-    // covers FocusNeighbor null-state guard
+    // Covers FocusNeighbor null-state guard
     [Fact]
     public void FocusNeighbor_ReturnsNull_WhenStateMissing()
     {
@@ -92,7 +91,7 @@ public class ScrollingLayoutTests
         Assert.Null(r);
     }
 
-    // covers FocusNeighbor left/right/prev/next stepping
+    // Covers FocusNeighbor left/right/prev/next stepping
     [Theory]
     [InlineData(FocusDirection.Right, 2, 3)]
     [InlineData(FocusDirection.Next, 2, 3)]
@@ -108,7 +107,7 @@ public class ScrollingLayoutTests
         Assert.Equal(new IntPtr(expected), r);
     }
 
-    // covers FocusNeighbor vertical/edge null returns
+    // Covers FocusNeighbor vertical/edge null returns
     [Theory]
     [InlineData(FocusDirection.Up)]
     [InlineData(FocusDirection.Down)]
@@ -122,7 +121,7 @@ public class ScrollingLayoutTests
         Assert.Null(r);
     }
 
-    // covers FocusNeighbor falling off the right edge
+    // Covers FocusNeighbor falling off the right edge
     [Fact]
     public void FocusNeighbor_OffEnd_ReturnsNull()
     {
@@ -134,7 +133,7 @@ public class ScrollingLayoutTests
         Assert.Null(r);
     }
 
-    // covers MoveFocused swap + early-out when fewer than 2 columns
+    // Covers MoveFocused swap + early-out when fewer than 2 columns
     [Fact]
     public void MoveFocused_SwapsAdjacentColumns()
     {
@@ -179,7 +178,7 @@ public class ScrollingLayoutTests
         Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Right, ref state));
     }
 
-    // covers ScrollViewport clamping to [0, count-1]
+    // Covers ScrollViewport clamping to [0, count-1]
     [Fact]
     public void ScrollViewport_ClampsFocusedIndex()
     {

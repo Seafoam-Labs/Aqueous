@@ -117,7 +117,7 @@ public class ValidatorTests
     {
         var spec = new Dictionary<string, object?> { ["name"] = "DP-1", ["transform"] = t };
         var c = Validator.Resolve(spec, Snapshot(), out var err);
-        // empty string is treated as "absent" by GetString: ok then.
+        // Empty string is treated as "absent" by GetString: ok then.
         if (string.IsNullOrEmpty(t))
         {
             Assert.NotNull(c);

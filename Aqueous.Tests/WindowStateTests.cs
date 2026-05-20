@@ -7,13 +7,13 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1e — pure unit tests for <see cref="WindowStateController"/> built
-/// against an in-memory <see cref="IWindowStateHost"/> fake. The fake never
-/// touches Wayland; it only records mutations and answers queries.
+/// Phase B1e — pure unit tests for <see cref="WindowStateController"/> built against an in-memory
+/// <see cref="IWindowStateHost"/> fake. The fake never touches Wayland; it only records mutations
+/// and answers queries.
 /// </summary>
 public class WindowStateTests
 {
-    // --------- FakeHost --------------------------------------------------
+    // ------- FakeHost --------------------------------------------------
 
     private sealed class FakeHost : IWindowStateHost
     {
@@ -49,7 +49,7 @@ public class WindowStateTests
         public void Focus(WindowProxy w) => CurrentFocus = w;
         public void FocusNextOnOutput(OutputProxy o)
         {
-            // pick any other window data entry on this output as the new focus.
+            // Pick any other window data entry on this output as the new focus.
             foreach (var kv in Data)
             {
                 if (kv.Key != CurrentFocus && kv.Value.State != WindowState.Minimized
@@ -92,7 +92,7 @@ public class WindowStateTests
         return (host, ctrl, w1, w2, o1);
     }
 
-    // --------- Fullscreen ------------------------------------------------
+    // ------- Fullscreen ------------------------------------------------
 
     [Fact]
     public void ToggleFullscreen_PromotesAndRestores()
@@ -132,7 +132,7 @@ public class WindowStateTests
         Assert.Equal(WindowState.Fullscreen, host.Data[w1].State);
     }
 
-    // --------- Maximize --------------------------------------------------
+    // ------- Maximize --------------------------------------------------
 
     [Fact]
     public void ToggleMaximize_RoundTripsThroughTiled()
@@ -153,14 +153,13 @@ public class WindowStateTests
         Assert.Equal(WindowState.Fullscreen, host.Data[w1].State);
     }
 
-    // --------- InvalidateFloatRect (maximize-restore round-trip) ---------
+    // ------- InvalidateFloatRect (maximize-restore round-trip) ---------
 
     [Fact]
     public void ToggleMaximize_Enter_DoesNotInvalidateFloatRect()
     {
-        // Entering Maximized must not call InvalidateFloatRect — the
-        // floating loop's diff-gates need to be preserved so that the
-        // maximize emit itself is the one that updates LastPos/LastHint.
+        // Entering Maximized must not call InvalidateFloatRect — the floating loop's diff-gates need to
+        // be preserved so that the maximize emit itself is the one that updates LastPos/LastHint.
         var (host, ctrl, w1, _, _) = Setup();
         Assert.True(ctrl.ToggleMaximize(w1));
         Assert.Empty(host.InvalidatedFloatRects);
@@ -169,12 +168,10 @@ public class WindowStateTests
     [Fact]
     public void ToggleMaximize_RestoreToFloating_InvalidatesFloatRect()
     {
-        // Repro for the maximize-button regression: on the way OUT of
-        // Maximized into Floating, the controller must call
-        // _host.InvalidateFloatRect(window) so LayoutProposer re-seeds
-        // FloatX/Y/W/H from the restored FloatingGeom and re-arms its
-        // position/size diff-gates. Without this, the restored window
-        // stays glued to the maximized rect.
+        // Repro for the maximize-button regression: on the way OUT of Maximized into Floating, the
+        // controller must call _host.InvalidateFloatRect(window) so LayoutProposer re-seeds FloatX/Y/W/H
+        // from the restored FloatingGeom and re-arms its position/size diff-gates. Without this, the
+        // restored window stays glued to the maximized rect.
         var (host, ctrl, w1, _, _) = Setup();
         // Pre-arm: window is Floating with a remembered geometry.
         host.Data[w1].State = WindowState.Floating;
@@ -191,10 +188,9 @@ public class WindowStateTests
     [Fact]
     public void ToggleMaximize_Enter_EmitsMaximizedTrue()
     {
-        // Strict xdg-shell clients (Chromium, Alacritty) read the
-        // xdg_toplevel.configure state array, not the size hint, to
-        // decide layout. The controller must announce maximized=true
-        // on entry so that array carries the maximized flag.
+        // Strict xdg-shell clients (Chromium, Alacritty) read the xdg_toplevel.configure state array, not
+        // the size hint, to decide layout. The controller must announce maximized=true on entry so that
+        // array carries the maximized flag.
         var (host, ctrl, w1, _, _) = Setup();
         Assert.True(ctrl.ToggleMaximize(w1));
         Assert.Single(host.MaximizedStateEmits);
@@ -204,9 +200,8 @@ public class WindowStateTests
     [Fact]
     public void ToggleMaximize_RestoreToFloating_EmitsMaximizedFalse()
     {
-        // Repro for Chromium "two clicks to restore" / Alacritty "never
-        // restores": the controller must announce maximized=false on
-        // restore so the state array drops the maximized flag and strict
+        // Repro for Chromium "two clicks to restore" / Alacritty "never restores": the controller must
+        // announce maximized=false on restore so the state array drops the maximized flag and strict
         // clients accept the float-size configure on the first cycle.
         var (host, ctrl, w1, _, _) = Setup();
         host.Data[w1].State = WindowState.Floating;
@@ -223,9 +218,8 @@ public class WindowStateTests
     [Fact]
     public void ToggleMaximize_RestoreToTiled_EmitsMaximizedFalse()
     {
-        // Same contract as the floating-restore path, but exercising
-        // the Tiled previous-state branch — most CSD-button maximize
-        // clicks land here, not in Floating.
+        // Same contract as the floating-restore path, but exercising the Tiled previous-state branch —
+        // most CSD-button maximize clicks land here, not in Floating.
         var (host, ctrl, w1, _, _) = Setup();
         host.Data[w1].State = WindowState.Tiled;
 
@@ -241,17 +235,16 @@ public class WindowStateTests
     [Fact]
     public void ToggleMaximize_RestoreToFloating_RestoresPreFsGeom()
     {
-        // The InvalidateFloatRect call only matters if the controller
-        // also writes the pre-maximize rect back into FloatingGeom; pin
-        // that contract here so a future refactor can't silently drop it.
+        // The InvalidateFloatRect call only matters if the controller also writes the pre-maximize rect
+        // back into FloatingGeom; pin that contract here so a future can't silently drop it.
         var (host, ctrl, w1, _, _) = Setup();
         host.Data[w1].State = WindowState.Floating;
         host.Data[w1].FloatingGeom = new Rect(120, 80, 640, 480);
         host.Geom[w1] = new Rect(120, 80, 640, 480);
 
         ctrl.ToggleMaximize(w1);
-        // Mutate the remembered float rect while maximized to prove the
-        // restore branch overwrites it from PreFsGeom (not the other way).
+        // Mutate the remembered float rect while maximized to prove the restore branch overwrites it from
+        // PreFsGeom (not the other way).
         host.Data[w1].FloatingGeom = new Rect(0, 0, 1, 1);
         ctrl.ToggleMaximize(w1);
 
@@ -259,7 +252,7 @@ public class WindowStateTests
         Assert.Single(host.InvalidatedFloatRects);
     }
 
-    // --------- Floating --------------------------------------------------
+    // ------- Floating --------------------------------------------------
 
     [Fact]
     public void ToggleFloating_AssignsDefaultRect()
@@ -280,7 +273,7 @@ public class WindowStateTests
         Assert.False(ctrl.ToggleFloating(w1));
     }
 
-    // --------- Minimize / UnminimizeLast ---------------------------------
+    // ------- Minimize / UnminimizeLast ---------------------------------
 
     [Fact]
     public void ToggleMinimize_HidesAndPushesMru()
@@ -317,7 +310,7 @@ public class WindowStateTests
         var (host, ctrl, w1, w2, _) = Setup();
         ctrl.ToggleMinimize(w1);
         ctrl.ToggleMinimize(w2);
-        // simulate w2 being destroyed while minimized
+        // Simulate w2 being destroyed while minimized
         host.Data.Remove(w2);
         ctrl.OnWindowDestroyed(w2);
 
@@ -325,7 +318,7 @@ public class WindowStateTests
         Assert.Equal(WindowState.Tiled, host.Data[w1].State);
     }
 
-    // --------- Scratchpad ------------------------------------------------
+    // ------- Scratchpad ------------------------------------------------
 
     [Fact]
     public void SendToScratchpad_HidesWindowAndOccupiesPad()
@@ -387,7 +380,7 @@ public class WindowStateTests
         Assert.Equal(w2, ctrl.Scratchpads.Get("default"));
     }
 
-    // --------- Lifecycle hooks ------------------------------------------
+    // ------- Lifecycle hooks ------------------------------------------
 
     [Fact]
     public void OnWindowDestroyed_ClearsFsSlotAndPad()
@@ -408,7 +401,7 @@ public class WindowStateTests
         Assert.Equal(WindowProxy.Zero, host.GetFullscreenWindow(o1));
     }
 
-    // --------- TOML loader (B1e additions) -------------------------------
+    // ------- TOML loader (B1e additions) -------------------------------
 
     [Fact]
     public void LayoutConfig_Parses_StateAndScratchpadSections()

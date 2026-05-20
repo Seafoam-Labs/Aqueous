@@ -4,15 +4,11 @@ using System.Runtime.InteropServices;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Wire-format union for one argument passed by libwayland's
-/// dispatcher callback. Layout matches <c>wl_argument</c> from
-/// <c>wayland-util.h</c>; field naming mirrors the upstream short
-/// names (<c>i</c>, <c>u</c>, <c>fx</c>, <c>s</c>, <c>o</c>, <c>n</c>,
-/// <c>a</c>, <c>h</c>) so call sites that index the original
-/// <c>WlArgument*</c> pointer continue to read identically. Promoted
-/// out of the nested-struct declaration inside
-/// <see cref="RiverWindowManagerClient"/> during the Phase 2
-/// readability refactor.
+/// Wire-format union for one argument passed by libwayland's dispatcher callback. Layout matches
+/// <c>wl_argument</c> from <c>wayland-util.h</c>; field naming mirrors the upstream short names
+/// (<c>i</c>, <c>u</c>, <c>fx</c>, <c>s</c>, <c>o</c>, <c>n</c>, <c>a</c>, <c>h</c>) so call sites
+/// that index the original <c>WlArgument*</c> pointer continue to read identically. Promoted out
+/// of the nested-struct declaration inside <see cref="RiverWindowManagerClient"/>.
 /// </summary>
 [StructLayout(LayoutKind.Explicit)]
 internal struct WlArgument

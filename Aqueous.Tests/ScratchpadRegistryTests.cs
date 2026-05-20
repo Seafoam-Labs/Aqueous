@@ -5,9 +5,8 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase 3 — coverage tests for <see cref="ScratchpadRegistry"/>. Each
-/// pad holds at most one window; lookups, evictions and forgetting are
-/// pure dictionary operations with no compositor dependency.
+/// Coverage tests for <see cref="ScratchpadRegistry"/>. Each pad holds at most one window;
+/// lookups, evictions and forgetting are pure dictionary operations with no compositor dependency.
 /// </summary>
 public class ScratchpadRegistryTests
 {

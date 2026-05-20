@@ -4,27 +4,26 @@ using System.Runtime.InteropServices;
 namespace Aqueous.InputDaemon;
 
 /// <summary>
-/// P/Invoke surface for libinput / libudev. Covers only the calls
-/// <c>aqueous-inputd</c> needs: udev context, libinput context creation,
-/// device enumeration, capability checks, and the
-/// <c>libinput_device_config_*</c> setters that mirror niri's KDL
-/// <c>input { mouse|touchpad|trackpoint { … } }</c> blocks.
+/// P/Invoke surface for libinput / libudev. Covers only the calls <c>aqueous-inputd</c> needs:
+/// udev context, libinput context creation, device enumeration, capability checks, and the
+/// <c>libinput_device_config_*</c> setters that mirror niri's KDL <c>input {
+/// mouse|touchpad|trackpoint { … } }</c> blocks.
 /// </summary>
 internal static unsafe class LibinputInterop
 {
     private const string Libinput = "libinput.so.10";
     private const string Libudev  = "libudev.so.1";
 
-    // ----- libudev ------------------------------------------------------
+    // --- Libudev ------------------------------------------------------
 
     [DllImport(Libudev)] public static extern IntPtr udev_new();
     [DllImport(Libudev)] public static extern IntPtr udev_unref(IntPtr udev);
 
-    // ----- libinput interface vtable ------------------------------------
+    // --- Libinput interface vtable ------------------------------------
 
     /// <summary>
-    /// libinput_interface — open_restricted / close_restricted callbacks.
-    /// Marshalled by-pointer to libinput_udev_create_context.
+    /// Libinput_interface — open_restricted / close_restricted callbacks. Marshalled by-pointer to
+    /// libinput_udev_create_context.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct LibinputInterfaceVTable
@@ -33,7 +32,7 @@ internal static unsafe class LibinputInterop
         public IntPtr close_restricted;  // void (*)(int fd, void *user_data)
     }
 
-    // ----- libinput context ---------------------------------------------
+    // --- Libinput context ---------------------------------------------
 
     [DllImport(Libinput)]
     public static extern IntPtr libinput_udev_create_context(
@@ -47,7 +46,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern int    libinput_dispatch(IntPtr li);
     [DllImport(Libinput)] public static extern IntPtr libinput_get_event(IntPtr li);
 
-    // ----- libinput events ----------------------------------------------
+    // --- Libinput events ----------------------------------------------
 
     public const int LIBINPUT_EVENT_DEVICE_ADDED   = 1;
     public const int LIBINPUT_EVENT_DEVICE_REMOVED = 2;
@@ -56,7 +55,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern IntPtr libinput_event_get_device(IntPtr ev);
     [DllImport(Libinput)] public static extern void   libinput_event_destroy(IntPtr ev);
 
-    // ----- libinput devices ---------------------------------------------
+    // --- Libinput devices ---------------------------------------------
 
     [Flags]
     public enum DeviceCapability
@@ -75,7 +74,7 @@ internal static unsafe class LibinputInterop
 
     [DllImport(Libinput)] public static extern IntPtr libinput_device_get_name(IntPtr dev);
 
-    // ----- accel --------------------------------------------------------
+    // --- Accel --------------------------------------------------------
 
     public enum AccelProfile : uint
     {
@@ -97,7 +96,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern int   libinput_device_config_accel_set_speed(IntPtr dev, double speed);
     [DllImport(Libinput)] public static extern int   libinput_device_config_accel_is_available(IntPtr dev);
 
-    // ----- tap / dwt / scroll / left-handed / middle ---------------------
+    // --- Tap / dwt / scroll / left-handed / middle ---------------------
 
     [DllImport(Libinput)] public static extern int libinput_device_config_tap_get_finger_count(IntPtr dev);
     [DllImport(Libinput)] public static extern int libinput_device_config_tap_set_enabled(IntPtr dev, int enabled);
@@ -114,7 +113,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern int libinput_device_config_middle_emulation_is_available(IntPtr dev);
     [DllImport(Libinput)] public static extern int libinput_device_config_middle_emulation_set_enabled(IntPtr dev, int enabled);
 
-    // click_method bitmask
+    // Click_method bitmask
     public enum ClickMethod : uint
     {
         None          = 0,
@@ -124,7 +123,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern uint libinput_device_config_click_get_methods(IntPtr dev);
     [DllImport(Libinput)] public static extern int  libinput_device_config_click_set_method(IntPtr dev, ClickMethod method);
 
-    // scroll_method bitmask
+    // Scroll_method bitmask
     public enum ScrollMethod : uint
     {
         NoScroll      = 0,
@@ -135,7 +134,7 @@ internal static unsafe class LibinputInterop
     [DllImport(Libinput)] public static extern uint libinput_device_config_scroll_get_methods(IntPtr dev);
     [DllImport(Libinput)] public static extern int  libinput_device_config_scroll_set_method(IntPtr dev, ScrollMethod method);
 
-    // ----- libc ----------------------------------------------------------
+    // --- Libc ----------------------------------------------------------
 
     [DllImport("libc", SetLastError = true, CharSet = CharSet.Ansi)]
     public static extern int open(string path, int flags);

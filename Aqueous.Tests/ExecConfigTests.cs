@@ -5,8 +5,8 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1f — pinning tests for the <c>[[exec]]</c> array-of-tables
-/// parser inside <see cref="LayoutConfigLoader"/>.
+/// Phase B1f — pinning tests for the <c>[[exec]]</c> array-of-tables parser inside <see
+/// cref="LayoutConfigLoader"/>.
 /// </summary>
 public class ExecConfigTests
 {
@@ -143,8 +143,8 @@ public class ExecConfigTests
     [Fact]
     public void ExecSection_DoesNotLeakIntoFollowingSection()
     {
-        // Regression guard: a [[exec]] block followed by a [section] must
-        // flush cleanly and not capture the next section's keys.
+        // Regression guard: a [[exec]] block followed by a [section] must flush cleanly and not capture
+        // the next section's keys.
         var toml = """
             [[exec]]
             name    = "bar"

@@ -3,56 +3,69 @@ using System;
 namespace Aqueous.Features.Tags;
 
 /// <summary>
-/// Mediates per-output <c>VisibleTags</c> and per-window <c>Tags</c>
-/// mutations triggered by Super+digit / Super+grave keybindings, then
-/// asks the host (the WM client) to recompute layout so the next
-/// <c>render_start</c> reflects the new visible set.
-///
+/// Mediates per-output <c>VisibleTags</c> and per-window <c>Tags</c> mutations triggered by
+/// Super+digit / Super+grave keybindings, then asks the host (the WM client) to recompute layout
+/// so the next <c>render_start</c> reflects the new visible set.
 /// <para>
-/// Decoupled from <c>RiverWindowManagerClient</c> via the
-/// <see cref="ITagHost"/> interface so the controller can be tested
-/// without bringing up Wayland. The controller never talks to Wayland
-/// directly: state mutations push their effects through the host
-/// (which schedules a manage cycle, the manage cycle re-runs the
-/// layout engine with the tag-filtered window set, and that emits
+/// Decoupled from <c>RiverWindowManagerClient</c> via the <see cref="ITagHost"/> interface so the
+/// controller can be tested without bringing up Wayland. The controller never talks to Wayland
+/// directly: state mutations push their effects through the host (which schedules a manage cycle,
+/// the manage cycle re-runs the layout engine with the tag-filtered window set, and that emits
 /// <c>hide</c> / <c>show</c> / <c>propose_dimensions</c> deltas).
 /// </para>
 /// </summary>
 public sealed class TagController
 {
     /// <summary>
-    /// Host hook for retrieving and mutating tag-relevant state. The
-    /// concrete implementation lives in
+    /// Host hook for retrieving and mutating tag-relevant state. The concrete implementation lives in
     /// <c>RiverWindowManagerClient</c>; tests can fake it.
     /// </summary>
     public interface ITagHost
     {
-        /// <summary>Read the focused output's <c>VisibleTags</c>; null if no output is focused.</summary>
+        /// <summary>
+        /// Read the focused output's <c>VisibleTags</c>; null if no output is focused.
+        /// </summary>
         uint? GetFocusedOutputVisibleTags();
 
-        /// <summary>Set the focused output's <c>VisibleTags</c>; pushes the prior value onto its history.</summary>
+        /// <summary>
+        /// Set the focused output's <c>VisibleTags</c>; pushes the prior value onto its history.
+        /// </summary>
         bool SetFocusedOutputVisibleTags(uint mask);
 
-        /// <summary>Read the focused output's last-tagset (for back-and-forth); null if none/no output.</summary>
+        /// <summary>
+        /// Read the focused output's last-tagset (for back-and-forth); null if none/no output.
+        /// </summary>
         uint? GetFocusedOutputLastTagset();
 
-        /// <summary>Re-tag the focused window. Returns false if no focused window.</summary>
+        /// <summary>
+        /// Re-tag the focused window. Returns false if no focused window.
+        /// </summary>
         bool SetFocusedWindowTags(uint mask);
 
-        /// <summary>Toggle bits in the focused window's <c>Tags</c>. Returns false if no focused window.</summary>
+        /// <summary>
+        /// Toggle bits in the focused window's <c>Tags</c>. Returns false if no focused window.
+        /// </summary>
         bool ToggleFocusedWindowTags(uint mask);
 
-        /// <summary>Schedule a manage cycle so the new visibility/layout is flushed.</summary>
+        /// <summary>
+        /// Schedule a manage cycle so the new visibility/layout is flushed.
+        /// </summary>
         void RequestRelayout();
 
-        /// <summary>Self-heal focus if the previously-focused window just became invisible.</summary>
+        /// <summary>
+        /// Self-heal focus if the previously-focused window just became invisible.
+        /// </summary>
         void RepairFocusAfterTagChange();
 
-        /// <summary>Optional sink invoked after every successful tag mutation (bar/IPC integration hook).</summary>
+        /// <summary>
+        /// Optional sink invoked after every successful tag mutation (bar/IPC integration hook).
+        /// </summary>
         Action<TagsChangedEvent>? TagsChanged { get; }
     }
 
-    /// <summary>Origin of a tag-state change (used by <see cref="TagsChangedEvent"/>).</summary>
+    /// <summary>
+    /// Origin of a tag-state change (used by <see cref="TagsChangedEvent"/>).
+    /// </summary>
     public enum TagsChangeKind
     {
         ViewTags,
@@ -63,7 +76,9 @@ public sealed class TagController
         SwapLastTagset,
     }
 
-    /// <summary>Event raised when tag state changes (consumed by IPC/bar in Phase B1g).</summary>
+    /// <summary>
+    /// Event raised when tag state changes (consumed by IPC/bar in Phase B1g).
+    /// </summary>
     public readonly record struct TagsChangedEvent(
         TagsChangeKind Kind,
         uint NewOutputVisibleTags,
@@ -76,7 +91,9 @@ public sealed class TagController
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }
 
-    /// <summary>Set focused output's view to exactly <paramref name="mask"/>. Super+1..9.</summary>
+    /// <summary>
+    /// Set focused output's view to exactly <paramref name="mask"/>. Super+1.9.
+    /// </summary>
     public bool ViewTags(uint mask)
     {
         if (mask == 0u)
@@ -95,10 +112,14 @@ public sealed class TagController
         return true;
     }
 
-    /// <summary>Set focused output's view to <see cref="TagState.AllTags"/>. Super+0.</summary>
+    /// <summary>
+    /// Set focused output's view to <see cref="TagState.AllTags"/>. Super+0.
+    /// </summary>
     public bool ViewAll() => ViewTags(TagState.AllTags);
 
-    /// <summary>Toggle a single tag's visibility on the focused output. Super+Ctrl+1..9.</summary>
+    /// <summary>
+    /// Toggle a single tag's visibility on the focused output. Super+Ctrl+1.9.
+    /// </summary>
     public bool ToggleViewTag(uint mask)
     {
         if (mask == 0u)
@@ -129,7 +150,9 @@ public sealed class TagController
         return true;
     }
 
-    /// <summary>Re-tag the focused window to <paramref name="mask"/>. Super+Shift+1..9 / Super+Shift+0.</summary>
+    /// <summary>
+    /// Re-tag the focused window to <paramref name="mask"/>. Super+Shift+1.9 / Super+Shift+0.
+    /// </summary>
     public bool SendFocusedToTags(uint mask)
     {
         if (mask == 0u)
@@ -148,7 +171,9 @@ public sealed class TagController
         return true;
     }
 
-    /// <summary>Toggle a tag bit on the focused window's tag set. Super+Shift+Ctrl+1..9.</summary>
+    /// <summary>
+    /// Toggle a tag bit on the focused window's tag set. Super+Shift+Ctrl+1.9.
+    /// </summary>
     public bool ToggleWindowTag(uint mask)
     {
         if (mask == 0u)
@@ -168,8 +193,8 @@ public sealed class TagController
     }
 
     /// <summary>
-    /// Swap focused output's <c>VisibleTags</c> with its previous value.
-    /// Bound to Super+grave (and Super+Tab when not otherwise consumed).
+    /// Swap focused output's <c>VisibleTags</c> with its previous value. Bound to Super+grave (and
+    /// Super+Tab when not otherwise consumed).
     /// </summary>
     public bool SwapLastTagset()
     {

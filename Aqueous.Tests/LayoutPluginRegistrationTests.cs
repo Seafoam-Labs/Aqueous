@@ -6,12 +6,10 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Pins the plugin-readiness contract delivered by Phase 4: a custom
-/// <see cref="ILayoutFactory"/> registered after construction must be
-/// resolvable through the registry and the controller, unknown ids in
-/// the config survive parsing, the <see cref="LayoutOptions.Extra"/> bag
-/// round-trips arbitrary keys, and re-registering an existing id is
-/// last-wins.
+/// Pins the plugin-readiness contract delivered by a custom <see cref="ILayoutFactory"/>
+/// registered after construction must be resolvable through the registry and the controller,
+/// unknown ids in the config survive parsing, the <see cref="LayoutOptions.Extra"/> bag
+/// round-trips arbitrary keys, and re-registering an existing id is last-wins.
 /// </summary>
 public class LayoutPluginRegistrationTests
 {
@@ -92,8 +90,8 @@ public class LayoutPluginRegistrationTests
         var config = LayoutConfig.Default;
         var controller = new LayoutController(registry, config);
 
-        // Plugin registered after controller construction (the embedding
-        // scenario: parse config → load plugins → resolve).
+        // Plugin registered after controller construction (the embedding scenario: parse config → load
+        // plugins → resolve).
         registry.Register(new StubFactory("myorg.spiral", "Spiral"));
 
         var output = new IntPtr(1);
@@ -136,8 +134,8 @@ public class LayoutPluginRegistrationTests
             wrap = "true"
             """);
 
-        // The TOML section is "layout.options.<id>"; everything after the
-        // prefix is the layout id verbatim.
+        // The TOML section is "layout.options.<id>"; everything after the prefix is the layout id
+        // verbatim.
         var opts = cfg.OptionsFor(LayoutId.From("myorg.spiral"));
         Assert.Equal("1.5", opts.GetExtra("angle"));
         Assert.Equal(1.5, opts.GetExtraDouble("angle", 0.0));

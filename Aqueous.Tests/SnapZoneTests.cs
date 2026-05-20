@@ -7,15 +7,12 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Pure-data tests for the SnapZones subsystem: <see cref="SnapZoneLayout.Resolve"/>,
-/// <see cref="SnapZoneLayout.Hit"/>, <see cref="SnapZoneStore"/> wildcard
-/// fallback, and <see cref="LayoutConfigLoader"/> parsing of the
-/// <c>[[snapzones]]</c> / <c>[[snapzones.zone]]</c> arrays-of-tables.
-///
-/// These functions are the entire feature outside the drag pipeline,
-/// so high coverage here is cheap and gives us strong confidence that
-/// a config typo or output rename can never break window placement at
-/// runtime.
+/// Pure-data tests for the SnapZones subsystem: <see cref="SnapZoneLayout.Resolve"/>, <see
+/// cref="SnapZoneLayout.Hit"/>, <see cref="SnapZoneStore"/> wildcard fallback, and <see
+/// cref="LayoutConfigLoader"/> parsing of the <c>[[snapzones]]</c> / <c>[[snapzones.zone]]</c>
+/// arrays-of-tables. These functions are the entire feature outside the drag pipeline, so high
+/// coverage here is cheap and gives us strong confidence that a config typo or output rename can
+/// never break window placement at runtime.
 /// </summary>
 public class SnapZoneTests
 {
@@ -207,7 +204,7 @@ public class SnapZoneTests
     [Fact]
     public void Loader_WildcardOutput_DefaultsToStar()
     {
-        // omit `output` → defaults to wildcard
+        // Omit `output` → defaults to wildcard
         const string toml = """
             [[snapzones]]
             layout = "default"
@@ -266,9 +263,8 @@ public class SnapZoneTests
     [Fact]
     public void Loader_OtherSectionAfterSnapzones_FlushesBucket()
     {
-        // A [keybinds] section after the snapzones bucket should still
-        // produce a parsed snap zone — the bucket is flushed cleanly
-        // when a non-snapzones table opens.
+        // A [keybinds] section after the snapzones bucket should still produce a parsed snap zone — the
+        // bucket is flushed cleanly when a non-snapzones table opens.
         const string toml = """
             [[snapzones]]
             output = "*"
