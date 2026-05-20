@@ -1116,70 +1116,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     // --- lifecycle -----------------------------------------------------
 
-    /// <summary>
-    /// Starts the client if <c>AQUEOUS_RIVER_WM=1</c> and the WM global
-    /// is advertised to us. Returns a <see cref="Result{T}"/> carrying
-    /// either the live client or a human-readable failure description.
-    /// The optional <paramref name="cancellationToken"/> is plumbed
-    /// through to the event-pump so a process-wide SIGINT/SIGTERM can
-    /// shut the client down cleanly.
-    /// </summary>
-    public static Result<RiverWindowManagerClient> TryStart(CancellationToken cancellationToken = default)
-        => TryStart(serviceProvider: null, cancellationToken);
-
-    /// <summary>
-    /// DI-aware overload. When <paramref name="serviceProvider"/> is
-    /// non-null, <see cref="IWaylandConnection"/> and the three
-    /// <c>I*Registry</c> seams are resolved from it; otherwise the
-    /// legacy field-initialised defaults are used.
-    /// </summary>
-    public static Result<RiverWindowManagerClient> TryStart(
-        IServiceProvider? serviceProvider,
-        CancellationToken cancellationToken = default)
-    {
-        // PR 9.11: env-var gating lifted to RiverEnvironmentGuard so
-        // RiverCompositorHost can short-circuit startup with the same
-        // friendly error before DI builds the client.
-        if (!RiverEnvironmentGuard.IsEnabled())
-        {
-            return Result<RiverWindowManagerClient>.Fail(RiverEnvironmentGuard.NotEnabledMessage);
-        }
-
-        try
-        {
-            var c = serviceProvider is null
-                ? new RiverWindowManagerClient()
-                : new RiverWindowManagerClient(
-                    (IWaylandConnection?)serviceProvider.GetService(typeof(IWaylandConnection)) ?? new WaylandConnection(),
-                    (IWindowRegistry?)serviceProvider.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
-                    (IOutputRegistry?)serviceProvider.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
-                    (ISeatRegistry?)serviceProvider.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry(),
-                    (IEventPump?)serviceProvider.GetService(typeof(IEventPump)));
-            var connected = c.Connect();
-            if (!connected.IsOk)
-            {
-                c.Dispose();
-                return Result<RiverWindowManagerClient>.Fail(connected.Error!);
-            }
-
-            try { c._startupExec.OnStartup(); }
-            catch (Exception ex) { Log($"startup exec failed: {ex.Message}"); }
-
-            c.StartPump(cancellationToken);
-            Log($"attached as window manager (v{c._managerVersion})");
-            return Result<RiverWindowManagerClient>.Ok(c);
-        }
-        catch (DllNotFoundException e)
-        {
-            return Result<RiverWindowManagerClient>.Fail(
-                "libwayland-client could not be loaded: " + e.Message);
-        }
-        catch (Exception e)
-        {
-            Log("TryStart failed: " + e.Message);
-            return Result<RiverWindowManagerClient>.Fail("TryStart threw: " + e.Message);
-        }
-    }
+    // PR 9.12 §2.13 Step 7: the legacy static TryStart() factory has been
+    // retired. RiverCompositorHost.StartAsync is now the single lifecycle
+    // owner — it performs the AQUEOUS_RIVER_WM=1 env-var check via
+    // RiverEnvironmentGuard, resolves the client from DI, drives Connect /
+    // startup-exec / StartPump, and disposes on shutdown. Tests that used
+    // to pin the env-var gating on TryStart now exercise
+    // RiverEnvironmentGuard directly.
 
     // PR 9.11: surfaced as internal so RiverCompositorHost.StartAsync can
     // drive Connect after DI construction. TryStart keeps the legacy

@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
@@ -127,7 +128,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
         }
 
         oe.VisibleTags = mask;
-        RiverWindowManagerClient.Log(
+        RiverLog.Write(
             $"tags: output 0x{oe.Proxy.ToString("x")} VisibleTags=0x{mask:x8} (was 0x{oe.LastVisibleTags:x8})");
         return true;
     }
@@ -151,7 +152,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
         }
 
         fw.Tags = mask;
-        RiverWindowManagerClient.Log(
+        RiverLog.Write(
             $"tags: window 0x{focused.ToString("x")} Tags=0x{mask:x8}");
         return true;
     }
@@ -176,7 +177,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
         }
 
         fw.Tags = next;
-        RiverWindowManagerClient.Log(
+        RiverLog.Write(
             $"tags: window 0x{focused.ToString("x")} Tags=0x{next:x8} (toggled 0x{mask:x8})");
         return true;
     }

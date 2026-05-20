@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
@@ -51,7 +52,7 @@ internal sealed unsafe class RiverEventDispatcher
         var iface = _client.TryGetProxyInterface(target);
         if (iface is not null)
         {
-            RiverWindowManagerClient.Log("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
+            RiverLog.Write("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
             int argCount = iface switch
             {
                 "river_window_manager_v1" => 4,
@@ -75,7 +76,7 @@ internal sealed unsafe class RiverEventDispatcher
             return 0;
         }
 
-        RiverWindowManagerClient.Log("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
+        RiverLog.Write("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
         return 0;
     }
 }

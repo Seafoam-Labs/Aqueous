@@ -84,27 +84,34 @@ public class EventPumpCancellationTests
     // We don't go through real Wayland — EventPump only needs an int
     // returning Dispatch() and the public surface; we replace that
     // through the existing internal type by using a delay loop.
+    // PR 9.12 §2.13 Step 7: the legacy static TryStart() factory was
+    // retired; lifecycle gating now lives in RiverEnvironmentGuard,
+    // driven by RiverCompositorHost.StartAsync. These two tests pin
+    // the env-var contract directly against the guard.
     [Fact]
-    public async Task TokenCancelledBeforeStart_DoesNotSpawnThread()
+    public async Task EnvironmentGuard_ReportsDisabled_WhenEnvUnset()
     {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        // Using the public seam: EventPump is internal, but the
-        // RiverWindowManagerClient.TryStart contract is what we're
-        // pinning. AQUEOUS_RIVER_WM is unset in tests so TryStart
-        // should fail with a deterministic Result.Fail.
-        var r = Aqueous.Features.Compositor.River.RiverWindowManagerClient.TryStart(cts.Token);
-        Assert.False(r.IsOk);
-        Assert.Contains("AQUEOUS_RIVER_WM", r.Error);
+        var prior = Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM");
+        try
+        {
+            Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", null);
+            Assert.False(Aqueous.Features.Compositor.River.RiverEnvironmentGuard.IsEnabled());
+            Assert.Contains(
+                "AQUEOUS_RIVER_WM",
+                Aqueous.Features.Compositor.River.RiverEnvironmentGuard.NotEnabledMessage);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", prior);
+        }
         await Task.CompletedTask;
     }
 
     [Fact]
-    public void TryStart_WithoutEnv_FailsWithReason()
+    public void EnvironmentGuard_NotEnabledMessage_IsNonEmpty()
     {
-        var r = Aqueous.Features.Compositor.River.RiverWindowManagerClient.TryStart();
-        Assert.False(r.IsOk);
-        Assert.NotNull(r.Error);
-        Assert.NotEmpty(r.Error!);
+        var msg = Aqueous.Features.Compositor.River.RiverEnvironmentGuard.NotEnabledMessage;
+        Assert.NotNull(msg);
+        Assert.NotEmpty(msg);
     }
 }

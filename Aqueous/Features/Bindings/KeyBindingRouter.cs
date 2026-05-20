@@ -163,7 +163,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to toggle start menu: " + ex.Message);
+            Aqueous.Diagnostics.RiverLog.Write("failed to toggle start menu: " + ex.Message);
         }
     }
 
@@ -201,7 +201,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to spawn terminal: " + ex.Message);
+            Aqueous.Diagnostics.RiverLog.Write("failed to spawn terminal: " + ex.Message);
         }
     }
 
@@ -224,12 +224,12 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             var fresh = LayoutConfig.Load(DefaultConfigPath.Resolve());
             _layoutController.ReplaceConfig(fresh);
             InputDaemonClient.Apply(fresh.Input);
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("config reloaded");
+            Aqueous.Diagnostics.RiverLog.Write("config reloaded");
             _managerRequestSender.ScheduleManage();
         }
         catch (Exception ex)
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("config reload failed: " + ex.Message);
+            Aqueous.Diagnostics.RiverLog.Write("config reload failed: " + ex.Message);
         }
     }
 
@@ -242,7 +242,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         else
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"{actionName}: no focused window");
+            Aqueous.Diagnostics.RiverLog.Write($"{actionName}: no focused window");
         }
     }
 
@@ -250,7 +250,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         try
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("locking screen");
+            Aqueous.Diagnostics.RiverLog.Write("locking screen");
 
             var psi = new ProcessStartInfo
             {
@@ -285,7 +285,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to lock screen: " + ex.Message);
+            Aqueous.Diagnostics.RiverLog.Write("failed to lock screen: " + ex.Message);
         }
     }
 }

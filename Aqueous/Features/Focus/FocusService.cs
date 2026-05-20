@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Layout;
@@ -114,7 +115,7 @@ internal sealed class FocusService : IFocusService
         // that aborts river and tears down the entire desktop.
         if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(windowProxy))
         {
-            RiverWindowManagerClient.Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
+            RiverLog.Write($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
             return;
         }
 
@@ -140,7 +141,7 @@ internal sealed class FocusService : IFocusService
             // river_seat_v1::clear_focus is opcode 3 with no arguments.
             WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            RiverWindowManagerClient.Log($"clear_focus on seat 0x{seat.ToString("x")}");
+            RiverLog.Write($"clear_focus on seat 0x{seat.ToString("x")}");
         }
 
         _managerRequestSender.ScheduleManage();

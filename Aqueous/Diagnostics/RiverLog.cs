@@ -24,8 +24,12 @@ namespace Aqueous.Diagnostics;
 /// </summary>
 internal static class RiverLog
 {
+    // PR 9.12 §2.13 — log category retargeted to RiverLog itself so that
+    // the impending deletion of RiverWindowManagerClient does not orphan
+    // this generic argument. The category name surfaces in structured logs
+    // as "Aqueous.Diagnostics.RiverLog".
     private static readonly ILogger Logger =
-        Logging.For<Aqueous.Features.Compositor.River.RiverWindowManagerClient>();
+        Logging.Factory.CreateLogger("Aqueous.Diagnostics.RiverLog");
 
     /// <summary>
     /// Mutable sink. Defaults to <see cref="DefaultWrite"/>; tests and

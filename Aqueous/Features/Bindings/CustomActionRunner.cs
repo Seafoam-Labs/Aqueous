@@ -14,7 +14,7 @@ namespace Aqueous.Features.Bindings;
 ///
 /// PR 9.12 §2.13: the residual <see cref="RiverWindowManagerClient"/> ctor
 /// argument is gone — the runner never actually consumed it. The static
-/// <c>RiverWindowManagerClient.Log</c> helper used for error reporting is a
+/// <c>RiverLog.Write</c> helper used for error reporting is a
 /// stand-alone forwarder that doesn't require an instance.
 /// </summary>
 internal sealed class CustomActionRunner : ICustomActionRunner
@@ -60,7 +60,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 RunBuiltinVerb(arg);
                 break;
             default:
-                Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"unknown custom action verb '{head}'");
+                Aqueous.Diagnostics.RiverLog.Write($"unknown custom action verb '{head}'");
                 break;
         }
     }
@@ -108,7 +108,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
         }
         catch (Exception ex)
         {
-            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"spawn '{arg}' failed: {ex.Message}");
+            Aqueous.Diagnostics.RiverLog.Write($"spawn '{arg}' failed: {ex.Message}");
         }
     }
 
@@ -133,7 +133,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
             case "toggle_scratchpad_named":
                 if (barg.Length == 0)
                 {
-                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:toggle_scratchpad_named requires :name");
+                    Aqueous.Diagnostics.RiverLog.Write("builtin:toggle_scratchpad_named requires :name");
                     return;
                 }
 
@@ -142,7 +142,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
             case "send_to_scratchpad_named":
                 if (barg.Length == 0)
                 {
-                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:send_to_scratchpad_named requires :name");
+                    Aqueous.Diagnostics.RiverLog.Write("builtin:send_to_scratchpad_named requires :name");
                     return;
                 }
 
@@ -152,7 +152,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 }
                 else
                 {
-                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:send_to_scratchpad_named: no focused window");
+                    Aqueous.Diagnostics.RiverLog.Write("builtin:send_to_scratchpad_named: no focused window");
                 }
 
                 return;
@@ -163,7 +163,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 }
                 else
                 {
-                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"unknown builtin '{bname}'");
+                    Aqueous.Diagnostics.RiverLog.Write($"unknown builtin '{bname}'");
                 }
 
                 return;

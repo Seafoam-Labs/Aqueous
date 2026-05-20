@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using System.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
@@ -175,7 +176,7 @@ internal sealed class WindowStateHost : IWindowStateHost
         }
         catch (Exception ex)
         {
-            RiverWindowManagerClient.Log($"scratchpad spawn failed: {ex.Message}");
+            RiverLog.Write($"scratchpad spawn failed: {ex.Message}");
         }
     }
 
@@ -330,7 +331,7 @@ internal sealed class WindowStateHost : IWindowStateHost
             var proc = Process.Start(psi);
             if (proc is null)
             {
-                RiverWindowManagerClient.Log($"exec spawn failed: Process.Start returned null for cmd={request.Command}");
+                RiverLog.Write($"exec spawn failed: Process.Start returned null for cmd={request.Command}");
                 return;
             }
 
@@ -345,14 +346,14 @@ internal sealed class WindowStateHost : IWindowStateHost
                     }
                     catch (Exception ex)
                     {
-                        RiverWindowManagerClient.Log($"exec OnExit threw: {ex.Message}");
+                        RiverLog.Write($"exec OnExit threw: {ex.Message}");
                     }
                 };
             }
         }
         catch (Exception ex)
         {
-            RiverWindowManagerClient.Log($"exec spawn failed: {ex.Message}");
+            RiverLog.Write($"exec spawn failed: {ex.Message}");
         }
     }
 
@@ -377,7 +378,7 @@ internal sealed class WindowStateHost : IWindowStateHost
             }
             catch (Exception ex)
             {
-                RiverWindowManagerClient.Log($"ScheduleAfter callback threw: {ex.Message}");
+                RiverLog.Write($"ScheduleAfter callback threw: {ex.Message}");
             }
             finally
             {
@@ -386,7 +387,7 @@ internal sealed class WindowStateHost : IWindowStateHost
         }, null, delay, Timeout.InfiniteTimeSpan);
     }
 
-    public void Log(string message) => RiverWindowManagerClient.Log(message);
+    public void Log(string message) => RiverLog.Write(message);
 
     public Rect CurrentGeometry(WindowProxy window)
     {

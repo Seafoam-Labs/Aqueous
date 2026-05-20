@@ -58,62 +58,36 @@ public class RiverWindowManagerClientTests
         }
     }
 
-    // covers TryStart fail-fast: AQUEOUS_RIVER_WM unset
+    // PR 9.12 §2.13 Step 7: RiverWindowManagerClient.TryStart() was
+    // retired; env-var gating now lives in RiverEnvironmentGuard, driven
+    // by RiverCompositorHost.StartAsync. The four ex-TryStart tests below
+    // pin the guard contract directly.
     [Fact]
-    public void TryStart_FailsWhenEnvUnset()
+    public void EnvironmentGuard_FailsWhenEnvUnset()
     {
         using var _ = new EnvScope();
         Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", null);
-        var r = RiverWindowManagerClient.TryStart();
-        Assert.False(r.IsOk);
-        Assert.Contains("AQUEOUS_RIVER_WM", r.Error);
+        Assert.False(RiverEnvironmentGuard.IsEnabled());
+        Assert.Contains("AQUEOUS_RIVER_WM", RiverEnvironmentGuard.NotEnabledMessage);
     }
 
-    // covers TryStart fail-fast: AQUEOUS_RIVER_WM set to a non-"1" value
     [Theory]
     [InlineData("0")]
     [InlineData("true")]
     [InlineData("")]
-    public void TryStart_FailsWhenEnvNotExactlyOne(string value)
+    public void EnvironmentGuard_FailsWhenEnvNotExactlyOne(string value)
     {
         using var _ = new EnvScope();
         Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", value);
-        var r = RiverWindowManagerClient.TryStart();
-        Assert.False(r.IsOk);
-        Assert.Contains("AQUEOUS_RIVER_WM", r.Error);
+        Assert.False(RiverEnvironmentGuard.IsEnabled());
     }
 
-    // covers TryStart honours the cancellation-token parameter signature
-    // (token is plumbed to the pump; with env unset the call must still
-    // fail synchronously without observing the token).
     [Fact]
-    public void TryStart_WithCancelledToken_StillEnvGated()
-    {
-        using var _ = new EnvScope();
-        Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", null);
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        var r = RiverWindowManagerClient.TryStart(cts.Token);
-        Assert.False(r.IsOk);
-    }
-
-    // covers the env-set / no-display branch: Connect() must report a
-    // Wayland connect failure and TryStart must surface it as Fail without
-    // throwing. We deliberately point WAYLAND_DISPLAY at a non-existent
-    // socket so this is deterministic regardless of whether the test
-    // host has a live compositor.
-    [Fact]
-    public void TryStart_EnvSet_NoDisplay_FailsGracefully()
+    public void EnvironmentGuard_EnabledWhenExactlyOne()
     {
         using var _ = new EnvScope();
         Environment.SetEnvironmentVariable("AQUEOUS_RIVER_WM", "1");
-        Environment.SetEnvironmentVariable("WAYLAND_DISPLAY",
-            "aqueous-tests-nonexistent-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable("WAYLAND_SOCKET", null);
-
-        var r = RiverWindowManagerClient.TryStart();
-        Assert.False(r.IsOk);
-        Assert.False(string.IsNullOrEmpty(r.Error));
+        Assert.True(RiverEnvironmentGuard.IsEnabled());
     }
 
     // covers Log delegate swap: a custom sink replaces the default and

@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Aqueous.Features.Compositor.River.Dispatch;
@@ -59,7 +60,7 @@ internal static unsafe class NativeCallbackEntry
             // NEVER unwind into native dispatch.
             try
             {
-                RiverWindowManagerClient.Log("dispatch exception: " + e.Message);
+                RiverLog.Write("dispatch exception: " + e.Message);
             }
             catch
             {
