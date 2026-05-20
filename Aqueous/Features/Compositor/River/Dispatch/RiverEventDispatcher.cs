@@ -47,7 +47,7 @@ internal sealed unsafe class RiverEventDispatcher
     {
         var a = (WlArgument*)args;
 
-        var iface = _client.TryGetProxyInterface(target);
+        var iface = _client.BindSiteState.TryGetProxyInterface(target);
         if (iface is not null)
         {
             RiverLog.Write("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);

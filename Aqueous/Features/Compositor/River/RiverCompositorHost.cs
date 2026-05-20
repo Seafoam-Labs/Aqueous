@@ -83,11 +83,11 @@ internal sealed class RiverCompositorHost : IHostedService
 
         try
         {
-            var connected = Connect(_client);
+            var connected = Connect();
             if (!connected.IsOk)
             {
                 _log?.LogError("Connect failed: {Error}", connected.Error);
-                try { DisposeClient(_client); } catch { /* best-effort */ }
+                try { DisposeWayland(); } catch { /* best-effort */ }
                 _client = null;
                 throw new InvalidOperationException("Connect failed: " + connected.Error);
             }
@@ -95,7 +95,7 @@ internal sealed class RiverCompositorHost : IHostedService
             try { _client.StartupExec.OnStartup(); }
             catch (Exception ex) { _log?.LogWarning(ex, "startup exec failed"); }
 
-            StartPump(_client, cancellationToken);
+            StartPump(cancellationToken);
             _log?.LogInformation(
                 "RiverCompositorHost started; attached as window manager (v{ManagerVersion}).",
                 _client.ManagerVersion);
@@ -115,7 +115,7 @@ internal sealed class RiverCompositorHost : IHostedService
         _log?.LogInformation("RiverCompositorHost stopping...");
         try
         {
-            if (_client is { } c) DisposeClient(c);
+            if (_client is not null) DisposeWayland();
         }
         catch (Exception ex)
         {
@@ -136,8 +136,9 @@ internal sealed class RiverCompositorHost : IHostedService
     // compile unchanged.
     // ------------------------------------------------------------------
 
-    internal static unsafe Result Connect(RiverWindowManagerClient client)
+    internal unsafe Result Connect()
     {
+        var client = _client ?? throw new InvalidOperationException("Connect called before client was resolved.");
         var connectResult = client.Connection.Connect();
         if (!connectResult.IsOk)
         {
@@ -166,9 +167,12 @@ internal sealed class RiverCompositorHost : IHostedService
             return Result.Fail("wl_display_get_registry returned null");
         }
 
-        client.TrackProxyInterface(client.RegistryBinder.Handle, "wl_registry");
+        client.BindSiteState.TrackProxyInterface(client.RegistryBinder.Handle, "wl_registry");
 
-        client.RegistryBinder.Discovered += client.RegistryGlobalBinder.Bind;
+        // PR 9.12 §2.13 Step 7: route registry globals directly to the
+        // host's HandleRegistryGlobal instead of round-tripping through
+        // the god-class RegistryGlobalBinder forwarder.
+        client.RegistryBinder.Discovered += HandleRegistryGlobal;
 
         // Flush globals; then a second roundtrip so any events the
         // compositor sends immediately on bind (for an existing window
@@ -185,11 +189,16 @@ internal sealed class RiverCompositorHost : IHostedService
         return Result.Ok;
     }
 
-    internal static void StartPump(RiverWindowManagerClient client, CancellationToken cancellationToken = default)
-        => client.Pump.Start(cancellationToken);
-
-    internal static void DisposeClient(RiverWindowManagerClient client)
+    internal void StartPump(CancellationToken cancellationToken = default)
     {
+        var client = _client ?? throw new InvalidOperationException("StartPump called before client was resolved.");
+        client.Pump.Start(cancellationToken);
+    }
+
+    internal void DisposeWayland()
+    {
+        var client = _client;
+        if (client is null) return;
         // river_window_manager_v1::stop (opcode 0) is intentionally NOT
         // sent here: it is not a destructor. We disconnect; River treats
         // a disconnected WM the same way as a stopped one and cleans up.
@@ -224,8 +233,9 @@ internal sealed class RiverCompositorHost : IHostedService
         }
     }
 
-    internal static unsafe void HandleRegistryGlobal(RiverWindowManagerClient client, RegistryGlobal global)
+    internal unsafe void HandleRegistryGlobal(RegistryGlobal global)
     {
+        var client = _client ?? throw new InvalidOperationException("HandleRegistryGlobal called before client was resolved.");
         IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)
             &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch;
 
@@ -242,7 +252,7 @@ internal sealed class RiverCompositorHost : IHostedService
                     dispatcher,
                     GCHandle.ToIntPtr(client.SelfHandle),
                     IntPtr.Zero);
-                client.TrackProxyInterface(client.Manager, "river_window_manager_v1");
+                client.BindSiteState.TrackProxyInterface(client.Manager, "river_window_manager_v1");
                 client.ManagerRequestSender.Init(client.Manager, client.Display);
                 RiverLog.Write($"bound river_window_manager_v1 (version {managerVersion})");
             }
@@ -256,7 +266,7 @@ internal sealed class RiverCompositorHost : IHostedService
                 dispatcher,
                 GCHandle.ToIntPtr(client.SelfHandle),
                 IntPtr.Zero);
-            client.TrackProxyInterface(client.LayerShell, "river_layer_shell_v1");
+            client.BindSiteState.TrackProxyInterface(client.LayerShell, "river_layer_shell_v1");
             RiverLog.Write("bound river_layer_shell_v1");
         }
         else if (global.Interface == "river_xkb_bindings_v1")
@@ -266,14 +276,14 @@ internal sealed class RiverCompositorHost : IHostedService
             client.BindSiteState.XkbBindings = client.XkbBindingsHandle;
             client.XkbBindingsVersion = xkbVersion;
             client.BindSiteState.XkbBindingsVersion = xkbVersion;
-            client.TrackProxyInterface(client.XkbBindingsHandle, "river_xkb_bindings_v1");
+            client.BindSiteState.TrackProxyInterface(client.XkbBindingsHandle, "river_xkb_bindings_v1");
             RiverLog.Write($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
         else if (global.Interface == "wl_shm" && client.WlShm == IntPtr.Zero)
         {
             client.WlShm = client.RegistryBinder.Bind(global.Name, WlInterfaces.WlShm, 1);
             client.BindSiteState.WlShm = client.WlShm;
-            client.TrackProxyInterface(client.WlShm, "wl_shm");
+            client.BindSiteState.TrackProxyInterface(client.WlShm, "wl_shm");
             RiverLog.Write("bound wl_shm");
             client.ScreencopyService.ActivateIfReady(
                 client.BindSiteState,
@@ -296,7 +306,7 @@ internal sealed class RiverCompositorHost : IHostedService
             client.ScreencopyManager = client.RegistryBinder.Bind(
                 global.Name, WlInterfaces.ZwlrScreencopyManager, version);
             client.BindSiteState.ScreencopyManager = client.ScreencopyManager;
-            client.TrackProxyInterface(client.ScreencopyManager, "zwlr_screencopy_manager_v1");
+            client.BindSiteState.TrackProxyInterface(client.ScreencopyManager, "zwlr_screencopy_manager_v1");
             RiverLog.Write($"bound zwlr_screencopy_manager_v1 (version {version})");
             client.ScreencopyService.ActivateIfReady(
                 client.BindSiteState,

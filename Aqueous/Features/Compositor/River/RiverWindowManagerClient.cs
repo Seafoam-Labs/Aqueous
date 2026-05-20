@@ -274,15 +274,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// <see cref="OnGlobalDiscovered"/> handler below.
     /// </summary>
     private readonly RegistryBinder _registry = new();
-    /// <summary>PR 9.12 §2.8: top-level dispatch seam for wl_registry globals.</summary>
-    private readonly Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder _registryGlobalBinder;
-    // PR 9.12 §2.10: top-level RiverEventDispatcher seam. Currently
-    // not on the native callback path (NativeCallbackEntry still
-    // round-trips through _selfHandle → this client); §2.13 repins
-    // the GCHandle to a NativeCallbackContext wrapping this dispatcher.
+    // PR 9.12 §2.10: top-level RiverEventDispatcher seam.
+    // PR 9.12 §2.13 Step 7: the wl_registry::global shim
+    // (RegistryGlobalBinder) is retired — RiverCompositorHost.Connect
+    // subscribes its own HandleRegistryGlobal directly to
+    // RegistryBinder.Discovered.
     private readonly Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher _riverEventDispatcher;
-    /// <summary>PR 9.12 §2.8 migration accessor.</summary>
-    internal Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder RegistryGlobalBinder => _registryGlobalBinder;
     /// <summary>PR 9.12 §2.10 migration accessor for the lifted event dispatcher seam.</summary>
     internal Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher RiverEventDispatcher => _riverEventDispatcher;
 
@@ -359,39 +356,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // so populating this map cannot break dispatch — at worst a missed
     // population would surface as a no-op lookup in Stage 8.
     //
-    // Single-threaded by construction: every populating site runs
-    // either on the connect thread (registry binds) or on the pump
-    // thread (handler-driven binds), never both concurrently. Backed
-    // by ProxyInterfaceMap so the population logic is unit-testable
-    // without needing to construct a god-class instance.
-    private readonly Aqueous.Features.Compositor.River.Dispatch.ProxyInterfaceMap _proxyInterface = new();
-
-    /// <summary>
-    /// Record the Wayland interface name of a freshly bound proxy.
-    /// Tolerant of <see cref="IntPtr.Zero"/> and null/empty names so
-    /// call sites can invoke it immediately after
-    /// <c>wl_proxy_marshal_flags</c> without an inline null check.
-    /// </summary>
-    internal void TrackProxyInterface(IntPtr proxy, string interfaceName)
-    {
-        // PR 9.12 §2.13 bind-site migration: writes go to the singleton
-        // (single source of truth); the legacy per-instance map is kept
-        // mirrored for in-flight callers that still read via _proxyInterface.
-        _bindSiteState.TrackProxyInterface(proxy, interfaceName);
-        _proxyInterface.Track(proxy, interfaceName);
-    }
-
-    /// <summary>Test/diagnostic accessor: number of proxies currently tracked.</summary>
-    internal int TrackedProxyCount => _bindSiteState.TrackedProxyCount;
-
-    /// <summary>Test/diagnostic accessor: lookup the recorded interface name.</summary>
-    /// <remarks>
-    /// PR 9.12 §2.13 bind-site migration: reads now go through the
-    /// <see cref="WaylandBindSiteState"/> singleton; the per-instance
-    /// <c>_proxyInterface</c> map is retained only as a write-through mirror
-    /// and retires together with the god class in the final demolition step.
-    /// </remarks>
-    internal string? TryGetProxyInterface(IntPtr proxy) => _bindSiteState.TryGetProxyInterface(proxy);
+    // PR 9.12 §2.13 Step 7: god-class TrackProxyInterface /
+    // TryGetProxyInterface / TrackedProxyCount forwarders + the dead
+    // _proxyInterface write-through mirror retired. WaylandBindSiteState
+    // is now the sole source of truth — RiverCompositorHost.Connect /
+    // HandleRegistryGlobal call it directly, and RiverEventDispatcher
+    // reads it via _client.BindSiteState.
 
     // For KeyBindingAction.Custom — chord proxy → free-form action verb.
     // PR 9.12 §2.13 Step 4 — backing on KeyBindingsRegistry (DI singleton).
@@ -710,7 +680,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // DragEdgesValue / DragFinishedFlag / DragStartedFlag /
     // ActiveDragSeatHandle readers — every caller has been cut over
     // to DragStateStore directly.
-    internal void ScheduleManageExternal() => ScheduleManage();
+    // PR 9.12 §2.13 Step 7: ScheduleManageExternal forwarder retired —
+    // every caller has been cut over to inject IManagerRequestSender
+    // directly via DI.
 
     // PR 9.12 §2.13 — ManagerEventService accessors. The service
     // consumes manage-cycle state, pointer-binding wiring caches,
@@ -774,7 +746,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal void RequestFocusExternal(IntPtr windowProxy) => RequestFocus(windowProxy);
     internal void FocusAnyOtherWindowExternal(IntPtr avoid) => FocusAnyOtherWindow(avoid);
     internal WindowStateController WindowStateController => _windowState;
-    internal void SendManagerRequestExternal(uint opcode) => _managerRequestSender.SendManagerRequest(opcode);
+    // PR 9.12 §2.13 Step 7: SendManagerRequestExternal forwarder retired —
+    // every caller has been cut over to inject IManagerRequestSender
+    // directly via DI.
 
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
@@ -872,7 +846,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _pointerBindingStore = pointerBindingStore ?? throw new ArgumentNullException(nameof(pointerBindingStore));
         _manageCycleState = manageCycleState ?? throw new ArgumentNullException(nameof(manageCycleState));
-        _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
         _windowRegistry = windowRegistry;
@@ -1094,14 +1067,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // to pin the env-var gating on TryStart now exercise
     // RiverEnvironmentGuard directly.
 
-    // PR 9.12 §2.13 Step 7: Connect / StartPump bodies lifted to
-    // RiverCompositorHost. These are now thin forwarders kept so tests
-    // and any in-tree callers that still resolve the god class directly
-    // keep compiling; they retire with the god class.
-    internal Result Connect() => RiverCompositorHost.Connect(this);
-
-    internal void StartPump(CancellationToken cancellationToken = default)
-        => RiverCompositorHost.StartPump(this, cancellationToken);
+    // PR 9.12 §2.13 Step 7: Connect / StartPump / Dispose /
+    // HandleRegistryGlobal forwarders retired — RiverCompositorHost
+    // owns these lifecycle methods directly. It drives Connect/StartPump
+    // from StartAsync, DisposeWayland from StopAsync, and subscribes its
+    // own HandleRegistryGlobal to RegistryBinder.Discovered, bypassing
+    // the god-class RegistryGlobalBinder shim entirely.
 
     /// <summary>
     /// Version of the bound <c>river_window_manager_v1</c> proxy, set in
@@ -1140,19 +1111,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// </summary>
     private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
 
-    // PR 9.12 §2.13 Step 7: Dispose body lifted to
-    // RiverCompositorHost.DisposeClient.
-    public void Dispose() => RiverCompositorHost.DisposeClient(this);
+    // PR 9.12 §2.13 Step 7: Dispose lifecycle owned by
+    // RiverCompositorHost.DisposeWayland (called from StopAsync).
+    // The IDisposable surface here is retained only because DI may
+    // attempt to dispose the client after the host has already torn
+    // the connection down; the call is therefore a deliberate no-op.
+    public void Dispose() { }
 
-
-    // --- registry ------------------------------------------------------
-
-    // PR 9.12 §2.13 Step 7: HandleRegistryGlobal body lifted to
-    // RiverCompositorHost.HandleRegistryGlobal. Thin forwarder kept here
-    // because RegistryGlobalBinder.Bind dispatches the wl_registry global
-    // event into this method via its god-class back-reference.
-    internal void HandleRegistryGlobal(RegistryGlobal global)
-        => RiverCompositorHost.HandleRegistryGlobal(this, global);
+    // PR 9.12 §2.13 Step 7: HandleRegistryGlobal forwarder retired —
+    // RiverCompositorHost subscribes its own handler to
+    // RegistryBinder.Discovered directly in Connect().
 
     // PR 9.12 §2.13 increment: TryActivateScreencopy lifted onto
     // IScreencopyService.ActivateIfReady (consumed directly by HandleRegistryGlobal).
