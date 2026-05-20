@@ -343,7 +343,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         set => _managerRequestSender.InsideManageSequence = value;
     }
     private uint _managerVersion;
+    // PR 9.12 §2.13: GCHandle is now pinned via NativeCallbackContext rather
+    // than directly on `this`. `_selfHandle` is rehydrated from the context's
+    // IntPtr so all existing `GCHandle.ToIntPtr(_selfHandle)` call sites
+    // continue to round-trip to the context (whose `Client` back-reference
+    // exposes this instance). The context owns the actual GCHandle.Alloc.
     private GCHandle _selfHandle;
+    private Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext? _callbackContext;
 
     // Stage 5: Wayland-send seam. Owned by this class for lifetime
     // management; Init() is called from OnGlobalDiscovered once the
@@ -766,7 +772,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
         WlInterfaces.EnsureBuilt();
 
-        _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+        // PR 9.12 §2.13: allocate a NativeCallbackContext (which performs the
+        // actual GCHandle.Alloc internally) and rehydrate _selfHandle from
+        // its IntPtr so all call sites that still read GCHandle.ToIntPtr(_selfHandle)
+        // continue to round-trip to the context. NativeCallbackEntry.Dispatch
+        // resolves the client through the context's `Client` back-reference.
+        _callbackContext = new Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext(
+            _riverEventDispatcher, this);
+        _selfHandle = GCHandle.FromIntPtr(_callbackContext.Handle);
         IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch;
 
         if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
@@ -852,7 +865,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         }
         finally
         {
-            if (_selfHandle.IsAllocated)
+            // PR 9.12 §2.13: dispose the callback context (which frees the
+            // pinned GCHandle); _selfHandle is just an alias for the same
+            // handle so we don't need to Free it separately. Fallback path
+            // (legacy direct-pin) retained for safety: if for any reason the
+            // context wasn't constructed but the handle was, free it.
+            if (_callbackContext is { } ctx)
+            {
+                ctx.Dispose();
+                _callbackContext = null;
+            }
+            else if (_selfHandle.IsAllocated)
             {
                 _selfHandle.Free();
             }

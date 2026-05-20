@@ -36,7 +36,16 @@ internal static unsafe class NativeCallbackEntry
         try
         {
             var gch = GCHandle.FromIntPtr(implementation);
-            var self = gch.Target as RiverWindowManagerClient;
+            // PR 9.12 §2.13: GCHandle is now pinned to NativeCallbackContext;
+            // rehydrate the client through its back-reference. Legacy path
+            // (handle pinned directly to the client) retained as a fallback
+            // for any not-yet-migrated call site or test harness.
+            RiverWindowManagerClient? self = gch.Target switch
+            {
+                NativeCallbackContext ctx => ctx.Client,
+                RiverWindowManagerClient legacy => legacy,
+                _ => null,
+            };
             if (self == null)
             {
                 return 0;

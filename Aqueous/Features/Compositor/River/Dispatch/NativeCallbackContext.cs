@@ -22,12 +22,21 @@ internal sealed class NativeCallbackContext : IDisposable
 {
     internal RiverEventDispatcher Dispatcher { get; }
 
+    /// <summary>
+    /// PR 9.12 §2.13 GCHandle re-pin: back-reference to the god-class
+    /// client. <see cref="NativeCallbackEntry.Dispatch"/> rehydrates the
+    /// client from here instead of pinning the client directly. Will be
+    /// retired together with the god class itself in the final demolition.
+    /// </summary>
+    internal RiverWindowManagerClient Client { get; }
+
     private GCHandle _handle;
     private bool _disposed;
 
-    internal NativeCallbackContext(RiverEventDispatcher dispatcher)
+    internal NativeCallbackContext(RiverEventDispatcher dispatcher, RiverWindowManagerClient client)
     {
         Dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        Client = client ?? throw new ArgumentNullException(nameof(client));
         _handle = GCHandle.Alloc(this, GCHandleType.Normal);
     }
 
