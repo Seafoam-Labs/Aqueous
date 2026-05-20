@@ -40,4 +40,50 @@ internal sealed unsafe class RiverEventDispatcher
 
     internal void HandleManagerEvent(uint opcode, WlArgument* args)
         => _client.HandleManagerEvent(opcode, args);
+
+    /// <summary>
+    /// PR 9.12 §2.13 — owns the body previously inlined in
+    /// <see cref="NativeCallbackEntry.Dispatch"/>. The native entry now
+    /// rehydrates a <see cref="NativeCallbackContext"/> from the GCHandle
+    /// and calls into this dispatcher, removing the direct
+    /// <c>gch.Target as RiverWindowManagerClient</c> cast from the
+    /// callback path. The body still reads god-class accessors
+    /// (<c>TryGetProxyInterface</c>, <c>EventDispatcher</c>,
+    /// <c>ScreencopyService</c>) until those collaborators are lifted in
+    /// the final §2.13 demolition.
+    /// </summary>
+    internal int DispatchNative(IntPtr target, uint opcode, IntPtr args)
+    {
+        var a = (WlArgument*)args;
+
+        var iface = _client.TryGetProxyInterface(target);
+        if (iface is not null)
+        {
+            RiverWindowManagerClient.Log("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
+            int argCount = iface switch
+            {
+                "river_window_manager_v1" => 4,
+                "river_window_v1" => 4,
+                "river_output_v1" => 2,
+                "river_seat_v1" => 2,
+                "river_layer_shell_v1" => 1,
+                "river_super_key_binding_v1" => 0,
+                "river_pointer_binding_v1" => 0,
+                "river_xkb_binding_v1" => 0,
+                "wl_registry" => 4,
+                _ => 4,
+            };
+            _client.EventDispatcher.Dispatch(
+                new WlEvent(iface, target, opcode, (IntPtr)a, argCount));
+            return 0;
+        }
+
+        if (_client.ScreencopyService.TryDispatchFrameEvent(target, opcode, a))
+        {
+            return 0;
+        }
+
+        RiverWindowManagerClient.Log("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
+        return 0;
+    }
 }

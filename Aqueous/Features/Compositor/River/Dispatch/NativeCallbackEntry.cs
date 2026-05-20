@@ -36,80 +36,23 @@ internal static unsafe class NativeCallbackEntry
         try
         {
             var gch = GCHandle.FromIntPtr(implementation);
-            // PR 9.12 §2.13: GCHandle is now pinned to NativeCallbackContext;
-            // rehydrate the client through its back-reference. Legacy path
-            // (handle pinned directly to the client) retained as a fallback
-            // for any not-yet-migrated call site or test harness.
-            RiverWindowManagerClient? self = gch.Target switch
+            // PR 9.12 §2.13: route through RiverEventDispatcher rehydrated
+            // from the NativeCallbackContext pinned on the GCHandle. The
+            // legacy direct-client pin is kept as a fallback (constructs
+            // an ad-hoc dispatcher) so any not-yet-migrated test harness
+            // or alternative pin path still works.
+            RiverEventDispatcher? dispatcher = gch.Target switch
             {
-                NativeCallbackContext ctx => ctx.Client,
-                RiverWindowManagerClient legacy => legacy,
+                NativeCallbackContext ctx => ctx.Dispatcher,
+                RiverWindowManagerClient legacy => new RiverEventDispatcher(legacy),
                 _ => null,
             };
-            if (self == null)
+            if (dispatcher is null)
             {
                 return 0;
             }
 
-            var a = (WlArgument*)args;
-
-            // Primary path: interface-name lookup against the
-            // Stage-0 _proxyInterface map. Every proxy that this
-            // client binds (or receives in a new_id slot) is tracked
-            // at bind/declare time. ManagerEventHandler tracks
-            // per-window/output/seat/pointer-binding proxies as
-            // they appear; KeyBindingRegistrar tracks per-key
-            // xkb-binding proxies as they are declared.
-            //
-            // Per-interface max ArgCount — derived from the protocol
-            // XMLs. Several handlers (Seat / Output / LayerShell) use
-            // `ev.ArgCount < N` as an early-return guard against
-            // malformed events; the previous proxy-pointer dispatcher
-            // passed conservative literals (2, 4) per-branch. Mirror
-            // those exactly here so the rewrite is byte-for-byte
-            // equivalent. Interfaces not enumerated below default to
-            // the prior dispatcher's literal (which for the screencopy
-            // fallback was unset / unused).
-            var iface = self.TryGetProxyInterface(target);
-            if (iface is not null)
-            {
-                // DIAG: prove which interface each event is routed as.
-                // High-volume; gated to Debug level via Log classifier.
-                RiverWindowManagerClient.Log("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
-                int argCount = iface switch
-                {
-                    "river_window_manager_v1" => 4,
-                    "river_window_v1" => 4,
-                    "river_output_v1" => 2,
-                    "river_seat_v1" => 2,
-                    "river_layer_shell_v1" => 1,
-                    "river_super_key_binding_v1" => 0,
-                    "river_pointer_binding_v1" => 0,
-                    "river_xkb_binding_v1" => 0,
-                    "wl_registry" => 4,
-                    _ => 4,
-                };
-                self.EventDispatcher.Dispatch(
-                    new WlEvent(iface, target, opcode, (IntPtr)a, argCount));
-                return 0;
-            }
-
-            // Fallback: screencopy frame proxies are owned by
-            // WlrScreencopyClient and not tracked in _proxyInterface
-            // (they live in the client's own per-frame state). The
-            // ScreencopyFrameHandler IEventHandler is registered for
-            // when frames eventually graduate into _proxyInterface,
-            // but until then we keep the direct service call.
-            if (self.ScreencopyService.TryDispatchFrameEvent(target, opcode, a))
-            {
-                return 0;
-            }
-
-            // Unknown target: log + drop. Matches previous behaviour
-            // (the prior dispatcher emitted the same log line).
-            // DIAG: explicit miss marker — if River is timing out on a
-            // ping, the manager's target will surface here every ~1s.
-            RiverWindowManagerClient.Log("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
+            return dispatcher.DispatchNative(target, opcode, args);
         }
         catch (Exception e)
         {
