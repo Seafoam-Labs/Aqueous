@@ -22,9 +22,7 @@ public sealed class FocusServiceTests
     [Fact]
     public void FocusService_Ctor_Has_Expected_Shape()
     {
-        var ctor = typeof(FocusService).GetConstructors(
-            System.Reflection.BindingFlags.Instance |
-            System.Reflection.BindingFlags.NonPublic).Single();
+        var ctor = typeof(FocusService).GetConstructors().Single();
         var p = ctor.GetParameters();
         Assert.Equal(8, p.Length);
         Assert.Equal(typeof(FocusedWindowTracker), p[3].ParameterType);

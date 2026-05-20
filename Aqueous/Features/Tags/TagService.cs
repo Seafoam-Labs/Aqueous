@@ -37,7 +37,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     // ITagServiceCollaborators retired (deleted) entirely.
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly TagController _controller;
-    internal TagService(
+    public TagService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         IFocusService focusService,

@@ -40,7 +40,7 @@ internal sealed class FocusService : IFocusService
     private readonly PrimarySeatTracker _primarySeat;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly ILayoutProposer _layoutProposer;
-    internal FocusService(
+    public FocusService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         ISeatRegistry seatRegistry,
