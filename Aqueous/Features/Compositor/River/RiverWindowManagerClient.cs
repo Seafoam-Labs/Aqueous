@@ -248,6 +248,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// <summary>PR 9.12 §2.1 migration accessor.</summary>
     internal Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState BindSiteState => _bindSiteState;
 
+    /// <summary>PR 9.12 §2.3 migration accessor.</summary>
+    internal Aqueous.Features.State.OutputFullscreenMap OutputFullscreen => _outputFullscreen;
+
     private IntPtr _manager;
     private IntPtr _layerShell;
     private IntPtr _xkbBindings;
@@ -385,7 +388,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private readonly ConcurrentDictionary<IntPtr, WindowStateData> _windowStates = new();
 
     // Per-output single-FS slot (single-fullscreen-per-output rule).
-    private readonly ConcurrentDictionary<IntPtr, IntPtr> _outputFullscreen = new();
+    // PR 9.12 §2.3: backed by the DI-resolved OutputFullscreenMap singleton;
+    // the field name is preserved so all existing consumers in the partial
+    // files (LayoutProposer, WindowEventHandler, WindowStateHostAccessors)
+    // keep compiling unchanged.
+    private readonly Aqueous.Features.State.OutputFullscreenMap _outputFullscreen;
 
     // Fix #3: snapshot of window handles that were in the fullscreen bucket on
     // the previous ProposeForArea cycle. On the cycle a window leaves the FS
@@ -531,13 +538,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         IEventPump? pump)
         : this(connection, windowRegistry, outputRegistry, seatRegistry, pump,
                new Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState(),
-               new Aqueous.Features.Focus.FocusedWindowTracker())
+               new Aqueous.Features.Focus.FocusedWindowTracker(),
+               new Aqueous.Features.State.OutputFullscreenMap())
     {
     }
 
-    // PR 9.12 §2.1/§2.2: ctor overload that accepts DI-supplied
-    // WaylandBindSiteState + FocusedWindowTracker singletons. The
-    // 5-arg overload above delegates here with fresh instances so
+    // PR 9.12 §2.1/§2.2/§2.3: ctor overload that accepts DI-supplied
+    // WaylandBindSiteState + FocusedWindowTracker + OutputFullscreenMap
+    // singletons. Earlier overloads delegate here with fresh instances so
     // existing callers (TryStart, tests) are unaffected.
     internal RiverWindowManagerClient(
         IWaylandConnection connection,
@@ -546,10 +554,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         ISeatRegistry seatRegistry,
         IEventPump? pump,
         Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState bindSiteState,
-        Aqueous.Features.Focus.FocusedWindowTracker focusedWindowTracker)
+        Aqueous.Features.Focus.FocusedWindowTracker focusedWindowTracker,
+        Aqueous.Features.State.OutputFullscreenMap outputFullscreen)
     {
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _connection = connection;
         _windowRegistry = windowRegistry;
         _outputRegistry = outputRegistry;
