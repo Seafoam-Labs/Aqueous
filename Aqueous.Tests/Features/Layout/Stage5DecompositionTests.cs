@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.Focus;
 using Aqueous.Features.Compositor.River.Layout;
 using Aqueous.Features.Layout;
 using Xunit;
@@ -82,17 +81,13 @@ public sealed class Stage5DecompositionTests
     }
 
     [Fact]
-    public void FocusServiceCollaborators_Shrunk_AsOfStage5()
+    public void FocusServiceCollaborators_Fully_Retired_AsOfPr96()
     {
-        // The four members that retired in Stage 5 must not be present.
-        var members = typeof(IFocusServiceCollaborators)
-            .GetMembers()
-            .Select(m => m.Name)
-            .ToArray();
-        Assert.DoesNotContain("ScheduleManage", members);
-        Assert.DoesNotContain("ResolveOutputName", members);
-        Assert.DoesNotContain("BuildSnapshotFor", members);
-        Assert.DoesNotContain("LayoutFocusNeighbor", members);
+        // Stage 9 PR 9.6: IFocusServiceCollaborators bridge fully deleted.
+        // (Stage 5 only shrunk it; PR 9.6 removes it entirely.)
+        var t = typeof(RiverWindowManagerClient).Assembly.GetType(
+            "Aqueous.Features.Compositor.River.Focus.IFocusServiceCollaborators");
+        Assert.Null(t);
     }
 
     [Fact]

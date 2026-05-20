@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using Aqueous.Features.Compositor.River.Focus;
 using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.Compositor.River;
@@ -10,26 +8,19 @@ namespace Aqueous.Features.Compositor.River;
 /// Stage 4 of the <see cref="RiverWindowManagerClient"/> decomposition:
 /// the focus-related behaviour has moved into
 /// <see cref="Aqueous.Features.Focus.FocusService"/>, accessed via
-/// <see cref="IFocusService"/>. This partial now holds two things:
+/// <see cref="Aqueous.Features.Focus.IFocusService"/>.
 ///
-/// <list type="number">
-/// <item>The explicit implementation of
-/// <see cref="IFocusServiceCollaborators"/> — the transient bridge
-/// that lets <c>FocusService</c> read/write the god class's
-/// <c>_focusedWindow</c> / <c>_pendingFocus*</c> fields and call back
-/// into the still-entangled manage-cycle and layout helpers. Each
-/// member is XML-doc'd in the interface with the stage that retires
-/// it.</item>
-/// <item>Thin instance-method wrappers (<c>RequestFocus</c>,
-/// <c>ClearFocus</c>, <c>CycleFocus</c>, etc.) that forward to
-/// <c>_focusService</c>. The wrappers exist solely so the
-/// not-yet-extracted partials (Seat/Window/Manager event handlers,
-/// LayoutProposer, WindowStateHost, CustomActionRunner) keep
-/// compiling unchanged. Each wrapper disappears when its caller is
-/// extracted in Stage 8.</item>
-/// </list>
+/// <para>
+/// Stage 9 PR 9.6: <c>IFocusServiceCollaborators</c> bridge retired.
+/// The accessors below replace the prior explicit-interface bridge
+/// methods 1-for-1, exposing god-class state directly so
+/// <c>FocusService</c> can consume <c>RiverWindowManagerClient</c>
+/// without an intermediary. They retire in Stage 9 final when the
+/// god class collapses and the underlying fields move onto
+/// <c>FocusService</c>.
+/// </para>
 /// </summary>
-internal sealed unsafe partial class RiverWindowManagerClient : IFocusServiceCollaborators
+internal sealed unsafe partial class RiverWindowManagerClient
 {
     // -- Thin wrappers (call-site compatibility) -----------------------
 
@@ -54,46 +45,42 @@ internal sealed unsafe partial class RiverWindowManagerClient : IFocusServiceCol
     public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) =>
         _focusService.SetFocusedShellSurface(shellSurfaceProxy, seatProxy);
 
-    // -- IFocusServiceCollaborators (explicit) -------------------------
+    // -- Pass-through accessors (Stage 9 PR 9.6) -----------------------
+    // Same surface the retired IFocusServiceCollaborators exposed, now
+    // reachable directly from FocusService via the typed god-class ref.
+    // -> retired in Stage 9 final (god-class collapse).
 
-    IntPtr IFocusServiceCollaborators.FocusedWindow
+    internal IntPtr FocusedWindow
     {
         get => _focusedWindow;
         set => _focusedWindow = value;
     }
 
-    IntPtr IFocusServiceCollaborators.PrimarySeat => _primarySeat;
+    internal IntPtr PrimarySeat => _primarySeat;
 
-    IEnumerable<IntPtr> IFocusServiceCollaborators.SeatProxies => _seatRegistry.Entries.Keys;
+    internal IEnumerable<IntPtr> SeatProxies => _seatRegistry.Entries.Keys;
 
-    IntPtr IFocusServiceCollaborators.PendingFocusWindow => _pendingFocusWindow;
+    internal IntPtr PendingFocusWindow => _pendingFocusWindow;
 
-    IntPtr IFocusServiceCollaborators.PendingFocusShellSurface => _pendingFocusShellSurface;
+    internal IntPtr PendingFocusShellSurface => _pendingFocusShellSurface;
 
-    void IFocusServiceCollaborators.SetPendingFocusWindow(IntPtr windowProxy, IntPtr seatProxy)
+    internal void SetPendingFocusWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
         _pendingFocusWindow = windowProxy;
         _pendingFocusShellSurface = IntPtr.Zero;
         _pendingFocusSeat = seatProxy;
     }
 
-    void IFocusServiceCollaborators.SetPendingFocusShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
+    internal void SetPendingFocusShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
         _pendingFocusShellSurface = shellSurfaceProxy;
         _pendingFocusWindow = IntPtr.Zero;
         _pendingFocusSeat = seatProxy;
     }
 
-    // Stage 5: ScheduleManage / ResolveOutputName / BuildSnapshotFor /
-    // LayoutFocusNeighbor were retired from IFocusServiceCollaborators.
-    // FocusService now consumes IManagerRequestSender + ILayoutProposer
-    // directly.
-
-    void IFocusServiceCollaborators.SendClearFocus(IntPtr seatProxy)
+    internal void SendClearFocus(IntPtr seatProxy)
     {
         WaylandInterop.wl_proxy_marshal_flags(seatProxy, 3, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
-
-    void IFocusServiceCollaborators.Log(string message) => Log(message);
 }

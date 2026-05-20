@@ -1,6 +1,5 @@
 using System;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.Focus;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Layout;
 using Aqueous.Features.Tags;
@@ -30,7 +29,9 @@ internal sealed class FocusService : IFocusService
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
-    private readonly IFocusServiceCollaborators _river;
+    // Stage 9 PR 9.6: IFocusServiceCollaborators bridge retired.
+    // Consumes RiverWindowManagerClient directly via pass-through accessors.
+    private readonly RiverWindowManagerClient _river;
     // Stage 5: injected services that replaced bridge members
     // (ScheduleManage, ResolveOutputName, BuildSnapshotFor, LayoutFocusNeighbor).
     private readonly IManagerRequestSender _managerRequestSender;
@@ -39,7 +40,7 @@ internal sealed class FocusService : IFocusService
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         ISeatRegistry seatRegistry,
-        IFocusServiceCollaborators river,
+        RiverWindowManagerClient river,
         IManagerRequestSender managerRequestSender,
         ILayoutProposer layoutProposer)
     {
@@ -106,7 +107,7 @@ internal sealed class FocusService : IFocusService
         // that aborts river and tears down the entire desktop.
         if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(windowProxy))
         {
-            _river.Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
+            RiverWindowManagerClient.Log($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
             return;
         }
 
@@ -129,7 +130,7 @@ internal sealed class FocusService : IFocusService
         if (seat != IntPtr.Zero)
         {
             _river.SendClearFocus(seat);
-            _river.Log($"clear_focus on seat 0x{seat.ToString("x")}");
+            RiverWindowManagerClient.Log($"clear_focus on seat 0x{seat.ToString("x")}");
         }
 
         _managerRequestSender.ScheduleManage();

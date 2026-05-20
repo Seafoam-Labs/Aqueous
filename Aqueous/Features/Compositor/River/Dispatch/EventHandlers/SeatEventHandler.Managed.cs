@@ -33,7 +33,9 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
     // for snap-zone-broken regression). Field kept null-checked; future
     // PR retires it once tests + RiverWindowManagerClient ctor migrate.
     private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos;
-    private readonly ISeatHandlerCollaborators _river;
+    // Stage 9 PR 9.6: ISeatHandlerCollaborators bridge retired.
+    // Consumes RiverWindowManagerClient directly via pass-through methods.
+    private readonly RiverWindowManagerClient _river;
     private readonly Action<string>? _log;
 
     public SeatEventHandler(
@@ -41,7 +43,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
         IWindowRegistry windows,
         ConcurrentDictionary<IntPtr, IntPtr> seatHoveredWindow,
         ConcurrentDictionary<IntPtr, (int X, int Y)> seatPointerPos,
-        ISeatHandlerCollaborators river,
+        RiverWindowManagerClient river,
         Action<string>? log = null)
     {
         _seats = seats ?? throw new ArgumentNullException(nameof(seats));

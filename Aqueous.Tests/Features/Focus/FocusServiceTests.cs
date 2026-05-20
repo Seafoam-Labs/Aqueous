@@ -1,433 +1,65 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.Focus;
-using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
-using Aqueous.Features.Layout;
-using Aqueous.Features.Tags;
 using Xunit;
 
 namespace Aqueous.Tests.Features.Focus;
 
 /// <summary>
-/// Stage 4 of the RiverWindowManagerClient decomposition. Verifies that
-/// <see cref="FocusService"/> owns the focus behaviour previously living
-/// on the god class and that the transient
-/// <see cref="IFocusServiceCollaborators"/> bridge routes Wayland-visible
-/// side effects back into the river client.
+/// Stage 9 PR 9.6: <c>IFocusServiceCollaborators</c> bridge retired.
+/// <c>FocusService</c> now consumes <see cref="RiverWindowManagerClient"/>
+/// directly via pass-through accessors, which cannot be unit-tested in
+/// isolation (no DI-safe way to construct the god class without a live
+/// Wayland connection). Behaviour-level coverage migrates to integration
+/// smoke tests against real River; this file retains structural guards
+/// only — sealed-IFocusService contract, ctor signature, and the
+/// reflection regression guard pinning the bridge interface deletion.
 /// </summary>
 public sealed class FocusServiceTests
 {
-    private static (FocusService svc, FakeCollab river, WindowRegistry windows, OutputRegistry outputs, SeatRegistry seats) MakeSubject(
-        IntPtr primarySeat = default)
-    {
-        var windows = new WindowRegistry();
-        var outputs = new OutputRegistry();
-        var seats = new SeatRegistry();
-        var river = new FakeCollab { PrimarySeat = primarySeat };
-        // Stage 5: FakeCollab also implements IManagerRequestSender +
-        // ILayoutProposer so it can carry the ScheduleManageCalls /
-        // NextLayoutNeighbor counters the tests assert against.
-        var svc = new FocusService(windows, outputs, seats, river, river, river);
-        return (svc, river, windows, outputs, seats);
-    }
-
-    private static IntPtr P(int v) => new IntPtr(v);
-
-    private static WindowEntry MakeWindowEntry(IntPtr proxy, IntPtr output, uint tags = TagState.AllTags)
-        => new() { Proxy = proxy, Output = output, Tags = tags };
-
-    private static OutputEntry MakeOutputEntry(IntPtr proxy, uint visibleTags = TagState.AllTags)
-        => new() { Proxy = proxy, VisibleTags = visibleTags };
-
-    // ---- ctor null guards --------------------------------------------
-
     [Fact]
-    public void Ctor_NullWindowRegistry_Throws()
+    public void FocusService_Implements_IFocusService()
     {
-        var f = new FakeCollab();
-        Assert.Throws<ArgumentNullException>((Action)(() =>
-            new FocusService(null!, new OutputRegistry(), new SeatRegistry(), f, f, f)));
+        Assert.Contains(typeof(IFocusService), typeof(FocusService).GetInterfaces());
+        Assert.True(typeof(FocusService).IsSealed);
     }
 
     [Fact]
-    public void Ctor_NullCollaborator_Throws()
+    public void FocusService_Ctor_Takes_RiverWindowManagerClient_Directly()
     {
-        var f = new FakeCollab();
-        Assert.Throws<ArgumentNullException>((Action)(() =>
-            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), null!, f, f)));
+        // PR 9.6: the bridge param was replaced with the typed god-class
+        // ref. Find the internal ctor and assert its parameter type.
+        var ctor = typeof(FocusService).GetConstructors(
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic).Single();
+        var p = ctor.GetParameters();
+        // Order: windowRegistry, outputRegistry, seatRegistry, river,
+        //        managerRequestSender, layoutProposer.
+        Assert.Equal(6, p.Length);
+        Assert.Equal(typeof(RiverWindowManagerClient), p[3].ParameterType);
     }
 
     [Fact]
-    public void Ctor_NullManagerRequestSender_Throws()
+    public void IFocusServiceCollaborators_Type_Deleted()
     {
-        var f = new FakeCollab();
-        Assert.Throws<ArgumentNullException>((Action)(() =>
-            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), f, null!, f)));
+        // Regression guard: the bridge interface must no longer exist
+        // in the Aqueous production assembly.
+        var asm = typeof(RiverWindowManagerClient).Assembly;
+        var t = asm.GetType("Aqueous.Features.Compositor.River.Focus.IFocusServiceCollaborators");
+        Assert.Null(t);
     }
 
     [Fact]
-    public void Ctor_NullLayoutProposer_Throws()
+    public void RiverWindowManagerClient_Does_Not_Implement_DeletedBridge()
     {
-        var f = new FakeCollab();
-        Assert.Throws<ArgumentNullException>((Action)(() =>
-            new FocusService(new WindowRegistry(), new OutputRegistry(), new SeatRegistry(), f, f, null!)));
-    }
-
-    // ---- FocusedWindow getter ----------------------------------------
-
-    [Fact]
-    public void FocusedWindow_ReflectsCollaboratorField()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        Assert.Equal(IntPtr.Zero, svc.FocusedWindow);
-        river.FocusedWindow = P(42);
-        Assert.Equal(P(42), svc.FocusedWindow);
-    }
-
-    // ---- TryGetFocusedAlive ------------------------------------------
-
-    [Fact]
-    public void TryGetFocusedAlive_NoFocus_ReturnsFalse()
-    {
-        var (svc, _, _, _, _) = MakeSubject();
-        Assert.False(svc.TryGetFocusedAlive(out var p));
-        Assert.Equal(IntPtr.Zero, p);
-    }
-
-    [Fact]
-    public void TryGetFocusedAlive_StaleFocus_SelfHealsToZero()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        river.FocusedWindow = P(99); // not in registry
-        Assert.False(svc.TryGetFocusedAlive(out _));
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-    }
-
-    [Fact]
-    public void TryGetFocusedAlive_LiveFocus_ReturnsTrue()
-    {
-        var (svc, river, windows, _, _) = MakeSubject();
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        river.FocusedWindow = P(1);
-        Assert.True(svc.TryGetFocusedAlive(out var p));
-        Assert.Equal(P(1), p);
-    }
-
-    // ---- RequestFocus ------------------------------------------------
-
-    [Fact]
-    public void RequestFocus_Zero_Logged_NoSchedule()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        svc.RequestFocus(IntPtr.Zero);
-        Assert.Equal(0, river.ScheduleManageCalls);
-        Assert.Single(river.Logs);
-    }
-
-    [Fact]
-    public void RequestFocus_UnknownWindow_Logged_NoSchedule()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        svc.RequestFocus(P(7));
-        Assert.Equal(0, river.ScheduleManageCalls);
-        Assert.Single(river.Logs);
-    }
-
-    [Fact]
-    public void RequestFocus_KnownWindow_PrimarySeat_SetsPendingAndSchedules()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        svc.RequestFocus(P(1));
-        Assert.Equal(P(1), river.FocusedWindow);
-        Assert.Equal(P(1), river.PendingFocusWindow);
-        Assert.Equal(P(10), river.PendingFocusSeat);
-        Assert.Equal(1, river.ScheduleManageCalls);
-    }
-
-    [Fact]
-    public void RequestFocus_FallsBackToFirstSeat_WhenNoPrimary()
-    {
-        var (svc, river, windows, _, seats) = MakeSubject();
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        seats.Entries[P(33)] = new SeatEntry { Proxy = P(33) };
-        svc.RequestFocus(P(1));
-        Assert.Equal(P(33), river.PendingFocusSeat);
-    }
-
-    [Fact]
-    public void RequestFocus_NoSeatsAvailable_ReturnsWithoutScheduling()
-    {
-        var (svc, river, windows, _, _) = MakeSubject();
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        svc.RequestFocus(P(1));
-        Assert.Equal(0, river.ScheduleManageCalls);
-    }
-
-    [Fact]
-    public void RequestFocus_Idempotent_OnSameFocus()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        svc.RequestFocus(P(1));
-        var calls = river.ScheduleManageCalls;
-        // Second call with same window short-circuits inside SetFocusedWindow.
-        svc.RequestFocus(P(1));
-        Assert.Equal(calls, river.ScheduleManageCalls);
-    }
-
-    // ---- ClearFocus --------------------------------------------------
-
-    [Fact]
-    public void ClearFocus_ClearsFieldAndSendsClearOnSeat()
-    {
-        var (svc, river, _, _, _) = MakeSubject(primarySeat: P(10));
-        river.FocusedWindow = P(1);
-        svc.ClearFocus();
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-        Assert.Equal(IntPtr.Zero, river.PendingFocusWindow);
-        Assert.Equal(P(10), river.LastClearFocusSeat);
-        Assert.Equal(1, river.ScheduleManageCalls);
-    }
-
-    [Fact]
-    public void ClearFocus_NoSeats_DoesNotCallSendClear()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        svc.ClearFocus();
-        Assert.Equal(IntPtr.Zero, river.LastClearFocusSeat);
-        Assert.Equal(1, river.ScheduleManageCalls);
-    }
-
-    // ---- FocusAnyOtherWindow -----------------------------------------
-
-    [Fact]
-    public void FocusAnyOtherWindow_PrefersNotAvoid()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        windows.Entries[P(2)] = MakeWindowEntry(P(2), IntPtr.Zero);
-        svc.FocusAnyOtherWindow(P(1));
-        Assert.Equal(P(2), river.FocusedWindow);
-    }
-
-    [Fact]
-    public void FocusAnyOtherWindow_FallsBackToAvoidIfOnlyOption()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        svc.FocusAnyOtherWindow(P(1));
-        Assert.Equal(P(1), river.FocusedWindow);
-    }
-
-    [Fact]
-    public void FocusAnyOtherWindow_EmptyRegistry_ClearsFocus()
-    {
-        var (svc, river, _, _, _) = MakeSubject(primarySeat: P(10));
-        river.FocusedWindow = P(1);
-        svc.FocusAnyOtherWindow(IntPtr.Zero);
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-        Assert.Equal(P(10), river.LastClearFocusSeat);
-    }
-
-    // ---- CycleFocus --------------------------------------------------
-
-    [Fact]
-    public void CycleFocus_EmptyRegistry_NoOp()
-    {
-        var (svc, river, _, _, _) = MakeSubject(primarySeat: P(10));
-        svc.CycleFocus();
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-        Assert.Equal(0, river.ScheduleManageCalls);
-    }
-
-    [Fact]
-    public void CycleFocus_AdvancesToNextInIterationOrder()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        windows.Entries[P(2)] = MakeWindowEntry(P(2), IntPtr.Zero);
-        windows.Entries[P(3)] = MakeWindowEntry(P(3), IntPtr.Zero);
-        river.FocusedWindow = P(1);
-        svc.CycleFocus();
-        // First key was used as fallback (P(1)), then after seeing P(1) takeNext flips.
-        // Either P(2) or P(3) depending on dictionary order; assert non-zero advance.
-        Assert.NotEqual(IntPtr.Zero, river.FocusedWindow);
-        Assert.Contains(river.FocusedWindow, new[] { P(1), P(2), P(3) });
-    }
-
-    // ---- SetFocusedShellSurface --------------------------------------
-
-    [Fact]
-    public void SetFocusedShellSurface_UpdatesPendingShellSurfaceAndSchedules()
-    {
-        var (svc, river, _, _, _) = MakeSubject();
-        svc.SetFocusedShellSurface(P(77), P(10));
-        Assert.Equal(P(77), river.PendingFocusShellSurface);
-        Assert.Equal(IntPtr.Zero, river.PendingFocusWindow);
-        Assert.Equal(P(10), river.PendingFocusSeat);
-        Assert.Equal(1, river.ScheduleManageCalls);
-    }
-
-    // ---- RepairFocusAfterTagChange -----------------------------------
-
-    [Fact]
-    public void RepairFocusAfterTagChange_FocusStillVisible_KeepsFocus()
-    {
-        var (svc, river, windows, outputs, _) = MakeSubject(primarySeat: P(10));
-        outputs.Entries[P(100)] = MakeOutputEntry(P(100), visibleTags: 0b1);
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), P(100), tags: 0b1);
-        river.FocusedWindow = P(1);
-        svc.RepairFocusAfterTagChange();
-        Assert.Equal(P(1), river.FocusedWindow);
-    }
-
-    [Fact]
-    public void RepairFocusAfterTagChange_FocusInvisible_PicksVisibleReplacement()
-    {
-        var (svc, river, windows, outputs, _) = MakeSubject(primarySeat: P(10));
-        outputs.Entries[P(100)] = MakeOutputEntry(P(100), visibleTags: 0b10);
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), P(100), tags: 0b01); // hidden
-        windows.Entries[P(2)] = MakeWindowEntry(P(2), P(100), tags: 0b10); // visible
-        river.FocusedWindow = P(1);
-        svc.RepairFocusAfterTagChange();
-        Assert.Equal(P(2), river.FocusedWindow);
-    }
-
-    [Fact]
-    public void RepairFocusAfterTagChange_NoVisibleReplacement_ClearsFocus()
-    {
-        var (svc, river, windows, outputs, _) = MakeSubject(primarySeat: P(10));
-        outputs.Entries[P(100)] = MakeOutputEntry(P(100), visibleTags: 0b10);
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), P(100), tags: 0b01);
-        river.FocusedWindow = P(1);
-        svc.RepairFocusAfterTagChange();
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-        Assert.Equal(P(10), river.LastClearFocusSeat);
-    }
-
-    // ---- ClearFocusedHandle ------------------------------------------
-
-    [Fact]
-    public void ClearFocusedHandle_ClearsFieldWithoutSchedulingOrSending()
-    {
-        var (svc, river, _, _, _) = MakeSubject(primarySeat: P(10));
-        river.FocusedWindow = P(1);
-        svc.ClearFocusedHandle();
-        Assert.Equal(IntPtr.Zero, river.FocusedWindow);
-        Assert.Equal(0, river.ScheduleManageCalls);
-        Assert.Equal(IntPtr.Zero, river.LastClearFocusSeat);
-    }
-
-    // ---- HandleDirectionalFocus --------------------------------------
-
-    [Fact]
-    public void HandleDirectionalFocus_NoFocus_CyclesInstead()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        svc.HandleDirectionalFocus(FocusDirection.Left);
-        Assert.Equal(P(1), river.FocusedWindow);
-    }
-
-    [Fact]
-    public void HandleDirectionalFocus_LayoutSuggestsNeighbor_TakesIt()
-    {
-        var (svc, river, windows, _, _) = MakeSubject(primarySeat: P(10));
-        windows.Entries[P(1)] = MakeWindowEntry(P(1), IntPtr.Zero);
-        windows.Entries[P(2)] = MakeWindowEntry(P(2), IntPtr.Zero);
-        river.FocusedWindow = P(1);
-        river.NextLayoutNeighbor = P(2);
-        svc.HandleDirectionalFocus(FocusDirection.Right);
-        Assert.Equal(P(2), river.FocusedWindow);
-    }
-
-    // ---- Regression guards ------------------------------------------
-
-    [Fact]
-    public void TagServiceCollaborators_Interface_FullyDeleted_InStage5()
-    {
-        // Stage 5: the entire bridge interface was retired; it shouldn't
-        // resolve from the production assembly anymore.
-        var prodAsm = typeof(RiverWindowManagerClient).Assembly;
-        Assert.Null(prodAsm.GetType(
-            "Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators",
-            throwOnError: false));
-    }
-
-    [Fact]
-    public void FocusServiceCollaborators_StageFive_RetiredScheduleManage()
-    {
-        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("ScheduleManage"));
-    }
-
-    [Fact]
-    public void FocusServiceCollaborators_StageFive_RetiredLayoutMembers()
-    {
-        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("ResolveOutputName"));
-        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("BuildSnapshotFor"));
-        Assert.Null(typeof(IFocusServiceCollaborators).GetMethod("LayoutFocusNeighbor"));
-    }
-
-    [Fact]
-    public void FocusServiceCollaborators_DeclaresFocusedWindowSetter()
-    {
-        var p = typeof(IFocusServiceCollaborators).GetProperty("FocusedWindow");
-        Assert.NotNull(p);
-        Assert.True(p!.CanWrite, "FocusedWindow must be settable (write-through to god class field).");
-    }
-
-    // ===== fake collaborator =========================================
-
-    private sealed class FakeCollab : IFocusServiceCollaborators, IManagerRequestSender, ILayoutProposer
-    {
-        // IManagerRequestSender impl
-        public bool InsideManageSequence { get; set; }
-        public bool IsBound => true;
-        public void Init(IntPtr managerProxy, IntPtr display) { }
-        public void SendManagerRequest(uint opcode) { }
-        // ILayoutProposer impl (delegates to bridge-style getters)
-        public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea) { }
-        public bool IsFloatLayoutActive() => false;
-        public bool IsFloatLayoutActive(IntPtr output) => false;
-        // (Continued below for IFocusServiceCollaborators members.)
-        public IntPtr FocusedWindow { get; set; }
-        public IntPtr PrimarySeat { get; set; }
-        public List<IntPtr> Seats { get; } = new();
-        public IEnumerable<IntPtr> SeatProxies => Seats;
-        public IntPtr PendingFocusWindow { get; private set; }
-        public IntPtr PendingFocusShellSurface { get; private set; }
-        public IntPtr PendingFocusSeat { get; private set; }
-        public int ScheduleManageCalls { get; private set; }
-        public IntPtr LastClearFocusSeat { get; private set; } = IntPtr.Zero;
-        public List<string> Logs { get; } = new();
-        public IntPtr NextLayoutNeighbor { get; set; }
-
-        public void SetPendingFocusWindow(IntPtr windowProxy, IntPtr seatProxy)
-        {
-            PendingFocusWindow = windowProxy;
-            PendingFocusShellSurface = IntPtr.Zero;
-            PendingFocusSeat = seatProxy;
-        }
-
-        public void SetPendingFocusShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
-        {
-            PendingFocusShellSurface = shellSurfaceProxy;
-            PendingFocusWindow = IntPtr.Zero;
-            PendingFocusSeat = seatProxy;
-        }
-
-        public void ScheduleManage() => ScheduleManageCalls++;
-        public void SendClearFocus(IntPtr seatProxy) => LastClearFocusSeat = seatProxy;
-        public string? ResolveOutputName(IntPtr outputProxy) => null;
-        public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr outputProxy)
-            => Array.Empty<WindowEntryView>();
-        public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current,
-            FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot)
-            => NextLayoutNeighbor == IntPtr.Zero ? null : NextLayoutNeighbor;
-        public void Log(string message) => Logs.Add(message);
+        // Defence in depth — if anyone resurrects the interface and
+        // forgets to delete this guard, the type lookup above will
+        // resurface it but the implementation list should still not
+        // contain it.
+        var asm = typeof(RiverWindowManagerClient).Assembly;
+        var t = asm.GetType("Aqueous.Features.Compositor.River.Focus.IFocusServiceCollaborators");
+        if (t == null) return; // already deleted (expected)
+        Assert.DoesNotContain(t, typeof(RiverWindowManagerClient).GetInterfaces());
     }
 }

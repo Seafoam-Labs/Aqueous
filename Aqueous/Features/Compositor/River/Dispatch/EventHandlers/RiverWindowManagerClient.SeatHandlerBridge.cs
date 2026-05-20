@@ -15,9 +15,9 @@ namespace Aqueous.Features.Compositor.River;
 /// original <c>OnSeatEvent</c> switch in <see cref="SeatEventHandler"/>
 /// (which is now a standalone <see cref="IEventHandler"/> implementation).
 /// </summary>
-internal sealed unsafe partial class RiverWindowManagerClient : ISeatHandlerCollaborators
+internal sealed unsafe partial class RiverWindowManagerClient
 {
-    void ISeatHandlerCollaborators.CachePointerPosition(IntPtr seat, int x, int y)
+    internal void CachePointerPosition(IntPtr seat, int x, int y)
     {
         // river_window_management_v1::pointer_position declares its args
         // as type="int" in the protocol XML — global logical coordinates
@@ -28,19 +28,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISeatHandlerColl
         _seatPointerPos[seat] = (x, y);
     }
 
-    void ISeatHandlerCollaborators.HandleWindowInteraction(IntPtr window, IntPtr seat)
+    internal void HandleWindowInteraction(IntPtr window, IntPtr seat)
     {
         Log("BRIDGE HandleWindowInteraction window=0x" + window.ToString("x") + " seat=0x" + seat.ToString("x"));
         _seatInteractionService.HandleWindowInteraction(window, seat);
     }
 
-    void ISeatHandlerCollaborators.HandleShellSurfaceInteraction(IntPtr shellSurface, IntPtr seat)
+    internal void HandleShellSurfaceInteraction(IntPtr shellSurface, IntPtr seat)
     {
         Log("BRIDGE HandleShellSurfaceInteraction ss=0x" + shellSurface.ToString("x") + " seat=0x" + seat.ToString("x"));
         _seatInteractionService.HandleShellSurfaceInteraction(shellSurface, seat);
     }
 
-    void ISeatHandlerCollaborators.HandlePointerEnterFocusFollow(IntPtr hoveredWindow, IntPtr seat)
+    internal void HandlePointerEnterFocusFollow(IntPtr hoveredWindow, IntPtr seat)
     {
         Log("BRIDGE HandlePointerEnterFocusFollow hovered=0x" + hoveredWindow.ToString("x") + " seat=0x" + seat.ToString("x"));
         if (_layoutConfig.Input.FocusFollowsMouse
@@ -52,7 +52,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISeatHandlerColl
         }
     }
 
-    void ISeatHandlerCollaborators.HandleOpDelta(IntPtr seat, int dx, int dy)
+    internal void HandleOpDelta(IntPtr seat, int dx, int dy)
     {
         Log("BRIDGE HandleOpDelta seat=0x" + seat.ToString("x") + " dx=" + dx + " dy=" + dy);
         if (_activeDragWindow == null)
@@ -192,7 +192,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : ISeatHandlerColl
         }
     }
 
-    void ISeatHandlerCollaborators.HandleOpRelease(IntPtr seat)
+    internal void HandleOpRelease(IntPtr seat)
     {
         Log("BRIDGE HandleOpRelease seat=0x" + seat.ToString("x"));
         // SnapZones: only for interactive moves (resize ignored). If
