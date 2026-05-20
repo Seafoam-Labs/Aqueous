@@ -499,6 +499,26 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal IntPtr SelfHandlePtr => GCHandle.ToIntPtr(_selfHandle);
     internal LayoutConfig LayoutConfigForRegistrar => _layoutConfig;
 
+    // PR 9.12 §2.13 — internal accessors for the lifted top-level
+    // LayoutProposer. Retire together with the god class.
+    internal IWindowRegistry WindowRegistry => _windowRegistry;
+    internal IOutputRegistry OutputRegistry => _outputRegistry;
+    internal IntPtr FocusedWindowHandle => _focusedWindow;
+    internal HashSet<IntPtr> PrevFullscreenHandles => _prevFullscreenHandles;
+    internal LayoutController LayoutController => _layoutController;
+
+    // PR 9.12 §2.13 — god-class forwarders for the lifted top-level
+    // LayoutProposer. Several event-handler partials still call these
+    // methods unqualified via `this`; the forwarders delegate to the
+    // lifted service. Retire together with the god class.
+    internal void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
+        => _layoutProposer.ProposeForArea(output, outputName, usableArea);
+    internal bool IsFloatLayoutActive() => _layoutProposer.IsFloatLayoutActive();
+    internal bool IsFloatLayoutActive(IntPtr output) => _layoutProposer.IsFloatLayoutActive(output);
+    internal IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output)
+        => _layoutProposer.BuildSnapshotFor(output);
+    internal string? ResolveOutputName(IntPtr output) => _layoutProposer.ResolveOutputName(output);
+
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler SeatHandler => _seatHandler;
