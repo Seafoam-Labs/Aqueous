@@ -29,34 +29,41 @@ internal sealed class FocusService : IFocusService
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
-    // Stage 9 PR 9.6: IFocusServiceCollaborators bridge retired.
-    // Consumes RiverWindowManagerClient directly via pass-through accessors.
-    private readonly RiverWindowManagerClient _river;
-    // Stage 5: injected services that replaced bridge members
-    // (ScheduleManage, ResolveOutputName, BuildSnapshotFor, LayoutFocusNeighbor).
+    // PR 9.12 §2.13 Step 1: cut over off RiverWindowManagerClient.
+    // The focused/pending-focus/primary-seat state lives on three DI
+    // singletons (FocusedWindowTracker / PendingFocusStore /
+    // PrimarySeatTracker); SendClearFocus is now an inlined Wayland
+    // marshal local to this service.
+    private readonly FocusedWindowTracker _focusedWindow;
+    private readonly PendingFocusStore _pendingFocus;
+    private readonly PrimarySeatTracker _primarySeat;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly ILayoutProposer _layoutProposer;
     internal FocusService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
         ISeatRegistry seatRegistry,
-        RiverWindowManagerClient river,
+        FocusedWindowTracker focusedWindow,
+        PendingFocusStore pendingFocus,
+        PrimarySeatTracker primarySeat,
         IManagerRequestSender managerRequestSender,
         ILayoutProposer layoutProposer)
     {
         _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
         _outputRegistry        = outputRegistry        ?? throw new ArgumentNullException(nameof(outputRegistry));
         _seatRegistry          = seatRegistry          ?? throw new ArgumentNullException(nameof(seatRegistry));
-        _river                 = river                 ?? throw new ArgumentNullException(nameof(river));
+        _focusedWindow         = focusedWindow         ?? throw new ArgumentNullException(nameof(focusedWindow));
+        _pendingFocus          = pendingFocus          ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _primarySeat           = primarySeat           ?? throw new ArgumentNullException(nameof(primarySeat));
         _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
     }
 
-    public IntPtr FocusedWindow => _river.FocusedWindow;
+    public IntPtr FocusedWindow => _focusedWindow.Current;
 
     public bool TryGetFocusedAlive(out IntPtr proxy)
     {
-        proxy = _river.FocusedWindow;
+        proxy = _focusedWindow.Current;
         if (proxy == IntPtr.Zero)
         {
             return false;
@@ -64,7 +71,7 @@ internal sealed class FocusService : IFocusService
 
         if (!_windowRegistry.Entries.ContainsKey(proxy))
         {
-            _river.FocusedWindow = IntPtr.Zero;
+            _focusedWindow.Current = IntPtr.Zero;
             return false;
         }
 
@@ -73,9 +80,9 @@ internal sealed class FocusService : IFocusService
 
     public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
-        var currentFocused = _river.FocusedWindow;
-        var pendingWindow = _river.PendingFocusWindow;
-        var pendingShellSurface = _river.PendingFocusShellSurface;
+        var currentFocused = _focusedWindow.Current;
+        var pendingWindow = _pendingFocus.Window;
+        var pendingShellSurface = _pendingFocus.ShellSurface;
 
         // Skip no-op focus changes. SetFocusedWindow is called from
         // pointer_enter on every mouse crossing; without a correct guard each
@@ -92,8 +99,8 @@ internal sealed class FocusService : IFocusService
             return; // already focused and applied
         }
 
-        _river.SetPendingFocusWindow(windowProxy, seatProxy);
-        _river.FocusedWindow = windowProxy;
+        _pendingFocus.SetWindow(windowProxy, seatProxy);
+        _focusedWindow.Current = windowProxy;
         _managerRequestSender.ScheduleManage();
     }
 
@@ -124,12 +131,15 @@ internal sealed class FocusService : IFocusService
     {
         IntPtr seat = ResolveSeat();
 
-        _river.SetPendingFocusWindow(IntPtr.Zero, IntPtr.Zero);
-        _river.FocusedWindow = IntPtr.Zero;
+        _pendingFocus.SetWindow(IntPtr.Zero, IntPtr.Zero);
+        _focusedWindow.Current = IntPtr.Zero;
 
         if (seat != IntPtr.Zero)
         {
-            _river.SendClearFocus(seat);
+            // PR 9.12 §2.13 Step 1: inlined from RiverWindowManagerClient.SendClearFocus.
+            // river_seat_v1::clear_focus is opcode 3 with no arguments.
+            WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             RiverWindowManagerClient.Log($"clear_focus on seat 0x{seat.ToString("x")}");
         }
 
@@ -176,7 +186,7 @@ internal sealed class FocusService : IFocusService
             return;
         }
 
-        var current = _river.FocusedWindow;
+        var current = _focusedWindow.Current;
         IntPtr next = IntPtr.Zero;
         bool takeNext = false;
         foreach (var k in _windowRegistry.Entries.Keys)
@@ -207,7 +217,7 @@ internal sealed class FocusService : IFocusService
 
     public void HandleDirectionalFocus(FocusDirection dir)
     {
-        var current = _river.FocusedWindow;
+        var current = _focusedWindow.Current;
         if (current == IntPtr.Zero || _windowRegistry.Entries.Count == 0)
         {
             CycleFocus();
@@ -236,7 +246,7 @@ internal sealed class FocusService : IFocusService
 
     public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
-        _river.SetPendingFocusShellSurface(shellSurfaceProxy, seatProxy);
+        _pendingFocus.SetShellSurface(shellSurfaceProxy, seatProxy);
         // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus
         // is actually flushed on the next manage cycle. Without this, if a
         // layer-shell surface (e.g. the start menu) grabs focus just before a
@@ -247,7 +257,7 @@ internal sealed class FocusService : IFocusService
 
     public void RepairFocusAfterTagChange()
     {
-        var focused = _river.FocusedWindow;
+        var focused = _focusedWindow.Current;
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw))
         {
@@ -313,12 +323,12 @@ internal sealed class FocusService : IFocusService
 
     public void ClearFocusedHandle()
     {
-        _river.FocusedWindow = IntPtr.Zero;
+        _focusedWindow.Current = IntPtr.Zero;
     }
 
     private IntPtr ResolveSeat()
     {
-        IntPtr seat = _river.PrimarySeat;
+        IntPtr seat = _primarySeat.Current;
         if (seat != IntPtr.Zero)
         {
             return seat;

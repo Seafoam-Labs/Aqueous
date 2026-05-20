@@ -77,6 +77,14 @@ class Program
         // singleton during the migration.
         services.AddSingleton<Aqueous.Features.State.WindowStateStore>();
 
+        // PR 9.12 §2.13 Step 1: PendingFocusStore + PrimarySeatTracker
+        // own the pending-focus triple and the primary-seat handle that
+        // previously lived on the god class. FocusService now consumes
+        // them directly; RWMC keeps property aliases for the as-yet
+        // un-migrated handler services until those cut over too.
+        services.AddSingleton<Aqueous.Features.Focus.PendingFocusStore>();
+        services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -95,7 +103,9 @@ class Program
                 sp.GetRequiredService<WaylandBindSiteState>(),
                 sp.GetRequiredService<Aqueous.Features.Focus.FocusedWindowTracker>(),
                 sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
-                sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>()));
+                sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
+                sp.GetRequiredService<Aqueous.Features.Focus.PendingFocusStore>(),
+                sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the

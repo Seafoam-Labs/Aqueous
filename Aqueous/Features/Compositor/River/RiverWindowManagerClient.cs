@@ -94,9 +94,27 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     private readonly SeatInteractionService _seatInteractionService;
 
-    private IntPtr _pendingFocusWindow;
-    private IntPtr _pendingFocusShellSurface;
-    private IntPtr _pendingFocusSeat;
+    // PR 9.12 §2.13 Step 1 — pending-focus storage now lives on
+    // PendingFocusStore (DI singleton). The three field-style properties
+    // below preserve the original names so the manager/window event
+    // services and FocusService accessors keep compiling unchanged until
+    // they all consume the store directly.
+    private readonly Aqueous.Features.Focus.PendingFocusStore _pendingFocusStore;
+    private IntPtr _pendingFocusWindow
+    {
+        get => _pendingFocusStore.Window;
+        set => _pendingFocusStore.Window = value;
+    }
+    private IntPtr _pendingFocusShellSurface
+    {
+        get => _pendingFocusStore.ShellSurface;
+        set => _pendingFocusStore.ShellSurface = value;
+    }
+    private IntPtr _pendingFocusSeat
+    {
+        get => _pendingFocusStore.Seat;
+        set => _pendingFocusStore.Seat = value;
+    }
 
     private WindowEntry? _activeDragWindow;
     private IntPtr _activeDragSeat;
@@ -327,7 +345,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private readonly Dictionary<IntPtr, string> _customBindingActions = new();
 
 
-    private IntPtr _primarySeat;
+    // PR 9.12 §2.13 Step 1 — _primarySeat storage now lives on
+    // PrimarySeatTracker (DI singleton). Property below preserves the
+    // original field name until ManagerEventService / FocusService take
+    // the tracker via ctor injection directly.
+    private readonly Aqueous.Features.Focus.PrimarySeatTracker _primarySeatTracker;
+    private IntPtr _primarySeat
+    {
+        get => _primarySeatTracker.Current;
+        set => _primarySeatTracker.Current = value;
+    }
 
     // PR 9.12 §2.2: _focusedWindow's storage now lives on
     // FocusedWindowTracker (DI singleton). The property below preserves
@@ -963,7 +990,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                new Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState(),
                new Aqueous.Features.Focus.FocusedWindowTracker(),
                new Aqueous.Features.State.OutputFullscreenMap(),
-               new Aqueous.Features.State.WindowStateStore())
+               new Aqueous.Features.State.WindowStateStore(),
+               new Aqueous.Features.Focus.PendingFocusStore(),
+               new Aqueous.Features.Focus.PrimarySeatTracker())
     {
     }
 
@@ -980,12 +1009,16 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState bindSiteState,
         Aqueous.Features.Focus.FocusedWindowTracker focusedWindowTracker,
         Aqueous.Features.State.OutputFullscreenMap outputFullscreen,
-        Aqueous.Features.State.WindowStateStore windowStates)
+        Aqueous.Features.State.WindowStateStore windowStates,
+        Aqueous.Features.Focus.PendingFocusStore pendingFocusStore,
+        Aqueous.Features.Focus.PrimarySeatTracker primarySeatTracker)
     {
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _pendingFocusStore = pendingFocusStore ?? throw new ArgumentNullException(nameof(pendingFocusStore));
+        _primarySeatTracker = primarySeatTracker ?? throw new ArgumentNullException(nameof(primarySeatTracker));
         _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
@@ -1006,7 +1039,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _layoutProposer = new Aqueous.Features.Layout.LayoutProposer(this);
         _focusService = new Aqueous.Features.Focus.FocusService(
             _windowRegistry, _outputRegistry, _seatRegistry,
-            this, _managerRequestSender, _layoutProposer);
+            _focusedWindowTracker, _pendingFocusStore, _primarySeatTracker,
+            _managerRequestSender, _layoutProposer);
         // Stage 5: TagService no longer needs the ITagServiceCollaborators
         // bridge (deleted); ScheduleManage routed through IManagerRequestSender.
         _tagController = new TagService(

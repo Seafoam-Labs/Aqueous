@@ -26,18 +26,23 @@ public sealed class FocusServiceTests
     }
 
     [Fact]
-    public void FocusService_Ctor_Takes_RiverWindowManagerClient_Directly()
+    public void FocusService_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
-        // PR 9.6: the bridge param was replaced with the typed god-class
-        // ref. Find the internal ctor and assert its parameter type.
+        // PR 9.12 §2.13 Step 1: FocusService no longer depends on the
+        // god class. State previously read from it now flows through
+        // FocusedWindowTracker / PendingFocusStore / PrimarySeatTracker
+        // DI singletons. Order: windowRegistry, outputRegistry,
+        // seatRegistry, focusedWindow, pendingFocus, primarySeat,
+        // managerRequestSender, layoutProposer.
         var ctor = typeof(FocusService).GetConstructors(
             System.Reflection.BindingFlags.Instance |
             System.Reflection.BindingFlags.NonPublic).Single();
         var p = ctor.GetParameters();
-        // Order: windowRegistry, outputRegistry, seatRegistry, river,
-        //        managerRequestSender, layoutProposer.
-        Assert.Equal(6, p.Length);
-        Assert.Equal(typeof(RiverWindowManagerClient), p[3].ParameterType);
+        Assert.Equal(8, p.Length);
+        Assert.DoesNotContain(p, x => x.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.Equal(typeof(FocusedWindowTracker), p[3].ParameterType);
+        Assert.Equal(typeof(PendingFocusStore), p[4].ParameterType);
+        Assert.Equal(typeof(PrimarySeatTracker), p[5].ParameterType);
     }
 
     [Fact]
