@@ -1,30 +1,37 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Aqueous.Features.Compositor.River;
+namespace Aqueous.Features.Compositor.River.Dispatch;
 
-// PR 8.8 — final Stage-8 native callback rewrite. Replaces the
-// old proxy-pointer-keyed if/else chain in ProxyDispatcher.cs with
-// a single interface-name lookup against the Stage-0 _proxyInterface
-// map, then dispatches via the managed IEventDispatcher. Screencopy
-// frame proxies are owned by WlrScreencopyClient and never tracked
-// in _proxyInterface, so they keep their dedicated fallback through
-// IScreencopyService.TryDispatchFrameEvent.
-//
-// Behaviour is byte-for-byte equivalent to the prior dispatcher:
-// every IEventHandler currently delegates back to the original
-// `OnXxxEvent` partial body via its bridge's `HandleByPartial`
-// (PRs 8.3-8.7 staged-rollout pattern). The opcode allowlist on
-// each handler stays empty until each opcode is smoke-tested
-// against the real River compositor.
-//
-// File previously named ProxyDispatcher.cs; renamed to
-// NativeDispatchBridge.cs to reflect the new responsibility
-// (bridge from native libwayland callback to managed dispatcher).
-internal sealed unsafe partial class RiverWindowManagerClient
+/// <summary>
+/// Stage 9 PR 9.11 — the <see cref="UnmanagedCallersOnlyAttribute"/>
+/// entry function called by libwayland for every event dispatched to a
+/// proxy whose dispatcher we own. Previously lived as a partial-class
+/// static in <c>NativeDispatchBridge.cs</c>; lifted here so the god class
+/// no longer owns the native callback.
+///
+/// <para>
+/// Behaviour is byte-for-byte equivalent to the prior partial: the
+/// GCHandle anchor (<see cref="RiverWindowManagerClient._selfHandle"/>)
+/// is unchanged for now — PR 9.11 keeps the existing anchor object so
+/// the lift is purely a relocation. A future PR (9.12 / cross-cutting
+/// concerns: "GCHandle / native callback lifetime") may re-pin the
+/// handle to a dedicated <c>NativeCallbackContext</c> owned by
+/// <c>RiverCompositorHost</c>.
+/// </para>
+///
+/// <para>
+/// Routing: interface-name lookup against the Stage-0 proxy → interface
+/// map, then dispatch via <see cref="IEventDispatcher"/>. Screencopy
+/// frame proxies (owned by <c>WlrScreencopyClient</c>, not tracked in
+/// the map) keep their dedicated fallback through
+/// <c>IScreencopyService.TryDispatchFrameEvent</c>.
+/// </para>
+/// </summary>
+internal static unsafe class NativeCallbackEntry
 {
     [UnmanagedCallersOnly]
-    private static int Dispatch(IntPtr implementation, IntPtr target, uint opcode, IntPtr msg, IntPtr args)
+    internal static int Dispatch(IntPtr implementation, IntPtr target, uint opcode, IntPtr msg, IntPtr args)
     {
         try
         {
@@ -59,7 +66,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             {
                 // DIAG: prove which interface each event is routed as.
                 // High-volume; gated to Debug level via Log classifier.
-                Log("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
+                RiverWindowManagerClient.Log("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
                 int argCount = iface switch
                 {
                     "river_window_manager_v1" => 4,
@@ -73,9 +80,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
                     "wl_registry" => 4,
                     _ => 4,
                 };
-                self._eventDispatcher.Dispatch(
-                    new Aqueous.Features.Compositor.River.Dispatch.WlEvent(
-                        iface, target, opcode, (IntPtr)a, argCount));
+                self.EventDispatcher.Dispatch(
+                    new WlEvent(iface, target, opcode, (IntPtr)a, argCount));
                 return 0;
             }
 
@@ -85,7 +91,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
             // ScreencopyFrameHandler IEventHandler is registered for
             // when frames eventually graduate into _proxyInterface,
             // but until then we keep the direct service call.
-            if (self._screencopyService.TryDispatchFrameEvent(target, opcode, a))
+            if (self.ScreencopyService.TryDispatchFrameEvent(target, opcode, a))
             {
                 return 0;
             }
@@ -94,14 +100,14 @@ internal sealed unsafe partial class RiverWindowManagerClient
             // (the prior dispatcher emitted the same log line).
             // DIAG: explicit miss marker — if River is timing out on a
             // ping, the manager's target will surface here every ~1s.
-            Log("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
+            RiverWindowManagerClient.Log("DISPATCH-MISS target=0x" + target.ToString("x") + " opcode=" + opcode);
         }
         catch (Exception e)
         {
             // NEVER unwind into native dispatch.
             try
             {
-                Log("dispatch exception: " + e.Message);
+                RiverWindowManagerClient.Log("dispatch exception: " + e.Message);
             }
             catch
             {

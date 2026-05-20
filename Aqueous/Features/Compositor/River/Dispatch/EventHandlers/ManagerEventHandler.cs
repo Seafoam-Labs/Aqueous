@@ -423,7 +423,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
 
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
-                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         Log($"+ window 0x{proxy.ToString("x")}");
@@ -444,7 +444,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         _outputRegistry.Entries[proxy] = new OutputEntry { Proxy = proxy };
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
-                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         TrackProxyInterface(proxy, "river_output_v1");
@@ -461,7 +461,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         _seatRegistry.Entries[proxy] = new SeatEntry { Proxy = proxy };
                         WaylandInterop.wl_proxy_add_dispatcher(
                             proxy,
-                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                             GCHandle.ToIntPtr(_selfHandle),
                             IntPtr.Zero);
                         TrackProxyInterface(proxy, "river_seat_v1");
@@ -533,7 +533,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             {
                                 WaylandInterop.wl_proxy_add_dispatcher(
                                     _dragPointerBinding,
-                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
                                 TrackProxyInterface(_dragPointerBinding, "river_pointer_binding_v1");
@@ -568,7 +568,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             {
                                 WaylandInterop.wl_proxy_add_dispatcher(
                                     _dragResizePointerBinding,
-                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                                     GCHandle.ToIntPtr(_selfHandle),
                                     IntPtr.Zero);
                                 TrackProxyInterface(_dragResizePointerBinding, "river_pointer_binding_v1");
@@ -626,7 +626,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                                     _snapActivatorBindingNeedsEnable[pb] = true;
                                     WaylandInterop.wl_proxy_add_dispatcher(
                                         pb,
-                                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
                                         GCHandle.ToIntPtr(_selfHandle),
                                         IntPtr.Zero);
                                     TrackProxyInterface(pb, "river_pointer_binding_v1");

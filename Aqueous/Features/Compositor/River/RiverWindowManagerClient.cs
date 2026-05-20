@@ -496,7 +496,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     {
     }
 
-    private RiverWindowManagerClient(
+    // PR 9.11: surfaced as internal so RiverCompositorHost / Program.cs
+    // can construct the client from DI without going through TryStart
+    // (which both opens the Wayland connection and starts the pump).
+    internal RiverWindowManagerClient(
         IWaylandConnection connection,
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
@@ -625,10 +628,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         IServiceProvider? serviceProvider,
         CancellationToken cancellationToken = default)
     {
-        if (Environment.GetEnvironmentVariable("AQUEOUS_RIVER_WM") != "1")
+        // PR 9.11: env-var gating lifted to RiverEnvironmentGuard so
+        // RiverCompositorHost can short-circuit startup with the same
+        // friendly error before DI builds the client.
+        if (!RiverEnvironmentGuard.IsEnabled())
         {
-            return Result<RiverWindowManagerClient>.Fail(
-                "AQUEOUS_RIVER_WM is not set to 1; refusing to attach as a window manager");
+            return Result<RiverWindowManagerClient>.Fail(RiverEnvironmentGuard.NotEnabledMessage);
         }
 
         try
@@ -664,7 +669,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         }
     }
 
-    private Result Connect()
+    // PR 9.11: surfaced as internal so RiverCompositorHost.StartAsync can
+    // drive Connect after DI construction. TryStart keeps the legacy
+    // in-factory path working for tests that still call it directly.
+    internal Result Connect()
     {
         var connectResult = _connection.Connect();
         if (!connectResult.IsOk)
@@ -676,7 +684,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         WlInterfaces.EnsureBuilt();
 
         _selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
-        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch;
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch;
 
         if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
         {
@@ -720,8 +728,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         return Result.Ok;
     }
 
-    private void StartPump(CancellationToken cancellationToken = default) =>
+    // PR 9.11: surfaced as internal so RiverCompositorHost.StartAsync can
+    // drive the pump after Connect; TryStart still uses it internally.
+    internal void StartPump(CancellationToken cancellationToken = default) =>
         _pump.Start(cancellationToken);
+
+    /// <summary>
+    /// Version of the bound <c>river_window_manager_v1</c> proxy, set in
+    /// <see cref="OnGlobalDiscovered"/>. Exposed (PR 9.11) so the host
+    /// can log it after driving Connect itself.
+    /// </summary>
+    internal uint ManagerVersion => _managerVersion;
 
     /// <summary>
     /// Join timeout applied to <see cref="IEventPump.Stop"/> during
@@ -784,7 +801,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
                     _manager,
-                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
                     GCHandle.ToIntPtr(_selfHandle),
                     IntPtr.Zero);
                 TrackProxyInterface(_manager, "river_window_manager_v1");
@@ -797,7 +814,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _layerShell = _registry.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
             WaylandInterop.wl_proxy_add_dispatcher(
                 _layerShell,
-                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
                 GCHandle.ToIntPtr(_selfHandle),
                 IntPtr.Zero);
             TrackProxyInterface(_layerShell, "river_layer_shell_v1");
@@ -848,7 +865,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private void TryActivateScreencopy()
     {
         bool wasReady = _screencopyService.IsReady;
-        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch;
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch;
         _screencopyService.TryActivate(
             _screencopyManager,
             _screencopyVersion,

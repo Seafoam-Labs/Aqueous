@@ -171,7 +171,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
             GCHandle.ToIntPtr(_selfHandle),
             IntPtr.Zero);
         // river_xkb_binding_v1::enable opcode=2
@@ -206,7 +206,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
             GCHandle.ToIntPtr(_selfHandle),
             IntPtr.Zero);
         WaylandInterop.wl_proxy_marshal_flags(binding, 2, IntPtr.Zero, 0, 0,

@@ -27,8 +27,9 @@ class Program
             Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>");
 
         // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
-        // Captured by the RiverWindowManagerClient DI factory below so
-        // TryStart can plumb cancellation into the pump.
+        // Threaded through RiverCompositorHost.StartAsync so the pump
+        // observes the same token (PR 9.11: the lifetime is now owned
+        // by the host, not the DI factory).
         using var lifetimeCts = new CancellationTokenSource();
 
         // Build the DI container. Stage 9 PR 9.1 completes the long-standing
@@ -50,24 +51,21 @@ class Program
         services.AddSingleton<EventPumpOptions>();
         services.AddSingleton<IEventPump, EventPump>();
 
-        // Stage 9 PR 9.1: register the god class as a DI singleton. The
-        // factory invokes TryStart (which performs Connect + roundtrip +
-        // StartPump) lazily on first resolve. Resolving any of the
-        // service registrations below triggers this, ensuring a single
-        // ordered startup.
-        var startupFailure = (string?)null;
+        // Stage 9 PR 9.11: register the god class as a DI singleton built
+        // via its DI ctor — *not* TryStart. The factory only assembles
+        // the object graph; Connect + StartPump now run from
+        // RiverCompositorHost.StartAsync (the host owns the lifecycle).
+        // This separation makes construction failures and connection
+        // failures observable independently and removes the "resolving
+        // a service opens a Wayland connection" side-effect that PR 9.1
+        // had to live with as scaffolding.
         services.AddSingleton<RiverWindowManagerClient>(sp =>
-        {
-            var result = RiverWindowManagerClient.TryStart(sp, lifetimeCts.Token);
-            if (!result.IsOk)
-            {
-                startupFailure = result.Error;
-                throw new InvalidOperationException(
-                    "RiverWindowManagerClient.TryStart failed: " + result.Error);
-            }
-
-            return result.Value!;
-        });
+            new RiverWindowManagerClient(
+                (IWaylandConnection?)sp.GetService(typeof(IWaylandConnection)) ?? new WaylandConnection(),
+                (IWindowRegistry?)sp.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
+                (IOutputRegistry?)sp.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
+                (ISeatRegistry?)sp.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry(),
+                (Aqueous.Features.Compositor.River.Connection.IEventPump?)sp.GetService(typeof(Aqueous.Features.Compositor.River.Connection.IEventPump))));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the
@@ -152,20 +150,27 @@ class Program
             lifetimeCts.Cancel();
         });
 
-        // Stage 9 PR 9.2: drive startup + shutdown through the
-        // RiverCompositorHost IHostedService shell. StartAsync resolves
-        // RiverWindowManagerClient (triggering its singleton factory =
-        // TryStart = Connect + roundtrip + StartPump). StopAsync disposes it.
+        // Stage 9 PR 9.11: drive startup + shutdown through the
+        // RiverCompositorHost IHostedService shell. StartAsync now
+        // checks the env-var guard, builds the client via DI, calls
+        // Connect (registry roundtrip + globals + startup exec) and
+        // StartPump. StopAsync disposes the client (which stops the
+        // pump and closes the connection).
         var host = provider.GetRequiredService<Aqueous.Features.Compositor.River.RiverCompositorHost>();
         try
         {
             host.StartAsync(lifetimeCts.Token).GetAwaiter().GetResult();
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            // PR 9.11: the host throws InvalidOperationException whose
+            // Message carries the friendly error (env-var missing,
+            // Connect failed, libwayland missing). Surface it directly
+            // instead of relying on the prior `startupFailure` closure
+            // that was set inside the now-removed TryStart DI factory.
             log.LogError(
                 "Failed to connect to River as window manager: {Error}. Are you running inside River with AQUEOUS_RIVER_WM=1?",
-                startupFailure ?? "<unknown>");
+                ex.Message);
             return 1;
         }
 

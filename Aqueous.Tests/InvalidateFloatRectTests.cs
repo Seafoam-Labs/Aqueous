@@ -44,10 +44,14 @@ public class InvalidateFloatRectTests
         Assert.NotNull(stateHostField);
         var host = (IWindowStateHost)stateHostField!.GetValue(client)!;
 
-        var windowsField = typeof(RiverWindowManagerClient).GetField(
-            "_windows", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(windowsField);
-        var windows = (ConcurrentDictionary<IntPtr, WindowEntry>)windowsField!.GetValue(client)!;
+        var registryField = typeof(RiverWindowManagerClient).GetField(
+            "_windowRegistry", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(registryField);
+        var registry = registryField!.GetValue(client)!;
+        var entriesProp = registry.GetType().GetProperty("Entries")
+                          ?? typeof(Aqueous.Features.Compositor.River.Registry.IWindowRegistry).GetProperty("Entries");
+        Assert.NotNull(entriesProp);
+        var windows = (ConcurrentDictionary<IntPtr, WindowEntry>)entriesProp!.GetValue(registry)!;
 
         return new Harness { Client = client, Host = host, Windows = windows };
     }
@@ -157,8 +161,7 @@ public class InvalidateFloatRectTests
     private static (System.Collections.Generic.List<(IntPtr handle, uint opcode)> log, IDisposable scope)
         InstallMarshalRecorder()
     {
-        var hostType = typeof(RiverWindowManagerClient).GetNestedType(
-            "RiverWindowStateHost", BindingFlags.NonPublic);
+        var hostType = typeof(Aqueous.Features.State.WindowStateHost);
         Assert.NotNull(hostType);
         var field = hostType!.GetField("MaximizedMarshalOverride",
             BindingFlags.Static | BindingFlags.NonPublic);
