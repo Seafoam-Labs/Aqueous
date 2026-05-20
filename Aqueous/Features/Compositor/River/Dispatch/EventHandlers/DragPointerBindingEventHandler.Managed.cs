@@ -1,25 +1,26 @@
 using System;
+using Aqueous.Features.Input;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 8.7: managed <see cref="IEventHandler"/> for
-/// <c>river_pointer_binding_v1</c>. PR 9.5 (Stage 9) retired the
-/// <c>IDragPointerBindingHandlerCollaborators</c> bridge; the handler
-/// now takes <see cref="RiverWindowManagerClient"/> directly and
-/// forwards via the <c>HandleDragPointerBindingEvent</c> accessor
-/// (same pattern PR 9.3/9.4 established).
+/// Managed <see cref="IEventHandler"/> for <c>river_pointer_binding_v1</c>.
+///
+/// PR 9.12 §2.13 final cleanup: the partial-class file holding the
+/// event body was lifted into <see cref="DragPointerBindingService"/>;
+/// the handler now forwards directly to that service and no longer
+/// touches <see cref="RiverWindowManagerClient"/>.
 /// </summary>
 internal sealed unsafe class DragPointerBindingEventHandler : IEventHandler
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly DragPointerBindingService _service;
     private readonly Action<string>? _log;
 
     public DragPointerBindingEventHandler(
-        RiverWindowManagerClient client,
+        DragPointerBindingService service,
         Action<string>? log = null)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _service = service ?? throw new ArgumentNullException(nameof(service));
         _log = log;
     }
 
@@ -28,6 +29,6 @@ internal sealed unsafe class DragPointerBindingEventHandler : IEventHandler
     public void Handle(WlEvent ev)
     {
         var args = (WlArgument*)ev.ArgsPtr;
-        _client.HandleDragPointerBindingEvent(ev.Target, ev.Opcode, args);
+        _service.HandleEvent(ev.Target, ev.Opcode, args);
     }
 }

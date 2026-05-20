@@ -30,8 +30,6 @@ internal sealed unsafe class RiverEventDispatcher
         => _client.HandleKeyBindingEvent(target, opcode, args);
 
 
-    internal void HandleDragPointerBindingEvent(IntPtr target, uint opcode, WlArgument* args)
-        => _client.HandleDragPointerBindingEvent(target, opcode, args);
 
     internal void HandleWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
         => _client.HandleWindowEvent(proxy, opcode, args);
