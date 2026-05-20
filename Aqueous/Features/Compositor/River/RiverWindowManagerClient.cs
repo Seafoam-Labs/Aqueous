@@ -296,10 +296,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState BindSiteState => _bindSiteState;
 
     /// <summary>PR 9.12 §2.3 migration accessor.</summary>
-    internal Aqueous.Features.State.OutputFullscreenMap OutputFullscreen => _outputFullscreen;
 
     /// <summary>PR 9.12 §2.4 migration accessor.</summary>
-    internal Aqueous.Features.State.WindowStateStore WindowStates => _windowStates;
 
     private IntPtr _manager;
     private IntPtr _layerShell;
@@ -572,56 +570,27 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // so neither forwarder has any reader left.
     internal Dictionary<IntPtr, KeyBindingAction> KeyBindings => _keyBindings;
     internal Dictionary<IntPtr, string> CustomBindingActions => _customBindingActions;
-    internal IntPtr SelfHandlePtr => GCHandle.ToIntPtr(_selfHandle);
+    // PR 9.12 §2.13 Step 8: SelfHandlePtr accessor retired — KeyBindingRegistrar
+    // reads the pinned pointer via KeyBindingsRegistry.SelfHandlePtr (DI singleton).
 
     // PR 9.12 §2.13 — internal accessors for the lifted top-level
     // LayoutProposer. Retire together with the god class.
     internal IWindowRegistry WindowRegistry => _windowRegistry;
     internal IOutputRegistry OutputRegistry => _outputRegistry;
-    internal IntPtr FocusedWindowHandle => _focusedWindow;
-    internal HashSet<IntPtr> PrevFullscreenHandles => _prevFullscreenHandles;
     // PR 9.12 §2.13 Step 6 cleanup: LayoutController accessor retired —
     // KeyBindingRouter / KeyBindingRegistrar / SnapZoneService /
     // ManagerEventService / SeatInteractionService / ViewportInteractionService
     // / WindowStateHost all take LayoutController directly via DI now.
 
-    // PR 9.12 §2.13 — god-class forwarders for the lifted top-level
-    // LayoutProposer. Several event-handler partials still call these
-    // methods unqualified via `this`; the forwarders delegate to the
-    // lifted service. Retire together with the god class.
-    internal void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
-        => _layoutProposer.ProposeForArea(output, outputName, usableArea);
-    internal bool IsFloatLayoutActive() => _layoutProposer.IsFloatLayoutActive();
-    internal bool IsFloatLayoutActive(IntPtr output) => _layoutProposer.IsFloatLayoutActive(output);
-    internal IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output)
-        => _layoutProposer.BuildSnapshotFor(output);
-    internal string? ResolveOutputName(IntPtr output) => _layoutProposer.ResolveOutputName(output);
+    // PR 9.12 §2.13 Step 8: ProposeForArea / IsFloatLayoutActive (x2) /
+    // BuildSnapshotFor / ResolveOutputName god-class forwarders retired —
+    // every reader now consumes ILayoutProposer directly via DI.
 
-    // PR 9.12 §2.13 — Focus partial drain. Thin wrappers that were
-    // previously in RiverWindowManagerClient.Focus.cs; called by
-    // event-handler partials (Manager/Window/Seat/SeatHandlerBridge)
-    // and by SeatInteractionService. They retire together with the
-    // god class when the event handlers stop being partials.
-    private bool TryGetFocusedAlive(out IntPtr proxy) => _focusService.TryGetFocusedAlive(out proxy);
-
-    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) =>
-        _focusService.SetFocusedWindow(windowProxy, seatProxy);
-
-    private void RequestFocus(IntPtr windowProxy) =>
-        _focusService.RequestFocus(windowProxy);
-
-    private void ClearFocus() => _focusService.ClearFocus();
-
-    private void FocusAnyOtherWindow(IntPtr avoid) =>
-        _focusService.FocusAnyOtherWindow(avoid);
-
-    private void CycleFocus() => _focusService.CycleFocus();
-
-    private void HandleDirectionalFocus(FocusDirection dir) =>
-        _focusService.HandleDirectionalFocus(dir);
-
-    public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) =>
-        _focusService.SetFocusedShellSurface(shellSurfaceProxy, seatProxy);
+    // PR 9.12 §2.13 Step 8: Focus partial drain forwarders retired —
+    // TryGetFocusedAlive / SetFocusedWindow / RequestFocus / ClearFocus /
+    // FocusAnyOtherWindow / CycleFocus / HandleDirectionalFocus /
+    // SetFocusedShellSurface had no readers outside this file (only the
+    // *External wrappers below called them, and those are retired here too).
 
     // PR 9.12 §2.13 — internal accessors consumed by FocusService
     // (FocusedWindow / PendingFocus* / PrimarySeat / SeatProxies /
@@ -743,8 +712,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         get => _primarySeat;
         set => _primarySeat = value;
     }
-    internal void RequestFocusExternal(IntPtr windowProxy) => RequestFocus(windowProxy);
-    internal void FocusAnyOtherWindowExternal(IntPtr avoid) => FocusAnyOtherWindow(avoid);
+    // PR 9.12 §2.13 Step 8: RequestFocusExternal / FocusAnyOtherWindowExternal
+    // god-class forwarders retired — every reader consumes IFocusService directly.
     internal WindowStateController WindowStateController => _windowState;
     // PR 9.12 §2.13 Step 7: SendManagerRequestExternal forwarder retired —
     // every caller has been cut over to inject IManagerRequestSender
@@ -766,18 +735,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // last readers (KeyBindingEventHandler, OutputEventHandler) now consume
     // KeyBindingRegistrar / WindowStateStore / WindowStateController /
     // OutputFullscreenMap directly.
-    // PR 9.12 §2.9: LayoutFocusNeighbor surfaced directly on the god class so
-    // the lifted LayoutProposer facade can call it without the "*Forwarding"
-    // wrapper. The five other layout/focus forwarders (ProposeForArea,
-    // IsFloatLayoutActive x2, BuildSnapshotFor, ResolveOutputName) retired —
-    // those bodies live on the LayoutProposer partial and are now internal.
-    internal IntPtr? LayoutFocusNeighbor(
-        IntPtr output,
-        string? outputName,
-        IntPtr current,
-        Aqueous.Features.Layout.FocusDirection dir,
-        IReadOnlyList<Aqueous.Features.Layout.WindowEntryView> snapshot)
-        => _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
+    // PR 9.12 §2.13 Step 8: LayoutFocusNeighbor god-class forwarder retired —
+    // FocusService now reads it via ILayoutProposer.LayoutFocusNeighbor directly.
 
     private RiverWindowManagerClient()
         : this(
