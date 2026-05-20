@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Focus;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Layout;
@@ -35,12 +37,35 @@ namespace Aqueous.Features.Layout;
 /// </summary>
 internal sealed unsafe class LayoutProposer : ILayoutProposer
 {
-    private readonly RiverWindowManagerClient _river;
+    // PR 9.12 §2.13 Step 4 — cut off RiverWindowManagerClient.
+    // All god-class accessors previously read through `_river` are now
+    // injected as fine-grained DI singletons. LayoutFocusNeighbor is
+    // delegated directly to LayoutController.FocusNeighbor (the prior
+    // god-class forwarder is gone).
+    private readonly LayoutController _layoutController;
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly IOutputRegistry _outputRegistry;
+    private readonly WindowStateStore _windowStates;
+    private readonly OutputFullscreenMap _outputFullscreen;
+    private readonly FocusedWindowTracker _focusedWindowTracker;
+    private readonly PrevFullscreenStore _prevFullscreenStore;
 
-    public LayoutProposer(RiverWindowManagerClient river)
+    public LayoutProposer(
+        LayoutController layoutController,
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry,
+        WindowStateStore windowStates,
+        OutputFullscreenMap outputFullscreen,
+        FocusedWindowTracker focusedWindowTracker,
+        PrevFullscreenStore prevFullscreenStore)
     {
-        ArgumentNullException.ThrowIfNull(river);
-        _river = river;
+        _layoutController     = layoutController     ?? throw new ArgumentNullException(nameof(layoutController));
+        _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry       = outputRegistry       ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _windowStates         = windowStates         ?? throw new ArgumentNullException(nameof(windowStates));
+        _outputFullscreen     = outputFullscreen     ?? throw new ArgumentNullException(nameof(outputFullscreen));
+        _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _prevFullscreenStore  = prevFullscreenStore  ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
     }
 
     /// <summary>
@@ -53,13 +78,13 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     /// </summary>
     public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
     {
-        var layoutController = _river.LayoutController;
-        var windowRegistry = _river.WindowRegistry;
-        var outputRegistry = _river.OutputRegistry;
-        var windowStates = _river.WindowStates;
-        var outputFullscreen = _river.OutputFullscreen;
-        var focusedWindow = _river.FocusedWindowHandle;
-        var prevFullscreenHandles = _river.PrevFullscreenHandles;
+        var layoutController = _layoutController;
+        var windowRegistry = _windowRegistry;
+        var outputRegistry = _outputRegistry;
+        var windowStates = _windowStates;
+        var outputFullscreen = _outputFullscreen;
+        var focusedWindow = _focusedWindowTracker.Current;
+        var prevFullscreenHandles = _prevFullscreenStore.Handles;
 
         // Floating windows are a layer, not a layout: they bypass the
         // active engine entirely and use their remembered FloatRect (set
@@ -556,9 +581,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     public bool IsFloatLayoutActive()
     {
         IntPtr output = IntPtr.Zero;
-        var focusedWindow = _river.FocusedWindowHandle;
-        var windowRegistry = _river.WindowRegistry;
-        var outputRegistry = _river.OutputRegistry;
+        var focusedWindow = _focusedWindowTracker.Current;
+        var windowRegistry = _windowRegistry;
+        var outputRegistry = _outputRegistry;
         if (focusedWindow != IntPtr.Zero &&
             windowRegistry.Entries.TryGetValue(focusedWindow, out var fw) &&
             fw.Output != IntPtr.Zero)
@@ -584,20 +609,20 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     {
         if (output == IntPtr.Zero)
         {
-            foreach (var k in _river.OutputRegistry.Entries.Keys)
+            foreach (var k in _outputRegistry.Entries.Keys)
             {
                 output = k;
                 break;
             }
         }
 
-        return _river.LayoutController.ResolveLayoutId(output, null) == "float";
+        return _layoutController.ResolveLayoutId(output, null) == "float";
     }
 
     /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
     public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output)
     {
-        var windowRegistry = _river.WindowRegistry;
+        var windowRegistry = _windowRegistry;
         var list = new List<WindowEntryView>(windowRegistry.Entries.Count);
         foreach (var kvp in windowRegistry.Entries)
         {
@@ -624,10 +649,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     }
 
     /// <summary>
-    /// Engine-aware directional focus. Forwarded to the god class because
-    /// the body still depends on <c>_layoutController</c>'s
-    /// <c>FocusNeighbor</c> entry point owned there; will collapse with
-    /// the god class in the final demolition step.
+    /// Engine-aware directional focus — delegates directly to
+    /// <see cref="LayoutController.FocusNeighbor"/> (the prior
+    /// god-class forwarder was removed in PR 9.12 §2.13 Step 4).
     /// </summary>
     public IntPtr? LayoutFocusNeighbor(
         IntPtr output,
@@ -635,5 +659,5 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         IntPtr current,
         FocusDirection dir,
         IReadOnlyList<WindowEntryView> snapshot) =>
-        _river.LayoutFocusNeighbor(output, outputName, current, dir, snapshot);
+        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
 }

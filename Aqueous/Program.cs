@@ -92,6 +92,15 @@ class Program
         // remaining drag consumers cut over.
         services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
 
+        // PR 9.12 §2.13 Step 4: PrevFullscreenStore + KeyBindingsRegistry
+        // own the FS hash-set and the key-binding dictionaries / dispatcher
+        // self-handle pointer that previously lived on the god class.
+        // LayoutProposer and KeyBindingRegistrar now consume them directly;
+        // RWMC keeps field-style aliases backed by the stores until any
+        // remaining consumers cut over.
+        services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
+        services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -113,7 +122,9 @@ class Program
                 sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
                 sp.GetRequiredService<Aqueous.Features.Focus.PendingFocusStore>(),
                 sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>(),
-                sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>()));
+                sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>(),
+                sp.GetRequiredService<Aqueous.Features.State.PrevFullscreenStore>(),
+                sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the

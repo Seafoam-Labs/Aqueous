@@ -15,9 +15,10 @@ namespace Aqueous.Tests.Features.Layout;
 public sealed class LayoutProposerTests
 {
     [Fact]
-    public void Ctor_NullClient_Throws()
+    public void Ctor_NullArg_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() => new LayoutProposer(null!));
+        Assert.Throws<ArgumentNullException>(() => new LayoutProposer(
+            null!, null!, null!, null!, null!, null!, null!));
     }
 
     [Fact]
@@ -26,13 +27,18 @@ public sealed class LayoutProposerTests
         Assert.Contains(typeof(ILayoutProposer), typeof(LayoutProposer).GetInterfaces());
     }
 
+    // PR 9.12 §2.13 Step 4: LayoutProposer cut off RiverWindowManagerClient;
+    // ctor now takes 7 fine-grained DI singletons.
     [Fact]
-    public void Ctor_takes_RiverWindowManagerClient()
+    public void Ctor_DoesNotTake_RiverWindowManagerClient()
     {
         var ctor = typeof(LayoutProposer).GetConstructors().Single();
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.Single(paramTypes);
-        Assert.Equal(typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient), paramTypes[0]);
+        Assert.DoesNotContain(
+            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient),
+            paramTypes);
+        Assert.Equal(7, paramTypes.Length);
+        Assert.Equal(typeof(LayoutController), paramTypes[0]);
     }
 
     [Fact]

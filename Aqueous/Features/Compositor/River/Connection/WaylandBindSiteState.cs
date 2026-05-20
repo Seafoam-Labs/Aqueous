@@ -24,6 +24,16 @@ internal sealed class WaylandBindSiteState
     public IntPtr ScreencopyManager { get; set; }
     public IntPtr WlShm { get; set; }
     public IntPtr XkbBindings { get; set; }
+    /// <summary>
+    /// Protocol version advertised by the bound
+    /// <c>river_xkb_bindings_v1</c> global. Captured at bind time so
+    /// child <c>river_xkb_binding_v1</c> proxies created by
+    /// <see cref="Aqueous.Features.Bindings.KeyBindingRegistrar"/>
+    /// can be bound at the parent's advertised version rather than a
+    /// hardcoded literal (a future river bump would otherwise assert
+    /// inside libwayland on first event dispatch).
+    /// </summary>
+    public uint XkbBindingsVersion { get; set; }
 
     /// <summary>
     /// Proxy → interface-name map populated at every <c>wl_registry::bind</c>

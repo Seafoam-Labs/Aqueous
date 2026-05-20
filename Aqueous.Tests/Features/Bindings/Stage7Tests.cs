@@ -53,7 +53,7 @@ public class Stage7Tests
 
     [Fact]
     public void KeyBindingRegistrar_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRegistrar(null!));
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRegistrar(null!, null!, null!, null!, null!));
 
     // --- Structural guards (Stage 7 + PR 9.9) ----------------------------
 
@@ -105,12 +105,17 @@ public class Stage9Pr99Tests
         Assert.DoesNotContain(impls, n => n!.EndsWith(".IKeyBindingsCollaborators", StringComparison.Ordinal));
     }
 
+    // PR 9.12 §2.13 Step 4: KeyBindingRegistrar no longer takes
+    // RiverWindowManagerClient — ctor now takes fine-grained DI
+    // singletons (WaylandBindSiteState, KeyBindingsRegistry,
+    // LayoutController, IKeyBindingRouter, ICustomActionRunner).
     [Fact]
-    public void KeyBindingRegistrar_Ctor_TakesRiverWindowManagerClient()
+    public void KeyBindingRegistrar_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
         var ctor = typeof(KeyBindingRegistrar).GetConstructors().Single();
-        var p = ctor.GetParameters().Single();
-        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+        Assert.DoesNotContain(typeof(RiverWindowManagerClient), paramTypes);
+        Assert.Equal(5, paramTypes.Length);
     }
 
     // PR 9.12 §2.13: the residual RiverWindowManagerClient ctor argument is

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Input;
+using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.Bindings;
 
@@ -54,14 +57,31 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
     internal static readonly IReadOnlyDictionary<string, KeyBindingAction> BuiltinActionMap =
         KeyBindingActionTable.Map;
 
-    private readonly RiverWindowManagerClient _river;
+    // PR 9.12 §2.13 Step 4 — cut off RiverWindowManagerClient.
+    // All god-class accessors previously read through `_river` are now
+    // injected as fine-grained DI singletons. RiverLog replaces the
+    // god-class static Log forwarder.
+    private readonly WaylandBindSiteState _bindSiteState;
+    private readonly KeyBindingsRegistry _bindings;
+    private readonly LayoutController _layoutController;
+    private readonly IKeyBindingRouter _router;
+    private readonly ICustomActionRunner _customRunner;
 
-    public KeyBindingRegistrar(RiverWindowManagerClient river)
+    public KeyBindingRegistrar(
+        WaylandBindSiteState bindSiteState,
+        KeyBindingsRegistry bindings,
+        LayoutController layoutController,
+        IKeyBindingRouter router,
+        ICustomActionRunner customRunner)
     {
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _bindSiteState    = bindSiteState    ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _bindings         = bindings         ?? throw new ArgumentNullException(nameof(bindings));
+        _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
+        _router           = router           ?? throw new ArgumentNullException(nameof(router));
+        _customRunner     = customRunner     ?? throw new ArgumentNullException(nameof(customRunner));
     }
 
-    public bool IsRegistered(IntPtr bindingProxy) => _river.KeyBindings.ContainsKey(bindingProxy);
+    public bool IsRegistered(IntPtr bindingProxy) => _bindings.KeyBindings.ContainsKey(bindingProxy);
 
     /// <summary>
     /// Register every keybind defined by the active <c>LayoutConfig.Keybinds</c>
@@ -71,7 +91,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
     /// </summary>
     public void RegisterAllBindings(IntPtr seatProxy)
     {
-        var kb = _river.LayoutConfigForRegistrar.Keybinds;
+        var kb = _layoutController.Config.Keybinds;
         foreach (var (actionName, builtin) in BuiltinActionMap)
         {
             foreach (var chordStr in kb.ChordsFor(actionName))
@@ -79,7 +99,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
                 var parsed = KeyChord.Parse(chordStr);
                 if (parsed is null)
                 {
-                    RiverWindowManagerClient.Log($"keybind: invalid chord '{chordStr}' for action '{actionName}', ignored");
+                    RiverLog.Write($"keybind: invalid chord '{chordStr}' for action '{actionName}', ignored");
                     continue;
                 }
 
@@ -93,7 +113,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
             var parsed = KeyChord.Parse(chordStr);
             if (parsed is null)
             {
-                RiverWindowManagerClient.Log($"keybind: invalid custom chord '{chordStr}', ignored");
+                RiverLog.Write($"keybind: invalid custom chord '{chordStr}', ignored");
                 continue;
             }
 
@@ -103,7 +123,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
 
     private void RegisterKeyBinding(IntPtr seatProxy, uint keysym, uint modifiers, KeyBindingAction action)
     {
-        var xkbBindings = _river.XkbBindings;
+        var xkbBindings = _bindSiteState.XkbBindings;
         if (xkbBindings == IntPtr.Zero)
         {
             return;
@@ -116,7 +136,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
         // args: seat(o), id(new_id), keysym(u), modifiers(u)
         // Bind the child proxy at the parent's advertised version (not a hardcoded literal),
         // otherwise a future river bump asserts inside libwayland on first event dispatch.
-        var xkbVersion = _river.XkbBindingsVersion;
+        var xkbVersion = _bindSiteState.XkbBindingsVersion;
         uint childVersion = xkbVersion == 0 ? 1u : xkbVersion;
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
             xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, childVersion, 0,
@@ -127,22 +147,22 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
             return;
         }
 
-        _river.KeyBindings[binding] = action;
-        _river.TrackProxyInterface(binding, "river_xkb_binding_v1");
+        _bindings.KeyBindings[binding] = action;
+        _bindSiteState.TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-            _river.SelfHandlePtr,
+            _bindings.SelfHandlePtr,
             IntPtr.Zero);
         // river_xkb_binding_v1::enable opcode=2
         WaylandInterop.wl_proxy_marshal_flags(binding, 2, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        RiverWindowManagerClient.Log($"registered key binding {action} (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
+        RiverLog.Write($"registered key binding {action} (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
     }
 
     private void RegisterCustomKeyBinding(IntPtr seatProxy, uint keysym, uint modifiers, string action)
     {
-        var xkbBindings = _river.XkbBindings;
+        var xkbBindings = _bindSiteState.XkbBindings;
         if (xkbBindings == IntPtr.Zero)
         {
             return;
@@ -152,7 +172,7 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
         {
             return;
         }
-        var xkbVersion = _river.XkbBindingsVersion;
+        var xkbVersion = _bindSiteState.XkbBindingsVersion;
         uint childVersion = xkbVersion == 0 ? 1u : xkbVersion;
         IntPtr binding = WaylandInterop.wl_proxy_marshal_flags(
             xkbBindings, 1, (IntPtr)WlInterfaces.RiverXkbBinding, childVersion, 0,
@@ -163,17 +183,17 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
             return;
         }
 
-        _river.KeyBindings[binding] = KeyBindingAction.Custom;
-        _river.CustomBindingActions[binding] = action;
-        _river.TrackProxyInterface(binding, "river_xkb_binding_v1");
+        _bindings.KeyBindings[binding] = KeyBindingAction.Custom;
+        _bindings.CustomBindingActions[binding] = action;
+        _bindSiteState.TrackProxyInterface(binding, "river_xkb_binding_v1");
         WaylandInterop.wl_proxy_add_dispatcher(
             binding,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
-            _river.SelfHandlePtr,
+            _bindings.SelfHandlePtr,
             IntPtr.Zero);
         WaylandInterop.wl_proxy_marshal_flags(binding, 2, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        RiverWindowManagerClient.Log($"registered custom key binding '{action}' (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
+        RiverLog.Write($"registered custom key binding '{action}' (keysym 0x{keysym:x}, mods 0x{modifiers:x})");
     }
 
     /// <summary>
@@ -190,26 +210,26 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
             return;
         }
 
-        if (!_river.KeyBindings.TryGetValue(proxy, out var action))
+        if (!_bindings.KeyBindings.TryGetValue(proxy, out var action))
         {
             // Step 1 diagnostic: silent drops here were the original
             // "keychord stops firing after second window" symptom. Log so the
             // class of regression is visible in the next bug report.
-            RiverWindowManagerClient.Log($"key binding miss proxy=0x{proxy.ToString("x")} opcode={opcode}");
+            RiverLog.Write($"key binding miss proxy=0x{proxy.ToString("x")} opcode={opcode}");
             return;
         }
 
-        RiverWindowManagerClient.Log($"key binding pressed: {action}");
+        RiverLog.Write($"key binding pressed: {action}");
         if (action == KeyBindingAction.Custom)
         {
-            if (_river.CustomBindingActions.TryGetValue(proxy, out var verb))
+            if (_bindings.CustomBindingActions.TryGetValue(proxy, out var verb))
             {
-                _river.CustomActionRunner.Run(verb);
+                _customRunner.Run(verb);
             }
 
             return;
         }
 
-        _river.KeyBindingRouter.Handle(action);
+        _router.Handle(action);
     }
 }

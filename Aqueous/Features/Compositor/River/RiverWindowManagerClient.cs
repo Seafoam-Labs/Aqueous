@@ -297,7 +297,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     // --- key bindings -------------------------------------------------
 
-    private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
+    // PR 9.12 §2.13 Step 4 — backing for _keyBindings/_customBindingActions/_selfHandle pointer
+    // lives on KeyBindingsRegistry (DI singleton). Property aliases preserve the field-style
+    // names so the few RWMC-internal consumers (Stage 1 IsBindingRegisteredForwarding, the
+    // RegisterAllBindingsForwarding test pin, and any remaining handler reads) keep compiling
+    // until they retire with the god class.
+    private readonly Aqueous.Features.Bindings.KeyBindingsRegistry _keyBindingsRegistry;
+    private Dictionary<IntPtr, KeyBindingAction> _keyBindings => _keyBindingsRegistry.KeyBindings;
 
     // Pointer-binding per-seat dedupe (consumed by the Manager event
     // handler partial when it issues get_pointer_binding requests).
@@ -358,7 +364,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal string? TryGetProxyInterface(IntPtr proxy) => _bindSiteState.TryGetProxyInterface(proxy);
 
     // For KeyBindingAction.Custom — chord proxy → free-form action verb.
-    private readonly Dictionary<IntPtr, string> _customBindingActions = new();
+    // PR 9.12 §2.13 Step 4 — backing on KeyBindingsRegistry (DI singleton).
+    private Dictionary<IntPtr, string> _customBindingActions => _keyBindingsRegistry.CustomBindingActions;
 
 
     // PR 9.12 §2.13 Step 1 — _primarySeat storage now lives on
@@ -456,7 +463,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // LastHintW/H unchanged and no propose_dimensions emitted — which makes the
     // client appear stuck at the FS size. Accessed only from the manage cycle
     // thread (ProposeForArea), so a plain HashSet is fine.
-    private readonly HashSet<IntPtr> _prevFullscreenHandles = new();
+    // PR 9.12 §2.13 Step 4 — backing on PrevFullscreenStore (DI singleton).
+    private readonly Aqueous.Features.State.PrevFullscreenStore _prevFullscreenStore;
+    private HashSet<IntPtr> _prevFullscreenHandles => _prevFullscreenStore.Handles;
     private readonly ScratchpadRegistry _scratchpadRegistry;
 
     private readonly WindowStateController _windowState;
@@ -814,7 +823,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                new Aqueous.Features.State.WindowStateStore(),
                new Aqueous.Features.Focus.PendingFocusStore(),
                new Aqueous.Features.Focus.PrimarySeatTracker(),
-               new Aqueous.Features.Input.DragStateStore())
+               new Aqueous.Features.Input.DragStateStore(),
+               new Aqueous.Features.State.PrevFullscreenStore(),
+               new Aqueous.Features.Bindings.KeyBindingsRegistry())
     {
     }
 
@@ -834,7 +845,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         Aqueous.Features.State.WindowStateStore windowStates,
         Aqueous.Features.Focus.PendingFocusStore pendingFocusStore,
         Aqueous.Features.Focus.PrimarySeatTracker primarySeatTracker,
-        Aqueous.Features.Input.DragStateStore dragStateStore)
+        Aqueous.Features.Input.DragStateStore dragStateStore,
+        Aqueous.Features.State.PrevFullscreenStore prevFullscreenStore,
+        Aqueous.Features.Bindings.KeyBindingsRegistry keyBindingsRegistry)
     {
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
@@ -843,6 +856,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _pendingFocusStore = pendingFocusStore ?? throw new ArgumentNullException(nameof(pendingFocusStore));
         _primarySeatTracker = primarySeatTracker ?? throw new ArgumentNullException(nameof(primarySeatTracker));
         _dragStateStore = dragStateStore ?? throw new ArgumentNullException(nameof(dragStateStore));
+        _prevFullscreenStore = prevFullscreenStore ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
+        _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
@@ -859,7 +874,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // Stage 5: LayoutProposer facade is a thin delegate over the
         // existing partial; FocusService now takes IManagerRequestSender
         // + ILayoutProposer directly (retiring 4 bridge members).
-        _layoutProposer = new Aqueous.Features.Layout.LayoutProposer(this);
+        // PR 9.12 §2.13 Step 4: LayoutProposer no longer references the
+        // god class. All state it previously read via `_river.*` is
+        // injected as fine-grained DI singletons.
+        _layoutProposer = new Aqueous.Features.Layout.LayoutProposer(
+            _layoutController,
+            _windowRegistry,
+            _outputRegistry,
+            _windowStates,
+            _outputFullscreen,
+            _focusedWindowTracker,
+            _prevFullscreenStore);
         _focusService = new Aqueous.Features.Focus.FocusService(
             _windowRegistry, _outputRegistry, _seatRegistry,
             _focusedWindowTracker, _pendingFocusStore, _primarySeatTracker,
@@ -920,7 +945,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _layoutController);
         _windowState = new WindowStateController(
             _stateHost, _scratchpadRegistry);
-        _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);
         // PR 9.12 §2.13: the routers no longer reference the god class at all.
         // The mutable LayoutConfig is owned by LayoutController; the default
         // config path is resolved through Aqueous.Features.Configuration.
@@ -932,6 +956,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _keyBindingRouter = router;
         _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(
             router, _focusService, _windowState);
+        // PR 9.12 §2.13 Step 4: KeyBindingRegistrar no longer references the
+        // god class. Xkb bind-site state comes from WaylandBindSiteState;
+        // dictionary state and the dispatcher self-handle pointer come from
+        // KeyBindingsRegistry; LayoutConfig comes from LayoutController; the
+        // chord/custom dispatch destinations are the live router/runner.
+        _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(
+            _bindSiteState,
+            _keyBindingsRegistry,
+            _layoutController,
+            router,
+            _customActionRunner);
         _startupExec = new StartupExecRunner(_stateHost, _layoutConfig.Exec);
 
         // Push libinput config to the privileged sidecar (aqueous-inputd).
@@ -1074,6 +1109,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _callbackContext = new Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext(
             _riverEventDispatcher, this);
         _selfHandle = GCHandle.FromIntPtr(_callbackContext.Handle);
+        // PR 9.12 §2.13 Step 4: KeyBindingRegistrar reads the dispatcher
+        // self-handle pointer from KeyBindingsRegistry (DI singleton) rather
+        // than the god class's GCHandle field. Publish the freshly allocated
+        // pointer here so the registrar sees it before SeatInformation fires.
+        _keyBindingsRegistry.SelfHandlePtr = GCHandle.ToIntPtr(_selfHandle);
         IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch;
 
         if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
@@ -1218,6 +1258,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
             _bindSiteState.XkbBindings = _xkbBindings;
             _xkbBindingsVersion = xkbVersion;
+            _bindSiteState.XkbBindingsVersion = xkbVersion;
             TrackProxyInterface(_xkbBindings, "river_xkb_bindings_v1");
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
         }
