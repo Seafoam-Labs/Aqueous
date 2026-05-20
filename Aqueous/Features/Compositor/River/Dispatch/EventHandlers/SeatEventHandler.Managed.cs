@@ -33,9 +33,10 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
     // for snap-zone-broken regression). Field kept null-checked; future
     // PR retires it once tests + RiverWindowManagerClient ctor migrate.
     private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos;
-    // Stage 9 PR 9.6: ISeatHandlerCollaborators bridge retired.
-    // Consumes RiverWindowManagerClient directly via pass-through methods.
-    private readonly RiverWindowManagerClient _river;
+    // PR 9.12 §2.13 Step 3: routes through SeatInteractionService
+    // instead of RiverWindowManagerClient. The service consumes
+    // fine-grained DI singletons directly.
+    private readonly SeatInteractionService _interaction;
     private readonly Action<string>? _log;
 
     public SeatEventHandler(
@@ -43,14 +44,14 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
         IWindowRegistry windows,
         ConcurrentDictionary<IntPtr, IntPtr> seatHoveredWindow,
         ConcurrentDictionary<IntPtr, (int X, int Y)> seatPointerPos,
-        RiverWindowManagerClient river,
+        SeatInteractionService interaction,
         Action<string>? log = null)
     {
         _seats = seats ?? throw new ArgumentNullException(nameof(seats));
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
         _seatHoveredWindow = seatHoveredWindow ?? throw new ArgumentNullException(nameof(seatHoveredWindow));
         _seatPointerPos = seatPointerPos ?? throw new ArgumentNullException(nameof(seatPointerPos));
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
         _log = log;
     }
 
@@ -100,7 +101,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                     _log?.Invoke("seat 0x" + proxy.ToString("x") + " pointer_enter window 0x" + hovered.ToString("x"));
                     // Sloppy focus: bridge to god class — gating on FocusFollowsMouse,
                     // window-known, and window-differs-from-focused happens there.
-                    _river.HandlePointerEnterFocusFollow(hovered, proxy);
+                    _interaction.HandlePointerEnterFocusFollow(hovered, proxy);
                 }
                 break;
 
@@ -115,7 +116,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                     var args = (WlArgument*)ev.ArgsPtr;
                     IntPtr win = args[0].o;
                     _log?.Invoke("seat 0x" + proxy.ToString("x") + " window_interaction 0x" + win.ToString("x"));
-                    _river.HandleWindowInteraction(win, proxy);
+                    _interaction.HandleWindowInteraction(win, proxy);
                 }
                 break;
 
@@ -125,7 +126,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                     var args = (WlArgument*)ev.ArgsPtr;
                     IntPtr ss = args[0].o;
                     _log?.Invoke("seat 0x" + proxy.ToString("x") + " shell_surface_interaction 0x" + ss.ToString("x"));
-                    _river.HandleShellSurfaceInteraction(ss, proxy);
+                    _interaction.HandleShellSurfaceInteraction(ss, proxy);
                 }
                 break;
 
@@ -133,13 +134,13 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                 if (ev.ArgsPtr == IntPtr.Zero || ev.ArgCount < 2) return;
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
-                    _river.HandleOpDelta(proxy, args[0].i, args[1].i);
+                    _interaction.HandleOpDelta(proxy, args[0].i, args[1].i);
                 }
                 break;
 
             case RiverProtocolOpcodes.Seat.OpRelease:
                 _log?.Invoke("seat 0x" + proxy.ToString("x") + " pointer operation released");
-                _river.HandleOpRelease(proxy);
+                _interaction.HandleOpRelease(proxy);
                 break;
 
             case RiverProtocolOpcodes.Seat.PointerPosition:
@@ -153,7 +154,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                     // hit-test against the live cursor in OpDelta /
                     // OpRelease. Routed through the bridge — see
                     // ISeatHandlerCollaborators.CachePointerPosition.
-                    _river.CachePointerPosition(proxy, args[0].i, args[1].i);
+                    _interaction.CachePointerPosition(proxy, args[0].i, args[1].i);
                 }
                 break;
 

@@ -656,6 +656,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal void SetDragStartY(int v) => _dragStartY = v;
     internal void SetDragStartW(int v) => _dragStartW = v;
     internal void SetDragStartH(int v) => _dragStartH = v;
+    // PR 9.12 §2.13 Step 3 — readers for SeatInteractionService.
+    internal int DragStartXValue => _dragStartX;
+    internal int DragStartYValue => _dragStartY;
+    internal int DragStartWValue => _dragStartW;
+    internal int DragStartHValue => _dragStartH;
     internal void SetDragStartPointerX(int v) => _dragStartPointerX = v;
     internal void SetDragStartPointerY(int v) => _dragStartPointerY = v;
     internal void SetDragStarted(bool v) => _dragStarted = v;
@@ -730,206 +735,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal bool DragFinishedFlag => _dragFinished;
     internal bool DragStartedFlag => _dragStarted;
     internal uint DragEdgesValue => _dragEdges;
-
-    // PR 9.12 §2.13 — SeatHandlerBridge partial drain. Methods called
-    // from SeatEventHandler.Managed.cs via _river.*; their bodies were
-    // preserved byte-for-byte from the deleted partial. Retire together
-    // with the god class when SeatEventHandler is re-typed as a
-    // standalone class and the drag state migrates to a dedicated
-    // service.
-    internal void CachePointerPosition(IntPtr seat, int x, int y)
-    {
-        // river_window_management_v1::pointer_position declares its args
-        // as type="int" in the protocol XML — global logical coordinates
-        // already in pixel space, NOT wl_fixed. A prior fix mistakenly
-        // applied a >> 8 shift here, which divided cursor positions by 256
-        // and snapped every drag to a tiny rect near the origin (the
-        // "window jumps to 0,0" regression). Cache as-is.
-        _seatPointerPos[seat] = (x, y);
-    }
-
-    internal void HandleWindowInteraction(IntPtr window, IntPtr seat)
-    {
-        Log("BRIDGE HandleWindowInteraction window=0x" + window.ToString("x") + " seat=0x" + seat.ToString("x"));
-        _seatInteractionService.HandleWindowInteraction(window, seat);
-    }
-
-    internal void HandleShellSurfaceInteraction(IntPtr shellSurface, IntPtr seat)
-    {
-        Log("BRIDGE HandleShellSurfaceInteraction ss=0x" + shellSurface.ToString("x") + " seat=0x" + seat.ToString("x"));
-        _seatInteractionService.HandleShellSurfaceInteraction(shellSurface, seat);
-    }
-
-    internal void HandlePointerEnterFocusFollow(IntPtr hoveredWindow, IntPtr seat)
-    {
-        Log("BRIDGE HandlePointerEnterFocusFollow hovered=0x" + hoveredWindow.ToString("x") + " seat=0x" + seat.ToString("x"));
-        if (_layoutConfig.Input.FocusFollowsMouse
-            && hoveredWindow != IntPtr.Zero
-            && _windowRegistry.Entries.ContainsKey(hoveredWindow)
-            && hoveredWindow != _focusedWindow)
-        {
-            SetFocusedWindow(hoveredWindow, seat);
-        }
-    }
-
-    internal void HandleOpDelta(IntPtr seat, int dx, int dy)
-    {
-        Log("BRIDGE HandleOpDelta seat=0x" + seat.ToString("x") + " dx=" + dx + " dy=" + dy);
-        if (_activeDragWindow == null)
-        {
-            return;
-        }
-
-        var adw = _activeDragWindow;
-
-        // Drag (move or resize) is only meaningful while the float
-        // layout is active; in tile/scrolling/monocle/grid the per-
-        // window Floating override is suppressed by LayoutProposer
-        // bucketing and any FloatX/Y/W/H written here would be
-        // overwritten on the next manage cycle. Fix #4: rather than
-        // just `break`-ing (which would leave _dragEdges /
-        // _dragResizeInformed sticky if the layout was switched away
-        // from float mid-gesture), treat a not-float OpDelta as an
-        // abandoned drag and tear down the same way a release would,
-        // so the next legitimate drag starts clean.
-        if (!IsFloatLayoutActive(adw.Output))
-        {
-            _dragFinished = true;
-            ScheduleManage();
-            return;
-        }
-
-        adw.Floating = true;
-
-        if (_dragEdges == 0)
-        {
-            // ----- interactive move -----
-            adw.X = _dragStartX + dx;
-            adw.Y = _dragStartY + dy;
-            adw.HasFloatRect = true;
-            adw.FloatX = adw.X;
-            adw.FloatY = adw.Y;
-            // Fix #6: only overwrite FloatW/FloatH when we have a
-            // positive committed/hinted value.
-            int newFw = adw.W > 0 ? adw.W
-                      : adw.LastHintW > 0 ? adw.LastHintW
-                      : adw.ProposedW;
-            int newFh = adw.H > 0 ? adw.H
-                      : adw.LastHintH > 0 ? adw.LastHintH
-                      : adw.ProposedH;
-            if (newFw > 0)
-            {
-                adw.FloatW = newFw;
-            }
-            if (newFh > 0)
-            {
-                adw.FloatH = newFh;
-            }
-
-            // SnapZones live preview: if the pointer is currently over
-            // a configured zone, override the free-drag rect we just
-            // wrote with the resolved zone rect.
-            _snapZoneService.ApplyLiveSnapPreview(seat);
-        }
-        else
-        {
-            // ----- interactive resize -----
-            // Edges bitfield (river_window_v1): top=1, bottom=2, left=4, right=8.
-            int newX = _dragStartX;
-            int newY = _dragStartY;
-            int newW = _dragStartW;
-            int newH = _dragStartH;
-
-            if ((_dragEdges & 8u) != 0) // right
-            {
-                newW = _dragStartW + dx;
-            }
-            else if ((_dragEdges & 4u) != 0) // left
-            {
-                newW = _dragStartW - dx;
-                newX = _dragStartX + dx;
-            }
-
-            if ((_dragEdges & 2u) != 0) // bottom
-            {
-                newH = _dragStartH + dy;
-            }
-            else if ((_dragEdges & 1u) != 0) // top
-            {
-                newH = _dragStartH - dy;
-                newY = _dragStartY + dy;
-            }
-
-            // Clamp to client-advertised min/max hints. A hint value
-            // of 0 means "no preference" per the protocol.
-            int minW = adw.MinW > 0 ? adw.MinW : 1;
-            int minH = adw.MinH > 0 ? adw.MinH : 1;
-            if (newW < minW)
-            {
-                if ((_dragEdges & 4u) != 0)
-                {
-                    newX = _dragStartX + (_dragStartW - minW);
-                }
-                newW = minW;
-            }
-            if (newH < minH)
-            {
-                if ((_dragEdges & 1u) != 0)
-                {
-                    newY = _dragStartY + (_dragStartH - minH);
-                }
-                newH = minH;
-            }
-            if (adw.MaxW > 0 && newW > adw.MaxW)
-            {
-                if ((_dragEdges & 4u) != 0)
-                {
-                    newX = _dragStartX + (_dragStartW - adw.MaxW);
-                }
-                newW = adw.MaxW;
-            }
-            if (adw.MaxH > 0 && newH > adw.MaxH)
-            {
-                if ((_dragEdges & 1u) != 0)
-                {
-                    newY = _dragStartY + (_dragStartH - adw.MaxH);
-                }
-                newH = adw.MaxH;
-            }
-
-            adw.X = newX;
-            adw.Y = newY;
-            adw.HasFloatRect = true;
-            adw.FloatX = newX;
-            adw.FloatY = newY;
-            adw.FloatW = newW;
-            adw.FloatH = newH;
-
-            // Force the float layer of ProposeForArea to emit a fresh
-            // propose_dimensions next manage cycle so the client
-            // actually grows/shrinks.
-            ScheduleManage();
-        }
-    }
-
-    internal void HandleOpRelease(IntPtr seat)
-    {
-        Log("BRIDGE HandleOpRelease seat=0x" + seat.ToString("x"));
-        // SnapZones: only for interactive moves (resize ignored). If
-        // the pointer landed inside a configured zone for the window's
-        // output, override the just-computed FloatX/Y/W/H with the
-        // resolved zone rect so ManagerEventHandler emits
-        // propose_dimensions with the snapped geometry on the next
-        // manage cycle. The protocol op_finish_pointer is still issued
-        // by the existing finalisation path — SnapZones piggy-backs on
-        // that, no new wire traffic.
-        if (_activeDragWindow != null && _dragEdges == 0)
-        {
-            _snapZoneService.TrySnapDraggedWindowToZone(seat);
-        }
-
-        _dragFinished = true;
-    }
 
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
@@ -1048,7 +853,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _connection,
             Diagnostics.Logging.For<EventPump>(),
             new EventPumpOptions());
-        _seatInteractionService = new SeatInteractionService(this);
         _layoutRegistry = new LayoutRegistry();
         _layoutConfig = LayoutConfig.Load(GetDefaultConfigPath());
         _layoutController = new LayoutController(_layoutRegistry, _layoutConfig);
@@ -1078,6 +882,21 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _layoutController,
             _layoutProposer,
             _managerRequestSender);
+        // PR 9.12 §2.13 Step 3: SeatInteractionService now owns the six
+        // seat-bridge methods previously living on the god class as
+        // drained SeatHandlerBridge helpers. Consumes fine-grained
+        // services directly; only drag-rect/edges/started/finished
+        // state still flows back through the god class via internal
+        // accessors (retire with the god class).
+        _seatInteractionService = new SeatInteractionService(
+            this,
+            _dragStateStore,
+            _windowRegistry,
+            _focusService,
+            _layoutProposer,
+            _snapZoneService,
+            _managerRequestSender,
+            _layoutController);
         // Stage 7: bindings trio facade — IKeyBindingRegistrar /
         // IKeyBindingRouter / ICustomActionRunner all forward to the
         // existing god-class partials via IKeyBindingsCollaborators.
@@ -1133,7 +952,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _seatHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler(
             _seatRegistry, _windowRegistry,
             _seatHoveredWindow, _seatPointerPos,
-            this, Log);
+            _seatInteractionService, Log);
         _windowEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService(this);
         _windowHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
             _windowRegistry, _windowEventService, Log);

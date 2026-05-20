@@ -25,14 +25,19 @@ public sealed class SeatEventHandlerTests
     }
 
     [Fact]
-    public void SeatEventHandler_Ctor_Takes_RiverWindowManagerClient_Directly()
+    public void SeatEventHandler_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
+        // PR 9.12 §2.13 Step 3: SeatEventHandler no longer depends on
+        // the god class. The six seat-bridge methods previously called
+        // via _river.* live on SeatInteractionService, which consumes
+        // fine-grained DI singletons directly.
         var ctor = typeof(SeatEventHandler).GetConstructors().Single();
         var p = ctor.GetParameters();
         // Order: seats, windows, seatHoveredWindow, seatPointerPos,
-        //        river, log.
+        //        interaction, log.
         Assert.Equal(6, p.Length);
-        Assert.Equal(typeof(RiverWindowManagerClient), p[4].ParameterType);
+        Assert.DoesNotContain(p, x => x.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.Equal(typeof(SeatInteractionService), p[4].ParameterType);
     }
 
     [Fact]
