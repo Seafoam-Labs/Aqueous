@@ -33,8 +33,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
         set => _layoutConfig = value;
     }
 
-    internal void LogForwarding(string message) => Log(message);
-
     internal void HandleScrollViewportForwarding(int deltaColumns) =>
         HandleScrollViewport(deltaColumns);
 

@@ -161,7 +161,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            _river.LogForwarding("failed to toggle start menu: " + ex.Message);
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to toggle start menu: " + ex.Message);
         }
     }
 
@@ -199,7 +199,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            _river.LogForwarding("failed to spawn terminal: " + ex.Message);
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to spawn terminal: " + ex.Message);
         }
     }
 
@@ -223,12 +223,12 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             _river.LayoutConfigForBindings = fresh;
             _layoutController.ReplaceConfig(fresh);
             InputDaemonClient.Apply(fresh.Input);
-            _river.LogForwarding("config reloaded");
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("config reloaded");
             _managerRequestSender.ScheduleManage();
         }
         catch (Exception ex)
         {
-            _river.LogForwarding("config reload failed: " + ex.Message);
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("config reload failed: " + ex.Message);
         }
     }
 
@@ -241,7 +241,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         else
         {
-            _river.LogForwarding($"{actionName}: no focused window");
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"{actionName}: no focused window");
         }
     }
 
@@ -249,7 +249,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         try
         {
-            _river.LogForwarding("locking screen");
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("locking screen");
 
             var psi = new ProcessStartInfo
             {
@@ -284,7 +284,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
         catch (Exception ex)
         {
-            _river.LogForwarding("failed to lock screen: " + ex.Message);
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("failed to lock screen: " + ex.Message);
         }
     }
 }

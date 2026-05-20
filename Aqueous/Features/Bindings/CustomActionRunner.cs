@@ -62,7 +62,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 RunBuiltinVerb(arg);
                 break;
             default:
-                _river.LogForwarding($"unknown custom action verb '{head}'");
+                Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"unknown custom action verb '{head}'");
                 break;
         }
     }
@@ -110,7 +110,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
         }
         catch (Exception ex)
         {
-            _river.LogForwarding($"spawn '{arg}' failed: {ex.Message}");
+            Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"spawn '{arg}' failed: {ex.Message}");
         }
     }
 
@@ -135,7 +135,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
             case "toggle_scratchpad_named":
                 if (barg.Length == 0)
                 {
-                    _river.LogForwarding("builtin:toggle_scratchpad_named requires :name");
+                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:toggle_scratchpad_named requires :name");
                     return;
                 }
 
@@ -144,7 +144,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
             case "send_to_scratchpad_named":
                 if (barg.Length == 0)
                 {
-                    _river.LogForwarding("builtin:send_to_scratchpad_named requires :name");
+                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:send_to_scratchpad_named requires :name");
                     return;
                 }
 
@@ -154,7 +154,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 }
                 else
                 {
-                    _river.LogForwarding("builtin:send_to_scratchpad_named: no focused window");
+                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("builtin:send_to_scratchpad_named: no focused window");
                 }
 
                 return;
@@ -165,7 +165,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 }
                 else
                 {
-                    _river.LogForwarding($"unknown builtin '{bname}'");
+                    Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log($"unknown builtin '{bname}'");
                 }
 
                 return;
