@@ -910,7 +910,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _bindSiteState.WlShm = _wlShm;
             TrackProxyInterface(_wlShm, "wl_shm");
             Log("bound wl_shm");
-            TryActivateScreencopy();
+            _screencopyService.ActivateIfReady(
+                _bindSiteState,
+                _screencopyVersion,
+                GCHandle.ToIntPtr(_selfHandle),
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
+                Log);
         }
         else if (global.Interface == "wl_output")
         {
@@ -930,31 +935,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _bindSiteState.ScreencopyManager = _screencopyManager;
             TrackProxyInterface(_screencopyManager, "zwlr_screencopy_manager_v1");
             Log($"bound zwlr_screencopy_manager_v1 (version {_screencopyVersion})");
-            TryActivateScreencopy();
+            _screencopyService.ActivateIfReady(
+                _bindSiteState,
+                _screencopyVersion,
+                GCHandle.ToIntPtr(_selfHandle),
+                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
+                Log);
         }
     }
 
-    /// <summary>
-    /// Brings up the <see cref="Aqueous.Features.Screencopy.IScreencopyService"/> once
-    /// both <c>wl_shm</c> and <c>zwlr_screencopy_manager_v1</c> have been bound. Order
-    /// of registry events is not guaranteed, so this is called from each binding site
-    /// and is idempotent in the service.
-    /// </summary>
-    private void TryActivateScreencopy()
-    {
-        bool wasReady = _screencopyService.IsReady;
-        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch;
-        _screencopyService.TryActivate(
-            _screencopyManager,
-            _screencopyVersion,
-            _wlShm,
-            GCHandle.ToIntPtr(_selfHandle),
-            dispatcher);
-        if (!wasReady && _screencopyService.IsReady)
-        {
-            Log("screencopy ready (wl_shm + zwlr_screencopy_manager_v1)");
-        }
-    }
+    // PR 9.12 §2.13 increment: TryActivateScreencopy lifted onto
+    // IScreencopyService.ActivateIfReady (consumed directly by HandleRegistryGlobal).
 
     /// <summary>
     /// Captures a full frame for the first known <c>wl_output</c>. Returns

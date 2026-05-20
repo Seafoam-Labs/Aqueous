@@ -228,6 +228,12 @@ public class Stage8Pr88Tests
             return true;
         }
         public void TryActivate(IntPtr screencopyManager, uint version, IntPtr shm, IntPtr selfHandle, IntPtr dispatcher) { }
+        public void ActivateIfReady(
+            Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState bindSite,
+            uint screencopyVersion,
+            IntPtr selfHandle,
+            IntPtr dispatcher,
+            Action<string> log) { }
         public System.Threading.Tasks.Task<ScreencopyResult>? CaptureFirstOutputAsync(
             System.Collections.Generic.IEnumerable<Aqueous.Features.Compositor.River.Connection.RegistryGlobal> outputGlobals,
             Func<uint, IntPtr> bindOutput,

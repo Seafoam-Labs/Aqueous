@@ -49,6 +49,24 @@ internal sealed class ScreencopyService : IScreencopyService, IDisposable
         }
     }
 
+    public void ActivateIfReady(
+        WaylandBindSiteState bindSite,
+        uint screencopyVersion,
+        IntPtr selfHandle,
+        IntPtr dispatcher,
+        Action<string> log)
+    {
+        if (bindSite is null) throw new ArgumentNullException(nameof(bindSite));
+        if (log is null) throw new ArgumentNullException(nameof(log));
+
+        bool wasReady = IsReady;
+        TryActivate(bindSite.ScreencopyManager, screencopyVersion, bindSite.WlShm, selfHandle, dispatcher);
+        if (!wasReady && IsReady)
+        {
+            log("screencopy ready (wl_shm + zwlr_screencopy_manager_v1)");
+        }
+    }
+
     public Task<ScreencopyResult>? CaptureOutputAsync(IntPtr output, bool overlayCursor = false)
         => _client?.CaptureOutputAsync(output, overlayCursor);
 

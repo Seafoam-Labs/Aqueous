@@ -36,6 +36,20 @@ internal interface IScreencopyService
     void TryActivate(IntPtr screencopyManager, uint version, IntPtr shm, IntPtr selfHandle, IntPtr dispatcher);
 
     /// <summary>
+    /// PR 9.12 §2.13 increment: high-level wrapper around <see cref="TryActivate"/>
+    /// that reads bind-site state from <see cref="WaylandBindSiteState"/> and emits
+    /// a one-shot "screencopy ready" log line on the not-ready → ready transition.
+    /// Idempotent across repeated calls; safe to invoke from either bind site
+    /// (<c>wl_shm</c> or <c>zwlr_screencopy_manager_v1</c>).
+    /// </summary>
+    void ActivateIfReady(
+        WaylandBindSiteState bindSite,
+        uint screencopyVersion,
+        IntPtr selfHandle,
+        IntPtr dispatcher,
+        Action<string> log);
+
+    /// <summary>
     /// PR 9.12 §2.11 — picks the first known <c>wl_output</c> global from
     /// <paramref name="outputGlobals"/>, binds it via <paramref name="bindOutput"/>
     /// (typically <c>IWaylandConnection.Registry.Bind</c>), captures a single
