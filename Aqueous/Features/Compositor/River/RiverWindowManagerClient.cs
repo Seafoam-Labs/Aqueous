@@ -235,6 +235,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// <see cref="OnGlobalDiscovered"/> handler below.
     /// </summary>
     private readonly RegistryBinder _registry = new();
+    /// <summary>PR 9.12 §2.8: top-level dispatch seam for wl_registry globals.</summary>
+    private readonly Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder _registryGlobalBinder;
+    /// <summary>PR 9.12 §2.8 migration accessor.</summary>
+    internal Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder RegistryGlobalBinder => _registryGlobalBinder;
 
     /// <summary>
     /// PR 9.12 §2.1: dedicated singleton that mirrors the bind-site
@@ -586,6 +590,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _connection = connection;
         _windowRegistry = windowRegistry;
         _outputRegistry = outputRegistry;
@@ -787,7 +792,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // dispatch in Stage 8.
         TrackProxyInterface(_registry.Handle, "wl_registry");
 
-        _registry.Discovered += OnGlobalDiscovered;
+        _registry.Discovered += _registryGlobalBinder.Bind;
 
         // Flush globals; then a second roundtrip so any events the
         // compositor sends immediately on bind (for an existing window
@@ -878,7 +883,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     // --- registry ------------------------------------------------------
 
-    private void OnGlobalDiscovered(RegistryGlobal global)
+    internal void HandleRegistryGlobal(RegistryGlobal global)
     {
         // The set of interfaces this client cares about. Anything else
         // advertised by the compositor is intentionally ignored.
