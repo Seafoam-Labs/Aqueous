@@ -408,6 +408,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // the supervised commands listed in wm.toml; fired after the initial
     // roundtrip in Connect().
     private readonly StartupExecRunner _startupExec;
+
+    /// <summary>
+    /// PR 9.12 §2.13 increment: exposed so <see cref="RiverCompositorHost"/>
+    /// can invoke <c>OnStartup</c> after <see cref="Connect"/> returns,
+    /// moving one more lifecycle responsibility out of the god class.
+    /// </summary>
+    internal StartupExecRunner StartupExec => _startupExec;
     private readonly Aqueous.Features.State.WindowStateHost _stateHost;
     // Stage 8 PR 8.1: managed dispatch seam. The native [UnmanagedCallersOnly]
     // callback in ProxyDispatcher routes per-interface branches through this
@@ -726,6 +733,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                 return Result<RiverWindowManagerClient>.Fail(connected.Error!);
             }
 
+            try { c._startupExec.OnStartup(); }
+            catch (Exception ex) { Log($"startup exec failed: {ex.Message}"); }
+
             c.StartPump(cancellationToken);
             Log($"attached as window manager (v{c._managerVersion})");
             return Result<RiverWindowManagerClient>.Ok(c);
@@ -785,19 +795,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                 "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
         }
 
-        // Phase B1f: with the WM global bound and globals advertised, fire
-        // the [[exec]] on_startup / when=always entries from wm.toml. This
-        // runs synchronously on the connect thread, but each command is
-        // detached via setsid so it returns immediately.
-        try
-        {
-            _startupExec.OnStartup();
-        }
-        catch (Exception ex)
-        {
-            Log($"startup exec failed: {ex.Message}");
-        }
-
+        // PR 9.12 §2.13 increment: startup-exec invocation lifted to
+        // RiverCompositorHost.StartAsync (runs after Connect returns ok).
+        // The TryStart legacy path still drives it inline below.
         return Result.Ok;
     }
 

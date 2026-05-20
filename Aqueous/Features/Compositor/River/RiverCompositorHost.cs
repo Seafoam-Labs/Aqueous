@@ -97,6 +97,19 @@ internal sealed class RiverCompositorHost : IHostedService
                     "RiverWindowManagerClient.Connect failed: " + connected.Error);
             }
 
+            // PR 9.12 §2.13 increment: drive [[exec]] on_startup/when=always
+            // entries here, after Connect succeeds. Previously this fired
+            // inside Connect itself; lifting it to the host moves one more
+            // lifecycle responsibility out of the god class.
+            try
+            {
+                _client.StartupExec.OnStartup();
+            }
+            catch (Exception ex)
+            {
+                _log?.LogWarning(ex, "startup exec failed");
+            }
+
             _client.StartPump(cancellationToken);
             _log?.LogInformation(
                 "RiverCompositorHost started; attached as window manager (v{ManagerVersion}).",
