@@ -13,9 +13,13 @@ public class SnapZoneServiceTests
     // Behavioural coverage moves to manual River smoke (drag-to-snap).
 
     [Fact]
-    public void Ctor_NullClient_Throws()
+    public void Ctor_NullDragState_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() => new SnapZoneService(null!));
+        // PR 9.12 §2.13 Step 2: ctor cut over to fine-grained services.
+        // Asserting the first arg's null-guard is sufficient as a
+        // smoke-check; the full shape is pinned below.
+        Assert.Throws<ArgumentNullException>(() =>
+            new SnapZoneService(null!, null!, null!, null!, null!));
     }
 
     [Theory]
@@ -68,14 +72,23 @@ public class SnapZoneServiceTests
     }
 
     [Fact]
-    public void SnapZoneService_Ctor_Takes_RiverWindowManagerClient()
+    public void SnapZoneService_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
+        // PR 9.12 §2.13 Step 2: SnapZoneService no longer depends on
+        // the god class. Drag state flows through DragStateStore;
+        // LayoutConfig via LayoutController; output-name resolution
+        // via ILayoutProposer; manage cycles via IManagerRequestSender;
+        // per-output rects via IOutputRegistry.
         var ctors = typeof(SnapZoneService).GetConstructors();
         Assert.Single(ctors);
         var p = ctors[0].GetParameters();
-        Assert.Single(p);
-        Assert.Equal(
-            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient),
-            p[0].ParameterType);
+        Assert.Equal(5, p.Length);
+        Assert.DoesNotContain(p, x => x.ParameterType ==
+            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient));
+        Assert.Equal(typeof(Aqueous.Features.Input.DragStateStore),                                  p[0].ParameterType);
+        Assert.Equal(typeof(Aqueous.Features.Compositor.River.Registry.IOutputRegistry),             p[1].ParameterType);
+        Assert.Equal(typeof(Aqueous.Features.Layout.LayoutController),                               p[2].ParameterType);
+        Assert.Equal(typeof(Aqueous.Features.Layout.ILayoutProposer),                                p[3].ParameterType);
+        Assert.Equal(typeof(Aqueous.Features.Layout.IManagerRequestSender),                          p[4].ParameterType);
     }
 }

@@ -85,6 +85,13 @@ class Program
         services.AddSingleton<Aqueous.Features.Focus.PendingFocusStore>();
         services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
 
+        // PR 9.12 §2.13 Step 2: DragStateStore owns ActiveDragWindow /
+        // ActiveDragActivator / SeatPointerPos previously living on the
+        // god class. SnapZoneService now consumes it directly; RWMC
+        // keeps field-style aliases backed by the store until the
+        // remaining drag consumers cut over.
+        services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -105,7 +112,8 @@ class Program
                 sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
                 sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
                 sp.GetRequiredService<Aqueous.Features.Focus.PendingFocusStore>(),
-                sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>()));
+                sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>(),
+                sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the

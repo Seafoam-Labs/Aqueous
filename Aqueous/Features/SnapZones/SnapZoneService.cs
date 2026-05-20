@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.SnapZones;
@@ -18,16 +20,34 @@ namespace Aqueous.Features.SnapZones;
 /// </summary>
 internal sealed class SnapZoneService : ISnapZoneService
 {
-    private readonly RiverWindowManagerClient _client;
+    // PR 9.12 §2.13 Step 2: cut over off RiverWindowManagerClient.
+    // Drag state lives on DragStateStore; LayoutConfig is read live
+    // from LayoutController (which owns the swap); output-name
+    // resolution flows through ILayoutProposer; manage cycles
+    // schedule through IManagerRequestSender.
+    private readonly DragStateStore _dragState;
+    private readonly IOutputRegistry _outputRegistry;
+    private readonly LayoutController _layoutController;
+    private readonly ILayoutProposer _layoutProposer;
+    private readonly IManagerRequestSender _managerRequestSender;
 
     // Latch for the most recently previewed zone name during the
     // current drag. Lives on the service so a re-entry into the same
     // zone only logs once.
     private string? _dragLastSnapZone;
 
-    public SnapZoneService(RiverWindowManagerClient client)
+    public SnapZoneService(
+        DragStateStore dragState,
+        IOutputRegistry outputRegistry,
+        LayoutController layoutController,
+        ILayoutProposer layoutProposer,
+        IManagerRequestSender managerRequestSender)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
+        _outputRegistry        = outputRegistry        ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _layoutController      = layoutController      ?? throw new ArgumentNullException(nameof(layoutController));
+        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
     }
 
     /// <summary>
@@ -48,7 +68,7 @@ internal sealed class SnapZoneService : ISnapZoneService
         snapped = default;
         zoneName = null;
 
-        var adw = _client.ActiveDragWindow;
+        var adw = _dragState.ActiveDragWindow;
         if (adw == null)
         {
             return false;
@@ -56,7 +76,7 @@ internal sealed class SnapZoneService : ISnapZoneService
 
         // Skip the lookup entirely when no zones are configured. This
         // is the common case until a user opts in via wm.toml.
-        var store = _client.LayoutConfig.SnapZones;
+        var store = _layoutController.Config.SnapZones;
         if (store.IsEmpty)
         {
             return false;
@@ -67,7 +87,7 @@ internal sealed class SnapZoneService : ISnapZoneService
         // manage sequence), fall back to the window's current top-left. That
         // still produces a sensible snap for a drag that lands near the edge.
         int px, py;
-        bool pointerCacheHit = _client.SeatPointerPos.TryGetValue(seat, out var pos);
+        bool pointerCacheHit = _dragState.SeatPointerPos.TryGetValue(seat, out var pos);
         if (pointerCacheHit)
         {
             px = pos.X;
@@ -83,11 +103,11 @@ internal sealed class SnapZoneService : ISnapZoneService
         // a stale/empty pointer cache, mis-resolved output, or activator
         // mismatch. Remove once the post-PR-8.3 snap regression is
         // diagnosed and the real root cause is fixed.
-        RiverLog.Write($"snap-resolve seat=0x{seat.ToString("x")} src={(pointerCacheHit ? "cache" : "fallback")} px={px} py={py} activeDragActivator={_client.ActiveDragActivator}");
+        RiverLog.Write($"snap-resolve seat=0x{seat.ToString("x")} src={(pointerCacheHit ? "cache" : "fallback")} px={px} py={py} activeDragActivator={_dragState.ActiveDragActivator}");
 
         // Resolve the dragged window's output rect. The drag is gated on
         // float-layout-active, which guarantees adw.Output is set.
-        if (!_client.OutputRegistry.Entries.TryGetValue(adw.Output, out var output))
+        if (!_outputRegistry.Entries.TryGetValue(adw.Output, out var output))
         {
             return false;
         }
@@ -104,7 +124,7 @@ internal sealed class SnapZoneService : ISnapZoneService
             return false;
         }
 
-        var outputName = _client.ResolveOutputName(adw.Output);
+        var outputName = _layoutProposer.ResolveOutputName(adw.Output);
         var layout = store.ActiveLayoutFor(adw.Output, outputName);
         if (layout == null)
         {
@@ -122,9 +142,9 @@ internal sealed class SnapZoneService : ISnapZoneService
         // conscious trade-off; see the registration code in
         // ManagerEventHandler.SeatInformation for the rationale.
         if (layout.Activator != SnapActivator.Always &&
-            layout.Activator != _client.ActiveDragActivator)
+            layout.Activator != _dragState.ActiveDragActivator)
         {
-            RiverLog.Write($"snap-resolve activator-gate-skip layout.Activator={layout.Activator} activeDrag={_client.ActiveDragActivator}");
+            RiverLog.Write($"snap-resolve activator-gate-skip layout.Activator={layout.Activator} activeDrag={_dragState.ActiveDragActivator}");
             return false;
         }
 
@@ -184,7 +204,7 @@ internal sealed class SnapZoneService : ISnapZoneService
     /// </summary>
     public void ApplyLiveSnapPreview(IntPtr seat)
     {
-        var adw = _client.ActiveDragWindow;
+        var adw = _dragState.ActiveDragWindow;
         if (adw == null)
         {
             return;
@@ -204,7 +224,7 @@ internal sealed class SnapZoneService : ISnapZoneService
             {
                 RiverLog.Write($"snap-zone '{zoneName}' previewed for window 0x{adw.Proxy.ToString("x")}: ({rect.X},{rect.Y} {rect.W}x{rect.H})");
                 _dragLastSnapZone = zoneName;
-                _client.ManagerRequestSender.ScheduleManage();
+                _managerRequestSender.ScheduleManage();
             }
         }
         else if (_dragLastSnapZone != null)
@@ -215,13 +235,13 @@ internal sealed class SnapZoneService : ISnapZoneService
             // re-entry logs again.
             RiverLog.Write($"snap-zone preview cleared for window 0x{adw.Proxy.ToString("x")}");
             _dragLastSnapZone = null;
-            _client.ManagerRequestSender.ScheduleManage();
+            _managerRequestSender.ScheduleManage();
         }
     }
 
     public void TrySnapDraggedWindowToZone(IntPtr seat)
     {
-        var adw = _client.ActiveDragWindow;
+        var adw = _dragState.ActiveDragWindow;
         if (adw == null)
         {
             return;
@@ -251,7 +271,7 @@ internal sealed class SnapZoneService : ISnapZoneService
         // ManagerEventHandler will see _dragFinished on the next manage
         // cycle and emit op_finish_pointer; the float-layout pass will
         // then propose the new dimensions and commit set_position.
-        _client.ManagerRequestSender.ScheduleManage();
+        _managerRequestSender.ScheduleManage();
     }
 
     /// <summary>
@@ -262,7 +282,7 @@ internal sealed class SnapZoneService : ISnapZoneService
     /// </summary>
     public IEnumerable<IReadOnlyList<SnapZoneLayout>> CollectAllSnapLayouts()
     {
-        var store = _client.LayoutConfig.SnapZones;
+        var store = _layoutController.Config.SnapZones;
         if (store.IsEmpty)
         {
             yield break;
@@ -272,9 +292,9 @@ internal sealed class SnapZoneService : ISnapZoneService
         // outputs (incl. the wildcard) and dedup.
         var seen = new HashSet<SnapZoneLayout>();
         var names = new List<string?> { null, SnapZoneStore.Wildcard };
-        foreach (var kv in _client.OutputRegistry.Entries)
+        foreach (var kv in _outputRegistry.Entries)
         {
-            names.Add(_client.ResolveOutputName(kv.Key));
+            names.Add(_layoutProposer.ResolveOutputName(kv.Key));
         }
 
         foreach (var n in names)

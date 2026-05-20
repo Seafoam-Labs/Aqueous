@@ -116,7 +116,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         set => _pendingFocusStore.Seat = value;
     }
 
-    private WindowEntry? _activeDragWindow;
+    // PR 9.12 §2.13 Step 2 — _activeDragWindow / _activeDragActivator /
+    // _seatPointerPos storage now lives on DragStateStore (DI singleton).
+    // The field-style properties below preserve the original names so the
+    // manager/window/drag-pointer event services and any in-class
+    // bridge methods keep compiling unchanged until they all consume
+    // the store directly. Field-init for the activator default
+    // (SnapActivator.Always) moves to the store's field initializer.
+    private readonly Aqueous.Features.Input.DragStateStore _dragStateStore;
+    private WindowEntry? _activeDragWindow
+    {
+        get => _dragStateStore.ActiveDragWindow;
+        set => _dragStateStore.ActiveDragWindow = value;
+    }
     private IntPtr _activeDragSeat;
     private bool _dragFinished;
     private bool _dragStarted;
@@ -175,8 +187,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // plain Super+LMB binding; Shift/Ctrl/Alt for the snap-activator
     // bindings; reset to Always on drag-release. Read by
     // TryResolveSnapForDrag to gate snapping per layout.
-    private Aqueous.Features.SnapZones.SnapActivator _activeDragActivator =
-        Aqueous.Features.SnapZones.SnapActivator.Always;
+    private Aqueous.Features.SnapZones.SnapActivator _activeDragActivator
+    {
+        get => _dragStateStore.ActiveDragActivator;
+        set => _dragStateStore.ActiveDragActivator = value;
+    }
 
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow = new(); // seat -> window
 
@@ -184,7 +199,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // coordinate space, updated from river_seat_v1::pointer_position. Used
     // by the Super+RMB drag-resize binding to determine which corner of
     // the focused window the user clicked on.
-    private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos = new();
+    // PR 9.12 §2.13 Step 2 — backed by DragStateStore singleton.
+    private ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos => _dragStateStore.SeatPointerPos;
 
     // --- wayland state -------------------------------------------------
 
@@ -992,7 +1008,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
                new Aqueous.Features.State.OutputFullscreenMap(),
                new Aqueous.Features.State.WindowStateStore(),
                new Aqueous.Features.Focus.PendingFocusStore(),
-               new Aqueous.Features.Focus.PrimarySeatTracker())
+               new Aqueous.Features.Focus.PrimarySeatTracker(),
+               new Aqueous.Features.Input.DragStateStore())
     {
     }
 
@@ -1011,7 +1028,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         Aqueous.Features.State.OutputFullscreenMap outputFullscreen,
         Aqueous.Features.State.WindowStateStore windowStates,
         Aqueous.Features.Focus.PendingFocusStore pendingFocusStore,
-        Aqueous.Features.Focus.PrimarySeatTracker primarySeatTracker)
+        Aqueous.Features.Focus.PrimarySeatTracker primarySeatTracker,
+        Aqueous.Features.Input.DragStateStore dragStateStore)
     {
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
@@ -1019,6 +1037,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
         _pendingFocusStore = pendingFocusStore ?? throw new ArgumentNullException(nameof(pendingFocusStore));
         _primarySeatTracker = primarySeatTracker ?? throw new ArgumentNullException(nameof(primarySeatTracker));
+        _dragStateStore = dragStateStore ?? throw new ArgumentNullException(nameof(dragStateStore));
         _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
         _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
@@ -1048,7 +1067,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // Stage 6 Part 1: SnapZoneService facade over the existing
         // partial; handlers depend on ISnapZoneService rather than
         // god-class privates. Literal drag-state lift in Stage 8.
-        _snapZoneService = new Aqueous.Features.SnapZones.SnapZoneService(this);
+        // PR 9.12 §2.13 Step 2: SnapZoneService no longer references the
+        // god class. Drag state comes from DragStateStore; the live
+        // LayoutConfig comes from LayoutController; output-name resolution
+        // and per-output rect lookups come from ILayoutProposer and the
+        // output registry directly.
+        _snapZoneService = new Aqueous.Features.SnapZones.SnapZoneService(
+            _dragStateStore,
+            _outputRegistry,
+            _layoutController,
+            _layoutProposer,
+            _managerRequestSender);
         // Stage 7: bindings trio facade — IKeyBindingRegistrar /
         // IKeyBindingRouter / ICustomActionRunner all forward to the
         // existing god-class partials via IKeyBindingsCollaborators.
