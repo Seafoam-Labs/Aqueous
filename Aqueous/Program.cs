@@ -51,6 +51,20 @@ class Program
         services.AddSingleton<EventPumpOptions>();
         services.AddSingleton<IEventPump, EventPump>();
 
+        // Stage 9 PR 9.12 §2.1: WaylandBindSiteState is the new owner of
+        // raw bind-site proxy pointers (manager / layer-shell / screencopy
+        // / wl_shm / xkb-bindings) plus the proxy → interface-name map.
+        // Registered as a singleton so consumers can ctor-inject it
+        // directly in subsequent §2.x steps; the god class still mirrors
+        // writes into the legacy private fields during the migration.
+        services.AddSingleton<WaylandBindSiteState>();
+
+        // Stage 9 PR 9.12 §2.2: FocusedWindowTracker owns the raw
+        // focused-window proxy pointer (formerly RiverWindowManagerClient
+        // ._focusedWindow). The god class still exposes the property
+        // alias during the migration.
+        services.AddSingleton<Aqueous.Features.Focus.FocusedWindowTracker>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -65,7 +79,9 @@ class Program
                 (IWindowRegistry?)sp.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
                 (IOutputRegistry?)sp.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
                 (ISeatRegistry?)sp.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry(),
-                (Aqueous.Features.Compositor.River.Connection.IEventPump?)sp.GetService(typeof(Aqueous.Features.Compositor.River.Connection.IEventPump))));
+                (Aqueous.Features.Compositor.River.Connection.IEventPump?)sp.GetService(typeof(Aqueous.Features.Compositor.River.Connection.IEventPump)),
+                sp.GetRequiredService<WaylandBindSiteState>(),
+                sp.GetRequiredService<Aqueous.Features.Focus.FocusedWindowTracker>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the

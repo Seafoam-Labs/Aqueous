@@ -236,6 +236,18 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// </summary>
     private readonly RegistryBinder _registry = new();
 
+    /// <summary>
+    /// PR 9.12 §2.1: dedicated singleton that mirrors the bind-site
+    /// proxy pointers. Populated alongside the legacy private fields
+    /// below until every consumer takes <see cref="WaylandBindSiteState"/>
+    /// directly via ctor injection. Exposed as <see cref="BindSiteState"/>
+    /// for the gradual migration.
+    /// </summary>
+    private readonly Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState _bindSiteState;
+
+    /// <summary>PR 9.12 §2.1 migration accessor.</summary>
+    internal Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState BindSiteState => _bindSiteState;
+
     private IntPtr _manager;
     private IntPtr _layerShell;
     private IntPtr _xkbBindings;
@@ -297,6 +309,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal void TrackProxyInterface(IntPtr proxy, string interfaceName)
     {
         _proxyInterface.Track(proxy, interfaceName);
+        _bindSiteState.TrackProxyInterface(proxy, interfaceName);
     }
 
     /// <summary>Test/diagnostic accessor: number of proxies currently tracked.</summary>
@@ -310,7 +323,18 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
 
     private IntPtr _primarySeat;
-    private IntPtr _focusedWindow;
+
+    // PR 9.12 §2.2: _focusedWindow's storage now lives on
+    // FocusedWindowTracker (DI singleton). The property below preserves
+    // the field-style name so the ~13 read sites and ~3 write sites
+    // scattered across handlers + Focus/Layout partials don't churn
+    // until each one ctor-injects the tracker directly.
+    private readonly Aqueous.Features.Focus.FocusedWindowTracker _focusedWindowTracker;
+    private IntPtr _focusedWindow
+    {
+        get => _focusedWindowTracker.Current;
+        set => _focusedWindowTracker.Current = value;
+    }
     // Stage 5: backing for the manage-cycle flush flag now lives on
     // IManagerRequestSender. The property below preserves the original
     // field name for the many partial/handler call sites that still
@@ -505,7 +529,27 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         IOutputRegistry outputRegistry,
         ISeatRegistry seatRegistry,
         IEventPump? pump)
+        : this(connection, windowRegistry, outputRegistry, seatRegistry, pump,
+               new Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState(),
+               new Aqueous.Features.Focus.FocusedWindowTracker())
     {
+    }
+
+    // PR 9.12 §2.1/§2.2: ctor overload that accepts DI-supplied
+    // WaylandBindSiteState + FocusedWindowTracker singletons. The
+    // 5-arg overload above delegates here with fresh instances so
+    // existing callers (TryStart, tests) are unaffected.
+    internal RiverWindowManagerClient(
+        IWaylandConnection connection,
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry,
+        ISeatRegistry seatRegistry,
+        IEventPump? pump,
+        Aqueous.Features.Compositor.River.Connection.WaylandBindSiteState bindSiteState,
+        Aqueous.Features.Focus.FocusedWindowTracker focusedWindowTracker)
+    {
+        _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _connection = connection;
         _windowRegistry = windowRegistry;
         _outputRegistry = outputRegistry;
@@ -797,6 +841,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         {
             _managerVersion = Math.Min(global.Version, 4u);
             _manager = _registry.Bind(global.Name, WlInterfaces.RiverWindowManager, _managerVersion);
+            _bindSiteState.Manager = _manager;
             if (_manager != IntPtr.Zero)
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
@@ -812,6 +857,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         else if (global.Interface == "river_layer_shell_v1")
         {
             _layerShell = _registry.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
+            _bindSiteState.LayerShell = _layerShell;
             WaylandInterop.wl_proxy_add_dispatcher(
                 _layerShell,
                 (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
@@ -824,6 +870,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         {
             uint xkbVersion = Math.Min(global.Version, 2u);
             _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
+            _bindSiteState.XkbBindings = _xkbBindings;
             _xkbBindingsVersion = xkbVersion;
             TrackProxyInterface(_xkbBindings, "river_xkb_bindings_v1");
             Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
@@ -831,6 +878,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         else if (global.Interface == "wl_shm" && _wlShm == IntPtr.Zero)
         {
             _wlShm = _registry.Bind(global.Name, WlInterfaces.WlShm, 1);
+            _bindSiteState.WlShm = _wlShm;
             TrackProxyInterface(_wlShm, "wl_shm");
             Log("bound wl_shm");
             TryActivateScreencopy();
@@ -850,6 +898,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _screencopyVersion = Math.Min(global.Version, 3u);
             _screencopyManager = _registry.Bind(
                 global.Name, WlInterfaces.ZwlrScreencopyManager, _screencopyVersion);
+            _bindSiteState.ScreencopyManager = _screencopyManager;
             TrackProxyInterface(_screencopyManager, "zwlr_screencopy_manager_v1");
             Log($"bound zwlr_screencopy_manager_v1 (version {_screencopyVersion})");
             TryActivateScreencopy();
