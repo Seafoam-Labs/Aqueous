@@ -15,15 +15,15 @@ namespace Aqueous.Features.Compositor.River;
 /// <list type="bullet">
 ///   <item><see cref="LayoutConfigForBindings"/> — mutable so <c>ReloadConfig</c>
 ///   can swap the active config.</item>
-///   <item><see cref="HandleScrollViewportForwarding"/> /
-///   <see cref="HandleMoveColumnForwarding"/> — bodies still live on
-///   <c>LayoutProposer</c> partial; lifted in §2.9.</item>
-///   <item><see cref="LogForwarding"/> — wraps the god-class <c>Log</c> helper;
-///   lifted in §2.12.</item>
 ///   <item><see cref="GetDefaultConfigPathForBindings"/> — pure helper still
 ///   on the god class; lifted in §2.12.</item>
 /// </list>
 /// Retires with the rest of the god class in §2.13.
+///
+/// PR 9.12 §2.13 increment: <c>HandleScrollViewportForwarding</c> /
+/// <c>HandleMoveColumnForwarding</c> retired — replaced by
+/// <see cref="ViewportInteractionService"/> consumed directly by
+/// <c>KeyBindingRouter</c>.
 /// </summary>
 internal sealed unsafe partial class RiverWindowManagerClient
 {
@@ -32,12 +32,6 @@ internal sealed unsafe partial class RiverWindowManagerClient
         get => _layoutConfig;
         set => _layoutConfig = value;
     }
-
-    internal void HandleScrollViewportForwarding(int deltaColumns) =>
-        HandleScrollViewport(deltaColumns);
-
-    internal void HandleMoveColumnForwarding(FocusDirection dir) =>
-        HandleMoveColumn(dir);
 
     internal static string GetDefaultConfigPathForBindings() => GetDefaultConfigPath();
 }

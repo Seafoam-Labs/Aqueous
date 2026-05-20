@@ -28,6 +28,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly ITagService _tagService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly WindowStateController _windowState;
+    private readonly ViewportInteractionService _viewport;
     private readonly RiverWindowManagerClient _river;
 
     public KeyBindingRouter(
@@ -36,6 +37,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         ITagService tagService,
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
+        ViewportInteractionService viewport,
         RiverWindowManagerClient river)
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
@@ -43,6 +45,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _tagService = tagService ?? throw new ArgumentNullException(nameof(tagService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
+        _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
         _river = river ?? throw new ArgumentNullException(nameof(river));
     }
 
@@ -61,10 +64,10 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.FocusRight]           = c => c._focusService.HandleDirectionalFocus(FocusDirection.Right),
             [KeyBindingAction.FocusUp]              = c => c._focusService.HandleDirectionalFocus(FocusDirection.Up),
             [KeyBindingAction.FocusDown]            = c => c._focusService.HandleDirectionalFocus(FocusDirection.Down),
-            [KeyBindingAction.ScrollViewportLeft]   = c => c._river.HandleScrollViewportForwarding(-1),
-            [KeyBindingAction.ScrollViewportRight]  = c => c._river.HandleScrollViewportForwarding(+1),
-            [KeyBindingAction.MoveColumnLeft]       = c => c._river.HandleMoveColumnForwarding(FocusDirection.Left),
-            [KeyBindingAction.MoveColumnRight]      = c => c._river.HandleMoveColumnForwarding(FocusDirection.Right),
+            [KeyBindingAction.ScrollViewportLeft]   = c => c._viewport.ScrollViewport(-1),
+            [KeyBindingAction.ScrollViewportRight]  = c => c._viewport.ScrollViewport(+1),
+            [KeyBindingAction.MoveColumnLeft]       = c => c._viewport.MoveColumn(FocusDirection.Left),
+            [KeyBindingAction.MoveColumnRight]      = c => c._viewport.MoveColumn(FocusDirection.Right),
             [KeyBindingAction.ReloadConfig]         = c => c.ReloadConfig(),
             [KeyBindingAction.SetLayoutPrimary]     = c => c.SetLayoutByIdOrSlot("primary"),
             [KeyBindingAction.SetLayoutSecondary]   = c => c.SetLayoutByIdOrSlot("secondary"),

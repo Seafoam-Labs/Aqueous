@@ -620,9 +620,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // four cross-cutting helpers still on the god class (LayoutConfig swap,
         // HandleScrollViewport/HandleMoveColumn, LogForwarding,
         // GetDefaultConfigPath, BuiltinActionMap) — those retire in §2.7/§2.13.
+        var viewport = new Aqueous.Features.Layout.ViewportInteractionService(
+            _layoutController, _focusedWindowTracker, _windowRegistry, _layoutProposer, _managerRequestSender);
         var router = new Aqueous.Features.Bindings.KeyBindingRouter(
             _focusService, _layoutController, _tagController,
-            _managerRequestSender, _windowState, this);
+            _managerRequestSender, _windowState, viewport, this);
         _keyBindingRouter = router;
         _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(
             router, _focusService, _windowState, this);

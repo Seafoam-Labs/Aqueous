@@ -704,29 +704,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// because Visible=false).
     /// </summary>
 
-    private void HandleScrollViewport(int deltaColumns)
-    {
-        if (_focusedWindow == IntPtr.Zero || !_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
-        {
-            return;
-        }
-
-        _layoutController.ScrollViewport(fw.Output, ResolveOutputName(fw.Output), deltaColumns);
-        ScheduleManage();
-    }
-
-    private void HandleMoveColumn(FocusDirection dir)
-    {
-        if (_focusedWindow == IntPtr.Zero || !_windowRegistry.Entries.TryGetValue(_focusedWindow, out var fw))
-        {
-            return;
-        }
-
-        if (_layoutController.MoveFocused(fw.Output, ResolveOutputName(fw.Output), _focusedWindow, dir))
-        {
-            ScheduleManage();
-        }
-    }
+    // PR 9.12 §2.13 increment: HandleScrollViewport/HandleMoveColumn lifted
+    // to Aqueous.Features.Layout.ViewportInteractionService (consumed directly
+    // by KeyBindingRouter).
 
     /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
     internal List<WindowEntryView> BuildSnapshotFor(IntPtr output)
