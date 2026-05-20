@@ -1055,7 +1055,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _bindSiteState,
             _keyBindingsRegistry);
         _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(_managerEventService, Log);
-        _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);
+        // PR 9.12 §2.13 Step 6: SuperKeyBindingEventHandler ctor no longer
+        // takes the god class (its `_client` field was unused dead weight).
+        _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(Log);
         // PR 9.12 §2.13 Step 5: DragPointerBindingService no longer
         // references the god class. Drag state comes from DragStateStore;
         // pointer-binding wiring from PointerBindingStore; window lookup

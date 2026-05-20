@@ -10,21 +10,17 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// PR 9.12 §2.13 final cleanup: re-typed as a standalone handler — the
 /// <c>OnSuperKeyBindingEvent</c> body previously living in a
 /// <c>partial class RiverWindowManagerClient</c> file is now inline
-/// here. Logs flow through <see cref="RiverLog"/>; client ref is no
-/// longer needed by this handler (kept on ctor as an unused parameter
-/// only to preserve the DI ctor shape pinned by
-/// <c>Stage9Pr99Tests</c> until that pin is updated alongside god-class
-/// deletion).
+/// here. Logs flow through <see cref="RiverLog"/>.
+///
+/// PR 9.12 §2.13 Step 6: the dead <c>RiverWindowManagerClient</c> ctor
+/// argument (previously kept only to preserve a unit-test ctor pin) is
+/// removed. The handler now has zero god-class coupling.
 /// </summary>
 internal sealed unsafe class SuperKeyBindingEventHandler : IEventHandler
 {
-    private readonly RiverWindowManagerClient _client;
     private readonly Action<string>? _log;
-    public SuperKeyBindingEventHandler(
-        RiverWindowManagerClient client,
-        Action<string>? log = null)
+    public SuperKeyBindingEventHandler(Action<string>? log = null)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
         _log = log;
     }
     public string InterfaceName => "river_super_key_binding_v1";
