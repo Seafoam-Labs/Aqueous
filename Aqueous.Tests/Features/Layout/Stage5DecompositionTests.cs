@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.Layout;
 using Aqueous.Features.Layout;
 using Xunit;
 
@@ -58,13 +57,14 @@ public sealed class Stage5DecompositionTests
     }
 
     [Fact]
-    public void GodClass_ImplementsLayoutProposerCollaborators()
+    public void LayoutProposerCollaborators_Fully_Retired_AsOfPr98()
     {
-        // The Stage 5 facade delegates back through this bridge. The
-        // god class must still expose it (only retired in Stage 5b).
-        Assert.Contains(
-            typeof(ILayoutProposerCollaborators),
-            typeof(RiverWindowManagerClient).GetInterfaces());
+        // Stage 9 PR 9.8: ILayoutProposerCollaborators bridge fully deleted.
+        // (Stage 5 only added it; PR 9.8 removes it after the facade was
+        // switched to take RiverWindowManagerClient directly.)
+        var t = typeof(RiverWindowManagerClient).Assembly.GetType(
+            "Aqueous.Features.Compositor.River.Layout.ILayoutProposerCollaborators");
+        Assert.Null(t);
     }
 
     [Fact]

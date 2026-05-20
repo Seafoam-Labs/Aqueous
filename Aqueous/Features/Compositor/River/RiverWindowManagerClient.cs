@@ -451,6 +451,41 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal unsafe void HandleManagerEvent(uint opcode, WlArgument* args)
         => OnManagerEvent(opcode, args);
 
+    // PR 9.8 Stage 9: pass-through accessors retiring the
+    // IOutputHandlerCollaborators + ILayoutProposerCollaborators bridges.
+    // Bodies still live in the existing partials; Stage 9 final cleanup
+    // collapses the god class.
+    internal IEnumerable<Aqueous.Features.State.WindowStateData> SnapshotWindowStates()
+    {
+        var snapshot = new List<Aqueous.Features.State.WindowStateData>(_windowStates.Count);
+        foreach (var kv in _windowStates)
+        {
+            snapshot.Add(kv.Value);
+        }
+        return snapshot;
+    }
+    internal void OnOutputRemovedForwarding(
+        Aqueous.Features.State.OutputProxy output,
+        IList<Aqueous.Features.State.WindowStateData> windowsOnOutput)
+        => _windowState.OnOutputRemoved(output, windowsOnOutput);
+    internal void OutputFullscreenTryRemove(IntPtr output)
+        => _outputFullscreen.TryRemove(output, out _);
+
+    internal void ProposeForAreaForwarding(IntPtr output, string? outputName, Aqueous.Features.Layout.Rect usableArea)
+        => ProposeForArea(output, outputName, usableArea);
+    internal bool IsFloatLayoutActiveForwarding() => IsFloatLayoutActive();
+    internal bool IsFloatLayoutActiveForwarding(IntPtr output) => IsFloatLayoutActive(output);
+    internal IReadOnlyList<Aqueous.Features.Layout.WindowEntryView> BuildSnapshotForForwarding(IntPtr output)
+        => BuildSnapshotFor(output);
+    internal string? ResolveOutputNameForwarding(IntPtr output) => ResolveOutputName(output);
+    internal IntPtr? LayoutFocusNeighborForwarding(
+        IntPtr output,
+        string? outputName,
+        IntPtr current,
+        Aqueous.Features.Layout.FocusDirection dir,
+        IReadOnlyList<Aqueous.Features.Layout.WindowEntryView> snapshot)
+        => _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
+
     private RiverWindowManagerClient()
         : this(
             new WaylandConnection(),

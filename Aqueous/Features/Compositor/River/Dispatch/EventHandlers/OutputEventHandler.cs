@@ -3,20 +3,13 @@ using System.Collections.Generic;
 using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
-
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
-
 /// <summary>
 /// PR 8.2 — second <see cref="IEventHandler"/> extracted out of the
-/// <c>RiverWindowManagerClient</c> god class.
-///
-/// Handles the four <c>river_output_v1</c> events (see
-/// <see cref="RiverProtocolOpcodes.Output"/>): removed, wl_output,
-/// position, dimensions. The removed-path is the only branch that
-/// requires god-class state (per-window fullscreen demotion, output
-/// detach); it is routed through <see cref="IOutputHandlerCollaborators"/>
-/// which is implemented explicitly by <c>RiverWindowManagerClient</c>
-/// and retires in Stage 9.
+/// <c>RiverWindowManagerClient</c> god class. PR 9.8 retired the
+/// <c>IOutputHandlerCollaborators</c> bridge: the removed-path now
+/// reaches god-class state via internal pass-through accessors on
+/// <see cref="RiverWindowManagerClient"/>.
 ///
 /// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
 /// </summary>
@@ -24,13 +17,12 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
 {
     private readonly IWindowRegistry _windows;
     private readonly IOutputRegistry _outputs;
-    private readonly IOutputHandlerCollaborators _river;
+    private readonly RiverWindowManagerClient _river;
     private readonly Action<string>? _log;
-
     public OutputEventHandler(
         IWindowRegistry windows,
         IOutputRegistry outputs,
-        IOutputHandlerCollaborators river,
+        RiverWindowManagerClient river,
         Action<string>? log = null)
     {
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
@@ -38,9 +30,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         _river = river ?? throw new ArgumentNullException(nameof(river));
         _log = log;
     }
-
     public string InterfaceName => "river_output_v1";
-
     public void Handle(WlEvent ev)
     {
         IntPtr proxy = ev.Target;
@@ -48,7 +38,6 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         {
             return;
         }
-
         switch (ev.Opcode)
         {
             case RiverProtocolOpcodes.Output.Removed:
@@ -82,14 +71,9 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
                 break;
         }
     }
-
     private void HandleRemoved(IntPtr proxy)
     {
         _log?.Invoke("output 0x" + proxy.ToString("x") + " removed");
-
-        // Phase B1e Pass B: forward the removal so the window-state
-        // controller can demote any FS/Max windows pinned to this
-        // output before the registry forgets it.
         var goneOutputWindows = new List<WindowStateData>();
         var outputProxy = new OutputProxy(proxy);
         foreach (var ws in _river.SnapshotWindowStates())
@@ -99,13 +83,9 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
                 goneOutputWindows.Add(ws);
             }
         }
-        _river.OnOutputRemoved(outputProxy, goneOutputWindows);
+        _river.OnOutputRemovedForwarding(outputProxy, goneOutputWindows);
         _river.OutputFullscreenTryRemove(proxy);
-
         _outputs.Entries.TryRemove(proxy, out _);
-
-        // Detach windows from the gone output so the next manage cycle
-        // re-adopts them onto a surviving one.
         foreach (var wkvp in _windows.Entries)
         {
             if (wkvp.Value.Output == proxy)
