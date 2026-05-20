@@ -159,7 +159,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
 
                 return;
             default:
-                if (RiverWindowManagerClient.BuiltinActionMap.TryGetValue(bname, out var b))
+                if (KeyBindingActionTable.Map.TryGetValue(bname, out var b))
                 {
                     ConcreteRouter().InvokeBuiltin(b);
                 }
