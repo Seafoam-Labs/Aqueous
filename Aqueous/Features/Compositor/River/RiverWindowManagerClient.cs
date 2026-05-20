@@ -454,10 +454,26 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal Aqueous.Features.Layout.ILayoutProposer LayoutProposer => _layoutProposer;
     internal Aqueous.Features.SnapZones.ISnapZoneService SnapZoneService => _snapZoneService;
     internal Aqueous.Features.Screencopy.IScreencopyService ScreencopyService => _screencopyService;
+    // PR 9.12 §2.6: bindings-trio service fields lifted here from the
+    // retired BindingsAccessors.cs partial. Field names are pinned by
+    // Stage7Tests.
+    internal Aqueous.Features.Bindings.IKeyBindingRegistrar _keyBindingRegistrar = null!;
+    internal Aqueous.Features.Bindings.IKeyBindingRouter _keyBindingRouter = null!;
+    internal Aqueous.Features.Bindings.ICustomActionRunner _customActionRunner = null!;
+    internal Aqueous.Features.Bindings.IProcessLauncher _processLauncher = null!;
     internal Aqueous.Features.Bindings.IProcessLauncher ProcessLauncher => _processLauncher;
     internal Aqueous.Features.Bindings.ICustomActionRunner CustomActionRunner => _customActionRunner;
     internal Aqueous.Features.Bindings.IKeyBindingRegistrar KeyBindingRegistrar => _keyBindingRegistrar;
     internal Aqueous.Features.Bindings.IKeyBindingRouter KeyBindingRouter => _keyBindingRouter;
+
+    // PR 9.12 §2.6: pass-through forwarders for the registrar partial,
+    // lifted here from the retired BindingsAccessors.cs partial. Both
+    // retire naturally in §2.7 with the rest of the registrar.
+    internal void RegisterAllBindingsForwarding(IntPtr seatProxy)
+        => RegisterAllBindings(seatProxy);
+
+    internal bool IsBindingRegisteredForwarding(IntPtr bindingProxy)
+        => _keyBindings.ContainsKey(bindingProxy);
 
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
@@ -604,13 +620,22 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // god-class coupling. Literal lift of the 671-line bindings
         // partials is deferred to Stage 7b/8 (see bridge XML-doc).
         _processLauncher = new Aqueous.Features.Bindings.ProcessLauncher();
-        _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);
-        _keyBindingRouter = new Aqueous.Features.Bindings.KeyBindingRouter(this);
-        _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(this);
         _scratchpadRegistry = new ScratchpadRegistry();
         _stateHost = new Aqueous.Features.State.WindowStateHost(this);
         _windowState = new WindowStateController(
             _stateHost, _scratchpadRegistry);
+        _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);
+        // PR 9.12 §2.6: routers consume fine-grained DI services instead of the
+        // god-class ref. A thin RiverWindowManagerClient ref remains for the
+        // four cross-cutting helpers still on the god class (LayoutConfig swap,
+        // HandleScrollViewport/HandleMoveColumn, LogForwarding,
+        // GetDefaultConfigPath, BuiltinActionMap) — those retire in §2.7/§2.13.
+        var router = new Aqueous.Features.Bindings.KeyBindingRouter(
+            _focusService, _layoutController, _tagController,
+            _managerRequestSender, _windowState, this);
+        _keyBindingRouter = router;
+        _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(
+            router, _focusService, _windowState, this);
         _startupExec = new StartupExecRunner(_stateHost, _layoutConfig.Exec);
 
         // Push libinput config to the privileged sidecar (aqueous-inputd).
@@ -657,7 +682,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             });
     }
 
-    private static string GetDefaultConfigPath()
+    internal static string GetDefaultConfigPath()
     {
         // ~/.config/aqueous/wm.toml — XDG base dir if set, otherwise HOME.
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");

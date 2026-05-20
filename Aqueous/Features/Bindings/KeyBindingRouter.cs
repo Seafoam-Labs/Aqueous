@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
@@ -12,29 +13,36 @@ namespace Aqueous.Features.Bindings;
 /// <summary>
 /// PR 9.9 (Stage 9): top-level <see cref="IKeyBindingRouter"/> implementation.
 ///
-/// Lifted verbatim from the deleted partial
-/// <c>RiverWindowManagerClient.KeyBindingActionRouter.cs</c>: owns the static
-/// <see cref="ActionTable"/> dictionary, the <see cref="Handle"/> entry point
-/// that resolves tag-action ranges by enum-offset arithmetic before consulting
-/// the table, and the small named helpers (<c>SetLayoutByIdOrSlot</c>,
-/// <c>ToggleStartMenu</c>, <c>SpawnTerminal</c>, <c>CloseFocusedWindow</c>,
-/// <c>ReloadConfig</c>, <c>OnFocused</c>, <c>LockScreen</c>) that each
-/// <see cref="ActionTable"/> entry points at. State the helpers used to read
-/// directly off the god class is now reached via pass-through accessors
-/// (<see cref="RiverWindowManagerClient.LayoutController"/>,
-/// <see cref="RiverWindowManagerClient.LayoutConfigForBindings"/>,
-/// <see cref="RiverWindowManagerClient.WindowStateController"/>,
-/// <see cref="RiverWindowManagerClient.FocusServiceForBindings"/>,
-/// <see cref="RiverWindowManagerClient.TagServiceForBindings"/>,
-/// <see cref="RiverWindowManagerClient.ManagerRequestSenderForBindings"/>,
-/// <see cref="RiverWindowManagerClient.ProcessLauncherForBindings"/>).
+/// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
+/// reference to fine-grained service injection. The router still holds a thin
+/// <see cref="RiverWindowManagerClient"/> reference for the cross-cutting
+/// helpers that remain on the god class (mutable <c>LayoutConfig</c> swap,
+/// <c>HandleScrollViewport</c>/<c>HandleMoveColumn</c>, the default config
+/// path helper, and the logging helper). Those retire naturally in §2.9 /
+/// §2.13 with the rest of the partial.
 /// </summary>
 internal sealed class KeyBindingRouter : IKeyBindingRouter
 {
+    private readonly IFocusService _focusService;
+    private readonly LayoutController _layoutController;
+    private readonly ITagService _tagService;
+    private readonly IManagerRequestSender _managerRequestSender;
+    private readonly WindowStateController _windowState;
     private readonly RiverWindowManagerClient _river;
 
-    public KeyBindingRouter(RiverWindowManagerClient river)
+    public KeyBindingRouter(
+        IFocusService focusService,
+        LayoutController layoutController,
+        ITagService tagService,
+        IManagerRequestSender managerRequestSender,
+        WindowStateController windowState,
+        RiverWindowManagerClient river)
     {
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
+        _tagService = tagService ?? throw new ArgumentNullException(nameof(tagService));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _river = river ?? throw new ArgumentNullException(nameof(river));
     }
 
@@ -48,11 +56,11 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.ToggleStartMenu]      = c => c.ToggleStartMenu(),
             [KeyBindingAction.SpawnTerminal]        = c => c.SpawnTerminal(),
             [KeyBindingAction.CloseFocused]         = c => c.CloseFocusedWindow(),
-            [KeyBindingAction.CycleFocus]           = c => c._river.FocusServiceForBindings.CycleFocus(),
-            [KeyBindingAction.FocusLeft]            = c => c._river.FocusServiceForBindings.HandleDirectionalFocus(FocusDirection.Left),
-            [KeyBindingAction.FocusRight]           = c => c._river.FocusServiceForBindings.HandleDirectionalFocus(FocusDirection.Right),
-            [KeyBindingAction.FocusUp]              = c => c._river.FocusServiceForBindings.HandleDirectionalFocus(FocusDirection.Up),
-            [KeyBindingAction.FocusDown]            = c => c._river.FocusServiceForBindings.HandleDirectionalFocus(FocusDirection.Down),
+            [KeyBindingAction.CycleFocus]           = c => c._focusService.CycleFocus(),
+            [KeyBindingAction.FocusLeft]            = c => c._focusService.HandleDirectionalFocus(FocusDirection.Left),
+            [KeyBindingAction.FocusRight]           = c => c._focusService.HandleDirectionalFocus(FocusDirection.Right),
+            [KeyBindingAction.FocusUp]              = c => c._focusService.HandleDirectionalFocus(FocusDirection.Up),
+            [KeyBindingAction.FocusDown]            = c => c._focusService.HandleDirectionalFocus(FocusDirection.Down),
             [KeyBindingAction.ScrollViewportLeft]   = c => c._river.HandleScrollViewportForwarding(-1),
             [KeyBindingAction.ScrollViewportRight]  = c => c._river.HandleScrollViewportForwarding(+1),
             [KeyBindingAction.MoveColumnLeft]       = c => c._river.HandleMoveColumnForwarding(FocusDirection.Left),
@@ -62,16 +70,16 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.SetLayoutSecondary]   = c => c.SetLayoutByIdOrSlot("secondary"),
             [KeyBindingAction.SetLayoutTertiary]    = c => c.SetLayoutByIdOrSlot("tertiary"),
             [KeyBindingAction.SetLayoutQuaternary]  = c => c.SetLayoutByIdOrSlot("quaternary"),
-            [KeyBindingAction.ViewTagAll]           = c => c._river.TagServiceForBindings.ViewAll(),
-            [KeyBindingAction.SendTagAll]           = c => c._river.TagServiceForBindings.SendFocusedToTags(TagState.AllTags),
-            [KeyBindingAction.SwapLastTagset]       = c => c._river.TagServiceForBindings.SwapLastTagset(),
-            [KeyBindingAction.ToggleFullscreen]     = c => c.OnFocused("toggle_fullscreen", w => c._river.WindowStateController.ToggleFullscreen(w)),
-            [KeyBindingAction.ToggleMaximize]       = c => c.OnFocused("toggle_maximize",   w => c._river.WindowStateController.ToggleMaximize(w)),
-            [KeyBindingAction.ToggleFloating]       = c => c.OnFocused("toggle_floating",   w => c._river.WindowStateController.ToggleFloating(w)),
-            [KeyBindingAction.ToggleMinimize]       = c => c.OnFocused("toggle_minimize",   w => c._river.WindowStateController.ToggleMinimize(w)),
-            [KeyBindingAction.UnminimizeLast]       = c => c._river.WindowStateController.UnminimizeLast(),
-            [KeyBindingAction.ToggleScratchpad]     = c => c._river.WindowStateController.ToggleScratchpad(ScratchpadRegistry.DefaultPad),
-            [KeyBindingAction.SendToScratchpad]     = c => c.OnFocused("send_to_scratchpad", w => c._river.WindowStateController.SendToScratchpad(w, ScratchpadRegistry.DefaultPad)),
+            [KeyBindingAction.ViewTagAll]           = c => c._tagService.ViewAll(),
+            [KeyBindingAction.SendTagAll]           = c => c._tagService.SendFocusedToTags(TagState.AllTags),
+            [KeyBindingAction.SwapLastTagset]       = c => c._tagService.SwapLastTagset(),
+            [KeyBindingAction.ToggleFullscreen]     = c => c.OnFocused("toggle_fullscreen", w => c._windowState.ToggleFullscreen(w)),
+            [KeyBindingAction.ToggleMaximize]       = c => c.OnFocused("toggle_maximize",   w => c._windowState.ToggleMaximize(w)),
+            [KeyBindingAction.ToggleFloating]       = c => c.OnFocused("toggle_floating",   w => c._windowState.ToggleFloating(w)),
+            [KeyBindingAction.ToggleMinimize]       = c => c.OnFocused("toggle_minimize",   w => c._windowState.ToggleMinimize(w)),
+            [KeyBindingAction.UnminimizeLast]       = c => c._windowState.UnminimizeLast(),
+            [KeyBindingAction.ToggleScratchpad]     = c => c._windowState.ToggleScratchpad(ScratchpadRegistry.DefaultPad),
+            [KeyBindingAction.SendToScratchpad]     = c => c.OnFocused("send_to_scratchpad", w => c._windowState.SendToScratchpad(w, ScratchpadRegistry.DefaultPad)),
             [KeyBindingAction.LockScreen]           = c => c.LockScreen(),
         };
 
@@ -84,25 +92,24 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     /// </summary>
     public void Handle(KeyBindingAction action)
     {
-        // ViewTag1..9 → bit (action - ViewTag1)
         if (action >= KeyBindingAction.ViewTag1 && action <= KeyBindingAction.ViewTag9)
         {
-            _river.TagServiceForBindings.ViewTags(TagState.Bit(action - KeyBindingAction.ViewTag1));
+            _tagService.ViewTags(TagState.Bit(action - KeyBindingAction.ViewTag1));
             return;
         }
         if (action >= KeyBindingAction.SendTag1 && action <= KeyBindingAction.SendTag9)
         {
-            _river.TagServiceForBindings.SendFocusedToTags(TagState.Bit(action - KeyBindingAction.SendTag1));
+            _tagService.SendFocusedToTags(TagState.Bit(action - KeyBindingAction.SendTag1));
             return;
         }
         if (action >= KeyBindingAction.ToggleViewTag1 && action <= KeyBindingAction.ToggleViewTag9)
         {
-            _river.TagServiceForBindings.ToggleViewTag(TagState.Bit(action - KeyBindingAction.ToggleViewTag1));
+            _tagService.ToggleViewTag(TagState.Bit(action - KeyBindingAction.ToggleViewTag1));
             return;
         }
         if (action >= KeyBindingAction.ToggleWindowTag1 && action <= KeyBindingAction.ToggleWindowTag9)
         {
-            _river.TagServiceForBindings.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
+            _tagService.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
             return;
         }
 
@@ -133,8 +140,8 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             id = resolved;
         }
 
-        _river.LayoutController.SetLayout(id);
-        _river.ManagerRequestSenderForBindings.ScheduleManage();
+        _layoutController.SetLayout(id);
+        _managerRequestSender.ScheduleManage();
     }
 
     // ---- Built-in action helpers (one tiny method per ActionTable entry) ----
@@ -163,12 +170,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         try
         {
             var term = Environment.GetEnvironmentVariable("TERMINAL") ?? "alacritty";
-            // Hardened spawn: detach via setsid (so the child survives WM
-            // restarts / manage storms), explicitly export the WM's
-            // WAYLAND_DISPLAY / XDG_RUNTIME_DIR, and clear DISPLAY to
-            // prevent silent Xwayland fallback (an X11 client would never
-            // register as a river_window_v1 and therefore never receive
-            // focus / input through this code path).
             var psi = new ProcessStartInfo
             {
                 FileName = "/bin/sh",
@@ -204,7 +205,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
 
     private void CloseFocusedWindow()
     {
-        if (!_river.FocusServiceForBindings.TryGetFocusedAlive(out var focused))
+        if (!_focusService.TryGetFocusedAlive(out var focused))
         {
             return;
         }
@@ -220,17 +221,10 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         {
             var fresh = LayoutConfig.Load(RiverWindowManagerClient.GetDefaultConfigPathForBindings());
             _river.LayoutConfigForBindings = fresh;
-            _river.LayoutController.ReplaceConfig(fresh);
-            // Re-apply libinput config to the sidecar so [input.*] edits
-            // take effect live (niri-style hot reload). No-op if daemon
-            // isn't running.
+            _layoutController.ReplaceConfig(fresh);
             InputDaemonClient.Apply(fresh.Input);
             _river.LogForwarding("config reloaded");
-            // Note: chord rebinding hot-swap is not done here —
-            // existing xkb bindings remain (River v3 has no
-            // unbind primitive); changes to [keybinds] take
-            // effect on next WM start.
-            _river.ManagerRequestSenderForBindings.ScheduleManage();
+            _managerRequestSender.ScheduleManage();
         }
         catch (Exception ex)
         {
@@ -241,7 +235,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     /// <summary>Run <paramref name="action"/> only if a window has focus; log <paramref name="actionName"/> otherwise.</summary>
     private void OnFocused(string actionName, Action<WindowProxy> action)
     {
-        if (_river.FocusServiceForBindings.TryGetFocusedAlive(out var focused))
+        if (_focusService.TryGetFocusedAlive(out var focused))
         {
             action(new WindowProxy(focused));
         }
@@ -257,10 +251,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         {
             _river.LogForwarding("locking screen");
 
-            // Noctalia owns the lock screen (ext-session-lock-v1). It listens
-            // for logind's Lock signal, so `loginctl lock-session` is the
-            // dependency-free trigger that works whether Noctalia is started
-            // by Aqueous or by the user's session.
             var psi = new ProcessStartInfo
             {
                 FileName = "/bin/sh",
@@ -268,11 +258,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
                 CreateNoWindow = true,
             };
             psi.ArgumentList.Add("-c");
-            // Detach via setsid -f so the lock helper leaves the compositor's
-            // process group/session; otherwise a fast-failing `qs` chained to
-            // `loginctl lock-session` via `||` can tear down the graphical
-            // session instead of locking it. Prefer Noctalia's IPC if
-            // available, fall back to loginctl.
             psi.ArgumentList.Add(
                 "setsid -f sh -c '" +
                 "qs -c noctalia-shell ipc call lockScreen lock " +

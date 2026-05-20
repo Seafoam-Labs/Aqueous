@@ -45,11 +45,11 @@ public class Stage7Tests
 
     [Fact]
     public void CustomActionRunner_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!));
+        => Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!, null!, null!, null!));
 
     [Fact]
     public void KeyBindingRouter_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!));
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!, null!, null!, null!, null!, null!));
 
     [Fact]
     public void KeyBindingRegistrar_NullCtorArg_Throws()
@@ -113,27 +113,36 @@ public class Stage9Pr99Tests
         Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
     }
 
+    // PR 9.12 §2.6: KeyBindingRouter / CustomActionRunner now take fine-
+    // grained DI services. We still pin that one of the parameters is a
+    // RiverWindowManagerClient ref (for the four cross-cutting helpers
+    // that retire in §2.7/§2.13).
     [Fact]
-    public void KeyBindingRouter_Ctor_TakesRiverWindowManagerClient()
+    public void KeyBindingRouter_Ctor_Takes_RiverWindowManagerClient_Among_FineGrained_Services()
     {
         var ctor = typeof(KeyBindingRouter).GetConstructors().Single();
-        var p = ctor.GetParameters().Single();
-        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+        Assert.Contains(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.True(ctor.GetParameters().Length >= 2,
+            "router ctor expected to take fine-grained services in addition to the god-class ref");
     }
 
     [Fact]
-    public void CustomActionRunner_Ctor_TakesRiverWindowManagerClient()
+    public void CustomActionRunner_Ctor_Takes_RiverWindowManagerClient_Among_FineGrained_Services()
     {
         var ctor = typeof(CustomActionRunner).GetConstructors().Single();
-        var p = ctor.GetParameters().Single();
-        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+        Assert.Contains(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.True(ctor.GetParameters().Length >= 2,
+            "runner ctor expected to take fine-grained services in addition to the god-class ref");
     }
 
+    // PR 9.12 §2.6: the two retired dispatch forwarders
+    // (HandleKeyBindingActionForwarding / RunCustomActionForwarding) were
+    // never reached by production code — the routers are invoked directly
+    // via the DI-injected fields. Only RegisterAllBindingsForwarding +
+    // IsBindingRegisteredForwarding remain (called by KeyBindingRegistrar).
     [Theory]
     [InlineData("RegisterAllBindingsForwarding")]
     [InlineData("IsBindingRegisteredForwarding")]
-    [InlineData("HandleKeyBindingActionForwarding")]
-    [InlineData("RunCustomActionForwarding")]
     public void GodClass_Has_PassThrough_Accessor(string name)
     {
         var m = typeof(RiverWindowManagerClient).GetMethod(

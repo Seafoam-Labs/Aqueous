@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Focus;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Bindings;
@@ -8,19 +9,29 @@ namespace Aqueous.Features.Bindings;
 /// <summary>
 /// PR 9.9 (Stage 9): top-level <see cref="ICustomActionRunner"/> implementation.
 ///
-/// Lifted verbatim from the deleted partial
-/// <c>RiverWindowManagerClient.CustomActionRunner.cs</c>: dispatches the free-form
-/// <c>spawn:</c>/<c>set_layout:</c>/<c>builtin:</c> verbs that <c>[keybinds.custom]</c>
-/// entries can attach to any chord, and owns the shell-escape helper. Built-in verbs
-/// resolve through the registrar-owned <see cref="RiverWindowManagerClient.BuiltinActionMap"/>
-/// and re-enter the top-level <see cref="KeyBindingRouter"/>.
+/// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
+/// reference to fine-grained service injection. The runner still holds a thin
+/// <see cref="RiverWindowManagerClient"/> reference for the cross-cutting
+/// helpers that remain on the god class (<c>LogForwarding</c>) and for access
+/// to the registrar's <c>BuiltinActionMap</c> (still living on a god-class
+/// partial). Those retire naturally in §2.7 / §2.13.
 /// </summary>
 internal sealed class CustomActionRunner : ICustomActionRunner
 {
+    private readonly IKeyBindingRouter _router;
+    private readonly IFocusService _focusService;
+    private readonly WindowStateController _windowState;
     private readonly RiverWindowManagerClient _river;
 
-    public CustomActionRunner(RiverWindowManagerClient river)
+    public CustomActionRunner(
+        IKeyBindingRouter router,
+        IFocusService focusService,
+        WindowStateController windowState,
+        RiverWindowManagerClient river)
     {
+        _router = router ?? throw new ArgumentNullException(nameof(router));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _river = river ?? throw new ArgumentNullException(nameof(river));
     }
 
@@ -45,7 +56,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                 RunSpawnVerb(arg);
                 break;
             case "set_layout":
-                Router().SetLayoutByIdOrSlot(arg);
+                ConcreteRouter().SetLayoutByIdOrSlot(arg);
                 break;
             case "builtin":
                 RunBuiltinVerb(arg);
@@ -57,14 +68,13 @@ internal sealed class CustomActionRunner : ICustomActionRunner
     }
 
     /// <summary>
-    /// Resolve the concrete <see cref="KeyBindingRouter"/> from the god-class
-    /// accessor; downcast is safe because the DI registration constructs
-    /// exactly one router instance, of this concrete type.
+    /// Downcast the DI-injected <see cref="IKeyBindingRouter"/> to the concrete
+    /// <see cref="KeyBindingRouter"/> for the two entry points custom verbs
+    /// reach that aren't on the interface (<c>SetLayoutByIdOrSlot</c>,
+    /// <c>InvokeBuiltin</c>). Safe because DI only registers exactly one
+    /// router instance of this concrete type.
     /// </summary>
-    private KeyBindingRouter Router()
-    {
-        return (KeyBindingRouter)_river.KeyBindingRouterForCustom;
-    }
+    private KeyBindingRouter ConcreteRouter() => (KeyBindingRouter)_router;
 
     private void RunSpawnVerb(string arg)
     {
@@ -129,7 +139,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                     return;
                 }
 
-                _river.WindowStateController.ToggleScratchpad(barg);
+                _windowState.ToggleScratchpad(barg);
                 return;
             case "send_to_scratchpad_named":
                 if (barg.Length == 0)
@@ -138,9 +148,9 @@ internal sealed class CustomActionRunner : ICustomActionRunner
                     return;
                 }
 
-                if (_river.FocusServiceForBindings.TryGetFocusedAlive(out var focusedForScratchpad))
+                if (_focusService.TryGetFocusedAlive(out var focusedForScratchpad))
                 {
-                    _river.WindowStateController.SendToScratchpad(new WindowProxy(focusedForScratchpad), barg);
+                    _windowState.SendToScratchpad(new WindowProxy(focusedForScratchpad), barg);
                 }
                 else
                 {
@@ -151,7 +161,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
             default:
                 if (RiverWindowManagerClient.BuiltinActionMap.TryGetValue(bname, out var b))
                 {
-                    Router().InvokeBuiltin(b);
+                    ConcreteRouter().InvokeBuiltin(b);
                 }
                 else
                 {

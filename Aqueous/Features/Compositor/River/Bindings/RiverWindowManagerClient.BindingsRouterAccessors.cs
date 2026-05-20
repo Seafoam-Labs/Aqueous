@@ -1,55 +1,38 @@
-using System;
-using Aqueous.Features.Bindings;
-using Aqueous.Features.Focus;
-using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
-using Aqueous.Features.State;
-using Aqueous.Features.Tags;
 
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
 /// PR 9.9 (Stage 9) — accessor partial supplying the small set of god-class
-/// private fields and helper methods that the new top-level
-/// <see cref="Aqueous.Features.Bindings.KeyBindingRouter"/> and
-/// <see cref="Aqueous.Features.Bindings.CustomActionRunner"/> read/write.
+/// helpers that the lifted <see cref="Aqueous.Features.Bindings.KeyBindingRouter"/>
+/// and <see cref="Aqueous.Features.Bindings.CustomActionRunner"/> still need.
 ///
-/// Mirrors the Shape-A pattern PRs 9.3–9.8 / 9.10 used: thin internal
-/// accessors that forward to existing private fields/helpers so the lifted
-/// service bodies remain byte-for-byte equivalent to the partial bodies
-/// they replaced. Retires alongside the god class in PR 9.12.
+/// PR 9.12 §2.6: the per-service forwarders (LayoutController, FocusService,
+/// TagService, ManagerRequestSender, WindowStateController, ProcessLauncher,
+/// KeyBindingRouterForCustom) retired — those services are now ctor-injected
+/// directly into the routers. Only the four cross-cutting helpers that still
+/// live on the god class remain here:
+/// <list type="bullet">
+///   <item><see cref="LayoutConfigForBindings"/> — mutable so <c>ReloadConfig</c>
+///   can swap the active config.</item>
+///   <item><see cref="HandleScrollViewportForwarding"/> /
+///   <see cref="HandleMoveColumnForwarding"/> — bodies still live on
+///   <c>LayoutProposer</c> partial; lifted in §2.9.</item>
+///   <item><see cref="LogForwarding"/> — wraps the god-class <c>Log</c> helper;
+///   lifted in §2.12.</item>
+///   <item><see cref="GetDefaultConfigPathForBindings"/> — pure helper still
+///   on the god class; lifted in §2.12.</item>
+/// </list>
+/// Retires with the rest of the god class in §2.13.
 /// </summary>
 internal sealed unsafe partial class RiverWindowManagerClient
 {
-    // --- Read-only service accessors ---------------------------------
-    internal LayoutController LayoutController => _layoutController;
-
-    internal WindowStateController WindowStateController => _windowState;
-
-    internal IFocusService FocusServiceForBindings => _focusService;
-
-    internal ITagService TagServiceForBindings => _tagController;
-
-    internal IManagerRequestSender ManagerRequestSenderForBindings => _managerRequestSender;
-
-    internal IProcessLauncher ProcessLauncherForBindings => _processLauncher;
-
-    /// <summary>
-    /// Access to the top-level <see cref="IKeyBindingRouter"/> singleton
-    /// for the lifted <see cref="CustomActionRunner"/> — its
-    /// <c>builtin:</c> / <c>set_layout:</c> verbs delegate back through
-    /// the router rather than duplicating its dispatch tables.
-    /// </summary>
-    internal IKeyBindingRouter KeyBindingRouterForCustom => _keyBindingRouter;
-
-    // --- Mutable config (ReloadConfig swaps the reference) -----------
     internal LayoutConfig LayoutConfigForBindings
     {
         get => _layoutConfig;
         set => _layoutConfig = value;
     }
 
-    // --- Helpers still living on the god class -----------------------
     internal void LogForwarding(string message) => Log(message);
 
     internal void HandleScrollViewportForwarding(int deltaColumns) =>
