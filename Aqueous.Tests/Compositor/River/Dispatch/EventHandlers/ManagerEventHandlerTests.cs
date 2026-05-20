@@ -6,8 +6,8 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 9.7: <see cref="ManagerEventHandler"/> now takes
-/// <c>RiverWindowManagerClient</c> directly (no bridge interface).
+/// PR 9.12 §2.13: <see cref="ManagerEventHandler"/> now takes the
+/// lifted <c>ManagerEventService</c> directly (no longer the god class).
 /// Real-bridge construction requires Wayland; structural guards only.
 /// </summary>
 public sealed class ManagerEventHandlerTests
@@ -27,12 +27,12 @@ public sealed class ManagerEventHandlerTests
     }
 
     [Fact]
-    public void Ctor_takes_RiverWindowManagerClient()
+    public void Ctor_takes_ManagerEventService()
     {
         var ctors = typeof(ManagerEventHandler).GetConstructors();
         Assert.Single(ctors);
         var pars = ctors[0].GetParameters();
         Assert.Equal(2, pars.Length);
-        Assert.Equal("Aqueous.Features.Compositor.River.RiverWindowManagerClient", pars[0].ParameterType.FullName);
+        Assert.Equal("Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService", pars[0].ParameterType.FullName);
     }
 }

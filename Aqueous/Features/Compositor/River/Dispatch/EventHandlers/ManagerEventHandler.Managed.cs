@@ -1,20 +1,24 @@
 using System;
+using Aqueous.Features.Compositor.River.Dispatch.Services;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 9.7 — takes <see cref="RiverWindowManagerClient"/> directly,
-/// retiring the transient <c>IManagerHandlerCollaborators</c> bridge.
-/// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
+/// Managed <see cref="IEventHandler"/> for <c>river_window_manager_v1</c>.
+///
+/// PR 9.12 §2.13 final cleanup: the partial-class file holding the
+/// event body was lifted into <see cref="ManagerEventService"/>; the
+/// handler now forwards directly to that service and no longer
+/// touches <see cref="RiverWindowManagerClient"/>.
 /// </summary>
 internal sealed unsafe class ManagerEventHandler : IEventHandler
 {
-    private readonly RiverWindowManagerClient _river;
+    private readonly ManagerEventService _service;
     private readonly Action<string>? _log;
 
-    public ManagerEventHandler(RiverWindowManagerClient river, Action<string>? log = null)
+    public ManagerEventHandler(ManagerEventService service, Action<string>? log = null)
     {
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _service = service ?? throw new ArgumentNullException(nameof(service));
         _log = log;
     }
 
@@ -23,6 +27,6 @@ internal sealed unsafe class ManagerEventHandler : IEventHandler
     public void Handle(WlEvent ev)
     {
         WlArgument* args = ev.ArgsPtr == IntPtr.Zero ? null : (WlArgument*)ev.ArgsPtr;
-        _river.HandleManagerEvent(ev.Opcode, args);
+        _service.HandleEvent(ev.Opcode, args);
     }
 }

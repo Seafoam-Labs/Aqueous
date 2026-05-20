@@ -451,6 +451,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // standalone service so the deleted partial-class file's body
     // doesn't relocate back to the god class.
     private readonly Aqueous.Features.Input.DragPointerBindingService _dragPointerBindingService;
+    // PR 9.12 §2.13: river_window_manager_v1 event body lifted into a
+    // standalone service so the deleted partial-class file's body
+    // doesn't relocate back to the god class.
+    private readonly Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService _managerEventService;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler _registryHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler _keyBindingHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler _screencopyFrameHandler;
@@ -614,6 +618,72 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal void SetDragFinished(bool v) => _dragFinished = v;
     internal void SetDragEdges(uint v) => _dragEdges = v;
     internal void ScheduleManageExternal() => ScheduleManage();
+
+    // PR 9.12 §2.13 — ManagerEventService accessors. The service
+    // consumes manage-cycle state, pointer-binding wiring caches,
+    // pump lifecycle, and seat-registry membership directly on the
+    // god class; setters retire with the god class.
+    internal IEventPump Pump => _pump;
+    internal ISeatRegistry SeatRegistry => _seatRegistry;
+    internal IntPtr DragPointerBinding
+    {
+        get => _dragPointerBinding;
+        set => _dragPointerBinding = value;
+    }
+    internal bool DragPointerBindingNeedsEnable
+    {
+        get => _dragPointerBindingNeedsEnable;
+        set => _dragPointerBindingNeedsEnable = value;
+    }
+    internal IntPtr DragResizePointerBindingMutable
+    {
+        get => _dragResizePointerBinding;
+        set => _dragResizePointerBinding = value;
+    }
+    internal bool DragResizePointerBindingNeedsEnable
+    {
+        get => _dragResizePointerBindingNeedsEnable;
+        set => _dragResizePointerBindingNeedsEnable = value;
+    }
+    internal Dictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> SnapActivatorBindingsMutable => _snapActivatorBindings;
+    internal Dictionary<IntPtr, bool> SnapActivatorBindingNeedsEnable => _snapActivatorBindingNeedsEnable;
+    internal HashSet<IntPtr> SeatsWithPointerBindings => _seatsWithPointerBindings;
+    internal bool InsideManageSequenceFlag
+    {
+        get => _insideManageSequence;
+        set => _insideManageSequence = value;
+    }
+    internal bool DragResizeInformed
+    {
+        get => _dragResizeInformed;
+        set => _dragResizeInformed = value;
+    }
+    internal IntPtr PendingFocusSeatField
+    {
+        get => _pendingFocusSeat;
+        set => _pendingFocusSeat = value;
+    }
+    internal IntPtr PendingFocusWindowMutable
+    {
+        get => _pendingFocusWindow;
+        set => _pendingFocusWindow = value;
+    }
+    internal IntPtr PendingFocusShellSurfaceMutable
+    {
+        get => _pendingFocusShellSurface;
+        set => _pendingFocusShellSurface = value;
+    }
+    internal IntPtr PrimarySeatMutable
+    {
+        get => _primarySeat;
+        set => _primarySeat = value;
+    }
+    internal void RequestFocusExternal(IntPtr windowProxy) => RequestFocus(windowProxy);
+    internal void SendManagerRequestExternal(uint opcode) => _managerRequestSender.SendManagerRequest(opcode);
+    internal IntPtr ActiveDragSeatHandle => _activeDragSeat;
+    internal bool DragFinishedFlag => _dragFinished;
+    internal bool DragStartedFlag => _dragStarted;
+    internal uint DragEdgesValue => _dragEdges;
 
     // PR 9.12 §2.13 — SeatHandlerBridge partial drain. Methods called
     // from SeatEventHandler.Managed.cs via _river.*; their bodies were
@@ -837,8 +907,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // PR 9.7: retires IWindowHandlerCollaborators / IManagerHandlerCollaborators bridges.
     internal unsafe void HandleWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
         => OnWindowEvent(proxy, opcode, args);
-    internal unsafe void HandleManagerEvent(uint opcode, WlArgument* args)
-        => OnManagerEvent(opcode, args);
 
     // PR 9.8 Stage 9: pass-through accessors retiring the
     // IOutputHandlerCollaborators + ILayoutProposerCollaborators bridges.
@@ -1005,7 +1073,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             this, Log);
         _windowHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
             _windowRegistry, this, Log);
-        _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(this, Log);
+        _managerEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService(this);
+        _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(_managerEventService, Log);
         _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);
         _dragPointerBindingService = new Aqueous.Features.Input.DragPointerBindingService(this);
         _dragPointerBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(_dragPointerBindingService, Log);
