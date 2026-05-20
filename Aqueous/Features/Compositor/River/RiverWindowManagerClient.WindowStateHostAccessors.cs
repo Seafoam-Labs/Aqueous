@@ -116,25 +116,8 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// <see cref="Aqueous.Features.State.WindowStateHost.UsableArea"/>
     /// and by <c>ManagerEventHandler</c>'s start-up output snapshot path.
     /// </summary>
-    internal Rect ApplyStruts(Rect raw)
-    {
-        var strutsConfig = _layoutConfig?.Struts;
-        if (strutsConfig is null)
-        {
-            return raw;
-        }
-
-        if ((strutsConfig.Top | strutsConfig.Bottom | strutsConfig.Left | strutsConfig.Right) == 0)
-        {
-            return raw;
-        }
-
-        var x = raw.X + strutsConfig.Left;
-        var y = raw.Y + strutsConfig.Top;
-        var w = Math.Max(1, raw.W - strutsConfig.Left - strutsConfig.Right);
-        var h = Math.Max(1, raw.H - strutsConfig.Top - strutsConfig.Bottom);
-        return new Rect(x, y, w, h);
-    }
+    internal Rect ApplyStruts(Rect raw) =>
+        StrutsCalculator.Apply(raw, _layoutConfig?.Struts);
 
     // --- Tags partial fold (was RiverWindowManagerClient.Tags.cs) ----
     /// <summary>
