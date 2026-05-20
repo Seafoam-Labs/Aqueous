@@ -691,15 +691,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
 
-    // PR 9.12 §2.13 — SnapZones partial drain. Accessors consumed by
-    // the lifted SnapZoneService. Retire together with the god class
-    // when drag state is migrated off RiverWindowManagerClient.
-    internal WindowEntry? ActiveDragWindow => _activeDragWindow;
-    internal Aqueous.Features.SnapZones.SnapActivator ActiveDragActivator => _activeDragActivator;
-    internal ConcurrentDictionary<IntPtr, (int X, int Y)> SeatPointerPos => _seatPointerPos;
-    // PR 9.12 §2.13 Step 6 cleanup: LayoutConfig accessor retired —
-    // every reader has been cut over to reach the config through
-    // LayoutController.Config (its single source of truth).
+    // PR 9.12 §2.13 Step 6.5 cleanup: drag-state accessors retired —
+    // SnapZoneService / SeatInteractionService / WindowEventService
+    // / ManagerEventService all consume DragStateStore directly via
+    // DI now. ActiveDragWindow / ActiveDragActivator / SeatPointerPos
+    // forwarders (and the LayoutConfig forwarder retired earlier in
+    // Step 6) have zero readers left.
 
     // PR 9.12 §2.13 — DragPointerBindingService accessors. The
     // service mutates the same drag-lifecycle state the legacy
@@ -707,23 +704,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal IntPtr DragResizePointerBinding => _dragResizePointerBinding;
     internal IReadOnlyDictionary<IntPtr, Aqueous.Features.SnapZones.SnapActivator> SnapActivatorBindings => _snapActivatorBindings;
     internal ConcurrentDictionary<IntPtr, IntPtr> SeatHoveredWindow => _seatHoveredWindow;
-    internal void SetActiveDragWindow(WindowEntry? w) => _activeDragWindow = w;
-    internal void SetActiveDragSeat(IntPtr s) => _activeDragSeat = s;
-    internal void SetActiveDragActivator(Aqueous.Features.SnapZones.SnapActivator a) => _activeDragActivator = a;
-    internal void SetDragStartX(int v) => _dragStartX = v;
-    internal void SetDragStartY(int v) => _dragStartY = v;
-    internal void SetDragStartW(int v) => _dragStartW = v;
-    internal void SetDragStartH(int v) => _dragStartH = v;
-    // PR 9.12 §2.13 Step 3 — readers for SeatInteractionService.
-    internal int DragStartXValue => _dragStartX;
-    internal int DragStartYValue => _dragStartY;
-    internal int DragStartWValue => _dragStartW;
-    internal int DragStartHValue => _dragStartH;
-    internal void SetDragStartPointerX(int v) => _dragStartPointerX = v;
-    internal void SetDragStartPointerY(int v) => _dragStartPointerY = v;
-    internal void SetDragStarted(bool v) => _dragStarted = v;
-    internal void SetDragFinished(bool v) => _dragFinished = v;
-    internal void SetDragEdges(uint v) => _dragEdges = v;
+    // PR 9.12 §2.13 Step 6.5 cleanup: SetActiveDrag* / SetDragStart* /
+    // SetDragStartPointer* / SetDragStarted / SetDragFinished /
+    // SetDragEdges forwarders retired alongside the DragStart*Value /
+    // DragEdgesValue / DragFinishedFlag / DragStartedFlag /
+    // ActiveDragSeatHandle readers — every caller has been cut over
+    // to DragStateStore directly.
     internal void ScheduleManageExternal() => ScheduleManage();
 
     // PR 9.12 §2.13 — ManagerEventService accessors. The service
@@ -789,10 +775,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal void FocusAnyOtherWindowExternal(IntPtr avoid) => FocusAnyOtherWindow(avoid);
     internal WindowStateController WindowStateController => _windowState;
     internal void SendManagerRequestExternal(uint opcode) => _managerRequestSender.SendManagerRequest(opcode);
-    internal IntPtr ActiveDragSeatHandle => _activeDragSeat;
-    internal bool DragFinishedFlag => _dragFinished;
-    internal bool DragStartedFlag => _dragStarted;
-    internal uint DragEdgesValue => _dragEdges;
 
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
@@ -939,14 +921,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _layoutController,
             _layoutProposer,
             _managerRequestSender);
-        // PR 9.12 §2.13 Step 3: SeatInteractionService now owns the six
-        // seat-bridge methods previously living on the god class as
-        // drained SeatHandlerBridge helpers. Consumes fine-grained
-        // services directly; only drag-rect/edges/started/finished
-        // state still flows back through the god class via internal
-        // accessors (retire with the god class).
+        // PR 9.12 §2.13 Step 6.5: SeatInteractionService no longer
+        // references the god class. Drag-rect / drag-edges /
+        // drag-finished state lives on DragStateStore; the service
+        // consumes that store directly via DI.
         _seatInteractionService = new SeatInteractionService(
-            this,
             _dragStateStore,
             _windowRegistry,
             _focusService,

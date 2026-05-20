@@ -16,21 +16,20 @@ namespace Aqueous.Features.Compositor.River;
 /// <c>_river.*</c> calls.
 ///
 /// <para>
-/// Drag-rect / drag-edges / drag-started / drag-finished state is
-/// still owned by the god class and exposed via internal accessors;
-/// those retire together with the god class itself in the final
-/// demolition step. All other dependencies are fine-grained DI
-/// singletons (<see cref="DragStateStore"/>, <see cref="IWindowRegistry"/>,
-/// <see cref="IFocusService"/>, <see cref="ILayoutProposer"/>,
-/// <see cref="ISnapZoneService"/>, <see cref="IManagerRequestSender"/>,
-/// <see cref="LayoutController"/>).
+/// PR 9.12 §2.13 Step 6.5: the last <c>RiverWindowManagerClient</c>
+/// coupling (drag-rect / drag-edges / drag-finished forwarders) is
+/// gone — that state now lives on <see cref="DragStateStore"/>, which
+/// the service consumes directly. All dependencies are now
+/// fine-grained DI singletons (<see cref="DragStateStore"/>,
+/// <see cref="IWindowRegistry"/>, <see cref="IFocusService"/>,
+/// <see cref="ILayoutProposer"/>, <see cref="ISnapZoneService"/>,
+/// <see cref="IManagerRequestSender"/>, <see cref="LayoutController"/>).
 /// </para>
 ///
 /// <para>Pump-thread only.</para>
 /// </summary>
 internal sealed class SeatInteractionService
 {
-    private readonly RiverWindowManagerClient _client; // drag-rect/edges/started/finished still here
     private readonly DragStateStore _dragState;
     private readonly IWindowRegistry _windowRegistry;
     private readonly IFocusService _focusService;
@@ -40,7 +39,6 @@ internal sealed class SeatInteractionService
     private readonly LayoutController _layoutController;
 
     public SeatInteractionService(
-        RiverWindowManagerClient client,
         DragStateStore dragState,
         IWindowRegistry windowRegistry,
         IFocusService focusService,
@@ -49,7 +47,6 @@ internal sealed class SeatInteractionService
         IManagerRequestSender managerRequestSender,
         LayoutController layoutController)
     {
-        _client                = client                ?? throw new ArgumentNullException(nameof(client));
         _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
         _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
         _focusService          = focusService          ?? throw new ArgumentNullException(nameof(focusService));
@@ -109,19 +106,19 @@ internal sealed class SeatInteractionService
         // starts clean.
         if (!_layoutProposer.IsFloatLayoutActive(adw.Output))
         {
-            _client.SetDragFinished(true);
+            _dragState.DragFinished = true;
             _managerRequestSender.ScheduleManage();
             return;
         }
 
         adw.Floating = true;
 
-        uint dragEdges = _client.DragEdgesValue;
+        uint dragEdges = _dragState.DragEdges;
         if (dragEdges == 0)
         {
             // ----- interactive move -----
-            adw.X = _client.DragStartXValue + dx;
-            adw.Y = _client.DragStartYValue + dy;
+            adw.X = _dragState.DragStartX + dx;
+            adw.Y = _dragState.DragStartY + dy;
             adw.HasFloatRect = true;
             adw.FloatX = adw.X;
             adw.FloatY = adw.Y;
@@ -147,10 +144,10 @@ internal sealed class SeatInteractionService
         {
             // ----- interactive resize -----
             // Edges bitfield (river_window_v1): top=1, bottom=2, left=4, right=8.
-            int startX = _client.DragStartXValue;
-            int startY = _client.DragStartYValue;
-            int startW = _client.DragStartWValue;
-            int startH = _client.DragStartHValue;
+            int startX = _dragState.DragStartX;
+            int startY = _dragState.DragStartY;
+            int startW = _dragState.DragStartW;
+            int startH = _dragState.DragStartH;
             int newX = startX;
             int newY = startY;
             int newW = startW;
@@ -228,10 +225,10 @@ internal sealed class SeatInteractionService
     public void HandleOpRelease(IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleOpRelease seat=0x" + seat.ToString("x"));
-        if (_dragState.ActiveDragWindow != null && _client.DragEdgesValue == 0)
+        if (_dragState.ActiveDragWindow != null && _dragState.DragEdges == 0)
         {
             _snapZoneService.TrySnapDraggedWindowToZone(seat);
         }
-        _client.SetDragFinished(true);
+        _dragState.DragFinished = true;
     }
 }
