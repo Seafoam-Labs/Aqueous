@@ -71,6 +71,12 @@ class Program
         // alias backed by this singleton during the migration.
         services.AddSingleton<Aqueous.Features.State.OutputFullscreenMap>();
 
+        // Stage 9 PR 9.12 §2.4: WindowStateStore owns the per-window state
+        // projection dictionary (formerly _windowStates on the god class).
+        // The god class still holds the field as an alias backed by this
+        // singleton during the migration.
+        services.AddSingleton<Aqueous.Features.State.WindowStateStore>();
+
         // Stage 9 PR 9.11: register the god class as a DI singleton built
         // via its DI ctor — *not* TryStart. The factory only assembles
         // the object graph; Connect + StartPump now run from
@@ -88,7 +94,8 @@ class Program
                 (Aqueous.Features.Compositor.River.Connection.IEventPump?)sp.GetService(typeof(Aqueous.Features.Compositor.River.Connection.IEventPump)),
                 sp.GetRequiredService<WaylandBindSiteState>(),
                 sp.GetRequiredService<Aqueous.Features.Focus.FocusedWindowTracker>(),
-                sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>()));
+                sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
+                sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>()));
 
         // Stage 9 PR 9.1: every service the god class owns is now
         // resolvable from DI via a factory lambda that reads it off the
