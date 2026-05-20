@@ -10,29 +10,27 @@ namespace Aqueous.Features.Bindings;
 /// PR 9.9 (Stage 9): top-level <see cref="ICustomActionRunner"/> implementation.
 ///
 /// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
-/// reference to fine-grained service injection. The runner still holds a thin
-/// <see cref="RiverWindowManagerClient"/> reference for the cross-cutting
-/// helpers that remain on the god class (<c>LogForwarding</c>) and for access
-/// to the registrar's <c>BuiltinActionMap</c> (still living on a god-class
-/// partial). Those retire naturally in §2.7 / §2.13.
+/// reference to fine-grained service injection.
+///
+/// PR 9.12 §2.13: the residual <see cref="RiverWindowManagerClient"/> ctor
+/// argument is gone — the runner never actually consumed it. The static
+/// <c>RiverWindowManagerClient.Log</c> helper used for error reporting is a
+/// stand-alone forwarder that doesn't require an instance.
 /// </summary>
 internal sealed class CustomActionRunner : ICustomActionRunner
 {
     private readonly IKeyBindingRouter _router;
     private readonly IFocusService _focusService;
     private readonly WindowStateController _windowState;
-    private readonly RiverWindowManagerClient _river;
 
     public CustomActionRunner(
         IKeyBindingRouter router,
         IFocusService focusService,
-        WindowStateController windowState,
-        RiverWindowManagerClient river)
+        WindowStateController windowState)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
-        _river = river ?? throw new ArgumentNullException(nameof(river));
     }
 
     /// <summary>

@@ -637,19 +637,17 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _windowState = new WindowStateController(
             _stateHost, _scratchpadRegistry);
         _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);
-        // PR 9.12 §2.6: routers consume fine-grained DI services instead of the
-        // god-class ref. A thin RiverWindowManagerClient ref remains for the
-        // four cross-cutting helpers still on the god class (LayoutConfig swap,
-        // HandleScrollViewport/HandleMoveColumn, LogForwarding,
-        // GetDefaultConfigPath, BuiltinActionMap) — those retire in §2.7/§2.13.
+        // PR 9.12 §2.13: the routers no longer reference the god class at all.
+        // The mutable LayoutConfig is owned by LayoutController; the default
+        // config path is resolved through Aqueous.Features.Configuration.
         var viewport = new Aqueous.Features.Layout.ViewportInteractionService(
             _layoutController, _focusedWindowTracker, _windowRegistry, _layoutProposer, _managerRequestSender);
         var router = new Aqueous.Features.Bindings.KeyBindingRouter(
             _focusService, _layoutController, _tagController,
-            _managerRequestSender, _windowState, viewport, this);
+            _managerRequestSender, _windowState, viewport);
         _keyBindingRouter = router;
         _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(
-            router, _focusService, _windowState, this);
+            router, _focusService, _windowState);
         _startupExec = new StartupExecRunner(_stateHost, _layoutConfig.Exec);
 
         // Push libinput config to the privileged sidecar (aqueous-inputd).

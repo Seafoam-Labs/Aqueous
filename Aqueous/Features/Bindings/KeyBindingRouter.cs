@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Configuration;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
@@ -14,12 +15,13 @@ namespace Aqueous.Features.Bindings;
 /// PR 9.9 (Stage 9): top-level <see cref="IKeyBindingRouter"/> implementation.
 ///
 /// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
-/// reference to fine-grained service injection. The router still holds a thin
-/// <see cref="RiverWindowManagerClient"/> reference for the cross-cutting
-/// helpers that remain on the god class (mutable <c>LayoutConfig</c> swap,
-/// <c>HandleScrollViewport</c>/<c>HandleMoveColumn</c>, the default config
-/// path helper, and the logging helper). Those retire naturally in §2.9 /
-/// §2.13 with the rest of the partial.
+/// reference to fine-grained service injection.
+///
+/// PR 9.12 §2.13: the last god-class ref is gone. The mutable
+/// <c>LayoutConfig</c> handle is reached through <see cref="LayoutController"/>
+/// (which already owns the active config and exposes <c>ReplaceConfig</c>),
+/// and the default-config-path helper now resolves directly via
+/// <see cref="DefaultConfigPath.Resolve"/>.
 /// </summary>
 internal sealed class KeyBindingRouter : IKeyBindingRouter
 {
@@ -29,7 +31,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly WindowStateController _windowState;
     private readonly ViewportInteractionService _viewport;
-    private readonly RiverWindowManagerClient _river;
 
     public KeyBindingRouter(
         IFocusService focusService,
@@ -37,8 +38,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         ITagService tagService,
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
-        ViewportInteractionService viewport,
-        RiverWindowManagerClient river)
+        ViewportInteractionService viewport)
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
@@ -46,7 +46,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
-        _river = river ?? throw new ArgumentNullException(nameof(river));
     }
 
     // Static dispatch table for built-in (parameterless) key-binding actions.
@@ -138,7 +137,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
 
         string id = idOrSlot;
-        if (_river.LayoutConfigForBindings.Slots.TryGetValue(idOrSlot, out var resolved))
+        if (_layoutController.Config.Slots.TryGetValue(idOrSlot, out var resolved))
         {
             id = resolved;
         }
@@ -222,8 +221,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         try
         {
-            var fresh = LayoutConfig.Load(RiverWindowManagerClient.GetDefaultConfigPathForBindings());
-            _river.LayoutConfigForBindings = fresh;
+            var fresh = LayoutConfig.Load(DefaultConfigPath.Resolve());
             _layoutController.ReplaceConfig(fresh);
             InputDaemonClient.Apply(fresh.Input);
             Aqueous.Features.Compositor.River.RiverWindowManagerClient.Log("config reloaded");

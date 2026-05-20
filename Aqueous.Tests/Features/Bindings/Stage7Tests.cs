@@ -45,11 +45,11 @@ public class Stage7Tests
 
     [Fact]
     public void CustomActionRunner_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!, null!, null!, null!));
+        => Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!, null!, null!));
 
     [Fact]
     public void KeyBindingRouter_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!, null!, null!, null!, null!, null!, null!));
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!, null!, null!, null!, null!, null!));
 
     [Fact]
     public void KeyBindingRegistrar_NullCtorArg_Throws()
@@ -113,26 +113,28 @@ public class Stage9Pr99Tests
         Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
     }
 
-    // PR 9.12 §2.6: KeyBindingRouter / CustomActionRunner now take fine-
-    // grained DI services. We still pin that one of the parameters is a
-    // RiverWindowManagerClient ref (for the four cross-cutting helpers
-    // that retire in §2.7/§2.13).
+    // PR 9.12 §2.13: the residual RiverWindowManagerClient ctor argument is
+    // gone from both routers — LayoutConfig is reached through
+    // LayoutController, the default config path through
+    // Aqueous.Features.Configuration.DefaultConfigPath, and the static Log
+    // helper requires no instance. Pin both ctors to fine-grained services
+    // only.
     [Fact]
-    public void KeyBindingRouter_Ctor_Takes_RiverWindowManagerClient_Among_FineGrained_Services()
+    public void KeyBindingRouter_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
         var ctor = typeof(KeyBindingRouter).GetConstructors().Single();
-        Assert.Contains(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.DoesNotContain(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
         Assert.True(ctor.GetParameters().Length >= 2,
-            "router ctor expected to take fine-grained services in addition to the god-class ref");
+            "router ctor expected to take fine-grained services");
     }
 
     [Fact]
-    public void CustomActionRunner_Ctor_Takes_RiverWindowManagerClient_Among_FineGrained_Services()
+    public void CustomActionRunner_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
         var ctor = typeof(CustomActionRunner).GetConstructors().Single();
-        Assert.Contains(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.DoesNotContain(ctor.GetParameters(), p => p.ParameterType == typeof(RiverWindowManagerClient));
         Assert.True(ctor.GetParameters().Length >= 2,
-            "runner ctor expected to take fine-grained services in addition to the god-class ref");
+            "runner ctor expected to take fine-grained services");
     }
 
     // PR 9.12 §2.6: the two retired dispatch forwarders
