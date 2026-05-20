@@ -633,7 +633,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // partials is deferred to Stage 7b/8 (see bridge XML-doc).
         _processLauncher = new Aqueous.Features.Bindings.ProcessLauncher();
         _scratchpadRegistry = new ScratchpadRegistry();
-        _stateHost = new Aqueous.Features.State.WindowStateHost(this);
+        // PR 9.12 §2.13: WindowStateHost 8-arg DI ctor cutover. The host no
+        // longer references the god class; the eight fine-grained singletons
+        // it consumed via the deleted WindowStateHostAccessors partial are
+        // now injected directly.
+        _stateHost = new Aqueous.Features.State.WindowStateHost(
+            _windowRegistry,
+            _outputRegistry,
+            _windowStates,
+            _outputFullscreen,
+            _focusedWindowTracker,
+            _focusService,
+            _managerRequestSender,
+            _layoutController);
         _windowState = new WindowStateController(
             _stateHost, _scratchpadRegistry);
         _keyBindingRegistrar = new Aqueous.Features.Bindings.KeyBindingRegistrar(this);

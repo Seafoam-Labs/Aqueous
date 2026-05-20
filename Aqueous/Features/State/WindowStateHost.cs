@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Focus;
 using Aqueous.Features.Layout;
 
 namespace Aqueous.Features.State;
@@ -8,25 +10,32 @@ namespace Aqueous.Features.State;
 /// <summary>
 /// Stage 9 PR 9.10 — full literal lift of the nested
 /// <c>RiverWindowManagerClient.RiverWindowStateHost</c> class into a
-/// top-level <see cref="IWindowStateHost"/> implementation. Behavior is
-/// byte-for-byte equivalent to the prior nested class: every method
-/// either reads from or writes to the god class's window/output
-/// dictionaries via the small set of internal accessors added in PR
-/// 9.10. Construction takes a single <see cref="RiverWindowManagerClient"/>
-/// reference — the same shape every Stage-9 facade uses, so DI
-/// registration and the existing call sites switch to the new type
-/// without further plumbing.
+/// top-level <see cref="IWindowStateHost"/> implementation.
 ///
 /// <para>
-/// The prior partial <c>RiverWindowManagerClient.WindowStateHost.cs</c>
-/// is deleted alongside this lift; the <c>ApplyStruts</c> helper that
-/// shared the partial moves into the god class itself (still <c>internal</c>
-/// for the LayoutProposer + this host).
+/// PR 9.12 §2.13: the residual <see cref="RiverWindowManagerClient"/>
+/// ctor argument is gone. The host now takes the eight fine-grained
+/// singletons that previously flowed through the
+/// <c>WindowStateHostAccessors</c> partial: window/output registries,
+/// the per-window state store, the per-output fullscreen map, the
+/// focused-window tracker, the focus service (RequestFocus +
+/// FocusAnyOtherWindow), the manager request sender (ScheduleManage),
+/// and the layout controller (for <c>ApplyStruts</c> via its active
+/// <see cref="LayoutConfig"/>). The accessor partial
+/// (<c>RiverWindowManagerClient.WindowStateHostAccessors.cs</c>) is
+/// deleted in the same commit.
 /// </para>
 /// </summary>
 internal sealed class WindowStateHost : IWindowStateHost
 {
-    private readonly RiverWindowManagerClient _c;
+    private readonly IWindowRegistry _windowRegistry;
+    private readonly IOutputRegistry _outputRegistry;
+    private readonly WindowStateStore _windowStates;
+    private readonly OutputFullscreenMap _outputFullscreen;
+    private readonly FocusedWindowTracker _focusedWindowTracker;
+    private readonly IFocusService _focusService;
+    private readonly IManagerRequestSender _managerRequestSender;
+    private readonly LayoutController _layoutController;
 
     // Test-only seam for the inform_(un)maximized wire emit. When set
     // to non-null, SetToplevelMaximizedState calls this in lieu of
@@ -35,9 +44,24 @@ internal sealed class WindowStateHost : IWindowStateHost
     // Production keeps this null and the real marshal runs.
     internal static Action<IntPtr, uint>? MaximizedMarshalOverride;
 
-    public WindowStateHost(RiverWindowManagerClient c)
+    public WindowStateHost(
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry,
+        WindowStateStore windowStates,
+        OutputFullscreenMap outputFullscreen,
+        FocusedWindowTracker focusedWindowTracker,
+        IFocusService focusService,
+        IManagerRequestSender managerRequestSender,
+        LayoutController layoutController)
     {
-        _c = c ?? throw new ArgumentNullException(nameof(c));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
+        _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
     }
 
     public WindowStateData? Get(WindowProxy window)
@@ -47,30 +71,30 @@ internal sealed class WindowStateHost : IWindowStateHost
             return null;
         }
 
-        if (!_c.WindowEntriesContains(window.Handle))
+        if (!_windowRegistry.Entries.ContainsKey(window.Handle))
         {
             return null;
         }
 
-        return _c.GetOrAddWindowState(window.Handle, window);
+        return _windowStates.GetOrAdd(window.Handle, _ => new WindowStateData { Handle = window });
     }
 
-    public WindowProxy FocusedWindow => new(_c.FocusedWindowHandle);
+    public WindowProxy FocusedWindow => new(_focusedWindowTracker.Current);
 
     public OutputProxy FocusedOutput
     {
         get
         {
-            var oe = _c.GetFocusedOutputEntryForHost();
+            var oe = GetFocusedOutputEntry();
             return oe is null ? OutputProxy.Zero : new OutputProxy(oe.Proxy);
         }
     }
 
     public Rect OutputRect(OutputProxy output)
     {
-        if (!output.IsZero && _c.TryGetOutputRect(output.Handle, out var rect))
+        if (!output.IsZero && _outputRegistry.Entries.TryGetValue(output.Handle, out var o))
         {
-            return rect;
+            return new Rect(o.X, o.Y, o.Width, o.Height);
         }
 
         return new Rect(0, 0, 0, 0);
@@ -84,11 +108,11 @@ internal sealed class WindowStateHost : IWindowStateHost
             return raw;
         }
 
-        return _c.ApplyStruts(raw);
+        return StrutsCalculator.Apply(raw, _layoutController.Config?.Struts);
     }
 
     public WindowProxy GetFullscreenWindow(OutputProxy output) =>
-        _c.TryGetOutputFullscreen(output.Handle, out var w)
+        _outputFullscreen.TryGetValue(output.Handle, out var w)
             ? new WindowProxy(w)
             : WindowProxy.Zero;
 
@@ -101,11 +125,11 @@ internal sealed class WindowStateHost : IWindowStateHost
 
         if (window.IsZero)
         {
-            _c.OutputFullscreenRemove(output.Handle);
+            _outputFullscreen.TryRemove(output.Handle, out _);
         }
         else
         {
-            _c.OutputFullscreenSet(output.Handle, window.Handle);
+            _outputFullscreen[output.Handle] = window.Handle;
         }
     }
 
@@ -113,14 +137,14 @@ internal sealed class WindowStateHost : IWindowStateHost
     {
         if (!window.IsZero)
         {
-            _c.RequestFocusForHost(window.Handle);
+            _focusService.RequestFocus(window.Handle);
         }
     }
 
     public void FocusNextOnOutput(OutputProxy output) =>
-        _c.FocusAnyOtherWindowForHost(_c.FocusedWindowHandle);
+        _focusService.FocusAnyOtherWindow(_focusedWindowTracker.Current);
 
-    public void RequestRender(OutputProxy output) => _c.ScheduleManageForHost();
+    public void RequestRender(OutputProxy output) => _managerRequestSender.ScheduleManage();
 
     public void EmitForeignToplevelFullscreen(WindowProxy window, OutputProxy output)
     {
@@ -157,7 +181,16 @@ internal sealed class WindowStateHost : IWindowStateHost
 
     public void InvalidateFloatRect(WindowProxy window)
     {
-        _c.InvalidateFloatRectForHost(window.Handle);
+        if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
+        {
+            return;
+        }
+
+        entry.HasFloatRect = false;
+        entry.LastPosX = int.MinValue;
+        entry.LastPosY = int.MinValue;
+        entry.LastHintW = int.MinValue;
+        entry.LastHintH = int.MinValue;
     }
 
     public void ResetVisibilityLatches(WindowProxy window)
@@ -167,7 +200,24 @@ internal sealed class WindowStateHost : IWindowStateHost
             return;
         }
 
-        _c.ResetVisibilityLatchesForHost(window.Handle);
+        // Symmetric counterpart to the hide-pass cache invalidation in
+        // LayoutProposer.ProposeForArea: clears HideSent and zeroes the
+        // placement/size caches so the next manage cycle re-issues
+        // propose_dimensions / set_position and walks the show path for
+        // a window that just left the Minimized / tag-hidden /
+        // scratchpad-dismissed bucket. No-op if the handle is unknown.
+        if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
+        {
+            return;
+        }
+
+        entry.HideSent = false;
+        entry.LastHintW = 0;
+        entry.LastHintH = 0;
+        entry.LastPosX = int.MinValue;
+        entry.LastPosY = int.MinValue;
+        entry.LastClipW = 0;
+        entry.LastClipH = 0;
     }
 
     public bool IsWindowLayoutReady(WindowProxy window)
@@ -177,15 +227,32 @@ internal sealed class WindowStateHost : IWindowStateHost
             return false;
         }
 
-        return _c.IsWindowLayoutReadyForHost(window.Handle);
+        // Probe used by WindowStateController.UnminimizeLast to guard
+        // the focus_window call against a window that hasn't been
+        // re-shown yet. True when the entry is in a layout bucket
+        // (non-zero output, tag-visible, not awaiting a hide-flush).
+        if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
+        {
+            return false;
+        }
+
+        return entry.Output != IntPtr.Zero && entry.TagVisible && !entry.HideSent;
     }
 
     public void SetToplevelMaximizedState(WindowProxy window, bool maximized)
     {
-        if (!_c.SetXdgMaximizedForHost(window.Handle, maximized))
+        if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
         {
             return;
         }
+
+        entry.XdgMaximized = maximized;
+        // Force the size diff-gate to re-fire on the next manage cycle
+        // so the new state array goes out together with a fresh
+        // propose_dimensions, even if the size happens to be unchanged
+        // across the transition.
+        entry.LastHintW = int.MinValue;
+        entry.LastHintH = int.MinValue;
 
         // Wire-level: tell River to update the xdg_toplevel state
         // array on its next configure to the client. Without this
@@ -323,12 +390,37 @@ internal sealed class WindowStateHost : IWindowStateHost
 
     public Rect CurrentGeometry(WindowProxy window)
     {
-        if (!window.IsZero && _c.TryGetWindowGeometry(window.Handle, out var rect))
+        if (!window.IsZero && _windowRegistry.Entries.TryGetValue(window.Handle, out var w))
         {
-            return rect;
+            return new Rect(w.X, w.Y, w.W, w.H);
         }
 
         return new Rect(0, 0, 0, 0);
+    }
+
+    /// <summary>
+    /// Returns the OutputEntry the keyboard focus currently lives on.
+    /// Falls back to the first known output. <c>null</c> if no outputs
+    /// are tracked yet (e.g. the headless fallback). Lifted from the
+    /// deleted <c>WindowStateHostAccessors</c> partial in PR 9.12 §2.13.
+    /// </summary>
+    private OutputEntry? GetFocusedOutputEntry()
+    {
+        var focused = _focusedWindowTracker.Current;
+        if (focused != IntPtr.Zero &&
+            _windowRegistry.Entries.TryGetValue(focused, out var fw) &&
+            fw.Output != IntPtr.Zero &&
+            _outputRegistry.Entries.TryGetValue(fw.Output, out var oeFromFocus))
+        {
+            return oeFromFocus;
+        }
+
+        foreach (var kv in _outputRegistry.Entries)
+        {
+            return kv.Value;
+        }
+
+        return null;
     }
 
     private static string EscapeForShell(string s) => "'" + s.Replace("'", "'\\''") + "'";

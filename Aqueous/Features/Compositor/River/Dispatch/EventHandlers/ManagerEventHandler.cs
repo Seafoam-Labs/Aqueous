@@ -196,7 +196,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // Headless / no outputs reported yet: fall back to a single
                         // virtual 1920x1080 area so windows still get a reasonable
                         // initial proposal (matches old behaviour + tile layout).
-                        Rect rect = ApplyStruts(new Rect(0, 0, 1920, 1080));
+                        Rect rect = Aqueous.Features.Layout.StrutsCalculator.Apply(new Rect(0, 0, 1920, 1080), _layoutConfig?.Struts);
                         ProposeForArea(IntPtr.Zero, null, rect);
                     }
                     else
@@ -206,7 +206,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                             OutputEntry oe = outputKvp.Value;
                             var aw = oe.Width > 0 ? oe.Width : 1920;
                             var ah = oe.Height > 0 ? oe.Height : 1080;
-                            Rect rect = ApplyStruts(new Rect(oe.X, oe.Y, aw, ah));
+                            Rect rect = Aqueous.Features.Layout.StrutsCalculator.Apply(new Rect(oe.X, oe.Y, aw, ah), _layoutConfig?.Struts);
                             ProposeForArea(outputKvp.Key, null, rect);
                         }
                     }
