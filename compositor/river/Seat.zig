@@ -770,6 +770,7 @@ fn flushStalePressedKeys(seat: *Seat) void{
         const now: u32 = @truncate(@as(u64, @intCast(ts.sec)) *% 1000 +%
             @as(u64, @intCast(ts.nsec)) / 1_000_000);
         for(stale.items) |keycode| {
+            if (group.pressed.getPtr(keycode)) |key| key.count = 0;
             var key_event: wlr.Keyboard.event.Key = .{
                 .time_msec = now,
                 .keycode = keycode,
