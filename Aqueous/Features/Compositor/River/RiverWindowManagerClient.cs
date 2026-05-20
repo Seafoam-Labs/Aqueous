@@ -445,6 +445,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // PR 9.5: retires IDragPointerBindingHandlerCollaborators bridge.
     internal unsafe void HandleDragPointerBindingEvent(IntPtr target, uint opcode, WlArgument* args)
         => OnDragPointerBindingEvent(target, opcode, args);
+    // PR 9.7: retires IWindowHandlerCollaborators / IManagerHandlerCollaborators bridges.
+    internal unsafe void HandleWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
+        => OnWindowEvent(proxy, opcode, args);
+    internal unsafe void HandleManagerEvent(uint opcode, WlArgument* args)
+        => OnManagerEvent(opcode, args);
 
     private RiverWindowManagerClient()
         : this(
