@@ -1,40 +1,21 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Aqueous.Features.Bindings;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.Compositor.River.Bindings;
 using Xunit;
 
 namespace Aqueous.Tests.Features.Bindings;
 
 /// <summary>
-/// Stage 7 facade + bridge tests: ProcessLauncher AOT-safety + the four
-/// new Shape-A service seams (IProcessLauncher, ICustomActionRunner,
-/// IKeyBindingRegistrar, IKeyBindingRouter) all forward through
-/// IKeyBindingsCollaborators correctly, plus structural guards.
+/// Stage 7 facade tests + Stage 9 PR 9.9 regression guards. The bridge
+/// interface IKeyBindingsCollaborators was retired in PR 9.9; the
+/// service ctors now take RiverWindowManagerClient directly. Bridge-
+/// coupled forwarding tests removed (cannot construct RWMC in a unit
+/// test); structural reflection guards retained.
 /// </summary>
 public class Stage7Tests
 {
-    private sealed class FakeBindingsCollab : IKeyBindingsCollaborators
-    {
-        public List<IntPtr> RegisterCalls { get; } = new();
-        public List<IntPtr> IsRegisteredCalls { get; } = new();
-        public List<KeyBindingAction> ActionCalls { get; } = new();
-        public List<string> VerbCalls { get; } = new();
-        public bool IsRegisteredReturn { get; set; }
-
-        public void RegisterAllBindings(IntPtr seatProxy) => RegisterCalls.Add(seatProxy);
-        public bool IsBindingRegistered(IntPtr bindingProxy)
-        {
-            IsRegisteredCalls.Add(bindingProxy);
-            return IsRegisteredReturn;
-        }
-        public void HandleKeyBindingAction(KeyBindingAction action) => ActionCalls.Add(action);
-        public void RunCustomAction(string verb) => VerbCalls.Add(verb);
-    }
-
     // --- ProcessLauncher -------------------------------------------------
 
     [Fact]
@@ -55,115 +36,26 @@ public class Stage7Tests
     [Fact]
     public void ProcessLauncher_TrueBinary_StartsAndReturnsTrue()
     {
-        // Skip if /bin/true unavailable (non-Linux test runs).
-        if (!System.IO.File.Exists("/bin/true"))
-        {
-            return;
-        }
+        if (!System.IO.File.Exists("/bin/true")) return;
         var pl = new ProcessLauncher();
         Assert.True(pl.Start("/bin/true"));
     }
 
-    // --- CustomActionRunner ---------------------------------------------
+    // --- Null-ctor guards for the three facades --------------------------
 
     [Fact]
     public void CustomActionRunner_NullCtorArg_Throws()
-    {
-        Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!));
-    }
-
-    [Fact]
-    public void CustomActionRunner_ForwardsVerbToCollab()
-    {
-        var collab = new FakeBindingsCollab();
-        var runner = new CustomActionRunner(collab);
-        runner.Run("spawn:foot");
-        Assert.Single(collab.VerbCalls);
-        Assert.Equal("spawn:foot", collab.VerbCalls[0]);
-    }
-
-    [Fact]
-    public void CustomActionRunner_NullVerb_IsNoOp()
-    {
-        var collab = new FakeBindingsCollab();
-        var runner = new CustomActionRunner(collab);
-        runner.Run(null!);
-        Assert.Empty(collab.VerbCalls);
-    }
-
-    // --- KeyBindingRouter -----------------------------------------------
+        => Assert.Throws<ArgumentNullException>(() => new CustomActionRunner(null!));
 
     [Fact]
     public void KeyBindingRouter_NullCtorArg_Throws()
-    {
-        Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!));
-    }
-
-    [Fact]
-    public void KeyBindingRouter_ForwardsActionToCollab()
-    {
-        var collab = new FakeBindingsCollab();
-        var router = new KeyBindingRouter(collab);
-        router.Handle(KeyBindingAction.CycleFocus);
-        router.Handle(KeyBindingAction.SpawnTerminal);
-        Assert.Equal(2, collab.ActionCalls.Count);
-        Assert.Equal(KeyBindingAction.CycleFocus, collab.ActionCalls[0]);
-        Assert.Equal(KeyBindingAction.SpawnTerminal, collab.ActionCalls[1]);
-    }
-
-    // --- KeyBindingRegistrar --------------------------------------------
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!));
 
     [Fact]
     public void KeyBindingRegistrar_NullCtorArg_Throws()
-    {
-        Assert.Throws<ArgumentNullException>(() => new KeyBindingRegistrar(null!));
-    }
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRegistrar(null!));
 
-    [Fact]
-    public void KeyBindingRegistrar_RegisterAllBindings_ForwardsSeat()
-    {
-        var collab = new FakeBindingsCollab();
-        var reg = new KeyBindingRegistrar(collab);
-        var seat = new IntPtr(0x1234);
-        reg.RegisterAllBindings(seat);
-        Assert.Single(collab.RegisterCalls);
-        Assert.Equal(seat, collab.RegisterCalls[0]);
-    }
-
-    [Fact]
-    public void KeyBindingRegistrar_IsRegistered_RoundTrips()
-    {
-        var collab = new FakeBindingsCollab { IsRegisteredReturn = true };
-        var reg = new KeyBindingRegistrar(collab);
-        var proxy = new IntPtr(0xDEAD);
-        Assert.True(reg.IsRegistered(proxy));
-        Assert.Equal(proxy, collab.IsRegisteredCalls[0]);
-
-        collab.IsRegisteredReturn = false;
-        Assert.False(reg.IsRegistered(proxy));
-    }
-
-    // --- Structural / decomposition guards ------------------------------
-
-    [Fact]
-    public void Stage7_BridgeInterface_DeclaresExactlyFourMembers()
-    {
-        var members = typeof(IKeyBindingsCollaborators).GetMembers(
-            BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-        Assert.Equal(4, members.Length);
-        var names = members.Select(m => m.Name).OrderBy(n => n).ToArray();
-        Assert.Equal(
-            new[] { "HandleKeyBindingAction", "IsBindingRegistered", "RegisterAllBindings", "RunCustomAction" },
-            names);
-    }
-
-    [Fact]
-    public void Stage7_GodClass_ImplementsBridge()
-    {
-        Assert.Contains(
-            typeof(IKeyBindingsCollaborators),
-            typeof(RiverWindowManagerClient).GetInterfaces());
-    }
+    // --- Structural guards (Stage 7 + PR 9.9) ----------------------------
 
     [Fact]
     public void Stage7_GodClass_HasBindingsServiceFields()
@@ -184,5 +76,69 @@ public class Stage7Tests
         Assert.NotNull(typeof(IKeyBindingRouter).GetMethod("Handle"));
         Assert.NotNull(typeof(IKeyBindingRegistrar).GetMethod("RegisterAllBindings"));
         Assert.NotNull(typeof(IKeyBindingRegistrar).GetMethod("IsRegistered"));
+    }
+}
+
+/// <summary>
+/// PR 9.9 (Stage 9): regression guards confirming the
+/// IKeyBindingsCollaborators bridge has been retired and the bindings
+/// trio now consumes RiverWindowManagerClient directly via pass-through
+/// accessors (Shape-A pattern from PRs 9.3–9.8).
+/// </summary>
+public class Stage9Pr99Tests
+{
+    private static Type? FindRiverType(string name)
+        => typeof(RiverWindowManagerClient).Assembly.GetTypes()
+            .FirstOrDefault(t => t.Name == name && t.Namespace == "Aqueous.Features.Compositor.River.Bindings");
+
+    [Fact]
+    public void IKeyBindingsCollaborators_Type_Deleted()
+        => Assert.Null(FindRiverType("IKeyBindingsCollaborators"));
+
+    [Fact]
+    public void GodClass_NoLongerImplements_IKeyBindingsCollaborators()
+    {
+        var impls = typeof(RiverWindowManagerClient).GetInterfaces()
+            .Select(t => t.FullName)
+            .Where(n => n is not null)
+            .ToArray();
+        Assert.DoesNotContain(impls, n => n!.EndsWith(".IKeyBindingsCollaborators", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void KeyBindingRegistrar_Ctor_TakesRiverWindowManagerClient()
+    {
+        var ctor = typeof(KeyBindingRegistrar).GetConstructors().Single();
+        var p = ctor.GetParameters().Single();
+        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+    }
+
+    [Fact]
+    public void KeyBindingRouter_Ctor_TakesRiverWindowManagerClient()
+    {
+        var ctor = typeof(KeyBindingRouter).GetConstructors().Single();
+        var p = ctor.GetParameters().Single();
+        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+    }
+
+    [Fact]
+    public void CustomActionRunner_Ctor_TakesRiverWindowManagerClient()
+    {
+        var ctor = typeof(CustomActionRunner).GetConstructors().Single();
+        var p = ctor.GetParameters().Single();
+        Assert.Equal(typeof(RiverWindowManagerClient), p.ParameterType);
+    }
+
+    [Theory]
+    [InlineData("RegisterAllBindingsForwarding")]
+    [InlineData("IsBindingRegisteredForwarding")]
+    [InlineData("HandleKeyBindingActionForwarding")]
+    [InlineData("RunCustomActionForwarding")]
+    public void GodClass_Has_PassThrough_Accessor(string name)
+    {
+        var m = typeof(RiverWindowManagerClient).GetMethod(
+            name,
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(m);
     }
 }

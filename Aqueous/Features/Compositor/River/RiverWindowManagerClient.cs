@@ -379,7 +379,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // the supervised commands listed in wm.toml; fired after the initial
     // roundtrip in Connect().
     private readonly StartupExecRunner _startupExec;
-    private readonly RiverWindowStateHost _stateHost;
+    private readonly Aqueous.Features.State.WindowStateHost _stateHost;
     // Stage 8 PR 8.1: managed dispatch seam. The native [UnmanagedCallersOnly]
     // callback in ProxyDispatcher routes per-interface branches through this
     // dispatcher as each handler is extracted out of the god class. PR 8.1
@@ -541,7 +541,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _keyBindingRouter = new Aqueous.Features.Bindings.KeyBindingRouter(this);
         _customActionRunner = new Aqueous.Features.Bindings.CustomActionRunner(this);
         _scratchpadRegistry = new ScratchpadRegistry();
-        _stateHost = new RiverWindowStateHost(this);
+        _stateHost = new Aqueous.Features.State.WindowStateHost(this);
         _windowState = new WindowStateController(
             _stateHost, _scratchpadRegistry);
         _startupExec = new StartupExecRunner(_stateHost, _layoutConfig.Exec);

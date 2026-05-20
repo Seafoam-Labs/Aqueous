@@ -29,7 +29,9 @@ internal sealed unsafe partial class RiverWindowManagerClient
     private readonly HashSet<IntPtr> _seatsWithPointerBindings = new();
 
     // action_name -> KeyBindingAction (for built-in chord overrides via [keybinds]).
-    private static readonly Dictionary<string, KeyBindingAction> BuiltinActionMap =
+    // Internal (was private) so the top-level CustomActionRunner lifted in PR 9.9
+    // can resolve builtin:<name> verbs without a second copy of the table.
+    internal static readonly Dictionary<string, KeyBindingAction> BuiltinActionMap =
         new(StringComparer.Ordinal)
         {
             ["toggle_start_menu"] = KeyBindingAction.ToggleStartMenu,
@@ -234,12 +236,16 @@ internal sealed unsafe partial class RiverWindowManagerClient
         {
             if (_customBindingActions.TryGetValue(proxy, out var verb))
             {
-                RunCustomAction(verb);
+                // PR 9.9: dispatch through the lifted top-level service
+                // (was the deleted private RunCustomAction partial method).
+                _customActionRunner.Run(verb);
             }
 
             return;
         }
 
-        HandleKeyBindingAction(action);
+        // PR 9.9: dispatch through the lifted top-level service (was the
+        // deleted private HandleKeyBindingAction partial method).
+        _keyBindingRouter.Handle(action);
     }
 }
