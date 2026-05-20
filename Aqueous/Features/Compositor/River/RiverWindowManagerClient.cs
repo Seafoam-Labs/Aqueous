@@ -444,6 +444,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler _outputHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler _seatHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler _windowHandler;
+    private readonly Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService _windowEventService;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler _managerHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler _superKeyBindingHandler;
     private readonly Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler _dragPointerBindingHandler;
@@ -679,6 +680,8 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         set => _primarySeat = value;
     }
     internal void RequestFocusExternal(IntPtr windowProxy) => RequestFocus(windowProxy);
+    internal void FocusAnyOtherWindowExternal(IntPtr avoid) => FocusAnyOtherWindow(avoid);
+    internal WindowStateController WindowStateController => _windowState;
     internal void SendManagerRequestExternal(uint opcode) => _managerRequestSender.SendManagerRequest(opcode);
     internal IntPtr ActiveDragSeatHandle => _activeDragSeat;
     internal bool DragFinishedFlag => _dragFinished;
@@ -904,9 +907,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // here keeps managed-handler behaviour byte-for-byte equivalent.
     internal unsafe void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
         => ((Aqueous.Features.Bindings.KeyBindingRegistrar)_keyBindingRegistrar).HandleKeyBindingEvent(target, opcode, args);
-    // PR 9.7: retires IWindowHandlerCollaborators / IManagerHandlerCollaborators bridges.
-    internal unsafe void HandleWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
-        => OnWindowEvent(proxy, opcode, args);
 
     // PR 9.8 Stage 9: pass-through accessors retiring the
     // IOutputHandlerCollaborators + ILayoutProposerCollaborators bridges.
@@ -1071,8 +1071,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _seatRegistry, _windowRegistry,
             _seatHoveredWindow, _seatPointerPos,
             this, Log);
+        _windowEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService(this);
         _windowHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.WindowEventHandler(
-            _windowRegistry, this, Log);
+            _windowRegistry, _windowEventService, Log);
         _managerEventService = new Aqueous.Features.Compositor.River.Dispatch.Services.ManagerEventService(this);
         _managerHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ManagerEventHandler(_managerEventService, Log);
         _superKeyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SuperKeyBindingEventHandler(this, Log);

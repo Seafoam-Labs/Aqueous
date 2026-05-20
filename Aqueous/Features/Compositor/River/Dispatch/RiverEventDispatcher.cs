@@ -31,8 +31,6 @@ internal sealed unsafe class RiverEventDispatcher
 
 
 
-    internal void HandleWindowEvent(IntPtr proxy, uint opcode, WlArgument* args)
-        => _client.HandleWindowEvent(proxy, opcode, args);
 
 
     /// <summary>

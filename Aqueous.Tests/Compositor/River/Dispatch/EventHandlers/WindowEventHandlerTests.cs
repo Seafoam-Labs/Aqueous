@@ -29,13 +29,13 @@ public sealed class WindowEventHandlerTests
     }
 
     [Fact]
-    public void Ctor_takes_IWindowRegistry_and_RiverWindowManagerClient()
+    public void Ctor_takes_IWindowRegistry_and_WindowEventService()
     {
         var ctors = typeof(WindowEventHandler).GetConstructors();
         Assert.Single(ctors);
         var pars = ctors[0].GetParameters();
         Assert.Equal(3, pars.Length);
         Assert.Equal("Aqueous.Features.Compositor.River.Registry.IWindowRegistry", pars[0].ParameterType.FullName);
-        Assert.Equal("Aqueous.Features.Compositor.River.RiverWindowManagerClient", pars[1].ParameterType.FullName);
+        Assert.Equal("Aqueous.Features.Compositor.River.Dispatch.Services.WindowEventService", pars[1].ParameterType.FullName);
     }
 }
