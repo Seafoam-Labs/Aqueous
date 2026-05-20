@@ -237,8 +237,15 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     private readonly RegistryBinder _registry = new();
     /// <summary>PR 9.12 §2.8: top-level dispatch seam for wl_registry globals.</summary>
     private readonly Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder _registryGlobalBinder;
+    // PR 9.12 §2.10: top-level RiverEventDispatcher seam. Currently
+    // not on the native callback path (NativeCallbackEntry still
+    // round-trips through _selfHandle → this client); §2.13 repins
+    // the GCHandle to a NativeCallbackContext wrapping this dispatcher.
+    private readonly Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher _riverEventDispatcher;
     /// <summary>PR 9.12 §2.8 migration accessor.</summary>
     internal Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder RegistryGlobalBinder => _registryGlobalBinder;
+    /// <summary>PR 9.12 §2.10 migration accessor for the lifted event dispatcher seam.</summary>
+    internal Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher RiverEventDispatcher => _riverEventDispatcher;
 
     /// <summary>
     /// PR 9.12 §2.1: dedicated singleton that mirrors the bind-site
@@ -588,6 +595,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
         _registryGlobalBinder = new Aqueous.Features.Compositor.River.Connection.RegistryGlobalBinder(this);
+        _riverEventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.RiverEventDispatcher(this);
         _connection = connection;
         _windowRegistry = windowRegistry;
         _outputRegistry = outputRegistry;
