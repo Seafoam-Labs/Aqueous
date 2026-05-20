@@ -81,29 +81,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 #pragma warning restore CA1848, CA2254
     }
 
+    // PR 9.12 §2.12: lifted to Aqueous.Diagnostics.RiverLogClassifier.
     private static LogLevel ClassifyLogLevel(string msg)
-    {
-        if (string.IsNullOrEmpty(msg)) return LogLevel.Debug;
-        // Quick prefix-based classification; the previous code emitted
-        // distinguishing tokens like "ERROR", "failed", "unavailable",
-        // "warn" inline — exploit them rather than re-tagging 88 sites.
-        if (msg.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("could not", StringComparison.OrdinalIgnoreCase))
-            return LogLevel.Error;
-        if (msg.Contains("warn", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("giving up", StringComparison.OrdinalIgnoreCase))
-            return LogLevel.Warning;
-        if (msg.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("disconnect", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("manage_start", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("session_locked", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("session_unlocked", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("finished", StringComparison.OrdinalIgnoreCase))
-            return LogLevel.Information;
-        return LogLevel.Debug;
-    }
+        => Aqueous.Diagnostics.RiverLogClassifier.Classify(msg);
 
     // --- state tracked from events ------------------------------------
     // WindowEntry / OutputEntry / SeatEntry live in Model/*.cs.
@@ -692,17 +672,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             });
     }
 
+    // PR 9.12 §2.12: lifted to Aqueous.Features.Configuration.DefaultConfigPath.
     internal static string GetDefaultConfigPath()
-    {
-        // ~/.config/aqueous/wm.toml — XDG base dir if set, otherwise HOME.
-        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        var baseDir = !string.IsNullOrEmpty(xdg)
-            ? xdg
-            : System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".config");
-        return System.IO.Path.Combine(baseDir, "aqueous", "wm.toml");
-    }
+        => Aqueous.Features.Configuration.DefaultConfigPath.Resolve();
 
     // --- lifecycle -----------------------------------------------------
 
