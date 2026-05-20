@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
 /// Managed <see cref="IEventHandler"/> for the
@@ -6,14 +7,14 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <c>pressed</c>/<c>released</c> opcodes (today triggers a dbus-send
 /// fire-and-forget to toggle the Aqueous start menu).
 ///
-/// PR 9.4 Stage 9 retires the transient
-/// <c>ISuperKeyBindingHandlerCollaborators</c> bridge and consumes
-/// <see cref="RiverWindowManagerClient"/> directly via its
-/// <c>HandleSuperKeyBindingEvent</c> accessor — same pattern PR 9.3
-/// established for <c>RegistryEventHandler</c>. The body still lives in
-/// the <c>OnSuperKeyBindingEvent</c> partial; final lift to
-/// <see cref="Aqueous.Features.Bindings.IProcessLauncher"/> is Stage 9
-/// final cleanup.
+/// PR 9.12 §2.13 final cleanup: re-typed as a standalone handler — the
+/// <c>OnSuperKeyBindingEvent</c> body previously living in a
+/// <c>partial class RiverWindowManagerClient</c> file is now inline
+/// here. Logs flow through <see cref="RiverLog"/>; client ref is no
+/// longer needed by this handler (kept on ctor as an unused parameter
+/// only to preserve the DI ctor shape pinned by
+/// <c>Stage9Pr99Tests</c> until that pin is updated alongside god-class
+/// deletion).
 /// </summary>
 internal sealed unsafe class SuperKeyBindingEventHandler : IEventHandler
 {
@@ -29,7 +30,31 @@ internal sealed unsafe class SuperKeyBindingEventHandler : IEventHandler
     public string InterfaceName => "river_super_key_binding_v1";
     public void Handle(WlEvent ev)
     {
-        var args = ev.ArgsPtr == IntPtr.Zero ? null : (WlArgument*)ev.ArgsPtr;
-        _client.HandleSuperKeyBindingEvent(ev.Opcode, args);
+        var opcode = ev.Opcode;
+        if (opcode == RiverProtocolOpcodes.Binding.Pressed)
+        {
+            RiverLog.Write("super key pressed, toggling Aqueous Start Menu via shell script/command");
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "dbus-send",
+                    Arguments =
+                        "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex)
+            {
+                RiverLog.Write("failed to launch start menu dbus command: " + ex.Message);
+            }
+        }
+        else if (opcode == RiverProtocolOpcodes.Binding.Released)
+        {
+            RiverLog.Write("super key released");
+        }
     }
 }

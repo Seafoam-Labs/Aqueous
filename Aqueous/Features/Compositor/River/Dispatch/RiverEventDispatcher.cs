@@ -29,8 +29,6 @@ internal sealed unsafe class RiverEventDispatcher
     internal void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
         => _client.HandleKeyBindingEvent(target, opcode, args);
 
-    internal void HandleSuperKeyBindingEvent(uint opcode, WlArgument* args)
-        => _client.HandleSuperKeyBindingEvent(opcode, args);
 
     internal void HandleDragPointerBindingEvent(IntPtr target, uint opcode, WlArgument* args)
         => _client.HandleDragPointerBindingEvent(target, opcode, args);
