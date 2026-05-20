@@ -583,6 +583,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
 
+    // PR 9.12 §2.13 — SnapZones partial drain. Accessors consumed by
+    // the lifted SnapZoneService. Retire together with the god class
+    // when drag state is migrated off RiverWindowManagerClient.
+    internal WindowEntry? ActiveDragWindow => _activeDragWindow;
+    internal Aqueous.Features.SnapZones.SnapActivator ActiveDragActivator => _activeDragActivator;
+    internal ConcurrentDictionary<IntPtr, (int X, int Y)> SeatPointerPos => _seatPointerPos;
+    internal LayoutConfig LayoutConfig => _layoutConfig;
+
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler SeatHandler => _seatHandler;
