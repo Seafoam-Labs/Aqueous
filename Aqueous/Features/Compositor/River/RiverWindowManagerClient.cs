@@ -54,36 +54,27 @@ namespace Aqueous.Features.Compositor.River;
 internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 {
     // --- logging -------------------------------------------------------
+    //
+    // PR 9.12 §2.13: the real sink is now Aqueous.Diagnostics.RiverLog.
+    // The Log property below is a thin forwarder kept for source
+    // compatibility with the ~28 existing call sites that still write
+    // RiverWindowManagerClient.Log("…"). New code should call
+    // RiverLog.Write directly so the final deletion of this god class
+    // does not require a per-call-site sweep. Assigning the setter
+    // re-points the underlying RiverLog.Sink (preserves the prior
+    // test-injection contract).
 
     /// <summary>
-    /// Process-wide <see cref="ILogger"/> for the River feature, lazily
-    /// resolved against <see cref="Logging.Factory"/> on first access.
+    /// Forwarder to <see cref="Aqueous.Diagnostics.RiverLog"/>. Reads
+    /// return the active <see cref="Aqueous.Diagnostics.RiverLog.Sink"/>;
+    /// writes replace it. Behaviour byte-for-byte equivalent to the
+    /// prior in-class implementation.
     /// </summary>
-    private static readonly ILogger Logger = Logging.For<RiverWindowManagerClient>();
-
-    /// <summary>
-    /// All protocol activity funnels through this delegate; the default
-    /// implementation routes to <see cref="Logger"/> using a small content
-    /// heuristic (messages starting with <c>ERROR</c>/<c>failed</c>/etc map
-    /// to <see cref="LogLevel.Error"/>, <c>warn</c>/<c>unavailable</c>
-    /// to <see cref="LogLevel.Warning"/>, everything else to
-    /// <see cref="LogLevel.Debug"/>). Host code (or tests) may replace it
-    /// with a custom sink — call sites stay <c>Log(string)</c> so no
-    /// per-site churn is required.
-    /// </summary>
-    public static Action<string> Log { get; set; } = DefaultLog;
-
-    private static void DefaultLog(string msg)
+    public static Action<string> Log
     {
-        var level = ClassifyLogLevel(msg);
-#pragma warning disable CA1848, CA2254 // call sites pre-date the structured-logging migration
-        Logger.Log(level, "{Message}", msg);
-#pragma warning restore CA1848, CA2254
+        get => Aqueous.Diagnostics.RiverLog.Sink;
+        set => Aqueous.Diagnostics.RiverLog.Sink = value ?? throw new ArgumentNullException(nameof(value));
     }
-
-    // PR 9.12 §2.12: lifted to Aqueous.Diagnostics.RiverLogClassifier.
-    private static LogLevel ClassifyLogLevel(string msg)
-        => Aqueous.Diagnostics.RiverLogClassifier.Classify(msg);
 
     // --- state tracked from events ------------------------------------
     // WindowEntry / OutputEntry / SeatEntry live in Model/*.cs.
