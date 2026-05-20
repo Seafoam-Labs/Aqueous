@@ -519,6 +519,70 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         => _layoutProposer.BuildSnapshotFor(output);
     internal string? ResolveOutputName(IntPtr output) => _layoutProposer.ResolveOutputName(output);
 
+    // PR 9.12 §2.13 — Focus partial drain. Thin wrappers that were
+    // previously in RiverWindowManagerClient.Focus.cs; called by
+    // event-handler partials (Manager/Window/Seat/SeatHandlerBridge)
+    // and by SeatInteractionService. They retire together with the
+    // god class when the event handlers stop being partials.
+    private bool TryGetFocusedAlive(out IntPtr proxy) => _focusService.TryGetFocusedAlive(out proxy);
+
+    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) =>
+        _focusService.SetFocusedWindow(windowProxy, seatProxy);
+
+    private void RequestFocus(IntPtr windowProxy) =>
+        _focusService.RequestFocus(windowProxy);
+
+    private void ClearFocus() => _focusService.ClearFocus();
+
+    private void FocusAnyOtherWindow(IntPtr avoid) =>
+        _focusService.FocusAnyOtherWindow(avoid);
+
+    private void CycleFocus() => _focusService.CycleFocus();
+
+    private void HandleDirectionalFocus(FocusDirection dir) =>
+        _focusService.HandleDirectionalFocus(dir);
+
+    public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) =>
+        _focusService.SetFocusedShellSurface(shellSurfaceProxy, seatProxy);
+
+    // PR 9.12 §2.13 — internal accessors consumed by FocusService
+    // (FocusedWindow / PendingFocus* / PrimarySeat / SeatProxies /
+    // SendClearFocus / SetPendingFocus*). Retire together with the
+    // god class in the final demolition step.
+    internal IntPtr FocusedWindow
+    {
+        get => _focusedWindow;
+        set => _focusedWindow = value;
+    }
+
+    internal IntPtr PrimarySeat => _primarySeat;
+
+    internal IEnumerable<IntPtr> SeatProxies => _seatRegistry.Entries.Keys;
+
+    internal IntPtr PendingFocusWindow => _pendingFocusWindow;
+
+    internal IntPtr PendingFocusShellSurface => _pendingFocusShellSurface;
+
+    internal void SetPendingFocusWindow(IntPtr windowProxy, IntPtr seatProxy)
+    {
+        _pendingFocusWindow = windowProxy;
+        _pendingFocusShellSurface = IntPtr.Zero;
+        _pendingFocusSeat = seatProxy;
+    }
+
+    internal void SetPendingFocusShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
+    {
+        _pendingFocusShellSurface = shellSurfaceProxy;
+        _pendingFocusWindow = IntPtr.Zero;
+        _pendingFocusSeat = seatProxy;
+    }
+
+    internal void SendClearFocus(IntPtr seatProxy)
+    {
+        WaylandInterop.wl_proxy_marshal_flags(seatProxy, 3, IntPtr.Zero, 0, 0,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+    }
+
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler SeatHandler => _seatHandler;
