@@ -499,7 +499,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
                         // _registeredCustoms, so repeat SeatInformation events are safe.
                         if (_xkbBindings != IntPtr.Zero)
                         {
-                            RegisterAllBindings(proxy);
+                            _keyBindingRegistrar.RegisterAllBindings(proxy);
                         }
 
                         // Register a compositor-level {Primary}+Left-Click pointer binding so that

@@ -265,6 +265,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     private readonly Dictionary<IntPtr, KeyBindingAction> _keyBindings = new();
 
+    // Pointer-binding per-seat dedupe (consumed by the Manager event
+    // handler partial when it issues get_pointer_binding requests).
+    // Lifted out of the deleted KeyBindingRegistrar.cs partial in
+    // PR 9.12 §2.13 because it's pointer-binding state, not key-binding
+    // state, and stays on the god class until the Manager handler
+    // ctor is migrated off `this`.
+    private readonly HashSet<IntPtr> _seatsWithPointerBindings = new();
+
     // --- Stage 0 of god-class decomposition: proxy → interface name ---
     //
     // The native [UnmanagedCallersOnly] callback in ProxyDispatcher.cs
@@ -470,14 +478,26 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal Aqueous.Features.Bindings.IKeyBindingRegistrar KeyBindingRegistrar => _keyBindingRegistrar;
     internal Aqueous.Features.Bindings.IKeyBindingRouter KeyBindingRouter => _keyBindingRouter;
 
-    // PR 9.12 §2.6: pass-through forwarders for the registrar partial,
-    // lifted here from the retired BindingsAccessors.cs partial. Both
-    // retire naturally in §2.7 with the rest of the registrar.
+    // PR 9.12 §2.13: pass-through forwarders for the lifted top-level
+    // KeyBindingRegistrar. The partial that previously owned the bodies
+    // is deleted; both forwarders now delegate to _keyBindingRegistrar.
+    // Retained as internal methods because Stage9Pr99Tests pins their
+    // existence; retire together with the god class in the final
+    // demolition step.
     internal void RegisterAllBindingsForwarding(IntPtr seatProxy)
-        => RegisterAllBindings(seatProxy);
+        => _keyBindingRegistrar.RegisterAllBindings(seatProxy);
 
     internal bool IsBindingRegisteredForwarding(IntPtr bindingProxy)
         => _keyBindings.ContainsKey(bindingProxy);
+
+    // PR 9.12 §2.13 — internal accessors for the lifted KeyBindingRegistrar.
+    // Retire together with the god class.
+    internal IntPtr XkbBindings => _xkbBindings;
+    internal uint XkbBindingsVersion => _xkbBindingsVersion;
+    internal Dictionary<IntPtr, KeyBindingAction> KeyBindings => _keyBindings;
+    internal Dictionary<IntPtr, string> CustomBindingActions => _customBindingActions;
+    internal IntPtr SelfHandlePtr => GCHandle.ToIntPtr(_selfHandle);
+    internal LayoutConfig LayoutConfigForRegistrar => _layoutConfig;
 
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler LayerShellHandler => _layerShellHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler OutputHandler => _outputHandler;
@@ -497,7 +517,7 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // and call private helpers — final lift is Stage 9 cleanup); routing
     // here keeps managed-handler behaviour byte-for-byte equivalent.
     internal unsafe void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
-        => OnKeyBindingEvent(target, opcode, args);
+        => ((Aqueous.Features.Bindings.KeyBindingRegistrar)_keyBindingRegistrar).HandleKeyBindingEvent(target, opcode, args);
     internal unsafe void HandleSuperKeyBindingEvent(uint opcode, WlArgument* args)
         => OnSuperKeyBindingEvent(opcode, args);
     // PR 9.5: retires IDragPointerBindingHandlerCollaborators bridge.
