@@ -63,6 +63,18 @@ public class Stage8Pr88Tests
         Assert.Throws<ArgumentNullException>(() => new RegistryEventHandler(null!));
     }
 
+    // PR 9.12 §2.13 Step 6: confirm the handler ctor has zero god-class
+    // coupling. RegistryEventHandler has consumed RegistryBinder directly
+    // since PR 9.3; pin the contract alongside the rest of the Step 6
+    // handlers (Output / LayerShell / SuperKeyBinding).
+    [Fact]
+    public void RegistryEventHandler_Ctor_DoesNotTake_RiverWindowManagerClient()
+    {
+        var ctor = typeof(RegistryEventHandler).GetConstructors().Single();
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+        Assert.DoesNotContain(paramTypes, t => t == typeof(RiverWindowManagerClient));
+    }
+
 
     [Fact]
     public void ScreencopyFrameHandler_ctor_null_guards()

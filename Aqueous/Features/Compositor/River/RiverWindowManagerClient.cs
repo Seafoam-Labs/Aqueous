@@ -596,11 +596,13 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
 
     // PR 9.12 §2.13 — internal accessors for the lifted KeyBindingRegistrar.
     // Retire together with the god class.
-    internal IntPtr XkbBindings => _xkbBindings;
+    // PR 9.12 §2.13 Step 6 cleanup: XkbBindings + LayoutConfigForRegistrar
+    // accessors retired — KeyBindingRegistrar now reads xkb-bind-site state
+    // from WaylandBindSiteState and LayoutConfig through LayoutController,
+    // so neither forwarder has any reader left.
     internal Dictionary<IntPtr, KeyBindingAction> KeyBindings => _keyBindings;
     internal Dictionary<IntPtr, string> CustomBindingActions => _customBindingActions;
     internal IntPtr SelfHandlePtr => GCHandle.ToIntPtr(_selfHandle);
-    internal LayoutConfig LayoutConfigForRegistrar => _layoutConfig;
 
     // PR 9.12 §2.13 — internal accessors for the lifted top-level
     // LayoutProposer. Retire together with the god class.
@@ -608,7 +610,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal IOutputRegistry OutputRegistry => _outputRegistry;
     internal IntPtr FocusedWindowHandle => _focusedWindow;
     internal HashSet<IntPtr> PrevFullscreenHandles => _prevFullscreenHandles;
-    internal LayoutController LayoutController => _layoutController;
+    // PR 9.12 §2.13 Step 6 cleanup: LayoutController accessor retired —
+    // KeyBindingRouter / KeyBindingRegistrar / SnapZoneService /
+    // ManagerEventService / SeatInteractionService / ViewportInteractionService
+    // / WindowStateHost all take LayoutController directly via DI now.
 
     // PR 9.12 §2.13 — god-class forwarders for the lifted top-level
     // LayoutProposer. Several event-handler partials still call these
@@ -692,7 +697,9 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal WindowEntry? ActiveDragWindow => _activeDragWindow;
     internal Aqueous.Features.SnapZones.SnapActivator ActiveDragActivator => _activeDragActivator;
     internal ConcurrentDictionary<IntPtr, (int X, int Y)> SeatPointerPos => _seatPointerPos;
-    internal LayoutConfig LayoutConfig => _layoutConfig;
+    // PR 9.12 §2.13 Step 6 cleanup: LayoutConfig accessor retired —
+    // every reader has been cut over to reach the config through
+    // LayoutController.Config (its single source of truth).
 
     // PR 9.12 §2.13 — DragPointerBindingService accessors. The
     // service mutates the same drag-lifecycle state the legacy

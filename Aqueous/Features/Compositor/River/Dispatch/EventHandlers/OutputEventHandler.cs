@@ -4,15 +4,16 @@ using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
-// PR 9.12 §2.13 Step 6: ctor no longer takes RiverWindowManagerClient;
-// removed-path state is read from fine-grained singletons
-// (WindowStateStore, WindowStateController, OutputFullscreenMap).
 /// <summary>
 /// PR 8.2 — second <see cref="IEventHandler"/> extracted out of the
-/// <c>RiverWindowManagerClient</c> god class. PR 9.8 retired the
-/// <c>IOutputHandlerCollaborators</c> bridge: the removed-path now
-/// reaches god-class state via internal pass-through accessors on
-/// <see cref="RiverWindowManagerClient"/>.
+/// <c>RiverWindowManagerClient</c> god class.
+///
+/// PR 9.12 §2.13 Step 6: ctor no longer takes
+/// <c>RiverWindowManagerClient</c>; removed-path state is read from
+/// fine-grained singletons (<see cref="WindowStateStore"/>,
+/// <see cref="WindowStateController"/>,
+/// <see cref="OutputFullscreenMap"/>). The handler now has zero
+/// god-class coupling.
 ///
 /// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
 /// </summary>

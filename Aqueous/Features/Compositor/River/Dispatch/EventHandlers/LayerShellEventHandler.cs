@@ -17,6 +17,11 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// optional <see cref="Action{String}"/> log sink keeps the handler
 /// trivially unit-testable without pulling in <c>Microsoft.Extensions.Logging</c>.
 ///
+/// PR 9.12 §2.13 Step 6: confirmed zero god-class coupling — the ctor
+/// takes only an optional log sink, and the body has no
+/// <c>RiverWindowManagerClient</c> reference. No cutover required for
+/// this handler; the Step 6 check is a no-op aside from this note.
+///
 /// Pump-thread only: invoked by the native callback in
 /// <c>ProxyDispatcher</c> via <see cref="IEventDispatcher.Dispatch"/>.
 /// </summary>

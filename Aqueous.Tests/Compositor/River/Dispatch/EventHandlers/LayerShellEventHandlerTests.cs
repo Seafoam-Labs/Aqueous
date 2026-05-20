@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
@@ -89,5 +90,16 @@ public sealed unsafe class LayerShellEventHandlerTests
         IEventHandler h = new LayerShellEventHandler();
         Assert.NotNull(h);
         Assert.False(string.IsNullOrEmpty(h.InterfaceName));
+    }
+
+    // PR 9.12 §2.13 Step 6: confirm the handler ctor has zero god-class
+    // coupling. LayerShellEventHandler never took RiverWindowManagerClient,
+    // but pin the contract alongside the rest of the Step 6 handlers.
+    [Fact]
+    public void Ctor_DoesNotTake_RiverWindowManagerClient()
+    {
+        var ctor = typeof(LayerShellEventHandler).GetConstructors().Single();
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+        Assert.DoesNotContain(paramTypes, t => t == typeof(RiverWindowManagerClient));
     }
 }

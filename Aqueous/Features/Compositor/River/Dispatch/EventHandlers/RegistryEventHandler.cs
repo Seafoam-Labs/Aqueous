@@ -15,6 +15,12 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// always been a self-contained class with no god-class coupling, so
 /// the bridge was indirection-without-purpose. Behaviour is byte-for-byte
 /// equivalent to the previous bridge call.
+///
+/// PR 9.12 §2.13 Step 6: confirmed zero god-class coupling — the ctor
+/// takes only <see cref="RegistryBinder"/> plus an optional log sink,
+/// and the body has no <c>RiverWindowManagerClient</c> reference. No
+/// cutover required; the Step 6 check is a no-op aside from this note
+/// and the matching ctor-shape pin alongside the other Step 6 handlers.
 /// </summary>
 internal sealed unsafe class RegistryEventHandler : IEventHandler
 {
