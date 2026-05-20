@@ -22,16 +22,8 @@ public sealed class OutputEventHandlerTests
         // here, so assert the literal exists in the symbol table.
         Assert.NotNull(ctor);
     }
-    // PR 9.12 §2.13 Step 6: OutputEventHandler ctor no longer takes the
-    // god class — removed-path state is read from fine-grained singletons
-    // (WindowStateStore + WindowStateController + OutputFullscreenMap).
-    [Fact]
-    public void Ctor_DoesNotTake_RiverWindowManagerClient()
-    {
-        var ctor = typeof(OutputEventHandler).GetConstructors().Single();
-        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.DoesNotContain(paramTypes, t => t == typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient));
-    }
+    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
+    // with RiverWindowManagerClient itself.
     [Fact]
     public void Implements_IEventHandler()
     {

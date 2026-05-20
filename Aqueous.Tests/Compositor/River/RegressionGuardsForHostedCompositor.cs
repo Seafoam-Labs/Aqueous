@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using System.Reflection;
 using Aqueous.Features.Compositor.River;
@@ -8,10 +7,10 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River;
 
 /// <summary>
-/// regression guards: ensure the <see cref="RiverCompositorHost"/>
-/// IHostedService shell exists with the documented shape and ctor.
-/// progressively migrate state onto it; this suite pins
-/// the structural invariants the later PRs depend on.
+/// PR 9.12 §2.13 Step 10 — regression guards for <see cref="RiverCompositorHost"/>.
+/// The host now owns the Wayland lifecycle directly (god-class
+/// <c>RiverWindowManagerClient</c> retired); ctor takes fine-grained
+/// DI collaborators rather than an opaque <c>IServiceProvider</c>.
 /// </summary>
 public sealed class RegressionGuardsForHostedCompositor
 {
@@ -31,19 +30,16 @@ public sealed class RegressionGuardsForHostedCompositor
     }
 
     [Fact]
-    public void RiverCompositorHost_has_ctor_taking_IServiceProvider()
+    public void RiverCompositorHost_has_single_ctor_with_fine_grained_collaborators()
     {
         var ctors = typeof(RiverCompositorHost).GetConstructors(BindingFlags.Public | BindingFlags.Instance);
         Assert.Single(ctors);
         var p = ctors[0].GetParameters();
-        Assert.NotEmpty(p);
-        Assert.Equal(typeof(IServiceProvider), p[0].ParameterType);
-    }
-
-    [Fact]
-    public void RiverCompositorHost_ctor_null_provider_throws()
-    {
-        Assert.Throws<ArgumentNullException>(() => new RiverCompositorHost(null!));
+        // 13 required collaborators + optional ILogger = 14 params total.
+        Assert.True(p.Length >= 13, $"expected >=13 ctor args, found {p.Length}");
+        // None of them should be IServiceProvider — the host no longer
+        // resolves services lazily through DI.
+        Assert.DoesNotContain(p, x => x.ParameterType == typeof(System.IServiceProvider));
     }
 
     [Fact]
@@ -52,28 +48,5 @@ public sealed class RegressionGuardsForHostedCompositor
         var t = typeof(RiverCompositorHost);
         Assert.NotNull(t.GetMethod(nameof(IHostedService.StartAsync)));
         Assert.NotNull(t.GetMethod(nameof(IHostedService.StopAsync)));
-    }
-
-    [Fact]
-    public void RiverCompositorHost_Client_is_null_before_StartAsync()
-    {
-        var host = new RiverCompositorHost(new EmptyProvider());
-        var prop = typeof(RiverCompositorHost).GetProperty(
-            "Client", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(prop);
-        Assert.Null(prop!.GetValue(host));
-    }
-
-    [Fact]
-    public void StopAsync_before_StartAsync_is_safe()
-    {
-        var host = new RiverCompositorHost(new EmptyProvider());
-        // Must not throw — disposes null client.
-        host.StopAsync(default).GetAwaiter().GetResult();
-    }
-
-    private sealed class EmptyProvider : IServiceProvider
-    {
-        public object? GetService(Type serviceType) => null;
     }
 }

@@ -216,15 +216,10 @@ public class TagServiceTests
         Assert.Equal(1, hits);
     }
 
-    [Fact]
-    public void TagsServicePartial_RegressionGuard_NoITagHostOnGodClass()
-    {
-        // Stage 3 DoD: RiverWindowManagerClient no longer implements
-        // TagController.ITagHost. (Stays as a regression guard so a
-        // future contributor doesn't reintroduce the partial body.)
-        var t = typeof(RiverWindowManagerClient);
-        Assert.DoesNotContain(typeof(TagController.ITagHost), t.GetInterfaces());
-    }
+    // PR 9.12 §2.13 Step 10: the "god class does not implement ITagHost"
+    // regression guard retired together with RiverWindowManagerClient
+    // itself — the class no longer exists, so it trivially can't
+    // re-acquire any interface.
 
     [Fact]
     public void TagsServicePartial_RegressionGuard_CollaboratorsInterfaceDeleted()
@@ -233,7 +228,7 @@ public class TagServiceTests
         // type should no longer exist anywhere in the production
         // assembly; if it ever returns, ScheduleManage routing is
         // probably wrong again.
-        var prodAsm = typeof(RiverWindowManagerClient).Assembly;
+        var prodAsm = typeof(RiverCompositorHost).Assembly;
         var stillThere = prodAsm.GetType(
             "Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators",
             throwOnError: false);

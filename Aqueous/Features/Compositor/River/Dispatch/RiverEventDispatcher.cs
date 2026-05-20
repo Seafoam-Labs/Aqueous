@@ -1,53 +1,43 @@
 using System;
 using Aqueous.Diagnostics;
+using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Screencopy;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
-/// Stage 9 PR 9.12 §2.10 — top-level event dispatcher seam. Owns the
-/// five <c>Handle*Event</c> entry points previously surfaced on the
-/// god-class <see cref="RiverWindowManagerClient"/>. Each method
-/// delegates to the existing entry point on the client so behaviour is
-/// byte-for-byte equivalent — the lift is structural only.
-///
-/// <para>
-/// In §2.13 (final demolition) the GCHandle pin will move from
-/// <c>RiverWindowManagerClient._selfHandle</c> to a
-/// <see cref="NativeCallbackContext"/> that points at an instance of
-/// this dispatcher; <see cref="NativeCallbackEntry.Dispatch"/> will
-/// then read the context off the GCHandle and route directly here,
-/// removing the god class from the native callback path entirely.
-/// </para>
+/// PR 9.12 §2.13 Step 10 — final demolition. The dispatcher no longer
+/// references the retired <c>RiverWindowManagerClient</c> god class.
+/// Its three collaborators (<see cref="WaylandBindSiteState"/>,
+/// <see cref="IEventDispatcher"/>, <see cref="IScreencopyService"/>)
+/// are now injected directly.
 /// </summary>
 internal sealed unsafe class RiverEventDispatcher
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly WaylandBindSiteState _bindSiteState;
+    private readonly IEventDispatcher _eventDispatcher;
+    private readonly IScreencopyService _screencopyService;
 
-    internal RiverEventDispatcher(RiverWindowManagerClient client)
+    internal RiverEventDispatcher(
+        WaylandBindSiteState bindSiteState,
+        IEventDispatcher eventDispatcher,
+        IScreencopyService screencopyService)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
+        _screencopyService = screencopyService ?? throw new ArgumentNullException(nameof(screencopyService));
     }
-
-
-
-
-
 
     /// <summary>
     /// PR 9.12 §2.13 — owns the body previously inlined in
-    /// <see cref="NativeCallbackEntry.Dispatch"/>. The native entry now
+    /// <see cref="NativeCallbackEntry.Dispatch"/>. The native entry
     /// rehydrates a <see cref="NativeCallbackContext"/> from the GCHandle
-    /// and calls into this dispatcher, removing the direct
-    /// <c>gch.Target as RiverWindowManagerClient</c> cast from the
-    /// callback path. The body still reads god-class accessors
-    /// (<c>TryGetProxyInterface</c>, <c>EventDispatcher</c>,
-    /// <c>ScreencopyService</c>) until those collaborators are lifted in
-    /// the final §2.13 demolition.
+    /// and calls into this dispatcher.
     /// </summary>
     internal int DispatchNative(IntPtr target, uint opcode, IntPtr args)
     {
         var a = (WlArgument*)args;
 
-        var iface = _client.BindSiteState.TryGetProxyInterface(target);
+        var iface = _bindSiteState.TryGetProxyInterface(target);
         if (iface is not null)
         {
             RiverLog.Write("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
@@ -64,12 +54,12 @@ internal sealed unsafe class RiverEventDispatcher
                 "wl_registry" => 4,
                 _ => 4,
             };
-            _client.EventDispatcher.Dispatch(
+            _eventDispatcher.Dispatch(
                 new WlEvent(iface, target, opcode, (IntPtr)a, argCount));
             return 0;
         }
 
-        if (_client.ScreencopyService.TryDispatchFrameEvent(target, opcode, a))
+        if (_screencopyService.TryDispatchFrameEvent(target, opcode, a))
         {
             return 0;
         }

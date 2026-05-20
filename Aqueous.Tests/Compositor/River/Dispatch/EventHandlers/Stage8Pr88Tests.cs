@@ -63,18 +63,8 @@ public class Stage8Pr88Tests
         Assert.Throws<ArgumentNullException>(() => new RegistryEventHandler(null!));
     }
 
-    // PR 9.12 §2.13 Step 6: confirm the handler ctor has zero god-class
-    // coupling. RegistryEventHandler has consumed RegistryBinder directly
-    // since PR 9.3; pin the contract alongside the rest of the Step 6
-    // handlers (Output / LayerShell / SuperKeyBinding).
-    [Fact]
-    public void RegistryEventHandler_Ctor_DoesNotTake_RiverWindowManagerClient()
-    {
-        var ctor = typeof(RegistryEventHandler).GetConstructors().Single();
-        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.DoesNotContain(paramTypes, t => t == typeof(RiverWindowManagerClient));
-    }
-
+    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
+    // with RiverWindowManagerClient itself.
 
     [Fact]
     public void ScreencopyFrameHandler_ctor_null_guards()
@@ -152,18 +142,8 @@ public class Stage8Pr88Tests
             types);
     }
 
-    [Fact]
-    public void RiverWindowManagerClient_partial_has_no_member_named_ProxyDispatcher()
-    {
-        // Member name should not survive on the god class either.
-        var t = typeof(IEventHandler).Assembly
-            .GetType("Aqueous.Features.Compositor.River.RiverWindowManagerClient");
-        Assert.NotNull(t);
-        var members = t!.GetMembers(BindingFlags.Public | BindingFlags.NonPublic
-                                  | BindingFlags.Instance | BindingFlags.Static
-                                  | BindingFlags.DeclaredOnly);
-        Assert.DoesNotContain(members, m => m.Name == "ProxyDispatcher");
-    }
+    // PR 9.12 §2.13 Step 10: god-class partial member-name pin retired
+    // — RiverWindowManagerClient itself was deleted.
 
     // ----- bridge shape guards ------------------------------------------
 

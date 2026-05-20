@@ -27,16 +27,13 @@ public sealed class LayoutProposerTests
         Assert.Contains(typeof(ILayoutProposer), typeof(LayoutProposer).GetInterfaces());
     }
 
-    // PR 9.12 §2.13 Step 4: LayoutProposer cut off RiverWindowManagerClient;
-    // ctor now takes 7 fine-grained DI singletons.
+    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
+    // with RiverWindowManagerClient itself.
     [Fact]
-    public void Ctor_DoesNotTake_RiverWindowManagerClient()
+    public void Ctor_Takes_LayoutController_First()
     {
         var ctor = typeof(LayoutProposer).GetConstructors().Single();
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.DoesNotContain(
-            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient),
-            paramTypes);
         Assert.Equal(7, paramTypes.Length);
         Assert.Equal(typeof(LayoutController), paramTypes[0]);
     }

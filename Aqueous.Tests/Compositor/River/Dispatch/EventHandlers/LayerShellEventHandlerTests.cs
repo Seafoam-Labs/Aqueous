@@ -92,14 +92,6 @@ public sealed unsafe class LayerShellEventHandlerTests
         Assert.False(string.IsNullOrEmpty(h.InterfaceName));
     }
 
-    // PR 9.12 §2.13 Step 6: confirm the handler ctor has zero god-class
-    // coupling. LayerShellEventHandler never took RiverWindowManagerClient,
-    // but pin the contract alongside the rest of the Step 6 handlers.
-    [Fact]
-    public void Ctor_DoesNotTake_RiverWindowManagerClient()
-    {
-        var ctor = typeof(LayerShellEventHandler).GetConstructors().Single();
-        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.DoesNotContain(paramTypes, t => t == typeof(RiverWindowManagerClient));
-    }
+    // PR 9.12 §2.13 Step 10: the negative god-class ctor-shape pin
+    // retired with RiverWindowManagerClient itself.
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using Aqueous.Features.Compositor.River.Dispatch;
 
 namespace Aqueous.Features.Compositor.River.Connection;
@@ -34,6 +35,28 @@ internal sealed class WaylandBindSiteState
     /// inside libwayland on first event dispatch).
     /// </summary>
     public uint XkbBindingsVersion { get; set; }
+
+    /// <summary>
+    /// Protocol version advertised by the bound
+    /// <c>zwlr_screencopy_manager_v1</c> global. Captured at bind time
+    /// so on-demand capture proxies can be requested at the parent's
+    /// advertised version. PR 9.12 §2.13 Step 10: lifted off RWMC.
+    /// </summary>
+    public uint ScreencopyVersion { get; set; }
+
+    /// <summary>
+    /// Cache of every advertised <c>wl_output</c> global (lazy-bind: we
+    /// only record the global here and bind on-demand inside the capture
+    /// path, then destroy the proxy immediately). PR 9.12 §2.13 Step 10:
+    /// lifted off RWMC.
+    /// </summary>
+    public ConcurrentDictionary<uint, RegistryGlobal> WlOutputGlobals { get; } = new();
+
+    /// <summary>
+    /// The bound <c>river_super_key_binding_v1</c> proxy (set at registry
+    /// global discovery time). PR 9.12 §2.13 Step 10: lifted off RWMC.
+    /// </summary>
+    public IntPtr SuperKeyBinding { get; set; }
 
     /// <summary>
     /// Proxy → interface-name map populated at every <c>wl_registry::bind</c>

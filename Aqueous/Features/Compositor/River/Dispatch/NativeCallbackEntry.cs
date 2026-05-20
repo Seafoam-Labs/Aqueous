@@ -37,23 +37,16 @@ internal static unsafe class NativeCallbackEntry
         try
         {
             var gch = GCHandle.FromIntPtr(implementation);
-            // PR 9.12 §2.13: route through RiverEventDispatcher rehydrated
-            // from the NativeCallbackContext pinned on the GCHandle. The
-            // legacy direct-client pin is kept as a fallback (constructs
-            // an ad-hoc dispatcher) so any not-yet-migrated test harness
-            // or alternative pin path still works.
-            RiverEventDispatcher? dispatcher = gch.Target switch
-            {
-                NativeCallbackContext ctx => ctx.Dispatcher,
-                RiverWindowManagerClient legacy => new RiverEventDispatcher(legacy),
-                _ => null,
-            };
-            if (dispatcher is null)
+            // PR 9.12 §2.13 Step 10: route through RiverEventDispatcher
+            // rehydrated from the NativeCallbackContext pinned on the
+            // GCHandle. The god-class fallback arm was retired alongside
+            // RiverWindowManagerClient itself.
+            if (gch.Target is not NativeCallbackContext ctx)
             {
                 return 0;
             }
 
-            return dispatcher.DispatchNative(target, opcode, args);
+            return ctx.Dispatcher.DispatchNative(target, opcode, args);
         }
         catch (Exception e)
         {

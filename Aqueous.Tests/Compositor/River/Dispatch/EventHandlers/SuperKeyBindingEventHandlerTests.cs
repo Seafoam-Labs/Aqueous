@@ -24,12 +24,13 @@ public unsafe class SuperKeyBindingEventHandlerTests
         Assert.Contains(typeof(IEventHandler), t.GetInterfaces());
     }
 
+    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
+    // with RiverWindowManagerClient itself.
     [Fact]
-    public void Handler_ctor_does_not_take_god_class()
+    public void Handler_ctor_takes_single_optional_log_sink()
     {
         var ctors = typeof(SuperKeyBindingEventHandler).GetConstructors();
         Assert.Single(ctors);
-        var ps = ctors[0].GetParameters();
-        Assert.DoesNotContain(ps, p => p.ParameterType == typeof(RiverWindowManagerClient));
+        Assert.Equal(1, ctors[0].GetParameters().Length);
     }
 }

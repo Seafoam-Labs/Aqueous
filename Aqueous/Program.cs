@@ -5,7 +5,10 @@ using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Dispatch;
+using Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
+using Aqueous.Features.Compositor.River.Dispatch.Services;
 using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,187 +29,153 @@ class Program
             Mods.PrimaryName, Mods.PrimaryMask, Mods.PrimaryKeysym,
             Environment.GetEnvironmentVariable("AQUEOUS_MOD") ?? "<unset>");
 
-        // Single CTS drives shutdown for both Ctrl+C (SIGINT) and SIGTERM.
-        // Threaded through RiverCompositorHost.StartAsync so the pump
-        // observes the same token (PR 9.11: the lifetime is now owned
-        // by the host, not the DI factory).
         using var lifetimeCts = new CancellationTokenSource();
 
-        // Build the DI container. Stage 9 PR 9.1 completes the long-standing
-        // "fix DI" tech debt by registering RiverWindowManagerClient itself
-        // as a singleton + adding factory-lambda registrations for every
-        // service and IEventHandler it owns. After this PR, external
-        // consumers + tests can resolve any of these via
-        // provider.GetRequiredService<IXxx>() instead of reaching through
-        // the god class. The accessor properties on RiverWindowManagerClient
-        // disappear in PR 9.12 once each service is registered standalone.
+        // PR 9.12 §2.13 Step 10 — final demolition. The RiverWindowManagerClient
+        // god class is gone. Every service it formerly built in its ctor is
+        // now registered directly with DI. RiverCompositorHost takes the same
+        // ctor args via DI and owns the Wayland lifecycle outright.
         var services = new ServiceCollection();
         services.AddSingleton(typeof(ILoggerFactory),
             (object?)Logging.Factory ?? NullLoggerFactory.Instance);
         services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+
+        // --- Connection & transport state ---------------------------------
         services.AddSingleton<IWaylandConnection, WaylandConnection>();
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
         services.AddSingleton<EventPumpOptions>();
         services.AddSingleton<IEventPump, EventPump>();
-
-        // Stage 9 PR 9.12 §2.1: WaylandBindSiteState is the new owner of
-        // raw bind-site proxy pointers (manager / layer-shell / screencopy
-        // / wl_shm / xkb-bindings) plus the proxy → interface-name map.
-        // Registered as a singleton so consumers can ctor-inject it
-        // directly in subsequent §2.x steps; the god class still mirrors
-        // writes into the legacy private fields during the migration.
         services.AddSingleton<WaylandBindSiteState>();
+        services.AddSingleton<RegistryBinder>();
 
-        // Stage 9 PR 9.12 §2.2: FocusedWindowTracker owns the raw
-        // focused-window proxy pointer (formerly RiverWindowManagerClient
-        // ._focusedWindow). The god class still exposes the property
-        // alias during the migration.
+        // --- Fine-grained state singletons --------------------------------
         services.AddSingleton<Aqueous.Features.Focus.FocusedWindowTracker>();
-
-        // Stage 9 PR 9.12 §2.3: OutputFullscreenMap owns the per-output
-        // single-fullscreen-slot dictionary (formerly _outputFullscreen
-        // on the god class). The god class still holds the field as an
-        // alias backed by this singleton during the migration.
         services.AddSingleton<Aqueous.Features.State.OutputFullscreenMap>();
-
-        // Stage 9 PR 9.12 §2.4: WindowStateStore owns the per-window state
-        // projection dictionary (formerly _windowStates on the god class).
-        // The god class still holds the field as an alias backed by this
-        // singleton during the migration.
         services.AddSingleton<Aqueous.Features.State.WindowStateStore>();
-
-        // PR 9.12 §2.13 Step 1: PendingFocusStore + PrimarySeatTracker
-        // own the pending-focus triple and the primary-seat handle that
-        // previously lived on the god class. FocusService now consumes
-        // them directly; RWMC keeps property aliases for the as-yet
-        // un-migrated handler services until those cut over too.
         services.AddSingleton<Aqueous.Features.Focus.PendingFocusStore>();
         services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
-
-        // PR 9.12 §2.13 Step 2: DragStateStore owns ActiveDragWindow /
-        // ActiveDragActivator / SeatPointerPos previously living on the
-        // god class. SnapZoneService now consumes it directly; RWMC
-        // keeps field-style aliases backed by the store until the
-        // remaining drag consumers cut over.
         services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
-
-        // PR 9.12 §2.13 Step 4: PrevFullscreenStore + KeyBindingsRegistry
-        // own the FS hash-set and the key-binding dictionaries / dispatcher
-        // self-handle pointer that previously lived on the god class.
-        // LayoutProposer and KeyBindingRegistrar now consume them directly;
-        // RWMC keeps field-style aliases backed by the stores until any
-        // remaining consumers cut over.
         services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
         services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
-
-        // PR 9.12 §2.13 Step 5: PointerBindingStore + ManageCycleState own
-        // the per-seat pointer-binding wiring (drag/resize/snap-activator
-        // binding proxies + their needs-enable flags + per-seat dedupe) and
-        // the manage-cycle scoped flags (ManagerVersion / InsideManageSequence)
-        // that previously lived on the god class. ManagerEventService,
-        // WindowEventService and DragPointerBindingService consume them
-        // directly; RWMC keeps property aliases backed by the stores until
-        // any remaining in-class readers retire.
         services.AddSingleton<Aqueous.Features.Input.PointerBindingStore>();
         services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
+        services.AddSingleton<Aqueous.Features.State.ScratchpadRegistry>();
 
-        // Stage 9 PR 9.11: register the god class as a DI singleton built
-        // via its DI ctor — *not* TryStart. The factory only assembles
-        // the object graph; Connect + StartPump now run from
-        // RiverCompositorHost.StartAsync (the host owns the lifecycle).
-        // This separation makes construction failures and connection
-        // failures observable independently and removes the "resolving
-        // a service opens a Wayland connection" side-effect that PR 9.1
-        // had to live with as scaffolding.
-        services.AddSingleton<RiverWindowManagerClient>(sp =>
-            new RiverWindowManagerClient(
-                (IWaylandConnection?)sp.GetService(typeof(IWaylandConnection)) ?? new WaylandConnection(),
-                (IWindowRegistry?)sp.GetService(typeof(IWindowRegistry)) ?? new WindowRegistry(),
-                (IOutputRegistry?)sp.GetService(typeof(IOutputRegistry)) ?? new OutputRegistry(),
-                (ISeatRegistry?)sp.GetService(typeof(ISeatRegistry)) ?? new SeatRegistry(),
-                (Aqueous.Features.Compositor.River.Connection.IEventPump?)sp.GetService(typeof(Aqueous.Features.Compositor.River.Connection.IEventPump)),
-                sp.GetRequiredService<WaylandBindSiteState>(),
-                sp.GetRequiredService<Aqueous.Features.Focus.FocusedWindowTracker>(),
-                sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
-                sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
-                sp.GetRequiredService<Aqueous.Features.Focus.PendingFocusStore>(),
-                sp.GetRequiredService<Aqueous.Features.Focus.PrimarySeatTracker>(),
-                sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>(),
-                sp.GetRequiredService<Aqueous.Features.State.PrevFullscreenStore>(),
-                sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>(),
-                sp.GetRequiredService<Aqueous.Features.Input.PointerBindingStore>(),
-                sp.GetRequiredService<Aqueous.Features.State.ManageCycleState>()));
+        // --- Layout subsystem ---------------------------------------------
+        services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
+        services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>
+            Aqueous.Features.Layout.LayoutConfig.Load(DefaultConfigPath.Resolve()));
+        services.AddSingleton<Aqueous.Features.Layout.LayoutController>();
+        services.AddSingleton<Aqueous.Features.Layout.IManagerRequestSender,
+            Aqueous.Features.Layout.ManagerRequestSender>();
+        services.AddSingleton<Aqueous.Features.Layout.ILayoutProposer,
+            Aqueous.Features.Layout.LayoutProposer>();
+        services.AddSingleton<Aqueous.Features.Layout.ViewportInteractionService>();
 
-        // Stage 9 PR 9.1: every service the god class owns is now
-        // resolvable from DI via a factory lambda that reads it off the
-        // singleton RiverWindowManagerClient. Behaviour-preserving — no
-        // service is constructed twice; these factories return the same
-        // instance the god class ctor created. Registrations retire one
-        // at a time in PRs 9.2–9.12 as state migrates out of the bridge.
-        // PR 9.3 Stage 9: RegistryBinder is now DI-resolvable (consumed
-        // by RegistryEventHandler directly — IRegistryHandlerCollaborators
-        // bridge retired).
-        services.AddSingleton<Aqueous.Features.Compositor.River.Connection.RegistryBinder>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().RegistryBinder);
-        services.AddSingleton<IEventDispatcher>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().EventDispatcher);
-        services.AddSingleton<Aqueous.Features.Focus.IFocusService>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().FocusService);
-        services.AddSingleton<Aqueous.Features.Tags.ITagService>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().TagService);
-        services.AddSingleton<Aqueous.Features.Layout.IManagerRequestSender>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().ManagerRequestSender);
-        services.AddSingleton<Aqueous.Features.Layout.ILayoutProposer>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().LayoutProposer);
-        services.AddSingleton<Aqueous.Features.SnapZones.ISnapZoneService>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().SnapZoneService);
-        services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().ScreencopyService);
-        services.AddSingleton<Aqueous.Features.Bindings.IProcessLauncher>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().ProcessLauncher);
-        services.AddSingleton<Aqueous.Features.Bindings.ICustomActionRunner>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().CustomActionRunner);
+        // --- Focus / Tags / SnapZones / Screencopy ------------------------
+        services.AddSingleton<Aqueous.Features.Focus.IFocusService,
+            Aqueous.Features.Focus.FocusService>();
+        services.AddSingleton<Aqueous.Features.Tags.ITagService,
+            Aqueous.Features.Tags.TagService>();
+        services.AddSingleton<Aqueous.Features.SnapZones.ISnapZoneService,
+            Aqueous.Features.SnapZones.SnapZoneService>();
+        services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService,
+            Aqueous.Features.Screencopy.ScreencopyService>();
+
+        // --- Seat / drag ---------------------------------------------------
+        services.AddSingleton<SeatInteractionService>();
+        services.AddSingleton<Aqueous.Features.Input.DragPointerBindingService>();
+
+        // --- Bindings ------------------------------------------------------
+        services.AddSingleton<Aqueous.Features.Bindings.IProcessLauncher,
+            Aqueous.Features.Bindings.ProcessLauncher>();
+        services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRouter,
+            Aqueous.Features.Bindings.KeyBindingRouter>();
+        services.AddSingleton<Aqueous.Features.Bindings.ICustomActionRunner,
+            Aqueous.Features.Bindings.CustomActionRunner>();
+        services.AddSingleton<Aqueous.Features.Bindings.KeyBindingRegistrar>();
         services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRegistrar>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().KeyBindingRegistrar);
-        services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRouter>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().KeyBindingRouter);
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingRegistrar>());
 
-        // Stage 9 PR 9.1: each IEventHandler the dispatcher uses is now a
-        // first-class DI registration. The placeholder
-        // AddSingleton<IEventHandler, LayerShellEventHandler>() that
-        // existed since PR 8.1 (and was constructing a second, unwired
-        // instance) is removed.
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().LayerShellHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().OutputHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().SeatHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().WindowHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().ManagerHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().SuperKeyBindingHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().DragPointerBindingHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().RegistryHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().KeyBindingHandler);
-        services.AddSingleton<Aqueous.Features.Compositor.River.Dispatch.IEventHandler>(sp =>
-            sp.GetRequiredService<RiverWindowManagerClient>().ScreencopyFrameHandler);
+        // --- Window-state subsystem ---------------------------------------
+        services.AddSingleton<Aqueous.Features.State.WindowStateHost>();
+        services.AddSingleton<Aqueous.Features.State.IWindowStateHost>(sp =>
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateHost>());
+        services.AddSingleton<Aqueous.Features.State.WindowStateController>();
+        services.AddSingleton<Aqueous.Features.Startup.StartupExecRunner>(sp =>
+            new Aqueous.Features.Startup.StartupExecRunner(
+                sp.GetRequiredService<Aqueous.Features.State.IWindowStateHost>(),
+                sp.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>().Exec));
 
-        // Stage 9 PR 9.2: register the IHostedService shell. Constructed
-        // lazily; StartAsync/StopAsync is driven manually from Main below
-        // (we deliberately avoid pulling in the full Generic Host here to
-        // keep the SIGINT/SIGTERM signal wiring intact). PRs 9.3–9.12
-        // progressively move Connect/Dispose responsibilities onto the host.
-        services.AddSingleton<Aqueous.Features.Compositor.River.RiverCompositorHost>();
+        // --- Manager / window event services ------------------------------
+        services.AddSingleton<ManagerEventService>();
+        services.AddSingleton<WindowEventService>();
+
+        // --- Event-handler registrations (the dispatcher table) -----------
+        services.AddSingleton<IEventHandler>(_ => new LayerShellEventHandler(RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new OutputEventHandler(
+            sp.GetRequiredService<IWindowRegistry>(),
+            sp.GetRequiredService<IOutputRegistry>(),
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
+            sp.GetRequiredService<Aqueous.Features.State.WindowStateController>(),
+            sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp =>
+        {
+            var drag = sp.GetRequiredService<Aqueous.Features.Input.DragStateStore>();
+            return new SeatEventHandler(
+                sp.GetRequiredService<ISeatRegistry>(),
+                sp.GetRequiredService<IWindowRegistry>(),
+                drag.SeatHoveredWindow,
+                drag.SeatPointerPos,
+                sp.GetRequiredService<SeatInteractionService>(),
+                RiverLog.Write);
+        });
+        services.AddSingleton<IEventHandler>(sp => new WindowEventHandler(
+            sp.GetRequiredService<IWindowRegistry>(),
+            sp.GetRequiredService<WindowEventService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new ManagerEventHandler(
+            sp.GetRequiredService<ManagerEventService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(_ => new SuperKeyBindingEventHandler(RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new DragPointerBindingEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.DragPointerBindingService>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new RegistryEventHandler(
+            sp.GetRequiredService<RegistryBinder>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new KeyBindingEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingRegistrar>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new ScreencopyFrameHandler(
+            sp.GetRequiredService<Aqueous.Features.Screencopy.IScreencopyService>(),
+            RiverLog.Write));
+
+        // --- Top-level dispatcher + host ----------------------------------
+        services.AddSingleton<IEventDispatcher>(sp => new EventDispatcher(
+            sp.GetServices<IEventHandler>()));
+        services.AddSingleton<RiverCompositorHost>();
 
         using var provider = services.BuildServiceProvider();
+
+        // Push libinput config to the privileged sidecar (aqueous-inputd).
+        // Best-effort: silently logs and proceeds if the daemon isn't up.
+        // River 0.4 owns libinput but exposes no API to a WM client, so
+        // pointer accel etc. can only be applied out-of-process. Mirrors
+        // niri's "apply on startup + on config reload" model — the same
+        // call lives in ReloadConfig (KeyBindingActionRouter).
+        try
+        {
+            var cfg = provider.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>();
+            Aqueous.Features.Input.InputDaemonClient.Apply(cfg.Input);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "InputDaemonClient.Apply failed");
+        }
 
         Console.CancelKeyPress += (_, e) =>
         {
@@ -222,24 +191,13 @@ class Program
             lifetimeCts.Cancel();
         });
 
-        // Stage 9 PR 9.11: drive startup + shutdown through the
-        // RiverCompositorHost IHostedService shell. StartAsync now
-        // checks the env-var guard, builds the client via DI, calls
-        // Connect (registry roundtrip + globals + startup exec) and
-        // StartPump. StopAsync disposes the client (which stops the
-        // pump and closes the connection).
-        var host = provider.GetRequiredService<Aqueous.Features.Compositor.River.RiverCompositorHost>();
+        var host = provider.GetRequiredService<RiverCompositorHost>();
         try
         {
             host.StartAsync(lifetimeCts.Token).GetAwaiter().GetResult();
         }
         catch (InvalidOperationException ex)
         {
-            // PR 9.11: the host throws InvalidOperationException whose
-            // Message carries the friendly error (env-var missing,
-            // Connect failed, libwayland missing). Surface it directly
-            // instead of relying on the prior `startupFailure` closure
-            // that was set inside the now-removed TryStart DI factory.
             log.LogError(
                 "Failed to connect to River as window manager: {Error}. Are you running inside River with AQUEOUS_RIVER_WM=1?",
                 ex.Message);
@@ -248,8 +206,6 @@ class Program
 
         log.LogInformation("Connected. Entering event loop.");
 
-        // Block the main thread; the pump runs on its own background
-        // thread and observes lifetimeCts.Token directly.
         try
         {
             lifetimeCts.Token.WaitHandle.WaitOne();

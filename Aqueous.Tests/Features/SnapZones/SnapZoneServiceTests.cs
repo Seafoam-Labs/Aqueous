@@ -83,8 +83,8 @@ public class SnapZoneServiceTests
         Assert.Single(ctors);
         var p = ctors[0].GetParameters();
         Assert.Equal(5, p.Length);
-        Assert.DoesNotContain(p, x => x.ParameterType ==
-            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient));
+        // PR 9.12 §2.13 Step 10: god-class param-type pin retired with
+        // RiverWindowManagerClient itself.
         Assert.Equal(typeof(Aqueous.Features.Input.DragStateStore),                                  p[0].ParameterType);
         Assert.Equal(typeof(Aqueous.Features.Compositor.River.Registry.IOutputRegistry),             p[1].ParameterType);
         Assert.Equal(typeof(Aqueous.Features.Layout.LayoutController),                               p[2].ParameterType);
