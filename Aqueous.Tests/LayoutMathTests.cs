@@ -5,9 +5,8 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Boundary tests for <see cref="LayoutMath"/>. These pin the contract
-/// that custom plugin layouts will lean on, so every helper is verified
-/// against degenerate input as well as the happy path.
+/// Boundary tests for <see cref="LayoutMath"/>. These pin the contract that custom plugin layouts
+/// will lean on, so every helper is verified against degenerate input as well as the happy path.
 /// </summary>
 public class LayoutMathTests
 {

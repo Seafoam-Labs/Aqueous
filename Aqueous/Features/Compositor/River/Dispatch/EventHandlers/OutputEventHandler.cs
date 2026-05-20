@@ -5,17 +5,11 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
-/// PR 8.2 — second <see cref="IEventHandler"/> extracted out of the
-/// <c>RiverWindowManagerClient</c> god class.
-///
-/// PR 9.12 §2.13 Step 6: ctor no longer takes
-/// <c>RiverWindowManagerClient</c>; removed-path state is read from
-/// fine-grained singletons (<see cref="WindowStateStore"/>,
-/// <see cref="WindowStateController"/>,
-/// <see cref="OutputFullscreenMap"/>). The handler now has zero
-/// god-class coupling.
-///
-/// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
+/// Second <see cref="IEventHandler"/> extracted out of the <c>RiverWindowManagerClient</c> god
+/// class. ctor no longer takes <c>RiverWindowManagerClient</c>; removed-path state is read from
+/// fine-grained singletons (<see cref="WindowStateStore"/>, <see cref="WindowStateController"/>,
+/// <see cref="OutputFullscreenMap"/>). The handler now has zero class coupling. Pump-thread only:
+/// invoked by <see cref="IEventDispatcher.Dispatch"/>.
 /// </summary>
 internal sealed unsafe class OutputEventHandler : IEventHandler
 {

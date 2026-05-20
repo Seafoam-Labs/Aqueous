@@ -6,17 +6,15 @@ namespace Aqueous.Tests.Features.SnapZones;
 
 public class SnapZoneServiceTests
 {
-    // PR 9.5 retired ISnapZoneServiceCollaborators; SnapZoneService now
-    // consumes RiverWindowManagerClient directly. The god class can't
-    // be safely constructed in unit tests (opens a Wayland connection),
-    // so only structural + pure-mapping coverage remains here.
-    // Behavioural coverage moves to manual River smoke (drag-to-snap).
+    // Retired ISnapZoneServiceCollaborators; SnapZoneService now consumes RiverWindowManagerClient
+    // directly. The god class can't be safely constructed in unit tests (opens a Wayland connection),
+    // so only structural + pure-mapping coverage remains here. Behavioural coverage moves to manual
+    // River smoke (drag-to-snap).
 
     [Fact]
     public void Ctor_NullDragState_Throws()
     {
-        // PR 9.12 §2.13 Step 2: ctor cut over to fine-grained services.
-        // Asserting the first arg's null-guard is sufficient as a
+        // Ctor cut over to fine-grained services. Asserting the first arg's null-guard is sufficient as a
         // smoke-check; the full shape is pinned below.
         Assert.Throws<ArgumentNullException>(() =>
             new SnapZoneService(null!, null!, null!, null!, null!));
@@ -30,36 +28,32 @@ public class SnapZoneServiceTests
     [InlineData(SnapActivator.Super,  Aqueous.Features.Compositor.River.Mods.ModSuper)]
     public void ActivatorToMask_MatchesProtocolMapping(SnapActivator activator, uint expected)
     {
-        // ActivatorToMask is a pure switch — no god-class dependency —
-        // so it can be exercised directly through a default-constructed
-        // service-shaped helper. We sidestep the ctor's null guard by
-        // testing the static-equivalent mapping logic via Type lookup.
-        // (The constructor still requires a non-null client; rather
-        // than mock the god class, just assert the mapping shape.)
-        // For now, use reflection to invoke the instance method on a
-        // service constructed against a sentinel ref-typed proxy.
+        // ActivatorToMask is a pure switch — no class dependency — so it can be exercised directly
+        // through a default-constructed service-shaped helper. We sidestep the ctor's null guard by
+        // testing the static-equivalent mapping logic via Type lookup. (The constructor still requires a
+        // non-null client; rather than mock the god class, just assert the mapping shape.) For now, use
+        // reflection to invoke the instance method on a service constructed against a sentinel ref-typed
+        // proxy.
         var t = typeof(SnapZoneService);
         Assert.True(typeof(ISnapZoneService).IsAssignableFrom(t));
-        // Sanity check: the mapping is preserved as documented; if
-        // ActivatorToMask is ever refactored to a pure static, this
-        // becomes a direct call.
+        // Sanity check: the mapping is preserved as documented; if ActivatorToMask is ever to a pure
+        // static, this becomes a direct call.
         var method = t.GetMethod(nameof(ISnapZoneService.ActivatorToMask));
         Assert.NotNull(method);
         Assert.Equal(typeof(uint), method!.ReturnType);
-        // Keep `expected` referenced so the [Theory] cases stay
-        // meaningful as a documentation of the protocol mapping.
+        // Keep `expected` referenced so the [Theory] cases stay meaningful as a documentation of the
+        // protocol mapping.
         Assert.True(expected >= 0u);
         Assert.True(activator >= SnapActivator.Always);
     }
 
-    // Stage 9 PR 9.5 decomposition guards.
+    // Decomposition guards.
 
     [Fact]
     public void Bridge_Interface_Is_Deleted()
     {
-        // The transient bridge introduced in Stage 6 Part 1 has been
-        // retired. Its type must no longer exist in the production
-        // assembly.
+        // The transient bridge introduced Part 1 has been retired. Its type must no longer exist in the
+        // production assembly.
         var asm = typeof(SnapZoneService).Assembly;
         var t = asm.GetType("Aqueous.Features.Compositor.River.SnapZones.ISnapZoneServiceCollaborators");
         Assert.Null(t);
@@ -74,17 +68,14 @@ public class SnapZoneServiceTests
     [Fact]
     public void SnapZoneService_Ctor_DoesNotTake_RiverWindowManagerClient()
     {
-        // PR 9.12 §2.13 Step 2: SnapZoneService no longer depends on
-        // the god class. Drag state flows through DragStateStore;
-        // LayoutConfig via LayoutController; output-name resolution
-        // via ILayoutProposer; manage cycles via IManagerRequestSender;
-        // per-output rects via IOutputRegistry.
+        // SnapZoneService no longer depends on the god class. Drag state flows through DragStateStore;
+        // LayoutConfig via LayoutController; output-name resolution via ILayoutProposer; manage cycles
+        // via IManagerRequestSender; per-output rects via IOutputRegistry.
         var ctors = typeof(SnapZoneService).GetConstructors();
         Assert.Single(ctors);
         var p = ctors[0].GetParameters();
         Assert.Equal(5, p.Length);
-        // PR 9.12 §2.13 Step 10: god-class param-type pin retired with
-        // RiverWindowManagerClient itself.
+        // Class param-type pin retired with RiverWindowManagerClient itself.
         Assert.Equal(typeof(Aqueous.Features.Input.DragStateStore),                                  p[0].ParameterType);
         Assert.Equal(typeof(Aqueous.Features.Compositor.River.Registry.IOutputRegistry),             p[1].ParameterType);
         Assert.Equal(typeof(Aqueous.Features.Layout.LayoutController),                               p[2].ParameterType);

@@ -7,17 +7,15 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch;
 
 /// <summary>
-/// Unit tests for <see cref="WlArgumentDecoder"/>: synthesize a
-/// <c>wl_argument</c> array in unmanaged memory, point a
-/// <see cref="WlEvent"/> at it, and assert each accessor reads back the
+/// Unit tests for <see cref="WlArgumentDecoder"/>: synthesize a <c>wl_argument</c> array in
+/// unmanaged memory, point a <see cref="WlEvent"/> at it, and assert each accessor reads back the
 /// value we wrote. Pure pointer-arithmetic — no libwayland involved.
 /// </summary>
 public sealed unsafe class WlArgumentDecoderTests
 {
     /// <summary>
-    /// Allocate a 6-slot pointer-sized array, populate it with one
-    /// value of every kind, and verify every accessor returns the
-    /// matching value.
+    /// Allocate a 6-slot pointer-sized array, populate it with one value of every kind, and verify
+    /// every accessor returns the matching value.
     /// </summary>
     [Fact]
     public void Decodes_int_uint_fixed_object_array_and_fd_slots()
@@ -56,9 +54,8 @@ public sealed unsafe class WlArgumentDecoderTests
     }
 
     /// <summary>
-    /// String marshalling: write a NUL-terminated UTF-8 string into
-    /// unmanaged memory, store its pointer in a slot, and verify both
-    /// the raw-pointer and managed-string accessors.
+    /// String marshalling: write a NUL-terminated UTF-8 string into unmanaged memory, store its
+    /// pointer in a slot, and verify both the raw-pointer and managed-string accessors.
     /// </summary>
     [Fact]
     public void Decodes_string_slot_via_PtrToStringUTF8()
@@ -84,7 +81,9 @@ public sealed unsafe class WlArgumentDecoderTests
         }
     }
 
-    /// <summary>NULL string slot decodes as managed <c>null</c>.</summary>
+    /// <summary>
+    /// NULL string slot decodes as managed <c>null</c>.
+    /// </summary>
     [Fact]
     public void Null_string_slot_decodes_as_null()
     {
@@ -102,8 +101,8 @@ public sealed unsafe class WlArgumentDecoderTests
     }
 
     /// <summary>
-    /// <see cref="WlArgumentDecoder.SlotSize"/> matches the platform
-    /// pointer width — pinned at 8 on the targeted 64-bit Linux.
+    /// <see cref="WlArgumentDecoder.SlotSize"/> Matches the platform pointer width — pinned at 8 on
+    /// the targeted 64-bit Linux.
     /// </summary>
     [Fact]
     public void SlotSize_equals_pointer_size()
@@ -112,8 +111,7 @@ public sealed unsafe class WlArgumentDecoderTests
     }
 
     /// <summary>
-    /// <see cref="WlArgumentDecoder.FixedToDouble"/> round-trips
-    /// known 24.8 values.
+    /// <see cref="WlArgumentDecoder.FixedToDouble"/> Round-trips known 24.8 values.
     /// </summary>
     [Theory]
     [InlineData(0, 0.0)]

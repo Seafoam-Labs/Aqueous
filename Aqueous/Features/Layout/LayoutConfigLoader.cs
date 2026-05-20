@@ -10,25 +10,31 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// Hand-rolled TOML subset loader for <see cref="LayoutConfig"/>. Lives in
-/// its own file so the model stays small and reads as a record. The parser
-/// recognises:
+/// Hand-rolled TOML subset loader for <see cref="LayoutConfig"/>. Lives in its own file so the
+/// model stays small and reads as a record. The parser recognises:
 /// <list type="bullet">
-///   <item><c>[section]</c> and <c>[section.subsection]</c></item>
-///   <item><c>[[output]]</c> arrays-of-tables</item>
-///   <item><c>key = value</c> with string ("..."), int, float, bool</item>
-///   <item>line comments starting with <c>#</c></item>
+/// <item>
+/// <c>[section]</c> and <c>[section.subsection]</c>
+/// </item>
+/// <item>
+/// <c>[[output]]</c> arrays-of-tables
+/// </item>
+/// <item>
+/// <c>key = value</c> with string ("."), int, float, bool
+/// </item>
+/// <item>
+/// line comments starting with <c>#</c>
+/// </item>
 /// </list>
-/// Unknown keys and unknown <c>[layout.options.&lt;id&gt;]</c> sections are
-/// preserved as-is — this is required for plugin-supplied layouts whose
-/// id is not known to the core registry at parse time.
+/// Unknown keys and unknown <c>[layout.options.&lt;id&gt;]</c> sections are preserved as-is — this
+/// is required for plugin-supplied layouts whose id is not known to the core registry at parse
+/// time.
 /// </summary>
 public static class LayoutConfigLoader
 {
     /// <summary>
-    /// Loads a config from <paramref name="path"/>. On any error returns
-    /// <see cref="LayoutConfig.Default"/> — the WM must never fail to start
-    /// because of a malformed config.
+    /// Loads a config from <paramref name="path"/>. On any error returns <see
+    /// cref="LayoutConfig.Default"/> — the WM must never fail to start because of a malformed config.
     /// </summary>
     public static LayoutConfig Load(string path)
     {
@@ -48,9 +54,8 @@ public static class LayoutConfigLoader
     }
 
     /// <summary>
-    /// Parses a TOML-subset configuration text. Never throws; malformed
-    /// values fall back to their per-key defaults via the <c>ParseXxx</c>
-    /// helpers below.
+    /// Parses a TOML-subset configuration text. Never throws; malformed values fall back to their
+    /// per-key defaults via the <c>ParseXxx</c> helpers below.
     /// </summary>
     public static LayoutConfig Parse(string text)
     {
@@ -77,13 +82,12 @@ public static class LayoutConfigLoader
         var spAnchor = ScratchpadConfig.Default.Anchor;
         var spSpawn = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        //Input Config
+        // Input Config
         var inFocusFollowsMouse = InputConfig.Default.FocusFollowsMouse;
         var pointerAcceleration = InputConfig.Default.PointerAcceleration;
         var pointerAccelerationFactor = InputConfig.Default.PointerAccelerationFactor;
-        // Per-device libinput knobs ([input.mouse|touchpad|trackpoint]).
-        // Mutable PerDeviceInput-shaped buffers populated by the section
-        // switch below; flushed into immutable PerDeviceInput records at
+        // Per-device libinput knobs ([input.mouse|touchpad|trackpoint]). Mutable PerDeviceInput-shaped
+        // buffers populated by the section switch below; flushed into immutable PerDeviceInput records at
         // the end of Parse.
         var devMouse = new PerDeviceBuf();
         var devTouch = new PerDeviceBuf();
@@ -105,12 +109,10 @@ public static class LayoutConfigLoader
             pendingOutputLayout = null;
         }
 
-        // ---------------------------------------------------------------
-        // [[exec]] autostart entries (Phase B1f). Each [[exec]] table
-        // becomes one ExecEntry. Required keys (`name`, `command`) must
-        // both be present; otherwise the entry is silently dropped (a
-        // warning is logged once we have a logger seam here).
-        // Duplicate `name`s: first wins.
+        // ------------------------------------------------------------- [[exec]] autostart entries (Phase
+        // B1f). Each [[exec]] table becomes one ExecEntry. Required keys (`name`, `command`) must both be
+        // present; otherwise the entry is silently dropped (a warning is logged once we have a logger
+        // seam here). Duplicate `name`s: first wins.
         // ---------------------------------------------------------------
         var execEntries = new List<ExecEntry>();
         var execNames = new HashSet<string>(StringComparer.Ordinal);
@@ -134,8 +136,7 @@ public static class LayoutConfigLoader
             if (string.IsNullOrWhiteSpace(execPendingName)
                 || string.IsNullOrWhiteSpace(execPendingCommand))
             {
-                // Silently drop incomplete entries — same permissive
-                // posture as the rest of the loader.
+                // Silently drop incomplete entries — same permissive posture as the rest of the loader.
                 execPendingName = null;
                 execPendingCommand = null;
                 execPendingWhen = ExecWhen.Startup;
@@ -178,28 +179,14 @@ public static class LayoutConfigLoader
             execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
-        // ---------------------------------------------------------------
-        // Snap-zone parsing state.
-        //
-        // Schema (line-oriented to fit this hand-rolled parser):
-        //
-        //   [[snapzones]]
-        //   output = "DP-1"        # or "*" for every output
-        //   layout = "default"     # optional; defaults to "default"
-        //
-        //   [[snapzones.zone]]
-        //   name = "left-half"
-        //   x = 0.0
-        //   y = 0.0
-        //   w = 0.5
-        //   h = 1.0
-        //
-        // [[snapzones]] introduces a new (output, layout) bucket;
-        // [[snapzones.zone]] tables are appended to whatever bucket
-        // is currently open. A new [[snapzones]] flushes the previous
-        // pending zone and bucket; end-of-file flushes both.
-        // ---------------------------------------------------------------
-        // Ordered (output → ordered list of (layoutName, zones)).
+        // ------------------------------------------------------------- Snap-zone parsing state. Schema
+        // (line-oriented to fit this hand-rolled parser): [[snapzones]] output = "DP-1" # or "*" for
+        // every output layout = "default" # optional; defaults to "default" [[snapzones.zone]] name =
+        // "left-half" x = 0.0 y = 0.0 w = 0.5 h = 1.0 [[snapzones]] introduces a new (output, layout)
+        // bucket; [[snapzones.zone]] tables are appended to whatever bucket is currently open. A new
+        // [[snapzones]] flushes the previous pending zone and bucket; end-of-file flushes both.
+        // --------------------------------------------------------------- Ordered (output → ordered list
+        // of (layoutName, zones)).
         var snapByOutput =
             new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
         string? snapPendingOutput = null;
@@ -269,16 +256,14 @@ public static class LayoutConfigLoader
 
             if (line.StartsWith("[["))
             {
-                // array-of-tables — [[output]], [[snapzones]], [[snapzones.zone]], [[exec]].
+                // Array-of-tables — [[output]], [[snapzones]], [[snapzones.zone]], [[exec]].
                 FlushOutput();
                 FlushExec();
                 int end = line.IndexOf("]]", StringComparison.Ordinal);
                 curSection = end > 2 ? "[[" + line.Substring(2, end - 2).Trim() + "]]" : line;
 
-                // Snap-zone book-keeping: each [[snapzones]] opens a new
-                // bucket (flushing the previous one); each
-                // [[snapzones.zone]] flushes the previous zone and
-                // arms a fresh one.
+                // Snap-zone book-keeping: each [[snapzones]] opens a new bucket (flushing the previous one); each
+                // [[snapzones.zone]] flushes the previous zone and arms a fresh one.
                 if (curSection == "[[snapzones]]")
                 {
                     FlushSnapBucket();
@@ -326,7 +311,7 @@ public static class LayoutConfigLoader
 
             var key = line.Substring(0, eq).Trim();
             var valRaw = line.Substring(eq + 1).Trim();
-            // strip trailing inline comment (#)
+            // Strip trailing inline comment (#)
             int hash = IndexOfUnquoted(valRaw, '#');
             if (hash >= 0)
             {
@@ -409,16 +394,15 @@ public static class LayoutConfigLoader
                     switch (key)
                     {
                         case "output":
-                            // Empty string → wildcard, so a [[snapzones]]
-                            // with output="" still applies somewhere.
+                            // Empty string → wildcard, so a [[snapzones]] with output="" still applies somewhere.
                             snapPendingOutput = string.IsNullOrEmpty(val) ? SnapZoneStore.Wildcard : val;
                             break;
                         case "layout":
                             snapPendingLayout = val;
                             break;
                         case "activator":
-                            // Optional modifier gate. Unknown / empty / "none"
-                            // / "always" all map to Always (= no extra gate).
+                            // Optional modifier gate. Unknown / empty / "none" / "always" all map to Always (= no extra
+                            // gate).
                             snapPendingActivator = StripQuotes(val).ToLowerInvariant() switch
                             {
                                 "" or "none" or "always" => SnapActivator.Always,
@@ -435,8 +419,7 @@ public static class LayoutConfigLoader
                 case "[[snapzones.zone]]":
                     if (!zPendingActive)
                     {
-                        // Defensive: a stray key under [[snapzones.zone]]
-                        // with no preceding header is dropped silently.
+                        // Defensive: a stray key under [[snapzones.zone]] with no preceding header is dropped silently.
                         break;
                     }
 
@@ -460,7 +443,7 @@ public static class LayoutConfigLoader
                     break;
                 case "keybinds.custom":
                 {
-                    // key is the chord (it may have been wrapped in quotes).
+                    // Key is the chord (it may have been wrapped in quotes).
                     var chord = StripQuotes(key);
                     kbCustom[chord] = val;
                     break;
@@ -534,8 +517,8 @@ public static class LayoutConfigLoader
         FlushExec();
         FlushSnapBucket();
 
-        // Build the SnapZoneStore from the parsed buckets. The map is
-        // output → list-of-layouts; each layout owns its zones.
+        // Build the SnapZoneStore from the parsed buckets. The map is output → list-of-layouts; each
+        // layout owns its zones.
         var snapStoreMap = new Dictionary<string, IReadOnlyList<SnapZoneLayout>>(StringComparer.Ordinal);
         foreach (var kv in snapByOutput)
         {
@@ -566,8 +549,8 @@ public static class LayoutConfigLoader
             Right = Math.Max(0, strutRight),
         };
 
-        // Build per-layout options. Scalars inherit from defaults unless
-        // overridden via dedicated keys (gaps_outer, gaps_inner, master_*).
+        // Build per-layout options. Scalars inherit from defaults unless overridden via dedicated keys
+        // (gaps_outer, gaps_inner, master_*).
         var perLayoutOpts = new Dictionary<string, LayoutOptions>(StringComparer.Ordinal);
         foreach (var kv in perLayout)
         {
@@ -639,9 +622,9 @@ public static class LayoutConfigLoader
     }
 
     /// <summary>
-    /// Mutable scratch buffer that mirrors <see cref="PerDeviceInput"/>'s
-    /// nullable fields. Used while parsing <c>[input.mouse|touchpad|trackpoint]</c>
-    /// sub-tables, then frozen via <see cref="ToRecord"/>.
+    /// Mutable scratch buffer that mirrors <see cref="PerDeviceInput"/>'s nullable fields. Used while
+    /// parsing <c>[input.mouse|touchpad|trackpoint]</c> sub-tables, then frozen via <see
+    /// cref="ToRecord"/>.
     /// </summary>
     private sealed class PerDeviceBuf
     {
@@ -670,15 +653,14 @@ public static class LayoutConfigLoader
     }
 
     /// <summary>
-    /// Maps one <c>key = value</c> from an <c>[input.&lt;device&gt;]</c>
-    /// sub-table onto <paramref name="d"/>. Key names mirror niri's KDL
-    /// schema (with <c>-</c> normalised to <c>_</c>) so configs port
-    /// trivially.
+    /// Maps one <c>key = value</c> from an <c>[input.&lt;device&gt;]</c> sub-table onto <paramref
+    /// name="d"/>. Key names mirror niri's KDL schema (with <c>-</c> normalised to <c>_</c>) so
+    /// configs port trivially.
     /// </summary>
     private static void ParseDeviceKey(PerDeviceBuf d, string key, string val)
     {
-        // Accept both "accel-speed" and "accel_speed" — niri uses dashes,
-        // most TOML tooling prefers underscores.
+        // Accept both "accel-speed" and "accel_speed" — niri uses dashes, most TOML tooling prefers
+        // underscores.
         var k = key.Replace('-', '_');
         var v = StripQuotes(val);
         switch (k)
@@ -714,10 +696,9 @@ public static class LayoutConfigLoader
     }
 
     /// <summary>
-    /// Parses the right-hand side of a chord assignment. Accepts either a
-    /// quoted/unquoted single string (<c>"Super+H"</c>) or an inline array
-    /// of strings (<c>["Super+H", "Alt+F1"]</c>). An empty array is the
-    /// explicit "unbind" form and yields an empty list.
+    /// Parses the right-hand side of a chord assignment. Accepts either a quoted/unquoted single
+    /// string (<c>"Super+H"</c>) or an inline array of strings (<c>["Super+H", "Alt+F1"]</c>). An
+    /// empty array is the explicit "unbind" form and yields an empty list.
     /// </summary>
     private static List<string> ParseChordList(string raw)
     {
@@ -737,7 +718,7 @@ public static class LayoutConfigLoader
                 return list; // = []
             }
 
-            // split on commas not inside quotes
+            // Split on commas not inside quotes
             int start = 0;
             bool inStr = false;
             for (int i = 0; i <= inner.Length; i++)
@@ -772,10 +753,9 @@ public static class LayoutConfigLoader
     }
 
     /// <summary>
-    /// Parses a single-line TOML inline table of the form
-    /// <c>{ KEY = "value", OTHER = "v" }</c> and merges its key/value
-    /// pairs into <paramref name="into"/>. Best-effort: malformed input
-    /// is ignored. Used by <c>[[exec]] env = { … }</c>.
+    /// Parses a single-line TOML inline table of the form <c>{ KEY = "value", OTHER = "v" }</c> and
+    /// merges its key/value pairs into <paramref name="into"/>. Best-effort: malformed input is
+    /// ignored. Used by <c>[[exec]] env = { … }</c>.
     /// </summary>
     private static void ParseInlineEnvTable(string raw, IDictionary<string, string> into)
     {
@@ -799,8 +779,7 @@ public static class LayoutConfigLoader
             return;
         }
 
-        // Split on top-level commas (i.e. commas that are NOT inside
-        // double-quoted spans).
+        // Split on top-level commas (i.e. commas that are NOT inside double-quoted spans).
         var parts = new List<string>();
         var cur = new System.Text.StringBuilder();
         bool inQuotes = false;

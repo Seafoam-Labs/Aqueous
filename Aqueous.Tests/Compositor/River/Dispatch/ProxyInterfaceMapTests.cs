@@ -5,13 +5,10 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch;
 
 /// <summary>
-/// Unit tests for Stage 0 of the <c>RiverWindowManagerClient</c>
-/// decomposition: <see cref="ProxyInterfaceMap"/>.
-///
-/// These tests cover only the helper's semantics. The full Stage 0
-/// "every proxy ProxyDispatcher.Dispatch can route has a non-empty
-/// entry in the map" sanity check requires a live (or recorded)
-/// Wayland session and lives outside the unit-test layer.
+/// Unit tests for of the <c>RiverWindowManagerClient</c> decomposition: <see
+/// cref="ProxyInterfaceMap"/>. These tests cover only the helper's semantics. The full "every
+/// proxy ProxyDispatcher.Dispatch can route has a non-empty entry in the map" sanity check
+/// requires a live (or recorded) Wayland session and lives outside the unit-test layer.
 /// </summary>
 public sealed class ProxyInterfaceMapTests
 {

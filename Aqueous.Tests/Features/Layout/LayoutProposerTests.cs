@@ -6,11 +6,10 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// PR 9.8 reduced this suite to structural guards. The
-/// <c>ILayoutProposerCollaborators</c> bridge has been retired;
-/// <see cref="LayoutProposer"/> now takes the god class directly.
-/// Per-method behavioural coverage is gated on manual River smoke
-/// because the bodies still live in the partial.
+/// Reduced this suite to structural guards. The <c>ILayoutProposerCollaborators</c> bridge has
+/// been retired; <see cref="LayoutProposer"/> now takes the god class directly. Per-method
+/// behavioural coverage is gated on manual River smoke because the bodies still live in the
+/// partial.
 /// </summary>
 public sealed class LayoutProposerTests
 {
@@ -27,8 +26,7 @@ public sealed class LayoutProposerTests
         Assert.Contains(typeof(ILayoutProposer), typeof(LayoutProposer).GetInterfaces());
     }
 
-    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
-    // with RiverWindowManagerClient itself.
+    // Negative class ctor-shape pin retired with RiverWindowManagerClient itself.
     [Fact]
     public void Ctor_Takes_LayoutController_First()
     {

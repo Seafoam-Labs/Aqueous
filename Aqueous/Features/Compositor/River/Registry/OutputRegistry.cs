@@ -8,10 +8,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Features.Compositor.River.Registry;
 
 /// <summary>
-/// Thread-safe <see cref="IOutputRegistry"/> implementation. Maintains a
-/// primary <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed on the
-/// native <c>river_output_v1*</c> proxy and a secondary index keyed on
-/// the <c>wl_registry</c>-advertised name so <c>global_remove</c>
+/// Thread-safe <see cref="IOutputRegistry"/> implementation. Maintains a primary <see
+/// cref="ConcurrentDictionary{TKey,TValue}"/> keyed on the native <c>river_output_v1*</c> proxy
+/// and a secondary index keyed on the <c>wl_registry</c>-advertised name so <c>global_remove</c>
 /// resolves in O(1).
 /// </summary>
 internal sealed class OutputRegistry : IOutputRegistry
@@ -94,8 +93,7 @@ internal sealed class OutputRegistry : IOutputRegistry
 
         if (!_byProxy.TryRemove(proxy, out var entry))
         {
-            // Secondary index pointed at a proxy that's already gone —
-            // an anomaly worth noting but not fatal.
+            // Secondary index pointed at a proxy that's already gone — an anomaly worth noting but not fatal.
             _logger.LogInformation(
                 "global_remove for wlName={WlName} but proxy=0x{Proxy:X} was already untracked",
                 wlOutputName,

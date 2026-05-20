@@ -7,10 +7,9 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Startup;
 
 /// <summary>
-/// Phase B1f — fires <c>[[exec]]</c> autostart entries from <c>wm.toml</c>
-/// after the compositor has advertised its globals. Idempotent per
-/// <see cref="ExecEntry.Once"/>; supervises <see cref="ExecEntry.Restart"/>
-/// children with exponential backoff (250 ms → 500 → 1 s → 2 s → 4 s →
+/// Phase B1f — fires <c>[[exec]]</c> autostart entries from <c>wm.toml</c> after the compositor
+/// has advertised its globals. Idempotent per <see cref="ExecEntry.Once"/>; supervises <see
+/// cref="ExecEntry.Restart"/> children with exponential backoff (250 ms → 500 → 1 s → 2 s → 4 s →
 /// 8 s → cap 10 s, reset on a clean exit).
 /// </summary>
 internal sealed class StartupExecRunner
@@ -27,10 +26,14 @@ internal sealed class StartupExecRunner
         _cfg = cfg ?? throw new ArgumentNullException(nameof(cfg));
     }
 
-    /// <summary>Fires entries with <c>when = startup</c> or <c>when = always</c>.</summary>
+    /// <summary>
+    /// Fires entries with <c>when = startup</c> or <c>when = always</c>.
+    /// </summary>
     public void OnStartup() => Fire(e => e.When is ExecWhen.Startup or ExecWhen.Always);
 
-    /// <summary>Fires entries with <c>when = reload</c> or <c>when = always</c>.</summary>
+    /// <summary>
+    /// Fires entries with <c>when = reload</c> or <c>when = always</c>.
+    /// </summary>
     public void OnReload() => Fire(e => e.When is ExecWhen.Reload or ExecWhen.Always);
 
     private void Fire(Func<ExecEntry, bool> predicate)
@@ -71,8 +74,7 @@ internal sealed class StartupExecRunner
             s = existing;
             if (code == 0)
             {
-                // Clean exit — treat as user-terminated; reset attempt
-                // counter and don't relaunch.
+                // Clean exit — treat as user-terminated; reset attempt counter and don't relaunch.
                 s.Reset();
                 _host.Log($"exec name={e.Name} exited code=0 (no restart)");
                 return;
@@ -85,8 +87,8 @@ internal sealed class StartupExecRunner
     }
 
     /// <summary>
-    /// Per-entry restart-attempt counter. The 7-step ladder is exposed
-    /// for tests via the public <see cref="NextBackoff"/> method.
+    /// Per-entry restart-attempt counter. The 7-step ladder is exposed for tests via the public <see
+    /// cref="NextBackoff"/> method.
     /// </summary>
     internal sealed class Supervisor
     {
@@ -94,8 +96,8 @@ internal sealed class StartupExecRunner
 
         public TimeSpan NextBackoff()
         {
-            // 250 * 2^attempt, clamped at 10 s. Sequence:
-            // 250, 500, 1 000, 2 000, 4 000, 8 000, 10 000, 10 000, …
+            // 250 * 2^attempt, clamped at 10 s. Sequence: 250, 500, 1 000, 2 000, 4 000, 8 000, 10 000, 10
+            // 000, …
             var attempt = Math.Min(_attempt, 6);
             _attempt++;
             var ms = Math.Min(10_000, 250 * (1 << attempt));

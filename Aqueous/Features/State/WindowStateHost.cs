@@ -9,22 +9,12 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// Stage 9 PR 9.10 — full literal lift of the nested
-/// <c>RiverWindowManagerClient.RiverWindowStateHost</c> class into a
-/// top-level <see cref="IWindowStateHost"/> implementation.
-///
+/// Full literal lift of the nested <c>RiverWindowManagerClient.RiverWindowStateHost</c> class into
+/// a top-level <see cref="IWindowStateHost"/> implementation.
 /// <para>
-/// PR 9.12 §2.13: the residual <see cref="RiverWindowManagerClient"/>
-/// ctor argument is gone. The host now takes the eight fine-grained
-/// singletons that previously flowed through the
-/// <c>WindowStateHostAccessors</c> partial: window/output registries,
-/// the per-window state store, the per-output fullscreen map, the
-/// focused-window tracker, the focus service (RequestFocus +
-/// FocusAnyOtherWindow), the manager request sender (ScheduleManage),
-/// and the layout controller (for <c>ApplyStruts</c> via its active
-/// <see cref="LayoutConfig"/>). The accessor partial
-/// (<c>RiverWindowManagerClient.WindowStateHostAccessors.cs</c>) is
-/// deleted in the same commit.
+/// the residual <see cref="RiverWindowManagerClient"/> ctor argument is gone. The host now takes
+/// the eight fine-grained singletons that. The accessor partial
+/// (<c>RiverWindowManagerClient.WindowStateHostAccessors.cs</c>) is deleted in the same commit.
 /// </para>
 /// </summary>
 internal sealed class WindowStateHost : IWindowStateHost
@@ -38,11 +28,10 @@ internal sealed class WindowStateHost : IWindowStateHost
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly LayoutController _layoutController;
 
-    // Test-only seam for the inform_(un)maximized wire emit. When set
-    // to non-null, SetToplevelMaximizedState calls this in lieu of
-    // wl_proxy_marshal_flags so unit tests can drive the host with
-    // synthetic IntPtr handles without segfaulting in libwayland.
-    // Production keeps this null and the real marshal runs.
+    // Test-only seam for the inform_(un)maximized wire emit. When set to non-null,
+    // SetToplevelMaximizedState calls this in lieu of wl_proxy_marshal_flags so unit tests can drive
+    // the host with synthetic IntPtr handles without segfaulting in libwayland. Production keeps this
+    // null and the real marshal runs.
     internal static Action<IntPtr, uint>? MaximizedMarshalOverride;
 
     public WindowStateHost(
@@ -201,12 +190,10 @@ internal sealed class WindowStateHost : IWindowStateHost
             return;
         }
 
-        // Symmetric counterpart to the hide-pass cache invalidation in
-        // LayoutProposer.ProposeForArea: clears HideSent and zeroes the
-        // placement/size caches so the next manage cycle re-issues
-        // propose_dimensions / set_position and walks the show path for
-        // a window that just left the Minimized / tag-hidden /
-        // scratchpad-dismissed bucket. No-op if the handle is unknown.
+        // Symmetric counterpart to the hide-pass cache invalidation in LayoutProposer.ProposeForArea:
+        // clears HideSent and zeroes the placement/size caches so the next manage cycle re-issues
+        // propose_dimensions / set_position and walks the show path for a window that just left the
+        // Minimized / tag-hidden / scratchpad-dismissed bucket. No-op if the handle is unknown.
         if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
         {
             return;
@@ -228,10 +215,9 @@ internal sealed class WindowStateHost : IWindowStateHost
             return false;
         }
 
-        // Probe used by WindowStateController.UnminimizeLast to guard
-        // the focus_window call against a window that hasn't been
-        // re-shown yet. True when the entry is in a layout bucket
-        // (non-zero output, tag-visible, not awaiting a hide-flush).
+        // Probe used by WindowStateController.UnminimizeLast to guard the focus_window call against a
+        // window that hasn't been re-shown yet. True when the entry is in a layout bucket (non-zero
+        // output, tag-visible, not awaiting a hide-flush).
         if (!_windowRegistry.Entries.TryGetValue(window.Handle, out WindowEntry? entry))
         {
             return false;
@@ -248,24 +234,18 @@ internal sealed class WindowStateHost : IWindowStateHost
         }
 
         entry.XdgMaximized = maximized;
-        // Force the size diff-gate to re-fire on the next manage cycle
-        // so the new state array goes out together with a fresh
-        // propose_dimensions, even if the size happens to be unchanged
-        // across the transition.
+        // Force the size diff-gate to re-fire on the next manage cycle so the new state array goes out
+        // together with a fresh propose_dimensions, even if the size happens to be unchanged across the
+        // transition.
         entry.LastHintW = int.MinValue;
         entry.LastHintH = int.MinValue;
 
-        // Wire-level: tell River to update the xdg_toplevel state
-        // array on its next configure to the client. Without this
-        // call strict xdg-shell clients (Chromium, Alacritty) keep
-        // seeing state=[activated, maximized] across a restore and
-        // either reconcile (Chromium burns one click) or refuse to
-        // shrink (Alacritty stays glued at the maximized rect).
-        // Opcodes per WlInterfaces.cs river_window_v1 request list:
-        //   inform_maximized   = 15
-        //   inform_unmaximized = 16
-        // Both are zero-arg requests on the river_window_v1 proxy
-        // (which is `window.Handle` — same proxy used for opcode 3
+        // Wire-level: tell River to update the xdg_toplevel state array on its next configure to the
+        // client. Without this call strict xdg-shell clients (Chromium, Alacritty) keep seeing
+        // state=[activated, maximized] across a restore and either reconcile (Chromium burns one click)
+        // or refuse to shrink (Alacritty stays glued at the maximized rect). Opcodes per WlInterfaces.cs
+        // river_window_v1 request list: inform_maximized = 15 inform_unmaximized = 16 Both are zero-arg
+        // requests on the river_window_v1 proxy (which is `window.Handle` — same proxy used for opcode 3
         // propose_dimensions in the LayoutProposer).
         if (window.Handle == IntPtr.Zero)
         {
@@ -312,11 +292,9 @@ internal sealed class WindowStateHost : IWindowStateHost
                 }
             }
 
-            // For supervised entries (OnExit set) we run the command
-            // *foregrounded* under sh so Process.HasExited / Exited
-            // fire when the child terminates. For fire-and-forget
-            // entries we keep the existing setsid -f detach semantics
-            // — same as the keybind spawn path.
+            // For supervised entries (OnExit set) we run the command *foregrounded* under sh so
+            // Process.HasExited / Exited fire when the child terminates. For fire-and-forget entries we keep
+            // the existing setsid -f detach semantics — same as the keybind spawn path.
             var redirect = string.IsNullOrEmpty(request.LogPath)
                 ? ">/dev/null 2>&1"
                 : $">>{EscapeForShell(request.LogPath!)} 2>&1";
@@ -364,11 +342,10 @@ internal sealed class WindowStateHost : IWindowStateHost
             return;
         }
 
-        // Using Timer is the specified fallback in IWindowStateHost, but we must
-        // ensure the callback doesn't race with the main Wayland loop or
-        // other threads if the callback modifies internal state.
-        // StartupExecRunner.Launch (the primary user) is relatively safe as
-        // it uses Process.Start and adds to the supervisor list.
+        // Using Timer is the specified fallback in IWindowStateHost, but we must ensure the callback
+        // doesn't race with the main Wayland loop or other threads if the callback modifies internal
+        // state. StartupExecRunner.Launch (the primary user) is relatively safe as it uses Process.Start
+        // and adds to the supervisor list.
         Timer? t = null;
         t = new Timer(_ =>
         {
@@ -400,10 +377,9 @@ internal sealed class WindowStateHost : IWindowStateHost
     }
 
     /// <summary>
-    /// Returns the OutputEntry the keyboard focus currently lives on.
-    /// Falls back to the first known output. <c>null</c> if no outputs
-    /// are tracked yet (e.g. the headless fallback). Lifted from the
-    /// deleted <c>WindowStateHostAccessors</c> partial in PR 9.12 §2.13.
+    /// Returns the OutputEntry the keyboard focus currently lives on. Falls back to the first known
+    /// output. <c>null</c> if no outputs are tracked yet (e.g. the headless fallback). Lifted from the
+    /// deleted <c>WindowStateHostAccessors</c> partial
     /// </summary>
     private OutputEntry? GetFocusedOutputEntry()
     {

@@ -31,16 +31,15 @@ class Program
 
         using var lifetimeCts = new CancellationTokenSource();
 
-        // PR 9.12 §2.13 Step 10 — final demolition. The RiverWindowManagerClient
-        // god class is gone. Every service it formerly built in its ctor is
-        // now registered directly with DI. RiverCompositorHost takes the same
-        // ctor args via DI and owns the Wayland lifecycle outright.
+        // Final demolition. The RiverWindowManagerClient god class is gone. Every service it formerly
+        // built in its ctor is now registered directly with DI. RiverCompositorHost takes the same ctor
+        // args via DI and owns the Wayland lifecycle outright.
         var services = new ServiceCollection();
         services.AddSingleton(typeof(ILoggerFactory),
             (object?)Logging.Factory ?? NullLoggerFactory.Instance);
         services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
 
-        // --- Connection & transport state ---------------------------------
+        // - Connection & transport state ---------------------------------
         services.AddSingleton<IWaylandConnection, WaylandConnection>();
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
@@ -50,7 +49,7 @@ class Program
         services.AddSingleton<WaylandBindSiteState>();
         services.AddSingleton<RegistryBinder>();
 
-        // --- Fine-grained state singletons --------------------------------
+        // - Fine-grained state singletons --------------------------------
         services.AddSingleton<Aqueous.Features.Focus.FocusedWindowTracker>();
         services.AddSingleton<Aqueous.Features.State.OutputFullscreenMap>();
         services.AddSingleton<Aqueous.Features.State.WindowStateStore>();
@@ -63,7 +62,7 @@ class Program
         services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
         services.AddSingleton<Aqueous.Features.State.ScratchpadRegistry>();
 
-        // --- Layout subsystem ---------------------------------------------
+        // - Layout subsystem ---------------------------------------------
         services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
         services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>
             Aqueous.Features.Layout.LayoutConfig.Load(DefaultConfigPath.Resolve()));
@@ -74,7 +73,7 @@ class Program
             Aqueous.Features.Layout.LayoutProposer>();
         services.AddSingleton<Aqueous.Features.Layout.ViewportInteractionService>();
 
-        // --- Focus / Tags / SnapZones / Screencopy ------------------------
+        // - Focus / Tags / SnapZones / Screencopy ------------------------
         services.AddSingleton<Aqueous.Features.Focus.IFocusService,
             Aqueous.Features.Focus.FocusService>();
         services.AddSingleton<Aqueous.Features.Tags.ITagService,
@@ -84,11 +83,11 @@ class Program
         services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService,
             Aqueous.Features.Screencopy.ScreencopyService>();
 
-        // --- Seat / drag ---------------------------------------------------
+        // - Seat / drag ---------------------------------------------------
         services.AddSingleton<SeatInteractionService>();
         services.AddSingleton<Aqueous.Features.Input.DragPointerBindingService>();
 
-        // --- Bindings ------------------------------------------------------
+        // - Bindings ------------------------------------------------------
         services.AddSingleton<Aqueous.Features.Bindings.IProcessLauncher,
             Aqueous.Features.Bindings.ProcessLauncher>();
         services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRouter,
@@ -99,7 +98,7 @@ class Program
         services.AddSingleton<Aqueous.Features.Bindings.IKeyBindingRegistrar>(sp =>
             sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingRegistrar>());
 
-        // --- Window-state subsystem ---------------------------------------
+        // - Window-state subsystem ---------------------------------------
         services.AddSingleton<Aqueous.Features.State.WindowStateHost>();
         services.AddSingleton<Aqueous.Features.State.IWindowStateHost>(sp =>
             sp.GetRequiredService<Aqueous.Features.State.WindowStateHost>());
@@ -109,11 +108,11 @@ class Program
                 sp.GetRequiredService<Aqueous.Features.State.IWindowStateHost>(),
                 sp.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>().Exec));
 
-        // --- Manager / window event services ------------------------------
+        // - Manager / window event services ------------------------------
         services.AddSingleton<ManagerEventService>();
         services.AddSingleton<WindowEventService>();
 
-        // --- Event-handler registrations (the dispatcher table) -----------
+        // - Event-handler registrations (the dispatcher table) -----------
         services.AddSingleton<IEventHandler>(_ => new LayerShellEventHandler(RiverLog.Write));
         services.AddSingleton<IEventHandler>(sp => new OutputEventHandler(
             sp.GetRequiredService<IWindowRegistry>(),
@@ -154,19 +153,17 @@ class Program
             sp.GetRequiredService<Aqueous.Features.Screencopy.IScreencopyService>(),
             RiverLog.Write));
 
-        // --- Top-level dispatcher + host ----------------------------------
+        // - Top-level dispatcher + host ----------------------------------
         services.AddSingleton<IEventDispatcher>(sp => new EventDispatcher(
             sp.GetServices<IEventHandler>()));
         services.AddSingleton<RiverCompositorHost>();
 
         using var provider = services.BuildServiceProvider();
 
-        // Push libinput config to the privileged sidecar (aqueous-inputd).
-        // Best-effort: silently logs and proceeds if the daemon isn't up.
-        // River 0.4 owns libinput but exposes no API to a WM client, so
-        // pointer accel etc. can only be applied out-of-process. Mirrors
-        // niri's "apply on startup + on config reload" model — the same
-        // call lives in ReloadConfig (KeyBindingActionRouter).
+        // Push libinput config to the privileged sidecar (aqueous-inputd). Best-effort: silently logs and
+        // proceeds if the daemon isn't up. River 0.4 owns libinput but exposes no API to a WM client, so
+        // pointer accel etc. can only be applied out-of-process. Mirrors niri's "apply on startup + on
+        // config reload" model — the same call lives in ReloadConfig (KeyBindingActionRouter).
         try
         {
             var cfg = provider.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>();

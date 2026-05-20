@@ -6,17 +6,16 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 9.7: <see cref="WindowEventHandler"/> now takes
-/// <c>RiverWindowManagerClient</c> directly (no bridge interface).
-/// Real-bridge construction requires Wayland; structural guards only.
+/// <see cref="WindowEventHandler"/> Now takes <c>RiverWindowManagerClient</c> directly (no bridge
+/// interface). Real-bridge construction requires Wayland; structural guards only.
 /// </summary>
 public sealed class WindowEventHandlerTests
 {
     [Fact]
     public void InterfaceName_is_river_window_v1()
     {
-        // Can't construct without a real RiverWindowManagerClient; check
-        // the constant via reflection on a non-constructed instance.
+        // Can't construct without a real RiverWindowManagerClient; check the constant via reflection on a
+        // non-constructed instance.
         var prop = typeof(WindowEventHandler).GetProperty("InterfaceName");
         Assert.NotNull(prop);
     }

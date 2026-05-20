@@ -9,22 +9,21 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Connection;
 
 /// <summary>
-/// Unit tests for <see cref="EventPump"/> / <see cref="IEventPump"/>.
-/// The pump is exercised against an in-memory <see cref="FakeWaylandConnection"/>;
-/// libwayland is never touched, so the tests run in any environment.
+/// Unit tests for <see cref="EventPump"/> / <see cref="IEventPump"/>. The pump is exercised
+/// against an in-memory <see cref="FakeWaylandConnection"/>; libwayland is never touched, so the
+/// tests run in any environment.
 /// </summary>
 public class EventPumpTests
 {
-    // The defaults used by tests below. Generous enough that a slow
-    // CI box doesn't flake, short enough that the suite still runs
-    // quickly when everything is healthy.
+    // The defaults used by tests below. Generous enough that a slow CI box doesn't flake, short
+    // enough that the suite still runs quickly when everything is healthy.
     private static readonly TimeSpan Short = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan Long = TimeSpan.FromSeconds(2);
 
     private static EventPump NewPump(FakeWaylandConnection conn, EventPumpOptions? options = null)
         => new(conn, NullLogger<EventPump>.Instance, options ?? new EventPumpOptions
         {
-            // Tighten the default join so Dispose() in tests is snappy.
+            // Tighten the default join so Dispose in tests is snappy.
             DefaultJoinTimeout = Long,
         });
 
@@ -38,8 +37,8 @@ public class EventPumpTests
         var firstThread = conn.WaitForFirstDispatchThread(Long);
         pump.Start(); // second call must be a no-op
 
-        // Give the pump a few iterations; assert all dispatches came
-        // from the *same* OS thread, proving no second worker spawned.
+        // Give the pump a few iterations; assert all dispatches came from the *same* OS thread, proving
+        // no second worker spawned.
         SpinWait.SpinUntil(() => conn.DispatchCalls > 5, Long);
         Assert.True(conn.AllDispatchesOnThread(firstThread));
 

@@ -7,15 +7,11 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Bindings;
 
 /// <summary>
-/// PR 9.9 (Stage 9): top-level <see cref="ICustomActionRunner"/> implementation.
-///
-/// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
-/// reference to fine-grained service injection.
-///
-/// PR 9.12 §2.13: the residual <see cref="RiverWindowManagerClient"/> ctor
-/// argument is gone — the runner never actually consumed it. The static
-/// <c>RiverLog.Write</c> helper used for error reporting is a
-/// stand-alone forwarder that doesn't require an instance.
+/// : Top-level <see cref="ICustomActionRunner"/> implementation. ctor converted from a single <see
+/// cref="RiverWindowManagerClient"/> reference to fine-grained service injection. the residual
+/// <see cref="RiverWindowManagerClient"/> ctor argument is gone — the runner never actually
+/// consumed it. The static <c>RiverLog.Write</c> helper used for error reporting is a stand-alone
+/// forwarder that doesn't require an instance.
 /// </summary>
 internal sealed class CustomActionRunner : ICustomActionRunner
 {
@@ -36,9 +32,15 @@ internal sealed class CustomActionRunner : ICustomActionRunner
     /// <summary>
     /// Dispatch a custom action verb. Recognised forms:
     /// <list type="bullet">
-    ///   <item><c>spawn:&lt;cmd&gt;</c> — fork/exec via <c>/bin/sh -c</c>.</item>
-    ///   <item><c>set_layout:&lt;id-or-slot&gt;</c> — switch active layout.</item>
-    ///   <item><c>builtin:&lt;action_name&gt;</c> — invoke a built-in.</item>
+    /// <item>
+    /// <c>spawn:&lt;cmd&gt;</c> — fork/exec via <c>/bin/sh -c</c>.
+    /// </item>
+    /// <item>
+    /// <c>set_layout:&lt;id-or-slot&gt;</c> — switch active layout.
+    /// </item>
+    /// <item>
+    /// <c>builtin:&lt;action_name&gt;</c> — invoke a built-in.
+    /// </item>
     /// </list>
     /// </summary>
     public void Run(string verb)
@@ -66,11 +68,10 @@ internal sealed class CustomActionRunner : ICustomActionRunner
     }
 
     /// <summary>
-    /// Downcast the DI-injected <see cref="IKeyBindingRouter"/> to the concrete
-    /// <see cref="KeyBindingRouter"/> for the two entry points custom verbs
-    /// reach that aren't on the interface (<c>SetLayoutByIdOrSlot</c>,
-    /// <c>InvokeBuiltin</c>). Safe because DI only registers exactly one
-    /// router instance of this concrete type.
+    /// Downcast the DI-injected <see cref="IKeyBindingRouter"/> to the concrete <see
+    /// cref="KeyBindingRouter"/> for the two entry points custom verbs reach that aren't on the
+    /// interface (<c>SetLayoutByIdOrSlot</c>, <c>InvokeBuiltin</c>). Safe because DI only registers
+    /// exactly one router instance of this concrete type.
     /// </summary>
     private KeyBindingRouter ConcreteRouter() => (KeyBindingRouter)_router;
 
@@ -114,10 +115,8 @@ internal sealed class CustomActionRunner : ICustomActionRunner
 
     private void RunBuiltinVerb(string arg)
     {
-        // Phase B1e Pass B: split one optional trailing ":argument"
-        // segment so chords like
-        //   builtin:toggle_scratchpad_named:term
-        // can dispatch to the parameterised actions while preserving
+        // Phase B1e Pass B: split one optional trailing ":argument" segment so chords like
+        // builtin:toggle_scratchpad_named:term can dispatch to the parameterised actions while preserving
         // the existing parameterless form (e.g. builtin:cycle_focus).
         string bname = arg;
         string barg = string.Empty;

@@ -7,10 +7,9 @@ namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 public sealed class DragPointerBindingEventHandlerTests
 {
-    // PR 9.5 retired IDragPointerBindingHandlerCollaborators; the handler
-    // now consumes RiverWindowManagerClient directly. The god class can't
-    // be safely constructed in unit tests (it opens a Wayland connection),
-    // so only the structural contract is exercised here. Behavioural
+    // Retired IDragPointerBindingHandlerCollaborators; the handler now consumes
+    // RiverWindowManagerClient directly. The god class can't be safely constructed in unit tests (it
+    // opens a Wayland connection), so only the structural contract is exercised here. Behavioural
     // coverage moves to manual River smoke (drag move + resize + snap).
 
     [Fact]

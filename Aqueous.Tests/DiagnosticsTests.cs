@@ -63,8 +63,8 @@ public class LoggingTests
     [Fact]
     public void Factory_DefaultsToNull()
     {
-        // Default is NullLoggerFactory unless configured. We only assert
-        // the property is non-null and resolves a logger without throwing.
+        // Default is NullLoggerFactory unless configured. We only assert the property is non-null and
+        // resolves a logger without throwing.
         var logger = Logging.For<LoggingTests>();
         Assert.NotNull(logger);
         // Should swallow without throwing on any level.
@@ -80,14 +80,12 @@ public class LoggingTests
 
 public class EventPumpCancellationTests
 {
-    // A trivial fake exposing the same Dispatch API EventPump consumes.
-    // We don't go through real Wayland — EventPump only needs an int
-    // returning Dispatch() and the public surface; we replace that
-    // through the existing internal type by using a delay loop.
-    // PR 9.12 §2.13 Step 7: the legacy static TryStart() factory was
-    // retired; lifecycle gating now lives in RiverEnvironmentGuard,
-    // driven by RiverCompositorHost.StartAsync. These two tests pin
-    // the env-var contract directly against the guard.
+    // A trivial fake exposing the same Dispatch API EventPump consumes. We don't go through real
+    // Wayland — EventPump only needs an int returning Dispatch and the public surface; we replace
+    // that through the existing internal type by using a delay loop. the static TryStart factory was
+    // retired; lifecycle gating now lives in RiverEnvironmentGuard, driven by
+    // RiverCompositorHost.StartAsync. These two tests pin the env-var contract directly against the
+    // guard.
     [Fact]
     public async Task EnvironmentGuard_ReportsDisabled_WhenEnvUnset()
     {

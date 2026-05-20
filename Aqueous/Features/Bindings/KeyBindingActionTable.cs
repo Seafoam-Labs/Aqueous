@@ -5,14 +5,12 @@ using Aqueous.Features.Compositor.River;
 namespace Aqueous.Features.Bindings;
 
 /// <summary>
-/// PR 9.12 §2.7: top-level home for the built-in action-name → enum
-/// table used by both <see cref="KeyBindingRegistrar"/> (to translate
-/// <c>[keybinds]</c> chord overrides) and the lifted
-/// <see cref="CustomActionRunner"/> (to resolve <c>builtin:&lt;name&gt;</c>
-/// verbs from <c>[keybinds.custom]</c>). The previous home was the
-/// <c>RiverWindowManagerClient.KeyBindingRegistrar</c> partial as an
-/// <c>internal static readonly</c> field; it is preserved verbatim here
-/// to keep the contract for both consumers byte-for-byte identical.
+/// Top-level home for the built-in action-name → enum table used by both <see
+/// cref="KeyBindingRegistrar"/> (to translate <c>[keybinds]</c> chord overrides) and the lifted
+/// <see cref="CustomActionRunner"/> (to resolve <c>builtin:&lt;name&gt;</c> verbs from
+/// <c>[keybinds.custom]</c>). The previous home was the
+/// <c>RiverWindowManagerClient.KeyBindingRegistrar</c> partial as an <c>internal static
+/// readonly</c> field; it is here to keep the contract for both consumers byte-for-byte identical.
 /// </summary>
 internal static class KeyBindingActionTable
 {

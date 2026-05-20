@@ -5,11 +5,9 @@ using Aqueous.Features.Compositor.River.Registry;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 9.12 §2.13 — takes <see cref="WindowEventService"/> directly;
-/// the prior <c>RiverWindowManagerClient</c> reference (and the
-/// partial-class <c>WindowEventHandler.cs</c> file that backed it)
-/// have been retired.
-/// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
+/// Takes <see cref="WindowEventService"/> directly; the prior <c>RiverWindowManagerClient</c>
+/// reference (and the partial-class <c>WindowEventHandler.cs</c> file that backed it) have been
+/// retired. Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
 /// </summary>
 internal sealed unsafe class WindowEventHandler : IEventHandler
 {

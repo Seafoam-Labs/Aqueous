@@ -4,11 +4,10 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// "Float-as-layout": every window keeps its remembered <c>FloatRect</c>;
-/// brand-new windows get a centred <c>min(800, area.W*0.6) × min(600, area.H*0.6)</c>
-/// initial rect. The rect is stored per-window in the layout's per-output
-/// state so it survives across <c>Arrange</c> calls (and is reused by the
-/// future toggle-float feature).
+/// "Float-as-layout": every window keeps its remembered <c>FloatRect</c>; brand-new windows get a
+/// centred <c>min(800, area.W*0.6) × min(600, area.H*0.6)</c> initial rect. The rect is stored
+/// per-window in the layout's per-output state so it survives across <c>Arrange</c> calls (and is
+/// reused by the future toggle-float feature).
 /// </summary>
 public sealed class FloatingLayout : ILayoutEngine
 {

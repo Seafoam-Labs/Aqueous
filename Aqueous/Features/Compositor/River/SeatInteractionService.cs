@@ -9,24 +9,19 @@ using Aqueous.Features.SnapZones;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 3 — owns the six seat-bridge methods previously
-/// living on <c>RiverWindowManagerClient</c> as drained
-/// SeatHandlerBridge partial-helpers. Consumed by
-/// <c>SeatEventHandler.Managed.cs</c> in place of the prior
-/// <c>_river.*</c> calls.
-///
+/// Owns the six seat-bridge methods. Consumed by <c>SeatEventHandler.Managed.cs</c> in place of
+/// the prior <c>_river.*</c> calls.
 /// <para>
-/// PR 9.12 §2.13 Step 6.5: the last <c>RiverWindowManagerClient</c>
-/// coupling (drag-rect / drag-edges / drag-finished forwarders) is
-/// gone — that state now lives on <see cref="DragStateStore"/>, which
-/// the service consumes directly. All dependencies are now
-/// fine-grained DI singletons (<see cref="DragStateStore"/>,
-/// <see cref="IWindowRegistry"/>, <see cref="IFocusService"/>,
-/// <see cref="ILayoutProposer"/>, <see cref="ISnapZoneService"/>,
-/// <see cref="IManagerRequestSender"/>, <see cref="LayoutController"/>).
+/// the last <c>RiverWindowManagerClient</c> coupling (drag-rect / drag-edges / drag-finished
+/// forwarders) is gone — that state now lives on <see cref="DragStateStore"/>, which the service
+/// consumes directly. All dependencies are now fine-grained DI singletons (<see
+/// cref="DragStateStore"/>, <see cref="IWindowRegistry"/>, <see cref="IFocusService"/>, <see
+/// cref="ILayoutProposer"/>, <see cref="ISnapZoneService"/>, <see cref="IManagerRequestSender"/>,
+/// <see cref="LayoutController"/>).
 /// </para>
-///
-/// <para>Pump-thread only.</para>
+/// <para>
+/// Pump-thread only.
+/// </para>
 /// </summary>
 internal sealed class SeatInteractionService
 {
@@ -58,9 +53,8 @@ internal sealed class SeatInteractionService
 
     public void CachePointerPosition(IntPtr seat, int x, int y)
     {
-        // river_window_management_v1::pointer_position declares its args
-        // as type="int" in the protocol XML — global logical coordinates
-        // already in pixel space, NOT wl_fixed. Cache as-is.
+        // River_window_management_v1::pointer_position declares its args as type="int" in the protocol
+        // XML — global logical coordinates already in pixel space, NOT wl_fixed. Cache as-is.
         _dragState.SeatPointerPos[seat] = (x, y);
     }
 
@@ -97,13 +91,10 @@ internal sealed class SeatInteractionService
             return;
         }
 
-        // Drag (move or resize) is only meaningful while the float
-        // layout is active; in tile/scrolling/monocle/grid the per-
-        // window Floating override is suppressed by LayoutProposer
-        // bucketing and any FloatX/Y/W/H written here would be
-        // overwritten on the next manage cycle. Treat a not-float
-        // OpDelta as an abandoned drag so the next legitimate drag
-        // starts clean.
+        // Drag (move or resize) is only meaningful while the float layout is active; in
+        // tile/scrolling/monocle/grid the per- window Floating override is suppressed by LayoutProposer
+        // bucketing and any FloatX/Y/W/H written here would be overwritten on the next manage cycle.
+        // Treat a not-float OpDelta as an abandoned drag so the next legitimate drag starts clean.
         if (!_layoutProposer.IsFloatLayoutActive(adw.Output))
         {
             _dragState.DragFinished = true;
@@ -116,7 +107,7 @@ internal sealed class SeatInteractionService
         uint dragEdges = _dragState.DragEdges;
         if (dragEdges == 0)
         {
-            // ----- interactive move -----
+            // --- Interactive move -----
             adw.X = _dragState.DragStartX + dx;
             adw.Y = _dragState.DragStartY + dy;
             adw.HasFloatRect = true;
@@ -142,8 +133,8 @@ internal sealed class SeatInteractionService
         }
         else
         {
-            // ----- interactive resize -----
-            // Edges bitfield (river_window_v1): top=1, bottom=2, left=4, right=8.
+            // --- Interactive resize ----- Edges bitfield (river_window_v1): top=1, bottom=2, left=4,
+            // right=8.
             int startX = _dragState.DragStartX;
             int startY = _dragState.DragStartY;
             int startW = _dragState.DragStartW;
@@ -173,8 +164,8 @@ internal sealed class SeatInteractionService
                 newY = startY + dy;
             }
 
-            // Clamp to client-advertised min/max hints. A hint value
-            // of 0 means "no preference" per the protocol.
+            // Clamp to client-advertised min/max hints. A hint value of 0 means "no preference" per the
+            // protocol.
             int minW = adw.MinW > 0 ? adw.MinW : 1;
             int minH = adw.MinH > 0 ? adw.MinH : 1;
             if (newW < minW)

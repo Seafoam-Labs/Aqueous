@@ -5,8 +5,8 @@ using System.Diagnostics;
 namespace Aqueous.Features.Bindings;
 
 /// <summary>
-/// Stage 7: AOT-safe implementation of <see cref="IProcessLauncher"/>.
-/// Pins <c>UseShellExecute = false</c>; never propagates exceptions.
+/// AOT-safe implementation of <see cref="IProcessLauncher"/>. Pins <c>UseShellExecute = false</c>;
+/// never propagates exceptions.
 /// </summary>
 internal sealed class ProcessLauncher : IProcessLauncher
 {

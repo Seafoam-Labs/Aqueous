@@ -5,16 +5,14 @@ using Aqueous.Features.Focus;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// PR 9.12 §2.13 increment: lifts the focused-window-aware viewport helpers
-/// (<c>HandleScrollViewport</c>, <c>HandleMoveColumn</c>) off the
-/// <c>RiverWindowManagerClient.LayoutProposer</c> partial.
-///
-/// Combines the focused-window lookup (<see cref="FocusedWindowTracker"/> +
-/// <see cref="IWindowRegistry"/>), the output-name resolution
-/// (<see cref="ILayoutProposer.ResolveOutputName"/>), the layout-engine
-/// dispatch (<see cref="LayoutController"/>) and the post-mutation manage
-/// cycle scheduling (<see cref="IManagerRequestSender.ScheduleManage"/>)
-/// into a small DI-friendly service consumed by <c>KeyBindingRouter</c>.
+/// Increment: lifts the focused-window-aware viewport helpers (<c>HandleScrollViewport</c>,
+/// <c>HandleMoveColumn</c>) off the <c>RiverWindowManagerClient.LayoutProposer</c> partial.
+/// Combines the focused-window lookup (<see cref="FocusedWindowTracker"/> + <see
+/// cref="IWindowRegistry"/>), the output-name resolution (<see
+/// cref="ILayoutProposer.ResolveOutputName"/>), the layout-engine dispatch (<see
+/// cref="LayoutController"/>) and the post-mutation manage cycle scheduling (<see
+/// cref="IManagerRequestSender.ScheduleManage"/>) into a small DI-friendly service consumed by
+/// <c>KeyBindingRouter</c>.
 /// </summary>
 internal sealed class ViewportInteractionService
 {
@@ -38,7 +36,9 @@ internal sealed class ViewportInteractionService
         _requests = requests ?? throw new ArgumentNullException(nameof(requests));
     }
 
-    /// <summary>Pan the focused window's output by <paramref name="deltaColumns"/>.</summary>
+    /// <summary>
+    /// Pan the focused window's output by <paramref name="deltaColumns"/>.
+    /// </summary>
     public void ScrollViewport(int deltaColumns)
     {
         var focused = _focused.Current;
@@ -51,7 +51,9 @@ internal sealed class ViewportInteractionService
         _requests.ScheduleManage();
     }
 
-    /// <summary>Move the focused window's column in the given direction.</summary>
+    /// <summary>
+    /// Move the focused window's column in the given direction.
+    /// </summary>
     public void MoveColumn(FocusDirection dir)
     {
         var focused = _focused.Current;

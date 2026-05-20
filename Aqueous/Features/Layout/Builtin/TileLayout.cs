@@ -4,10 +4,9 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// Master / stack layout. Master area on the left of width
-/// <c>opts.MasterRatio * usableW</c> stacks <c>opts.MasterCount</c>
-/// windows vertically; the remaining stack fills the right-hand side.
-/// Outer gaps shrink the usable area once; inner gaps separate splits.
+/// Master / stack layout. Master area on the left of width <c>opts.MasterRatio * usableW</c>
+/// stacks <c>opts.MasterCount</c> windows vertically; the remaining stack fills the right-hand
+/// side. Outer gaps shrink the usable area once; inner gaps separate splits.
 /// </summary>
 public sealed class TileLayout : ILayoutEngine
 {

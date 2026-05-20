@@ -4,12 +4,11 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// Per-output state machine that calls the resolved <see cref="ILayoutEngine"/>
-/// and clamps the engine's output to window min/max hints. Wayland calls
-/// are NOT performed here — this class is intentionally pure so it can be
-/// unit-tested without a display fixture; the calling
-/// <c>RiverWindowManagerClient</c> owns all <c>wl_proxy_marshal_flags</c>
-/// emission and consults <see cref="Arrange"/> for what to send.
+/// Per-output state machine that calls the resolved <see cref="ILayoutEngine"/> and clamps the
+/// engine's output to window min/max hints. Wayland calls are NOT performed here — this class is
+/// intentionally pure so it can be unit-tested without a display fixture; the calling
+/// <c>RiverWindowManagerClient</c> owns all <c>wl_proxy_marshal_flags</c> emission and consults
+/// <see cref="Arrange"/> for what to send.
 /// </summary>
 public sealed class LayoutController
 {
@@ -17,11 +16,17 @@ public sealed class LayoutController
     private LayoutConfig _config;
     private long _epoch;
 
-    /// <summary>per-output engine instance</summary>
+    /// <summary>
+    /// Per-output engine instance
+    /// </summary>
     private readonly Dictionary<IntPtr, ILayoutEngine> _engineByOutput = new();
-    /// <summary>per-output engine private state (opaque)</summary>
+    /// <summary>
+    /// Per-output engine private state (opaque)
+    /// </summary>
     private readonly Dictionary<IntPtr, object?> _stateByOutput = new();
-    /// <summary>per-output id of the currently active layout (so we can detect swaps)</summary>
+    /// <summary>
+    /// Per-output id of the currently active layout (so we can detect swaps)
+    /// </summary>
     private readonly Dictionary<IntPtr, string> _idByOutput = new();
 
     public LayoutController(LayoutRegistry registry, LayoutConfig config)
@@ -34,10 +39,9 @@ public sealed class LayoutController
     public long Epoch => _epoch;
 
     /// <summary>
-    /// Atomically swap to a new config. All per-output engine state is
-    /// dropped on the next <see cref="Arrange"/> so engines recompute from
-    /// scratch (epoch bump). Floating per-window overrides are stored
-    /// outside the controller and survive.
+    /// Atomically swap to a new config. All per-output engine state is dropped on the next <see
+    /// cref="Arrange"/> so engines recompute from scratch (epoch bump). Floating per-window overrides
+    /// are stored outside the controller and survive.
     /// </summary>
     public void ReplaceConfig(LayoutConfig newConfig)
     {
@@ -49,9 +53,8 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Force a specific output to use a specific layout id (e.g. on
-    /// keybinding). Falls back to the configured default if the id is not
-    /// registered.
+    /// Force a specific output to use a specific layout id (e.g. on keybinding). Falls back to the
+    /// configured default if the id is not registered.
     /// </summary>
     public void SetLayoutForOutput(IntPtr output, string layoutId)
     {
@@ -66,21 +69,18 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// <see cref="LayoutId"/>-typed overload of
-    /// <see cref="SetLayoutForOutput(IntPtr, string)"/>. Plugin-friendly
-    /// entry point — see <see cref="LayoutId"/> for the normalization
-    /// rules.
+    /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForOutput(IntPtr, string)"/>.
+    /// Plugin-friendly entry point — see <see cref="LayoutId"/> for the normalization rules.
     /// </summary>
     public void SetLayoutForOutput(IntPtr output, LayoutId layoutId) =>
         SetLayoutForOutput(output, layoutId.Value);
 
     /// <summary>
-    /// Switch every currently-tracked output to <paramref name="layoutId"/>.
-    /// Outputs that haven't been seen yet will adopt the new id on their
-    /// next <see cref="ResolveLayoutId"/> via the controller's default
-    /// (since the per-output override map now contains the new id for
-    /// known outputs only). Unknown layout ids fall back to the global
-    /// default; engine state is dropped so the layout starts fresh.
+    /// Switch every currently-tracked output to <paramref name="layoutId"/>. Outputs that haven't been
+    /// seen yet will adopt the new id on their next <see cref="ResolveLayoutId"/> via the controller's
+    /// default (since the per-output override map now contains the new id for known outputs only).
+    /// Unknown layout ids fall back to the global default; engine state is dropped so the layout
+    /// starts fresh.
     /// </summary>
     public void SetLayout(string layoutId)
     {
@@ -92,10 +92,9 @@ public sealed class LayoutController
         var outputs = new List<IntPtr>(_engineByOutput.Keys);
         if (outputs.Count == 0)
         {
-            // No outputs registered yet — use a sentinel so the first
-            // ResolveEngine call sees this id. We can't usefully store
-            // it without an output; defer to default-config promotion
-            // by overwriting the in-memory config's DefaultLayout.
+            // No outputs registered yet — use a sentinel so the first ResolveEngine call sees this id. We
+            // can't usefully store it without an output; defer to default-config promotion by overwriting the
+            // in-memory config's DefaultLayout.
             _config = new LayoutConfig
             {
                 DefaultLayout = layoutId,
@@ -116,15 +115,14 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// <see cref="LayoutId"/>-typed overload of <see cref="SetLayout(string)"/>.
+    /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayout(string)"/>.
     /// </summary>
     public void SetLayout(LayoutId layoutId) => SetLayout(layoutId.Value);
 
     /// <summary>
-    /// Resolve which layout an output should be using, considering (in order):
-    ///   1) an explicit override set via <see cref="SetLayoutForOutput"/>;
-    ///   2) per-output config (<c>[[output]]</c> in wm.toml);
-    ///   3) the global default.
+    /// Resolve which layout an output should be using, considering (in order): 1) an explicit override
+    /// set via <see cref="SetLayoutForOutput"/>; 2) per-output config (<c>[[output]]</c> in wm.toml);
+    /// 3) the global default.
     /// </summary>
     public string ResolveLayoutId(IntPtr output, string? outputName)
     {
@@ -143,9 +141,9 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Compute placements for a single output. Caller is responsible for
-    /// tag/floating/fullscreen filtering of <paramref name="visibleWindows"/>
-    /// and for translating placements into Wayland requests.
+    /// Compute placements for a single output. Caller is responsible for tag/floating/fullscreen
+    /// filtering of <paramref name="visibleWindows"/> and for translating placements into Wayland
+    /// requests.
     /// </summary>
     public IReadOnlyList<WindowPlacement> Arrange(
         IntPtr output,
@@ -162,9 +160,8 @@ public sealed class LayoutController
         var raw = engine.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref state);
         _stateByOutput[output] = state;
 
-        // Apply controller-enforced rules: clamp to min/max hints. Engines
-        // are advisory on size — the controller is the source of truth so
-        // a buggy plugin layout cannot violate hints.
+        // Apply controller-enforced rules: clamp to min/max hints. Engines are advisory on size — the
+        // controller is the source of truth so a buggy plugin layout cannot violate hints.
         var hintsByHandle = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
         for (int i = 0; i < visibleWindows.Count; i++)
         {
@@ -189,10 +186,9 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Engine-aware directional focus: ask the active engine for the
-    /// neighbor of <paramref name="current"/> in <paramref name="dir"/>.
-    /// Returns <c>null</c> if the engine has no opinion (the caller
-    /// should then fall back to its layout-agnostic cycle).
+    /// Engine-aware directional focus: ask the active engine for the neighbor of <paramref
+    /// name="current"/> in <paramref name="dir"/>. Returns <c>null</c> if the engine has no opinion
+    /// (the caller should then fall back to its layout-agnostic cycle).
     /// </summary>
     public IntPtr? FocusNeighbor(
         IntPtr output,
@@ -209,9 +205,8 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Ask the active engine to move the focused window's slot. Returns
-    /// true if the engine handled it; the caller should schedule a
-    /// manage cycle so the new ordering is applied.
+    /// Ask the active engine to move the focused window's slot. Returns true if the engine handled it;
+    /// the caller should schedule a manage cycle so the new ordering is applied.
     /// </summary>
     public bool MoveFocused(
         IntPtr output,
@@ -227,9 +222,8 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Pan the active engine's viewport by <paramref name="deltaColumns"/>
-    /// (positive = right, negative = left). No-op for engines without a
-    /// viewport concept.
+    /// Pan the active engine's viewport by <paramref name="deltaColumns"/> (positive = right, negative
+    /// = left). No-op for engines without a viewport concept.
     /// </summary>
     public void ScrollViewport(
         IntPtr output,
@@ -255,7 +249,9 @@ public sealed class LayoutController
         return engine;
     }
 
-    /// <summary>Called when an output is removed.</summary>
+    /// <summary>
+    /// Called when an output is removed.
+    /// </summary>
     public void ForgetOutput(IntPtr output)
     {
         _engineByOutput.Remove(output);

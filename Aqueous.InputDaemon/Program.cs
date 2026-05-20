@@ -11,19 +11,17 @@ using static Aqueous.InputDaemon.LibinputInterop;
 namespace Aqueous.InputDaemon;
 
 /// <summary>
-/// <c>aqueous-inputd</c> — privileged libinput sidecar for Aqueous.
+/// <c>aqueous-inputd</c> — Privileged libinput sidecar for Aqueous.
 /// <para>
-/// Owns its own libinput context (via <c>libinput_udev_create_context</c>)
-/// and applies per-device configuration in response to <c>apply</c>
-/// requests received over <c>$XDG_RUNTIME_DIR/aqueous-inputd.sock</c>.
-/// Mirrors niri's in-process model — applies on <c>DEVICE_ADDED</c> and
-/// re-applies to all currently-open devices on every <c>apply</c>.
+/// Owns its own libinput context (via <c>libinput_udev_create_context</c>) and applies per-device
+/// configuration in response to <c>apply</c> requests received over
+/// <c>$XDG_RUNTIME_DIR/aqueous-inputd.sock</c>. Mirrors niri's in-process model — applies on
+/// <c>DEVICE_ADDED</c> and re-applies to all currently-open devices on every <c>apply</c>.
 /// </para>
 /// <para>
-/// Privilege model: <c>open_restricted</c> uses plain <c>open(O_RDWR)</c>;
-/// the daemon must therefore run as a user in the <c>input</c> group (or
-/// as root). A <c>logind</c> <c>TakeDevice</c> path is the future
-/// follow-up so the daemon can run as the regular user.
+/// Privilege model: <c>open_restricted</c> uses plain <c>open(O_RDWR)</c>; the daemon must
+/// therefore run as a user in the <c>input</c> group (or as root). A <c>logind</c>
+/// <c>TakeDevice</c> path is the future follow-up so the daemon can run as the regular user.
 /// </para>
 /// </summary>
 internal static class Program
@@ -72,9 +70,8 @@ internal static class Program
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
         _ = Task.Run(() => AcceptLoop(listener, li, cts.Token));
 
-        // libinput pump: drain events synchronously. We don't actually
-        // need to wait on the fd for config-apply work — every apply
-        // walks the cached _openDevices list. But we still need to
+        // Libinput pump: drain events synchronously. We don't actually need to wait on the fd for
+        // config-apply work — every apply walks the cached _openDevices list. But we still need to
         // dispatch so DEVICE_ADDED events are delivered.
         var pollFd = libinput_get_fd(li);
         Log($"libinput fd={pollFd}");
@@ -100,7 +97,7 @@ internal static class Program
         return 0;
     }
 
-    // ----- libinput interface callbacks (unmanaged) ---------------------
+    // --- Libinput interface callbacks (unmanaged) ---------------------
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
     private static int OpenRestricted(IntPtr pathPtr, int flags, IntPtr userData)
@@ -123,7 +120,7 @@ internal static class Program
         close(fd);
     }
 
-    // ----- event drain --------------------------------------------------
+    // --- Event drain --------------------------------------------------
 
     private static void DrainEvents(IntPtr li)
     {
@@ -147,15 +144,15 @@ internal static class Program
         }
     }
 
-    // ----- device classification + apply -------------------------------
+    // --- Device classification + apply -------------------------------
 
     private enum Kind { Mouse, Touchpad, Trackpoint }
 
     private static Kind Classify(IntPtr dev)
     {
         var name = PtrToString(libinput_device_get_name(dev)) ?? "";
-        // Touchpads expose tap finger count > 0; libinput's only reliable
-        // touchpad signal short of udev properties.
+        // Touchpads expose tap finger count > 0; libinput's only reliable touchpad signal short of udev
+        // properties.
         if (libinput_device_config_tap_get_finger_count(dev) > 0) return Kind.Touchpad;
         // Trackpoint identification is name-based; libinput has no flag.
         var lower = name.ToLowerInvariant();
@@ -246,7 +243,7 @@ internal static class Program
         foreach (var d in snap) ApplyToDevice(d);
     }
 
-    // ----- UDS server ---------------------------------------------------
+    // --- UDS server ---------------------------------------------------
 
     private static async Task AcceptLoop(Socket listener, IntPtr li, CancellationToken ct)
     {
@@ -316,7 +313,7 @@ internal static class Program
         };
     }
 
-    // ----- helpers ------------------------------------------------------
+    // --- Helpers ------------------------------------------------------
 
     private sealed class PerDevice
     {
@@ -341,7 +338,7 @@ internal static class Program
     private static void Log(string msg) =>
         Console.WriteLine($"[aqueous-inputd] {msg}");
 
-    // ----- poll(2) ------------------------------------------------------
+    // --- Poll(2) ------------------------------------------------------
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PollFd

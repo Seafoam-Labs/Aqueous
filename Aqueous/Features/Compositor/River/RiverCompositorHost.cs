@@ -17,9 +17,9 @@ using Microsoft.Extensions.Logging;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 10 — final demolition. The host now owns the
-/// complete Wayland lifecycle directly, with no <c>RiverWindowManagerClient</c>
-/// god class in the picture. All collaborators are resolved from DI.
+/// Final demolition. The host now owns the complete Wayland lifecycle directly, with no
+/// <c>RiverWindowManagerClient</c> god class in the picture. All collaborators are resolved from
+/// DI.
 /// </summary>
 internal sealed class RiverCompositorHost : IHostedService
 {
@@ -43,10 +43,9 @@ internal sealed class RiverCompositorHost : IHostedService
     private bool _started;
 
     /// <summary>
-    /// Join timeout applied to <see cref="IEventPump.Stop"/> during
-    /// shutdown. Long enough to let an in-flight
-    /// <c>wl_display_dispatch</c> return after we cancel; short enough
-    /// that a wedged libwayland never blocks shutdown indefinitely.
+    /// Join timeout applied to <see cref="IEventPump.Stop"/> during shutdown. Long enough to let an
+    /// in-flight <c>wl_display_dispatch</c> return after we cancel; short enough that a wedged
+    /// libwayland never blocks shutdown indefinitely.
     /// </summary>
     private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
 
@@ -141,9 +140,8 @@ internal sealed class RiverCompositorHost : IHostedService
         return Task.CompletedTask;
     }
 
-    // ------------------------------------------------------------------
-    // PR 9.12 §2.13 Step 10 — lifecycle bodies fully owned by the host.
-    // ------------------------------------------------------------------
+    // ---------------------------------------------------------------- Lifecycle bodies fully owned
+    // by the host. ------------------------------------------------------------------
 
     internal unsafe Result Connect()
     {
@@ -156,9 +154,8 @@ internal sealed class RiverCompositorHost : IHostedService
 
         WlInterfaces.EnsureBuilt();
 
-        // Allocate a NativeCallbackContext (which performs the actual
-        // GCHandle.Alloc internally). Its IntPtr is what we hand to
-        // libwayland as the dispatcher implementation pointer.
+        // Allocate a NativeCallbackContext (which performs the actual GCHandle.Alloc internally). Its
+        // IntPtr is what we hand to libwayland as the dispatcher implementation pointer.
         var ctx = new NativeCallbackContext(
             new RiverEventDispatcher(_bindSiteState, _eventDispatcher, _screencopyService));
         _callbackContext = ctx;
@@ -177,9 +174,8 @@ internal sealed class RiverCompositorHost : IHostedService
 
         _registryBinder.Discovered += HandleRegistryGlobal;
 
-        // Flush globals; then a second roundtrip so any events the
-        // compositor sends immediately on bind (for an existing window
-        // list) are delivered before we return.
+        // Flush globals; then a second roundtrip so any events the compositor sends immediately on bind
+        // (for an existing window list) are delivered before we return.
         _connection.Roundtrip();
         _connection.Roundtrip();
 
@@ -199,13 +195,13 @@ internal sealed class RiverCompositorHost : IHostedService
 
     internal void DisposeWayland()
     {
-        // river_window_manager_v1::stop (opcode 0) is intentionally NOT
-        // sent here: it is not a destructor. We disconnect; River treats
-        // a disconnected WM the same way as a stopped one and cleans up.
+        // River_window_manager_v1::stop (opcode 0) is intentionally NOT sent here: it is not a
+        // destructor. We disconnect; River treats a disconnected WM the same way as a stopped one and
+        // cleans up.
         try
         {
-            // Critical ordering: stop the pump first so it is no longer
-            // touching wl_display, then dispose the connection.
+            // Critical ordering: stop the pump first so it is no longer touching wl_display, then dispose the
+            // connection.
             _pump.Stop(PumpJoinTimeout);
             _connection.Dispose();
 
@@ -281,9 +277,8 @@ internal sealed class RiverCompositorHost : IHostedService
         }
         else if (global.Interface == "wl_output")
         {
-            // Lazy-bind path: only remember the global. Real wl_output
-            // proxies are bound on-demand from CaptureOutputAsync and
-            // destroyed immediately after capture.
+            // Lazy-bind path: only remember the global. Real wl_output proxies are bound on-demand from
+            // CaptureOutputAsync and destroyed immediately after capture.
             _bindSiteState.WlOutputGlobals[global.Name] = global;
         }
         else if (global.Interface == "zwlr_screencopy_manager_v1" && _bindSiteState.ScreencopyManager == IntPtr.Zero)

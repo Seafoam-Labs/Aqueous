@@ -5,18 +5,13 @@ using Xunit;
 namespace Aqueous.Tests.Features.Bindings;
 
 /// <summary>
-/// Stage 7 facade tests. The bridge interface IKeyBindingsCollaborators
-/// was retired in PR 9.9; the service ctors now take fine-grained DI
-/// singletons (no <c>RiverWindowManagerClient</c> coupling). PR 9.12
-/// §2.13 Step 9 dropped the structural ctor-shape and field-shape pin
-/// tests that referenced the god class — those guards are obsolete now
-/// that the god class is being demolished. What remains are the
-/// service-level smoke tests (ProcessLauncher) and the null-ctor
-/// regressions that pin the public interface surface.
+/// Service-level facade tests for the key-bindings subsystem. Covers the
+/// <see cref="ProcessLauncher"/> smoke path and the null-argument regression guards that pin the
+/// public constructor surfaces of the binding services.
 /// </summary>
 public class Stage7Tests
 {
-    // --- ProcessLauncher -------------------------------------------------
+    // - ProcessLauncher -------------------------------------------------
 
     [Fact]
     public void ProcessLauncher_EmptyFileName_ReturnsFalse()
@@ -41,7 +36,7 @@ public class Stage7Tests
         Assert.True(pl.Start("/bin/true"));
     }
 
-    // --- Null-ctor guards for the three facades --------------------------
+    // - Null-ctor guards for the three facades --------------------------
 
     [Fact]
     public void CustomActionRunner_NullCtorArg_Throws()
@@ -55,7 +50,7 @@ public class Stage7Tests
     public void KeyBindingRegistrar_NullCtorArg_Throws()
         => Assert.Throws<ArgumentNullException>(() => new KeyBindingRegistrar(null!, null!, null!, null!, null!));
 
-    // --- Interface-surface guards ---------------------------------------
+    // - Interface-surface guards ---------------------------------------
 
     [Fact]
     public void Stage7_PublicInterfaces_HaveDocumentedSurface()

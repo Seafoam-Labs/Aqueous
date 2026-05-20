@@ -4,12 +4,10 @@ using Aqueous.Features.Compositor.River.Dispatch.Services;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// Managed <see cref="IEventHandler"/> for <c>river_window_manager_v1</c>.
-///
-/// PR 9.12 §2.13 final cleanup: the partial-class file holding the
-/// event body was lifted into <see cref="ManagerEventService"/>; the
-/// handler now forwards directly to that service and no longer
-/// touches <see cref="RiverWindowManagerClient"/>.
+/// Managed <see cref="IEventHandler"/> for <c>river_window_manager_v1</c>. final cleanup: the
+/// partial-class file holding the event body was lifted into <see cref="ManagerEventService"/>;
+/// the handler now forwards directly to that service and no longer touches <see
+/// cref="RiverWindowManagerClient"/>.
 /// </summary>
 internal sealed unsafe class ManagerEventHandler : IEventHandler
 {

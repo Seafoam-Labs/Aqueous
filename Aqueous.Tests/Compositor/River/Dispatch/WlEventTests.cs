@@ -5,9 +5,8 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch;
 
 /// <summary>
-/// Unit tests for the Stage 8 extension of <see cref="WlEvent"/>:
-/// the new <c>(string, IntPtr, uint, IntPtr, int)</c> ctor and the
-/// Target / ArgsPtr / ArgCount fields. The Stage 4 ctors are exercised
+/// Unit tests for the extension of <see cref="WlEvent"/>: the new <c>(string, IntPtr, uint,
+/// IntPtr, int)</c> ctor and the Target / ArgsPtr / ArgCount fields. The ctors are exercised
 /// transitively by <see cref="EventDispatcherTests"/>.
 /// </summary>
 public sealed class WlEventTests

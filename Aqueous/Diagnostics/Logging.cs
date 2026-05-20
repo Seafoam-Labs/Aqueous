@@ -5,28 +5,28 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Diagnostics;
 
 /// <summary>
-/// Process-wide <see cref="ILoggerFactory"/> ambient. Exists because the
-/// River feature is composed of many <c>partial class</c> files that share
-/// a single instance of <see cref="Compositor.River.RiverWindowManagerClient"/>;
-/// threading a factory through a constructor would touch every partial.
-///
+/// Process-wide <see cref="ILoggerFactory"/> ambient. Exists because the River feature is composed
+/// of many <c>partial class</c> files that share a single instance of <see
+/// cref="Compositor.River.RiverWindowManagerClient"/>; threading a factory through a constructor
+/// would touch every partial.
 /// <para>
-/// Configure once from <c>Program.cs</c> via
-/// <see cref="ConfigureFromEnvironment"/> (honours the <c>AQUEOUS_LOG</c>
-/// environment variable). Until configured, <see cref="Factory"/> is a
-/// <see cref="NullLoggerFactory"/> so that unit tests pulling in this
-/// namespace don't emit unwanted output.
+/// Configure once from <c>Program.cs</c> via <see cref="ConfigureFromEnvironment"/> (honours the
+/// <c>AQUEOUS_LOG</c> environment variable). Until configured, <see cref="Factory"/> is a <see
+/// cref="NullLoggerFactory"/> so that unit tests pulling in this namespace don't emit unwanted
+/// output.
 /// </para>
 /// </summary>
 public static class Logging
 {
     /// <summary>
-    /// The ambient factory. Replace via <see cref="SetFactory"/> at startup;
-    /// otherwise resolves to <see cref="NullLoggerFactory.Instance"/>.
+    /// The ambient factory. Replace via <see cref="SetFactory"/> at startup; otherwise resolves to
+    /// <see cref="NullLoggerFactory.Instance"/>.
     /// </summary>
     public static ILoggerFactory Factory { get; private set; } = NullLoggerFactory.Instance;
 
-    /// <summary>Replace the ambient factory; idempotent.</summary>
+    /// <summary>
+    /// Replace the ambient factory; idempotent.
+    /// </summary>
     public static void SetFactory(ILoggerFactory factory)
     {
         ArgumentNullException.ThrowIfNull(factory);
@@ -34,9 +34,9 @@ public static class Logging
     }
 
     /// <summary>
-    /// Reads <c>AQUEOUS_LOG</c> (one of <c>trace|debug|info|warn|error</c>,
-    /// default <c>info</c>) and installs a console-backed factory at that
-    /// minimum level. Safe to call multiple times — last call wins.
+    /// Reads <c>AQUEOUS_LOG</c> (one of <c>trace|debug|info|warn|error</c>, default <c>info</c>) and
+    /// installs a console-backed factory at that minimum level. Safe to call multiple times — last
+    /// call wins.
     /// </summary>
     public static void ConfigureFromEnvironment()
     {
@@ -53,7 +53,9 @@ public static class Logging
         SetFactory(factory);
     }
 
-    /// <summary>Convenience wrapper for <c>Logging.Factory.CreateLogger&lt;T&gt;()</c>.</summary>
+    /// <summary>
+    /// Convenience wrapper for <c>Logging.Factory.CreateLogger&lt;T&gt;()</c>.
+    /// </summary>
     public static ILogger<T> For<T>() => Factory.CreateLogger<T>();
 
     private static LogLevel ParseLevel(string? raw) => raw?.Trim().ToLowerInvariant() switch

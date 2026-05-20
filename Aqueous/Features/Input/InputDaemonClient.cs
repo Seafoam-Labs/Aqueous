@@ -9,23 +9,20 @@ using Microsoft.Extensions.Logging;
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// Tiny fire-and-forget client that sends an <c>apply</c> request to
-/// <c>aqueous-inputd</c> over <c>$XDG_RUNTIME_DIR/aqueous-inputd.sock</c>.
-/// If the daemon isn't running we log and move on — pointer accel is
-/// non-essential, the WM must keep working.
+/// Tiny fire-and-forget client that sends an <c>apply</c> request to <c>aqueous-inputd</c> over
+/// <c>$XDG_RUNTIME_DIR/aqueous-inputd.sock</c>. If the daemon isn't running we log and move on —
+/// pointer accel is non-essential, the WM must keep working.
 /// </summary>
 internal static class InputDaemonClient
 {
     private static ILogger Log => Logging.Factory.CreateLogger("input");
     /// <summary>
-    /// Best-effort: open the UDS, write one JSON line, close. Never
-    /// throws. Total budget ≈ 1s — enough for a local socket but won't
-    /// block the WM startup if the daemon hangs.
+    /// Best-effort: open the UDS, write one JSON line, close. Never throws. Total budget ≈ 1s — enough
+    /// for a local socket but won't block the WM startup if the daemon hangs.
     /// </summary>
     public static void Apply(InputConfig cfg)
     {
-        // Run on the thread pool so the WM ctor / reload handler isn't
-        // blocked by socket I/O.
+        // Run on the thread pool so the WM ctor / reload handler isn't blocked by socket I/O.
         _ = Task.Run(() => ApplyCore(cfg));
     }
 
@@ -42,8 +39,8 @@ internal static class InputDaemonClient
             var bytes = Encoding.UTF8.GetBytes(line);
             await s.SendAsync(bytes, SocketFlags.None, cts.Token).ConfigureAwait(false);
 
-            // Best-effort read of the ack so we surface daemon errors;
-            // ignore timeouts (the daemon may close after writing).
+            // Best-effort read of the ack so we surface daemon errors; ignore timeouts (the daemon may close
+            // after writing).
             var buf = new byte[256];
             try
             {

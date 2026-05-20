@@ -13,15 +13,12 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 5 — handles river_window_manager_v1 events
-/// (manage_start / render_start / *_information / session_*).
-///
+/// Handles river_window_manager_v1 events (manage_start / render_start / *_information /
+/// session_*).
 /// <para>
-/// Step 5 cutover: the service no longer references
-/// <see cref="RiverWindowManagerClient"/>. All state is consumed via
-/// fine-grained DI singletons (registries, drag/pointer-binding/
-/// manage-cycle stores, focus/key-binding services, layout proposer,
-/// manager request sender, bind-site state).
+/// cutover: the service no longer references <see cref="RiverWindowManagerClient"/>. All state is
+/// consumed via fine-grained DI singletons (registries, drag/pointer-binding/ manage-cycle stores,
+/// focus/key-binding services, layout proposer, manager request sender, bind-site state).
 /// </para>
 /// </summary>
 internal sealed unsafe class ManagerEventService

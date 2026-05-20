@@ -10,18 +10,14 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 8.8 — regression guards for the native callback rewrite.
-///
-/// After PR 8.8 the prior <c>ProxyDispatcher.cs</c> is deleted and
-/// replaced by <c>NativeDispatchBridge.cs</c> which performs
-/// interface-name-based dispatch through <see cref="IEventDispatcher"/>.
-/// Three new <see cref="IEventHandler"/> implementations cover the
-/// formerly proxy-pointer-keyed branches: <see cref="RegistryEventHandler"/>,
+/// Regression guards for the native callback's interface-name-based dispatch through
+/// <see cref="IEventDispatcher"/>. Covers the three <see cref="IEventHandler"/> implementations
+/// keyed off the firing proxy's interface name: <see cref="RegistryEventHandler"/>,
 /// <see cref="KeyBindingEventHandler"/>, and <see cref="ScreencopyFrameHandler"/>.
 /// </summary>
 public class Stage8Pr88Tests
 {
-    // ----- new IEventHandler impls --------------------------------------
+    // --- New IEventHandler impls --------------------------------------
 
     [Fact]
     public void RegistryEventHandler_implements_IEventHandler_with_wl_registry()
@@ -36,8 +32,7 @@ public class Stage8Pr88Tests
     [Fact]
     public void KeyBindingEventHandler_implements_IEventHandler_with_river_xkb_binding_v1()
     {
-        // PR 9.12 §2.13 Step 6: handler ctor cut off the god class —
-        // it now takes the top-level KeyBindingRegistrar singleton.
+        // Constructor takes the top-level KeyBindingRegistrar singleton.
         Assert.True(typeof(IEventHandler).IsAssignableFrom(typeof(KeyBindingEventHandler)));
         Assert.True(typeof(KeyBindingEventHandler).IsSealed);
         var ctors = typeof(KeyBindingEventHandler).GetConstructors();
@@ -63,23 +58,19 @@ public class Stage8Pr88Tests
         Assert.Throws<ArgumentNullException>(() => new RegistryEventHandler(null!));
     }
 
-    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
-    // with RiverWindowManagerClient itself.
-
     [Fact]
     public void ScreencopyFrameHandler_ctor_null_guards()
     {
         Assert.Throws<ArgumentNullException>(() => new ScreencopyFrameHandler(null!));
     }
 
-    // ----- pass-through forwarding via bridges --------------------------
+    // --- Pass-through forwarding via bridges --------------------------
 
     [Fact]
     public unsafe void RegistryEventHandler_forwards_to_RegistryBinder()
     {
-        // PR 9.3 Stage 9: bridge retired; handler consumes RegistryBinder
-        // directly. Subscribe to Removed (opcode 1 = global_remove) to
-        // observe routing.
+        // Handler consumes RegistryBinder directly. Subscribe to Removed (opcode 1 = global_remove)
+        // to observe routing.
         var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
         uint observed = 0;
         binder.Removed += name => observed = name;
@@ -101,10 +92,9 @@ public class Stage8Pr88Tests
         Assert.Equal(0u, observed);
     }
 
-    // PR 9.4 Stage 9: KeyBindingEventHandler forwarding tests dropped
-    // because the handler now takes the real RiverWindowManagerClient
-    // (not safe to construct in a unit test). Coverage moved to
-    // Stage9Pr94Tests structural guards.
+    // KeyBindingEventHandler forwarding is not exercised directly because the handler depends on
+    // the real RiverWindowManagerClient, which is not safe to construct in a unit test.
+    // Behavioural coverage lives in the binding-registration regression guards below.
 
     [Fact]
     public unsafe void ScreencopyFrameHandler_forwards_to_service()
@@ -127,14 +117,12 @@ public class Stage8Pr88Tests
         Assert.Equal(0, svc.DispatchCalls);
     }
 
-    // ----- regression guards: file rename + ProxyDispatcher gone --------
+    // --- Regression guards: ProxyDispatcher must not exist -----------
 
     [Fact]
     public void ProxyDispatcher_type_no_longer_exists()
     {
-        // The Stage-0/8 plan calls for deletion of the historical
-        // ProxyDispatcher entry point. After PR 8.8 it must not be
-        // present as a top-level type in the assembly.
+        // ProxyDispatcher must not be present as a top-level type in the assembly.
         var asm = typeof(IEventHandler).Assembly;
         var types = asm.GetTypes().Select(t => t.FullName).ToArray();
         Assert.DoesNotContain(
@@ -142,40 +130,26 @@ public class Stage8Pr88Tests
             types);
     }
 
-    // PR 9.12 §2.13 Step 10: god-class partial member-name pin retired
-    // — RiverWindowManagerClient itself was deleted.
-
-    // ----- bridge shape guards ------------------------------------------
-
-    // PR 9.3 Stage 9 retired IRegistryHandlerCollaborators; see
-    // Stage9Pr93Tests for the replacement regression guards.
-
-    // PR 9.4 Stage 9 retired IKeyBindingHandlerCollaborators; see
-    // Stage9Pr94Tests for the replacement regression guards.
+    // --- Bridge shape guards ------------------------------------------
 
     [Fact]
     public void ScreencopyFrameHandler_has_no_companion_bridge_interface()
     {
-        // Per the plan, the screencopy handler is bridge-less — it
-        // depends only on IScreencopyService.
+        // The screencopy handler is bridge-less: it depends only on IScreencopyService.
         var t = typeof(IEventHandler).Assembly
             .GetType("Aqueous.Features.Compositor.River.Dispatch.EventHandlers.IScreencopyFrameHandlerCollaborators");
         Assert.Null(t);
     }
 
-    // PR 9.4 Stage 9 retired IKeyBindingHandlerCollaborators; the
-    // "RiverWindowManagerClient implements new bridges" test was
-    // replaced by per-PR regression guards (Stage9Pr93Tests, Stage9Pr94Tests).
 
-    // ----- integration: dispatch a synthetic event through real EventDispatcher
+    // --- Integration: dispatch a synthetic event through real EventDispatcher
 
     [Fact]
     public unsafe void IEventDispatcher_routes_three_new_handlers_by_interface_name()
     {
-        // PR 9.4 Stage 9: KeyBindingEventHandler now requires the real
-        // RiverWindowManagerClient (no bridge), which can't be constructed
-        // in a unit test, so the integration test exercises only the two
-        // bridge-less handlers (RegistryEventHandler + ScreencopyFrameHandler).
+        // KeyBindingEventHandler requires the real RiverWindowManagerClient, which is not safe to
+        // construct in a unit test, so the integration test exercises only the two bridge-less
+        // handlers (RegistryEventHandler + ScreencopyFrameHandler).
         var binder = new Aqueous.Features.Compositor.River.Connection.RegistryBinder();
         uint regCalls = 0;
         binder.Removed += _ => regCalls++;
@@ -196,14 +170,11 @@ public class Stage8Pr88Tests
         Assert.Equal(1, svc.DispatchCalls);
     }
 
-    // -------------------- fakes -----------------------------------------
+    // ------------------ Fakes -----------------------------------------
 
-    // PR 9.3 Stage 9: FakeRegistry retired with IRegistryHandlerCollaborators;
-    // tests now drive RegistryEventHandler against a real RegistryBinder.
-
-    // PR 9.4 Stage 9: FakeKeyBinding retired with IKeyBindingHandlerCollaborators;
-    // KeyBindingEventHandler is now tested via Stage9Pr94Tests structural guards
-    // (real RiverWindowManagerClient construction is not safe in unit tests).
+    // RegistryEventHandler is exercised against a real RegistryBinder above.
+    // KeyBindingEventHandler is covered indirectly because it depends on the real
+    // RiverWindowManagerClient, which is not safe to construct in a unit test.
 
     private sealed class FakeScreencopy : IScreencopyService
     {

@@ -14,10 +14,9 @@ public readonly record struct Rect(int X, int Y, int W, int H)
 }
 
 /// <summary>
-/// Read-only view of a window the layout engine is allowed to see.
-/// Engines are pure: they never mutate window state, they only return
-/// <see cref="WindowPlacement"/>s describing where the controller should
-/// place the window.
+/// Read-only view of a window the layout engine is allowed to see. Engines are pure: they never
+/// mutate window state, they only return <see cref="WindowPlacement"/>s describing where the
+/// controller should place the window.
 /// </summary>
 public readonly record struct WindowEntryView(
     IntPtr Handle,
@@ -27,8 +26,8 @@ public readonly record struct WindowEntryView(
     uint Tags);
 
 /// <summary>
-/// Border parameters; <see cref="None"/> represents "no border at all".
-/// Colours are 0xAARRGGBB packed.
+/// Border parameters; <see cref="None"/> represents "no border at all". Colours are 0xAARRGGBB
+/// packed.
 /// </summary>
 public readonly record struct BorderSpec(int Width, uint Focused, uint Normal, uint Urgent)
 {
@@ -36,10 +35,9 @@ public readonly record struct BorderSpec(int Width, uint Focused, uint Normal, u
 }
 
 /// <summary>
-/// What a layout engine returns for a single window: target geometry,
-/// stacking order and whether the controller should actually show the
-/// window this frame (off-screen / monocle-hidden windows return
-/// <c>Visible=false</c>).
+/// What a layout engine returns for a single window: target geometry, stacking order and whether
+/// the controller should actually show the window this frame (off-screen / monocle-hidden windows
+/// return <c>Visible=false</c>).
 /// </summary>
 public readonly record struct WindowPlacement(
     IntPtr Handle,

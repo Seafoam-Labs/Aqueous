@@ -7,10 +7,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Features.Compositor.River.Connection;
 
 /// <summary>
-/// Default <see cref="IEventPump"/> implementation. Runs a single
-/// background thread that invokes
-/// <see cref="IWaylandConnection.Dispatch"/> in a loop until told
-/// otherwise. See <see cref="IEventPump"/> for the full contract.
+/// Default <see cref="IEventPump"/> implementation. Runs a single background thread that invokes
+/// <see cref="IWaylandConnection.Dispatch"/> in a loop until told otherwise. See <see
+/// cref="IEventPump"/> for the full contract.
 /// </summary>
 internal sealed class EventPump : IEventPump
 {
@@ -18,9 +17,8 @@ internal sealed class EventPump : IEventPump
     private readonly ILogger<EventPump> _logger;
     private readonly EventPumpOptions _options;
 
-    // Single lock guarding lifecycle transitions (Start/Stop). The
-    // pump loop itself does not take the lock; it observes _running
-    // and the linked-token instead.
+    // Single lock guarding lifecycle transitions (Start/Stop). The pump loop itself does not take the
+    // lock; it observes _running and the linked-token instead.
     private readonly object _gate = new();
 
     private Thread? _thread;
@@ -43,13 +41,10 @@ internal sealed class EventPump : IEventPump
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
-    /// <inheritdoc />
     public bool IsRunning => _running;
 
-    /// <inheritdoc />
     public event Action<PumpStopReason>? Stopped;
 
-    /// <inheritdoc />
     public void Start(CancellationToken ct = default)
     {
         lock (_gate)
@@ -61,9 +56,8 @@ internal sealed class EventPump : IEventPump
 
             if (ct.IsCancellationRequested)
             {
-                // Caller already cancelled — don't spawn a thread that
-                // would immediately exit. No Stopped event because we
-                // never started.
+                // Caller already cancelled — don't spawn a thread that would immediately exit. No Stopped event
+                // because we never started.
                 return;
             }
 
@@ -86,7 +80,6 @@ internal sealed class EventPump : IEventPump
         }
     }
 
-    /// <inheritdoc />
     public void Stop(TimeSpan joinTimeout)
     {
         Thread? thread;
@@ -111,34 +104,30 @@ internal sealed class EventPump : IEventPump
             }
         }
 
-        // If Stop() is invoked from inside the pump thread itself
-        // (e.g. a protocol event handler calling _pump.Stop(...)),
-        // joining would deadlock and tearing down _internalCts /
-        // _stoppedTcs out from under the pump's finally block races
-        // the Stopped event. Just signal exit and return; the pump
-        // unwinds on its own and CleanupAfterStop runs on the next
-        // external Stop()/Dispose call.
+        // If Stop is invoked from inside the pump thread itself (e.g. a protocol event handler calling
+        // _pump.Stop(.)), joining would deadlock and tearing down _internalCts / _stoppedTcs out from
+        // under the pump's finally block races the Stopped event. Just signal exit and return; the pump
+        // unwinds on its own and CleanupAfterStop runs on the next external Stop/Dispose call.
         if (Thread.CurrentThread == thread)
         {
             return;
         }
 
-        // Join outside the lock so the pump thread can complete its
-        // own teardown (raising Stopped, completing the TCS).
+        // Join outside the lock so the pump thread can complete its own teardown (raising Stopped,
+        // completing the TCS).
         try
         {
             thread.Join(joinTimeout);
         }
         catch
         {
-            // Joining a never-started thread or one that's already
-            // gone is fine; we don't have a useful action to take.
+            // Joining a never-started thread or one that's already gone is fine; we don't have a useful
+            // action to take.
         }
 
         CleanupAfterStop();
     }
 
-    /// <inheritdoc />
     public async Task StopAsync(TimeSpan joinTimeout, CancellationToken ct = default)
     {
         Task? task;
@@ -170,15 +159,14 @@ internal sealed class EventPump : IEventPump
             }
             catch (TimeoutException)
             {
-                // Propagate per the documented contract; do NOT clean
-                // up because the pump thread is still running and
-                // owns _internalCts / _externalRegistration.
+                // Propagate per the documented contract; do NOT clean up because the pump thread is still running
+                // and owns _internalCts / _externalRegistration.
                 throw;
             }
         }
 
-        // Best-effort join (the TCS already completed, so this is
-        // essentially zero-wait) before tearing down shared state.
+        // Best-effort join (the TCS already completed, so this is essentially zero-wait) before tearing
+        // down shared state.
         Thread? thread;
         lock (_gate)
         {
@@ -191,7 +179,7 @@ internal sealed class EventPump : IEventPump
         }
         catch
         {
-            // See Stop() rationale.
+            // See Stop rationale.
         }
 
         CleanupAfterStop();
@@ -251,9 +239,8 @@ internal sealed class EventPump : IEventPump
                 }
             }
 
-            // If the while-condition itself fell through (_running was
-            // set false without internal-cancellation firing first),
-            // that means Stop() raced us; treat as StopRequested.
+            // If the while-condition itself fell through (_running was set false without
+            // internal-cancellation firing first), that means Stop raced us; treat as StopRequested.
             if (!_running && !token.IsCancellationRequested && reason == PumpStopReason.StopRequested)
             {
                 reason = PumpStopReason.StopRequested;
@@ -261,9 +248,8 @@ internal sealed class EventPump : IEventPump
         }
         catch (Exception ex)
         {
-            // Defensive: anything escaping the inner try/catch is
-            // still bounded here so the process is never taken down
-            // by the pump thread.
+            // Defensive: anything escaping the inner try/catch is still bounded here so the process is never
+            // taken down by the pump thread.
             _logger.LogError(ex, "pump loop crashed");
             reason = PumpStopReason.Crashed;
         }
@@ -272,10 +258,8 @@ internal sealed class EventPump : IEventPump
             _running = false;
             _stopReason = reason;
 
-            // Complete the TCS first so StopAsync can return, then
-            // raise the event. Capturing locals avoids racing with
-            // CleanupAfterStop() (which may null _stoppedTcs after
-            // Stop()'s Join returns).
+            // Complete the TCS first so StopAsync can return, then raise the event. Capturing locals avoids
+            // racing with CleanupAfterStop (which may null _stoppedTcs after Stop's Join returns).
             var tcs = _stoppedTcs;
             tcs?.TrySetResult();
 
@@ -290,6 +274,5 @@ internal sealed class EventPump : IEventPump
         }
     }
 
-    /// <inheritdoc />
     public void Dispose() => Stop(_options.DefaultJoinTimeout);
 }

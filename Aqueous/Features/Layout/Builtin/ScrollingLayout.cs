@@ -4,10 +4,9 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// PaperWM-style horizontally-scrolling columns. Each window is one
-/// column of width <c>area.W * options["column_width"]</c>; columns are
-/// arranged left-to-right in a virtual strip and translated to screen
-/// space by subtracting <c>viewportX</c>. Off-screen columns are returned
+/// PaperWM-style horizontally-scrolling columns. Each window is one column of width <c>area.W *
+/// options["column_width"]</c>; columns are arranged left-to-right in a virtual strip and
+/// translated to screen space by subtracting <c>viewportX</c>. Off-screen columns are returned
 /// with <c>Visible=false</c>.
 /// </summary>
 public sealed class ScrollingLayout : ILayoutEngine
@@ -42,8 +41,7 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
 
-        // Reconcile column order with current windows: keep existing order,
-        // remove gone, append new.
+        // Reconcile column order with current windows: keep existing order, remove gone, append new.
         var live = new HashSet<IntPtr>();
         for (int i = 0; i < windows.Count; i++)
         {
@@ -75,11 +73,9 @@ public sealed class ScrollingLayout : ILayoutEngine
         int gap = opts.GapsInner;
         int step = colW + gap;
 
-        // Defensive: prune any column whose handle is not in the
-        // current snapshot. The reconciliation above already does this
-        // for state.Columns, but a stale handle could re-enter via a
-        // race with concurrent manage cycles. Use TryGetValue so a
-        // missing handle is dropped instead of throwing
+        // Defensive: prune any column whose handle is not in the current snapshot. The reconciliation
+        // above already does this for state.Columns, but a stale handle could re-enter via a race with
+        // concurrent manage cycles. Use TryGetValue so a missing handle is dropped instead of throwing
         // KeyNotFoundException (which would crash the manage thread).
         for (int i = state.Columns.Count - 1; i >= 0; i--)
         {
@@ -281,9 +277,8 @@ public sealed class ScrollingLayout : ILayoutEngine
         {
             return;
         }
-        // We don't know colW here without the area + opts; use the
-        // FocusedIdx as a coarse proxy: shift focused index by delta and
-        // let the next Arrange recenter the viewport.
+        // We don't know colW here without the area + opts; use the FocusedIdx as a coarse proxy: shift
+        // focused index by delta and let the next Arrange recenter the viewport.
         int next = state.FocusedIdx + deltaColumns;
         if (next < 0)
         {

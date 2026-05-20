@@ -4,12 +4,10 @@ using System.Threading;
 namespace Aqueous.Features.Focus;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 1 — singleton holding the raw <see cref="IntPtr"/>
-/// of the primary seat's <c>wl_seat</c> proxy (formerly
-/// <c>RiverWindowManagerClient._primarySeat</c>). Pinned at the first
-/// <c>SeatInformation</c> event after registry binding; used by the
-/// focus path to resolve which seat to address when no explicit
-/// seat is supplied.
+/// Singleton holding the raw <see cref="IntPtr"/> of the primary seat's <c>wl_seat</c> proxy
+/// (formerly <c>RiverWindowManagerClient._primarySeat</c>). Pinned at the first
+/// <c>SeatInformation</c> event after registry binding; used by the focus path to resolve which
+/// seat to address when no explicit seat is supplied.
 /// </summary>
 internal sealed class PrimarySeatTracker
 {

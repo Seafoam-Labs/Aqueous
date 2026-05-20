@@ -7,14 +7,11 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch;
 
 /// <summary>
-/// Unit tests for the Step 4 managed event-dispatch seam:
-/// <see cref="EventDispatcher"/>, <see cref="IEventHandler"/>,
-/// <see cref="WlEvent"/>.
-///
-/// These tests intentionally cover only the routing/guard behaviour of
-/// the dispatcher itself — per-interface handler tests will land
-/// alongside each <c>IEventHandler</c> implementation as it is extracted
-/// out of <c>RiverWindowManagerClient</c> in later PRs.
+/// Unit tests for the managed event-dispatch seam: <see cref="EventDispatcher"/>, <see
+/// cref="IEventHandler"/>, <see cref="WlEvent"/>. These tests intentionally cover only the
+/// routing/guard behaviour of the dispatcher itself — per-interface handler tests will land
+/// alongside each <c>IEventHandler</c> implementation as it is extracted out of
+/// <c>RiverWindowManagerClient</c> in later PRs.
 /// </summary>
 public sealed class EventDispatcherTests
 {

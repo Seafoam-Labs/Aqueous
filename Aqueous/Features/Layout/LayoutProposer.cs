@@ -8,40 +8,29 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// PR 9.12 §2.13 lift of the
-/// <c>RiverWindowManagerClient.LayoutProposer.cs</c> partial (741 LOC)
-/// into a top-level service. Owns <see cref="ProposeForArea"/> (the
-/// geometry-driving core), <see cref="BuildSnapshotFor"/>, the
-/// <see cref="IsFloatLayoutActive()"/> probes, and
-/// <see cref="ResolveOutputName"/>. The god-class methods of the same
-/// names are now thin forwarders to this class (kept because five
-/// partial event-handler files still call them via <c>this</c>).
-///
+/// Lift of the <c>RiverWindowManagerClient.LayoutProposer.cs</c> partial (741 LOC) into a
+/// top-level service. Owns <see cref="ProposeForArea"/> (the geometry-driving core), <see
+/// cref="BuildSnapshotFor"/>, the <see cref="IsFloatLayoutActive()"/> probes, and <see
+/// cref="ResolveOutputName"/>. The class methods of the same names are now thin forwarders to this
+/// class (kept because five partial event-handler files still call them via <c>this</c>).
 /// <para>
-/// Construction still takes a <see cref="RiverWindowManagerClient"/>
-/// reference because the proposer reads/writes god-class state that
-/// has not yet been lifted into its own singletons:
-/// <c>_layoutController</c>, the <c>IWindowRegistry</c> /
-/// <c>IOutputRegistry</c>, the <c>WindowStateStore</c>, the
-/// <c>OutputFullscreenMap</c>, the focused-window handle, and the
-/// <c>_prevFullscreenHandles</c> hash set. Each is reached through a
-/// small set of <c>internal</c> accessors on the god class. Those
-/// accessors retire together with the god class in the final
+/// Construction still takes a <see cref="RiverWindowManagerClient"/> reference because the
+/// proposer reads/writes class state that has not yet been lifted into its own singletons:
+/// <c>_layoutController</c>, the <c>IWindowRegistry</c> / <c>IOutputRegistry</c>, the
+/// <c>WindowStateStore</c>, the <c>OutputFullscreenMap</c>, the focused-window handle, and the
+/// <c>_prevFullscreenHandles</c> hash set. Each is reached through a small set of <c>internal</c>
+/// accessors on the god class. Those accessors retire together with the god class in the final
 /// demolition step.
 /// </para>
-///
 /// <para>
-/// Pump-thread only. Mirrors the prior partial's threading contract
-/// exactly; no new locks or queues are introduced here.
+/// Pump-thread only. Mirrors the prior partial's threading contract exactly; no new locks or
+/// queues are introduced here.
 /// </para>
 /// </summary>
 internal sealed unsafe class LayoutProposer : ILayoutProposer
 {
-    // PR 9.12 §2.13 Step 4 — cut off RiverWindowManagerClient.
-    // All god-class accessors previously read through `_river` are now
-    // injected as fine-grained DI singletons. LayoutFocusNeighbor is
-    // delegated directly to LayoutController.FocusNeighbor (the prior
-    // god-class forwarder is gone).
+    // Cut off RiverWindowManagerClient. All class accessors. LayoutFocusNeighbor is delegated
+    // directly to LayoutController.FocusNeighbor (the prior class forwarder is gone).
     private readonly LayoutController _layoutController;
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
@@ -69,12 +58,10 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     }
 
     /// <summary>
-    /// Drive the layout subsystem for one output (or, if
-    /// <paramref name="output"/> is <see cref="IntPtr.Zero"/>, the
-    /// virtual fallback area). Builds a snapshot of the visible
-    /// windows, asks <see cref="LayoutController.Arrange"/> for
-    /// placements, and emits <c>propose_dimensions</c> only when the
-    /// engine's choice differs from <c>WindowEntry.LastHintW/H</c>.
+    /// Drive the layout subsystem for one output (or, if <paramref name="output"/> is <see
+    /// cref="IntPtr.Zero"/>, the virtual fallback area). Builds a snapshot of the visible windows,
+    /// asks <see cref="LayoutController.Arrange"/> for placements, and emits <c>propose_dimensions</c>
+    /// only when the engine's choice differs from <c>WindowEntry.LastHintW/H</c>.
     /// </summary>
     public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
     {
@@ -86,34 +73,25 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         var focusedWindow = _focusedWindowTracker.Current;
         var prevFullscreenHandles = _prevFullscreenStore.Handles;
 
-        // Floating windows are a layer, not a layout: they bypass the
-        // active engine entirely and use their remembered FloatRect (set
-        // by the Super+BTN_LEFT drag handler). When the active engine is
-        // "float", we additionally treat every window as floating so the
-        // user can drag any of them — the engine itself is only used to
-        // compute an initial centred rect for windows that don't have
-        // one yet.
+        // Floating windows are a layer, not a layout: they bypass the active engine entirely and use
+        // their remembered FloatRect (set by the Super+BTN_LEFT drag handler). When the active engine is
+        // "float", we additionally treat every window as floating so the user can drag any of them — the
+        // engine itself is only.
         string activeId = layoutController.ResolveLayoutId(output, outputName);
         bool floatIsActive = activeId == "float";
 
-        // Per-output filter: an engine like ScrollingLayout maintains
-        // per-output state (ScrollState.Columns) and *must* only see
-        // the windows that belong to this output, otherwise its
-        // per-output state accumulates handles from other outputs
-        // and KeyNotFoundException / cross-monitor placements ensue.
-        // Assignment policy: a window belongs to `output` if its
-        // tracked W.Output matches; else, if its (X,Y) falls inside
-        // usableArea we adopt it onto this output; otherwise skip.
-        // For the IntPtr.Zero fallback (no outputs), accept all.
+        // Per-output filter: an engine like ScrollingLayout maintains per-output state
+        // (ScrollState.Columns) and *must* only see the windows that belong to this output, otherwise its
+        // per-output state accumulates handles from other outputs and KeyNotFoundException /
+        // cross-monitor placements ensue. Assignment policy: a window belongs to `output` if its tracked
+        // W.Output matches; else, if its (X,Y) falls inside usableArea we adopt it onto this output;
+        // otherwise skip. For the IntPtr.Zero fallback (no outputs), accept all.
         bool isFallback = output == IntPtr.Zero;
 
-        // Phase B1c — Tags. Resolve the visible-tag mask for this
-        // output (or AllTags for the IntPtr.Zero fallback) so we
-        // can filter windows whose Tags do not intersect the
-        // mask out of the layout snapshot before invoking the
-        // engine. Off-tag windows additionally need a one-shot
-        // hide(opcode 4) so the compositor stops drawing them;
-        // see the transition pass below.
+        // Phase B1c — Tags. Resolve the visible-tag mask for this output (or AllTags for the IntPtr.Zero
+        // fallback) so we can filter windows whose Tags do not intersect the mask out of the layout
+        // snapshot before invoking the engine. Off-tag windows additionally need a one-shot hide(opcode
+        // 4) so the compositor stops drawing them; see the transition pass below.
         uint outputVisibleTags = Aqueous.Features.Tags.TagState.AllTags;
         if (!isFallback && outputRegistry.Entries.TryGetValue(output, out var oeForTags))
         {
@@ -253,8 +231,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             w.Visible = false;
         }
 
-        // Adoption fallback: if we are the *only* output, ensure every
-        // unassigned window is adopted onto us.
+        // Adoption fallback: if we are the *only* output, ensure every unassigned window is adopted onto
+        // us.
         if (!isFallback && outputRegistry.Entries.Count == 1)
         {
             foreach (var kvp in windowRegistry.Entries)
@@ -287,8 +265,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             }
         }
 
-        // Fix #3: when a window leaves the FS bucket this cycle, force a
-        // re-propose by zeroing its placement caches.
+        // Fix #3: when a window leaves the FS bucket this cycle, force a re-propose by zeroing its
+        // placement caches.
         if (prevFullscreenHandles.Count > 0)
         {
             List<IntPtr>? toDrop = null;
@@ -323,7 +301,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             }
         }
 
-        // -------- Tiled windows: drive through the layout engine --------
+        // ------ Tiled windows: drive through the layout engine --------
         if (tiledSnapshot.Count > 0)
         {
             IReadOnlyList<WindowPlacement> placements;
@@ -352,7 +330,6 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     w.TagVisible = false;
                     continue;
                 }
-
 
                 int pw = p.Geometry.W;
                 int ph = p.Geometry.H;
@@ -400,7 +377,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             }
         }
 
-        // -------- Floating layer: use the remembered FloatRect ---------
+        // ------ Floating layer: use the remembered FloatRect ---------
         int initW = Math.Min(800, (int)(usableArea.W * 0.6));
         int initH = Math.Min(600, (int)(usableArea.H * 0.6));
         int initX = usableArea.X + (usableArea.W - initW) / 2;
@@ -465,7 +442,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             }
         }
 
-        // -------- Maximized windows --------
+        // ------ Maximized windows --------
         for (int i = 0; i < maximizedHandles.Count; i++)
         {
             var handle = maximizedHandles[i];
@@ -517,7 +494,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             }
         }
 
-        // -------- Fullscreen windows --------
+        // ------ Fullscreen windows --------
         Rect outputRect = usableArea;
         if (output != IntPtr.Zero && outputRegistry.Entries.TryGetValue(output, out var oeFull))
         {
@@ -574,9 +551,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     }
 
     /// <summary>
-    /// True iff the active layout (resolved against the focused window's
-    /// output, or the first known output as a fallback) is the dedicated
-    /// `float` engine.
+    /// True iff the active layout (resolved against the focused window's output, or the first known
+    /// output as a fallback) is the dedicated `float` engine.
     /// </summary>
     public bool IsFloatLayoutActive()
     {
@@ -619,7 +595,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         return _layoutController.ResolveLayoutId(output, null) == "float";
     }
 
-    /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
+    /// <summary>
+    /// Build a per-output WindowEntryView snapshot for navigation queries.
+    /// </summary>
     public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output)
     {
         var windowRegistry = _windowRegistry;
@@ -649,9 +627,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     }
 
     /// <summary>
-    /// Engine-aware directional focus — delegates directly to
-    /// <see cref="LayoutController.FocusNeighbor"/> (the prior
-    /// god-class forwarder was removed in PR 9.12 §2.13 Step 4).
+    /// Engine-aware directional focus — delegates directly to <see
+    /// cref="LayoutController.FocusNeighbor"/>.
     /// </summary>
     public IntPtr? LayoutFocusNeighbor(
         IntPtr output,

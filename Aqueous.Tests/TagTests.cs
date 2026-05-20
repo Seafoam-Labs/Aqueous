@@ -8,9 +8,8 @@ namespace Aqueous.Tests;
 public class TagTests
 {
     /// <summary>
-    /// In-memory <see cref="TagController.ITagHost"/> for unit tests.
-    /// Models a single output and a single focused window so we can
-    /// exercise the controller's mutation/event semantics without
+    /// In-memory <see cref="TagController.ITagHost"/> for unit tests. Models a single output and a
+    /// single focused window so we can exercise the controller's mutation/event semantics without
     /// bringing up Wayland.
     /// </summary>
     private sealed class FakeHost : TagController.ITagHost

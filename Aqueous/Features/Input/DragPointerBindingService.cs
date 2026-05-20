@@ -7,21 +7,16 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.Input;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 5 — handles the Super+BTN_LEFT / Super+BTN_RIGHT
-/// (and per-snap-layout activator) pointer-binding pressed/released
-/// events used to arm interactive move/resize drags.
-///
+/// Handles the Super+BTN_LEFT / Super+BTN_RIGHT (and per-snap-layout activator) pointer-binding
+/// pressed/released events.
 /// <para>
-/// Step 5 cutover: the service no longer references
-/// <see cref="RiverWindowManagerClient"/>. All drag-lifecycle state
-/// (active drag window/seat/activator, drag-start coords, edges
-/// bitfield, seat→hovered-window map, drag-resize pointer-binding
-/// proxy, snap-activator binding registry) is consumed from
-/// <see cref="DragStateStore"/> and <see cref="PointerBindingStore"/>;
-/// window lookup goes through <see cref="IWindowRegistry"/>; the
-/// float-layout gate goes through <see cref="ILayoutProposer"/>; and
-/// the manage-cycle ack goes through
-/// <see cref="IManagerRequestSender"/>.
+/// cutover: the service no longer references <see cref="RiverWindowManagerClient"/>. All
+/// drag-lifecycle state (active drag window/seat/activator, drag-start coords, edges bitfield,
+/// seat→hovered-window map, drag-resize pointer-binding proxy, snap-activator binding registry) is
+/// consumed from <see cref="DragStateStore"/> and <see cref="PointerBindingStore"/>; window lookup
+/// goes through <see cref="IWindowRegistry"/>; the float-layout gate goes through <see
+/// cref="ILayoutProposer"/>; and the manage-cycle ack goes through <see
+/// cref="IManagerRequestSender"/>.
 /// </para>
 /// </summary>
 internal sealed unsafe class DragPointerBindingService
@@ -46,10 +41,9 @@ internal sealed unsafe class DragPointerBindingService
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
     }
 
-    // Edge bitfield matching river_window_v1: top=1, bottom=2, left=4, right=8.
-    // Center-third clicks fall back to the bottom-right corner so that a
-    // press anywhere inside a window still resolves to a usable resize
-    // gesture (this matches the i3/sway convention).
+    // Edge bitfield matching river_window_v1: top=1, bottom=2, left=4, right=8. Center-third clicks
+    // fall back to the bottom-right corner so that a press anywhere inside a window still resolves to
+    // a usable resize gesture (this matches the i3/sway convention).
     private static uint DeriveEdges(int px, int py, int wx, int wy, int ww, int wh)
     {
         if (ww <= 0 || wh <= 0)
@@ -91,12 +85,10 @@ internal sealed unsafe class DragPointerBindingService
         bool isResize = (proxy == _pointerBindings.DragResizePointerBinding)
             && _pointerBindings.DragResizePointerBinding != IntPtr.Zero;
 
-        // SnapZones activator gate: if this event came from one of the
-        // Super+<activator>+BTN_LEFT pointer bindings, remember which
-        // activator armed the drag so TryResolveSnapForDrag can match
-        // the per-layout Activator. Otherwise default to Always (the
-        // plain Super+LMB / Super+RMB bindings — only Always-activated
-        // snap layouts are eligible).
+        // SnapZones activator gate: if this event came from one of the Super+<activator>+BTN_LEFT pointer
+        // bindings, remember which activator armed the drag so TryResolveSnapForDrag can match the
+        // per-layout Activator. Otherwise default to Always (the plain Super+LMB / Super+RMB bindings —
+        // only Always-activated snap layouts are eligible).
         Aqueous.Features.SnapZones.SnapActivator pressActivator =
             Aqueous.Features.SnapZones.SnapActivator.Always;
         if (_pointerBindings.SnapActivatorBindings.TryGetValue(proxy, out var act))
@@ -121,10 +113,8 @@ internal sealed unsafe class DragPointerBindingService
                     continue;
                 }
 
-                // Strict v1 gate: keybind-driven move/resize honours the
-                // same "only when float layout is active" UX as the
-                // client-driven pointer_move_requested /
-                // pointer_resize_requested paths.
+                // Strict v1 gate: keybind-driven move/resize honours the same "only when float layout is active"
+                // UX as the client-driven pointer_move_requested / pointer_resize_requested paths.
                 if (!_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     RiverLog.Write($"super+{(isResize ? "RMB" : "LMB")} drag ignored: float layout not active for window 0x{hovered.ToString("x")}");
@@ -136,9 +126,8 @@ internal sealed unsafe class DragPointerBindingService
                 _dragState.ActiveDragActivator = pressActivator;
                 _dragState.DragStartX = w.X;
                 _dragState.DragStartY = w.Y;
-                // Capture cursor at drag-start so OpDelta can synthesize
-                // live pointer coords for snap-zone hit-testing (river
-                // does not emit pointer_position during a drag).
+                // Capture cursor at drag-start so OpDelta can synthesize live pointer coords for snap-zone
+                // hit-testing (river does not emit pointer_position during a drag).
                 if (_dragState.SeatPointerPos.TryGetValue(seat, out var dpbP0))
                 {
                     _dragState.DragStartPointerX = dpbP0.X;
@@ -149,9 +138,8 @@ internal sealed unsafe class DragPointerBindingService
                     _dragState.DragStartPointerX = w.X;
                     _dragState.DragStartPointerY = w.Y;
                 }
-                // Reset lifecycle flags so ManagerEventHandler issues a
-                // fresh op_start_pointer on the next manage cycle even if
-                // a prior drag's release path didn't clear them.
+                // Reset lifecycle flags so ManagerEventHandler issues a fresh op_start_pointer on the next manage
+                // cycle even if a prior drag's release path didn't clear them.
                 _dragState.DragStarted = false;
                 _dragState.DragFinished = false;
 

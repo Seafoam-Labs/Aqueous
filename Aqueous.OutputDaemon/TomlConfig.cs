@@ -6,17 +6,23 @@ using System.IO;
 namespace Aqueous.OutputDaemon;
 
 /// <summary>
-/// Minimal TOML-subset reader covering the keys this daemon consumes
-/// from <c>wm.toml</c> / <c>outputs.toml</c>:
+/// Minimal TOML-subset reader covering the keys this daemon consumes from <c>wm.toml</c> /
+/// <c>outputs.toml</c>:
 /// <list type="bullet">
-///   <item>top-level <c>[display]</c> table</item>
-///   <item>repeated <c>[[output]]</c> tables</item>
-///   <item>repeated <c>[[display.profile]]</c> tables (each with nested
-///         <c>[[display.profile.output]]</c> entries)</item>
+/// <item>
+/// top-level <c>[display]</c> table
+/// </item>
+/// <item>
+/// repeated <c>[[output]]</c> tables
+/// </item>
+/// <item>
+/// repeated <c>[[display.profile]]</c> tables (each with nested <c>[[display.profile.output]]</c>
+/// entries)
+/// </item>
 /// </list>
-/// Mirrors Aqueous's own TOML subset: <c>[section]</c>, <c>[[array]]</c>,
-/// <c>key = value</c>, <c># comments</c>, scalar strings/ints/floats/bools,
-/// inline arrays for positions. Unknown keys are ignored.
+/// Mirrors Aqueous's own TOML subset: <c>[section]</c>, <c>[[array]]</c>, <c>key = value</c>, <c>#
+/// comments</c>, scalar strings/ints/floats/bools, inline arrays for positions. Unknown keys are
+/// ignored.
 /// </summary>
 internal sealed class TomlConfig
 {
@@ -85,8 +91,7 @@ internal sealed class TomlConfig
     public static TomlConfig Parse(string text)
     {
         var cfg = new TomlConfig();
-        // Header context: a "header" identifies what table the next
-        // key=value pairs feed into.
+        // Header context: a "header" identifies what table the next key=value pairs feed into.
         string section = "";       // current dotted section name
         OutputSpec? curOutput = null;
         Profile? curProfile = null;
@@ -99,7 +104,7 @@ internal sealed class TomlConfig
 
             if (line[0] == '[')
             {
-                // section header
+                // Section header
                 bool array = line.StartsWith("[[", StringComparison.Ordinal);
                 int end = line.IndexOf(array ? "]]" : "]", StringComparison.Ordinal);
                 if (end < 0) continue;
@@ -132,7 +137,7 @@ internal sealed class TomlConfig
                 continue;
             }
 
-            // key = value
+            // Key = value
             int eq = line.IndexOf('=');
             if (eq <= 0) continue;
             var key = line.Substring(0, eq).Trim();
@@ -190,7 +195,7 @@ internal sealed class TomlConfig
         }
     }
 
-    // ----- value parser ---------------------------------------------------
+    // --- Value parser ---------------------------------------------------
 
     private static object? ParseValue(string raw)
     {

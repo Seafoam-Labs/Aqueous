@@ -5,15 +5,14 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// Phase B1e — central state machine for the four "window state" operations:
-/// fullscreen / maximize / floating / minimize, plus scratchpad summon /
-/// dismiss / send. All transitions go through a single object so the
-/// invariants (single-FS-per-output, MRU restore stack, scratchpad ↔ tile
+/// Phase B1e — central state machine for the four "window state" operations: fullscreen / maximize
+/// / floating / minimize, plus scratchpad summon / dismiss / send. All transitions go through a
+/// single object so the invariants (single-FS-per-output, MRU restore stack, scratchpad ↔ tile
 /// promotion) live in one place.
-///
-/// <para>The controller is pure C#: every Wayland call is delegated to an
-/// <see cref="IWindowStateHost"/> so this class can be exercised by unit
-/// tests with an in-memory host fake.</para>
+/// <para>
+/// The controller is pure C#: every Wayland call is delegated to an <see cref="IWindowStateHost"/>
+/// so this class can be exercised by unit tests with an in-memory host fake.
+/// </para>
 /// </summary>
 public sealed class WindowStateController
 {
@@ -35,17 +34,18 @@ public sealed class WindowStateController
     public ScratchpadRegistry Scratchpads => _scratchpads;
     public StateConfig Config => _config;
 
-    /// <summary>Read-only snapshot of the minimized MRU stack (top first), for diagnostics / IPC.</summary>
+    /// <summary>
+    /// Read-only snapshot of the minimized MRU stack (top first), for diagnostics / IPC.
+    /// </summary>
     public IReadOnlyCollection<WindowProxy> MinimizedMru => _minimizedMru;
 
-    // ------------------------------------------------------------------
-    // Fullscreen
+    // ---------------------------------------------------------------- Fullscreen
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toggle <see cref="WindowState.Fullscreen"/>. Enforces the single-FS-
-    /// per-output invariant by demoting any prior fullscreen window on the
-    /// same output before promoting <paramref name="window"/>.
+    /// Toggle <see cref="WindowState.Fullscreen"/>. Enforces the single-FS- per-output invariant by
+    /// demoting any prior fullscreen window on the same output before promoting <paramref
+    /// name="window"/>.
     /// </summary>
     public bool ToggleFullscreen(WindowProxy window)
     {
@@ -80,8 +80,8 @@ public sealed class WindowStateController
             }
         }
 
-        // Maximize/Floating sub-states stash their own pre-state too — but we
-        // record what *we* will restore to, which is the snapshot taken now.
+        // Maximize/Floating sub-states stash their own pre-state too — but we record what *we* will
+        // restore to, which is the snapshot taken now.
         w.PreFsGeom = _host.CurrentGeometry(window);
         w.PreviousState = w.State;
         w.State = WindowState.Fullscreen;
@@ -94,9 +94,8 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Honour a foreign-toplevel client request to enter fullscreen.
-    /// Identical to <see cref="ToggleFullscreen"/> when not already FS;
-    /// no-op otherwise.
+    /// Honour a foreign-toplevel client request to enter fullscreen. Identical to <see
+    /// cref="ToggleFullscreen"/> when not already FS; no-op otherwise.
     /// </summary>
     public void OnClientRequestedFullscreen(WindowProxy window, OutputProxy? output)
     {
@@ -114,7 +113,9 @@ public sealed class WindowStateController
         ToggleFullscreen(window);
     }
 
-    /// <summary>Honour a foreign-toplevel client request to leave fullscreen.</summary>
+    /// <summary>
+    /// Honour a foreign-toplevel client request to leave fullscreen.
+    /// </summary>
     public void OnClientRequestedUnfullscreen(WindowProxy window)
     {
         var w = _host.Get(window);
@@ -130,9 +131,8 @@ public sealed class WindowStateController
     {
         // PreviousState may itself be Maximized/Floating; preserve that.
         w.State = w.PreviousState;
-        // PreFsGeom restoration is advisory — the layout engine will
-        // recompute Tiled geometry on the next render. Floating/Maximized
-        // restore their own remembered rect.
+        // PreFsGeom restoration is advisory — the layout engine will recompute Tiled geometry on the next
+        // render. Floating/Maximized restore their own remembered rect.
         if (w.State == WindowState.Floating && w.PreFsGeom is { } g)
         {
             w.FloatingGeom = g;
@@ -144,15 +144,13 @@ public sealed class WindowStateController
         _host.RequestRender(output);
     }
 
-    // ------------------------------------------------------------------
-    // Maximize
+    // ---------------------------------------------------------------- Maximize
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toggle <see cref="WindowState.Maximized"/>. Unlike fullscreen, several
-    /// windows on the same output may be Maximized simultaneously — the
-    /// effect is identical to FS minus the bar-hiding hook because each
-    /// covers usable area.
+    /// Toggle <see cref="WindowState.Maximized"/>. Unlike fullscreen, several windows on the same
+    /// output may be Maximized simultaneously — the effect is identical to FS minus the bar-hiding
+    /// hook because each covers usable area.
     /// </summary>
     public bool ToggleMaximize(WindowProxy window)
     {
@@ -204,14 +202,12 @@ public sealed class WindowStateController
         return true;
     }
 
-    // ------------------------------------------------------------------
-    // Floating
+    // ---------------------------------------------------------------- Floating
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toggle <see cref="WindowState.Floating"/> ↔ <see cref="WindowState.Tiled"/>.
-    /// No-op when the window is currently in an overlay state (FS/Max/Min/Scratch);
-    /// callers must demote first.
+    /// Toggle <see cref="WindowState.Floating"/> ↔ <see cref="WindowState.Tiled"/>. No-op when the
+    /// window is currently in an overlay state (FS/Max/Min/Scratch); callers must demote first.
     /// </summary>
     public bool ToggleFloating(WindowProxy window)
     {
@@ -251,14 +247,13 @@ public sealed class WindowStateController
         return new Rect(x, y, w, h);
     }
 
-    // ------------------------------------------------------------------
-    // Minimize / Unminimize
+    // ---------------------------------------------------------------- Minimize / Unminimize
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toggle <see cref="WindowState.Minimized"/>. Minimized windows are
-    /// excluded from layout input and from the focus-cycle MRU; the render
-    /// path omits the <c>show</c> request so River unmaps the surface.
+    /// Toggle <see cref="WindowState.Minimized"/>. Minimized windows are excluded from layout input
+    /// and from the focus-cycle MRU; the render path omits the <c>show</c> request so River unmaps the
+    /// surface.
     /// </summary>
     public bool ToggleMinimize(WindowProxy window)
     {
@@ -273,14 +268,11 @@ public sealed class WindowStateController
             w.State = w.PreviousState;
             // Drop from MRU (it might not be on top).
             RemoveFromMru(_minimizedMru, window);
-            // Symmetric counterpart to the hide-pass cache invalidation
-            // in ProposeForArea: clear HideSent / LastHint / LastPos so
-            // the next manage cycle deterministically re-enters the
-            // show path (re-issuing propose_dimensions + set_position).
-            // Without this, a Minimized → Tiled toggle can leave the
-            // entry with HideSent=true and zeroed placement caches,
-            // and the next dispatch against the stale proxy crashes
-            // under AOT.
+            // Symmetric counterpart to the hide-pass cache invalidation in ProposeForArea: clear HideSent /
+            // LastHint / LastPos so the next manage cycle deterministically re-enters the show path
+            // (re-issuing propose_dimensions + set_position). Without this, a Minimized → Tiled toggle can
+            // leave the entry with HideSent=true and zeroed placement caches, and the next dispatch against
+            // the stale proxy crashes under AOT.
             _host.ResetVisibilityLatches(window);
             _host.Log($"state ws=0x{window.Handle.ToInt64():x} minimized→{w.State}");
         }
@@ -310,8 +302,8 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Pop the most-recently-minimized window and restore it. Returns
-    /// <c>false</c> when the MRU stack is empty.
+    /// Pop the most-recently-minimized window and restore it. Returns <c>false</c> when the MRU stack
+    /// is empty.
     /// </summary>
     public bool UnminimizeLast()
     {
@@ -330,18 +322,14 @@ public sealed class WindowStateController
             }
 
             w.State = w.PreviousState;
-            // Symmetric latch reset (see ToggleMinimize) — the layout
-            // proposer must re-enter the show path on the next manage
-            // cycle before we attempt to give this window focus.
+            // Symmetric latch reset (see ToggleMinimize) — the layout proposer must re-enter the show path on
+            // the next manage cycle before we attempt to give this window focus.
             _host.ResetVisibilityLatches(win);
             _host.RequestRender(_host.FocusedOutput);
-            // Guard against focusing a window whose River-side surface
-            // is still torn down (hide() was sent but the next manage
-            // cycle hasn't re-shown it yet). Without this guard a
-            // focus_window dispatch against a stale proxy crashes
-            // under AOT. If the window isn't ready yet, the next
-            // manage cycle's normal focus handling will pick it up
-            // (state is no longer Minimized so it participates again).
+            // Guard against focusing a window whose River-side surface is still torn down (hide was sent but
+            // the next manage cycle hasn't re-shown it yet). Without this guard a focus_window dispatch
+            // against a stale proxy crashes under AOT. If the window isn't ready yet, the next manage cycle's
+            // normal focus handling will pick it up (state is no longer Minimized so it participates again).
             if (_host.IsWindowLayoutReady(win))
             {
                 _host.Focus(win);
@@ -377,17 +365,14 @@ public sealed class WindowStateController
         }
     }
 
-
-    // ------------------------------------------------------------------
-    // Scratchpad
+    // ---------------------------------------------------------------- Scratchpad
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Summon or dismiss the named scratchpad. If the pad is empty and
-    /// <see cref="ScratchpadConfig.OnEmpty"/> is <c>"spawn"</c>, the
-    /// configured spawn command is executed; the resulting window will
-    /// be claimed on its first <c>manage_start</c> by the river client
-    /// (Pass B integration).
+    /// Summon or dismiss the named scratchpad. If the pad is empty and <see
+    /// cref="ScratchpadConfig.OnEmpty"/> is <c>"spawn"</c>, the configured spawn command is executed;
+    /// the resulting window will be claimed on its first <c>manage_start</c> by the river client (Pass
+    /// B integration).
     /// </summary>
     public bool ToggleScratchpad(string padName)
     {
@@ -449,8 +434,8 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Park <paramref name="window"/> in the named scratchpad (creating it
-    /// if necessary). Any prior occupant is demoted back to <c>Tiled</c>.
+    /// Park <paramref name="window"/> in the named scratchpad (creating it if necessary). Any prior
+    /// occupant is demoted back to <c>Tiled</c>.
     /// </summary>
     public bool SendToScratchpad(WindowProxy window, string padName)
     {
@@ -514,13 +499,12 @@ public sealed class WindowStateController
         return new Rect(x, y, w, h);
     }
 
-    // ------------------------------------------------------------------
-    // Lifecycle hooks
+    // ---------------------------------------------------------------- Lifecycle hooks
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Called by the host when a managed window is destroyed. Cleans up FS
-    /// slots, scratchpad registrations, and the minimized MRU.
+    /// Called by the host when a managed window is destroyed. Cleans up FS slots, scratchpad
+    /// registrations, and the minimized MRU.
     /// </summary>
     public void OnWindowDestroyed(WindowProxy window)
     {
@@ -537,9 +521,8 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Called by the host when an output is removed. Migrates pinned
-    /// fullscreen / maximized windows off the dead output and demotes
-    /// them to their previous state.
+    /// Called by the host when an output is removed. Migrates pinned fullscreen / maximized windows
+    /// off the dead output and demotes them to their previous state.
     /// </summary>
     public void OnOutputRemoved(OutputProxy output, IEnumerable<WindowStateData> windowsOnOutput)
     {
@@ -560,9 +543,8 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Called by the host when a window's tag mask changes. Fullscreen
-    /// windows demote to their previous state on tag-change (matches dwm /
-    /// awesome behaviour).
+    /// Called by the host when a window's tag mask changes. Fullscreen windows demote to their
+    /// previous state on tag-change (matches dwm / awesome behaviour).
     /// </summary>
     public void OnTagsChanged(WindowProxy window)
     {
@@ -590,37 +572,48 @@ public sealed class WindowStateController
     }
 }
 
-// ----------------------------------------------------------------------
-// Configuration records (parsed from wm.toml [scratchpad] / [state]).
+// -------------------------------------------------------------------- Configuration records
+// (parsed from wm.toml [scratchpad] / [state]).
 // ----------------------------------------------------------------------
 
-/// <summary>Phase B1e — <c>[scratchpad]</c> section of <c>wm.toml</c>.</summary>
+/// <summary>
+/// <c>[scratchpad]</c> section of <c>wm.toml</c>.
+/// </summary>
 public sealed record ScratchpadConfig
 {
-    /// <summary><c>"spawn"</c> or <c>"manual"</c>.</summary>
+    /// <summary>
+    /// <c>"spawn"</c> or <c>"manual"</c>.
+    /// </summary>
     public string OnEmpty { get; init; } = "manual";
     public double WidthFrac { get; init; } = 0.6;
     public double HeightFrac { get; init; } = 0.5;
-    /// <summary><c>"center"</c>, <c>"top"</c>, or <c>"bottom"</c>.</summary>
+    /// <summary>
+    /// <c>"center"</c>, <c>"top"</c>, or <c>"bottom"</c>.
+    /// </summary>
     public string Anchor { get; init; } = "center";
-    /// <summary>pad-name → shell command, parsed from <c>[scratchpad.spawn]</c>.</summary>
+    /// <summary>
+    /// Pad-name → shell command, parsed from <c>[scratchpad.spawn]</c>.
+    /// </summary>
     public IReadOnlyDictionary<string, string> SpawnCommands { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     public static ScratchpadConfig Default { get; } = new();
 }
 
-/// <summary>Phase B1e — <c>[state]</c> section of <c>wm.toml</c>.</summary>
+/// <summary>
+/// <c>[state]</c> section of <c>wm.toml</c>.
+/// </summary>
 public sealed record StateConfig
 {
     /// <summary>
-    /// When <c>true</c>, entering fullscreen also hides layer-shell layers
-    /// above <c>bottom</c>. <b>TODO (Pass B / B1f):</b> not yet wired —
-    /// requires layer-shell hide/restore plumbing.
+    /// When <c>true</c>, entering fullscreen also hides layer-shell layers above <c>bottom</c>.
+    /// <remarks>Not yet wired: requires layer-shell hide/restore plumbing.</remarks>
     /// </summary>
     public bool FullscreenHidesBar { get; init; } = true;
 
-    /// <summary>When <c>true</c>, Maximize ignores layer-shell exclusive zones.</summary>
+    /// <summary>
+    /// When <c>true</c>, Maximize ignores layer-shell exclusive zones.
+    /// </summary>
     public bool MaximizeFullOutput { get; init; } = false;
 
     public ScratchpadConfig Scratchpad { get; init; } = ScratchpadConfig.Default;

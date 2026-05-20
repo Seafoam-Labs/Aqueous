@@ -6,16 +6,15 @@ using System.Text;
 namespace Aqueous.OutputDaemon;
 
 /// <summary>
-/// Minimal hand-rolled JSON reader/writer.
-/// AOT-friendly (no reflection, no source-gen). Accepts objects, arrays,
-/// strings, numbers (double), booleans, null. Returns nested
-/// <see cref="Dictionary{TKey,TValue}"/> / <see cref="List{T}"/> trees.
-/// Mirrors the InputDaemon's <c>JsonReader</c>, plus array support — needed
-/// because <c>wlr-randr --json</c> emits a top-level JSON array.
+/// Minimal hand-rolled JSON reader/writer. AOT-friendly (no reflection, no source-gen). Accepts
+/// objects, arrays, strings, numbers (double), booleans, null. Returns nested <see
+/// cref="Dictionary{TKey,TValue}"/> / <see cref="List{T}"/> trees. Mirrors the InputDaemon's
+/// <c>JsonReader</c>, plus array support — needed because <c>wlr-randr --json</c> emits a
+/// top-level JSON array.
 /// </summary>
 internal static class Json
 {
-    // ---- Reader -------------------------------------------------------
+    // -- Reader -------------------------------------------------------
 
     public static object? Parse(string text)
     {
@@ -148,7 +147,7 @@ internal static class Json
         while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
     }
 
-    // ---- Writer -------------------------------------------------------
+    // -- Writer -------------------------------------------------------
 
     public static string Write(object? v)
     {

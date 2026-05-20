@@ -8,10 +8,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Features.Compositor.River.Registry;
 
 /// <summary>
-/// Thread-safe <see cref="ISeatRegistry"/> implementation. Near-verbatim
-/// counterpart to <see cref="OutputRegistry"/> minus the geometry / tag
-/// fields, kept as a separate sealed class (rather than generic-ised)
-/// so the AOT shape stays trivially obvious.
+/// Thread-safe <see cref="ISeatRegistry"/> implementation. Near-verbatim counterpart to <see
+/// cref="OutputRegistry"/> minus the geometry / tag fields, kept as a separate sealed class
+/// (rather than generic-ised) so the AOT shape stays trivially obvious.
 /// </summary>
 internal sealed class SeatRegistry : ISeatRegistry
 {

@@ -8,19 +8,14 @@ using Aqueous.Features.Tags;
 namespace Aqueous.Features.Focus;
 
 /// <summary>
-/// Stage 4 extraction of <c>RiverWindowManagerClient.Focus.cs</c>.
-///
+/// Extraction of <c>RiverWindowManagerClient.Focus.cs</c>.
 /// <para>
-/// Owns the keyboard-focus behaviour previously living on the god
-/// class. The <c>_focusedWindow</c> field itself still lives on
-/// <see cref="RiverWindowManagerClient"/> because several
-/// not-yet-extracted partials read it directly; reads go through
-/// <see cref="IFocusServiceCollaborators.FocusedWindow"/> and writes
-/// are routed through the same setter so the two stay in sync. The
-/// field migrates onto this class in Stage 9 once the god class
-/// disappears.
+/// Owns the keyboard-focus behaviour. The <c>_focusedWindow</c> field itself still lives on <see
+/// cref="RiverWindowManagerClient"/> because several not-yet-extracted partials read it directly;
+/// reads go through <see cref="IFocusServiceCollaborators.FocusedWindow"/> and writes are routed
+/// through the same setter so the two stay in sync. The field migrates onto this class once the
+/// god class disappears.
 /// </para>
-///
 /// <para>
 /// Pump-thread only.
 /// </para>
@@ -30,11 +25,9 @@ internal sealed class FocusService : IFocusService
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
-    // PR 9.12 §2.13 Step 1: cut over off RiverWindowManagerClient.
-    // The focused/pending-focus/primary-seat state lives on three DI
-    // singletons (FocusedWindowTracker / PendingFocusStore /
-    // PrimarySeatTracker); SendClearFocus is now an inlined Wayland
-    // marshal local to this service.
+    // Cut over off RiverWindowManagerClient. The focused/pending-focus/primary-seat state lives on
+    // three DI singletons (FocusedWindowTracker / PendingFocusStore / PrimarySeatTracker);
+    // SendClearFocus is now an inlined Wayland marshal local to this service.
     private readonly FocusedWindowTracker _focusedWindow;
     private readonly PendingFocusStore _pendingFocus;
     private readonly PrimarySeatTracker _primarySeat;
@@ -85,10 +78,9 @@ internal sealed class FocusService : IFocusService
         var pendingWindow = _pendingFocus.Window;
         var pendingShellSurface = _pendingFocus.ShellSurface;
 
-        // Skip no-op focus changes. SetFocusedWindow is called from
-        // pointer_enter on every mouse crossing; without a correct guard each
-        // enter event would issue manage_dirty, creating a manage/render storm
-        // that starves other clients' wl_display pings (they die after ~60s).
+        // Skip no-op focus changes. SetFocusedWindow is called from pointer_enter on every mouse
+        // crossing; without a correct guard each enter event would issue manage_dirty, creating a
+        // manage/render storm that starves other clients' wl_display pings (they die after ~60s).
         if (windowProxy == currentFocused && pendingWindow == windowProxy)
         {
             return; // same focus already pending
@@ -107,12 +99,11 @@ internal sealed class FocusService : IFocusService
 
     public void RequestFocus(IntPtr windowProxy)
     {
-        // Guard: never schedule focus on a window proxy that isn't tracked.
-        // Between the WindowInformation event that originally queued the focus
-        // and the manage cycle that drains it, a transient window (splash,
-        // self-closing dialog) can already have been destroyed by river. The
-        // resulting marshal on a dead object id is a fatal protocol error
-        // that aborts river and tears down the entire desktop.
+        // Guard: never schedule focus on a window proxy that isn't tracked. Between the WindowInformation
+        // event that originally queued the focus and the manage cycle that drains it, a transient window
+        // (splash, self-closing dialog) can already have been destroyed by river. The resulting marshal
+        // on a dead object id is a fatal protocol error that aborts river and tears down the entire
+        // desktop.
         if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(windowProxy))
         {
             RiverLog.Write($"RequestFocus: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
@@ -137,8 +128,8 @@ internal sealed class FocusService : IFocusService
 
         if (seat != IntPtr.Zero)
         {
-            // PR 9.12 §2.13 Step 1: inlined from RiverWindowManagerClient.SendClearFocus.
-            // river_seat_v1::clear_focus is opcode 3 with no arguments.
+            // Inlined from RiverWindowManagerClient.SendClearFocus. river_seat_v1::clear_focus is opcode 3
+            // with no arguments.
             WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             RiverLog.Write($"clear_focus on seat 0x{seat.ToString("x")}");
@@ -248,11 +239,10 @@ internal sealed class FocusService : IFocusService
     public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
         _pendingFocus.SetShellSurface(shellSurfaceProxy, seatProxy);
-        // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus
-        // is actually flushed on the next manage cycle. Without this, if a
-        // layer-shell surface (e.g. the start menu) grabs focus just before a
-        // new window maps, the pending focus never ships and the new window
-        // can't grab keyboard focus either.
+        // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus is actually flushed on the
+        // next manage cycle. Without this, if a layer-shell surface (e.g. the start menu) grabs focus
+        // just before a new window maps, the pending focus never ships and the new window can't grab
+        // keyboard focus either.
         _managerRequestSender.ScheduleManage();
     }
 

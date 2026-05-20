@@ -11,20 +11,17 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Tests for the host-side <see cref="WindowStateHost.InvalidateFloatRect"/>
-/// adapter. The adapter is the only code path that flips
-/// <c>WindowEntry.HasFloatRect</c> back to <c>false</c> and re-arms the
-/// position/size diff-gates the <c>LayoutProposer</c> floating loop guards
-/// on; if it silently no-ops (as it did when the <c>TryGetValue</c> guard
-/// shipped inverted) the maximize-button restore round-trip is broken.
-///
+/// Tests for the host-side <see cref="WindowStateHost.InvalidateFloatRect"/> adapter. The adapter
+/// is the only code path that flips <c>WindowEntry.HasFloatRect</c> back to <c>false</c> and
+/// re-arms the position/size diff-gates the <c>LayoutProposer</c> floating loop guards on; if it
+/// silently no-ops (as it did when the <c>TryGetValue</c> guard shipped inverted) the
+/// maximize-button restore round-trip is broken.
 /// <para>
-/// PR 9.12 §2.13 Step 9: rewritten to construct <see cref="WindowStateHost"/>
-/// directly with its 8 DI args (only <see cref="IWindowRegistry"/> is
-/// touched by <c>InvalidateFloatRect</c> / <c>SetToplevelMaximizedState</c>,
-/// so the other seven collaborators are passed as <c>null!</c>). The
-/// previous reflection harness against <see cref="RiverWindowManagerClient"/>
-/// retires together with the god class.
+/// rewritten to construct <see cref="WindowStateHost"/> directly with its 8 DI args (only <see
+/// cref="IWindowRegistry"/> is touched by <c>InvalidateFloatRect</c> /
+/// <c>SetToplevelMaximizedState</c>, so the other seven collaborators are passed as <c>null!</c>).
+/// The previous reflection harness against <see cref="RiverWindowManagerClient"/> retires together
+/// with the god class.
 /// </para>
 /// </summary>
 public class InvalidateFloatRectTests
@@ -50,9 +47,8 @@ public class InvalidateFloatRectTests
         return new Harness { Host = host, Windows = registry.Entries };
     }
 
-    // Minimal IFocusService stub: InvalidateFloatRect /
-    // SetToplevelMaximizedState don't touch focus, but the host ctor
-    // null-guards the collaborator. Every method is a no-op.
+    // Minimal IFocusService stub: InvalidateFloatRect / SetToplevelMaximizedState don't touch focus,
+    // but the host ctor null-guards the collaborator. Every method is a no-op.
     private sealed class NoopFocusService : IFocusService
     {
         public IntPtr FocusedWindow => IntPtr.Zero;
@@ -68,8 +64,8 @@ public class InvalidateFloatRectTests
         public void ClearFocusedHandle() { }
     }
 
-    // Minimal IManagerRequestSender stub: the host hooks under test
-    // do not marshal manager requests, so every method is a no-op.
+    // Minimal IManagerRequestSender stub: the host hooks under test do not marshal manager requests,
+    // so every method is a no-op.
     private sealed class NoopManagerRequestSender : IManagerRequestSender
     {
         public void SendManagerRequest(uint opcode) { }
@@ -108,10 +104,9 @@ public class InvalidateFloatRectTests
     [Fact]
     public void InvalidateFloatRect_SentinelsCannotMatchRealValues()
     {
-        // The reset values must compare not-equal to any plausible real
-        // position/size so the LayoutProposer diff-gates fire on the next
-        // cycle. Real values are non-negative for sizes; positions can be
-        // negative on multi-output setups but never int.MinValue.
+        // The reset values must compare not-equal to any plausible real position/size so the
+        // LayoutProposer diff-gates fire on the next cycle. Real values are non-negative for sizes;
+        // positions can be negative on multi-output setups but never int.MinValue.
         var h = Build();
         var handle = new IntPtr(0xC0DE);
         var entry = new WindowEntry { HasFloatRect = true };
@@ -122,8 +117,8 @@ public class InvalidateFloatRectTests
         // Position sentinels: must be < any real screen coordinate.
         Assert.True(entry.LastPosX <= -1_000_000);
         Assert.True(entry.LastPosY <= -1_000_000);
-        // Size sentinels: must be != any positive width/height. Either
-        // 0 or int.MinValue satisfies the diff-gate (`pw != LastHintW`).
+        // Size sentinels: must be != any positive width/height. Either 0 or int.MinValue satisfies the
+        // diff-gate (`pw != LastHintW`).
         Assert.True(entry.LastHintW <= 0);
         Assert.True(entry.LastHintH <= 0);
     }
@@ -144,8 +139,8 @@ public class InvalidateFloatRectTests
     public void InvalidateFloatRect_ZeroProxy_IsNoOp()
     {
         var h = Build();
-        // Zero handle is the documented "no window" sentinel; the host
-        // must tolerate it without throwing or inserting an entry.
+        // Zero handle is the documented "no window" sentinel; the host must tolerate it without throwing
+        // or inserting an entry.
         h.Host.InvalidateFloatRect(WindowProxy.Zero);
         Assert.False(h.Windows.ContainsKey(IntPtr.Zero));
     }
@@ -177,10 +172,9 @@ public class InvalidateFloatRectTests
         Assert.Equal(44, keep.LastHintH);
     }
 
-    // Installs a recording hook in place of the real wl_proxy_marshal_flags
-    // call inside SetToplevelMaximizedState. Returns the recorder list and
-    // a disposable that restores the previous hook (or null) on dispose so
-    // tests don't leak the override into one another.
+    // Installs a recording hook in place of the real wl_proxy_marshal_flags call inside
+    // SetToplevelMaximizedState. Returns the recorder list and a disposable that restores the
+    // previous hook (or null) on dispose so tests don't leak the override into one another.
     private static (System.Collections.Generic.List<(IntPtr handle, uint opcode)> log, IDisposable scope)
         InstallMarshalRecorder()
     {
@@ -204,11 +198,10 @@ public class InvalidateFloatRectTests
     [Fact]
     public void SetToplevelMaximizedState_TogglesXdgFlagAndRearmsSizeGate()
     {
-        // Mirror of the Chromium / Alacritty fix: the host hook must
-        // flip the per-entry XdgMaximized flag (consumed by any future
-        // xdg_toplevel.configure marshal) and re-arm the size diff-gate
-        // so a fresh propose_dimensions goes out together with the new
-        // state array even if the size happens to be unchanged.
+        // Mirror of the Chromium / Alacritty fix: the host hook must flip the per-entry XdgMaximized flag
+        // (consumed by any future xdg_toplevel.configure marshal) and re-arm the size diff-gate so a
+        // fresh propose_dimensions goes out together with the new state array even if the size happens to
+        // be unchanged.
         var (_, scope) = InstallMarshalRecorder();
         using var _s = scope;
 
@@ -243,9 +236,8 @@ public class InvalidateFloatRectTests
         using var _s = scope;
 
         var h = Build();
-        // Must tolerate unknown / zero proxies the same way
-        // InvalidateFloatRect does — and must NOT marshal anything,
-        // since there's no entry to inform River about.
+        // Must tolerate unknown / zero proxies the same way InvalidateFloatRect does — and must NOT
+        // marshal anything, since there's no entry to inform River about.
         h.Host.SetToplevelMaximizedState(new WindowProxy(new IntPtr(0xDEAD0)), true);
         h.Host.SetToplevelMaximizedState(WindowProxy.Zero, false);
         Assert.False(h.Windows.ContainsKey(new IntPtr(0xDEAD0)));
@@ -256,11 +248,9 @@ public class InvalidateFloatRectTests
     [Fact]
     public void SetToplevelMaximizedState_MarshalsInformMaximizedOpcodes()
     {
-        // The wire-level contract: enter must marshal opcode 15
-        // (river_window_v1.inform_maximized) on the window's proxy;
-        // restore must marshal opcode 16 (inform_unmaximized). Both
-        // are zero-arg requests on the river_window_v1 proxy. Without
-        // these wire emits Chromium reconciles a stale state array
+        // The wire-level contract: enter must marshal opcode 15 (river_window_v1.inform_maximized) on the
+        // window's proxy; restore must marshal opcode 16 (inform_unmaximized). Both are zero-arg requests
+        // on the river_window_v1 proxy. Without these wire emits Chromium reconciles a stale state array
         // (3-click bug) and Alacritty refuses to leave maximized.
         var (log, scope) = InstallMarshalRecorder();
         using var _s = scope;

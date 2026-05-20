@@ -6,11 +6,10 @@ using System.Text;
 namespace Aqueous.InputDaemon;
 
 /// <summary>
-/// Minimal JSON reader for the daemon's <c>apply</c> request shape only.
-/// Hand-rolled to keep the daemon AOT-friendly without
-/// <c>System.Text.Json</c>'s reflection paths or source-gen tooling.
-/// Accepts: objects, strings, numbers (double), booleans, null.
-/// Returns nested <c>Dictionary&lt;string, object?&gt;</c>.
+/// Minimal JSON reader for the daemon's <c>apply</c> request shape only. Hand-rolled to keep the
+/// daemon AOT-friendly without <c>System.Text.Json</c>'s reflection paths or source-gen tooling.
+/// Accepts: objects, strings, numbers (double), booleans, null. Returns nested
+/// <c>Dictionary&lt;string, object?&gt;</c>.
 /// </summary>
 internal static class JsonReader
 {

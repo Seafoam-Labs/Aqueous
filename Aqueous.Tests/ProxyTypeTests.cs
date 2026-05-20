@@ -6,13 +6,12 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase 2 / Step 8.B.6 — covers the proxy value-type semantics
-/// introduced to keep window/output/seat handles type-distinct across
-/// the WM ↔ window-state-controller seam.
+/// /.B.6 — covers the proxy value-type semantics introduced to keep window/output/seat handles
+/// type-distinct across the WM ↔ window-state-controller seam.
 /// </summary>
 public class ProxyTypeTests
 {
-    // --- WindowProxy ----------------------------------------------------
+    // - WindowProxy ----------------------------------------------------
 
     [Fact]
     public void WindowProxy_Zero_IsZero()
@@ -57,7 +56,7 @@ public class ProxyTypeTests
         Assert.False(dict.ContainsKey(new WindowProxy(new IntPtr(0xC3))));
     }
 
-    // --- OutputProxy ----------------------------------------------------
+    // - OutputProxy ----------------------------------------------------
 
     [Fact]
     public void OutputProxy_Zero_IsZero()
@@ -74,7 +73,7 @@ public class ProxyTypeTests
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
 
-    // --- SeatProxy ------------------------------------------------------
+    // - SeatProxy ------------------------------------------------------
 
     [Fact]
     public void SeatProxy_Zero_IsZero()
@@ -90,11 +89,10 @@ public class ProxyTypeTests
         Assert.Equal(a, b);
     }
 
-    // --- Type-distinctness ---------------------------------------------
-    // The whole point of having three structs rather than one is that the
-    // compiler refuses to interchange them. A handle-shaped type-mismatch
-    // bug is now caught at compile time. This test documents that — if it
-    // ever stops failing to compile, someone collapsed the three structs.
+    // - Type-distinctness --------------------------------------------- The whole point of having
+    // three structs rather than one is that the compiler refuses to interchange them. A handle-shaped
+    // type-mismatch bug is now caught at compile time. This test documents that — if it ever stops
+    // failing to compile, someone collapsed the three structs.
 
     [Fact]
     public void Proxies_Carry_Distinct_Identities()
@@ -108,8 +106,7 @@ public class ProxyTypeTests
         Assert.Equal(win.Handle, output.Handle);
         Assert.Equal(win.Handle, seat.Handle);
 
-        // … but they are distinct types, so dictionaries are not
-        // accidentally interchangeable.
+        // … but they are distinct types, so dictionaries are not accidentally interchangeable.
         var winDict = new Dictionary<WindowProxy, int> { [win] = 1 };
         var outDict = new Dictionary<OutputProxy, int> { [output] = 2 };
         var seatDict = new Dictionary<SeatProxy, int> { [seat] = 3 };
@@ -119,7 +116,7 @@ public class ProxyTypeTests
         Assert.Equal(3, seatDict[seat]);
     }
 
-    // --- ToString -------------------------------------------------------
+    // - ToString -------------------------------------------------------
 
     [Fact]
     public void Proxies_ToString_ContainsHexHandle()

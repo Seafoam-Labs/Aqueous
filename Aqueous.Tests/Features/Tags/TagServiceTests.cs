@@ -11,11 +11,10 @@ using Xunit;
 namespace Aqueous.Tests.Features.Tags;
 
 /// <summary>
-/// Stage 3 unit tests for the extracted <see cref="TagService"/>.
-/// Exercises the real class against an in-memory <see cref="WindowRegistry"/>
-/// + <see cref="OutputRegistry"/>. Stage 5 retired the
-/// <c>ITagServiceCollaborators</c> bridge entirely; the fake is now an
-/// <see cref="IManagerRequestSender"/>.
+/// Unit tests for the extracted <see cref="TagService"/>. Exercises the real class against an
+/// in-memory <see cref="WindowRegistry"/> + <see cref="OutputRegistry"/>. retired the
+/// <c>ITagServiceCollaborators</c> bridge entirely; the fake is now an <see
+/// cref="IManagerRequestSender"/>.
 /// </summary>
 public class TagServiceTests
 {
@@ -30,8 +29,9 @@ public class TagServiceTests
         public void ScheduleManage() => ScheduleManageCalls++;
     }
 
-    /// <summary>Stage 4 fake — the focus operations the Tags subsystem used to
-    /// reach via the bridge now arrive through IFocusService.</summary>
+    /// <summary>
+    /// Fake — the focus operations the Tags subsystem.
+    /// </summary>
     private sealed class FakeFocus : IFocusService
     {
         public IntPtr FocusedWindow { get; set; }
@@ -59,9 +59,8 @@ public class TagServiceTests
         var co = new FakeFocus();
         var sender = new FakeSender();
 
-        // Seed an output entry directly via the public ConcurrentDictionary
-        // (registries' Entries is intentionally exposed for legacy
-        // consumers — Stage 1 left this surface stable).
+        // Seed an output entry directly via the public ConcurrentDictionary (registries' Entries is
+        // intentionally exposed for consumers — left this surface stable).
         or.Entries[output] = new OutputEntry
         {
             Proxy = output,
@@ -94,8 +93,8 @@ public class TagServiceTests
 
         Assert.Equal(2u, or.Entries[output].VisibleTags);
         Assert.Equal(TagState.DefaultTag, or.Entries[output].LastVisibleTags);
-        // Schedule-manage was previously asserted via the bridge; behaviour is
-        // unchanged but the assertion now lives in TagsChanged_SinkFires.
+        // Schedule-manage was; behaviour is unchanged but the assertion now lives in
+        // TagsChanged_SinkFires.
     }
 
     [Fact]
@@ -196,9 +195,8 @@ public class TagServiceTests
         wr.Entries[win].Tags = 0b0010u;     // window on tag 2
         or.Entries[output].VisibleTags = 0b0010u;
 
-        // Drive ViewTags to a non-overlapping mask. RepairFocusAfterTagChange
-        // runs inside the controller; we observe its effect through the
-        // collaborator.
+        // Drive ViewTags to a non-overlapping mask. RepairFocusAfterTagChange runs inside the controller;
+        // we observe its effect through the collaborator.
         Assert.True(svc.ViewTags(0b0100u)); // window no longer visible
         Assert.True(co.ClearFocusCalls >= 1);
     }
@@ -216,18 +214,15 @@ public class TagServiceTests
         Assert.Equal(1, hits);
     }
 
-    // PR 9.12 §2.13 Step 10: the "god class does not implement ITagHost"
-    // regression guard retired together with RiverWindowManagerClient
-    // itself — the class no longer exists, so it trivially can't
-    // re-acquire any interface.
+    // The "god class does not implement ITagHost" regression guard retired together with
+    // RiverWindowManagerClient itself — the class no longer exists, so it trivially can't re-acquire
+    // any interface.
 
     [Fact]
     public void TagsServicePartial_RegressionGuard_CollaboratorsInterfaceDeleted()
     {
-        // Stage 5: ITagServiceCollaborators was deleted in full. The
-        // type should no longer exist anywhere in the production
-        // assembly; if it ever returns, ScheduleManage routing is
-        // probably wrong again.
+        // ITagServiceCollaborators was deleted in full. The type should no longer exist anywhere in the
+        // production assembly; if it ever returns, ScheduleManage routing is probably wrong again.
         var prodAsm = typeof(RiverCompositorHost).Assembly;
         var stillThere = prodAsm.GetType(
             "Aqueous.Features.Compositor.River.Tags.ITagServiceCollaborators",

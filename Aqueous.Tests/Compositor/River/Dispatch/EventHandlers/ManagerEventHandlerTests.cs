@@ -6,9 +6,8 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 9.12 §2.13: <see cref="ManagerEventHandler"/> now takes the
-/// lifted <c>ManagerEventService</c> directly (no longer the god class).
-/// Real-bridge construction requires Wayland; structural guards only.
+/// <see cref="ManagerEventHandler"/> Now takes the lifted <c>ManagerEventService</c> directly (no
+/// longer the god class). Real-bridge construction requires Wayland; structural guards only.
 /// </summary>
 public sealed class ManagerEventHandlerTests
 {

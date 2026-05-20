@@ -7,21 +7,18 @@ using Aqueous.Features.Compositor.River.Connection;
 namespace Aqueous.Tests.Compositor.River.Connection;
 
 /// <summary>
-/// Minimal <see cref="IWaylandConnection"/> stand-in used by
-/// <see cref="EventPumpTests"/>. Only <c>Dispatch</c> is wired up;
-/// every other member throws so an accidental call is loud.
+/// Minimal <see cref="IWaylandConnection"/> stand-in used by <see cref="EventPumpTests"/>. Only
+/// <c>Dispatch</c> is wired up; every other member throws so an accidental call is loud.
 /// </summary>
 /// <remarks>
-/// All counters and thread captures use interlocked / volatile
-/// access because the pump invokes <c>Dispatch</c> from a background
-/// thread while the test asserts on the main thread.
+/// All counters and thread captures use interlocked / volatile access because the pump invokes
+/// <c>Dispatch</c> from a background thread while the test asserts on the main thread.
 /// </remarks>
 internal sealed class FakeWaylandConnection : IWaylandConnection
 {
     /// <summary>
-    /// Pluggable <c>Dispatch</c> body. Defaults to "yield + return 0"
-    /// so the pump iterates rapidly without starving the test
-    /// thread of CPU.
+    /// Pluggable <c>Dispatch</c> body. Defaults to "yield + return 0" so the pump iterates rapidly
+    /// without starving the test thread of CPU.
     /// </summary>
     public Func<int> DispatchImpl { get; set; } = () =>
     {
@@ -31,7 +28,9 @@ internal sealed class FakeWaylandConnection : IWaylandConnection
 
     private int _dispatchCalls;
 
-    /// <summary>Total number of <c>Dispatch</c> calls observed so far.</summary>
+    /// <summary>
+    /// Total number of <c>Dispatch</c> calls observed so far.
+    /// </summary>
     public int DispatchCalls => Volatile.Read(ref _dispatchCalls);
 
     private Thread? _firstDispatchThread;
@@ -50,9 +49,8 @@ internal sealed class FakeWaylandConnection : IWaylandConnection
     public int Dispatch()
     {
         var current = Thread.CurrentThread;
-        // Capture the very first thread that ever calls Dispatch;
-        // subsequent dispatches on any other thread are recorded
-        // and surface as AllDispatchesOnThread() == false.
+        // Capture the very first thread that ever calls Dispatch; subsequent dispatches on any other
+        // thread are recorded and surface as AllDispatchesOnThread == false.
         var prior = Interlocked.CompareExchange(ref _firstDispatchThread, current, null);
         if (prior is not null && prior != current)
         {
@@ -82,9 +80,8 @@ internal sealed class FakeWaylandConnection : IWaylandConnection
     }
 
     /// <summary>
-    /// Spins until <c>Dispatch</c> has been called at least once and
-    /// returns the thread it ran on. Fails the test (via timeout)
-    /// rather than blocking forever.
+    /// Spins until <c>Dispatch</c> has been called at least once and returns the thread it ran on.
+    /// Fails the test (via timeout) rather than blocking forever.
     /// </summary>
     public Thread WaitForFirstDispatchThread(TimeSpan timeout)
     {
@@ -97,8 +94,9 @@ internal sealed class FakeWaylandConnection : IWaylandConnection
         return Volatile.Read(ref _firstDispatchThread)!;
     }
 
-    /// <summary>True iff every observed <c>Dispatch</c> call came from
-    /// <paramref name="expected"/>.</summary>
+    /// <summary>
+    /// True iff every observed <c>Dispatch</c> call came from <paramref name="expected"/>.
+    /// </summary>
     public bool AllDispatchesOnThread(Thread expected)
         => !_multiThreaded && Volatile.Read(ref _firstDispatchThread) == expected;
 }

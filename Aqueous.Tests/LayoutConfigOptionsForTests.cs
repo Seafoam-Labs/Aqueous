@@ -5,10 +5,9 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase 3 — coverage tests for <see cref="LayoutConfig.OptionsFor(string)"/>
-/// and the public construction surface (defaults, slots, border). The
-/// loader has its own dedicated tests; here we pin the merge semantics
-/// only.
+/// Coverage tests for <see cref="LayoutConfig.OptionsFor(string)"/> and the public construction
+/// surface (defaults, slots, border). The loader has its own dedicated tests; here we pin the
+/// merge semantics only.
 /// </summary>
 public class LayoutConfigOptionsForTests
 {

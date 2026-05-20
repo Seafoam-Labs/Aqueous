@@ -7,10 +7,9 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 10 — regression guards for <see cref="RiverCompositorHost"/>.
-/// The host now owns the Wayland lifecycle directly (god-class
-/// <c>RiverWindowManagerClient</c> retired); ctor takes fine-grained
-/// DI collaborators rather than an opaque <c>IServiceProvider</c>.
+/// Regression guards for <see cref="RiverCompositorHost"/>. The host now owns the Wayland
+/// lifecycle directly (class <c>RiverWindowManagerClient</c> retired); ctor takes fine-grained DI
+/// collaborators rather than an opaque <c>IServiceProvider</c>.
 /// </summary>
 public sealed class RegressionGuardsForHostedCompositor
 {
@@ -37,8 +36,8 @@ public sealed class RegressionGuardsForHostedCompositor
         var p = ctors[0].GetParameters();
         // 13 required collaborators + optional ILogger = 14 params total.
         Assert.True(p.Length >= 13, $"expected >=13 ctor args, found {p.Length}");
-        // None of them should be IServiceProvider — the host no longer
-        // resolves services lazily through DI.
+        // None of them should be IServiceProvider — the host no longer resolves services lazily through
+        // DI.
         Assert.DoesNotContain(p, x => x.ParameterType == typeof(System.IServiceProvider));
     }
 

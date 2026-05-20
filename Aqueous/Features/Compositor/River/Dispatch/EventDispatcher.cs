@@ -10,21 +10,15 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
-/// Default <see cref="IEventDispatcher"/> implementation backed by a
-/// <see cref="FrozenDictionary{TKey,TValue}"/> built once at construction
-/// from the injected handlers — AOT-friendly, allocation-free on the hot
-/// path, no reflection.
-///
-/// Duplicate-interface guard: registering two handlers for the same
-/// <see cref="IEventHandler.InterfaceName"/> throws
-/// <see cref="InvalidOperationException"/> from the constructor. Since
-/// handlers are registered explicitly in <c>Program.cs</c> (no assembly
-/// scanning), this is a cheap fail-fast for programmer mistakes.
-///
-/// Pump-thread affinity: in <c>DEBUG</c> builds, the first call to
-/// <see cref="Dispatch"/> captures the calling thread; subsequent calls
-/// assert they originate from that same thread. Release builds elide
-/// the check entirely.
+/// Default <see cref="IEventDispatcher"/> implementation backed by a <see
+/// cref="FrozenDictionary{TKey,TValue}"/> built once at construction from the injected handlers —
+/// AOT-friendly, allocation-free on the hot path, no reflection. Duplicate-interface guard:
+/// registering two handlers for the same <see cref="IEventHandler.InterfaceName"/> throws <see
+/// cref="InvalidOperationException"/> from the constructor. Since handlers are registered
+/// explicitly in <c>Program.cs</c> (no assembly scanning), this is a cheap fail-fast for
+/// programmer mistakes. Pump-thread affinity: in <c>DEBUG</c> builds, the first call to <see
+/// cref="Dispatch"/> captures the calling thread; subsequent calls assert they originate from that
+/// same thread. Release builds elide the check entirely.
 /// </summary>
 internal sealed class EventDispatcher : IEventDispatcher
 {
@@ -47,10 +41,9 @@ internal sealed class EventDispatcher : IEventDispatcher
 
         _log = log;
 
-        // Materialise once so we can scan for duplicates with a stable
-        // ordering. The handlers IEnumerable is documented to be the
-        // DI container's resolution of IEnumerable<IEventHandler>, but
-        // we don't want to enumerate it twice.
+        // Materialise once so we can scan for duplicates with a stable ordering. The handlers IEnumerable
+        // is documented to be the DI container's resolution of IEnumerable<IEventHandler>, but we don't
+        // want to enumerate it twice.
         var list = handlers as IReadOnlyList<IEventHandler> ?? handlers.ToArray();
 
         var seen = new Dictionary<string, IEventHandler>(StringComparer.Ordinal);
@@ -78,7 +71,9 @@ internal sealed class EventDispatcher : IEventDispatcher
         _table = seen.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
-    /// <summary>Number of registered handlers. Useful for tests.</summary>
+    /// <summary>
+    /// Number of registered handlers. Useful for tests.
+    /// </summary>
     internal int HandlerCount => _table.Count;
 
     public void Dispatch(WlEvent ev)
@@ -91,8 +86,8 @@ internal sealed class EventDispatcher : IEventDispatcher
         }
         else
         {
-            // Unknown interface — expected for globals we don't bind.
-            // Trace, do not throw, do not log at warn (would be noisy).
+            // Unknown interface — expected for globals we don't bind. Trace, do not throw, do not log at warn
+            // (would be noisy).
             if (_log.IsEnabled(LogLevel.Trace))
             {
                 _log.LogTrace("Unhandled event for {Interface} opcode {Opcode}",
@@ -105,15 +100,10 @@ internal sealed class EventDispatcher : IEventDispatcher
     private void AssertPumpThread()
     {
 #if DEBUG
-        // Capture the dispatch thread lazily on first Dispatch() call,
-        // NOT in the ctor (which runs on the DI/main thread, not on the
-        // libwayland callback thread that actually invokes Dispatch).
-        //
-        // On drift, log a warning and continue — do NOT throw. Throwing
-        // inside a [UnmanagedCallersOnly] try/catch silently swallows
-        // every event for the affected interface, which previously
-        // caused River's 3-second liveness ping to time out and kill
-        // the connection.
+        // Capture the dispatch thread lazily on first Dispatch call, NOT in the ctor (which runs on the
+        // DI/main thread, not on the libwayland callback thread that actually invokes Dispatch). On
+        // drift, log a warning and continue — do NOT throw. Throwing inside a [UnmanagedCallersOnly]
+        // try/catch silently swallows every event for the affected interface, which.
         var current = Environment.CurrentManagedThreadId;
         var captured = Interlocked.CompareExchange(ref _pumpThreadId, current, 0);
         if (captured != 0 && captured != current)

@@ -5,11 +5,10 @@ using Aqueous.Features.Screencopy;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 10 — final demolition. The dispatcher no longer
-/// references the retired <c>RiverWindowManagerClient</c> god class.
-/// Its three collaborators (<see cref="WaylandBindSiteState"/>,
-/// <see cref="IEventDispatcher"/>, <see cref="IScreencopyService"/>)
-/// are now injected directly.
+/// Final demolition. The dispatcher no longer references the retired
+/// <c>RiverWindowManagerClient</c> god class. Its three collaborators (<see
+/// cref="WaylandBindSiteState"/>, <see cref="IEventDispatcher"/>, <see
+/// cref="IScreencopyService"/>) are now injected directly.
 /// </summary>
 internal sealed unsafe class RiverEventDispatcher
 {
@@ -28,10 +27,8 @@ internal sealed unsafe class RiverEventDispatcher
     }
 
     /// <summary>
-    /// PR 9.12 §2.13 — owns the body previously inlined in
-    /// <see cref="NativeCallbackEntry.Dispatch"/>. The native entry
-    /// rehydrates a <see cref="NativeCallbackContext"/> from the GCHandle
-    /// and calls into this dispatcher.
+    /// Owns the body. The native entry rehydrates a <see cref="NativeCallbackContext"/> from the
+    /// GCHandle and calls into this dispatcher.
     /// </summary>
     internal int DispatchNative(IntPtr target, uint opcode, IntPtr args)
     {

@@ -5,27 +5,20 @@ using System.Runtime.InteropServices;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
-/// Stage 9 PR 9.11 — the <see cref="UnmanagedCallersOnlyAttribute"/>
-/// entry function called by libwayland for every event dispatched to a
-/// proxy whose dispatcher we own. Previously lived as a partial-class
-/// static in <c>NativeDispatchBridge.cs</c>; lifted here so the god class
-/// no longer owns the native callback.
-///
+/// The <see cref="UnmanagedCallersOnlyAttribute"/> entry function called by libwayland for every
+/// event dispatched to a proxy whose dispatcher we own. lifted here so the god class no longer
+/// owns the native callback.
 /// <para>
-/// Behaviour is byte-for-byte equivalent to the prior partial: the
-/// GCHandle anchor (<see cref="RiverWindowManagerClient._selfHandle"/>)
-/// is unchanged for now — PR 9.11 keeps the existing anchor object so
-/// the lift is purely a relocation. A future PR (9.12 / cross-cutting
-/// concerns: "GCHandle / native callback lifetime") may re-pin the
-/// handle to a dedicated <c>NativeCallbackContext</c> owned by
-/// <c>RiverCompositorHost</c>.
+/// Behaviour is byte-for-byte equivalent to the prior partial: the GCHandle anchor (<see
+/// cref="RiverWindowManagerClient._selfHandle"/>) is unchanged for now — keeps the existing anchor
+/// object so the lift is purely a relocation. A future PR (9.12 / cross-cutting concerns:
+/// "GCHandle / native callback lifetime") may re-pin the handle to a dedicated
+/// <c>NativeCallbackContext</c> owned by <c>RiverCompositorHost</c>.
 /// </para>
-///
 /// <para>
-/// Routing: interface-name lookup against the Stage-0 proxy → interface
-/// map, then dispatch via <see cref="IEventDispatcher"/>. Screencopy
-/// frame proxies (owned by <c>WlrScreencopyClient</c>, not tracked in
-/// the map) keep their dedicated fallback through
+/// Routing: interface-name lookup against the Stage-0 proxy → interface map, then dispatch via
+/// <see cref="IEventDispatcher"/>. Screencopy frame proxies (owned by <c>WlrScreencopyClient</c>,
+/// not tracked in the map) keep their dedicated fallback through
 /// <c>IScreencopyService.TryDispatchFrameEvent</c>.
 /// </para>
 /// </summary>
@@ -37,10 +30,8 @@ internal static unsafe class NativeCallbackEntry
         try
         {
             var gch = GCHandle.FromIntPtr(implementation);
-            // PR 9.12 §2.13 Step 10: route through RiverEventDispatcher
-            // rehydrated from the NativeCallbackContext pinned on the
-            // GCHandle. The god-class fallback arm was retired alongside
-            // RiverWindowManagerClient itself.
+            // Route through RiverEventDispatcher rehydrated from the NativeCallbackContext pinned on the
+            // GCHandle. The class fallback arm was retired alongside RiverWindowManagerClient itself.
             if (gch.Target is not NativeCallbackContext ctx)
             {
                 return 0;

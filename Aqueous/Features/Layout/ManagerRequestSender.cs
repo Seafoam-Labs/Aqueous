@@ -4,15 +4,13 @@ using Aqueous.Features.Compositor.River;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// Stage 5 lift of <c>RiverWindowManagerClient.ManagerRequestSender</c>:
-/// owns the small set of helpers that marshal Wayland requests to
-/// <c>river_window_manager_v1</c> and the manage-cycle flush flag.
-///
+/// Lift of <c>RiverWindowManagerClient.ManagerRequestSender</c>: owns the small set of helpers
+/// that marshal Wayland requests to <c>river_window_manager_v1</c> and the manage-cycle flush
+/// flag.
 /// <para>
-/// Pump-thread only. The <c>_manager</c> and <c>_display</c> handles are
-/// owned by libwayland and are valid for the lifetime of the connection;
-/// before <see cref="Init"/> fires both are <see cref="IntPtr.Zero"/> and
-/// every send is a silent no-op (the registry-binding site may run after
+/// Pump-thread only. The <c>_manager</c> and <c>_display</c> handles are owned by libwayland and
+/// are valid for the lifetime of the connection; before <see cref="Init"/> fires both are <see
+/// cref="IntPtr.Zero"/> and every send is a silent no-op (the registry-binding site may run after
 /// some constructor-time consumers, e.g. <c>FocusService</c>).
 /// </para>
 /// </summary>
@@ -58,9 +56,8 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         {
             return;
         }
-        // If we're already inside a manage/render sequence the compositor
-        // will flush our pending state when the current handler returns;
-        // issuing manage_dirty now would just guarantee an extra cycle
+        // If we're already inside a manage/render sequence the compositor will flush our pending state
+        // when the current handler returns; issuing manage_dirty now would just guarantee an extra cycle
         // (and a potential infinite loop).
         if (_insideManageSequence)
         {

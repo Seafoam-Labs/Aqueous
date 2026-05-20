@@ -4,30 +4,27 @@ using System.Collections.Generic;
 namespace Aqueous.Features.Layout;
 
 /// <summary>
-/// Plugin-facing geometry helpers shared by the built-in engines and
-/// available to custom <see cref="ILayoutEngine"/> implementations.
+/// Plugin-facing geometry helpers shared by the built-in engines and available to custom <see
+/// cref="ILayoutEngine"/> implementations.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Engines must remain pure (no Wayland calls, no I/O). These helpers
-/// exist so a layout can describe its policy in terms of named
-/// rectangle operations rather than re-deriving the same arithmetic in
-/// every implementation.
+/// Engines must remain pure (no Wayland calls, no I/O). These helpers exist so a layout can
+/// describe its policy in terms of named rectangle operations rather than re-deriving the same
+/// arithmetic in every implementation.
 /// </para>
 /// <para>
-/// Every helper is total (never throws on degenerate input) so the
-/// <see cref="LayoutController"/> can rely on engine output without a
-/// per-call <c>try</c>/<c>catch</c>. Boundary behaviour is documented
-/// per-method.
+/// Every helper is total (never throws on degenerate input) so the <see cref="LayoutController"/>
+/// can rely on engine output without a per-call <c>try</c>/<c>catch</c>. Boundary behaviour is
+/// documented per-method.
 /// </para>
 /// </remarks>
 public static class LayoutMath
 {
     /// <summary>
-    /// Returns <paramref name="r"/> shrunk by <paramref name="margin"/> on
-    /// every side. Never produces a rect with negative width / height; if
-    /// <paramref name="margin"/> would consume the whole rect the result
-    /// has W/H = 1.
+    /// Returns <paramref name="r"/> shrunk by <paramref name="margin"/> on every side. Never produces
+    /// a rect with negative width / height; if <paramref name="margin"/> would consume the whole rect
+    /// the result has W/H = 1.
     /// </summary>
     public static Rect Shrink(Rect r, int margin)
     {
@@ -42,8 +39,8 @@ public static class LayoutMath
     }
 
     /// <summary>
-    /// Clamps a rect's W/H to a window's min/max hints. A hint of 0 is
-    /// treated as "unbounded" (Wayland convention).
+    /// Clamps a rect's W/H to a window's min/max hints. A hint of 0 is treated as "unbounded" (Wayland
+    /// convention).
     /// </summary>
     public static Rect ClampToHints(Rect r, in WindowEntryView w)
     {
@@ -73,21 +70,22 @@ public static class LayoutMath
     }
 
     /// <summary>
-    /// Splits <paramref name="length"/> into <paramref name="count"/>
-    /// evenly-sized cells with <paramref name="gap"/> pixels between
-    /// them. The last cell absorbs any leftover from integer division so
-    /// the cells together cover exactly <paramref name="length"/>.
-    /// Returns the list of <c>(offset, size)</c> pairs along the axis.
+    /// Splits <paramref name="length"/> into <paramref name="count"/> evenly-sized cells with
+    /// <paramref name="gap"/> pixels between them. The last cell absorbs any leftover from integer
+    /// division so the cells together cover exactly <paramref name="length"/>. Returns the list of
+    /// <c>(offset, size)</c> pairs along the axis.
     /// </summary>
     /// <remarks>
-    /// Used by the built-in <c>tile</c> and <c>grid</c> layouts; plugin
-    /// authors can compose it for any axis-aligned strip layout. Edge
-    /// cases:
+    /// Used by the built-in <c>tile</c> and <c>grid</c> layouts; plugin authors can compose it for any
+    /// axis-aligned strip layout. Edge cases:
     /// <list type="bullet">
-    ///   <item><paramref name="count"/> &lt;= 0 → returns an empty list.</item>
-    ///   <item><paramref name="length"/> too small for the requested gaps
-    ///         → each cell is clamped to <c>1</c>; the last cell still
-    ///         absorbs the leftover (which may be negative).</item>
+    /// <item>
+    /// <paramref name="count"/> &lt;= 0 → returns an empty list.
+    /// </item>
+    /// <item>
+    /// <paramref name="length"/> too small for the requested gaps → each cell is clamped to <c>1</c>;
+    /// the last cell still absorbs the leftover (which may be negative).
+    /// </item>
     /// </list>
     /// </remarks>
     public static IReadOnlyList<(int Offset, int Size)> SplitAxis(int length, int count, int gap)

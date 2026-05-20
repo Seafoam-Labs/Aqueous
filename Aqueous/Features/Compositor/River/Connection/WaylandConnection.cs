@@ -9,39 +9,36 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aqueous.Features.Compositor.River.Connection;
 
 /// <summary>
-/// Owns the lifetime of a single <c>wl_display</c> connection plus the
-/// thin set of <c>libwayland-client</c> calls that operate on it
-/// (connect / disconnect / dispatch / roundtrip / flush / file
-/// descriptor). Higher layers should treat this class as the only place
-/// where raw <c>wl_display</c> pointers are created or destroyed.
+/// Owns the lifetime of a single <c>wl_display</c> connection plus the thin set of
+/// <c>libwayland-client</c> calls that operate on it (connect / disconnect / dispatch / roundtrip
+/// / flush / file descriptor). Higher layers should treat this class as the only place where raw
+/// <c>wl_display</c> pointers are created or destroyed.
 /// </summary>
 /// <remarks>
-/// This type is intentionally state-only: it does not manage the
-/// registry, the dispatcher callback, or the pump thread. Those concerns
-/// live in <see cref="Aqueous.Features.Compositor.River.RiverWindowManagerClient"/>
-/// (registry / dispatcher) and <see cref="EventPump"/> (pump thread).
+/// This type is intentionally state-only: it does not manage the registry, the dispatcher
+/// callback, or the pump thread. Those concerns live in <see
+/// cref="Aqueous.Features.Compositor.River.RiverWindowManagerClient"/> (registry / dispatcher) and
+/// <see cref="EventPump"/> (pump thread).
 /// </remarks>
 internal sealed class WaylandConnection : IWaylandConnection
 {
     private readonly ILogger<WaylandConnection> _logger;
     private readonly WaylandOptions _options;
 
-    /// <summary>Guards single-fire semantics for <see cref="Disconnected"/>.</summary>
+    /// <summary>
+    /// Guards single-fire semantics for <see cref="Disconnected"/>.
+    /// </summary>
     private int _disconnectedRaised;
 
-    /// <inheritdoc/>
     public IntPtr Display { get; private set; }
 
-    /// <inheritdoc/>
     public bool IsConnected => Display != IntPtr.Zero;
 
-    /// <inheritdoc/>
     public event Action<string>? Disconnected;
 
     /// <summary>
-    /// Constructs a <see cref="WaylandConnection"/> with default options
-    /// and a null logger. Provided for backwards compatibility with
-    /// callers that have not migrated to dependency injection yet.
+    /// Constructs a <see cref="WaylandConnection"/> with default options and a null logger. Provided
+    /// for backwards compatibility with callers that have not to dependency injection yet.
     /// </summary>
     public WaylandConnection()
         : this(NullLogger<WaylandConnection>.Instance, new WaylandOptions())
@@ -49,8 +46,7 @@ internal sealed class WaylandConnection : IWaylandConnection
     }
 
     /// <summary>
-    /// Constructs a <see cref="WaylandConnection"/> with the supplied
-    /// logger and options.
+    /// Constructs a <see cref="WaylandConnection"/> with the supplied logger and options.
     /// </summary>
     public WaylandConnection(ILogger<WaylandConnection> logger, WaylandOptions options)
     {
@@ -58,7 +54,6 @@ internal sealed class WaylandConnection : IWaylandConnection
         _options = options;
     }
 
-    /// <inheritdoc/>
     public Result Connect()
     {
         if (Display != IntPtr.Zero)
@@ -99,14 +94,12 @@ internal sealed class WaylandConnection : IWaylandConnection
         return Result.Ok;
     }
 
-    /// <inheritdoc/>
     public ValueTask<Result> ConnectAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         return new ValueTask<Result>(Connect());
     }
 
-    /// <inheritdoc/>
     public int Roundtrip()
     {
         if (Display == IntPtr.Zero)
@@ -122,7 +115,6 @@ internal sealed class WaylandConnection : IWaylandConnection
         return rc;
     }
 
-    /// <inheritdoc/>
     public int Dispatch()
     {
         if (Display == IntPtr.Zero)
@@ -138,7 +130,6 @@ internal sealed class WaylandConnection : IWaylandConnection
         return rc;
     }
 
-    /// <inheritdoc/>
     public int DispatchPending()
     {
         if (Display == IntPtr.Zero)
@@ -146,13 +137,11 @@ internal sealed class WaylandConnection : IWaylandConnection
             return -1;
         }
 
-        // wl_display_dispatch_pending is not yet exposed by WaylandInterop;
-        // fall back to a non-blocking flush+dispatch approximation. When
-        // the P/Invoke is added, replace this with the direct call.
+        // Wl_display_dispatch_pending is not yet exposed by WaylandInterop; fall back to a non-blocking
+        // flush+dispatch approximation. When the P/Invoke is added, replace this with the direct call.
         return WaylandInterop.wl_display_dispatch(Display);
     }
 
-    /// <inheritdoc/>
     public int Flush()
     {
         if (Display == IntPtr.Zero)
@@ -168,7 +157,6 @@ internal sealed class WaylandConnection : IWaylandConnection
         return rc;
     }
 
-    /// <inheritdoc/>
     public int GetFd()
     {
         return Display == IntPtr.Zero
@@ -177,9 +165,8 @@ internal sealed class WaylandConnection : IWaylandConnection
     }
 
     /// <summary>
-    /// Closes the connection if one is open. Safe to call multiple
-    /// times; subsequent calls are no-ops. Raises
-    /// <see cref="Disconnected"/> exactly once.
+    /// Closes the connection if one is open. Safe to call multiple times; subsequent calls are no-ops.
+    /// Raises <see cref="Disconnected"/> exactly once.
     /// </summary>
     public void Disconnect()
     {
@@ -195,6 +182,5 @@ internal sealed class WaylandConnection : IWaylandConnection
         }
     }
 
-    /// <inheritdoc cref="Disconnect"/>
     public void Dispose() => Disconnect();
 }

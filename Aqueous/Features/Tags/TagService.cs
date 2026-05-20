@@ -8,24 +8,19 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.Tags;
 
 /// <summary>
-/// Stage 3 extraction of <c>RiverWindowManagerClient.Tags.cs</c>.
-///
+/// Extraction of <c>RiverWindowManagerClient.Tags.cs</c>.
 /// <para>
-/// Implements both <see cref="ITagService"/> (the public, high-level
-/// surface used by keybindings / IPC / tests) and
-/// <see cref="TagController.ITagHost"/> (the low-level mutation hook
-/// driven by an internally-owned <see cref="TagController"/>). The
-/// per-output and per-window tag state lives on the registry entries
-/// (<see cref="OutputEntry.VisibleTags"/>, <see cref="WindowEntry.Tags"/>)
-/// — Stage 1 made the registries authoritative, so this class owns no
-/// duplicated dictionaries.
+/// Implements both <see cref="ITagService"/> (the public, high-level surface used by keybindings /
+/// IPC / tests) and <see cref="TagController.ITagHost"/> (the low-level mutation hook driven by an
+/// internally-owned <see cref="TagController"/>). The per-output and per-window tag state lives on
+/// the registry entries (<see cref="OutputEntry.VisibleTags"/>, <see cref="WindowEntry.Tags"/>) —
+/// made the registries authoritative, so this class owns no duplicated dictionaries.
 /// </para>
-///
 /// <para>
-/// Pump-thread only: every public method either reads/writes registry
-/// entries (which are <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/>
-/// but still semantically pump-thread-owned for Wayland-visible state)
-/// or asks the collaborator to schedule a manage cycle.
+/// Pump-thread only: every public method either reads/writes registry entries (which are <see
+/// cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/> but still semantically
+/// pump-thread-owned for Wayland-visible state) or asks the collaborator to schedule a manage
+/// cycle.
 /// </para>
 /// </summary>
 internal sealed class TagService : ITagService, TagController.ITagHost
@@ -33,8 +28,8 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly IFocusService _focusService;
-    // Stage 5: ScheduleManage now goes through IManagerRequestSender;
-    // ITagServiceCollaborators retired (deleted) entirely.
+    // ScheduleManage now goes through IManagerRequestSender; ITagServiceCollaborators retired
+    // (deleted) entirely.
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly TagController _controller;
     public TagService(
@@ -50,7 +45,7 @@ internal sealed class TagService : ITagService, TagController.ITagHost
         _controller           = new TagController(this);
     }
 
-    // ---- ITagService (façade forwarding to TagController) ------------
+    // -- ITagService (façade forwarding to TagController) ------------
 
     public bool ViewTags(uint mask) => _controller.ViewTags(mask);
     public bool ViewAll() => _controller.ViewAll();
@@ -61,12 +56,11 @@ internal sealed class TagService : ITagService, TagController.ITagHost
 
     public Action<TagController.TagsChangedEvent>? TagsChanged { get; set; }
 
-    // ---- TagController.ITagHost (extracted partial body) -------------
+    // -- TagController.ITagHost (extracted partial body) -------------
 
     /// <summary>
-    /// Returns the OutputEntry the keyboard focus currently lives on.
-    /// Falls back to the first known output. <c>null</c> if no outputs
-    /// are tracked yet (e.g. the headless fallback).
+    /// Returns the OutputEntry the keyboard focus currently lives on. Falls back to the first known
+    /// output. <c>null</c> if no outputs are tracked yet (e.g. the headless fallback).
     /// </summary>
     private OutputEntry? GetFocusedOutputEntry()
     {
@@ -80,9 +74,8 @@ internal sealed class TagService : ITagService, TagController.ITagHost
             return oeFromFocus;
         }
 
-        // 2. First output (deterministic enough for single-output;
-        //    pointer-position output resolution can be added when
-        //    SeatInteractionService exposes it).
+        // 2. First output (deterministic enough for single-output; pointer-position output resolution can
+        // be added when SeatInteractionService exposes it).
         foreach (var kv in _outputRegistry.Entries)
         {
             return kv.Value;
@@ -110,8 +103,8 @@ internal sealed class TagService : ITagService, TagController.ITagHost
             return false;
         }
 
-        // Push prior value onto history (cap to 8) and remember it
-        // separately as LastVisibleTags for fast back-and-forth.
+        // Push prior value onto history (cap to 8) and remember it separately as LastVisibleTags for fast
+        // back-and-forth.
         oe.LastVisibleTags = oe.VisibleTags;
         oe.TagHistory.Push(oe.VisibleTags);
         while (oe.TagHistory.Count > 8)
@@ -185,10 +178,9 @@ internal sealed class TagService : ITagService, TagController.ITagHost
     void TagController.ITagHost.RequestRelayout() => _managerRequestSender.ScheduleManage();
 
     /// <summary>
-    /// Self-heal focus when the previously-focused window has just
-    /// become invisible because of a tag change. Picks the first
-    /// window on the focused output that intersects the new
-    /// VisibleTags; clears focus if none.
+    /// Self-heal focus when the previously-focused window has just become invisible because of a tag
+    /// change. Picks the first window on the focused output that intersects the new VisibleTags;
+    /// clears focus if none.
     /// </summary>
     void TagController.ITagHost.RepairFocusAfterTagChange()
     {
@@ -208,8 +200,8 @@ internal sealed class TagService : ITagService, TagController.ITagHost
             }
         }
 
-        // Replacement: first visible window on the focused output,
-        // else any visible window, else clear focus.
+        // Replacement: first visible window on the focused output, else any visible window, else clear
+        // focus.
         IntPtr replacement = IntPtr.Zero;
         var focusedOe = GetFocusedOutputEntry();
         uint focusedMask = focusedOe?.VisibleTags ?? TagState.AllTags;

@@ -6,14 +6,11 @@ using System.Collections.Generic;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// PR 9.12 §2.3: DI singleton owning the per-output single-fullscreen-slot
-/// dictionary previously held as <c>_outputFullscreen</c> on
-/// <c>RiverWindowManagerClient</c>. Wraps a <see cref="ConcurrentDictionary{TKey,TValue}"/>
-/// mapping output proxy → currently-fullscreen window handle (or
-/// <see cref="IntPtr.Zero"/> if none). The legacy god-class field now
-/// aliases this singleton so all existing consumers (LayoutProposer,
-/// WindowEventHandler, WindowStateHostAccessors) keep working unchanged
-/// while subsequent §2.x lifts can migrate consumers to inject this type
+/// DI singleton owning the per-output single-fullscreen-slot dictionary. Wraps a <see
+/// cref="ConcurrentDictionary{TKey,TValue}"/> mapping output proxy → currently-fullscreen window
+/// handle (or <see cref="IntPtr.Zero"/> if none). the class field now aliases this singleton so
+/// all existing consumers (LayoutProposer, WindowEventHandler, WindowStateHostAccessors) keep
+/// working unchanged while subsequent §2.x lifts can migrate consumers to inject this type
 /// directly.
 /// </summary>
 internal sealed class OutputFullscreenMap : IEnumerable<KeyValuePair<IntPtr, IntPtr>>

@@ -2,19 +2,11 @@ using System;
 using Aqueous.Diagnostics;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
-/// Managed <see cref="IEventHandler"/> for the
-/// <c>river_super_key_binding_v1</c> proxy that fires
-/// <c>pressed</c>/<c>released</c> opcodes (today triggers a dbus-send
-/// fire-and-forget to toggle the Aqueous start menu).
-///
-/// PR 9.12 §2.13 final cleanup: re-typed as a standalone handler — the
-/// <c>OnSuperKeyBindingEvent</c> body previously living in a
-/// <c>partial class RiverWindowManagerClient</c> file is now inline
-/// here. Logs flow through <see cref="RiverLog"/>.
-///
-/// PR 9.12 §2.13 Step 6: the dead <c>RiverWindowManagerClient</c> ctor
-/// argument (previously kept only to preserve a unit-test ctor pin) is
-/// removed. The handler now has zero god-class coupling.
+/// Managed <see cref="IEventHandler"/> for the <c>river_super_key_binding_v1</c> proxy that fires
+/// <c>pressed</c>/<c>released</c> opcodes (today triggers a dbus-send fire-and-forget to toggle
+/// the Aqueous start menu). final cleanup: re-typed as a standalone handler — the
+/// <c>OnSuperKeyBindingEvent</c> body. Logs flow through <see cref="RiverLog"/>. the dead
+/// <c>RiverWindowManagerClient</c> ctor argument (. The handler now has zero class coupling.
 /// </summary>
 internal sealed unsafe class SuperKeyBindingEventHandler : IEventHandler
 {

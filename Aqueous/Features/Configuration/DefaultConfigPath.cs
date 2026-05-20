@@ -4,10 +4,9 @@ using System.IO;
 namespace Aqueous.Features.Configuration;
 
 /// <summary>
-/// PR 9.12 §2.12 — pure helper that resolves the default config path
-/// (<c>${XDG_CONFIG_HOME:-~/.config}/aqueous/wm.toml</c>). Previously
-/// lived on <c>RiverWindowManagerClient.GetDefaultConfigPath</c>; lifted
-/// top-level so config-path resolution no longer needs the god class.
+/// Pure helper that resolves the default config path
+/// (<c>${XDG_CONFIG_HOME:-~/.config}/aqueous/wm.toml</c>). lifted top-level so config-path
+/// resolution no longer needs the god class.
 /// </summary>
 internal static class DefaultConfigPath
 {

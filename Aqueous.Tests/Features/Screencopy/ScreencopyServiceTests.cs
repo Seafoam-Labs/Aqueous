@@ -55,17 +55,15 @@ public class ScreencopyServiceTests
         int factoryCalls = 0;
         var svc = new ScreencopyService
         {
-            // Factory may return null to signal "would-have-constructed";
-            // we still mark IsReady true via a sentinel by returning null.
-            // Since null cannot mark ready, we instead count invocations
-            // and assert the second call short-circuits because _client
-            // would already be non-null on the first successful call.
+            // Factory may return null to signal "would-have-constructed"; we still mark IsReady true via a
+            // sentinel by returning null. Since null cannot mark ready, we instead count invocations and
+            // assert the second call short-circuits because _client would already be non-null on the first
+            // successful call.
             ClientFactory = (m, v, s, h, d) =>
             {
                 factoryCalls++;
-                // Return null on first call so subsequent _client check
-                // remains null and second TryActivate would call factory
-                // again — guard against that pattern in the assertion.
+                // Return null on first call so subsequent _client check remains null and second TryActivate would
+                // call factory again — guard against that pattern in the assertion.
                 return null;
             },
         };

@@ -7,19 +7,16 @@ using Aqueous.Features.Compositor.River.Connection;
 namespace Aqueous.Features.Screencopy;
 
 /// <summary>
-/// Stage 6 Part 2 facade — owns the <see cref="WlrScreencopyClient"/> instance
-/// and routes the screencopy branch of the native callback. No collaborator
-/// bridge is required: the service has no callbacks back into
-/// <c>RiverWindowManagerClient</c> (first bridge-less Stage in the
-/// decomposition).
+/// Part 2 facade — owns the <see cref="WlrScreencopyClient"/> instance and routes the screencopy
+/// branch of the native callback. No collaborator bridge is required: the service has no callbacks
+/// back into <c>RiverWindowManagerClient</c> (first bridge-less Stage in the decomposition).
 /// </summary>
 internal sealed class ScreencopyService : IScreencopyService, IDisposable
 {
     /// <summary>
-    /// Test seam only — overrides the <see cref="WlrScreencopyClient"/>
-    /// constructor used by <see cref="TryActivate"/>. Production callers must
-    /// never set this; it exists exclusively so unit tests can avoid
-    /// constructing the real (P/Invoke-heavy) client.
+    /// Test seam only — overrides the <see cref="WlrScreencopyClient"/> constructor used by <see
+    /// cref="TryActivate"/>. Production callers must never set this; it exists exclusively so unit
+    /// tests can avoid constructing the real (P/Invoke-heavy) client.
     /// </summary>
     internal Func<IntPtr, uint, IntPtr, IntPtr, IntPtr, WlrScreencopyClient?>? ClientFactory { get; init; }
 

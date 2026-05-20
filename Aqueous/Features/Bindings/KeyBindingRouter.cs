@@ -12,16 +12,12 @@ using Aqueous.Features.Tags;
 namespace Aqueous.Features.Bindings;
 
 /// <summary>
-/// PR 9.9 (Stage 9): top-level <see cref="IKeyBindingRouter"/> implementation.
-///
-/// PR 9.12 §2.6: ctor converted from a single <see cref="RiverWindowManagerClient"/>
-/// reference to fine-grained service injection.
-///
-/// PR 9.12 §2.13: the last god-class ref is gone. The mutable
-/// <c>LayoutConfig</c> handle is reached through <see cref="LayoutController"/>
-/// (which already owns the active config and exposes <c>ReplaceConfig</c>),
-/// and the default-config-path helper now resolves directly via
-/// <see cref="DefaultConfigPath.Resolve"/>.
+/// : Top-level <see cref="IKeyBindingRouter"/> implementation. ctor converted from a single <see
+/// cref="RiverWindowManagerClient"/> reference to fine-grained service injection. the last class
+/// ref is gone. The mutable <c>LayoutConfig</c> handle is reached through <see
+/// cref="LayoutController"/> (which already owns the active config and exposes
+/// <c>ReplaceConfig</c>), and the default-config-path helper now resolves directly via <see
+/// cref="DefaultConfigPath.Resolve"/>.
 /// </summary>
 internal sealed class KeyBindingRouter : IKeyBindingRouter
 {
@@ -48,10 +44,9 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
     }
 
-    // Static dispatch table for built-in (parameterless) key-binding actions.
-    // Tag actions (which need to derive a bit index from the enum value) are
-    // routed by Handle below before the table is consulted, because expanding
-    // 36 individual cases here would defeat the point.
+    // Static dispatch table for built-in (parameterless) key-binding actions. Tag actions (which need
+    // to derive a bit index from the enum value) are routed by Handle below before the table is
+    // consulted, because expanding 36 individual cases here would defeat the point.
     private static readonly IReadOnlyDictionary<KeyBindingAction, Action<KeyBindingRouter>> ActionTable =
         new Dictionary<KeyBindingAction, Action<KeyBindingRouter>>
         {
@@ -87,10 +82,9 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
 
     /// <summary>
     /// Dispatch a built-in <see cref="KeyBindingAction"/>. Tag actions
-    /// (ViewTag/SendTag/ToggleViewTag/ToggleWindowTag) are routed first
-    /// because they derive a bit index from the enum value and would
-    /// otherwise need 36 nearly-identical entries in <see cref="ActionTable"/>.
-    /// Everything else is a single dictionary lookup.
+    /// (ViewTag/SendTag/ToggleViewTag/ToggleWindowTag) are routed first because they derive a bit
+    /// index from the enum value and would otherwise need 36 nearly-identical entries in <see
+    /// cref="ActionTable"/>. Everything else is a single dictionary lookup.
     /// </summary>
     public void Handle(KeyBindingAction action)
     {
@@ -122,13 +116,14 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     }
 
     /// <summary>
-    /// Internal entry point used by <see cref="CustomActionRunner"/>'s
-    /// <c>builtin:</c> verb (which has already done its own arg parse).
-    /// Identical to <see cref="Handle"/>.
+    /// Internal entry point used by <see cref="CustomActionRunner"/>'s <c>builtin:</c> verb (which has
+    /// already done its own arg parse). Identical to <see cref="Handle"/>.
     /// </summary>
     internal void InvokeBuiltin(KeyBindingAction action) => Handle(action);
 
-    /// <summary>Resolve <paramref name="idOrSlot"/> through slots first, then engines.</summary>
+    /// <summary>
+    /// Resolve <paramref name="idOrSlot"/> through slots first, then engines.
+    /// </summary>
     internal void SetLayoutByIdOrSlot(string idOrSlot)
     {
         if (string.IsNullOrEmpty(idOrSlot))
@@ -146,7 +141,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _managerRequestSender.ScheduleManage();
     }
 
-    // ---- Built-in action helpers (one tiny method per ActionTable entry) ----
+    // -- Built-in action helpers (one tiny method per ActionTable entry) ----
 
     private void ToggleStartMenu()
     {
@@ -212,7 +207,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             return;
         }
 
-        // river_window_v1::close opcode=1 (0 is destroy)
+        // River_window_v1::close opcode=1 (0 is destroy)
         WaylandInterop.wl_proxy_marshal_flags(focused, 1, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
@@ -233,7 +228,10 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
     }
 
-    /// <summary>Run <paramref name="action"/> only if a window has focus; log <paramref name="actionName"/> otherwise.</summary>
+    /// <summary>
+    /// Run <paramref name="action"/> only if a window has focus; log <paramref name="actionName"/>
+    /// otherwise.
+    /// </summary>
     private void OnFocused(string actionName, Action<WindowProxy> action)
     {
         if (_focusService.TryGetFocusedAlive(out var focused))

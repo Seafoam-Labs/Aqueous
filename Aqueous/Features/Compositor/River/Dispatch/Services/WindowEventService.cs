@@ -10,37 +10,19 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
 
 /// <summary>
-/// PR 9.12 §2.13 Step 5 — handles river_window_v1 events.
-///
+/// Handles river_window_v1 events.
 /// <para>
-/// The service no longer references <see cref="RiverWindowManagerClient"/>.
-/// All state previously read/written through god-class accessors is
-/// now consumed via fine-grained DI singletons:
-/// </para>
-/// <list type="bullet">
-///   <item><description><see cref="IWindowRegistry"/> — window lookup
-///   and removal on Closed.</description></item>
-///   <item><description><see cref="WindowStateStore"/>,
-///   <see cref="OutputFullscreenMap"/>,
-///   <see cref="PrevFullscreenStore"/> — per-window/output state
-///   buckets cleared on Closed and queried by the
-///   Maximize/Fullscreen/Minimize cases.</description></item>
-///   <item><description><see cref="DragStateStore"/> — drag-lifecycle
-///   coords/edges/started/finished/seat-hovered map. Pointer
-///   Move/Resize requested cases arm a new drag on this store.</description></item>
-///   <item><description><see cref="IFocusService"/> — focus
-///   self-repair on Closed and explicit RequestFocus on Activate/
-///   Unminimize.</description></item>
-///   <item><description><see cref="PendingFocusStore"/> — clear the
-///   stale pending-focus handle on Closed.</description></item>
-///   <item><description><see cref="WindowStateController"/> — the
-///   maximize/minimize/fullscreen state machine.</description></item>
-///   <item><description><see cref="ILayoutProposer"/> — float-layout
-///   gate for client-driven drag-arm requests.</description></item>
-///   <item><description><see cref="IManagerRequestSender"/> —
-///   ScheduleManage acks.</description></item>
-/// </list>
-/// </summary>
+/// The service no longer references <see cref="RiverWindowManagerClient"/>. All
+/// state.</description>
+/// </item>
+/// <item>
+/// <description><see cref="WindowStateStore"/>, <see cref="OutputFullscreenMap"/>, <see
+/// cref="PrevFullscreenStore"/> — per-window/output state buckets cleared on Closed and queried by
+/// the Maximize/Fullscreen/Minimize cases.</description>
+/// </item>
+/// <item>
+/// <description><see cref="DragStateStore"/> — drag-lifecycle
+/// coords/edges/started/finished/seat-hovered map.
 internal sealed unsafe class WindowEventService
 {
     private readonly IWindowRegistry _windowRegistry;

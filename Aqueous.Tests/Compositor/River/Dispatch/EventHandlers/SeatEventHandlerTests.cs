@@ -7,9 +7,8 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// Structural guards for <see cref="SeatEventHandler"/>. PR 9.12 §2.13
-/// Step 10 retired the god-class negative-shape pins together with
-/// <c>RiverWindowManagerClient</c> itself.
+/// Structural guards for <see cref="SeatEventHandler"/>. retired the class negative-shape pins
+/// together with <c>RiverWindowManagerClient</c> itself.
 /// </summary>
 public sealed class SeatEventHandlerTests
 {

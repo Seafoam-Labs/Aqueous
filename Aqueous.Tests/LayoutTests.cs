@@ -8,9 +8,9 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Acceptance tests from Phase 1.1 plan section F. Engines are pure
-/// functions, so these tests require neither a Wayland fixture nor a
-/// running compositor — exactly the property the architecture aims for.
+/// Acceptance tests from.1 plan section F. Engines are pure functions, so these tests require
+/// neither a Wayland fixture nor a running compositor — exactly the property the architecture aims
+/// for.
 /// </summary>
 public class LayoutTests
 {
@@ -23,7 +23,7 @@ public class LayoutTests
 
     private static readonly Rect Area = new(0, 0, 1000, 800);
 
-    // ---- TileLayout ---------------------------------------------------
+    // -- TileLayout ---------------------------------------------------
 
     [Fact]
     public void TileLayout_FourWindows_MasterCount1()
@@ -65,7 +65,7 @@ public class LayoutTests
         }
     }
 
-    // ---- MonocleLayout -----------------------------------------------
+    // -- MonocleLayout -----------------------------------------------
 
     [Fact]
     public void MonocleLayout_OnlyFocusedVisible()
@@ -91,7 +91,7 @@ public class LayoutTests
         Assert.Equal(990, visible.Geometry.W);
     }
 
-    // ---- ScrollingLayout ---------------------------------------------
+    // -- ScrollingLayout ---------------------------------------------
 
     [Fact]
     public void ScrollingLayout_ViewportClampedAtLeftEdge()
@@ -148,7 +148,7 @@ public class LayoutTests
         Assert.True(visible > 0, "at least one column must be visible");
     }
 
-    // ---- FloatingLayout ----------------------------------------------
+    // -- FloatingLayout ----------------------------------------------
 
     [Fact]
     public void FloatingLayout_RememberedRectAcrossArrange()
@@ -164,7 +164,7 @@ public class LayoutTests
         Assert.Equal(first[0].Geometry, second[0].Geometry);
     }
 
-    // ---- LayoutConfig ------------------------------------------------
+    // -- LayoutConfig ------------------------------------------------
 
     [Fact]
     public void LayoutConfig_SecondarySlotSwap()
@@ -226,13 +226,13 @@ public class LayoutTests
         Assert.True(opts.GetExtraBool("center_focused", false));
     }
 
-    // ---- LayoutController --------------------------------------------
+    // -- LayoutController --------------------------------------------
 
     [Fact]
     public void Controller_HonorsMinMaxClamp()
     {
-        // Tile would naturally give one window the whole 100x100 area, but
-        // the window's MinW=300 must be enforced by the controller.
+        // Tile would naturally give one window the whole 100x100 area, but the window's MinW=300 must be
+        // enforced by the controller.
         var registry = new LayoutRegistry();
         var ctrl = new LayoutController(registry, LayoutConfig.Default);
         var output = new IntPtr(0xAA);

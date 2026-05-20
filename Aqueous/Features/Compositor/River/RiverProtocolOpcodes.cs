@@ -1,21 +1,25 @@
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Named opcode constants for the River and core Wayland protocols this client speaks.
-/// Each nested class corresponds to a single interface; the constant name matches the
-/// event/request name from the upstream protocol XML so that switch arms read as
-/// <c>case Manager.Window:</c> rather than <c>case 6:</c>.
+/// Named opcode constants for the River and core Wayland protocols this client speaks. Each nested
+/// class corresponds to a single interface; the constant name matches the event/request name from
+/// the upstream protocol XML so that switch arms read as <c>case Manager.Window:</c> rather than
+/// <c>case 6:</c>.
 /// </summary>
 internal static class RiverProtocolOpcodes
 {
-    /// <summary><c>wl_registry</c> events.</summary>
+    /// <summary>
+    /// <c>wl_registry</c> Events.
+    /// </summary>
     internal static class Registry
     {
         internal const uint Global = 0;
         internal const uint GlobalRemove = 1;
     }
 
-    /// <summary><c>river_window_manager_v1</c> events.</summary>
+    /// <summary>
+    /// <c>river_window_manager_v1</c> Events.
+    /// </summary>
     internal static class Manager
     {
         internal const uint Unavailable = 0;
@@ -29,7 +33,9 @@ internal static class RiverProtocolOpcodes
         internal const uint SeatInformation = 8;
     }
 
-    /// <summary><c>river_window_v1</c> events.</summary>
+    /// <summary>
+    /// <c>river_window_v1</c> Events.
+    /// </summary>
     internal static class Window
     {
         internal const uint Closed = 0;
@@ -54,7 +60,9 @@ internal static class RiverProtocolOpcodes
         internal const uint UnminimizeRequested = 19;
     }
 
-    /// <summary><c>river_output_v1</c> events.</summary>
+    /// <summary>
+    /// <c>river_output_v1</c> Events.
+    /// </summary>
     internal static class Output
     {
         internal const uint Removed = 0;
@@ -63,7 +71,9 @@ internal static class RiverProtocolOpcodes
         internal const uint Dimensions = 3;
     }
 
-    /// <summary><c>river_seat_v1</c> events.</summary>
+    /// <summary>
+    /// <c>river_seat_v1</c> Events.
+    /// </summary>
     internal static class Seat
     {
         internal const uint Removed = 0;
@@ -77,26 +87,34 @@ internal static class RiverProtocolOpcodes
         internal const uint PointerPosition = 8;
     }
 
-    /// <summary><c>river_layer_shell_v1</c> events.</summary>
+    /// <summary>
+    /// <c>river_layer_shell_v1</c> Events.
+    /// </summary>
     internal static class LayerShell
     {
         internal const uint LayerSurface = 0;
     }
 
-    /// <summary>Press/release opcodes shared by River key, pointer and drag bindings.</summary>
+    /// <summary>
+    /// Press/release opcodes shared by River key, pointer and drag bindings.
+    /// </summary>
     internal static class Binding
     {
         internal const uint Pressed = 0;
         internal const uint Released = 1;
     }
 
-    /// <summary><c>wl_shm</c> request opcodes.</summary>
+    /// <summary>
+    /// <c>wl_shm</c> Request opcodes.
+    /// </summary>
     internal static class WlShm
     {
         internal const uint CreatePool = 0;
     }
 
-    /// <summary><c>wl_shm_pool</c> request opcodes.</summary>
+    /// <summary>
+    /// <c>wl_shm_pool</c> Request opcodes.
+    /// </summary>
     internal static class WlShmPool
     {
         internal const uint CreateBuffer = 0;
@@ -104,14 +122,18 @@ internal static class RiverProtocolOpcodes
         internal const uint Resize = 2;
     }
 
-    /// <summary><c>wl_buffer</c> request / event opcodes.</summary>
+    /// <summary>
+    /// <c>wl_buffer</c> Request / event opcodes.
+    /// </summary>
     internal static class WlBuffer
     {
         internal const uint Destroy = 0;       // request
         internal const uint Release = 0;       // event
     }
 
-    /// <summary><c>zwlr_screencopy_manager_v1</c> request opcodes.</summary>
+    /// <summary>
+    /// <c>zwlr_screencopy_manager_v1</c> Request opcodes.
+    /// </summary>
     internal static class ScreencopyManager
     {
         internal const uint CaptureOutput = 0;
@@ -119,7 +141,9 @@ internal static class RiverProtocolOpcodes
         internal const uint Destroy = 2;
     }
 
-    /// <summary><c>zwlr_screencopy_frame_v1</c> request opcodes.</summary>
+    /// <summary>
+    /// <c>zwlr_screencopy_frame_v1</c> Request opcodes.
+    /// </summary>
     internal static class ScreencopyFrameRequest
     {
         internal const uint Copy = 0;
@@ -127,7 +151,9 @@ internal static class RiverProtocolOpcodes
         internal const uint CopyWithDamage = 2;
     }
 
-    /// <summary><c>zwlr_screencopy_frame_v1</c> event opcodes.</summary>
+    /// <summary>
+    /// <c>zwlr_screencopy_frame_v1</c> Event opcodes.
+    /// </summary>
     internal static class ScreencopyFrame
     {
         internal const uint Buffer = 0;

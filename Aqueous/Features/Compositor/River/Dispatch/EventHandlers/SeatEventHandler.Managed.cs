@@ -5,36 +5,28 @@ using Aqueous.Features.Compositor.River.Registry;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 
 /// <summary>
-/// PR 8.3 — third <see cref="IEventHandler"/> extracted out of the
-/// <c>RiverWindowManagerClient</c> god class.
-///
-/// Handles the nine <c>river_seat_v1</c> events (see
-/// <see cref="RiverProtocolOpcodes.Seat"/>): removed, wl_seat,
-/// pointer_enter, pointer_leave, window_interaction,
-/// shell_surface_interaction, op_delta, op_release, pointer_position.
-///
-/// The simple cache-mutation opcodes (Removed / WlSeat / PointerLeave /
-/// PointerPosition) live inline; opcodes that touch drag state or the
-/// focus pipeline (PointerEnter focus-follow, OpDelta, OpRelease) and
-/// the two seat-interaction opcodes are routed through
-/// <see cref="ISeatHandlerCollaborators"/> which is implemented
-/// explicitly by <c>RiverWindowManagerClient</c> and retires in Stage 9.
-///
-/// Pump-thread only: invoked by <see cref="IEventDispatcher.Dispatch"/>.
+/// Third <see cref="IEventHandler"/> extracted out of the <c>RiverWindowManagerClient</c> god
+/// class. Handles the nine <c>river_seat_v1</c> events (see <see
+/// cref="RiverProtocolOpcodes.Seat"/>): removed, wl_seat, pointer_enter, pointer_leave,
+/// window_interaction, shell_surface_interaction, op_delta, op_release, pointer_position. The
+/// simple cache-mutation opcodes (Removed / WlSeat / PointerLeave / PointerPosition) live inline;
+/// opcodes that touch drag state or the focus pipeline (PointerEnter focus-follow, OpDelta,
+/// OpRelease) and the two seat-interaction opcodes are routed through <see
+/// cref="ISeatHandlerCollaborators"/> which is implemented explicitly by
+/// <c>RiverWindowManagerClient</c> and retires. Pump-thread only: invoked by <see
+/// cref="IEventDispatcher.Dispatch"/>.
 /// </summary>
 internal sealed unsafe class SeatEventHandler : IEventHandler
 {
     private readonly ISeatRegistry _seats;
     private readonly IWindowRegistry _windows;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow;
-    // _seatPointerPos retained as a ctor param for signature stability
-    // with PR 8.3 callers + tests, but PointerPosition writes now route
-    // through ISeatHandlerCollaborators.CachePointerPosition (see fix
-    // for snap-zone-broken regression). Field kept null-checked; future
-    // PR retires it once tests + RiverWindowManagerClient ctor migrate.
+    // _seatPointerPos retained as a ctor param for signature stability with callers + tests, but
+    // PointerPosition writes now route through ISeatHandlerCollaborators.CachePointerPosition (see
+    // fix for snap-zone-broken regression). Field kept null-checked; future PR retires it once tests
+    // + RiverWindowManagerClient ctor migrate.
     private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos;
-    // PR 9.12 §2.13 Step 3: routes through SeatInteractionService
-    // instead of RiverWindowManagerClient. The service consumes
+    // Routes through SeatInteractionService instead of RiverWindowManagerClient. The service consumes
     // fine-grained DI singletons directly.
     private readonly SeatInteractionService _interaction;
     private readonly Action<string>? _log;
@@ -89,9 +81,9 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
                     IntPtr hovered = args[0].o;
-                    // Gate: only follow focus when the hovered window actually changed.
-                    // River can re-send pointer_enter during normal motion; treating each
-                    // as a focus change triggers the manage_dirty storm (see Fix #1).
+                    // Gate: only follow focus when the hovered window actually changed. River can re-send
+                    // pointer_enter during normal motion; treating each as a focus change triggers the manage_dirty
+                    // storm (see Fix #1).
                     if (_seatHoveredWindow.TryGetValue(proxy, out var prevHover) && prevHover == hovered)
                     {
                         break;
@@ -99,8 +91,8 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
 
                     _seatHoveredWindow[proxy] = hovered;
                     _log?.Invoke("seat 0x" + proxy.ToString("x") + " pointer_enter window 0x" + hovered.ToString("x"));
-                    // Sloppy focus: bridge to god class — gating on FocusFollowsMouse,
-                    // window-known, and window-differs-from-focused happens there.
+                    // Sloppy focus: bridge to god class — gating on FocusFollowsMouse, window-known, and
+                    // window-differs-from-focused happens there.
                     _interaction.HandlePointerEnterFocusFollow(hovered, proxy);
                 }
                 break;
@@ -147,12 +139,9 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                 if (ev.ArgsPtr == IntPtr.Zero || ev.ArgCount < 2) return;
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
-                    // Cache latest pointer position per seat so the
-                    // Super+RMB drag-resize binding can derive the
-                    // resize edges from the click position relative to
-                    // the hovered window's rect, and so SnapZones can
-                    // hit-test against the live cursor in OpDelta /
-                    // OpRelease. Routed through the bridge — see
+                    // Cache latest pointer position per seat so the Super+RMB drag-resize binding can derive the
+                    // resize edges from the click position relative to the hovered window's rect, and so SnapZones
+                    // can hit-test against the live cursor in OpDelta / OpRelease. Routed through the bridge — see
                     // ISeatHandlerCollaborators.CachePointerPosition.
                     _interaction.CachePointerPosition(proxy, args[0].i, args[1].i);
                 }

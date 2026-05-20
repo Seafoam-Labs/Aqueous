@@ -5,10 +5,9 @@ using Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 using Xunit;
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
-/// PR 9.8 reduced this suite to structural reflection guards. The
-/// behavioural body still ships byte-for-byte from the original
-/// partial; per-opcode coverage is gated on the manual River smoke
-/// run that all Stage 8/9 PRs require.
+/// Reduced this suite to structural reflection guards. The behavioural body still ships
+/// byte-for-byte from the original partial; per-opcode coverage is gated on the manual River smoke
+/// run that all /9 PRs require.
 /// </summary>
 public sealed class OutputEventHandlerTests
 {
@@ -16,14 +15,12 @@ public sealed class OutputEventHandlerTests
     public void InterfaceName_is_river_output_v1()
     {
         var ctor = typeof(OutputEventHandler).GetConstructors().Single();
-        // We can't construct the handler without the god class; verify the
-        // constant via reflection on a field-free path: read the property
-        // via a synthesized instance using a no-arg sentinel is not safe
-        // here, so assert the literal exists in the symbol table.
+        // We can't construct the handler without the god class; verify the constant via reflection on a
+        // field-free path: read the property via a synthesized instance using a no-arg sentinel is not
+        // safe here, so assert the literal exists in the symbol table.
         Assert.NotNull(ctor);
     }
-    // PR 9.12 §2.13 Step 10: negative god-class ctor-shape pin retired
-    // with RiverWindowManagerClient itself.
+    // Negative class ctor-shape pin retired with RiverWindowManagerClient itself.
     [Fact]
     public void Implements_IEventHandler()
     {

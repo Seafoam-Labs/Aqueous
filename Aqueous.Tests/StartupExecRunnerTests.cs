@@ -9,11 +9,9 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1f — pure unit tests for <see cref="StartupExecRunner"/>. Uses a
-/// minimal in-memory <see cref="IWindowStateHost"/> fake that captures
-/// <see cref="SpawnRequest"/>s and exposes a manual clock for
-/// <c>ScheduleAfter</c> so backoff scheduling can be verified
-/// deterministically.
+/// Phase B1f — pure unit tests for <see cref="StartupExecRunner"/>. Uses a minimal in-memory <see
+/// cref="IWindowStateHost"/> fake that captures <see cref="SpawnRequest"/>s and exposes a manual
+/// clock for <c>ScheduleAfter</c> so backoff scheduling can be verified deterministically.
 /// </summary>
 public class StartupExecRunnerTests
 {
@@ -51,8 +49,8 @@ public class StartupExecRunnerTests
         public void Log(string message) => Logs.Add(message);
 
         /// <summary>
-        /// Drains all currently-scheduled callbacks (re-entrant: callbacks
-        /// that schedule further work are not auto-fired).
+        /// Drains all currently-scheduled callbacks (re-entrant: callbacks that schedule further work are
+        /// not auto-fired).
         /// </summary>
         public IReadOnlyList<TimeSpan> FireAllScheduled()
         {
@@ -85,8 +83,6 @@ public class StartupExecRunnerTests
 
     private static StartupExecRunner Make(FakeHost host, params ExecEntry[] entries) =>
         new(host, new ExecConfig { Entries = entries });
-
-    // -----------------------------------------------------------------
 
     [Fact]
     public void OnStartup_FiresStartupAndAlwaysEntries()
@@ -212,11 +208,10 @@ public class StartupExecRunnerTests
         host.Spawns[^1].OnExit!(0);
         Assert.Empty(host.Scheduled);
 
-        // A subsequent crashing exit should restart at the *first* backoff
-        // step, because clean exits reset the supervisor's attempt counter.
-        // We fake this by having `restart=true` + `once=false`-ish behavior:
-        // Note: with once=true the entry won't be re-fired manually here,
-        // so we trigger the supervisor path directly via OnExit again.
+        // A subsequent crashing exit should restart at the *first* backoff step, because clean exits
+        // reset the supervisor's attempt counter. We fake this by having `restart=true` +
+        // `once=false`-ish behavior: Note: with once=true the entry won't be re-fired manually here, so
+        // we trigger the supervisor path directly via OnExit again.
         host.Spawns[^1].OnExit!(1);
         var fired = host.FireAllScheduled();
         Assert.Single(fired);

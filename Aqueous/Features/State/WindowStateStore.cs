@@ -6,15 +6,11 @@ using System.Collections.Generic;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// PR 9.12 §2.4: DI singleton owning the per-window state projection
-/// (FS / Max / Float / Min / Scratchpad) previously held as
-/// <c>_windowStates</c> on <c>RiverWindowManagerClient</c>. Wraps a
-/// <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed by window proxy
-/// handle. The legacy god-class field now aliases this singleton so all
-/// existing consumers (WindowEventHandler, ManagerEventHandler,
-/// LayoutProposer, WindowStateHostAccessors) keep working unchanged
-/// while subsequent §2.x lifts can migrate consumers to inject this
-/// type directly.
+/// DI singleton owning the per-window state projection (FS / Max / Float / Min / Scratchpad).
+/// Wraps a <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed by window proxy handle. the class
+/// field now aliases this singleton so all existing consumers (WindowEventHandler,
+/// ManagerEventHandler, LayoutProposer, WindowStateHostAccessors) keep working unchanged while
+/// subsequent §2.x lifts can migrate consumers to inject this type directly.
 /// </summary>
 internal sealed class WindowStateStore : IEnumerable<KeyValuePair<IntPtr, WindowStateData>>
 {
@@ -34,9 +30,8 @@ internal sealed class WindowStateStore : IEnumerable<KeyValuePair<IntPtr, Window
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
-    /// PR 9.12 §2.4: returns a snapshot list of all tracked window states.
-    /// Replaces <c>RiverWindowManagerClient.SnapshotWindowStates()</c>;
-    /// the god-class method now delegates here.
+    /// Returns a snapshot list of all tracked window states. Replaces
+    /// <c>RiverWindowManagerClient.SnapshotWindowStates()</c>; the class method now delegates here.
     /// </summary>
     public IReadOnlyList<WindowStateData> Snapshot()
     {
