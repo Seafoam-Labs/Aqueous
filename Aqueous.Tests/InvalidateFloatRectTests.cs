@@ -2,58 +2,81 @@ using System;
 using System.Collections.Concurrent;
 using System.Reflection;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Focus;
+using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 using Xunit;
 
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Tests for the host-side <c>RiverWindowStateHost.InvalidateFloatRect</c>
-/// adapter on <see cref="RiverWindowManagerClient"/>. The adapter is the
-/// only code path that flips <c>WindowEntry.HasFloatRect</c> back to
-/// <c>false</c> and re-arms the position/size diff-gates the
-/// <c>LayoutProposer</c> floating loop guards on; if it silently no-ops
-/// (as it did when the <c>TryGetValue</c> guard shipped inverted) the
-/// maximize-button restore round-trip is broken.
+/// Tests for the host-side <see cref="WindowStateHost.InvalidateFloatRect"/>
+/// adapter. The adapter is the only code path that flips
+/// <c>WindowEntry.HasFloatRect</c> back to <c>false</c> and re-arms the
+/// position/size diff-gates the <c>LayoutProposer</c> floating loop guards
+/// on; if it silently no-ops (as it did when the <c>TryGetValue</c> guard
+/// shipped inverted) the maximize-button restore round-trip is broken.
 ///
-/// Both <see cref="RiverWindowManagerClient"/> (private ctor) and the
-/// nested <c>RiverWindowStateHost</c> (private class) are reachable only
-/// via reflection. <c>InternalsVisibleTo("Aqueous.Tests")</c> covers
-/// member visibility for the rest of the surface (<c>WindowEntry</c>,
-/// <c>_windows</c>).
+/// <para>
+/// PR 9.12 §2.13 Step 9: rewritten to construct <see cref="WindowStateHost"/>
+/// directly with its 8 DI args (only <see cref="IWindowRegistry"/> is
+/// touched by <c>InvalidateFloatRect</c> / <c>SetToplevelMaximizedState</c>,
+/// so the other seven collaborators are passed as <c>null!</c>). The
+/// previous reflection harness against <see cref="RiverWindowManagerClient"/>
+/// retires together with the god class.
+/// </para>
 /// </summary>
 public class InvalidateFloatRectTests
 {
     private sealed class Harness
     {
-        public required RiverWindowManagerClient Client;
         public required IWindowStateHost Host;
         public required ConcurrentDictionary<IntPtr, WindowEntry> Windows;
     }
 
     private static Harness Build()
     {
-        var ctor = typeof(RiverWindowManagerClient).GetConstructor(
-            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
-            binder: null, types: Type.EmptyTypes, modifiers: null);
-        Assert.NotNull(ctor);
-        var client = (RiverWindowManagerClient)ctor!.Invoke(null);
+        var registry = new WindowRegistry();
+        var host = new WindowStateHost(
+            windowRegistry: registry,
+            outputRegistry: new OutputRegistry(),
+            windowStates: new WindowStateStore(),
+            outputFullscreen: new OutputFullscreenMap(),
+            focusedWindowTracker: new FocusedWindowTracker(),
+            focusService: new NoopFocusService(),
+            managerRequestSender: new NoopManagerRequestSender(),
+            layoutController: new LayoutController(new LayoutRegistry(), new LayoutConfig()));
+        return new Harness { Host = host, Windows = registry.Entries };
+    }
 
-        var stateHostField = typeof(RiverWindowManagerClient).GetField(
-            "_stateHost", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(stateHostField);
-        var host = (IWindowStateHost)stateHostField!.GetValue(client)!;
+    // Minimal IFocusService stub: InvalidateFloatRect /
+    // SetToplevelMaximizedState don't touch focus, but the host ctor
+    // null-guards the collaborator. Every method is a no-op.
+    private sealed class NoopFocusService : IFocusService
+    {
+        public IntPtr FocusedWindow => IntPtr.Zero;
+        public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = IntPtr.Zero; return false; }
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) { }
+        public void RequestFocus(IntPtr windowProxy) { }
+        public void ClearFocus() { }
+        public void FocusAnyOtherWindow(IntPtr avoid) { }
+        public void CycleFocus() { }
+        public void HandleDirectionalFocus(FocusDirection dir) { }
+        public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }
+        public void RepairFocusAfterTagChange() { }
+        public void ClearFocusedHandle() { }
+    }
 
-        var registryField = typeof(RiverWindowManagerClient).GetField(
-            "_windowRegistry", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(registryField);
-        var registry = registryField!.GetValue(client)!;
-        var entriesProp = registry.GetType().GetProperty("Entries")
-                          ?? typeof(Aqueous.Features.Compositor.River.Registry.IWindowRegistry).GetProperty("Entries");
-        Assert.NotNull(entriesProp);
-        var windows = (ConcurrentDictionary<IntPtr, WindowEntry>)entriesProp!.GetValue(registry)!;
-
-        return new Harness { Client = client, Host = host, Windows = windows };
+    // Minimal IManagerRequestSender stub: the host hooks under test
+    // do not marshal manager requests, so every method is a no-op.
+    private sealed class NoopManagerRequestSender : IManagerRequestSender
+    {
+        public void SendManagerRequest(uint opcode) { }
+        public void ScheduleManage() { }
+        public bool InsideManageSequence { get; set; }
+        public void Init(IntPtr managerProxy, IntPtr display) { }
+        public bool IsBound => false;
     }
 
     [Fact]
@@ -161,9 +184,8 @@ public class InvalidateFloatRectTests
     private static (System.Collections.Generic.List<(IntPtr handle, uint opcode)> log, IDisposable scope)
         InstallMarshalRecorder()
     {
-        var hostType = typeof(Aqueous.Features.State.WindowStateHost);
-        Assert.NotNull(hostType);
-        var field = hostType!.GetField("MaximizedMarshalOverride",
+        var hostType = typeof(WindowStateHost);
+        var field = hostType.GetField("MaximizedMarshalOverride",
             BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(field);
 
