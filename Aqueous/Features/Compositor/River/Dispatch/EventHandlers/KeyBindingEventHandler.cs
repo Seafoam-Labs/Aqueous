@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Features.Bindings;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
 /// Managed <see cref="IEventHandler"/> for the
@@ -19,12 +20,15 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// </summary>
 internal sealed unsafe class KeyBindingEventHandler : IEventHandler
 {
-    private readonly RiverWindowManagerClient _client;
+    private readonly KeyBindingRegistrar _registrar;
     private readonly Action<string>? _log;
-    public KeyBindingEventHandler(RiverWindowManagerClient client, Action<string>? log = null)
+    // PR 9.12 §2.13 Step 6: ctor no longer takes RiverWindowManagerClient;
+    // the handler dispatches directly to the top-level KeyBindingRegistrar
+    // singleton (which owns HandleKeyBindingEvent since the partial drain).
+    public KeyBindingEventHandler(KeyBindingRegistrar registrar, Action<string>? log = null)
     {
-        ArgumentNullException.ThrowIfNull(client);
-        _client = client;
+        ArgumentNullException.ThrowIfNull(registrar);
+        _registrar = registrar;
         _log = log;
     }
     public string InterfaceName => "river_xkb_binding_v1";
@@ -35,7 +39,7 @@ internal sealed unsafe class KeyBindingEventHandler : IEventHandler
             _log?.Invoke("KeyBindingEventHandler: zero target; opcode=" + ev.Opcode);
             return;
         }
-        _client.HandleKeyBindingEvent(
+        _registrar.HandleKeyBindingEvent(
             ev.Target,
             ev.Opcode,
             ev.ArgsPtr == IntPtr.Zero ? null : (WlArgument*)ev.ArgsPtr);

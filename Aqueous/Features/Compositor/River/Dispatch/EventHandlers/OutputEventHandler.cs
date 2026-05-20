@@ -4,6 +4,9 @@ using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
+// PR 9.12 §2.13 Step 6: ctor no longer takes RiverWindowManagerClient;
+// removed-path state is read from fine-grained singletons
+// (WindowStateStore, WindowStateController, OutputFullscreenMap).
 /// <summary>
 /// PR 8.2 — second <see cref="IEventHandler"/> extracted out of the
 /// <c>RiverWindowManagerClient</c> god class. PR 9.8 retired the
@@ -17,17 +20,23 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
 {
     private readonly IWindowRegistry _windows;
     private readonly IOutputRegistry _outputs;
-    private readonly RiverWindowManagerClient _river;
+    private readonly WindowStateStore _windowStates;
+    private readonly WindowStateController _windowState;
+    private readonly OutputFullscreenMap _outputFullscreen;
     private readonly Action<string>? _log;
     public OutputEventHandler(
         IWindowRegistry windows,
         IOutputRegistry outputs,
-        RiverWindowManagerClient river,
+        WindowStateStore windowStates,
+        WindowStateController windowState,
+        OutputFullscreenMap outputFullscreen,
         Action<string>? log = null)
     {
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
         _outputs = outputs ?? throw new ArgumentNullException(nameof(outputs));
-        _river = river ?? throw new ArgumentNullException(nameof(river));
+        _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
+        _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _log = log;
     }
     public string InterfaceName => "river_output_v1";
@@ -76,15 +85,15 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         _log?.Invoke("output 0x" + proxy.ToString("x") + " removed");
         var goneOutputWindows = new List<WindowStateData>();
         var outputProxy = new OutputProxy(proxy);
-        foreach (var ws in _river.SnapshotWindowStates())
+        foreach (var ws in _windowStates.Snapshot())
         {
             if (ws.PinnedOutput == outputProxy)
             {
                 goneOutputWindows.Add(ws);
             }
         }
-        _river.OnOutputRemovedForwarding(outputProxy, goneOutputWindows);
-        _river.OutputFullscreenTryRemove(proxy);
+        _windowState.OnOutputRemoved(outputProxy, goneOutputWindows);
+        _outputFullscreen.TryRemove(proxy, out _);
         _outputs.Entries.TryRemove(proxy, out _);
         foreach (var wkvp in _windows.Entries)
         {

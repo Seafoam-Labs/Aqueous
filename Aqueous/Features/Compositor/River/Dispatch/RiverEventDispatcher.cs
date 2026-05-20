@@ -27,8 +27,6 @@ internal sealed unsafe class RiverEventDispatcher
         _client = client ?? throw new ArgumentNullException(nameof(client));
     }
 
-    internal void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
-        => _client.HandleKeyBindingEvent(target, opcode, args);
 
 
 

@@ -36,14 +36,14 @@ public class Stage8Pr88Tests
     [Fact]
     public void KeyBindingEventHandler_implements_IEventHandler_with_river_xkb_binding_v1()
     {
-        // PR 9.4 Stage 9: handler now takes the real RiverWindowManagerClient
-        // (not safe to construct in a unit test); verify type contract only.
+        // PR 9.12 §2.13 Step 6: handler ctor cut off the god class —
+        // it now takes the top-level KeyBindingRegistrar singleton.
         Assert.True(typeof(IEventHandler).IsAssignableFrom(typeof(KeyBindingEventHandler)));
         Assert.True(typeof(KeyBindingEventHandler).IsSealed);
         var ctors = typeof(KeyBindingEventHandler).GetConstructors();
         Assert.Single(ctors);
         Assert.Equal(
-            typeof(Aqueous.Features.Compositor.River.RiverWindowManagerClient),
+            typeof(Aqueous.Features.Bindings.KeyBindingRegistrar),
             ctors[0].GetParameters()[0].ParameterType);
     }
 

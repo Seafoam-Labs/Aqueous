@@ -799,34 +799,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler KeyBindingHandler => _keyBindingHandler;
     internal Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler ScreencopyFrameHandler => _screencopyFrameHandler;
 
-    // PR 9.4 Stage 9: pass-through accessors that retire the
-    // IKeyBindingHandlerCollaborators / ISuperKeyBindingHandlerCollaborators
-    // bridges. The body of OnKeyBindingEvent / OnSuperKeyBindingEvent still
-    // lives in the existing partials (they read god-class private dicts
-    // and call private helpers — final lift is Stage 9 cleanup); routing
-    // here keeps managed-handler behaviour byte-for-byte equivalent.
-    internal unsafe void HandleKeyBindingEvent(IntPtr target, uint opcode, WlArgument* args)
-        => ((Aqueous.Features.Bindings.KeyBindingRegistrar)_keyBindingRegistrar).HandleKeyBindingEvent(target, opcode, args);
-
-    // PR 9.8 Stage 9: pass-through accessors retiring the
-    // IOutputHandlerCollaborators + ILayoutProposerCollaborators bridges.
-    // Bodies still live in the existing partials; Stage 9 final cleanup
-    // collapses the god class.
-    internal IEnumerable<Aqueous.Features.State.WindowStateData> SnapshotWindowStates()
-    {
-        var snapshot = new List<Aqueous.Features.State.WindowStateData>(_windowStates.Count);
-        foreach (var kv in _windowStates)
-        {
-            snapshot.Add(kv.Value);
-        }
-        return snapshot;
-    }
-    internal void OnOutputRemovedForwarding(
-        Aqueous.Features.State.OutputProxy output,
-        IList<Aqueous.Features.State.WindowStateData> windowsOnOutput)
-        => _windowState.OnOutputRemoved(output, windowsOnOutput);
-    internal void OutputFullscreenTryRemove(IntPtr output)
-        => _outputFullscreen.TryRemove(output, out _);
+    // PR 9.12 §2.13 Step 6: HandleKeyBindingEvent / SnapshotWindowStates /
+    // OnOutputRemovedForwarding / OutputFullscreenTryRemove retired — the
+    // last readers (KeyBindingEventHandler, OutputEventHandler) now consume
+    // KeyBindingRegistrar / WindowStateStore / WindowStateController /
+    // OutputFullscreenMap directly.
     // PR 9.12 §2.9: LayoutFocusNeighbor surfaced directly on the god class so
     // the lifted LayoutProposer facade can call it without the "*Forwarding"
     // wrapper. The five other layout/focus forwarders (ProposeForArea,
@@ -1031,8 +1008,10 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         // dispatcher table below references the same instances — routing
         // remains byte-for-byte equivalent to Stage 8.
         _layerShellHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.LayerShellEventHandler(Log);
+        // PR 9.12 §2.13 Step 6: OutputEventHandler ctor no longer takes
+        // the god class — drained to fine-grained singletons.
         _outputHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.OutputEventHandler(
-            _windowRegistry, _outputRegistry, this, Log);
+            _windowRegistry, _outputRegistry, _windowStates, _windowState, _outputFullscreen, Log);
         _seatHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.SeatEventHandler(
             _seatRegistry, _windowRegistry,
             _seatHoveredWindow, _seatPointerPos,
@@ -1091,7 +1070,11 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
             _managerRequestSender);
         _dragPointerBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.DragPointerBindingEventHandler(_dragPointerBindingService, Log);
         _registryHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.RegistryEventHandler(_registry, Log);
-        _keyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(this, Log);
+        // PR 9.12 §2.13 Step 6: KeyBindingEventHandler ctor now takes the
+        // top-level KeyBindingRegistrar singleton directly (which owns
+        // HandleKeyBindingEvent since the partial drain).
+        _keyBindingHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.KeyBindingEventHandler(
+            (Aqueous.Features.Bindings.KeyBindingRegistrar)_keyBindingRegistrar, Log);
         _screencopyFrameHandler = new Aqueous.Features.Compositor.River.Dispatch.EventHandlers.ScreencopyFrameHandler(_screencopyService, Log);
 
         _eventDispatcher = new Aqueous.Features.Compositor.River.Dispatch.EventDispatcher(
