@@ -305,15 +305,24 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// </summary>
     internal void TrackProxyInterface(IntPtr proxy, string interfaceName)
     {
-        _proxyInterface.Track(proxy, interfaceName);
+        // PR 9.12 §2.13 bind-site migration: writes go to the singleton
+        // (single source of truth); the legacy per-instance map is kept
+        // mirrored for in-flight callers that still read via _proxyInterface.
         _bindSiteState.TrackProxyInterface(proxy, interfaceName);
+        _proxyInterface.Track(proxy, interfaceName);
     }
 
     /// <summary>Test/diagnostic accessor: number of proxies currently tracked.</summary>
-    internal int TrackedProxyCount => _proxyInterface.Count;
+    internal int TrackedProxyCount => _bindSiteState.TrackedProxyCount;
 
     /// <summary>Test/diagnostic accessor: lookup the recorded interface name.</summary>
-    internal string? TryGetProxyInterface(IntPtr proxy) => _proxyInterface.TryGet(proxy);
+    /// <remarks>
+    /// PR 9.12 §2.13 bind-site migration: reads now go through the
+    /// <see cref="WaylandBindSiteState"/> singleton; the per-instance
+    /// <c>_proxyInterface</c> map is retained only as a write-through mirror
+    /// and retires together with the god class in the final demolition step.
+    /// </remarks>
+    internal string? TryGetProxyInterface(IntPtr proxy) => _bindSiteState.TryGetProxyInterface(proxy);
 
     // For KeyBindingAction.Custom — chord proxy → free-form action verb.
     private readonly Dictionary<IntPtr, string> _customBindingActions = new();
