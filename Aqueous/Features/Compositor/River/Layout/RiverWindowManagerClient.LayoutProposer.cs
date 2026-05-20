@@ -24,7 +24,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
     /// placements, and emits <c>propose_dimensions</c> only when the
     /// engine's choice differs from <c>WindowEntry.LastHintW/H</c>.
     /// </summary>
-    private void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
+    internal void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
     {
         // Floating windows are a layer, not a layout: they bypass the
         // active engine entirely and use their remembered FloatRect (set
@@ -729,7 +729,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
     }
 
     /// <summary>Build a per-output WindowEntryView snapshot for navigation queries.</summary>
-    private List<WindowEntryView> BuildSnapshotFor(IntPtr output)
+    internal List<WindowEntryView> BuildSnapshotFor(IntPtr output)
     {
         var list = new List<WindowEntryView>(_windowRegistry.Entries.Count);
         foreach (var kvp in _windowRegistry.Entries)
@@ -749,7 +749,7 @@ internal sealed unsafe partial class RiverWindowManagerClient
         return list;
     }
 
-    private string? ResolveOutputName(IntPtr output)
+    internal string? ResolveOutputName(IntPtr output)
     {
         // OutputEntry does not currently surface a name field; per-output
         // config matching is handled separately. Returning null keeps the

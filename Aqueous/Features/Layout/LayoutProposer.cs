@@ -25,17 +25,17 @@ internal sealed class LayoutProposer : ILayoutProposer
         _river = river;
     }
     public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea) =>
-        _river.ProposeForAreaForwarding(output, outputName, usableArea);
-    public bool IsFloatLayoutActive() => _river.IsFloatLayoutActiveForwarding();
-    public bool IsFloatLayoutActive(IntPtr output) => _river.IsFloatLayoutActiveForwarding(output);
+        _river.ProposeForArea(output, outputName, usableArea);
+    public bool IsFloatLayoutActive() => _river.IsFloatLayoutActive();
+    public bool IsFloatLayoutActive(IntPtr output) => _river.IsFloatLayoutActive(output);
     public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output) =>
-        _river.BuildSnapshotForForwarding(output);
-    public string? ResolveOutputName(IntPtr output) => _river.ResolveOutputNameForwarding(output);
+        _river.BuildSnapshotFor(output);
+    public string? ResolveOutputName(IntPtr output) => _river.ResolveOutputName(output);
     public IntPtr? LayoutFocusNeighbor(
         IntPtr output,
         string? outputName,
         IntPtr current,
         FocusDirection dir,
         IReadOnlyList<WindowEntryView> snapshot) =>
-        _river.LayoutFocusNeighborForwarding(output, outputName, current, dir, snapshot);
+        _river.LayoutFocusNeighbor(output, outputName, current, dir, snapshot);
 }

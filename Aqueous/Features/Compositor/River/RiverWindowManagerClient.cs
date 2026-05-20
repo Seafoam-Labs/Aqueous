@@ -528,15 +528,12 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
         => _windowState.OnOutputRemoved(output, windowsOnOutput);
     internal void OutputFullscreenTryRemove(IntPtr output)
         => _outputFullscreen.TryRemove(output, out _);
-
-    internal void ProposeForAreaForwarding(IntPtr output, string? outputName, Aqueous.Features.Layout.Rect usableArea)
-        => ProposeForArea(output, outputName, usableArea);
-    internal bool IsFloatLayoutActiveForwarding() => IsFloatLayoutActive();
-    internal bool IsFloatLayoutActiveForwarding(IntPtr output) => IsFloatLayoutActive(output);
-    internal IReadOnlyList<Aqueous.Features.Layout.WindowEntryView> BuildSnapshotForForwarding(IntPtr output)
-        => BuildSnapshotFor(output);
-    internal string? ResolveOutputNameForwarding(IntPtr output) => ResolveOutputName(output);
-    internal IntPtr? LayoutFocusNeighborForwarding(
+    // PR 9.12 §2.9: LayoutFocusNeighbor surfaced directly on the god class so
+    // the lifted LayoutProposer facade can call it without the "*Forwarding"
+    // wrapper. The five other layout/focus forwarders (ProposeForArea,
+    // IsFloatLayoutActive x2, BuildSnapshotFor, ResolveOutputName) retired —
+    // those bodies live on the LayoutProposer partial and are now internal.
+    internal IntPtr? LayoutFocusNeighbor(
         IntPtr output,
         string? outputName,
         IntPtr current,
