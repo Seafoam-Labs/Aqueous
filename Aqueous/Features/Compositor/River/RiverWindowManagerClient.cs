@@ -597,7 +597,6 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // PR 9.12 §2.13 — internal accessors for the lifted KeyBindingRegistrar.
     // Retire together with the god class.
     internal IntPtr XkbBindings => _xkbBindings;
-    internal uint XkbBindingsVersion => _xkbBindingsVersion;
     internal Dictionary<IntPtr, KeyBindingAction> KeyBindings => _keyBindings;
     internal Dictionary<IntPtr, string> CustomBindingActions => _customBindingActions;
     internal IntPtr SelfHandlePtr => GCHandle.ToIntPtr(_selfHandle);
@@ -1107,71 +1106,14 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     // to pin the env-var gating on TryStart now exercise
     // RiverEnvironmentGuard directly.
 
-    // PR 9.11: surfaced as internal so RiverCompositorHost.StartAsync can
-    // drive Connect after DI construction. TryStart keeps the legacy
-    // in-factory path working for tests that still call it directly.
-    internal Result Connect()
-    {
-        var connectResult = _connection.Connect();
-        if (!connectResult.IsOk)
-        {
-            Log("wl_display_connect failed: " + connectResult.Error);
-            return connectResult;
-        }
+    // PR 9.12 §2.13 Step 7: Connect / StartPump bodies lifted to
+    // RiverCompositorHost. These are now thin forwarders kept so tests
+    // and any in-tree callers that still resolve the god class directly
+    // keep compiling; they retire with the god class.
+    internal Result Connect() => RiverCompositorHost.Connect(this);
 
-        WlInterfaces.EnsureBuilt();
-
-        // PR 9.12 §2.13: allocate a NativeCallbackContext (which performs the
-        // actual GCHandle.Alloc internally) and rehydrate _selfHandle from
-        // its IntPtr so all call sites that still read GCHandle.ToIntPtr(_selfHandle)
-        // continue to round-trip to the context. NativeCallbackEntry.Dispatch
-        // resolves the client through the context's `Client` back-reference.
-        _callbackContext = new Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext(
-            _riverEventDispatcher, this);
-        _selfHandle = GCHandle.FromIntPtr(_callbackContext.Handle);
-        // PR 9.12 §2.13 Step 4: KeyBindingRegistrar reads the dispatcher
-        // self-handle pointer from KeyBindingsRegistry (DI singleton) rather
-        // than the god class's GCHandle field. Publish the freshly allocated
-        // pointer here so the registrar sees it before SeatInformation fires.
-        _keyBindingsRegistry.SelfHandlePtr = GCHandle.ToIntPtr(_selfHandle);
-        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch;
-
-        if (!_registry.Create(_display, dispatcher, GCHandle.ToIntPtr(_selfHandle)))
-        {
-            Log("get_registry failed");
-            return Result.Fail("wl_display_get_registry returned null");
-        }
-
-        // Stage 0: record the registry proxy → interface mapping. The
-        // RegistryBinder owns the proxy; we read it back here purely to
-        // populate _proxyInterface for the eventual interface-name based
-        // dispatch in Stage 8.
-        TrackProxyInterface(_registry.Handle, "wl_registry");
-
-        _registry.Discovered += _registryGlobalBinder.Bind;
-
-        // Flush globals; then a second roundtrip so any events the
-        // compositor sends immediately on bind (for an existing window
-        // list) are delivered before we return.
-        _connection.Roundtrip();
-        _connection.Roundtrip();
-
-        if (_manager == IntPtr.Zero)
-        {
-            return Result.Fail(
-                "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
-        }
-
-        // PR 9.12 §2.13 increment: startup-exec invocation lifted to
-        // RiverCompositorHost.StartAsync (runs after Connect returns ok).
-        // The TryStart legacy path still drives it inline below.
-        return Result.Ok;
-    }
-
-    // PR 9.11: surfaced as internal so RiverCompositorHost.StartAsync can
-    // drive the pump after Connect; TryStart still uses it internally.
-    internal void StartPump(CancellationToken cancellationToken = default) =>
-        _pump.Start(cancellationToken);
+    internal void StartPump(CancellationToken cancellationToken = default)
+        => RiverCompositorHost.StartPump(this, cancellationToken);
 
     /// <summary>
     /// Version of the bound <c>river_window_manager_v1</c> proxy, set in
@@ -1179,6 +1121,28 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// can log it after driving Connect itself.
     /// </summary>
     internal uint ManagerVersion => _managerVersion;
+
+    // PR 9.12 §2.13 Step 7: transport-field accessors used by
+    // RiverCompositorHost to drive Connect / HandleRegistryGlobal / Dispose.
+    // All retire with the god class once transport state migrates fully.
+    internal IWaylandConnection Connection => _connection;
+    internal IntPtr Display => _display;
+    internal IntPtr Manager { get => _manager; set => _manager = value; }
+    internal IntPtr LayerShell { get => _layerShell; set => _layerShell = value; }
+    internal IntPtr XkbBindingsHandle { get => _xkbBindings; set => _xkbBindings = value; }
+    internal uint XkbBindingsVersion { get => _xkbBindingsVersion; set => _xkbBindingsVersion = value; }
+    internal IntPtr WlShm { get => _wlShm; set => _wlShm = value; }
+    internal IntPtr ScreencopyManager { get => _screencopyManager; set => _screencopyManager = value; }
+    internal uint ScreencopyVersion { get => _screencopyVersion; set => _screencopyVersion = value; }
+    internal ConcurrentDictionary<uint, RegistryGlobal> WlOutputGlobals => _wlOutputGlobals;
+    internal Aqueous.Features.Bindings.KeyBindingsRegistry KeyBindingsRegistryRef => _keyBindingsRegistry;
+    internal GCHandle SelfHandle { get => _selfHandle; set => _selfHandle = value; }
+    internal Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext? CallbackContext
+    {
+        get => _callbackContext;
+        set => _callbackContext = value;
+    }
+    internal void SetManagerVersion(uint v) => _managerVersion = v;
 
     /// <summary>
     /// Join timeout applied to <see cref="IEventPump.Stop"/> during
@@ -1188,139 +1152,19 @@ internal sealed unsafe partial class RiverWindowManagerClient : IDisposable
     /// </summary>
     private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
 
-    public void Dispose()
-    {
-        // river_window_manager_v1::stop (opcode 0) is intentionally NOT
-        // sent here: it is not a destructor — we'd still have to wait
-        // for the `finished` event and then call destroy. For the
-        // skeleton we just disconnect the display; River treats a
-        // disconnected WM the same way as a stopped one and cleans up.
-        try
-        {
-            // Critical ordering: stop the pump first so it is no
-            // longer touching the wl_display, then dispose the
-            // connection. Disposing the display while the pump is
-            // blocked inside wl_display_dispatch is undefined
-            // behaviour in libwayland.
-            _pump.Stop(PumpJoinTimeout);
-            _connection.Dispose();
-
-            // Step 10 (sub-step 7): clear the three registries after the
-            // pump is stopped so no late event handler observes a
-            // half-torn dictionary, and so shutdown does not emit a
-            // Removed storm to any subscribers.
-            _windowRegistry.Clear();
-            _outputRegistry.Clear();
-            _seatRegistry.Clear();
-        }
-        catch
-        {
-            // Tear-down is best-effort; we never want Dispose to throw.
-        }
-        finally
-        {
-            // PR 9.12 §2.13: dispose the callback context (which frees the
-            // pinned GCHandle); _selfHandle is just an alias for the same
-            // handle so we don't need to Free it separately. Fallback path
-            // (legacy direct-pin) retained for safety: if for any reason the
-            // context wasn't constructed but the handle was, free it.
-            if (_callbackContext is { } ctx)
-            {
-                ctx.Dispose();
-                _callbackContext = null;
-            }
-            else if (_selfHandle.IsAllocated)
-            {
-                _selfHandle.Free();
-            }
-        }
-    }
+    // PR 9.12 §2.13 Step 7: Dispose body lifted to
+    // RiverCompositorHost.DisposeClient.
+    public void Dispose() => RiverCompositorHost.DisposeClient(this);
 
 
     // --- registry ------------------------------------------------------
 
+    // PR 9.12 §2.13 Step 7: HandleRegistryGlobal body lifted to
+    // RiverCompositorHost.HandleRegistryGlobal. Thin forwarder kept here
+    // because RegistryGlobalBinder.Bind dispatches the wl_registry global
+    // event into this method via its god-class back-reference.
     internal void HandleRegistryGlobal(RegistryGlobal global)
-    {
-        // The set of interfaces this client cares about. Anything else
-        // advertised by the compositor is intentionally ignored.
-        if (global.Interface == "river_window_manager_v1" && _manager == IntPtr.Zero)
-        {
-            _managerVersion = Math.Min(global.Version, 4u);
-            _manager = _registry.Bind(global.Name, WlInterfaces.RiverWindowManager, _managerVersion);
-            _bindSiteState.Manager = _manager;
-            if (_manager != IntPtr.Zero)
-            {
-                WaylandInterop.wl_proxy_add_dispatcher(
-                    _manager,
-                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
-                    GCHandle.ToIntPtr(_selfHandle),
-                    IntPtr.Zero);
-                TrackProxyInterface(_manager, "river_window_manager_v1");
-                _managerRequestSender.Init(_manager, _display);
-                Log($"bound river_window_manager_v1 (version {_managerVersion})");
-            }
-        }
-        else if (global.Interface == "river_layer_shell_v1")
-        {
-            _layerShell = _registry.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
-            _bindSiteState.LayerShell = _layerShell;
-            WaylandInterop.wl_proxy_add_dispatcher(
-                _layerShell,
-                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
-                GCHandle.ToIntPtr(_selfHandle),
-                IntPtr.Zero);
-            TrackProxyInterface(_layerShell, "river_layer_shell_v1");
-            Log("bound river_layer_shell_v1");
-        }
-        else if (global.Interface == "river_xkb_bindings_v1")
-        {
-            uint xkbVersion = Math.Min(global.Version, 2u);
-            _xkbBindings = _registry.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
-            _bindSiteState.XkbBindings = _xkbBindings;
-            _xkbBindingsVersion = xkbVersion;
-            _bindSiteState.XkbBindingsVersion = xkbVersion;
-            TrackProxyInterface(_xkbBindings, "river_xkb_bindings_v1");
-            Log($"bound river_xkb_bindings_v1 (version {xkbVersion})");
-        }
-        else if (global.Interface == "wl_shm" && _wlShm == IntPtr.Zero)
-        {
-            _wlShm = _registry.Bind(global.Name, WlInterfaces.WlShm, 1);
-            _bindSiteState.WlShm = _wlShm;
-            TrackProxyInterface(_wlShm, "wl_shm");
-            Log("bound wl_shm");
-            _screencopyService.ActivateIfReady(
-                _bindSiteState,
-                _screencopyVersion,
-                GCHandle.ToIntPtr(_selfHandle),
-                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
-                Log);
-        }
-        else if (global.Interface == "wl_output")
-        {
-            // Lazy-bind path: only remember the global. We bind a real
-            // wl_output proxy on demand from CaptureOutputAsync and
-            // destroy it immediately after capture. This avoids
-            // surfacing the wl_output event stream on the WM's display
-            // at all, which is what previously stalled toplevel
-            // delivery and prevented windows from opening.
-            _wlOutputGlobals[global.Name] = global;
-        }
-        else if (global.Interface == "zwlr_screencopy_manager_v1" && _screencopyManager == IntPtr.Zero)
-        {
-            _screencopyVersion = Math.Min(global.Version, 3u);
-            _screencopyManager = _registry.Bind(
-                global.Name, WlInterfaces.ZwlrScreencopyManager, _screencopyVersion);
-            _bindSiteState.ScreencopyManager = _screencopyManager;
-            TrackProxyInterface(_screencopyManager, "zwlr_screencopy_manager_v1");
-            Log($"bound zwlr_screencopy_manager_v1 (version {_screencopyVersion})");
-            _screencopyService.ActivateIfReady(
-                _bindSiteState,
-                _screencopyVersion,
-                GCHandle.ToIntPtr(_selfHandle),
-                (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Dispatch.NativeCallbackEntry.Dispatch,
-                Log);
-        }
-    }
+        => RiverCompositorHost.HandleRegistryGlobal(this, global);
 
     // PR 9.12 §2.13 increment: TryActivateScreencopy lifted onto
     // IScreencopyService.ActivateIfReady (consumed directly by HandleRegistryGlobal).

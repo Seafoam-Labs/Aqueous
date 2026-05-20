@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Registry;
 using Microsoft.Extensions.Hosting;
@@ -10,30 +11,30 @@ using Microsoft.Extensions.Logging;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Stage 9 PR 9.11 — <see cref="IHostedService"/> shell that now owns
-/// the Wayland connection lifecycle. <see cref="StartAsync"/> performs
-/// the env-var opt-in check (via <see cref="RiverEnvironmentGuard"/>),
-/// constructs the god-class client via DI, drives Connect (registry
-/// roundtrip + globals + startup exec) and starts the event pump.
-/// <see cref="StopAsync"/> disposes the client (which stops the pump
-/// and closes the connection).
+/// Stage 9 PR 9.11 / PR 9.12 §2.13 Step 7 — <see cref="IHostedService"/>
+/// that owns the Wayland connection lifecycle. Performs env-var opt-in
+/// via <see cref="RiverEnvironmentGuard"/>, resolves
+/// <see cref="RiverWindowManagerClient"/> from DI, then drives Connect /
+/// startup exec / pump / Dispose in-place.
 ///
 /// <para>
-/// PR 9.11 is the penultimate Stage-9 PR. Subsequent work (PR 9.12)
-/// will retire <see cref="RiverWindowManagerClient"/> entirely; the
-/// host will then own the Wayland connection / GCHandle pin directly
-/// and resolve each consumer service from DI without the god-class
-/// indirection.
-/// </para>
-///
-/// <para>
-/// <b>Construction:</b> resolves <see cref="RiverWindowManagerClient"/>
-/// from DI rather than calling its <see cref="RiverWindowManagerClient.TryStart"/>
-/// static factory. The DI factory in <c>Program.cs</c> performs DI-only
-/// wiring (no Connect side-effects); Connect runs here in
-/// <see cref="StartAsync"/>. This separates "build the object graph"
-/// from "open the Wayland connection", which makes the failure modes
-/// observable and testable independently.
+/// Step 7 lift: the bodies of <c>Connect</c>, <c>StartPump</c>,
+/// <c>Dispose</c>, and <c>HandleRegistryGlobal</c> now live as methods
+/// on the host (<see cref="Connect"/>, <see cref="StartPump"/>,
+/// <see cref="DisposeClient"/>, <see cref="HandleRegistryGlobal"/>).
+/// They operate on the still-resident god-class transport fields
+/// through fine-grained internal accessors (Manager, LayerShell,
+/// XkbBindingsHandle, WlShm, ScreencopyManager, SelfHandle,
+/// CallbackContext, WlOutputGlobals, Display, Connection, Pump,
+/// BindSiteState, ScreencopyService, ManagerRequestSender,
+/// KeyBindingsRegistryRef, RegistryBinder, RegistryGlobalBinder,
+/// RiverEventDispatcher). The god class keeps thin forwarders
+/// (<see cref="RiverWindowManagerClient.Connect"/>,
+/// <see cref="RiverWindowManagerClient.HandleRegistryGlobal"/>,
+/// <see cref="RiverWindowManagerClient.StartPump"/>,
+/// <see cref="RiverWindowManagerClient.Dispose"/>) that delegate here
+/// so <c>RegistryGlobalBinder.Bind</c> and any reflection-based tests
+/// keep compiling until the final deletion commit.
 /// </para>
 /// </summary>
 internal sealed class RiverCompositorHost : IHostedService
@@ -42,6 +43,14 @@ internal sealed class RiverCompositorHost : IHostedService
     private readonly ILogger<RiverCompositorHost>? _log;
     private RiverWindowManagerClient? _client;
     private CancellationToken _lifetimeToken;
+
+    /// <summary>
+    /// Join timeout applied to <see cref="IEventPump.Stop"/> during
+    /// shutdown. Long enough to let an in-flight
+    /// <c>wl_display_dispatch</c> return after we cancel; short enough
+    /// that a wedged libwayland never blocks shutdown indefinitely.
+    /// </summary>
+    private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
 
     public RiverCompositorHost(IServiceProvider sp, ILogger<RiverCompositorHost>? log = null)
     {
@@ -56,24 +65,11 @@ internal sealed class RiverCompositorHost : IHostedService
     {
         _log?.LogInformation("RiverCompositorHost starting...");
 
-        // PR 9.11: env-var opt-in moved out of TryStart into the host.
-        // Surfacing the friendly error here means we never trigger DI
-        // construction (which used to throw InvalidOperationException
-        // wrapping the same string) just to discover the user did not
-        // set AQUEOUS_RIVER_WM=1.
         if (!RiverEnvironmentGuard.IsEnabled())
         {
             throw new InvalidOperationException(RiverEnvironmentGuard.NotEnabledMessage);
         }
 
-        // PR 9.11: build the client graph from DI (no Connect side-effect),
-        // then drive Connect + StartPump explicitly from here. This is the
-        // structural lift the plan calls for: "Move Connect() body into
-        // RiverCompositorHost.StartAsync". The Connect method itself
-        // stays on the client because it touches ~20 god-class internals
-        // (GCHandle pin, RegistryBinder, _manager bind site, etc.); the
-        // host owns the *invocation*. A future PR will inline the body
-        // here as that state migrates to dedicated services.
         _lifetimeToken = cancellationToken;
         try
         {
@@ -87,30 +83,19 @@ internal sealed class RiverCompositorHost : IHostedService
 
         try
         {
-            var connected = _client.Connect();
+            var connected = Connect(_client);
             if (!connected.IsOk)
             {
-                _log?.LogError("RiverWindowManagerClient.Connect failed: {Error}", connected.Error);
-                try { _client.Dispose(); } catch { /* best-effort */ }
+                _log?.LogError("Connect failed: {Error}", connected.Error);
+                try { DisposeClient(_client); } catch { /* best-effort */ }
                 _client = null;
-                throw new InvalidOperationException(
-                    "RiverWindowManagerClient.Connect failed: " + connected.Error);
+                throw new InvalidOperationException("Connect failed: " + connected.Error);
             }
 
-            // PR 9.12 §2.13 increment: drive [[exec]] on_startup/when=always
-            // entries here, after Connect succeeds. Previously this fired
-            // inside Connect itself; lifting it to the host moves one more
-            // lifecycle responsibility out of the god class.
-            try
-            {
-                _client.StartupExec.OnStartup();
-            }
-            catch (Exception ex)
-            {
-                _log?.LogWarning(ex, "startup exec failed");
-            }
+            try { _client.StartupExec.OnStartup(); }
+            catch (Exception ex) { _log?.LogWarning(ex, "startup exec failed"); }
 
-            _client.StartPump(cancellationToken);
+            StartPump(_client, cancellationToken);
             _log?.LogInformation(
                 "RiverCompositorHost started; attached as window manager (v{ManagerVersion}).",
                 _client.ManagerVersion);
@@ -130,16 +115,195 @@ internal sealed class RiverCompositorHost : IHostedService
         _log?.LogInformation("RiverCompositorHost stopping...");
         try
         {
-            _client?.Dispose();
+            if (_client is { } c) DisposeClient(c);
         }
         catch (Exception ex)
         {
-            _log?.LogWarning(ex, "RiverWindowManagerClient.Dispose threw during shutdown");
+            _log?.LogWarning(ex, "DisposeClient threw during shutdown");
         }
         finally
         {
             _client = null;
         }
         return Task.CompletedTask;
+    }
+
+    // ------------------------------------------------------------------
+    // PR 9.12 §2.13 Step 7 — lifecycle bodies lifted off RiverWindowManagerClient.
+    // Each operates on the still-resident god-class transport fields via
+    // internal accessors; the client retains thin forwarders so existing
+    // call sites (RegistryGlobalBinder, NativeCallbackContext, tests)
+    // compile unchanged.
+    // ------------------------------------------------------------------
+
+    internal static unsafe Result Connect(RiverWindowManagerClient client)
+    {
+        var connectResult = client.Connection.Connect();
+        if (!connectResult.IsOk)
+        {
+            RiverLog.Write("wl_display_connect failed: " + connectResult.Error);
+            return connectResult;
+        }
+
+        WlInterfaces.EnsureBuilt();
+
+        // Allocate a NativeCallbackContext (which performs the actual
+        // GCHandle.Alloc internally) and rehydrate SelfHandle from its
+        // IntPtr so all call sites that still read GCHandle.ToIntPtr(SelfHandle)
+        // continue to round-trip to the context.
+        var ctx = new Aqueous.Features.Compositor.River.Dispatch.NativeCallbackContext(
+            client.RiverEventDispatcher, client);
+        client.CallbackContext = ctx;
+        client.SelfHandle = GCHandle.FromIntPtr(ctx.Handle);
+        client.KeyBindingsRegistryRef.SelfHandlePtr = GCHandle.ToIntPtr(client.SelfHandle);
+
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)
+            &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch;
+
+        if (!client.RegistryBinder.Create(client.Display, dispatcher, GCHandle.ToIntPtr(client.SelfHandle)))
+        {
+            RiverLog.Write("get_registry failed");
+            return Result.Fail("wl_display_get_registry returned null");
+        }
+
+        client.TrackProxyInterface(client.RegistryBinder.Handle, "wl_registry");
+
+        client.RegistryBinder.Discovered += client.RegistryGlobalBinder.Bind;
+
+        // Flush globals; then a second roundtrip so any events the
+        // compositor sends immediately on bind (for an existing window
+        // list) are delivered before we return.
+        client.Connection.Roundtrip();
+        client.Connection.Roundtrip();
+
+        if (client.Manager == IntPtr.Zero)
+        {
+            return Result.Fail(
+                "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
+        }
+
+        return Result.Ok;
+    }
+
+    internal static void StartPump(RiverWindowManagerClient client, CancellationToken cancellationToken = default)
+        => client.Pump.Start(cancellationToken);
+
+    internal static void DisposeClient(RiverWindowManagerClient client)
+    {
+        // river_window_manager_v1::stop (opcode 0) is intentionally NOT
+        // sent here: it is not a destructor. We disconnect; River treats
+        // a disconnected WM the same way as a stopped one and cleans up.
+        try
+        {
+            // Critical ordering: stop the pump first so it is no longer
+            // touching wl_display, then dispose the connection.
+            client.Pump.Stop(PumpJoinTimeout);
+            client.Connection.Dispose();
+
+            client.WindowRegistry.Clear();
+            client.OutputRegistry.Clear();
+            client.SeatRegistry.Clear();
+        }
+        catch
+        {
+            // Tear-down is best-effort; never let Dispose throw.
+        }
+        finally
+        {
+            if (client.CallbackContext is { } ctx)
+            {
+                ctx.Dispose();
+                client.CallbackContext = null;
+            }
+            else if (client.SelfHandle.IsAllocated)
+            {
+                var h = client.SelfHandle;
+                h.Free();
+                client.SelfHandle = default;
+            }
+        }
+    }
+
+    internal static unsafe void HandleRegistryGlobal(RiverWindowManagerClient client, RegistryGlobal global)
+    {
+        IntPtr dispatcher = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)
+            &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch;
+
+        if (global.Interface == "river_window_manager_v1" && client.Manager == IntPtr.Zero)
+        {
+            var managerVersion = Math.Min(global.Version, 4u);
+            client.SetManagerVersion(managerVersion);
+            client.Manager = client.RegistryBinder.Bind(global.Name, WlInterfaces.RiverWindowManager, managerVersion);
+            client.BindSiteState.Manager = client.Manager;
+            if (client.Manager != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_add_dispatcher(
+                    client.Manager,
+                    dispatcher,
+                    GCHandle.ToIntPtr(client.SelfHandle),
+                    IntPtr.Zero);
+                client.TrackProxyInterface(client.Manager, "river_window_manager_v1");
+                client.ManagerRequestSender.Init(client.Manager, client.Display);
+                RiverLog.Write($"bound river_window_manager_v1 (version {managerVersion})");
+            }
+        }
+        else if (global.Interface == "river_layer_shell_v1")
+        {
+            client.LayerShell = client.RegistryBinder.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
+            client.BindSiteState.LayerShell = client.LayerShell;
+            WaylandInterop.wl_proxy_add_dispatcher(
+                client.LayerShell,
+                dispatcher,
+                GCHandle.ToIntPtr(client.SelfHandle),
+                IntPtr.Zero);
+            client.TrackProxyInterface(client.LayerShell, "river_layer_shell_v1");
+            RiverLog.Write("bound river_layer_shell_v1");
+        }
+        else if (global.Interface == "river_xkb_bindings_v1")
+        {
+            uint xkbVersion = Math.Min(global.Version, 2u);
+            client.XkbBindingsHandle = client.RegistryBinder.Bind(global.Name, WlInterfaces.RiverXkbBindings, xkbVersion);
+            client.BindSiteState.XkbBindings = client.XkbBindingsHandle;
+            client.XkbBindingsVersion = xkbVersion;
+            client.BindSiteState.XkbBindingsVersion = xkbVersion;
+            client.TrackProxyInterface(client.XkbBindingsHandle, "river_xkb_bindings_v1");
+            RiverLog.Write($"bound river_xkb_bindings_v1 (version {xkbVersion})");
+        }
+        else if (global.Interface == "wl_shm" && client.WlShm == IntPtr.Zero)
+        {
+            client.WlShm = client.RegistryBinder.Bind(global.Name, WlInterfaces.WlShm, 1);
+            client.BindSiteState.WlShm = client.WlShm;
+            client.TrackProxyInterface(client.WlShm, "wl_shm");
+            RiverLog.Write("bound wl_shm");
+            client.ScreencopyService.ActivateIfReady(
+                client.BindSiteState,
+                client.ScreencopyVersion,
+                GCHandle.ToIntPtr(client.SelfHandle),
+                dispatcher,
+                RiverLog.Write);
+        }
+        else if (global.Interface == "wl_output")
+        {
+            // Lazy-bind path: only remember the global. Real wl_output
+            // proxies are bound on-demand from CaptureOutputAsync and
+            // destroyed immediately after capture.
+            client.WlOutputGlobals[global.Name] = global;
+        }
+        else if (global.Interface == "zwlr_screencopy_manager_v1" && client.ScreencopyManager == IntPtr.Zero)
+        {
+            var version = Math.Min(global.Version, 3u);
+            client.ScreencopyVersion = version;
+            client.ScreencopyManager = client.RegistryBinder.Bind(
+                global.Name, WlInterfaces.ZwlrScreencopyManager, version);
+            client.BindSiteState.ScreencopyManager = client.ScreencopyManager;
+            client.TrackProxyInterface(client.ScreencopyManager, "zwlr_screencopy_manager_v1");
+            RiverLog.Write($"bound zwlr_screencopy_manager_v1 (version {version})");
+            client.ScreencopyService.ActivateIfReady(
+                client.BindSiteState,
+                version,
+                GCHandle.ToIntPtr(client.SelfHandle),
+                dispatcher,
+                RiverLog.Write);
+        }
     }
 }
