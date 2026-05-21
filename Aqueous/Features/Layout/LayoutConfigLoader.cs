@@ -96,16 +96,48 @@ public static class LayoutConfigLoader
         string? curSection = null;
         // Used by [[output]] tables.
         string? pendingOutputName = null;
+        string? pendingOutputEdid = null;
+        string? pendingOutputMake = null;
+        string? pendingOutputModel = null;
+        string? pendingOutputSerial = null;
         string? pendingOutputLayout = null;
+
+        // EDID/make/model/serial-selector overrides, populated when an [[output]] block names a
+        // physical monitor by stable identity instead of (or in addition to) a connector. The name
+        // dictionary still wins at resolution time — see LayoutConfig.ResolveLayoutForOutput.
+        var perOutputSelectors = new List<(OutputSelector, string)>();
 
         void FlushOutput()
         {
-            if (pendingOutputName != null && pendingOutputLayout != null)
+            if (pendingOutputLayout != null)
             {
-                perOutput[pendingOutputName] = pendingOutputLayout;
+                // Prefer the name-keyed dict whenever a `name = "..."` was supplied; otherwise fall
+                // back to the selector list when at least one of edid/make/model/serial is set.
+                if (!string.IsNullOrEmpty(pendingOutputName))
+                {
+                    perOutput[pendingOutputName] = pendingOutputLayout;
+                }
+                else if (!string.IsNullOrEmpty(pendingOutputEdid)
+                         || !string.IsNullOrEmpty(pendingOutputMake)
+                         || !string.IsNullOrEmpty(pendingOutputModel)
+                         || !string.IsNullOrEmpty(pendingOutputSerial))
+                {
+                    perOutputSelectors.Add((
+                        new OutputSelector(
+                            Name: null,
+                            Edid: string.IsNullOrEmpty(pendingOutputEdid) ? null : pendingOutputEdid,
+                            Make: string.IsNullOrEmpty(pendingOutputMake) ? null : pendingOutputMake,
+                            Model: string.IsNullOrEmpty(pendingOutputModel) ? null : pendingOutputModel,
+                            Serial: string.IsNullOrEmpty(pendingOutputSerial) ? null : pendingOutputSerial),
+                        pendingOutputLayout));
+                }
             }
 
             pendingOutputName = null;
+            pendingOutputEdid = null;
+            pendingOutputMake = null;
+            pendingOutputModel = null;
+            pendingOutputSerial = null;
             pendingOutputLayout = null;
         }
 
@@ -189,7 +221,15 @@ public static class LayoutConfigLoader
         // of (layoutName, zones)).
         var snapByOutput =
             new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
+        // Selector-keyed snap buckets (when [[snapzones]] uses edid/make/model/serial instead of
+        // `output =`). Order-preserving; lookup walks this after the name dictionary.
+        var snapBySelector =
+            new List<(OutputSelector Selector, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)> Layouts)>();
         string? snapPendingOutput = null;
+        string? snapPendingEdid = null;
+        string? snapPendingMake = null;
+        string? snapPendingModel = null;
+        string? snapPendingSerial = null;
         string? snapPendingLayout = null;
         SnapActivator snapPendingActivator = SnapActivator.Always;
         List<SnapZone>? snapPendingZones = null;
@@ -221,26 +261,68 @@ public static class LayoutConfigLoader
         void FlushSnapBucket()
         {
             FlushZone();
-            if (snapPendingOutput == null || snapPendingZones == null)
+            if (snapPendingZones == null || snapPendingZones.Count == 0)
             {
                 snapPendingOutput = null;
+                snapPendingEdid = null;
+                snapPendingMake = null;
+                snapPendingModel = null;
+                snapPendingSerial = null;
                 snapPendingLayout = null;
                 snapPendingActivator = SnapActivator.Always;
                 snapPendingZones = null;
                 return;
             }
 
-            if (snapPendingZones.Count > 0)
-            {
-                if (!snapByOutput.TryGetValue(snapPendingOutput, out var list))
-                {
-                    snapByOutput[snapPendingOutput] = list = new List<(string, SnapActivator, List<SnapZone>)>();
-                }
+            // Route to the selector list when the user supplied an EDID/make/model/serial selector
+            // and did NOT set `output =`. Otherwise fall back to the name-keyed dictionary, using the
+            // "*" wildcard if neither selector nor `output =` was provided.
+            bool hasSelector = !string.IsNullOrEmpty(snapPendingEdid)
+                               || !string.IsNullOrEmpty(snapPendingMake)
+                               || !string.IsNullOrEmpty(snapPendingModel)
+                               || !string.IsNullOrEmpty(snapPendingSerial);
+            var entry = (snapPendingLayout ?? "default", snapPendingActivator, snapPendingZones);
 
-                list.Add((snapPendingLayout ?? "default", snapPendingActivator, snapPendingZones));
+            if (snapPendingOutput == null && hasSelector)
+            {
+                var sel = new OutputSelector(
+                    Name: null,
+                    Edid: string.IsNullOrEmpty(snapPendingEdid) ? null : snapPendingEdid,
+                    Make: string.IsNullOrEmpty(snapPendingMake) ? null : snapPendingMake,
+                    Model: string.IsNullOrEmpty(snapPendingModel) ? null : snapPendingModel,
+                    Serial: string.IsNullOrEmpty(snapPendingSerial) ? null : snapPendingSerial);
+
+                // Append to an existing selector-equal bucket if present, so multiple [[snapzones]]
+                // blocks for the same monitor accumulate layouts in declaration order.
+                int idx = -1;
+                for (int i = 0; i < snapBySelector.Count; i++)
+                {
+                    if (snapBySelector[i].Selector.Equals(sel)) { idx = i; break; }
+                }
+                if (idx < 0)
+                {
+                    snapBySelector.Add((sel, new List<(string, SnapActivator, List<SnapZone>)> { entry }));
+                }
+                else
+                {
+                    snapBySelector[idx].Layouts.Add(entry);
+                }
+            }
+            else
+            {
+                var outKey = snapPendingOutput ?? SnapZoneStore.Wildcard;
+                if (!snapByOutput.TryGetValue(outKey, out var list))
+                {
+                    snapByOutput[outKey] = list = new List<(string, SnapActivator, List<SnapZone>)>();
+                }
+                list.Add(entry);
             }
 
             snapPendingOutput = null;
+            snapPendingEdid = null;
+            snapPendingMake = null;
+            snapPendingModel = null;
+            snapPendingSerial = null;
             snapPendingLayout = null;
             snapPendingActivator = SnapActivator.Always;
             snapPendingZones = null;
@@ -267,7 +349,13 @@ public static class LayoutConfigLoader
                 if (curSection == "[[snapzones]]")
                 {
                     FlushSnapBucket();
-                    snapPendingOutput = SnapZoneStore.Wildcard;
+                    // Leave snapPendingOutput=null so FlushSnapBucket can tell between "user supplied
+                    // a selector (edid/make/model/serial)" and "user wrote nothing" (→ wildcard).
+                    snapPendingOutput = null;
+                    snapPendingEdid = null;
+                    snapPendingMake = null;
+                    snapPendingModel = null;
+                    snapPendingSerial = null;
                     snapPendingLayout = null;
                     snapPendingActivator = SnapActivator.Always;
                     snapPendingZones = new List<SnapZone>();
@@ -348,13 +436,26 @@ public static class LayoutConfigLoader
 
                     break;
                 case "[[output]]":
-                    if (key == "name")
+                    switch (key)
                     {
-                        pendingOutputName = val;
-                    }
-                    else if (key == "layout")
-                    {
-                        pendingOutputLayout = val;
+                        case "name":
+                            pendingOutputName = val;
+                            break;
+                        case "edid":
+                            pendingOutputEdid = val;
+                            break;
+                        case "make":
+                            pendingOutputMake = val;
+                            break;
+                        case "model":
+                            pendingOutputModel = val;
+                            break;
+                        case "serial":
+                            pendingOutputSerial = val;
+                            break;
+                        case "layout":
+                            pendingOutputLayout = val;
+                            break;
                     }
 
                     break;
@@ -396,6 +497,18 @@ public static class LayoutConfigLoader
                         case "output":
                             // Empty string → wildcard, so a [[snapzones]] with output="" still applies somewhere.
                             snapPendingOutput = string.IsNullOrEmpty(val) ? SnapZoneStore.Wildcard : val;
+                            break;
+                        case "edid":
+                            snapPendingEdid = val;
+                            break;
+                        case "make":
+                            snapPendingMake = val;
+                            break;
+                        case "model":
+                            snapPendingModel = val;
+                            break;
+                        case "serial":
+                            snapPendingSerial = val;
                             break;
                         case "layout":
                             snapPendingLayout = val;
@@ -536,7 +649,25 @@ public static class LayoutConfigLoader
             snapStoreMap[kv.Key] = layouts;
         }
 
-        var snapZones = new SnapZoneStore(snapStoreMap);
+        // Materialize selector-keyed snap buckets (parallel to snapStoreMap).
+        var snapStoreSelectors =
+            new List<(OutputSelector Selector, IReadOnlyList<SnapZoneLayout> Layouts)>(snapBySelector.Count);
+        foreach (var (sel, perLayoutList) in snapBySelector)
+        {
+            var layouts = new List<SnapZoneLayout>(perLayoutList.Count);
+            foreach (var (lname, activator, zones) in perLayoutList)
+            {
+                layouts.Add(new SnapZoneLayout
+                {
+                    Name = lname,
+                    Zones = zones,
+                    Activator = activator,
+                });
+            }
+            snapStoreSelectors.Add((sel, layouts));
+        }
+
+        var snapZones = new SnapZoneStore(snapStoreMap, snapStoreSelectors);
 
         var defaults = new LayoutOptions(
             gapsOuter, gapsInner, masterRatio, masterCount,
@@ -603,6 +734,7 @@ public static class LayoutConfigLoader
             Slots = slots,
             PerLayoutOpts = perLayoutOpts,
             PerOutput = perOutput,
+            PerOutputSelectors = perOutputSelectors,
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Keybinds = keybinds,
             State = stateConfig,

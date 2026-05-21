@@ -102,6 +102,7 @@ public sealed class LayoutController
                 Slots = _config.Slots,
                 PerLayoutOpts = _config.PerLayoutOpts,
                 PerOutput = _config.PerOutput,
+                PerOutputSelectors = _config.PerOutputSelectors,
                 Border = _config.Border,
                 Keybinds = _config.Keybinds,
             };

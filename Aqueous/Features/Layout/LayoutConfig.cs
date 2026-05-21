@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Aqueous.Features.Compositor.River;
@@ -53,6 +54,16 @@ public sealed class LayoutConfig
     /// </summary>
     public IReadOnlyDictionary<string, string> PerOutput { get; init; } =
         new Dictionary<string, string>();
+
+    /// <summary>
+    /// Per-output layout overrides keyed by an EDID/make/model/serial <see cref="OutputSelector"/>
+    /// instead of a connector name. Used when a <c>[[output]]</c> block specifies <c>edid =</c>
+    /// (or <c>make</c>/<c>model</c>/<c>serial</c>) instead of (or in addition to) <c>name</c>.
+    /// Resolution order: <see cref="PerOutput"/> name lookup first, then this list in declaration
+    /// order (first match wins). The selector-based list is the port-independent identity.
+    /// </summary>
+    public IReadOnlyList<(OutputSelector Selector, string LayoutId)> PerOutputSelectors { get; init; } =
+        Array.Empty<(OutputSelector, string)>();
 
     /// <summary>
     /// Border styling shared by every layout that draws borders.
@@ -113,6 +124,36 @@ public sealed class LayoutConfig
         }
 
         return Defaults;
+    }
+
+    /// <summary>
+    /// Resolve the layout id for a physical output identified by its connector <paramref
+    /// name="name"/> and optional EDID metadata (the same fields surfaced by
+    /// <c>Aqueous.OutputDaemon</c>'s snapshot). Looks up <see cref="PerOutput"/> first by name,
+    /// then walks <see cref="PerOutputSelectors"/> for an EDID/make/model/serial match. Returns
+    /// <c>null</c> when no override applies — callers fall back to <see cref="DefaultLayout"/>.
+    /// </summary>
+    public string? ResolveLayoutForOutput(
+        string? name,
+        string? edidSha256 = null,
+        string? make = null,
+        string? model = null,
+        string? serial = null)
+    {
+        if (!string.IsNullOrEmpty(name) && PerOutput.TryGetValue(name, out var byName))
+        {
+            return byName;
+        }
+
+        foreach (var (sel, id) in PerOutputSelectors)
+        {
+            if (sel.Matches(name, edidSha256, make, model, serial))
+            {
+                return id;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
