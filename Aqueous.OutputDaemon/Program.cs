@@ -118,10 +118,17 @@ internal static class Program
         foreach (var spec in source)
         {
             var dict = spec.ToDict();
-            var ch = Validator.Resolve(dict, snap, out var err);
-            if (ch is null) { Log($"apply-once: skip — {err}"); continue; }
-            changes.Add(ch);
+            var resolved = Validator.ResolveAll(dict, snap, out var err, out var warnings);
+            foreach (var w in warnings) Log($"apply-once: skip — {w}");
+            if (resolved.Count == 0)
+            {
+                if (err is not null) Log($"apply-once: skip — {err}");
+                continue;
+            }
+            changes.AddRange(resolved);
         }
+        // Wildcard-first / specifics-override merge for any duplicate output names.
+        changes = Validator.Merge(changes);
 
         if (changes.Count == 0)
         {
@@ -349,11 +356,14 @@ internal static class Program
         {
             if (item is not Dictionary<string, object?> spec)
                 return new() { ["ok"] = false, ["error"] = "change must be an object", ["stage"] = "validate" };
-            var c = Validator.Resolve(spec, snap, out var err);
-            if (c is null)
+            var list = Validator.ResolveAll(spec, snap, out var err, out var warnings);
+            foreach (var w in warnings) Log($"set: skip — {w}");
+            if (list.Count == 0)
                 return new() { ["ok"] = false, ["error"] = err, ["stage"] = "validate" };
-            resolved.Add(c);
+            resolved.AddRange(list);
         }
+        // Merge overlapping per-output entries (wildcard first, specific overrides).
+        resolved = Validator.Merge(resolved);
 
         var (rc, _, stderr) = WlrRandr.Apply(resolved);
         if (rc != 0)

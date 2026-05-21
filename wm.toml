@@ -74,7 +74,14 @@ center_focused  = "true"    # auto-pan so focused column is centred
 # render-size handoff.
 #
 # Schema:
-#   name          = "DP-1"            connector name (or "*" wildcard)
+#   name          = "DP-1"            connector name; supports glob (* and ?)
+#                                     e.g. "DP-*" fans the spec out to every
+#                                     plugged-in DisplayPort monitor. EDID is
+#                                     never globbed. When name globs, the
+#                                     `position` field is rejected (would stack
+#                                     monitors). Wildcard specs are applied
+#                                     first; subsequent specific [[output]]s
+#                                     override per-field.
 #   edid          = "sha256:..."      preferred matcher; survives replug
 #   layout        = "scrolling"       Aqueous layout id (existing field)
 #   enabled       = true              false → wlr-randr --output X --off
@@ -106,6 +113,13 @@ center_focused  = "true"    # auto-pan so focused column is centred
 #layout  = "monocle"
 #scale   = 1.5
 #enabled = true
+#
+## Force every DisplayPort monitor to 1440p144. Wildcards match connector
+## names against `*` (any run) and `?` (single char). EDID is exact-only.
+#[[output]]
+#name = "DP-*"
+#mode = "2560x1440@144"
+#scale = 1.0
 
 [struts]
 top    = 32   # Noctalia bar height

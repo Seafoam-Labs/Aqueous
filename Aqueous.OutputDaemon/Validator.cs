@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Aqueous.OutputDaemon;
@@ -24,28 +25,56 @@ internal static class Validator
     public const double MaxScale = 3.0;
 
     /// <summary>
-    /// Resolve and validate one change spec from the wire (a JSON dict) against the live snapshot.
-    /// Returns null + populated <paramref name="error"/> if invalid.
+    /// Resolve and validate one change spec against the live snapshot.
+    /// Back-compat shim: returns the first resolved change (or null) and the first error.
     /// </summary>
     public static OutputChange? Resolve(
         Dictionary<string, object?> spec,
         IReadOnlyList<WlrRandr.Output> snapshot,
         out string? error)
     {
-        error = null;
+        var list = ResolveAll(spec, snapshot, out error, out var warnings);
+        if (list.Count == 0)
+        {
+            if (error is null && warnings.Count > 0) error = warnings[0];
+            return null;
+        }
+        return list[0];
+    }
 
-        // Match by EDID first (preferred), then by name.
-        WlrRandr.Output? match = null;
+    /// <summary>
+    /// Resolve a spec to zero or more <see cref="OutputChange"/>s. Supports glob (<c>*</c>, <c>?</c>) in
+    /// the <c>name</c> matcher; <c>edid</c> is always exact.
+    /// </summary>
+    /// <remarks>
+    /// <para><paramref name="error"/> is set only when the spec is structurally invalid OR matched zero
+    /// outputs. <paramref name="warnings"/> collects per-output skip reasons under a wildcard expansion
+    /// (e.g., mode not advertised on one of N monitors) so the caller can log them without aborting.</para>
+    /// </remarks>
+    public static List<OutputChange> ResolveAll(
+        Dictionary<string, object?> spec,
+        IReadOnlyList<WlrRandr.Output> snapshot,
+        out string? error,
+        out List<string> warnings)
+    {
+        error = null;
+        warnings = new List<string>();
+        var result = new List<OutputChange>();
+
+        // Determine matched outputs.
+        var matches = new List<WlrRandr.Output>();
+        bool isWildcard = false;
         var edid = spec.GetString("edid");
         if (!string.IsNullOrEmpty(edid))
         {
+            // EDID is always exact — hashes don't glob meaningfully.
             foreach (var o in snapshot)
                 if (string.Equals(o.EdidSha256, edid, StringComparison.OrdinalIgnoreCase))
-                { match = o; break; }
-            if (match is null)
+                { matches.Add(o); break; }
+            if (matches.Count == 0)
             {
                 error = $"unknown edid '{edid}'";
-                return null;
+                return result;
             }
         }
         else
@@ -54,18 +83,69 @@ internal static class Validator
             if (string.IsNullOrEmpty(name))
             {
                 error = "missing 'name' or 'edid'";
-                return null;
+                return result;
             }
-            foreach (var o in snapshot)
-                if (string.Equals(o.Name, name, StringComparison.Ordinal))
-                { match = o; break; }
-            if (match is null)
+            if (IsGlob(name!))
             {
-                error = $"unknown output '{name}'";
-                return null;
+                isWildcard = true;
+                var re = GlobToRegex(name!);
+                foreach (var o in snapshot)
+                    if (re.IsMatch(o.Name)) matches.Add(o);
+                if (matches.Count == 0)
+                {
+                    error = $"no outputs match '{name}'";
+                    return result;
+                }
+            }
+            else
+            {
+                foreach (var o in snapshot)
+                    if (string.Equals(o.Name, name, StringComparison.Ordinal))
+                    { matches.Add(o); break; }
+                if (matches.Count == 0)
+                {
+                    error = $"unknown output '{name}'";
+                    return result;
+                }
             }
         }
 
+        // Reject position with wildcard expansion (v1: no auto-tile).
+        bool hasPosition = spec.TryGetValue("position", out var _posCheck) && _posCheck is List<object?>;
+        if (isWildcard && hasPosition)
+        {
+            error = "position not allowed with wildcard name";
+            return result;
+        }
+
+        // Per-output validation.
+        foreach (var match in matches)
+        {
+            var ch = BuildChange(spec, match, out var perErr);
+            if (ch is null)
+            {
+                if (isWildcard) warnings.Add($"{match.Name}: {perErr}");
+                else error = perErr;
+            }
+            else
+            {
+                result.Add(ch);
+            }
+        }
+
+        // If we matched but produced nothing, surface an aggregated error.
+        if (result.Count == 0 && error is null)
+            error = warnings.Count > 0
+                ? $"all matched outputs failed validation: {string.Join("; ", warnings)}"
+                : "no outputs produced";
+
+        return result;
+    }
+
+    private static OutputChange? BuildChange(
+        Dictionary<string, object?> spec, WlrRandr.Output match, out string? error)
+    {
+        error = null;
         var change = new OutputChange { Name = match.Name };
 
         if (spec.TryGetValue("enabled", out var en) && en is bool eb) change.Enabled = eb;
@@ -123,6 +203,56 @@ internal static class Validator
             change.AdaptiveSync = ab;
 
         return change;
+    }
+
+    private static bool IsGlob(string s)
+        => s.Contains('*', StringComparison.Ordinal) || s.Contains('?', StringComparison.Ordinal);
+
+    private static Regex GlobToRegex(string glob)
+    {
+        var sb = new StringBuilder("^");
+        foreach (var c in glob)
+        {
+            sb.Append(c switch
+            {
+                '*' => ".*",
+                '?' => ".",
+                _ => Regex.Escape(c.ToString()),
+            });
+        }
+        sb.Append('$');
+        return new Regex(sb.ToString(),
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    }
+
+    /// <summary>
+    /// Merge a list of resolved changes by output name. Later entries override per-field values from
+    /// earlier ones (only non-null fields are copied). Use this to combine wildcard specs with specific
+    /// overrides: list wildcards first, specifics after.
+    /// </summary>
+    public static List<OutputChange> Merge(IEnumerable<OutputChange> changes)
+    {
+        var byName = new Dictionary<string, OutputChange>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (var c in changes)
+        {
+            if (string.IsNullOrEmpty(c.Name)) continue;
+            if (!byName.TryGetValue(c.Name, out var acc))
+            {
+                acc = new OutputChange { Name = c.Name };
+                byName[c.Name] = acc;
+                order.Add(c.Name);
+            }
+            if (c.Enabled is not null) acc.Enabled = c.Enabled;
+            if (c.Mode is not null) acc.Mode = c.Mode;
+            if (c.Scale is not null) acc.Scale = c.Scale;
+            if (c.Transform is not null) acc.Transform = c.Transform;
+            if (c.Position is not null) acc.Position = c.Position;
+            if (c.AdaptiveSync is not null) acc.AdaptiveSync = c.AdaptiveSync;
+        }
+        var merged = new List<OutputChange>(order.Count);
+        foreach (var n in order) merged.Add(byName[n]);
+        return merged;
     }
 
     private static bool ModeAdvertised(WlrRandr.Output o, string mode)
