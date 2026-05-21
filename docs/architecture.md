@@ -28,7 +28,6 @@ git repository:
 ```
 Aqueous/                       # repo root
 ├── Aqueous/                   # WM (.NET, AOT-published)
-├── Aqueous.InputDaemon/       # libinput sidecar
 ├── Aqueous.OutputDaemon/      # output config sidecar
 ├── Aqueous.Tests/
 ├── Aqueous.OutputDaemon.Tests/

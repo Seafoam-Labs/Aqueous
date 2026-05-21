@@ -49,6 +49,12 @@ internal sealed unsafe class RiverEventDispatcher
                 "river_pointer_binding_v1" => 0,
                 "river_xkb_binding_v1" => 0,
                 "wl_registry" => 4,
+                // river_libinput_config_v1::libinput_device(new_id<device>): 1 arg.
+                // The only other event we handle (finished) has 0 args.
+                "river_libinput_config_v1" => 1,
+                // river_libinput_device_v1 events vary 0..1 args; we only inspect args[0] in
+                // the 1-arg cases (tap_support). Sizing at 1 is safe.
+                "river_libinput_device_v1" => 1,
                 _ => 4,
             };
             _eventDispatcher.Dispatch(

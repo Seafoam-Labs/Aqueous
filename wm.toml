@@ -444,20 +444,10 @@ focus_follows_mouse = false
 # -----------------------------------------------------------------------------
 # Per-device libinput configuration (niri-compatible schema).
 #
-# River 0.4 owns libinput but exposes no API for a WM client to configure
-# it, so Aqueous forwards these to `aqueous-inputd` over a Unix socket
-# at $XDG_RUNTIME_DIR/aqueous-inputd.sock. The daemon owns its own
-# libinput context and applies values on device-add and on every config
-# reload (live, no relog).
-#
-# Start the daemon once:
-#   systemctl --user enable --now aqueous-inputd
-# (or run /usr/bin/aqueous-inputd directly). Access to /dev/input/event*
-# is granted by the udev rule shipped with the package
-# (/usr/lib/udev/rules.d/70-aqueous-uaccess.rules) via logind's
-# `uaccess` tag, so no `input` group membership is required. If you
-# installed Aqueous outside the package, either install that rule
-# yourself or add your user to the `input` group as a fallback.
+# Aqueous applies these values directly to the compositor's own libinput
+# context via the river_libinput_config_v1 Wayland protocol, on
+# device-add and on every config reload (live, no relog, no separate
+# daemon).
 # -----------------------------------------------------------------------------
 [input.mouse]
 # accel_profile = "flat"   # "adaptive" | "flat"

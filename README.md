@@ -17,7 +17,6 @@ compositor live side-by-side. No submodules, no extra clone steps —
 |------------------|-------------------------------------------------------|
 | `Aqueous`        | Wayland/River compositor client (the window manager) |
 | `Aqueous.Tests`  | Unit tests for `Aqueous`                             |
-| `Aqueous.InputDaemon` (`aqueous-inputd`) | Privileged libinput sidecar — owns its own libinput context and applies `[input.*]` config (pointer accel, tap-to-click, natural scroll, …) on device add and on every config reload. River 0.4 exposes no Wayland API for libinput configuration, so this runs out-of-process. Talks to `Aqueous` over `$XDG_RUNTIME_DIR/aqueous-inputd.sock`. |
 | Noctalia (external) | Bar / shell (`qs -c noctalia-shell`)              |
 | tuigreet (external) | Login greeter                                     |
 
@@ -109,19 +108,18 @@ useful.
 
 ### Packaging
 
-A reference Arch `PKGBUILD` is included; it builds `Aqueous` and
-`aqueous-inputd` AOT and ships:
+A reference Arch `PKGBUILD` is included; it builds `Aqueous` AOT and ships:
 
-- `/usr/bin/aqueous`, `/usr/bin/aqueous-inputd`, `/usr/bin/aqueous-wm`
-  (session launcher).
+- `/usr/bin/aqueous`, `/usr/bin/aqueous-wm` (session launcher).
 - `/usr/share/wayland-sessions/aqueous.desktop` so any Wayland-capable
   display manager (greetd/tuigreet, GDM, SDDM, …) lists **Aqueous** in
   its session picker.
 - `/etc/xdg/aqueous/wm.toml` as the system default; `aqueous-wm` seeds
   `~/.config/aqueous/wm.toml` on first login if missing.
-- `aqueous-inputd.{service,socket}` systemd user units (opt-in via
-  `systemctl --user enable --now aqueous-inputd.socket`; otherwise the
-  launcher spawns the daemon directly).
+
+Libinput configuration (pointer accel, tap-to-click, natural scroll, …)
+is applied by `Aqueous` itself via the `river_libinput_config_v1`
+Wayland protocol — no separate input daemon is involved.
 
 For a turn-key login experience see
 `packaging/greetd/config.toml.example` (greetd + tuigreet, with an
@@ -165,8 +163,7 @@ optional autologin snippet).
 
 - [ ] `aqueousctl` IPC socket: query focused tag/window/title, dispatch any
       `KeyBindingAction`, trigger config reload, drive status bars and
-      scripts (`swaymsg`-style). Today only `aqueous-inputd.sock` exists
-      and it is libinput-only.
+      scripts (`swaymsg`-style).
 - [ ] On-the-fly config reload from a keybind / external tool, with error
       reporting when `wm.toml` is malformed.
 - [ ] Man page, shell completions, log rotation (logs currently land in

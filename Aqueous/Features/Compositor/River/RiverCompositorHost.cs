@@ -7,6 +7,7 @@ using Aqueous.Features.Bindings;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
+using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.Screencopy;
 using Aqueous.Features.Startup;
@@ -36,6 +37,7 @@ internal sealed class RiverCompositorHost : IHostedService
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly ManageCycleState _manageCycleState;
     private readonly StartupExecRunner _startupExec;
+    private readonly LibinputConfigApplier _libinputApplier;
     private readonly ILogger<RiverCompositorHost>? _log;
 
     private NativeCallbackContext? _callbackContext;
@@ -63,6 +65,7 @@ internal sealed class RiverCompositorHost : IHostedService
         KeyBindingsRegistry keyBindingsRegistry,
         ManageCycleState manageCycleState,
         StartupExecRunner startupExec,
+        LibinputConfigApplier libinputApplier,
         ILogger<RiverCompositorHost>? log = null)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -78,6 +81,7 @@ internal sealed class RiverCompositorHost : IHostedService
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _manageCycleState = manageCycleState ?? throw new ArgumentNullException(nameof(manageCycleState));
         _startupExec = startupExec ?? throw new ArgumentNullException(nameof(startupExec));
+        _libinputApplier = libinputApplier ?? throw new ArgumentNullException(nameof(libinputApplier));
         _log = log;
     }
 
@@ -261,6 +265,20 @@ internal sealed class RiverCompositorHost : IHostedService
             _bindSiteState.XkbBindingsVersion = xkbVersion;
             _bindSiteState.TrackProxyInterface(xkb, "river_xkb_bindings_v1");
             RiverLog.Write($"bound river_xkb_bindings_v1 (version {xkbVersion})");
+        }
+        else if (global.Interface == "river_libinput_config_v1" && _bindSiteState.LibinputConfig == IntPtr.Zero)
+        {
+            // Cap to v2 — that's what compositor/protocol/river-libinput-config-v1.xml advertises.
+            uint version = Math.Min(global.Version, 2u);
+            var libinput = _registryBinder.Bind(global.Name, WlInterfaces.RiverLibinputConfig, version);
+            _bindSiteState.LibinputConfig = libinput;
+            if (libinput != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_add_dispatcher(libinput, dispatcher, ctxHandle, IntPtr.Zero);
+                _bindSiteState.TrackProxyInterface(libinput, "river_libinput_config_v1");
+                _libinputApplier.OnBound();
+                RiverLog.Write($"bound river_libinput_config_v1 (version {version})");
+            }
         }
         else if (global.Interface == "wl_shm" && _bindSiteState.WlShm == IntPtr.Zero)
         {

@@ -152,6 +152,52 @@ internal static class RiverProtocolOpcodes
     }
 
     /// <summary>
+    /// <c>river_libinput_config_v1</c> Event opcodes.
+    /// </summary>
+    internal static class LibinputConfig
+    {
+        internal const uint Finished = 0;
+        internal const uint LibinputDevice = 1;
+    }
+
+    /// <summary>
+    /// <c>river_libinput_device_v1</c> Request opcodes. Only the four actually used by
+    /// <c>LibinputConfigApplier</c> are listed; the full request table lives in <see
+    /// cref="WlInterfaces"/>.
+    /// </summary>
+    internal static class LibinputDeviceRequest
+    {
+        internal const uint Destroy           = 0;
+        internal const uint SetTap            = 2;
+        internal const uint SetAccelProfile   = 8;
+        internal const uint SetAccelSpeed     = 9;
+        internal const uint SetNaturalScroll  = 11;
+    }
+
+    /// <summary>
+    /// <c>river_libinput_device_v1</c> Event opcodes. Only the events
+    /// <c>LibinputConfigApplier</c>/<c>LibinputDeviceEventHandler</c> actually inspect are listed;
+    /// every other event is silently dropped by the handler.
+    /// </summary>
+    internal static class LibinputDeviceEvent
+    {
+        internal const uint Removed     = 0;
+        internal const uint TapSupport  = 5;
+        internal const uint Done        = 55;
+    }
+
+    /// <summary>
+    /// <c>river_libinput_device_v1</c> <c>accel_profile</c> enum mirroring the protocol's values.
+    /// </summary>
+    internal static class LibinputAccelProfile
+    {
+        internal const uint None     = 0;
+        internal const uint Flat     = 1;
+        internal const uint Adaptive = 2;
+        internal const uint Custom   = 4;
+    }
+
+    /// <summary>
     /// <c>zwlr_screencopy_frame_v1</c> Event opcodes.
     /// </summary>
     internal static class ScreencopyFrame

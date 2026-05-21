@@ -81,22 +81,10 @@ if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" 2>/dev/null || true
 fi
 
-# Start the input daemon sidecar if a systemd user unit isn't already
-# managing it.
-INPUTD_PID=""
-cleanup() {
-    if [ -n "$INPUTD_PID" ]; then
-        kill "$INPUTD_PID" 2>/dev/null || true
-    fi
-}
-trap cleanup EXIT INT TERM
-
-if ! systemctl --user is-active --quiet aqueous-inputd.service 2>/dev/null; then
-    if [ -x /usr/bin/aqueous-inputd ]; then
-        /usr/bin/aqueous-inputd &
-        INPUTD_PID=$!
-    fi
-fi
+# Input configuration (pointer accel, tap-to-click, natural scroll, …)
+# is now applied by Aqueous itself over the river_libinput_config_v1
+# Wayland protocol; the formerly-required `aqueous-inputd` sidecar has
+# been retired.
 
 # RiverDelta runs the compositor; aqueous-init is its `-c` child. The init
 # wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's

@@ -22,6 +22,13 @@ internal sealed class WaylandBindSiteState
     public IntPtr ScreencopyManager { get; set; }
     public IntPtr WlShm { get; set; }
     public IntPtr XkbBindings { get; set; }
+
+    /// <summary>
+    /// The bound <c>river_libinput_config_v1</c> global (set at registry global discovery time).
+    /// Used by <c>LibinputConfigApplier</c> as the parent for every per-device proxy emitted by the
+    /// compositor's libinput layer.
+    /// </summary>
+    public IntPtr LibinputConfig { get; set; }
     /// <summary>
     /// Protocol version advertised by the bound <c>river_xkb_bindings_v1</c> global. Captured at bind
     /// time so child <c>river_xkb_binding_v1</c> proxies created by <see

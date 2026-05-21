@@ -56,6 +56,7 @@ class Program
         services.AddSingleton<Aqueous.Features.Focus.PendingFocusStore>();
         services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
         services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
+        services.AddSingleton<Aqueous.Features.Input.LibinputConfigApplier>();
         services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
         services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
         services.AddSingleton<Aqueous.Features.Input.PointerBindingStore>();
@@ -152,6 +153,14 @@ class Program
         services.AddSingleton<IEventHandler>(sp => new ScreencopyFrameHandler(
             sp.GetRequiredService<Aqueous.Features.Screencopy.IScreencopyService>(),
             RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new LibinputConfigEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>(),
+            sp.GetRequiredService<WaylandBindSiteState>(),
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new LibinputDeviceEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>(),
+            RiverLog.Write));
 
         // - Top-level dispatcher + host ----------------------------------
         services.AddSingleton<IEventDispatcher>(sp => new EventDispatcher(
@@ -160,18 +169,18 @@ class Program
 
         using var provider = services.BuildServiceProvider();
 
-        // Push libinput config to the privileged sidecar (aqueous-inputd). Best-effort: silently logs and
-        // proceeds if the daemon isn't up. River 0.4 owns libinput but exposes no API to a WM client, so
-        // pointer accel etc. can only be applied out-of-process. Mirrors niri's "apply on startup + on
-        // config reload" model — the same call lives in ReloadConfig (KeyBindingActionRouter).
+        // Seed the libinput applier with the startup config. Devices appear asynchronously after
+        // RiverCompositorHost binds the river_libinput_config_v1 global; the applier will apply this
+        // config the first time each device emits its done event. Reload from KeyBindingRouter calls
+        // Apply again to push wm.toml changes to all currently-known devices.
         try
         {
             var cfg = provider.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>();
-            Aqueous.Features.Input.InputDaemonClient.Apply(cfg.Input);
+            provider.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>().Apply(cfg.Input);
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, "InputDaemonClient.Apply failed");
+            log.LogWarning(ex, "LibinputConfigApplier.Apply failed");
         }
 
         Console.CancelKeyPress += (_, e) =>

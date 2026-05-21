@@ -177,6 +177,41 @@ internal static unsafe class WlInterfaces
     /// </summary>
     public static WaylandInterop.WlInterface* ZwlrScreencopyFrame;
 
+    // River_libinput_config_v1 (v2) — used to apply [input.*] from wm.toml directly to the
+    // compositor's own libinput context (replaces the retired Aqueous.InputDaemon).
+
+    /// <summary>
+    /// <c>river_libinput_config_v1</c> V2 — global that announces libinput-managed devices and
+    /// produces <c>river_libinput_device_v1</c> children.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLibinputConfig;
+
+    /// <summary>
+    /// <c>river_libinput_device_v1</c> V2 — per-libinput-device proxy. Accepts <c>set_accel_profile</c>,
+    /// <c>set_accel_speed</c>, <c>set_natural_scroll</c>, <c>set_tap</c>, and friends.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLibinputDevice;
+
+    /// <summary>
+    /// <c>river_libinput_result_v1</c> V1 — single-shot result object returned by every
+    /// <c>river_libinput_device_v1</c> setter. Destructor-on-event for all three outcomes.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLibinputResult;
+
+    /// <summary>
+    /// <c>river_input_device_v1</c> placeholder — the <c>input_device</c> event references this
+    /// interface in its types[] table, but the WM does not bind <c>river_input_management_v1</c>, so
+    /// only the identity (name) matters.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverInputDevice;
+
+    /// <summary>
+    /// <c>river_libinput_accel_config_v1</c> V1 placeholder — referenced only as the new-id type of
+    /// <c>river_libinput_config_v1.create_accel_config</c> and the <c>o</c>-arg type of
+    /// <c>river_libinput_device_v1.apply_accel_config</c>; the WM never creates or destroys one.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLibinputAccelConfig;
+
     /// <summary>
     /// Set to <c>true</c> once <see cref="BuildAll"/> has fully populated every interface table.
     /// </summary>
@@ -512,6 +547,158 @@ internal static unsafe class WlInterfaces
 
         BuildRiverWindowManagement();
         BuildWlrScreencopy();
+        BuildRiverLibinputConfig();
+    }
+
+    // -------- River_libinput_config_v1 (v2) ----------
+
+    /// <summary>
+    /// Builds the <c>river_libinput_config_v1</c> v2 graph (config global + per-device proxy + result
+    /// object + accel-config placeholder + input_device placeholder). Used by
+    /// <c>LibinputConfigApplier</c> to push <c>[input.*]</c> from <c>wm.toml</c> straight into the
+    /// compositor's libinput context — the same context that produces the deltas fed into
+    /// <c>Cursor.processMotionRelative</c>.
+    /// </summary>
+    /// <remarks>
+    /// Signatures and opcodes are extracted verbatim from
+    /// <c>compositor/protocol/river-libinput-config-v1.xml</c>. The <c>accel_speed</c> argument is
+    /// transported as a libwayland <c>array</c> of one native-endian IEEE-754 <c>double</c> (the
+    /// protocol's documented convention for floating-point values). Requests we never send
+    /// (<c>set_tap_button_map</c>, <c>set_drag</c>, <c>set_calibration_matrix</c>, …) are still
+    /// declared so the message table matches v2 and libwayland's opcode arithmetic stays sound.
+    /// </remarks>
+    private static void BuildRiverLibinputConfig()
+    {
+        RiverLibinputConfig = AllocEmpty("river_libinput_config_v1", 2);
+        RiverLibinputDevice = AllocEmpty("river_libinput_device_v1", 2);
+        RiverLibinputResult = AllocEmpty("river_libinput_result_v1", 1);
+        RiverLibinputAccelConfig = AllocEmpty("river_libinput_accel_config_v1", 1);
+        RiverInputDevice = AllocEmpty("river_input_device_v1", 1);
+
+        // River_input_device_v1: identity-only placeholder (we never receive events on it).
+        Populate(RiverInputDevice, Array.Empty<WaylandInterop.WlMessage>(), Array.Empty<WaylandInterop.WlMessage>());
+
+        // River_libinput_accel_config_v1: identity-only placeholder; the WM never creates one in
+        // this minimal client (set_accel_speed is sufficient for the mouse/touchpad parity we need).
+        Populate(RiverLibinputAccelConfig,
+            requests: new[]
+            {
+                Msg("destroy",   "",   NoTypes),
+                Msg("set_points","uaa", new WaylandInterop.WlInterface*[] { null, null, null }),
+            },
+            events: Array.Empty<WaylandInterop.WlMessage>());
+
+        // River_libinput_result_v1 — three destructor events; no requests.
+        Populate(RiverLibinputResult,
+            requests: Array.Empty<WaylandInterop.WlMessage>(),
+            events: new[]
+            {
+                Msg("success",     "", NoTypes),
+                Msg("unsupported", "", NoTypes),
+                Msg("invalid",     "", NoTypes),
+            });
+
+        // River_libinput_config_v1 requests: 0 stop, 1 destroy, 2 create_accel_config(new_id, profile)
+        // events: 0 finished, 1 libinput_device(new_id<device>)
+        Populate(RiverLibinputConfig,
+            requests: new[]
+            {
+                Msg("stop",                "",  NoTypes),
+                Msg("destroy",             "",  NoTypes),
+                Msg("create_accel_config", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputAccelConfig, null }),
+            },
+            events: new[]
+            {
+                Msg("finished",        "",  NoTypes),
+                Msg("libinput_device", "n", new WaylandInterop.WlInterface*[] { RiverLibinputDevice }),
+            });
+
+        // River_libinput_device_v1 — verbatim from XML order.
+        Populate(RiverLibinputDevice,
+            requests: new[]
+            {
+                Msg("destroy",                  "",   NoTypes),
+                Msg("set_send_events",          "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_tap",                  "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_tap_button_map",       "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_drag",                 "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_drag_lock",            "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_three_finger_drag",    "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_calibration_matrix",   "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_accel_profile",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_accel_speed",          "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("apply_accel_config",       "no", new WaylandInterop.WlInterface*[] { RiverLibinputResult, RiverLibinputAccelConfig }),
+                Msg("set_natural_scroll",       "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_left_handed",          "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_click_method",         "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_clickfinger_button_map","nu",new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_middle_emulation",     "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_method",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_button",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_button_lock",   "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_dwt",                  "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_dwtp",                 "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_rotation",             "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+            },
+            events: new[]
+            {
+                Msg("removed",                       "",  NoTypes),
+                Msg("input_device",                  "o", new WaylandInterop.WlInterface*[] { RiverInputDevice }),
+                Msg("send_events_support",           "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("send_events_default",           "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("send_events_current",           "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_support",                   "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_default",                   "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_current",                   "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_button_map_default",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_button_map_current",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_default",                  "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_current",                  "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_lock_default",             "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_lock_current",             "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_support",     "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_default",     "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_current",     "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_support",    "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_default",    "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_current",    "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profiles_support",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profile_default",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profile_current",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_speed_default",           "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_speed_current",           "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_support",        "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_default",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_current",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_support",           "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_default",           "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_current",           "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_support",          "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_default",          "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_current",          "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("clickfinger_button_map_default","u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("clickfinger_button_map_current","u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_support",      "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_default",      "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_current",      "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_support",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_default",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_current",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_default",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_current",         "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_lock_default",    "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_lock_current",    "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_support",                   "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_default",                   "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_current",                   "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_support",                  "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_default",                  "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_current",                  "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_support",              "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_default",              "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_current",              "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("done",                          "2", NoTypes),
+            });
     }
 
     // -------- Wlr-screencopy-unstable-v1 (v3) ----------

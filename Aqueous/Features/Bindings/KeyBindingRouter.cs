@@ -27,6 +27,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly WindowStateController _windowState;
     private readonly ViewportInteractionService _viewport;
+    private readonly LibinputConfigApplier _libinputApplier;
 
     public KeyBindingRouter(
         IFocusService focusService,
@@ -34,7 +35,8 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         ITagService tagService,
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
-        ViewportInteractionService viewport)
+        ViewportInteractionService viewport,
+        LibinputConfigApplier libinputApplier)
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
@@ -42,6 +44,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
+        _libinputApplier = libinputApplier ?? throw new ArgumentNullException(nameof(libinputApplier));
     }
 
     // Static dispatch table for built-in (parameterless) key-binding actions. Tag actions (which need
@@ -218,7 +221,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         {
             var fresh = LayoutConfig.Load(DefaultConfigPath.Resolve());
             _layoutController.ReplaceConfig(fresh);
-            InputDaemonClient.Apply(fresh.Input);
+            _libinputApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");
             _managerRequestSender.ScheduleManage();
         }

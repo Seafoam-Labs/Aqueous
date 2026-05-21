@@ -6,10 +6,9 @@ namespace Aqueous.Features.Input;
 /// <para>
 /// The schema mirrors niri's KDL <c>input { mouse { … } }</c> block so users can copy values
 /// between configs. <see cref="FocusFollowsMouse"/> is honoured in-process by the WM client (see
-/// <c>SeatEventHandler</c>); the libinput knobs in <see cref="PerDeviceInput"/> are forwarded to
-/// <c>aqueous-inputd</c> (the privileged sidecar) over a Unix socket — River 0.4 owns libinput but
-/// exposes no API to configure it from a WM client, so pointer-accel etc. cannot be applied
-/// in-process.
+/// <c>SeatEventHandler</c>); the libinput knobs in <see cref="PerDeviceInput"/> are pushed
+/// directly to the compositor's own libinput context via the <c>river_libinput_config_v1</c>
+/// Wayland protocol (see <see cref="LibinputConfigApplier"/>).
 /// </para>
 /// <para>
 /// flat keys <see cref="PointerAcceleration"/> / <see cref="PointerAccelerationFactor"/> are kept
