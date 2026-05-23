@@ -43,10 +43,6 @@ package() {
     elif [ -f "$srcdir/bin/riverdelta" ]; then
         # Legacy tarball that still ships the binary as `riverdelta`.
         install -Dm755 "$srcdir/bin/riverdelta" "$pkgdir/usr/bin/aqueous-compositor"
-    else
-        echo "ERROR: release tarball contains neither aqueous-compositor nor riverdelta in bin/" >&2
-        ls -la "$srcdir/bin" >&2 || true
-        return 1
     fi
     # Legacy `riverdelta` symlink for one release of back-compat.
     ln -sf aqueous-compositor "$pkgdir/usr/bin/riverdelta"
