@@ -5,6 +5,11 @@
 # Unknown keys are ignored; a malformed file falls back to defaults silently.
 # =============================================================================
 
+# ---------------------------------------------------------------------------
+# Environment based workaround
+# ----------------------------------------------------------------------------
+[env]
+GSK_RENDERER = "ngl"
 [layout]
 # Global default layout id. One of: tile | monocle | grid | float | scrolling
 default       = "float"
@@ -68,7 +73,7 @@ center_focused  = "true"    # auto-pan so focused column is centred
 # Display fields (mode/scale/transform/position/enabled/adaptive_sync)
 # are applied by `aqueous-outputd`, NOT by Aqueous itself — River 0.4
 # exposes no in-process output-management protocol to a WM client, so
-# the daemon (running inside RiverDelta's `-c` control context) calls
+# the daemon (running inside aqueous-compositor's `-c` control context) calls
 # `wlr-randr` for us. The init wrapper /usr/bin/aqueous-init applies
 # these once before Aqueous draws its first frame, fixing the greetd
 # render-size handoff.
@@ -120,6 +125,9 @@ center_focused  = "true"    # auto-pan so focused column is centred
 #name = "DP-*"
 #mode = "2560x1440@144"
 #scale = 1.0
+[display]
+apply_on_start  = true
+apply_on_reload = true
 
 [struts]
 top    = 32   # Noctalia bar height

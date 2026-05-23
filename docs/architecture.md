@@ -6,9 +6,10 @@ git repository:
 1. **`Aqueous` (and friends)** — the .NET 10 / C# 14 window manager.
    Talks Wayland to the compositor, owns layout/tags/rules, drives the
    bar, the input daemon, and the output daemon.
-2. **`compositor/`** — RiverDelta, a Zig-based fork of
-   [River](https://codeberg.org/river/river). Produces the `riverdelta`
-   binary that the WM connects to.
+2. **`compositor/`** — `aqueous-compositor`, a Zig-based fork of
+   [RiverDelta](https://github.com/Seafoam-Labs/RiverDelta) (itself a fork of
+   [River](https://codeberg.org/river/river)). Produces the
+   `aqueous-compositor` binary that the WM connects to.
 
 ### Why monorepo
 
@@ -31,7 +32,7 @@ Aqueous/                       # repo root
 ├── Aqueous.OutputDaemon/      # output config sidecar
 ├── Aqueous.Tests/
 ├── Aqueous.OutputDaemon.Tests/
-├── compositor/                # RiverDelta (Zig) — see ORIGIN.md
+├── compositor/                # aqueous-compositor (Zig) — see ORIGIN.md
 │   ├── build.zig
 │   ├── river/
 │   ├── protocol/
@@ -39,7 +40,7 @@ Aqueous/                       # repo root
 ├── scripts/
 │   └── build-compositor.sh    # canonical Zig builder
 ├── bin/                       # build outputs (gitignored)
-│   └── riverdelta
+│   └── aqueous-compositor
 ├── launch_river.sh            # dev launcher; calls build-compositor on demand
 ├── PKGBUILD                   # Arch package; builds WM + compositor
 └── docs/
@@ -52,9 +53,9 @@ Aqueous/                       # repo root
   for that command to succeed.
 - `scripts/build-compositor.sh` is the canonical builder for the
   compositor. It runs `zig build` inside `compositor/` and stages the
-  resulting `river` binary as `./bin/riverdelta`.
+  resulting binary as `./bin/aqueous-compositor`.
 - `launch_river.sh` is the dev-time orchestrator: it triggers a
-  `dotnet build`, calls `scripts/build-compositor.sh` if `bin/riverdelta`
+  `dotnet build`, calls `scripts/build-compositor.sh` if `bin/aqueous-compositor`
   is stale/missing, then launches the WM under the compositor.
 - `PKGBUILD` mirrors the same two-step flow: `dotnet publish` for the
   WM, then `zig build --prefix …` for the compositor, and installs both
@@ -73,7 +74,7 @@ preserved verbatim.
 
 | Env / property         | Effect                                                         |
 |------------------------|----------------------------------------------------------------|
-| `AQUEOUS_RIVER_BIN`    | Path to a prebuilt compositor; bypasses the in-tree build.     |
-| `RIVERDELTA_OPTIMIZE`  | Zig optimize mode (`Debug`, `ReleaseSafe`, …). Default: `Debug`. |
+| `AQUEOUS_COMPOSITOR_BIN` | Path to a prebuilt compositor; bypasses the in-tree build. (legacy: `AQUEOUS_RIVER_BIN`) |
+| `AQUEOUS_COMPOSITOR_OPTIMIZE` | Zig optimize mode (`Debug`, `ReleaseSafe`, …). Default: `Debug`. (legacy: `RIVERDELTA_OPTIMIZE`) |
 | `AQUEOUS_MOD`          | Modifier key for WM bindings (`Super` / `Alt`).                |
 | `AQUEOUS_NESTED`       | Set to `1` when running inside a host Wayland session.         |

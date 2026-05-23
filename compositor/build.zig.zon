@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 .{
-    .name = .riverdelta,
+    .name = .aqueous_compositor,
     // While a river release is in development, this string should contain
     // the version in development with the "-dev" suffix.
     // When a release is tagged, the "-dev" suffix should be removed for the
@@ -32,5 +32,5 @@
             .hash = "translate_c-0.0.0-Q_BUWlX1BgCD1wo6uo97prlp9VJ4gxAjwN_vZ7nsSjGN",
         },
     },
-    .fingerprint = 0x44cc54777bc8b2aa,
+    .fingerprint = 0x8df203afca621262,
 }

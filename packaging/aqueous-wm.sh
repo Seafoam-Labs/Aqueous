@@ -20,7 +20,7 @@ export SDL_VIDEODRIVER="wayland,x11"
 export CLUTTER_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
 # Fixes the grey-blob / non-reparenting Java/Swing/JetBrains bug under any
-# non-reparenting WM (RiverDelta + xwayland-satellite included).
+# non-reparenting WM (aqueous-compositor + xwayland-satellite included).
 export _JAVA_AWT_WM_NONREPARENTING=1
 
 # DO NOT set DISPLAY here — xwayland-satellite owns it and will export the
@@ -35,7 +35,7 @@ export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 
-# Required by Aqueous to attach to RiverDelta as the window manager. Without
+# Required by Aqueous to attach to aqueous-compositor as the window manager. Without
 # this the compositor refuses to attach (see RiverWindowManagerClient)
 # and the session ends up as a black screen under sddm/greetd.
 export AQUEOUS_RIVER_WM=1
@@ -86,14 +86,14 @@ fi
 # Wayland protocol; the formerly-required `aqueous-inputd` sidecar has
 # been retired.
 
-# RiverDelta runs the compositor; aqueous-init is its `-c` child. The init
-# wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
+# aqueous-compositor runs the compositor; aqueous-init is its `-c` child.
+# The init wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
 # inability to set the render size before the session starts) and
 # spawns the long-running daemon, before exec'ing Aqueous itself.
 #
 # Run (not exec) so the EXIT trap fires and we can clean up the input
 # daemon. Use absolute path because SDDM session PATH is minimal.
-/usr/bin/riverdelta -c /usr/bin/aqueous-init
+/usr/bin/aqueous-compositor -c /usr/bin/aqueous-init
 status=$?
-echo "[aqueous-wm] $(date -Is) riverdelta exited status=$status"
+echo "[aqueous-wm] $(date -Is) aqueous-compositor exited status=$status"
 exit $status

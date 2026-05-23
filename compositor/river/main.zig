@@ -23,7 +23,7 @@ const Server = @import("Server.zig");
 const io = Io.Threaded.global_single_threaded.io();
 
 const usage: []const u8 =
-    \\usage: riverdelta [options]
+    \\usage: aqueous-compositor [options]
     \\
     \\  -h                 Print this help message and exit.
     \\  -version           Print the version number and exit.
@@ -247,28 +247,49 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
 }
 
 fn defaultInitPath(environ: std.process.Environ) !?[:0]const u8 {
-    const path = blk: {
-        if (environ.getPosix("XDG_CONFIG_HOME")) |xdg_config_home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ xdg_config_home, "riverdelta/init" });
-        } else if (environ.getPosix("HOME")) |home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config/riverdelta/init" });
-        } else {
-            return null;
-        }
-    };
+    // Prefer the new aqueous-compositor config path; fall back to the legacy
+    // riverdelta path for one release with a deprecation log line.
+    var base_dir_buf: [:0]const u8 = undefined;
+    var base_dir_owned = false;
+    if (environ.getPosix("XDG_CONFIG_HOME")) |xdg_config_home| {
+        base_dir_buf = xdg_config_home;
+    } else if (environ.getPosix("HOME")) |home| {
+        base_dir_buf = try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config" });
+        base_dir_owned = true;
+    } else {
+        return null;
+    }
+    defer if (base_dir_owned) util.gpa.free(base_dir_buf);
+    const base_dir = base_dir_buf;
 
-    Io.Dir.cwd().access(io, path, .{ .execute = true }) catch |err| {
+    const new_path = try fs.path.joinZ(util.gpa, &[_][]const u8{ base_dir, "aqueous-compositor/init" });
+    if (Io.Dir.cwd().access(io, new_path, .{ .execute = true })) {
+        return new_path;
+    } else |err| {
         if (err == error.PermissionDenied) {
-            if (Io.Dir.cwd().access(io, path, .{})) {
-                fatal("failed to run init executable {s}: the file is not executable", .{path});
+            if (Io.Dir.cwd().access(io, new_path, .{})) {
+                fatal("failed to run init executable {s}: the file is not executable", .{new_path});
             } else |_| {}
         }
-        log.err("failed to run init executable {s}: {s}", .{ path, @errorName(err) });
-        util.gpa.free(path);
-        return null;
-    };
 
-    return path;
+        // Legacy fallback: ~/.config/riverdelta/init
+        const legacy_path = try fs.path.joinZ(util.gpa, &[_][]const u8{ base_dir, "riverdelta/init" });
+        if (Io.Dir.cwd().access(io, legacy_path, .{ .execute = true })) {
+            log.warn("using legacy init path {s}; please move it to {s}", .{ legacy_path, new_path });
+            util.gpa.free(new_path);
+            return legacy_path;
+        } else |legacy_err| {
+            if (legacy_err == error.PermissionDenied) {
+                if (Io.Dir.cwd().access(io, legacy_path, .{})) {
+                    fatal("failed to run init executable {s}: the file is not executable", .{legacy_path});
+                } else |_| {}
+            }
+            log.err("failed to run init executable {s}: {s}", .{ new_path, @errorName(err) });
+            util.gpa.free(new_path);
+            util.gpa.free(legacy_path);
+            return null;
+        }
+    }
 }
 
 fn detectClassic(startup_command: ?[:0]const u8) !void {
