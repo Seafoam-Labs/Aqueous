@@ -93,6 +93,8 @@ public sealed class LayoutConfig
     /// </summary>
     public ExecConfig Exec { get; init; } = ExecConfig.Empty;
 
+    public ActionsConfig Actions { get; init; } = new();
+
     /// <summary>
     /// Compiled-in fallback config (used when no file is present).
     /// </summary>

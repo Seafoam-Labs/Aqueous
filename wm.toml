@@ -5,6 +5,10 @@
 # Unknown keys are ignored; a malformed file falls back to defaults silently.
 # =============================================================================
 
+
+# ------------------------------------------------------------------------------
+# Basic Layout Configuration
+# ------------------------------------------------------------------------------
 [layout]
 # Global default layout id. One of: tile | monocle | grid | float | scrolling
 default       = "float"
@@ -226,8 +230,14 @@ env     = { DISPLAY = ":0" }
 # when    = "always"
 # restart = true
 
-
 # -----------------------------------------------------------------------------
+# Actions definitions.
+# This is where you set actions that are attached to a keybind
+# -----------------------------------------------------------------------------
+[actions]
+toggle_start_menu = "qs -c noctalia-shelly ipc call launcher toggle"
+spawn_terminal = "tabby"
+lock_screen = "qs -c noctalia-shell ipc call lockScreen lock"
 # Keybindings.
 #
 # Each built-in action maps to either:

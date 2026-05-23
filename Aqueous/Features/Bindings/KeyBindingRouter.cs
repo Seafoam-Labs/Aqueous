@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Configuration;
 using Aqueous.Features.Focus;
@@ -148,59 +149,26 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
 
     private void ToggleStartMenu()
     {
-        try
+        var cmd = _layoutController.Config.Actions?.ToggleStartMenu;
+        if (string.IsNullOrWhiteSpace(cmd))
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "dbus-send",
-                Arguments =
-                    "--session --type=method_call --dest=org.Aqueous /org/Aqueous org.Aqueous.ToggleStartMenu",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
+            Aqueous.Diagnostics.RiverLog.Write(
+                "toggle_start_menu: no command configured in [actions]");
+            return;
         }
-        catch (Exception ex)
-        {
-            Aqueous.Diagnostics.RiverLog.Write("failed to toggle start menu: " + ex.Message);
-        }
+        RunShell(cmd, "toggle_start_menu");
     }
 
     private void SpawnTerminal()
     {
-        try
+        var cmd = _layoutController.Config.Actions?.SpawnTerminal;
+        if (string.IsNullOrWhiteSpace(cmd))
         {
-            var term = Environment.GetEnvironmentVariable("TERMINAL") ?? "alacritty";
-            var psi = new ProcessStartInfo
-            {
-                FileName = "/bin/sh",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add($"setsid -f {term} >/dev/null 2>&1");
-
-            var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
-            var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-            if (!string.IsNullOrEmpty(wayland))
-            {
-                psi.EnvironmentVariables["WAYLAND_DISPLAY"] = wayland;
-            }
-
-            if (!string.IsNullOrEmpty(runtime))
-            {
-                psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
-            }
-
-            psi.EnvironmentVariables["XDG_SESSION_TYPE"] = "wayland";
-            psi.EnvironmentVariables["XDG_CURRENT_DESKTOP"] = "Aqueous";
-            psi.EnvironmentVariables.Remove("DISPLAY");
-
-            Process.Start(psi);
+            RiverLog.Write(
+                "spawn_terminal: no command configured in [actions]");
+            return;
         }
-        catch (Exception ex)
-        {
-            Aqueous.Diagnostics.RiverLog.Write("failed to spawn terminal: " + ex.Message);
-        }
+        RunShell(cmd, "spawn_terminal");
     }
 
     private void CloseFocusedWindow()
@@ -249,10 +217,20 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
 
     private void LockScreen()
     {
+        var cmd = _layoutController.Config.Actions?.LockScreen;
+        if (string.IsNullOrWhiteSpace(cmd))
+        {
+            RiverLog.Write(
+                "lock_screen: no command configured in [actions]");
+            return;
+        }
+        RunShell(cmd, "lock_screens");
+    }
+
+    private static void RunShell(string cmd, string tag)
+    {
         try
         {
-            Aqueous.Diagnostics.RiverLog.Write("locking screen");
-
             var psi = new ProcessStartInfo
             {
                 FileName = "/bin/sh",
@@ -260,33 +238,24 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
                 CreateNoWindow = true,
             };
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add(
-                "setsid -f sh -c '" +
-                "qs -c noctalia-shell ipc call lockScreen lock " +
-                ">/dev/null 2>&1 || loginctl lock-session" +
-                "' >/dev/null 2>&1");
+            psi.ArgumentList.Add(cmd);
 
-            var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
-            var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-            if (!string.IsNullOrEmpty(wayland))
+            // Forward Wayland env so IPC clients can find the running shell
+            foreach (var k in new[] { "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+                         "DBUS_SESSION_BUS_ADDRESS", "PATH", "HOME", "USER" })
             {
-                psi.EnvironmentVariables["WAYLAND_DISPLAY"] = wayland;
+                var v = Environment.GetEnvironmentVariable(k);
+                if (!string.IsNullOrEmpty(v))
+                {
+                    psi.EnvironmentVariables[k] = v;
+                }
             }
-
-            if (!string.IsNullOrEmpty(runtime))
-            {
-                psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtime;
-            }
-
-            psi.EnvironmentVariables["XDG_SESSION_TYPE"] = "wayland";
-            psi.EnvironmentVariables["XDG_CURRENT_DESKTOP"] = "Aqueous";
-            psi.EnvironmentVariables.Remove("DISPLAY");
 
             Process.Start(psi);
         }
         catch (Exception ex)
         {
-            Aqueous.Diagnostics.RiverLog.Write("failed to lock screen: " + ex.Message);
+            RiverLog.Write($"{tag} failed: {ex.Message}");
         }
     }
 }

@@ -237,6 +237,7 @@ public static class LayoutConfigLoader
         string? zPendingName = null;
         double zPendingX = 0.0, zPendingY = 0.0, zPendingW = 0.0, zPendingH = 0.0;
         bool zPendingActive = false;
+        Dictionary<string, string> actionsMap = [];
 
         void FlushZone()
         {
@@ -610,6 +611,9 @@ public static class LayoutConfigLoader
                     }
 
                     break;
+                case "actions":
+                    actionsMap[StripQuotes(key)] = val;
+                    break;
                 default:
                     if (curSection != null && curSection.StartsWith("layout.options.", StringComparison.Ordinal))
                     {
@@ -726,6 +730,12 @@ public static class LayoutConfigLoader
                 SpawnCommands = spSpawn,
             },
         };
+        var actions = new ActionsConfig()
+        {
+            LockScreen = actionsMap.TryGetValue("lock_screen", out var ls) ? ls : null,
+            SpawnTerminal = actionsMap.TryGetValue("spawn_terminal", out var st) ? st : "alacritty",
+            ToggleStartMenu = actionsMap.TryGetValue("toggle_start_menu", out var tm) ? tm : null,
+        };
 
         return new LayoutConfig
         {
@@ -750,6 +760,7 @@ public static class LayoutConfigLoader
                 Trackpoint = devTrack.ToRecord(),
             },
             Struts = struts,
+            Actions = actions
         };
     }
 
