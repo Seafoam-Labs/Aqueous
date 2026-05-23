@@ -10,34 +10,30 @@ dotnet build Aqueous/Aqueous.csproj
 # Kill any stale instances from a previous session.
 pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous' 2>/dev/null
 pkill -9 -f 'qs -c noctalia-shell'                    2>/dev/null
-pkill -9 -f '^aqueous-compositor '                     2>/dev/null
 pkill -9 -f '^riverdelta '                             2>/dev/null
 sleep 0.3
 
-# Ensure the compositor is available. Prefer an explicit override, then the
-# locally-built ./bin/aqueous-compositor (built from compositor/ in this repo).
+# Ensure RiverDelta is available. Prefer an explicit override, then the
+# locally-built ./bin/riverdelta (built from compositor/ in this repo).
 HERE="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_COMPOSITOR="$HERE/bin/aqueous-compositor"
-# AQUEOUS_COMPOSITOR_BIN is the canonical override; AQUEOUS_RIVER_BIN is a
-# legacy alias kept for one release.
-OVERRIDE_BIN="${AQUEOUS_COMPOSITOR_BIN:-${AQUEOUS_RIVER_BIN:-}}"
-if [ -n "$OVERRIDE_BIN" ] && [ -x "$OVERRIDE_BIN" ]; then
-    RIVER_BIN="$OVERRIDE_BIN"
+LOCAL_RIVER="$HERE/bin/riverdelta"
+if [ -n "${AQUEOUS_RIVER_BIN:-}" ] && [ -x "$AQUEOUS_RIVER_BIN" ]; then
+    RIVER_BIN="$AQUEOUS_RIVER_BIN"
 else
     needs_build=0
-    if [ ! -x "$LOCAL_COMPOSITOR" ]; then
+    if [ ! -x "$LOCAL_RIVER" ]; then
         needs_build=1
     else
         # Rebuild if any compositor source is newer than the staged binary.
-        if [ -n "$(find "$HERE/compositor" \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$LOCAL_COMPOSITOR" -print -quit 2>/dev/null)" ]; then
+        if [ -n "$(find "$HERE/compositor" \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$LOCAL_RIVER" -print -quit 2>/dev/null)" ]; then
             needs_build=1
         fi
     fi
     if [ "$needs_build" = "1" ]; then
-        echo "[launch_river] Building in-tree aqueous-compositor from compositor/..."
-        AQUEOUS_COMPOSITOR_OPTIMIZE="${AQUEOUS_COMPOSITOR_OPTIMIZE:-${RIVERDELTA_OPTIMIZE:-Debug}}" "$HERE/scripts/build-compositor.sh"
+        echo "[launch_river] Building in-tree RiverDelta from compositor/..."
+        RIVERDELTA_OPTIMIZE="${RIVERDELTA_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
     fi
-    RIVER_BIN="$LOCAL_COMPOSITOR"
+    RIVER_BIN="$LOCAL_RIVER"
 fi
 echo "[launch_river] Using compositor: $RIVER_BIN"
 

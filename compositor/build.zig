@@ -44,7 +44,7 @@ pub fn build(b: *Build) !void {
     ) orelse false;
 
     const full_version = blk: {
-        if (b.option([]const u8, "version-string", "Override `aqueous-compositor -version` output.")) |version_override| {
+        if (b.option([]const u8, "version-string", "Override `riverdelta -version` output.")) |version_override| {
             break :blk version_override;
         } else if (mem.endsWith(u8, version, "-dev")) {
             var ret: u8 = undefined;
@@ -167,7 +167,7 @@ pub fn build(b: *Build) !void {
 
     {
         const river = b.addExecutable(.{
-            .name = "aqueous-compositor",
+            .name = "riverdelta",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("river/main.zig"),
                 .target = target,
@@ -208,17 +208,17 @@ pub fn build(b: *Build) !void {
 
     {
         const wf = Build.Step.WriteFile.create(b);
-        const pc_file = wf.add("aqueous-compositor-protocols.pc", b.fmt(
+        const pc_file = wf.add("riverdelta-protocols.pc", b.fmt(
             \\prefix={s}
             \\datarootdir=${{prefix}}/share
-            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/aqueous-compositor-protocols
+            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/riverdelta-protocols
             \\
-            \\Name: aqueous-compositor-protocols
+            \\Name: riverdelta-protocols
             \\URL: https://isaacfreund.com/software/river
-            \\Description: Protocol files for aqueous-compositor, a non-monolithic Wayland compositor
+            \\Description: Protocol files for riverdelta, a non-monolithic Wayland compositor
             \\Version: {s}
         , .{ b.install_prefix, full_version }));
-        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-compositor-protocols.pc").step);
+        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/riverdelta-protocols.pc").step);
         inline for (&.{
             "river-window-management-v1.xml",
             "river-xkb-bindings-v1.xml",
@@ -227,12 +227,12 @@ pub fn build(b: *Build) !void {
             "river-libinput-config-v1.xml",
             "river-xkb-config-v1.xml",
         }) |protocol| {
-            b.installFile("protocol/" ++ protocol, "share/aqueous-compositor-protocols/stable/" ++ protocol);
+            b.installFile("protocol/" ++ protocol, "share/riverdelta-protocols/stable/" ++ protocol);
         }
     }
 
     if (man_pages) {
-        inline for (.{"aqueous-compositor"}) |page| {
+        inline for (.{"riverdelta"}) |page| {
             // Workaround for https://github.com/ziglang/zig/issues/16369
             // Even passing a buffer to std.Build.Step.Run appears to be racy and occasionally deadlocks.
             const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "scdoc < doc/" ++ page ++ ".1.scd" });

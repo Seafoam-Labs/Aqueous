@@ -105,12 +105,12 @@ jobs:
           ls -l /usr/lib/libwlroots-0.20.so* || true
           pkg-config --modversion wlroots-0.20 || true
 
-      - name: Build aqueous-compositor
+      - name: Build RiverDelta (compositor)
         shell: bash
         run: |
           cd compositor
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
-            --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
+            --prefix "$GITHUB_WORKSPACE/publish/riverdelta" install
 
       - name: Stage bundle
         shell: bash
@@ -127,11 +127,11 @@ jobs:
           cp publish/Aqueous/aqueous                       publish/aqueous-linux-x64/bin/
           cp publish/Aqueous.InputDaemon/aqueous-inputd    publish/aqueous-linux-x64/bin/
           cp publish/Aqueous.OutputDaemon/aqueous-outputd  publish/aqueous-linux-x64/bin/
-          cp publish/aqueous-compositor/bin/aqueous-compositor publish/aqueous-linux-x64/bin/
+          cp publish/riverdelta/bin/riverdelta             publish/aqueous-linux-x64/bin/
 
-          # aqueous-compositor share data (man pages, etc.) if present
-          if [ -d publish/aqueous-compositor/share ]; then
-            cp -r publish/aqueous-compositor/share/. publish/aqueous-linux-x64/share/
+          # RiverDelta share data (man pages, etc.) if present
+          if [ -d publish/riverdelta/share ]; then
+            cp -r publish/riverdelta/share/. publish/aqueous-linux-x64/share/
           fi
 
           # Packaging scripts / config / units
@@ -173,7 +173,7 @@ jobs:
           tar -czf Aqueous-WM-linux-x64.tar.gz          -C Aqueous .
           tar -czf Aqueous-InputDaemon-linux-x64.tar.gz -C Aqueous.InputDaemon .
           tar -czf Aqueous-OutputDaemon-linux-x64.tar.gz -C Aqueous.OutputDaemon .
-          tar -czf AqueousCompositor-linux-x64.tar.gz   -C aqueous-compositor .
+          tar -czf RiverDelta-linux-x64.tar.gz          -C riverdelta .
 
       - name: Generate SHA256 checksums
         shell: bash
@@ -185,7 +185,7 @@ jobs:
             Aqueous-WM-linux-x64.tar.gz \
             Aqueous-InputDaemon-linux-x64.tar.gz \
             Aqueous-OutputDaemon-linux-x64.tar.gz \
-            AqueousCompositor-linux-x64.tar.gz \
+            RiverDelta-linux-x64.tar.gz \
             > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
@@ -198,7 +198,7 @@ jobs:
             publish/Aqueous-WM-linux-x64.tar.gz
             publish/Aqueous-InputDaemon-linux-x64.tar.gz
             publish/Aqueous-OutputDaemon-linux-x64.tar.gz
-            publish/AqueousCompositor-linux-x64.tar.gz
+            publish/RiverDelta-linux-x64.tar.gz
             publish/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -214,7 +214,7 @@ jobs:
             publish/Aqueous-WM-linux-x64.tar.gz
             publish/Aqueous-InputDaemon-linux-x64.tar.gz
             publish/Aqueous-OutputDaemon-linux-x64.tar.gz
-            publish/AqueousCompositor-linux-x64.tar.gz
+            publish/RiverDelta-linux-x64.tar.gz
             publish/SHA256SUMS.txt
           fail_on_unmatched_files: false
         env:

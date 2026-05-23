@@ -9,13 +9,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 ## Overview
 
-aqueous-compositor is a non-monolithic Wayland compositor. It is a fork of
-[RiverDelta](https://github.com/Seafoam-Labs/RiverDelta), itself a fork of
+Riverdelta is a non-monolithic Wayland compositor. It is a fork of
 [river](https://codeberg.org/river/river), aimed at providing a distinct
 executable name to avoid conflicts while maintaining compatibility with the
 original ecosystem.
 
-Unlike other Wayland compositors, aqueous-compositor does not combine the compositor
+Unlike other Wayland compositors, riverdelta does not combine the compositor
 and window manager into one program. Instead, users can choose any window
 manager implementing the [river-window-management-v1] protocol.
 
@@ -40,12 +39,12 @@ on our [wiki](https://codeberg.org/river/wiki).
 
 ## Features
 
-aqueous-compositor defers all window management policy to a separate window manager
+Riverdelta defers all window management policy to a separate window manager
 implementing the [river-window-management-v1] protocol. This includes window
 position/size, pointer/keyboard bindings, focus management, window decorations,
 desktop shell graphics, and more.
 
-aqueous-compositor itself provides frame perfect rendering, good performance, support for
+Riverdelta itself provides frame perfect rendering, good performance, support for
 many Wayland protocol extensions, robust Xwayland support, the ability to
 hot-swap window managers, and more.
 
@@ -65,9 +64,9 @@ Why split the window manager to a separate process?
 
 ## Building
 
-Note: If you are packaging aqueous-compositor for distribution, see [PACKAGING.md](PACKAGING.md).
+Note: If you are packaging riverdelta for distribution, see [PACKAGING.md](PACKAGING.md).
 
-To compile aqueous-compositor first ensure that you have the following dependencies
+To compile riverdelta first ensure that you have the following dependencies
 installed. The "development" versions are required if applicable to your
 distribution.
 
@@ -91,18 +90,17 @@ Run `zig build -h` to see a list of all options.
 
 ## Usage
 
-aqueous-compositor can either be run nested in an X11/Wayland session or directly
-from a tty using KMS/DRM. Simply run the `aqueous-compositor` command.
+Riverdelta can either be run nested in an X11/Wayland session or directly
+from a tty using KMS/DRM. Simply run the `riverdelta` command.
 
-On startup aqueous-compositor will run an executable file at
-`$XDG_CONFIG_HOME/aqueous-compositor/init` if such an executable exists. If
-`$XDG_CONFIG_HOME` is not set, `~/.config/aqueous-compositor/init` will be
-used instead.
+On startup riverdelta will run an executable file at `$XDG_CONFIG_HOME/riverdelta/init`
+if such an executable exists. If `$XDG_CONFIG_HOME` is not set,
+`~/.config/riverdelta/init` will be used instead.
 
 Usually this executable is a shell script which starts the user's window manager
 and any other long-running programs.
 
-For complete documentation see the `aqueous-compositor(1)` man page.
+For complete documentation see the `riverdelta(1)` man page.
 
 
 
@@ -117,9 +115,9 @@ all files have SPDX copyright and license information.
 
 In overview:
 
-- aqueous-compositor's source code is released under the GPL-3.0-only license.
-- aqueous-compositor's Wayland protocols are released under the MIT license.
-- aqueous-compositor's logo and documentation are released under the CC-BY-SA-4.0 license.
+- Riverdelta's source code is released under the GPL-3.0-only license.
+- Riverdelta's Wayland protocols are released under the MIT license.
+- Riverdelta's logo and documentation are released under the CC-BY-SA-4.0 license.
 
 [river-window-management-v1]: https://isaacfreund.com/docs/wayland/river-window-management-v1
 [liberapay]: https://liberapay.com/ifreund

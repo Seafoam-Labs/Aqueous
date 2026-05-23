@@ -1,23 +1,23 @@
-AQUEOUS-COMPOSITOR(1)
+RIVERDELTA(1)
 
 ; SPDX-FileCopyrightText: © 2020 Seafoam Labs
 ; SPDX-License-Identifier: CC-BY-SA-4.0
 
 # NAME
 
-aqueous-compositor - non-monolithic Wayland compositor
+riverdelta - non-monolithic Wayland compositor
 
 # SYNOPSIS
 
-*aqueous-compositor* [_options_]
+*riverdelta* [_options_]
 
 # DESCRIPTION
 
-Aqueous-compositor is a non-monolithic Wayland compositor, it does not combine the compositor
+Riverdelta is a non-monolithic Wayland compositor, it does not combine the compositor
 and window manager into one program. Instead, users can choose any window
 manager implementing the river-window-management-v1 protocol.
 
-This means that aqueous-compositor is not useful without a compatible window manager. A list
+This means that riverdelta is not useful without a compatible window manager. A list
 of compatible window managers can be found on the river wiki:
 https://codeberg.org/river/wiki/src/branch/main/pages/wm-list.md
 
@@ -35,12 +35,12 @@ https://codeberg.org/river/wiki/src/branch/main/pages/wm-list.md
 	section for more details.
 
 *-log-level* [*error*|*warning*|*info*|*debug*]
-	Set the log level of aqueous-compositor. At the *error* log level, only errors
+	Set the log level of riverdelta. At the *error* log level, only errors
 	are logged.  At the *debug* log level, everything is logged including
 	verbose debug messages.
 
 *-no-xwayland*
-	Disable Xwayland at runtime even if aqueous-compositor has been built with support.
+	Disable Xwayland at runtime even if riverdelta has been built with support.
 
 # KEYBINDINGS
 
@@ -54,13 +54,13 @@ keybindings.
 
 # CONFIGURATION
 
-On startup aqueous-compositor will run an executable file at $XDG_CONFIG_HOME/aqueous-compositor/init if
-such an executable exists. If $XDG_CONFIG_HOME is not set, ~/.config/aqueous-compositor/init
+On startup riverdelta will run an executable file at $XDG_CONFIG_HOME/riverdelta/init if
+such an executable exists. If $XDG_CONFIG_HOME is not set, ~/.config/riverdelta/init
 will be used instead.
 
-The executable init file will be run as a process group leader after aqueous-compositor's
+The executable init file will be run as a process group leader after riverdelta's
 Wayland server is initialized but before entering the main loop. On exit,
-aqueous-compositor will send SIGTERM to this process group.
+riverdelta will send SIGTERM to this process group.
 
 Usually this executable is a shell script which starts the user's window manager
 and any other long-running programs. For example, *kanshi*(1) could be started

@@ -8,15 +8,15 @@ using System.Threading.Tasks;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Client-side adapter for the <c>wlr-screencopy-unstable-v1</c> protocol that aqueous-compositor
-/// now advertises as a Wayland global.
+/// Client-side adapter for the <c>wlr-screencopy-unstable-v1</c> protocol that RiverDelta now
+/// advertises as a Wayland global.
 /// <para>
 /// This is the in-process screencopy path: callers (e.g. tag thumbnail generation, snap-zone
 /// preview, debug screenshot tooling) hand us a <c>wl_output</c> proxy and we drive the
 /// <c>capture_output → buffer → buffer_done → copy → ready</c> handshake, returning a managed RGBA
 /// byte array. For portal-based apps (<c>xdg-desktop-portal-wlr</c>, browsers, OBS) Aqueous does
 /// not have to proxy anything — those clients bind <c>zwlr_screencopy_manager_v1</c> directly from
-/// aqueous-compositor.
+/// RiverDelta.
 /// </para>
 /// <para>
 /// Thread model: every public entry point here is invoked from the libwayland dispatch thread (the

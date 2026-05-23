@@ -186,7 +186,7 @@ internal sealed class RiverCompositorHost : IHostedService
         if (_bindSiteState.Manager == IntPtr.Zero)
         {
             return Result.Fail(
-                "river_window_manager_v1 global was not advertised — is aqueous-compositor running with WM support?");
+                "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
         }
 
         return Result.Ok;

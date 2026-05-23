@@ -1,8 +1,6 @@
 # Aqueous
-A minimal Wayland window manager built on top of **aqueous-compositor** — a
-fork of [RiverDelta](https://github.com/Seafoam-Labs/RiverDelta), itself a
-fork of [River](https://codeberg.org/river/river), vendored in-tree at
-`compositor/` —
+A minimal Wayland window manager built on top of **RiverDelta** — a fork of
+[River](https://codeberg.org/river/river) vendored in-tree at `compositor/` —
 written in C# / .NET 10. The bar/shell is provided by the external
 [Noctalia](https://github.com/noctalia-dev/noctalia-shell) project.
 
@@ -28,7 +26,7 @@ compositor live side-by-side. No submodules, no extra clone steps —
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
 - [Zig](https://ziglang.org/) ≥ 0.16.0 — needed to build the in-tree
-  aqueous-compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
+  RiverDelta compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
   currently provides 0.16.x.
 - [Noctalia](https://github.com/noctalia-dev/noctalia-shell) (`qs` / Quickshell)
 - [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) — rootless XWayland bridge (River has no built-in XWayland; satellite is launched by Aqueous via `[[exec]]` in `wm.toml`).
@@ -44,19 +42,18 @@ compositor live side-by-side. No submodules, no extra clone steps —
 # Window manager (.NET)
 dotnet build Aqueous.slnx
 
-# Compositor (Zig). Produces ./bin/aqueous-compositor.
+# Compositor (Zig). Produces ./bin/riverdelta.
 scripts/build-compositor.sh
 ```
 
-`launch_river.sh` rebuilds the compositor on demand if `./bin/aqueous-compositor`
+`launch_river.sh` rebuilds the compositor on demand if `./bin/riverdelta`
 is missing or older than the sources under `compositor/`, so for normal
 dev iteration you can just `./launch_river.sh`. For compositor-only
 iteration: `cd compositor && zig build`.
 
 To skip the in-tree compositor and use a system one (or a prebuilt
-path), set `AQUEOUS_COMPOSITOR_BIN=/path/to/aqueous-compositor` before
-running `launch_river.sh`. (The legacy `AQUEOUS_RIVER_BIN` env var is
-still honoured for one release.)
+path), set `AQUEOUS_RIVER_BIN=/path/to/riverdelta` before running
+`launch_river.sh`.
 
 ### Test
 
@@ -201,7 +198,7 @@ optional autologin snippet).
 - [x] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
       `lock_command` config key. Watching video should inhibit blanking.
 - [x] Screencopy: `wlr-screencopy-unstable-v1` (v3) is exposed by
-      aqueous-compositor and bound in-process by `WlrScreencopyClient`
+      RiverDelta and bound in-process by `WlrScreencopyClient`
       (`wl_shm` + `memfd_create` path). `xdg-desktop-portal-wlr` rides
       on the same global, so browser / Discord / OBS screen sharing
       works out of the box once the portal package is installed.
