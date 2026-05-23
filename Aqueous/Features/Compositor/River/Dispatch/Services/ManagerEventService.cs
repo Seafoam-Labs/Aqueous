@@ -42,6 +42,7 @@ internal sealed unsafe class ManagerEventService
     private readonly IKeyBindingRegistrar _keyBindingRegistrar;
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
+    private readonly IWindowStateHost _windowStateHost;
 
     public ManagerEventService(
         IEventPump pump,
@@ -62,27 +63,29 @@ internal sealed unsafe class ManagerEventService
         IManagerRequestSender managerRequestSender,
         IKeyBindingRegistrar keyBindingRegistrar,
         WaylandBindSiteState bindSiteState,
-        KeyBindingsRegistry keyBindingsRegistry)
+        KeyBindingsRegistry keyBindingsRegistry,
+        IWindowStateHost windowStateHost)
     {
-        _pump                 = pump                 ?? throw new ArgumentNullException(nameof(pump));
-        _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _outputRegistry       = outputRegistry       ?? throw new ArgumentNullException(nameof(outputRegistry));
-        _seatRegistry         = seatRegistry         ?? throw new ArgumentNullException(nameof(seatRegistry));
+        _pump = pump ?? throw new ArgumentNullException(nameof(pump));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _seatRegistry = seatRegistry ?? throw new ArgumentNullException(nameof(seatRegistry));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
-        _pendingFocus         = pendingFocus         ?? throw new ArgumentNullException(nameof(pendingFocus));
-        _primarySeat          = primarySeat          ?? throw new ArgumentNullException(nameof(primarySeat));
-        _focusService         = focusService         ?? throw new ArgumentNullException(nameof(focusService));
-        _dragState            = dragState            ?? throw new ArgumentNullException(nameof(dragState));
-        _pointerBindings      = pointerBindings      ?? throw new ArgumentNullException(nameof(pointerBindings));
-        _manageCycle          = manageCycle          ?? throw new ArgumentNullException(nameof(manageCycle));
-        _windowStates         = windowStates         ?? throw new ArgumentNullException(nameof(windowStates));
-        _layoutController     = layoutController     ?? throw new ArgumentNullException(nameof(layoutController));
-        _layoutProposer       = layoutProposer       ?? throw new ArgumentNullException(nameof(layoutProposer));
-        _snapZoneService      = snapZoneService      ?? throw new ArgumentNullException(nameof(snapZoneService));
+        _pendingFocus = pendingFocus ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _primarySeat = primarySeat ?? throw new ArgumentNullException(nameof(primarySeat));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _dragState = dragState ?? throw new ArgumentNullException(nameof(dragState));
+        _pointerBindings = pointerBindings ?? throw new ArgumentNullException(nameof(pointerBindings));
+        _manageCycle = manageCycle ?? throw new ArgumentNullException(nameof(manageCycle));
+        _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
+        _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _snapZoneService = snapZoneService ?? throw new ArgumentNullException(nameof(snapZoneService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
-        _keyBindingRegistrar  = keyBindingRegistrar  ?? throw new ArgumentNullException(nameof(keyBindingRegistrar));
-        _bindSiteState        = bindSiteState        ?? throw new ArgumentNullException(nameof(bindSiteState));
-        _keyBindingsRegistry  = keyBindingsRegistry  ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
+        _keyBindingRegistrar = keyBindingRegistrar ?? throw new ArgumentNullException(nameof(keyBindingRegistrar));
+        _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
+        _windowStateHost = windowStateHost ?? throw new ArgumentNullException(nameof(windowStateHost));
     }
 
     public void HandleEvent(uint opcode, WlArgument* args)
@@ -127,7 +130,8 @@ internal sealed unsafe class ManagerEventService
         _managerRequestSender.InsideManageSequence = true;
         try
         {
-            RiverLog.Write($"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count})");
+            RiverLog.Write(
+                $"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count})");
 
             // Self-heal focus.
             if (_focusedWindowTracker.Current == IntPtr.Zero
@@ -223,26 +227,61 @@ internal sealed unsafe class ManagerEventService
                 }
             }
 
+            // Drain pending focus BEFORE the propose pass. IsWindowLayoutReady no longer gates on
+            // entry.Output (which is only populated by ProposeForArea below), so the pre-propose
+            // bucket state (TagVisible && !HideSent) is the authoritative readiness signal. Running
+            // the drain after propose would let a hide-pass that just flipped HideSent on the
+            // pending-focus target push the marshal into the defer branch on every cycle, recreating
+            // the black-screen deadlock from the other side.
             if (_pendingFocus.Seat != IntPtr.Zero)
             {
-                if (_pendingFocus.Window != IntPtr.Zero)
+                bool consumed = true;
+                // If a pending window is queued and still live, it takes precedence. If it is queued
+                // but stale (already destroyed by river between WindowInformation and the drain), drop
+                // it and fall through to any queued shell-surface focus so layer-shell handoffs are
+                // not silently swallowed.
+                if (_pendingFocus.Window != IntPtr.Zero
+                    && _windowRegistry.Entries.ContainsKey(_pendingFocus.Window))
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(_pendingFocus.Seat, 1, IntPtr.Zero, 0, 0,
-                        _pendingFocus.Window, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
-                        IntPtr.Zero);
-                    RiverLog.Write($"gave focus to window 0x{_pendingFocus.Window.ToString("x")}");
+                    var win = new WindowProxy(_pendingFocus.Window);
+
+                    if (!_windowStateHost.IsWindowLayoutReady(win))
+                    {
+                        RiverLog.Write(
+                            $"pending_focus: deferring focus on window 0x{_pendingFocus.Window.ToString("x")} (layout not ready)");
+                        _managerRequestSender.ScheduleManage();
+                        consumed = false;
+                    }
+                    else
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(_pendingFocus.Seat, 1, IntPtr.Zero, 0, 0,
+                            _pendingFocus.Window, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                            IntPtr.Zero);
+                        RiverLog.Write($"gave focus to window 0x{_pendingFocus.Window.ToString("x")}");
+                    }
                 }
                 else if (_pendingFocus.ShellSurface != IntPtr.Zero)
                 {
+                    if (_pendingFocus.Window != IntPtr.Zero)
+                    {
+                        RiverLog.Write($"pending_focus: dropping stale window 0x{_pendingFocus.Window.ToString("x")}, delivering pending shell surface");
+                    }
                     WaylandInterop.wl_proxy_marshal_flags(_pendingFocus.Seat, 2, IntPtr.Zero, 0, 0,
                         _pendingFocus.ShellSurface, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
                         IntPtr.Zero);
                     RiverLog.Write($"gave focus to shell surface 0x{_pendingFocus.ShellSurface.ToString("x")}");
                 }
+                else if (_pendingFocus.Window != IntPtr.Zero)
+                {
+                    RiverLog.Write($"pending_focus: dropping stale window 0x{_pendingFocus.Window.ToString("x")}");
+                }
 
-                _pendingFocus.Seat = IntPtr.Zero;
-                _pendingFocus.Window = IntPtr.Zero;
-                _pendingFocus.ShellSurface = IntPtr.Zero;
+                if (consumed)
+                {
+                    _pendingFocus.Seat = IntPtr.Zero;
+                    _pendingFocus.Window = IntPtr.Zero;
+                    _pendingFocus.ShellSurface = IntPtr.Zero;
+                }
             }
 
             if (_outputRegistry.Entries.IsEmpty)
@@ -326,6 +365,7 @@ internal sealed unsafe class ManagerEventService
         WindowState focusedState = focused != IntPtr.Zero
             ? ClassifyState(focused)
             : WindowState.Tiled;
+
         bool HasFocusedInLayer(WindowState layer) =>
             focused != IntPtr.Zero
             && _windowRegistry.Entries.ContainsKey(focused)
@@ -341,6 +381,7 @@ internal sealed unsafe class ManagerEventService
                 if (deferFocused && kvp.Key == focused) continue;
                 EmitWindow(kvp.Key, kvp.Value);
             }
+
             if (deferFocused
                 && _windowRegistry.Entries.TryGetValue(focused, out var fw))
             {
@@ -353,9 +394,9 @@ internal sealed unsafe class ManagerEventService
 
         {
             bool deferFocused = focused != IntPtr.Zero
-                && _windowRegistry.Entries.ContainsKey(focused)
-                && (focusedState == WindowState.Floating
-                    || focusedState == WindowState.Scratchpad);
+                                && _windowRegistry.Entries.ContainsKey(focused)
+                                && (focusedState == WindowState.Floating
+                                    || focusedState == WindowState.Scratchpad);
             foreach (var kvp in _windowRegistry.Entries)
             {
                 var s = ClassifyState(kvp.Key);
@@ -363,6 +404,7 @@ internal sealed unsafe class ManagerEventService
                 if (deferFocused && kvp.Key == focused) continue;
                 EmitWindow(kvp.Key, kvp.Value);
             }
+
             if (deferFocused
                 && _windowRegistry.Entries.TryGetValue(focused, out var fw))
             {
@@ -398,12 +440,14 @@ internal sealed unsafe class ManagerEventService
         }
         else
         {
-            RiverLog.Write($"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat.Current != IntPtr.Zero}, tracked={_windowRegistry.Entries.ContainsKey(proxy)})");
+            RiverLog.Write(
+                $"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat.Current != IntPtr.Zero}, tracked={_windowRegistry.Entries.ContainsKey(proxy)})");
         }
 
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                .NativeCallbackEntry.Dispatch,
             _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
         RiverLog.Write($"+ window 0x{proxy.ToString("x")}");
@@ -422,7 +466,8 @@ internal sealed unsafe class ManagerEventService
         _outputRegistry.Entries[proxy] = new OutputEntry { Proxy = proxy };
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                .NativeCallbackEntry.Dispatch,
             _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
         _bindSiteState.TrackProxyInterface(proxy, "river_output_v1");
@@ -440,7 +485,8 @@ internal sealed unsafe class ManagerEventService
         _seatRegistry.Entries[proxy] = new SeatEntry { Proxy = proxy };
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,
-            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                .NativeCallbackEntry.Dispatch,
             _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
         _bindSiteState.TrackProxyInterface(proxy, "river_seat_v1");
@@ -480,7 +526,8 @@ internal sealed unsafe class ManagerEventService
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
                     _pointerBindings.DragPointerBinding,
-                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                        .NativeCallbackEntry.Dispatch,
                     _keyBindingsRegistry.SelfHandlePtr,
                     IntPtr.Zero);
                 _bindSiteState.TrackProxyInterface(_pointerBindings.DragPointerBinding, "river_pointer_binding_v1");
@@ -508,7 +555,8 @@ internal sealed unsafe class ManagerEventService
             {
                 WaylandInterop.wl_proxy_add_dispatcher(
                     _pointerBindings.DragResizePointerBinding,
-                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+                    (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                        .NativeCallbackEntry.Dispatch,
                     _keyBindingsRegistry.SelfHandlePtr,
                     IntPtr.Zero);
                 _bindSiteState.TrackProxyInterface(_pointerBindings.DragResizePointerBinding, "river_pointer_binding_v1");
@@ -556,12 +604,14 @@ internal sealed unsafe class ManagerEventService
                     _pointerBindings.SnapActivatorBindingNeedsEnable[pb] = true;
                     WaylandInterop.wl_proxy_add_dispatcher(
                         pb,
-                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                            .NativeCallbackEntry.Dispatch,
                         _keyBindingsRegistry.SelfHandlePtr,
                         IntPtr.Zero);
                     _bindSiteState.TrackProxyInterface(pb, "river_pointer_binding_v1");
                     string maskHex = combinedMask.ToString("x");
-                    RiverLog.Write($"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
+                    RiverLog.Write(
+                        $"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
                 }
             }
         }

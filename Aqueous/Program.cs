@@ -104,6 +104,11 @@ class Program
         services.AddSingleton<Aqueous.Features.State.IWindowStateHost>(sp =>
             sp.GetRequiredService<Aqueous.Features.State.WindowStateHost>());
         services.AddSingleton<Aqueous.Features.State.WindowStateController>();
+        // Break the FocusService -> WindowStateController -> IWindowStateHost -> IFocusService DI
+        // cycle by deferring WindowStateController resolution past FocusService construction.
+        services.AddSingleton<Lazy<Aqueous.Features.State.WindowStateController>>(sp =>
+            new Lazy<Aqueous.Features.State.WindowStateController>(
+                sp.GetRequiredService<Aqueous.Features.State.WindowStateController>));
         services.AddSingleton<Aqueous.Features.Startup.StartupExecRunner>(sp =>
             new Aqueous.Features.Startup.StartupExecRunner(
                 sp.GetRequiredService<Aqueous.Features.State.IWindowStateHost>(),

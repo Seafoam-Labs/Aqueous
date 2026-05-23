@@ -198,6 +198,7 @@ log     = "/tmp/noctalia.log"
 # Aqueous's session launcher exports before any [[exec]] children are spawned.
 # Setting restart = true keeps the bridge alive across satellite crashes; X11
 # clients will reconnect on the next display-socket retry.
+
 [[exec]]
 name    = "xwayland-satellite"
 command = "xwayland-satellite :0"

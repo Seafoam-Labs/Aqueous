@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Dispatch.Services;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
@@ -25,6 +26,7 @@ internal sealed unsafe class ManagerEventHandler : IEventHandler
     public void Handle(WlEvent ev)
     {
         WlArgument* args = ev.ArgsPtr == IntPtr.Zero ? null : (WlArgument*)ev.ArgsPtr;
+        RiverLog.Write($"ManagerEventHandler: opcode={ev.Opcode}");
         _service.HandleEvent(ev.Opcode, args);
     }
 }

@@ -3,6 +3,7 @@ using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Layout;
+using Aqueous.Features.State;
 using Aqueous.Features.Tags;
 
 namespace Aqueous.Features.Focus;
@@ -24,7 +25,9 @@ internal sealed class FocusService : IFocusService
 {
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
+
     private readonly ISeatRegistry _seatRegistry;
+
     // Cut over off RiverWindowManagerClient. The focused/pending-focus/primary-seat state lives on
     // three DI singletons (FocusedWindowTracker / PendingFocusStore / PrimarySeatTracker);
     // SendClearFocus is now an inlined Wayland marshal local to this service.
@@ -33,6 +36,12 @@ internal sealed class FocusService : IFocusService
     private readonly PrimarySeatTracker _primarySeat;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly ILayoutProposer _layoutProposer;
+    // Lazy-resolved to break the DI cycle: FocusService -> WindowStateController -> IWindowStateHost
+    // -> IFocusService. Resolving WindowStateController eagerly in this ctor would close the loop
+    // at BuildServiceProvider/first-resolve time and abort startup before any RiverLog ever ran
+    // (manifested as a black nested screen with only the two Aqueous.Program banner lines logged).
+    private readonly Lazy<WindowStateController> _stateController;
+
     public FocusService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
@@ -41,16 +50,18 @@ internal sealed class FocusService : IFocusService
         PendingFocusStore pendingFocus,
         PrimarySeatTracker primarySeat,
         IManagerRequestSender managerRequestSender,
-        ILayoutProposer layoutProposer)
+        ILayoutProposer layoutProposer,
+        Lazy<WindowStateController> stateController)
     {
-        _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _outputRegistry        = outputRegistry        ?? throw new ArgumentNullException(nameof(outputRegistry));
-        _seatRegistry          = seatRegistry          ?? throw new ArgumentNullException(nameof(seatRegistry));
-        _focusedWindow         = focusedWindow         ?? throw new ArgumentNullException(nameof(focusedWindow));
-        _pendingFocus          = pendingFocus          ?? throw new ArgumentNullException(nameof(pendingFocus));
-        _primarySeat           = primarySeat           ?? throw new ArgumentNullException(nameof(primarySeat));
-        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
-        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _seatRegistry = seatRegistry ?? throw new ArgumentNullException(nameof(seatRegistry));
+        _focusedWindow = focusedWindow ?? throw new ArgumentNullException(nameof(focusedWindow));
+        _pendingFocus = pendingFocus ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _primarySeat = primarySeat ?? throw new ArgumentNullException(nameof(primarySeat));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _stateController = stateController ?? throw new ArgumentNullException(nameof(stateController));
     }
 
     public IntPtr FocusedWindow => _focusedWindow.Current;
@@ -113,6 +124,14 @@ internal sealed class FocusService : IFocusService
         IntPtr seat = ResolveSeat();
         if (seat == IntPtr.Zero)
         {
+            return;
+        }
+
+        var handle = new WindowProxy(windowProxy);
+        if (_stateController.Value.EnsureRestoredForFocus(handle))
+        {
+            _pendingFocus.SetWindow(windowProxy, seat);
+            _managerRequestSender.ScheduleManage();
             return;
         }
 

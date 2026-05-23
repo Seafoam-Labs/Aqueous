@@ -5,7 +5,7 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// Phase B1e — central state machine for the four "window state" operations: fullscreen / maximize
+/// Central state machine for the four "window state" operations: fullscreen / maximize
 /// / floating / minimize, plus scratchpad summon / dismiss / send. All transitions go through a
 /// single object so the invariants (single-FS-per-output, MRU restore stack, scratchpad ↔ tile
 /// promotion) live in one place.
@@ -338,6 +338,46 @@ public sealed class WindowStateController
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Idempotently makes <paramref name="window"/> eligible for focus: unminimizes it and
+    /// forgets any scratchpad slot, resetting visibility latches so the next manage cycle
+    /// re-enters the show path (propose_dimensions + set_position). Returns true if any
+    /// state change happened — callers should defer the actual focus dispatch through
+    /// PendingFocusStore in that case (see UnminimizeLast for the same pattern).
+    /// </summary>
+    public bool EnsureRestoredForFocus(WindowProxy window)
+    {
+        var w = _host.Get(window);
+        if (w is null)
+        {
+            return false;
+        }
+        bool changed = false;
+
+        if (w.State == WindowState.Minimized)
+        {
+            w.State = w.PreviousState;
+            RemoveFromMru(_minimizedMru, window);
+            _host.ResetVisibilityLatches(window);
+            _host.Log($"state ws=0x{window.Handle.ToInt64():X} minimized->{w.State} (focus-restore)");
+            changed = true;
+        }
+        var pad = _scratchpads.Forget(window);
+        if (pad is not null)
+        {
+            w.State = WindowState.Tiled;
+            _host.ResetVisibilityLatches(window);
+            _host.Log($"scratchpad pad={pad} ws=0x{window.Handle.ToInt64():x} → tiled (focus-restore)");
+            changed = true;
+        }
+
+        if (changed)
+        {
+            _host.RequestRender(_host.FocusedOutput);
+        }
+        return changed;
     }
 
     private static void RemoveFromMru(Stack<WindowProxy> stack, WindowProxy handle)

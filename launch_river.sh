@@ -80,7 +80,7 @@ else
 fi
 echo "[launch_river] Aqueous logs -> $AQ_SINK"
 # Surface snap-zone + dispatcher diagnostics by default during smoke runs.
-export AQUEOUS_LOG="${AQUEOUS_LOG:-debug}"
+export AQUEOUS_LOG="${AQUEOUS_LOG:-trace}"
 INNER="exec '$WM_BIN' >'$AQ_SINK' 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

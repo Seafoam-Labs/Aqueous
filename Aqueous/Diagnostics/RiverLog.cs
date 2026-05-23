@@ -44,8 +44,7 @@ internal static class RiverLog
     private static void DefaultWrite(string msg)
     {
         var level = RiverLogClassifier.Classify(msg);
-#pragma warning disable CA1848, CA2254 // call sites pre-date the structured-logging migration
-        Logger.Log(level, "{Message}", msg);
-#pragma warning restore CA1848, CA2254
+        var logger = Logging.Factory.CreateLogger("Aqueous.Diagnostics.RiverLog");
+        logger.Log(level, "{Message}", msg);
     }
 }
