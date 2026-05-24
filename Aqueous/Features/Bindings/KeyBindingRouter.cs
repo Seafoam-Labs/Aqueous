@@ -240,17 +240,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add(cmd);
 
-            // Forward Wayland env so IPC clients can find the running shell
-            foreach (var k in new[] { "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
-                         "DBUS_SESSION_BUS_ADDRESS", "PATH", "HOME", "USER" })
-            {
-                var v = Environment.GetEnvironmentVariable(k);
-                if (!string.IsNullOrEmpty(v))
-                {
-                    psi.EnvironmentVariables[k] = v;
-                }
-            }
-
             Process.Start(psi);
         }
         catch (Exception ex)

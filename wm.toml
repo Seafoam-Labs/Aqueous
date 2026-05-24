@@ -236,7 +236,7 @@ env     = { DISPLAY = ":0" }
 # This is where you set actions that are attached to a keybind
 # -----------------------------------------------------------------------------
 [actions]
-toggle_start_menu = "qs -c noctalia-shelly ipc call launcher toggle"
+toggle_start_menu = "qs -c noctalia-shell ipc call launcher toggle"
 spawn_terminal = "tabby"
 lock_screen = "qs -c noctalia-shell ipc call lockScreen lock"
 # Keybindings.
