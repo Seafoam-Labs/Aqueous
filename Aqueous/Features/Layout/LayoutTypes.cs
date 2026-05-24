@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Aqueous.Features.Rules;
 
 namespace Aqueous.Features.Layout;
 
@@ -23,7 +24,24 @@ public readonly record struct WindowEntryView(
     int MinW, int MinH, int MaxW, int MaxH,
     bool Floating,
     bool Fullscreen,
-    uint Tags);
+    uint Tags,
+    // ---- Game-mode anchor metadata (PR #4, step 1). All optional / defaulted so existing
+    // construction sites keep working unchanged. The river-side proposer populates these
+    // from WindowEntry / WindowStateData in step 2; until then, every view reports
+    // IsAnchor=false and GameModeLayout transparently falls back to its configured
+    // remainder layout (byte-identical to running that layout directly).
+    RulePlacement? Placement = null,
+    int RequestedBufferW = 0,
+    int RequestedBufferH = 0,
+    long LastFocusTick = 0L)
+{
+    /// <summary>
+    /// Convenience: true iff a rule attached a non-fullscreen <c>game-mode</c> placement
+    /// to this window. Mirrors <see cref="RulePlacement.IsAnchor"/> so layout engines can
+    /// branch without a null check.
+    /// </summary>
+    public bool IsAnchor => Placement is { IsAnchor: true };
+}
 
 /// <summary>
 /// Border parameters; <see cref="None"/> represents "no border at all". Colours are 0xAARRGGBB
