@@ -180,8 +180,16 @@ internal sealed unsafe class WindowEventService
                 IntPtr resizeSeatProxy = args[0].o;
                 uint edges = args[1].u;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
-                if (edges == 0 || !_layoutProposer.IsFloatLayoutActive(w.Output))
+                if (edges == 0 || w.Output == IntPtr.Zero || !_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
+                    RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");
+                    break;
+                }
+
+                if (!_dragState.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
+                {
+                    // No cached pointer pos => we cannot compute deltas, so do NOT start a drag.
+                    RiverLog.Write("pointer_resize_requested ignored: no cached seat pointer pos");
                     break;
                 }
 
@@ -189,16 +197,8 @@ internal sealed unsafe class WindowEventService
                 _dragState.ActiveDragSeat = resizeSeatProxy;
                 _dragState.DragStartX = w.X;
                 _dragState.DragStartY = w.Y;
-                if (_dragState.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
-                {
-                    _dragState.DragStartPointerX = prrP0.X;
-                    _dragState.DragStartPointerY = prrP0.Y;
-                }
-                else
-                {
-                    _dragState.DragStartPointerX = w.X;
-                    _dragState.DragStartPointerY = w.Y;
-                }
+                _dragState.DragStartPointerX = prrP0.X;
+                _dragState.DragStartPointerY = prrP0.Y;
 
                 int startW = w.W > 0 ? w.W
                             : w.FloatW > 0 ? w.FloatW
@@ -215,6 +215,7 @@ internal sealed unsafe class WindowEventService
                 _dragState.DragEdges = edges;
                 _dragState.DragStarted = false;
                 _dragState.DragFinished = false;
+                _dragState.DragResizeInformed = false;
                 break;
             }
 
