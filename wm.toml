@@ -587,3 +587,8 @@ focus_follows_mouse = false
 # y = 0.0
 # w = 0.3333
 # h = 1.0
+
+
+[rules]
+# Optional. Absolute path or ~-prefixed. Overrides the XDG search above.
+# path = "~/.config/aqueous/rules.toml"
