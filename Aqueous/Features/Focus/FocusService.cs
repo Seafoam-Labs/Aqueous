@@ -159,25 +159,12 @@ internal sealed class FocusService : IFocusService
 
     public void FocusAnyOtherWindow(IntPtr avoid)
     {
-        IntPtr pick = IntPtr.Zero;
-        foreach (var k in _windowRegistry.Entries.Keys)
+        var keys = _windowRegistry.Entries.Keys.ToList();
+        var pick = IntPtr.Zero;
+        foreach (var k in keys.Where(k => k == avoid))
         {
-            if (k == avoid)
-            {
-                continue;
-            }
-
             pick = k;
             break;
-        }
-
-        if (pick == IntPtr.Zero)
-        {
-            foreach (var k in _windowRegistry.Entries.Keys)
-            {
-                pick = k;
-                break;
-            }
         }
 
         if (pick != IntPtr.Zero)
@@ -192,38 +179,15 @@ internal sealed class FocusService : IFocusService
 
     public void CycleFocus()
     {
-        if (_windowRegistry.Entries.Count == 0)
+        var keys = _windowRegistry.Entries.Keys.ToList(); // or maintain an ordered list
+        if (keys.Count == 0)
         {
             return;
         }
 
-        var current = _focusedWindow.Current;
-        IntPtr next = IntPtr.Zero;
-        bool takeNext = false;
-        foreach (var k in _windowRegistry.Entries.Keys)
-        {
-            if (next == IntPtr.Zero)
-            {
-                next = k; // fallback to first
-            }
-
-            if (takeNext)
-            {
-                next = k;
-                takeNext = false;
-                break;
-            }
-
-            if (k == current)
-            {
-                takeNext = true;
-            }
-        }
-
-        if (next != IntPtr.Zero)
-        {
-            RequestFocus(next);
-        }
+        var idx = keys.IndexOf(_focusedWindow.Current);
+        var nextIdx = idx < 0 ? 0 : (idx + 1) % keys.Count;
+        RequestFocus(keys[nextIdx]);
     }
 
     public void HandleDirectionalFocus(FocusDirection dir)
