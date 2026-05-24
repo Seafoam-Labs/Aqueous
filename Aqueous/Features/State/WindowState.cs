@@ -1,5 +1,6 @@
 using System;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Rules;
 
 namespace Aqueous.Features.State;
 
@@ -80,4 +81,19 @@ public sealed class WindowStateData
     /// Name of the scratchpad slot that owns this window, or <c>null</c>.
     /// </summary>
     public string? ScratchpadName { get; set; }
+
+    /// <summary>
+    /// Window-rule placement attached on <c>manage_start</c> / identity change, or
+    /// <see langword="null"/> when no rule matches. PR #2 is inert at the layout level — this
+    /// field is populated but not yet consumed by any layout engine. The upcoming
+    /// <c>GameModeLayout</c> (PR #4) reads <see cref="IsAnchor"/> to pick the exclusion anchor.
+    /// </summary>
+    public RulePlacement? Placement { get; set; }
+
+    /// <summary>
+    /// Shorthand: this window is the output's exclusion anchor iff a rule attached
+    /// a non-fullscreen <c>game-mode</c> placement. Mirrors
+    /// <see cref="RulePlacement.IsAnchor"/> so consumers can branch without a null check.
+    /// </summary>
+    public bool IsAnchor => Placement is { IsAnchor: true };
 }
