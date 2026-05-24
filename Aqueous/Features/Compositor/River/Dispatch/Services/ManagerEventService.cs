@@ -286,8 +286,9 @@ internal sealed unsafe class ManagerEventService
 
             if (_outputRegistry.Entries.IsEmpty)
             {
-                Rect rect = StrutsCalculator.Apply(new Rect(0, 0, 1920, 1080), _layoutController.Config?.Struts);
-                _layoutProposer.ProposeForArea(IntPtr.Zero, null, rect);
+                var raw = new Rect(0, 0, 1920, 1080);
+                var usable = StrutsCalculator.Apply(raw, _layoutController.Config?.Struts);
+                _layoutProposer.ProposeForArea(IntPtr.Zero, null, raw, usable);
             }
             else
             {
@@ -296,8 +297,9 @@ internal sealed unsafe class ManagerEventService
                     OutputEntry oe = outputKvp.Value;
                     var aw = oe.Width > 0 ? oe.Width : 1920;
                     var ah = oe.Height > 0 ? oe.Height : 1080;
-                    Rect rect = StrutsCalculator.Apply(new Rect(oe.X, oe.Y, aw, ah), _layoutController.Config?.Struts);
-                    _layoutProposer.ProposeForArea(outputKvp.Key, null, rect);
+                    var raw = new Rect(oe.X, oe.Y, aw, ah);
+                    var usable = StrutsCalculator.Apply(raw, _layoutController.Config?.Struts);
+                    _layoutProposer.ProposeForArea(outputKvp.Key, null, raw, usable);
                 }
             }
 

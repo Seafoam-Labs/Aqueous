@@ -151,12 +151,13 @@ public sealed class LayoutController
         string? outputName,
         Rect usableArea,
         IReadOnlyList<WindowEntryView> visibleWindows,
-        IntPtr focusedWindow)
+        IntPtr focusedWindow,
+        Rect outputRect = default)
     {
         var engine = ResolveEngine(output, outputName);
         var id = engine.Id;
 
-        var opts = _config.OptionsFor(id);
+        var opts = _config.OptionsFor(id) with { OutputRect = outputRect };
         object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
         var raw = engine.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref state);
         _stateByOutput[output] = state;

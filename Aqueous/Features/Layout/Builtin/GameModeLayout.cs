@@ -115,8 +115,16 @@ public sealed class GameModeLayout : ILayoutEngine
         int bufW = a.RequestedBufferW > 0 ? a.RequestedBufferW : usableArea.W;
         int bufH = a.RequestedBufferH > 0 ? a.RequestedBufferH : usableArea.H;
 
+        // `ignore_struts = true` resolves the anchor against the raw output rect so the
+        // anchored window can reach the very top/left/etc edges of the output, ignoring the
+        // exclusion zone reserved for bars/panels. Remainder columns continue to use
+        // `usableArea` so other tiles stay inside the struts.
+        Rect anchorArea = rule.IgnoreStruts && opts.OutputRect.W > 0 && opts.OutputRect.H > 0
+            ? opts.OutputRect
+            : usableArea;
+
         var anchorRect = GameModeGeometry.ResolveAnchor(
-            usableArea, bufW, bufH, rule.Size, rule.Anchor, rule.Scale);
+            anchorArea, bufW, bufH, rule.Size, rule.Anchor, rule.Scale);
 
         // ---- 5. Compute the two side columns flanking the anchor.
         var (leftCol, rightCol) = GameModeGeometry.ResolveSideColumns(usableArea, anchorRect);

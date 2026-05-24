@@ -44,12 +44,26 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # scale      = 1.0
 # tag        = 9               # optional - also move to this tag
 # fullscreen = false
+# ignore_struts = false        # if true, geometry ignores [struts] in wm.toml
 
 # Example: force a specific size regardless of what the client asks for.
 # [[window]]
 # app_id = "cs2"
 # layout = "game-mode"
 # size   = "2560x1080"
+
+# Example: let a window extend all the way to the edge of the output, ignoring
+# the exclusion zone reserved for bars / panels by `[struts]` in wm.toml. When
+# `ignore_struts = true`, the matched window's geometry is resolved against the
+# raw output rect instead of the strut-shrunk usable area. Honoured by the
+# fullscreen, maximized, game-mode anchor, scratchpad-summon, and default-float
+# code paths. Other tiles on the same output continue to respect the struts.
+# [[window]]
+# app_id        = "obs"
+# layout        = "game-mode"
+# anchor        = "top"
+# size          = "1920x1080"
+# ignore_struts = true
 
 # v1.5 NOTE: the space around the anchor is exposed as two full-height side
 # columns (left of the anchor and right of the anchor). Non-anchor windows are

@@ -226,7 +226,7 @@ public sealed class WindowStateController
                 _host.Log($"state ws=0x{window.Handle.ToInt64():x} floating→tiled");
                 break;
             case WindowState.Tiled:
-                w.FloatingGeom ??= ComputeDefaultFloatRect(output);
+                w.FloatingGeom ??= ComputeDefaultFloatRect(output, entry: w);
                 w.State = WindowState.Floating;
                 _host.Log($"state ws=0x{window.Handle.ToInt64():x} tiled→floating");
                 break;
@@ -237,9 +237,13 @@ public sealed class WindowStateController
         return true;
     }
 
-    private Rect ComputeDefaultFloatRect(OutputProxy output)
+    private Rect ComputeDefaultFloatRect(OutputProxy output, WindowStateData? entry = null)
     {
-        var u = _host.UsableArea(output);
+        // Rule-matched windows with `ignore_struts = true` resolve their default float rect
+        // against the raw output rect so they can extend to the very edges of the output.
+        var u = entry?.Placement is { Rule.IgnoreStruts: true }
+            ? _host.OutputRect(output)
+            : _host.UsableArea(output);
         int w = Math.Max(200, (int)(u.W * 0.6));
         int h = Math.Max(150, (int)(u.H * 0.5));
         int x = u.X + (u.W - w) / 2;
@@ -451,7 +455,7 @@ public sealed class WindowStateController
             w.PreviousState = w.State;
             w.State = WindowState.Floating;
             w.PinnedOutput = output;
-            w.FloatingGeom = ComputeScratchpadRect(output);
+            w.FloatingGeom = ComputeScratchpadRect(output, entry: w);
             _host.Focus(current);
             _host.Log($"scratchpad pad={padName} action=summon ws=0x{current.Handle.ToInt64():x}");
         }
@@ -523,9 +527,11 @@ public sealed class WindowStateController
         return true;
     }
 
-    private Rect ComputeScratchpadRect(OutputProxy output)
+    private Rect ComputeScratchpadRect(OutputProxy output, WindowStateData? entry = null)
     {
-        var u = _host.UsableArea(output);
+        var u = entry?.Placement is { Rule.IgnoreStruts: true }
+            ? _host.OutputRect(output)
+            : _host.UsableArea(output);
         var sp = _config.Scratchpad;
         int w = Math.Max(200, (int)(u.W * sp.WidthFrac));
         int h = Math.Max(150, (int)(u.H * sp.HeightFrac));

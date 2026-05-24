@@ -63,7 +63,16 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     /// asks <see cref="LayoutController.Arrange"/> for placements, and emits <c>propose_dimensions</c>
     /// only when the engine's choice differs from <c>WindowEntry.LastHintW/H</c>.
     /// </summary>
-    public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea)
+    public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea) =>
+        ProposeForArea(output, outputName, usableArea, usableArea);
+
+    /// <summary>
+    /// Drive the layout subsystem for one output. <paramref name="outputRect"/> is the raw
+    /// output rectangle (no struts applied) used by the fullscreen branch and by any rule-matched
+    /// window with <c>ignore_struts = true</c>; <paramref name="usableArea"/> is the strut-shrunk
+    /// rect consumed by every other branch (tiled, floating, maximized without opt-in).
+    /// </summary>
+    public void ProposeForArea(IntPtr output, string? outputName, Rect outputRect, Rect usableArea)
     {
         var layoutController = _layoutController;
         var windowRegistry = _windowRegistry;
@@ -328,7 +337,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             try
             {
                 placements = layoutController.Arrange(
-                    output, outputName, usableArea, tiledSnapshot, focusedWindow);
+                    output, outputName, usableArea, tiledSnapshot, focusedWindow, outputRect);
             }
             catch (Exception ex)
             {
@@ -471,8 +480,11 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 continue;
             }
 
-            int tx = usableArea.X, ty = usableArea.Y;
-            int pw = usableArea.W, ph = usableArea.H;
+            // Rule-matched windows with `ignore_struts = true` resolve maximized geometry
+            // against the raw output rect; everyone else stays inside the strut-shrunk area.
+            Rect maxArea = w.Placement is { Rule.IgnoreStruts: true } ? outputRect : usableArea;
+            int tx = maxArea.X, ty = maxArea.Y;
+            int pw = maxArea.W, ph = maxArea.H;
             if (pw <= 0 || ph <= 0)
             {
                 continue;
@@ -515,12 +527,14 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         }
 
         // ------ Fullscreen windows --------
-        Rect outputRect = usableArea;
-        if (output != IntPtr.Zero && outputRegistry.Entries.TryGetValue(output, out var oeFull))
+        // Fullscreen must always cover the *raw* output — exclusion zones / struts do NOT apply.
+        // `outputRect` was passed in by the manager call site; only fall back if the caller passed
+        // the legacy single-rect overload (in which case usableArea == outputRect).
+        Rect fsRect = outputRect;
+        if (output != IntPtr.Zero && outputRegistry.Entries.TryGetValue(output, out var oeFull)
+            && oeFull.Width > 0 && oeFull.Height > 0)
         {
-            outputRect = new Rect(oeFull.X, oeFull.Y,
-                oeFull.Width > 0 ? oeFull.Width : usableArea.W,
-                oeFull.Height > 0 ? oeFull.Height : usableArea.H);
+            fsRect = new Rect(oeFull.X, oeFull.Y, oeFull.Width, oeFull.Height);
         }
 
         for (int i = 0; i < fullscreenHandles.Count; i++)
@@ -538,8 +552,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 continue;
             }
 
-            int tx = outputRect.X, ty = outputRect.Y;
-            int pw = outputRect.W, ph = outputRect.H;
+            int tx = fsRect.X, ty = fsRect.Y;
+            int pw = fsRect.W, ph = fsRect.H;
             if (pw <= 0 || ph <= 0)
             {
                 continue;

@@ -21,6 +21,14 @@ internal interface ILayoutProposer
     void ProposeForArea(IntPtr output, string? outputName, Rect usableArea);
 
     /// <summary>
+    /// Two-rect overload: <paramref name="outputRect"/> is the raw output rectangle (no struts
+    /// applied) consumed by the fullscreen branch and by any rule-matched window with
+    /// <c>ignore_struts = true</c>; <paramref name="usableArea"/> is the strut-shrunk rect used by
+    /// every other branch.
+    /// </summary>
+    void ProposeForArea(IntPtr output, string? outputName, Rect outputRect, Rect usableArea);
+
+    /// <summary>
     /// True iff the active layout (resolved against the focused window's output) is the dedicated
     /// <c>float</c> engine. Used by the drag handler and the floating-toggle action to decide whether
     /// per-window floating overrides are honoured.

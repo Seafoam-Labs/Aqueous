@@ -75,6 +75,15 @@ public sealed record LayoutOptions(
     public static readonly LayoutOptions Default =
         new(8, 4, 0.55, 1, new Dictionary<string, string>());
 
+    /// <summary>
+    /// Raw output rectangle for the output currently being arranged (no struts applied).
+    /// Engines that honour per-window <c>ignore_struts</c> (e.g. <c>GameModeLayout</c>) resolve
+    /// matched windows against this rect instead of <c>usableArea</c>. Defaults to
+    /// <see cref="Rect.Empty"/>; consumers must treat <c>(W &lt;= 0 || H &lt;= 0)</c> as
+    /// "fall back to usableArea". The controller populates this on every <c>Arrange</c> call.
+    /// </summary>
+    public Rect OutputRect { get; init; } = Rect.Empty;
+
     public string? GetExtra(string key) =>
         Extra.TryGetValue(key, out var v) ? v : null;
 

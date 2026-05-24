@@ -127,6 +127,7 @@ public static class RulesTomlReader
         double wScale = 1.0;
         int? wTag = null;
         bool wFullscreen = false;
+        bool wIgnoreStruts = false;
 
         void ResetWindow()
         {
@@ -139,6 +140,7 @@ public static class RulesTomlReader
             wScale = 1.0;
             wTag = null;
             wFullscreen = false;
+            wIgnoreStruts = false;
         }
 
         void FlushWindow()
@@ -187,7 +189,8 @@ public static class RulesTomlReader
                 Size: wSize,
                 Scale: wScale,
                 Tag: wTag,
-                Fullscreen: wFullscreen));
+                Fullscreen: wFullscreen,
+                IgnoreStruts: wIgnoreStruts));
 
             ResetWindow();
         }
@@ -288,6 +291,9 @@ public static class RulesTomlReader
                             }
                         case "fullscreen":
                             wFullscreen = ParseBool(val, wFullscreen);
+                            break;
+                        case "ignore_struts":
+                            wIgnoreStruts = ParseBool(val, wIgnoreStruts);
                             break;
                     }
                     break;
