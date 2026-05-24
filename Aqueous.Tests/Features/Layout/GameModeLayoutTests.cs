@@ -140,16 +140,19 @@ public class GameModeLayoutTests
         Assert.Contains(new IntPtr(1), nonAnchorHandles);
         Assert.Contains(new IntPtr(2), nonAnchorHandles);
 
-        // Non-anchor placements must land inside the band remainder (top band:
-        // (0, 0, 2560, 180) wins by tie-break for this centered-anchor case).
-        var band = new Rect(0, 0, 2560, 180);
+        // Non-anchor placements must land inside one of the two side columns
+        // (left: (0,0,320,1440), right: (2240,0,320,1440)). With round-robin, the
+        // first non-anchor (handle 1) goes left, the second (handle 2) goes right.
+        var leftCol  = new Rect(0,    0, 320, 1440);
+        var rightCol = new Rect(2240, 0, 320, 1440);
         for (int i = 0; i < 2; i++)
         {
             var g = result[i].Geometry;
-            Assert.True(g.X >= band.X && g.X + g.W <= band.X + band.W,
-                $"placement {i} x out of band: {g}");
-            Assert.True(g.Y >= band.Y && g.Y + g.H <= band.Y + band.H,
-                $"placement {i} y out of band: {g}");
+            bool inLeft  = g.X >= leftCol.X  && g.X + g.W <= leftCol.X  + leftCol.W
+                         && g.Y >= leftCol.Y && g.Y + g.H <= leftCol.Y + leftCol.H;
+            bool inRight = g.X >= rightCol.X && g.X + g.W <= rightCol.X + rightCol.W
+                         && g.Y >= rightCol.Y && g.Y + g.H <= rightCol.Y + rightCol.H;
+            Assert.True(inLeft || inRight, $"placement {i} not in either side column: {g}");
         }
     }
 
@@ -244,10 +247,10 @@ public class GameModeLayoutTests
             engine.Arrange(UA2560, windows, IntPtr.Zero, opts, ref state));
     }
 
-    // ----- Ultrawide sanity check (mirrors GameModeGeometryTests #12) --------
+    // ----- Ultrawide sanity check (centered anchor → left + right columns) ---
 
     [Fact]
-    public void Arrange_UltrawideFullHeightAnchor_RemainderIsLeftBand()
+    public void Arrange_UltrawideFullHeightAnchor_SplitsAcrossSideColumns()
     {
         var reg = new LayoutRegistry();
         var engine = reg.Create("game-mode");
@@ -261,13 +264,117 @@ public class GameModeLayoutTests
         // Anchor placed at (1920, 0, 3840, 2160).
         Assert.Equal(new Rect(1920, 0, 3840, 2160), result[^1].Geometry);
 
-        // Remainder tiles fall into the left band (0, 0, 1920, 2160).
-        var band = new Rect(0, 0, 1920, 2160);
+        var leftCol  = new Rect(0,    0, 1920, 2160);
+        var rightCol = new Rect(5760, 0, 1920, 2160);
+        // Each non-anchor placement falls in exactly one of the two side columns.
         for (int i = 0; i < result.Count - 1; i++)
         {
             var g = result[i].Geometry;
-            Assert.True(g.X >= band.X && g.X + g.W <= band.X + band.W);
-            Assert.True(g.Y >= band.Y && g.Y + g.H <= band.Y + band.H);
+            bool inLeft  = g.X >= leftCol.X  && g.X + g.W <= leftCol.X  + leftCol.W;
+            bool inRight = g.X >= rightCol.X && g.X + g.W <= rightCol.X + rightCol.W;
+            Assert.True(inLeft || inRight, $"placement {i} not in a side column: {g}");
         }
+    }
+
+    // ----- Phase 2: per-column partitioning ----------------------------------
+
+    [Fact]
+    public void Arrange_CenteredAnchor_RoundRobinSplitsLeftRight()
+    {
+        // Centered anchor on 2560×1440 yields equal 320-wide side columns. Four
+        // non-anchor windows must split 2:2 by round-robin over visible order.
+        var reg = new LayoutRegistry();
+        var engine = reg.Create("game-mode");
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView>
+        {
+            View(1), View(2), anchor, View(3), View(4),
+        };
+        object? state = null;
+        var result = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        // 1 anchor + 4 tiles = 5 placements.
+        Assert.Equal(5, result.Count);
+        Assert.Equal(new IntPtr(99), result[^1].Handle);
+
+        // Round-robin over non-anchor order (1,2,3,4): indices 0,2 → left; 1,3 → right.
+        var leftRect  = new Rect(0,    0, 320, 1440);
+        var rightRect = new Rect(2240, 0, 320, 1440);
+        int leftCount = 0, rightCount = 0;
+        for (int i = 0; i < result.Count - 1; i++)
+        {
+            var g = result[i].Geometry;
+            if (g.X >= leftRect.X  && g.X + g.W <= leftRect.X  + leftRect.W)  leftCount++;
+            if (g.X >= rightRect.X && g.X + g.W <= rightRect.X + rightRect.W) rightCount++;
+        }
+        Assert.Equal(2, leftCount);
+        Assert.Equal(2, rightCount);
+    }
+
+    [Fact]
+    public void Arrange_LeftEdgeAnchor_AllOthersInRightColumn()
+    {
+        var reg = new LayoutRegistry();
+        var engine = reg.Create("game-mode");
+        // Left-anchored → left column collapses (Rect.Empty). All non-anchor tiles
+        // must fall in the right column.
+        var anchor = View(99, AnchorPlacement(anchor: AnchorKind.Left), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), anchor };
+        object? state = null;
+        var result = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        // Anchor at (0, 180, 1920, 1080); right column at (1920, 0, 640, 1440).
+        Assert.Equal(new Rect(0, 180, 1920, 1080), result[^1].Geometry);
+
+        var rightRect = new Rect(1920, 0, 640, 1440);
+        Assert.Equal(4, result.Count);
+        for (int i = 0; i < result.Count - 1; i++)
+        {
+            var g = result[i].Geometry;
+            Assert.True(g.X >= rightRect.X && g.X + g.W <= rightRect.X + rightRect.W,
+                $"placement {i} not in right column: {g}");
+        }
+    }
+
+    [Fact]
+    public void Arrange_RightEdgeAnchor_AllOthersInLeftColumn()
+    {
+        var reg = new LayoutRegistry();
+        var engine = reg.Create("game-mode");
+        var anchor = View(99, AnchorPlacement(anchor: AnchorKind.Right), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), anchor };
+        object? state = null;
+        var result = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        // Anchor at (640, 180, 1920, 1080); left column at (0, 0, 640, 1440).
+        Assert.Equal(new Rect(640, 180, 1920, 1080), result[^1].Geometry);
+
+        var leftRect = new Rect(0, 0, 640, 1440);
+        Assert.Equal(4, result.Count);
+        for (int i = 0; i < result.Count - 1; i++)
+        {
+            var g = result[i].Geometry;
+            Assert.True(g.X >= leftRect.X && g.X + g.W <= leftRect.X + leftRect.W,
+                $"placement {i} not in left column: {g}");
+        }
+    }
+
+    [Fact]
+    public void Arrange_FullWidthAnchor_NoSubLayoutInvoked_AnchorOnly()
+    {
+        // Anchor spans full width → both side columns are Rect.Empty. Even with
+        // other windows present, they receive no placement this frame (mirrors
+        // the pre-existing "anchor covers usable" empty-remainder skip).
+        var reg = new LayoutRegistry();
+        var engine = reg.Create("game-mode");
+        var anchor = View(42,
+            AnchorPlacement(size: new SizeSpec.Pixels(2560, 720)),
+            bufW: 2560, bufH: 720);
+        var windows = new List<WindowEntryView> { View(1), anchor, View(2) };
+        object? state = null;
+        var result = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        Assert.Single(result);
+        Assert.Equal(new IntPtr(42), result[0].Handle);
     }
 }

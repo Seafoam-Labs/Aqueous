@@ -27,10 +27,14 @@ namespace Aqueous.Features.Layout.Builtin;
 /// rather than blow the stack at runtime.
 /// </para>
 /// <para>
-/// v1 design choice: the remainder is a single <see cref="Rect"/> (the largest of the four
-/// surrounding bands). Filling the other three bands is the v2 L-shape / multi-band work,
-/// gated on an <see cref="ILayoutEngine"/> interface change (<c>IReadOnlyList&lt;Rect&gt;</c>
-/// instead of a single rect) that is deliberately out of scope here.
+/// v1.5 design choice ("anchor + left column + right column"): the space surrounding the
+/// anchor is exposed as the two full-height side bands flanking the anchor (see
+/// <see cref="GameModeGeometry.ResolveSideColumns"/>). Non-anchor windows are partitioned
+/// across the two columns via stable round-robin over the visible-window order (even
+/// index → left, odd → right); if one column is empty (edge-anchored game) all non-anchor
+/// windows go to the surviving column. Each non-empty column gets its own fresh sub-layout
+/// instance with transient state. Top/bottom strips above and below the anchor are
+/// intentionally unused; configurable N and anchor-spans-columns are explicit non-goals.
 /// </para>
 /// </summary>
 public sealed class GameModeLayout : ILayoutEngine
@@ -114,32 +118,78 @@ public sealed class GameModeLayout : ILayoutEngine
         var anchorRect = GameModeGeometry.ResolveAnchor(
             usableArea, bufW, bufH, rule.Size, rule.Anchor, rule.Scale);
 
-        // ---- 5. Compute the remainder rect.
-        var remainderRect = GameModeGeometry.ResolveRemainder(usableArea, anchorRect);
+        // ---- 5. Compute the two side columns flanking the anchor.
+        var (leftCol, rightCol) = GameModeGeometry.ResolveSideColumns(usableArea, anchorRect);
 
-        // ---- 6. Hand the non-anchor windows to the remainder layout (or skip when
-        // there's nothing to tile / nowhere to put it).
-        var others = new List<WindowEntryView>(visibleWindows.Count);
+        // ---- 6. Partition non-anchor windows across the two columns and hand each
+        // non-empty column to a fresh sub-layout instance.
+        //
+        // Partitioning strategy: stable round-robin over the visible-window order
+        // (even index → left, odd index → right), with the anchor itself skipped. If
+        // one column is Rect.Empty (edge-anchored game), all non-anchor windows go to
+        // the surviving column, preserving today's behavior in that degenerate case.
+        var leftWindows  = new List<WindowEntryView>(visibleWindows.Count);
+        var rightWindows = new List<WindowEntryView>(visibleWindows.Count);
+        bool leftEmpty  = leftCol  == Rect.Empty;
+        bool rightEmpty = rightCol == Rect.Empty;
+
+        int nonAnchorIndex = 0;
         for (int i = 0; i < visibleWindows.Count; i++)
         {
-            if (visibleWindows[i].Handle != a.Handle)
+            var w = visibleWindows[i];
+            if (w.Handle == a.Handle)
             {
-                others.Add(visibleWindows[i]);
+                continue;
             }
+
+            if (leftEmpty && rightEmpty)
+            {
+                // No surviving column — nothing to place this frame.
+                nonAnchorIndex++;
+                continue;
+            }
+            else if (leftEmpty)
+            {
+                rightWindows.Add(w);
+            }
+            else if (rightEmpty)
+            {
+                leftWindows.Add(w);
+            }
+            else
+            {
+                // Both columns alive → round-robin by stable non-anchor index.
+                if ((nonAnchorIndex & 1) == 0) leftWindows.Add(w);
+                else                            rightWindows.Add(w);
+            }
+            nonAnchorIndex++;
         }
 
         var result = new List<WindowPlacement>(visibleWindows.Count);
-        if (others.Count > 0 && remainderRect != Rect.Empty)
+
+        // Per-column sub-layout state is intentionally NOT persisted across game-mode
+        // arrange calls: each column gets its own fresh sub-layout instance with a
+        // transient `object? subState = null` slot. Doing otherwise would require a
+        // typed wrapper holding (anchor-state, left-state, right-state); the sub-engine
+        // recomputes from scratch each frame, same cost grid/tile already pay.
+        if (!leftEmpty && leftWindows.Count > 0)
         {
-            var remainder = _registry.Create(remainderId);
-            // Per-output state for the sub-engine is intentionally NOT persisted across
-            // game-mode arrange calls in step 1: doing so would require a typed slot
-            // (e.g. a wrapper object holding both anchor- and sub-engine state). v1
-            // ships with the sub-engine recomputing from scratch each frame; this is
-            // the same cost grid/tile already pay (they keep no per-output state).
+            var sub = _registry.Create(remainderId);
             object? subState = null;
-            var subPlacements = remainder.Arrange(
-                remainderRect, others, focusedWindow, opts, ref subState);
+            var subPlacements = sub.Arrange(
+                leftCol, leftWindows, focusedWindow, opts, ref subState);
+            for (int i = 0; i < subPlacements.Count; i++)
+            {
+                result.Add(subPlacements[i]);
+            }
+        }
+
+        if (!rightEmpty && rightWindows.Count > 0)
+        {
+            var sub = _registry.Create(remainderId);
+            object? subState = null;
+            var subPlacements = sub.Arrange(
+                rightCol, rightWindows, focusedWindow, opts, ref subState);
             for (int i = 0; i < subPlacements.Count; i++)
             {
                 result.Add(subPlacements[i]);
