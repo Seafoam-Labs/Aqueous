@@ -14,6 +14,15 @@ internal sealed class WindowEntry
     public IntPtr NodeProxy;
     public string? Title;
     public string? AppId;
+
+    /// <summary>
+    /// X11 <c>WM_CLASS</c> as forwarded by <c>xwayland-satellite</c>; <see langword="null"/>
+    /// for Wayland-native clients. River v1 does not yet expose a dedicated class event
+    /// — this field is reserved for a future xwayland-satellite integration so the
+    /// <c>[[window]] class = "..."</c> matcher in <c>rules.toml</c> has somewhere to land
+    /// without another round of plumbing. Distinct from <see cref="AppId"/> on purpose.
+    /// </summary>
+    public string? XClass;
     public int WidthHint, HeightHint;
     public int W, H;
     public int X, Y;

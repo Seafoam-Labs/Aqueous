@@ -73,6 +73,11 @@ class Program
         services.AddSingleton<Aqueous.Features.Rules.IWindowRuleEngine>(sp =>
             new Aqueous.Features.Rules.WindowRuleEngine(
                 sp.GetRequiredService<Aqueous.Features.Rules.RulesConfig>().Windows));
+        // Visible reload-confirmation notifications. Shells out to `notify-send`; if the
+        // user has no notifier daemon running (mako/dunst/fnott), the call is logged and
+        // swallowed — reload itself still succeeds. See INotificationPublisher.
+        services.AddSingleton<Aqueous.Features.Rules.INotificationPublisher,
+            Aqueous.Features.Rules.NotifySendPublisher>();
         // Hot-reload entry point — bound to Super+R (alongside wm.toml reload) and to the
         // optional standalone `reload_rules` keybind verb.
         services.AddSingleton<Aqueous.Features.Rules.IRulesReloader,

@@ -57,14 +57,23 @@ public class RulesReloaderTests
         return (path, env, xdg, home);
     }
 
-    private static (RulesReloader reloader, WindowRuleEngine engine, WindowRegistry reg, FakeManagerRequestSender sender)
+    /// <summary>Captures every Notify() call so we can assert reload feedback.</summary>
+    private sealed class FakeNotificationPublisher : INotificationPublisher
+    {
+        public readonly System.Collections.Generic.List<(string summary, string? body, bool isError)> Calls = new();
+        public void Notify(string summary, string? body = null, bool isError = false)
+            => Calls.Add((summary, body, isError));
+    }
+
+    private static (RulesReloader reloader, WindowRuleEngine engine, WindowRegistry reg, FakeManagerRequestSender sender, FakeNotificationPublisher notifier)
         MakeReloader()
     {
         var engine = new WindowRuleEngine();
         var reg = new WindowRegistry();
         var sender = new FakeManagerRequestSender();
-        var reloader = new RulesReloader(engine, reg, sender);
-        return (reloader, engine, reg, sender);
+        var notifier = new FakeNotificationPublisher();
+        var reloader = new RulesReloader(engine, reg, sender, notifier);
+        return (reloader, engine, reg, sender, notifier);
     }
 
     private static WindowEntry RegisterEntry(WindowRegistry reg, IntPtr proxy, string? appId = null, string? title = null)
@@ -77,7 +86,7 @@ public class RulesReloaderTests
     [Fact]
     public void Reload_RuleAdded_AttachesPlacementToExistingWindow()
     {
-        var (reloader, _, reg, sender) = MakeReloader();
+        var (reloader, _, reg, sender, notifier) = MakeReloader();
         var w = RegisterEntry(reg, new IntPtr(1), appId: "dota2");
 
         var (_, env, xdg, home) = StageRulesFile(
@@ -92,13 +101,38 @@ public class RulesReloaderTests
             Assert.NotNull(w.Placement);
             Assert.True(w.Placement!.IsAnchor);
             Assert.Equal(1, sender.ScheduleManageCalls);
+
+            // Success notification: non-error, summary mentions reload, body cites rule+window counts.
+            var call = Assert.Single(notifier.Calls);
+            Assert.False(call.isError);
+            Assert.Contains("reloaded", call.summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("1 rule", call.body ?? "");
+            Assert.Contains("1 window", call.body ?? "");
         }
+    }
+
+    [Fact]
+    public void Reload_NullNotifier_DoesNotThrow()
+    {
+        // Constructing with no notifier (the default param) must keep working so the
+        // many tests / callsites that predate Option A stay green.
+        var engine = new WindowRuleEngine();
+        var reg = new WindowRegistry();
+        var sender = new FakeManagerRequestSender();
+        var reloader = new RulesReloader(engine, reg, sender);
+
+        using var rulesEnv = new ScopedEnv("AQUEOUS_RULES", null);
+        using var xdg = new ScopedEnv("XDG_CONFIG_HOME", "/no/such/xdg");
+        using var home = new ScopedEnv("HOME", "/no/such/home");
+
+        var result = reloader.Reload();
+        Assert.True(result.Succeeded);
     }
 
     [Fact]
     public void Reload_RuleRemoved_ClearsPlacement()
     {
-        var (reloader, engine, reg, sender) = MakeReloader();
+        var (reloader, engine, reg, sender, _) = MakeReloader();
         // Pre-seed: a window already has a Placement from a previous boot.
         engine.Reload(new[]
         {
@@ -126,7 +160,7 @@ public class RulesReloaderTests
     [Fact]
     public void Reload_NoSchemaChange_ReportsZeroChanged_AndDoesNotSchedule()
     {
-        var (reloader, _, reg, sender) = MakeReloader();
+        var (reloader, _, reg, sender, _) = MakeReloader();
         var w = RegisterEntry(reg, new IntPtr(1), appId: "dota2");
 
         var rulesToml = "[[window]]\napp_id = \"dota2\"\nlayout = \"game-mode\"\n";
@@ -151,7 +185,7 @@ public class RulesReloaderTests
     [Fact]
     public void Reload_MissingFile_ClearsAllRules()
     {
-        var (reloader, engine, reg, sender) = MakeReloader();
+        var (reloader, engine, reg, sender, _) = MakeReloader();
         // Pre-seed with a rule + matching window.
         engine.Reload(new[]
         {
@@ -180,7 +214,7 @@ public class RulesReloaderTests
     [Fact]
     public void Reload_NoManagedWindows_ReportsZeroChanged()
     {
-        var (reloader, _, _, sender) = MakeReloader();
+        var (reloader, _, _, sender, _) = MakeReloader();
         var (_, env, xdg, home) = StageRulesFile(
             "[[window]]\napp_id = \"dota2\"\nlayout = \"game-mode\"\n");
         using (env) using (xdg) using (home)

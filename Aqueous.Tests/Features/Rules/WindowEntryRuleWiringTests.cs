@@ -29,7 +29,7 @@ public class WindowEntryRuleWiringTests
     /// <summary>Mimics the body of <c>WindowEventService.ApplyRule</c>.</summary>
     private static bool ApplyRule(IWindowRuleEngine engine, WindowEntry w)
     {
-        var resolved = engine.Resolve(new WindowIdentity(w.AppId, XClass: null, w.Title));
+        var resolved = engine.Resolve(new WindowIdentity(w.AppId, w.XClass, w.Title));
         var old = w.Placement;
         bool changed =
             (old is null) != (resolved is null) ||
@@ -156,6 +156,31 @@ public class WindowEntryRuleWiringTests
         Assert.Equal(1920, view.RequestedBufferW);
         Assert.Equal(1080, view.RequestedBufferH);
         Assert.Equal(17L, view.LastFocusTick);
+    }
+
+    [Fact]
+    public void ApplyRule_XClassMatcher_ResolvesAgainstWindowEntryXClass()
+    {
+        // Regression guard for the prior bug where RuleApplication.Apply hard-coded
+        // XClass: null, which made the documented `class = "..."` matcher dead code.
+        // With XClass plumbed through WindowEntry, a class-only rule must now resolve
+        // when the entry's XClass matches — even though no AppId is set.
+        var classRule = new WindowRule(
+            AppId: null, Class: "steam_app_570", Title: null,
+            Layout: "game-mode", Anchor: AnchorKind.Center,
+            Size: SizeSpec.Native.Instance, Scale: 1.0, Tag: null, Fullscreen: false);
+        var engine = new WindowRuleEngine(new[] { classRule });
+
+        var w = new WindowEntry { Proxy = new IntPtr(1), AppId = null, XClass = "steam_app_570" };
+        Assert.True(ApplyRule(engine, w));
+        Assert.NotNull(w.Placement);
+        Assert.Equal("steam_app_570", w.Placement!.Rule.Class);
+
+        // And a class-only rule must NOT match when XClass is null (the situation
+        // that exists today because river-v1 does not forward WM_CLASS).
+        var w2 = new WindowEntry { Proxy = new IntPtr(2), AppId = "steam_app_570", XClass = null };
+        Assert.False(ApplyRule(engine, w2));
+        Assert.Null(w2.Placement);
     }
 
     [Fact]

@@ -87,10 +87,13 @@ public class RulesTomlReaderTests
     [Fact]
     public void SizePixels_ParsesAsExplicitDimensions()
     {
+        // Use app_id here — `class` is currently stripped by the parser (river-v1 does not
+        // forward WM_CLASS); a class-only rule would be dropped, see
+        // ClassOnlyMatcher_IsStrippedAndRuleDropped below.
         var toml = """
             [[window]]
-            class = "steam_app_570"
-            size  = "1920x1080"
+            app_id = "steam_app_570"
+            size   = "1920x1080"
             """;
 
         var cfg = RulesTomlReader.Parse(toml);
@@ -99,6 +102,42 @@ public class RulesTomlReaderTests
         var pixels = Assert.IsType<SizeSpec.Pixels>(rule.Size);
         Assert.Equal(1920, pixels.W);
         Assert.Equal(1080, pixels.H);
+    }
+
+    [Fact]
+    public void ClassOnlyMatcher_IsStrippedAndRuleDropped()
+    {
+        // The `class` matcher is documented in rules.toml but cannot match today because
+        // river-v1 does not forward a WM_CLASS event into WindowEntry.XClass. The parser
+        // strips the field and the rule is then dropped as having no remaining matcher.
+        var toml = """
+            [[window]]
+            class  = "steam_app_570"
+            layout = "game-mode"
+            """;
+
+        var cfg = RulesTomlReader.Parse(toml);
+
+        Assert.Empty(cfg.Windows);
+    }
+
+    [Fact]
+    public void ClassPlusAppIdMatcher_KeepsAppId_StripsClass()
+    {
+        // A combined rule survives — the class field is stripped, but app_id remains a
+        // valid matcher so the rule is still installed.
+        var toml = """
+            [[window]]
+            app_id = "steam_app_570"
+            class  = "steam_app_570"
+            layout = "game-mode"
+            """;
+
+        var cfg = RulesTomlReader.Parse(toml);
+
+        var rule = Assert.Single(cfg.Windows);
+        Assert.Equal("steam_app_570", rule.AppId);
+        Assert.Null(rule.Class);
     }
 
     [Fact]
@@ -171,7 +210,7 @@ public class RulesTomlReaderTests
             app_id = "first"
 
             [[window]]
-            class = "second"
+            app_id = "second"
 
             [[window]]
             title = "third"
@@ -181,7 +220,7 @@ public class RulesTomlReaderTests
 
         Assert.Equal(3, cfg.Windows.Count);
         Assert.Equal("first", cfg.Windows[0].AppId);
-        Assert.Equal("second", cfg.Windows[1].Class);
+        Assert.Equal("second", cfg.Windows[1].AppId);
         Assert.Equal("third", cfg.Windows[2].Title);
     }
 

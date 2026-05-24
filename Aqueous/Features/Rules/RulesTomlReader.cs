@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using Aqueous.Diagnostics;
 
 namespace Aqueous.Features.Rules;
 
@@ -148,6 +149,20 @@ public static class RulesTomlReader
             }
 
             wPending = false;
+
+            // River v1 does not currently forward a dedicated WM_CLASS event, so
+            // WindowEntry.XClass is always null on the shipping build and any
+            // class=… matcher can never produce a hit. Rather than silently dropping
+            // such a rule (the previous behaviour, which made the documented matcher
+            // a footgun), log an actionable warning and strip the field so the rest
+            // of the rule still applies if another matcher is present.
+            if (wClass is not null)
+            {
+                RiverLog.Write(
+                    "rules.toml: 'class' matcher is not supported on this compositor build " +
+                    $"(class=\"{wClass}\" ignored). Use 'app_id' instead.");
+                wClass = null;
+            }
 
             // At least one matcher is required — rules with none would match every window,
             // which is almost never what the user meant. Drop silently.

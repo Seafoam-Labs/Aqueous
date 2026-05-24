@@ -39,15 +39,21 @@ internal sealed class RulesReloader : IRulesReloader
     private readonly IWindowRuleEngine _engine;
     private readonly IWindowRegistry _registry;
     private readonly IManagerRequestSender _managerRequestSender;
+    private readonly INotificationPublisher _notifications;
 
     public RulesReloader(
         IWindowRuleEngine engine,
         IWindowRegistry registry,
-        IManagerRequestSender managerRequestSender)
+        IManagerRequestSender managerRequestSender,
+        INotificationPublisher? notifications = null)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        // Notifications are best-effort and optional — tests pass null, the DI container
+        // wires up NotifySendPublisher. Keeping the param defaulted means existing
+        // callers (RulesReloaderTests) compile unchanged.
+        _notifications = notifications ?? NullNotificationPublisher.Instance;
     }
 
     public RulesReloadResult Reload()
@@ -65,6 +71,10 @@ internal sealed class RulesReloader : IRulesReloader
         catch (Exception ex)
         {
             RiverLog.Write("reload_rules: failed to load rules.toml: " + ex.Message);
+            _notifications.Notify(
+                summary: "Aqueous: rules reload failed",
+                body: ex.Message,
+                isError: true);
             return new RulesReloadResult(RuleCount: 0, WindowsChanged: 0, LoadedPath: null, Succeeded: false);
         }
 
@@ -91,6 +101,14 @@ internal sealed class RulesReloader : IRulesReloader
         }
 
         RiverLog.Write($"reload_rules: rules={cfg.Windows.Count} changed={changed} path={path ?? "<none>"}");
+
+        // Surface a visible confirmation so Super+R has an on-screen tell beyond the
+        // RiverLog line. Body mirrors the log so the user can see exactly what changed.
+        _notifications.Notify(
+            summary: "Aqueous: rules reloaded",
+            body: $"{cfg.Windows.Count} rule(s), {changed} window(s) updated\n{path ?? "<no file>"}",
+            isError: false);
+
         return new RulesReloadResult(
             RuleCount: cfg.Windows.Count,
             WindowsChanged: changed,
@@ -115,7 +133,7 @@ internal static class RuleApplication
     /// </summary>
     public static bool Apply(IWindowRuleEngine engine, WindowEntry w)
     {
-        var resolved = engine.Resolve(new WindowIdentity(w.AppId, XClass: null, w.Title));
+        var resolved = engine.Resolve(new WindowIdentity(w.AppId, w.XClass, w.Title));
         var old = w.Placement;
         bool changed =
             (old is null) != (resolved is null) ||
