@@ -182,4 +182,38 @@ public static class GameModeGeometry
 
         return best;
     }
+
+    /// <summary>
+    /// Returns the two full-height side bands flanking <paramref name="anchorRect"/> inside
+    /// <paramref name="usableArea"/>: the left band (from <c>usableArea.X</c> up to
+    /// <c>anchorRect.X</c>) and the right band (from <c>anchorRect.Right</c> up to
+    /// <c>usableArea.Right</c>).
+    /// <para>
+    /// Either side may be <see cref="Rect.Empty"/> when the anchor is flush against that
+    /// edge (e.g. an edge-anchored game collapses one side to zero width). Callers must
+    /// check before handing a side to a sub-layout.
+    /// </para>
+    /// <para>
+    /// v1.5 design choice: only the two side columns are exposed; the top and bottom
+    /// strips above and below the anchor are intentionally unused. This keeps the
+    /// geometry trivial (no rounding distribution, no multi-region abstraction) and
+    /// matches the "anchor + left column + right column" mental model. Top/bottom
+    /// support is explicitly out of scope.
+    /// </para>
+    /// </summary>
+    public static (Rect Left, Rect Right) ResolveSideColumns(Rect usableArea, Rect anchorRect)
+    {
+        int leftW = anchorRect.X - usableArea.X;
+        int rightW = usableArea.Right - anchorRect.Right;
+
+        var left = leftW > 0
+            ? new Rect(usableArea.X, usableArea.Y, leftW, usableArea.H)
+            : Rect.Empty;
+
+        var right = rightW > 0
+            ? new Rect(anchorRect.Right, usableArea.Y, rightW, usableArea.H)
+            : Rect.Empty;
+
+        return (left, right);
+    }
 }

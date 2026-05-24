@@ -162,6 +162,69 @@ public class GameModeGeometryTests
     }
 
     // ---------------------------------------------------------------------
+    // ResolveSideColumns (v1.5: anchor + left column + right column)
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveSideColumns_CenteredAnchor_ProducesEqualLeftRight()
+    {
+        // 2560×1440 with 1920×1080 centered at (320, 180): left/right bands are
+        // each 320 wide and full-height (1440).
+        var anchor = new Rect(320, 180, 1920, 1080);
+        var (left, right) = GameModeGeometry.ResolveSideColumns(UA2560, anchor);
+
+        Assert.Equal(new Rect(0, 0, 320, 1440), left);
+        Assert.Equal(new Rect(2240, 0, 320, 1440), right);
+    }
+
+    [Fact]
+    public void ResolveSideColumns_LeftEdgeAnchor_LeftIsEmpty()
+    {
+        // Anchor flush against the left edge: left band collapses to zero width.
+        var anchor = new Rect(0, 180, 1920, 1080);
+        var (left, right) = GameModeGeometry.ResolveSideColumns(UA2560, anchor);
+
+        Assert.Equal(Rect.Empty, left);
+        Assert.Equal(new Rect(1920, 0, 640, 1440), right);
+    }
+
+    [Fact]
+    public void ResolveSideColumns_RightEdgeAnchor_RightIsEmpty()
+    {
+        // Anchor flush against the right edge: right band collapses to zero width.
+        var anchor = new Rect(640, 180, 1920, 1080);
+        var (left, right) = GameModeGeometry.ResolveSideColumns(UA2560, anchor);
+
+        Assert.Equal(new Rect(0, 0, 640, 1440), left);
+        Assert.Equal(Rect.Empty, right);
+    }
+
+    [Fact]
+    public void ResolveSideColumns_FullWidthAnchor_BothEmpty()
+    {
+        // Anchor spans the full width: both side bands collapse to zero width.
+        var anchor = new Rect(0, 360, 2560, 720);
+        var (left, right) = GameModeGeometry.ResolveSideColumns(UA2560, anchor);
+
+        Assert.Equal(Rect.Empty, left);
+        Assert.Equal(Rect.Empty, right);
+    }
+
+    [Fact]
+    public void ResolveSideColumns_SumOfWidthsPlusAnchor_EqualsUsableWidth()
+    {
+        // Invariant: leftW + anchor.W + rightW == usableArea.W exactly (no rounding
+        // loss because no division is performed). Use the 7680×2160 ultrawide case
+        // with a 3840×2160 centered anchor — the natural target of this feature.
+        var anchor = new Rect(1920, 0, 3840, 2160);
+        var (left, right) = GameModeGeometry.ResolveSideColumns(UA7680, anchor);
+
+        Assert.Equal(new Rect(0, 0, 1920, 2160), left);
+        Assert.Equal(new Rect(5760, 0, 1920, 2160), right);
+        Assert.Equal(UA7680.W, left.W + anchor.W + right.W);
+    }
+
+    // ---------------------------------------------------------------------
     // Cross-cutting invariants
     // ---------------------------------------------------------------------
 
