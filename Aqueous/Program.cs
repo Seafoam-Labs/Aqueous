@@ -63,6 +63,17 @@ class Program
         services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
         services.AddSingleton<Aqueous.Features.State.ScratchpadRegistry>();
 
+        // - Rules subsystem (PR #4 step 2) -------------------------------
+        // Loads rules.toml at boot via the documented discovery order; falls back to
+        // RulesConfig.Empty when no file is present. The engine is a singleton consumed by
+        // WindowEventService on app_id / title transitions and queried by LayoutProposer
+        // implicitly via WindowEntry.Placement.
+        services.AddSingleton<Aqueous.Features.Rules.RulesConfig>(_ =>
+            Aqueous.Features.Rules.RulesTomlReader.Load());
+        services.AddSingleton<Aqueous.Features.Rules.IWindowRuleEngine>(sp =>
+            new Aqueous.Features.Rules.WindowRuleEngine(
+                sp.GetRequiredService<Aqueous.Features.Rules.RulesConfig>().Windows));
+
         // - Layout subsystem ---------------------------------------------
         services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
         services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>

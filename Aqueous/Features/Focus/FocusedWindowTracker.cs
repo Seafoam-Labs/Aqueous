@@ -21,10 +21,31 @@ namespace Aqueous.Features.Focus;
 internal sealed class FocusedWindowTracker
 {
     private IntPtr _current;
+    private long _tick;
 
     public IntPtr Current
     {
         get => Volatile.Read(ref _current);
-        set => Volatile.Write(ref _current, value);
+        set
+        {
+            var old = Volatile.Read(ref _current);
+            Volatile.Write(ref _current, value);
+            // Bump the monotonic focus tick whenever the focused window actually changes.
+            // PR #4 step 2: GameModeLayout uses this tick to pick the most-recently-focused
+            // anchor candidate when multiple matching windows share an output. The bump on
+            // every transition (including to/from IntPtr.Zero) is acceptable — only the
+            // relative ordering of ticks across windows matters.
+            if (value != IntPtr.Zero && value != old)
+            {
+                Interlocked.Increment(ref _tick);
+            }
+        }
     }
+
+    /// <summary>
+    /// Monotonically-increasing counter incremented on every focus transition to a real
+    /// window. Read by callers (e.g. <c>LayoutProposer</c>) that need to stamp the
+    /// currently-focused <c>WindowEntry.LastFocusTick</c>.
+    /// </summary>
+    public long CurrentTick => Volatile.Read(ref _tick);
 }

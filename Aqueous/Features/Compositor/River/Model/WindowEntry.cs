@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Features.Rules;
 
 namespace Aqueous.Features.Compositor.River;
 
@@ -64,4 +65,19 @@ internal sealed class WindowEntry
     // to strict xdg-shell clients (Chromium, Alacritty) matches Aqueous's idea of the window's
     // maximized state.
     public bool XdgMaximized;
+
+    // ---- PR #4 step 2 — game-mode runtime wiring -------------------------------------------
+    // Game-mode anchor metadata. Populated by the rule engine on app_id/title changes
+    // (see WindowEventService) and by FocusedWindowTracker on every focus transition.
+    // LayoutProposer copies these into WindowEntryView so GameModeLayout can branch on
+    // IsAnchor without re-running the rule engine each frame.
+
+    /// <summary>Resolved window rule (or null if no rule matched). Refreshed on every
+    /// app_id / title event. Read by <see cref="LayoutProposer"/> when building snapshots.</summary>
+    public RulePlacement? Placement;
+
+    /// <summary>Monotonically-increasing tick stamped whenever this window becomes the
+    /// focused window. Used by <c>GameModeLayout</c> to pick the most-recently-focused
+    /// anchor candidate on outputs that host multiple matching windows.</summary>
+    public long LastFocusTick;
 }

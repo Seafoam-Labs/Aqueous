@@ -5,6 +5,7 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Rules;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
@@ -36,6 +37,7 @@ internal sealed unsafe class WindowEventService
     private readonly WindowStateController _windowStateController;
     private readonly ILayoutProposer _layoutProposer;
     private readonly IManagerRequestSender _managerRequestSender;
+    private readonly IWindowRuleEngine _ruleEngine;
 
     public WindowEventService(
         IWindowRegistry windowRegistry,
@@ -48,7 +50,8 @@ internal sealed unsafe class WindowEventService
         FocusedWindowTracker focusedWindowTracker,
         WindowStateController windowStateController,
         ILayoutProposer layoutProposer,
-        IManagerRequestSender managerRequestSender)
+        IManagerRequestSender managerRequestSender,
+        IWindowRuleEngine ruleEngine)
     {
         _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
         _windowStates          = windowStates          ?? throw new ArgumentNullException(nameof(windowStates));
@@ -61,6 +64,30 @@ internal sealed unsafe class WindowEventService
         _windowStateController = windowStateController ?? throw new ArgumentNullException(nameof(windowStateController));
         _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
         _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _ruleEngine            = ruleEngine            ?? throw new ArgumentNullException(nameof(ruleEngine));
+    }
+
+    /// <summary>
+    /// PR #4 step 2 — re-resolve the window's rule against the current identity
+    /// (app_id / title) and update <see cref="WindowEntry.Placement"/>. Schedules a
+    /// manage cycle iff the resolved rule actually changed, so a no-op title update
+    /// (e.g. terminal scroll) does not thrash the layout.
+    /// </summary>
+    private void ApplyRule(WindowEntry w)
+    {
+        var resolved = _ruleEngine.Resolve(new WindowIdentity(w.AppId, XClass: null, w.Title));
+        var old = w.Placement;
+        // Two placements compare equal iff they reference the same rule (records compare
+        // by value); cheap reference fall-through covers the common no-match -> no-match
+        // case where both are null.
+        bool changed =
+            (old is null) != (resolved is null) ||
+            (old is not null && resolved is not null && !old.Rule.Equals(resolved));
+        if (!changed) return;
+        w.Placement = resolved is null ? null : new RulePlacement(resolved);
+        // A placement change means the anchor set on the owning output may have shifted;
+        // re-run layout so GameModeLayout sees the update.
+        _managerRequestSender.ScheduleManage();
     }
 
     private static string? MarshalUtf8(IntPtr p) =>
@@ -138,11 +165,16 @@ internal sealed unsafe class WindowEventService
             case RiverProtocolOpcodes.Window.AppId:
                 w.AppId = MarshalUtf8(args[0].s) ?? string.Empty;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} app_id={w.AppId}");
+                // PR #4 step 2 — re-evaluate window rules; app_id is the primary matcher
+                // for game-mode rules (e.g. "dota2").
+                ApplyRule(w);
                 break;
 
             case RiverProtocolOpcodes.Window.Title:
                 w.Title = MarshalUtf8(args[0].s) ?? string.Empty;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} title={w.Title}");
+                // PR #4 step 2 — title-keyed rules also need re-evaluation here.
+                ApplyRule(w);
                 break;
 
             case RiverProtocolOpcodes.Window.PointerMoveRequested:
@@ -180,6 +212,15 @@ internal sealed unsafe class WindowEventService
                 IntPtr resizeSeatProxy = args[0].o;
                 uint edges = args[1].u;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
+                // PR #4 step 2 — anchor windows are locked to the client-requested buffer
+                // size; pointer-driven resize is rejected. Client-driven xdg_toplevel.configure
+                // changes still flow through Dimensions/DimensionsHint and re-arrange via the
+                // dirty path (which is the whole point of game-mode).
+                if (w.Placement is { IsAnchor: true })
+                {
+                    RiverLog.Write($"pointer_resize_requested ignored: anchor window owns its size");
+                    break;
+                }
                 if (edges == 0 || w.Output == IntPtr.Zero || !_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");

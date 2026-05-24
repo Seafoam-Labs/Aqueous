@@ -23,7 +23,7 @@ public sealed class FocusServiceTests
     {
         var ctor = typeof(FocusService).GetConstructors().Single();
         var p = ctor.GetParameters();
-        Assert.Equal(8, p.Length);
+        Assert.Equal(9, p.Length);
         Assert.Equal(typeof(FocusedWindowTracker), p[3].ParameterType);
         Assert.Equal(typeof(PendingFocusStore), p[4].ParameterType);
         Assert.Equal(typeof(PrimarySeatTracker), p[5].ParameterType);

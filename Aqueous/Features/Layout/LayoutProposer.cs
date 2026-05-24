@@ -73,6 +73,15 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         var focusedWindow = _focusedWindowTracker.Current;
         var prevFullscreenHandles = _prevFullscreenStore.Handles;
 
+        // PR #4 step 2 — stamp the currently-focused window with the tracker's monotonic
+        // tick so GameModeLayout can break anchor-candidate ties using "most-recently
+        // focused wins". Done once per proposer pass; cost is one dictionary hit.
+        if (focusedWindow != IntPtr.Zero &&
+            _windowRegistry.Entries.TryGetValue(focusedWindow, out var focusedEntry))
+        {
+            focusedEntry.LastFocusTick = _focusedWindowTracker.CurrentTick;
+        }
+
         // Floating windows are a layer, not a layout: they bypass the active engine entirely and use
         // their remembered FloatRect (set by the Super+BTN_LEFT drag handler). When the active engine is
         // "float", we additionally treat every window as floating so the user can drag any of them — the
@@ -202,7 +211,14 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     MaxW: w.MaxW, MaxH: w.MaxH,
                     Floating: false,
                     Fullscreen: false,
-                    Tags: w.Tags));
+                    Tags: w.Tags,
+                    // PR #4 step 2 — propagate game-mode anchor metadata to the engine.
+                    // RequestedBuffer* falls through to WidthHint/HeightHint, which mirror
+                    // the client's last dimensions_hint (the client's requested buffer size).
+                    Placement: w.Placement,
+                    RequestedBufferW: w.WidthHint,
+                    RequestedBufferH: w.HeightHint,
+                    LastFocusTick: w.LastFocusTick));
             }
         }
 
@@ -258,7 +274,11 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                             tiledSnapshot.Add(new WindowEntryView(
                                 Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
                                 MaxW: w.MaxW, MaxH: w.MaxH,
-                                Floating: false, Fullscreen: false, Tags: w.Tags));
+                                Floating: false, Fullscreen: false, Tags: w.Tags,
+                                Placement: w.Placement,
+                                RequestedBufferW: w.WidthHint,
+                                RequestedBufferH: w.HeightHint,
+                                LastFocusTick: w.LastFocusTick));
                         }
                     }
                 }
@@ -613,7 +633,11 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             list.Add(new WindowEntryView(
                 Handle: kvp.Key,
                 MinW: w.MinW, MinH: w.MinH, MaxW: w.MaxW, MaxH: w.MaxH,
-                Floating: w.Floating, Fullscreen: false, Tags: 0u));
+                Floating: w.Floating, Fullscreen: false, Tags: 0u,
+                Placement: w.Placement,
+                RequestedBufferW: w.WidthHint,
+                RequestedBufferH: w.HeightHint,
+                LastFocusTick: w.LastFocusTick));
         }
 
         return list;
