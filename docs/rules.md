@@ -46,8 +46,8 @@ Options for the `game-mode` layout engine. Only consulted when at least one
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `remainder_layout` | string | `"grid"` | Layout used to tile non-anchor windows into the surrounding band. One of `tile`, `grid`, `monocle`, `scrolling`, `float`. |
-| `gaps_inner` | int | `8` | Pixel gap between tiles in the remainder. |
+| `remainder_layout` | string | `"grid"` | Layout used to tile non-anchor windows. Invoked once per non-empty side column with its own fresh instance. One of `tile`, `grid`, `monocle`, `scrolling`, `float`. |
+| `gaps_inner` | int | `8` | Pixel gap between tiles inside each side column. |
 | `fallback_layout` | string | `"grid"` | Layout used on outputs that have no anchor window. |
 
 ### `[[window]]`
@@ -73,29 +73,33 @@ Given a 2560x1440 monitor and a 1920x1080 game with `size = "native"`,
 `anchor = "center"`:
 
 ```
-+--------------------------------------------------------+
-|                  TOP BAND (2560 x 180)                  |  <- remainder
 +--------+--------------------------------+---------------+
 |        |                                |               |
 |  LEFT  |       ANCHOR (game)            |    RIGHT      |
-|  320   |        1920 x 1080             |    320        |
-| x1080  |     centered at (320, 180)     |   x1080       |
+| COLUMN |        1920 x 1080             |    COLUMN     |
+|  320   |     centered at (320, 180)     |    320        |
+| x1440  |                                |    x1440      |
 |        |                                |               |
 +--------+--------------------------------+---------------+
-|                  BOTTOM BAND (2560 x 180)               |
-+--------------------------------------------------------+
 ```
 
-The four bands surrounding the anchor are evaluated by area. v1 returns the
-**single largest** as the remainder rect, which is then tiled by
-`remainder_layout` (default `grid`). Zero-area bands (e.g. a full-height anchor
-on an ultrawide) are excluded from contention. Ties are broken in the order
-**top -> bottom -> left -> right**.
+The space around the anchor is exposed as **two full-height side columns**:
+the left column (from `usableArea.X` up to `anchorRect.X`) and the right
+column (from `anchorRect.Right` up to `usableArea.Right`). Non-anchor windows
+are partitioned across the two columns via stable round-robin over the
+visible-window order (even index -> left, odd -> right), and `remainder_layout`
+is invoked once per non-empty column with its own fresh instance. Top/bottom
+strips above and below the anchor are intentionally unused. Column count is
+fixed at 2 and is not configurable.
 
-On a 7680x2160 monitor with a 3840x2160 anchor, top and bottom bands have zero
-height and drop out; the contest reduces to left vs. right, and the left band
-wins on the tie-break. The right band is unused in v1 - v2 may ship multi-band
-(L-shape) tiling.
+If the anchor is flush against an edge (e.g. `anchor = "left"`), the
+corresponding side column collapses to zero width and all non-anchor windows
+fall into the surviving column.
+
+On a 7680x2160 monitor with a 3840x2160 centered anchor, top and bottom strips
+have zero height (the anchor is full-height) and are unused; non-anchor windows
+split round-robin between the left column `(0, 0, 1920, 2160)` and the right
+column `(5760, 0, 1920, 2160)`.
 
 ## Deprecation: `[layout.options.game-mode]` in `wm.toml`
 

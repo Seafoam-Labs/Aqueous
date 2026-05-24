@@ -34,7 +34,8 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # -----------------------------------------------------------------------------
 
 # Example: Dota 2 anchors centered at its requested resolution, with every
-# other visible window tiled into the largest surrounding band.
+# other visible window tiled into one of the two full-height side columns
+# flanking the anchor (round-robin: even index -> left, odd -> right).
 # [[window]]
 # app_id     = "dota2"
 # layout     = "game-mode"
@@ -50,6 +51,11 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # layout = "game-mode"
 # size   = "2560x1080"
 
-# v1 NOTE: the remainder is a single band - the largest of the four bands
-# (top / bottom / left / right) surrounding the anchor. v2 may ship multi-band
-# (L-shape) tiling. File an issue if you need it.
+# v1.5 NOTE: the space around the anchor is exposed as two full-height side
+# columns (left of the anchor and right of the anchor). Non-anchor windows are
+# partitioned round-robin across the two columns (even index -> left, odd ->
+# right) and `remainder_layout` is invoked once per non-empty column with its
+# own fresh instance. Top/bottom strips above and below the anchor are
+# intentionally unused; column count is fixed at 2 (not configurable). If the
+# anchor is flush against an edge, all non-anchor windows fall into the
+# surviving column. File an issue if you need top/bottom strips or N > 2.
