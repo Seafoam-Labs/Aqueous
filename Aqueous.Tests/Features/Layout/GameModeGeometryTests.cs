@@ -5,10 +5,10 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// PR #3 — exhaustive coverage for the pure <see cref="GameModeGeometry"/> kernel.
-/// Pins anchor placement, size resolution, clamping, and the band-remainder selection
-/// (including the explicit zero-area exclusion that makes the 7680×2160 + 3840×2160
-/// ultrawide case "skip top/bottom" by design, not by accident).
+/// Exhaustive coverage for the pure <see cref="GameModeGeometry"/> kernel: anchor
+/// placement + size resolution + clamping + band-remainder selection (including the
+/// explicit zero-area exclusion that makes the 7680×2160 + 3840×2160 ultrawide case
+/// "skip top/bottom" by design, not by accident).
 /// </summary>
 public class GameModeGeometryTests
 {

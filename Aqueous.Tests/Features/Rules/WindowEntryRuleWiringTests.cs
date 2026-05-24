@@ -7,7 +7,7 @@ using Xunit;
 namespace Aqueous.Tests.Features.Rules;
 
 /// <summary>
-/// PR #4 step 2 — pins the data-flow contract between the rule engine, the river-side
+/// Pins the data-flow contract between <see cref="WindowRuleEngine"/>, the river-side
 /// <see cref="WindowEntry"/>, and the layout-engine view <see cref="WindowEntryView"/>.
 /// <para>
 /// The wiring under test is what <c>WindowEventService.ApplyRule</c> does on every
@@ -119,8 +119,8 @@ public class WindowEntryRuleWiringTests
     public void ApplyRule_FullscreenRule_StillAttachesButIsNotAnchor()
     {
         // A game-mode rule with fullscreen=true is intentionally NOT an anchor — those
-        // route through the existing toggle_fullscreen path instead. PR #2 pinned this
-        // via RulePlacement.IsAnchor; this test pins the wiring respects it.
+        // route through the existing toggle_fullscreen path instead. See
+        // RulePlacement.IsAnchor; this test pins that the wiring respects it.
         var engine = new WindowRuleEngine(new[]
         {
             new WindowRule(AppId: "dota2", Class: null, Title: null,

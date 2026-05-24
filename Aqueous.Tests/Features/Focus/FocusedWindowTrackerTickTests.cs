@@ -5,8 +5,8 @@ using Xunit;
 namespace Aqueous.Tests.Features.Focus;
 
 /// <summary>
-/// PR #4 step 2 — pins the monotonic focus-tick behaviour added to
-/// <see cref="FocusedWindowTracker"/>. <c>GameModeLayout</c> uses
+/// Pins the monotonic focus-tick behaviour on <see cref="FocusedWindowTracker"/>
+/// (consumed by <c>GameModeLayout</c> for anchor tie-breaking). <c>GameModeLayout</c> uses
 /// <see cref="FocusedWindowTracker.CurrentTick"/> (mirrored onto each
 /// <c>WindowEntry.LastFocusTick</c> by <c>LayoutProposer</c>) to break ties when more than
 /// one anchor candidate is visible on the same output ("most-recently-focused wins"). These

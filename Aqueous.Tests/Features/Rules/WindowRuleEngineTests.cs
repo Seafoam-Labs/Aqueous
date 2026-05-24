@@ -4,9 +4,8 @@ using Xunit;
 namespace Aqueous.Tests.Features.Rules;
 
 /// <summary>
-/// PR #2 — behaviour of <see cref="WindowRuleEngine"/>. Pins the contract the upcoming
-/// layout-engine PR (#4) will rely on: first-match-wins, all-present-matchers-must-match,
-/// glob support, defensive list copy on <see cref="WindowRuleEngine.Reload"/>.
+/// Behaviour of <see cref="WindowRuleEngine"/>: first-match-wins resolution, all-present-
+/// matchers-must-match, glob support, defensive list copy on <see cref="WindowRuleEngine.Reload"/>.
 /// </summary>
 public class WindowRuleEngineTests
 {

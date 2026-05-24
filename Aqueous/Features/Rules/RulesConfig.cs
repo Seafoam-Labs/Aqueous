@@ -39,7 +39,7 @@ public abstract record SizeSpec
 
 /// <summary>
 /// One <c>[[window]]</c> rule parsed from <c>rules.toml</c>. First-match-wins evaluation
-/// happens in <c>WindowRuleEngine</c> (PR #2); the parser only guarantees that every emitted
+/// happens in <c>WindowRuleEngine</c>; the parser only guarantees that every emitted
 /// rule has at least one matcher set and a recognised layout id.
 /// </summary>
 public sealed record WindowRule(

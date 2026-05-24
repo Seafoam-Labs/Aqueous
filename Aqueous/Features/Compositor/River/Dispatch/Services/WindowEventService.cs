@@ -68,15 +68,15 @@ internal sealed unsafe class WindowEventService
     }
 
     /// <summary>
-    /// PR #4 step 2 — re-resolve the window's rule against the current identity
-    /// (app_id / title) and update <see cref="WindowEntry.Placement"/>. Schedules a
-    /// manage cycle iff the resolved rule actually changed, so a no-op title update
-    /// (e.g. terminal scroll) does not thrash the layout.
+    /// Re-resolves the window's rule against its current identity (app_id / title) and
+    /// mirrors the result onto <see cref="WindowEntry.Placement"/>. Schedules a manage
+    /// cycle iff the resolved rule actually changed, so a no-op title update (e.g.
+    /// terminal scroll) does not thrash the layout.
     /// </summary>
     private void ApplyRule(WindowEntry w)
     {
-        // PR #5 — delegate to the shared helper so the on-event path and the bulk-reload
-        // path (RulesReloader.Reload) cannot drift in their placement-change semantics.
+        // Delegate to RuleApplication so the per-event path and RulesReloader.Reload share
+        // one placement-change definition.
         if (RuleApplication.Apply(_ruleEngine, w))
         {
             _managerRequestSender.ScheduleManage();
@@ -158,15 +158,14 @@ internal sealed unsafe class WindowEventService
             case RiverProtocolOpcodes.Window.AppId:
                 w.AppId = MarshalUtf8(args[0].s) ?? string.Empty;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} app_id={w.AppId}");
-                // PR #4 step 2 — re-evaluate window rules; app_id is the primary matcher
-                // for game-mode rules (e.g. "dota2").
+                // app_id is the primary rule matcher — re-evaluate on every change.
                 ApplyRule(w);
                 break;
 
             case RiverProtocolOpcodes.Window.Title:
                 w.Title = MarshalUtf8(args[0].s) ?? string.Empty;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} title={w.Title}");
-                // PR #4 step 2 — title-keyed rules also need re-evaluation here.
+                // Title-keyed rules require re-evaluation on every title change.
                 ApplyRule(w);
                 break;
 
@@ -205,10 +204,9 @@ internal sealed unsafe class WindowEventService
                 IntPtr resizeSeatProxy = args[0].o;
                 uint edges = args[1].u;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
-                // PR #4 step 2 — anchor windows are locked to the client-requested buffer
-                // size; pointer-driven resize is rejected. Client-driven xdg_toplevel.configure
-                // changes still flow through Dimensions/DimensionsHint and re-arrange via the
-                // dirty path (which is the whole point of game-mode).
+                // Anchor windows are sized by the client-requested buffer (xdg_toplevel.configure),
+                // not by pointer resize. Client-driven changes still flow through
+                // Dimensions/DimensionsHint and re-arrange via the dirty path.
                 if (w.Placement is { IsAnchor: true })
                 {
                     RiverLog.Write($"pointer_resize_requested ignored: anchor window owns its size");

@@ -31,9 +31,8 @@ internal sealed class FocusedWindowTracker
             var old = Volatile.Read(ref _current);
             Volatile.Write(ref _current, value);
             // Bump the monotonic focus tick whenever the focused window actually changes.
-            // PR #4 step 2: GameModeLayout uses this tick to pick the most-recently-focused
-            // anchor candidate when multiple matching windows share an output. The bump on
-            // every transition (including to/from IntPtr.Zero) is acceptable — only the
+            // GameModeLayout uses this tick to pick the most-recently-focused anchor
+            // candidate when multiple windows match a rule on the same output. Only the
             // relative ordering of ticks across windows matters.
             if (value != IntPtr.Zero && value != old)
             {

@@ -84,9 +84,8 @@ public sealed class WindowStateData
 
     /// <summary>
     /// Window-rule placement attached on <c>manage_start</c> / identity change, or
-    /// <see langword="null"/> when no rule matches. PR #2 is inert at the layout level — this
-    /// field is populated but not yet consumed by any layout engine. The upcoming
-    /// <c>GameModeLayout</c> (PR #4) reads <see cref="IsAnchor"/> to pick the exclusion anchor.
+    /// <see langword="null"/> when no rule matches. <c>GameModeLayout</c> reads
+    /// <see cref="IsAnchor"/> to pick the per-output exclusion anchor.
     /// </summary>
     public RulePlacement? Placement { get; set; }
 

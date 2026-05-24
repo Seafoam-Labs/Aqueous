@@ -66,7 +66,7 @@ internal sealed class WindowEntry
     // maximized state.
     public bool XdgMaximized;
 
-    // ---- PR #4 step 2 — game-mode runtime wiring -------------------------------------------
+    // ---- Game-mode runtime fields (read by LayoutProposer → GameModeLayout) ----------------
     // Game-mode anchor metadata. Populated by the rule engine on app_id/title changes
     // (see WindowEventService) and by FocusedWindowTracker on every focus transition.
     // LayoutProposer copies these into WindowEntryView so GameModeLayout can branch on

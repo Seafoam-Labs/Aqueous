@@ -5,7 +5,8 @@ using Aqueous.Features.Rules;
 namespace Aqueous.Features.Layout.Builtin;
 
 /// <summary>
-/// PR #4 (step 1) — game-mode layout engine.
+/// Game-mode layout engine: pins an anchor window (matched by a <c>rules.toml</c> entry)
+/// at its requested size and delegates the remainder rect to a configurable sub-layout.
 /// <para>
 /// Picks the most-recently-focused <c>IsAnchor</c> window on the output, centers (or
 /// edge-anchors) it at its requested buffer size via <see cref="GameModeGeometry"/>, and

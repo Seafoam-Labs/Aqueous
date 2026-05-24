@@ -18,7 +18,7 @@ public sealed record RulesReloadResult(
     bool Succeeded);
 
 /// <summary>
-/// PR #5 — hot-reload entry point for <c>rules.toml</c>. Re-reads the file via the documented
+/// Hot-reload entry point for <c>rules.toml</c>. Re-reads the file via the documented
 /// discovery order (<c>$AQUEOUS_RULES</c> → <c>[rules].path</c> → XDG → <c>~</c>), atomically
 /// swaps the rule list on the singleton <see cref="IWindowRuleEngine"/>, then walks every
 /// managed <c>WindowEntry</c> re-resolving its identity. Outputs are dirtied indirectly via

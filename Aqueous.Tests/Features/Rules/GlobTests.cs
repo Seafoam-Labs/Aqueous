@@ -4,10 +4,7 @@ using Xunit;
 namespace Aqueous.Tests.Features.Rules;
 
 /// <summary>
-/// PR #2 — coverage for the anchored glob matcher used by <see cref="WindowRuleEngine"/>.
-/// <see cref="Glob"/> is <c>internal</c>; this test project sees it via the
-/// <c>InternalsVisibleTo</c> attribute on the production assembly. If that attribute is
-/// absent, switch <see cref="Glob"/> to <c>public</c> — the matcher is small and safe to expose.
+/// Coverage for the anchored <c>*</c> / <c>?</c> glob matcher used by <see cref="WindowRuleEngine"/>.
 /// </summary>
 public class GlobTests
 {

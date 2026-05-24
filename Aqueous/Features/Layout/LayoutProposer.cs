@@ -73,9 +73,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         var focusedWindow = _focusedWindowTracker.Current;
         var prevFullscreenHandles = _prevFullscreenStore.Handles;
 
-        // PR #4 step 2 — stamp the currently-focused window with the tracker's monotonic
-        // tick so GameModeLayout can break anchor-candidate ties using "most-recently
-        // focused wins". Done once per proposer pass; cost is one dictionary hit.
+        // Stamp the currently-focused window's LastFocusTick from the tracker once per pass
+        // so GameModeLayout can break anchor ties deterministically ("most-recently focused
+        // wins"). Cost: one dictionary hit per proposer pass.
         if (focusedWindow != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focusedWindow, out var focusedEntry))
         {
@@ -212,9 +212,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     Floating: false,
                     Fullscreen: false,
                     Tags: w.Tags,
-                    // PR #4 step 2 — propagate game-mode anchor metadata to the engine.
-                    // RequestedBuffer* falls through to WidthHint/HeightHint, which mirror
-                    // the client's last dimensions_hint (the client's requested buffer size).
+                    // Propagate game-mode anchor metadata (Placement + requested buffer + focus
+                    // tick) into the engine view. RequestedBuffer* mirrors WidthHint/HeightHint,
+                    // i.e. the client's last dimensions_hint.
                     Placement: w.Placement,
                     RequestedBufferW: w.WidthHint,
                     RequestedBufferH: w.HeightHint,

@@ -23,10 +23,6 @@ namespace Aqueous.Features.Rules;
 /// A missing file is not an error — <see cref="Load"/> returns <see cref="RulesConfig.Empty"/>.
 /// This keeps existing installs (no <c>rules.toml</c>) working unchanged.
 /// </para>
-/// <para>
-/// PR #1: this loader is wired in but no caller consumes the resulting <see cref="RulesConfig"/>
-/// yet. The rule engine (PR #2) and game-mode layout (PR #4) land in later PRs.
-/// </para>
 /// </summary>
 public static class RulesTomlReader
 {

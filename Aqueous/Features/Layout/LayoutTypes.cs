@@ -25,11 +25,9 @@ public readonly record struct WindowEntryView(
     bool Floating,
     bool Fullscreen,
     uint Tags,
-    // ---- Game-mode anchor metadata (PR #4, step 1). All optional / defaulted so existing
-    // construction sites keep working unchanged. The river-side proposer populates these
-    // from WindowEntry / WindowStateData in step 2; until then, every view reports
-    // IsAnchor=false and GameModeLayout transparently falls back to its configured
-    // remainder layout (byte-identical to running that layout directly).
+    // ---- Game-mode anchor metadata. All optional / defaulted so non-game-mode call
+    // sites are unaffected. When unset, IsAnchor=false and GameModeLayout falls back
+    // byte-identically to its configured fallback layout.
     RulePlacement? Placement = null,
     int RequestedBufferW = 0,
     int RequestedBufferH = 0,

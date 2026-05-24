@@ -63,7 +63,7 @@ class Program
         services.AddSingleton<Aqueous.Features.State.ManageCycleState>();
         services.AddSingleton<Aqueous.Features.State.ScratchpadRegistry>();
 
-        // - Rules subsystem (PR #4 step 2) -------------------------------
+        // - Rules subsystem ----------------------------------------------
         // Loads rules.toml at boot via the documented discovery order; falls back to
         // RulesConfig.Empty when no file is present. The engine is a singleton consumed by
         // WindowEventService on app_id / title transitions and queried by LayoutProposer
@@ -73,7 +73,7 @@ class Program
         services.AddSingleton<Aqueous.Features.Rules.IWindowRuleEngine>(sp =>
             new Aqueous.Features.Rules.WindowRuleEngine(
                 sp.GetRequiredService<Aqueous.Features.Rules.RulesConfig>().Windows));
-        // PR #5 — hot reload entry point. Bound to Super+R (alongside wm.toml reload) and the
+        // Hot-reload entry point — bound to Super+R (alongside wm.toml reload) and to the
         // optional standalone `reload_rules` keybind verb.
         services.AddSingleton<Aqueous.Features.Rules.IRulesReloader,
             Aqueous.Features.Rules.RulesReloader>();

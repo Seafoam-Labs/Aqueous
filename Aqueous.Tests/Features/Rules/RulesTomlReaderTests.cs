@@ -6,9 +6,8 @@ using Xunit;
 namespace Aqueous.Tests.Features.Rules;
 
 /// <summary>
-/// PR #1 — parser + discovery tests for <see cref="RulesTomlReader"/>. The reader is inert at
-/// this stage (no caller consumes <see cref="RulesConfig"/> yet), so these tests pin behaviour
-/// before later PRs wire it into the runtime config.
+/// Parser + discovery tests for <see cref="RulesTomlReader"/> (TOML shape, size variants,
+/// XDG / env path precedence).
 /// </summary>
 public class RulesTomlReaderTests
 {

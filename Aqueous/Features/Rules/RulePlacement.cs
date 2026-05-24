@@ -2,13 +2,8 @@ namespace Aqueous.Features.Rules;
 
 /// <summary>
 /// Per-window attachment produced when a managed window matches a <see cref="WindowRule"/>.
-/// Stored on the corresponding <c>WindowStateData</c> (see the <c>Placement</c> field) so the
-/// upcoming <c>GameModeLayout</c> engine (PR #4) can read it without re-running the rule
-/// engine on every arrange call.
-/// <para>
-/// PR #2 is intentionally inert at the layout level: <see cref="RulePlacement"/> records are
-/// produced and attached, but no layout engine consumes the <c>IsAnchor</c> flag yet.
-/// </para>
+/// Stored on the corresponding <c>WindowStateData</c> (see the <c>Placement</c> field) so
+/// <c>GameModeLayout</c> can read it without re-running the rule engine on every arrange call.
 /// </summary>
 /// <param name="Rule">The rule that produced this placement.</param>
 public sealed record RulePlacement(WindowRule Rule)

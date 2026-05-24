@@ -8,10 +8,9 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// PR #4 (step 1) — engine-level tests for <see cref="GameModeLayout"/>.
-/// Pins: no-anchor fallback path, single-anchor centered placement + remainder dispatch,
-/// most-recently-focused anchor selection, empty-remainder skip, self-recursion guard,
-/// and registry registration / discoverability.
+/// Engine-level tests for <see cref="GameModeLayout"/>: anchor selection (most-recently
+/// focused wins), fallback when no anchor is present, sub-layout dispatch for the
+/// remainder, empty-remainder skip, self-recursion guards, and registry discoverability.
 /// </summary>
 public class GameModeLayoutTests
 {

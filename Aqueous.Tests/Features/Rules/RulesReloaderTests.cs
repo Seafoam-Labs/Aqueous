@@ -10,10 +10,9 @@ using Xunit;
 namespace Aqueous.Tests.Features.Rules;
 
 /// <summary>
-/// PR #5 — pins the hot-reload contract of <see cref="RulesReloader"/>:
-/// re-read <c>rules.toml</c>, swap the engine's rule list, walk every managed
-/// <see cref="WindowEntry"/> applying the updated rule, and schedule a manage cycle
-/// only when something actually changed.
+/// Pins the hot-reload contract of <see cref="RulesReloader"/>: re-read <c>rules.toml</c>,
+/// swap the engine's rule list, walk every managed <see cref="WindowEntry"/> applying the
+/// updated rule, and schedule a manage cycle iff something actually changed.
 /// </summary>
 public class RulesReloaderTests
 {

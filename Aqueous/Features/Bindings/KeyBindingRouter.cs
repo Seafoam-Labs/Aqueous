@@ -196,8 +196,8 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             _layoutController.ReplaceConfig(fresh);
             _libinputApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");
-            // PR #5 — Super+R reloads rules.toml in lockstep with wm.toml. A rules-only
-            // reload (reload_rules) is also bindable separately.
+            // Super+R reloads rules.toml in lockstep with wm.toml; the reload_rules verb
+            // is the rules-only equivalent.
             _rulesReloader.Reload();
             _managerRequestSender.ScheduleManage();
         }
