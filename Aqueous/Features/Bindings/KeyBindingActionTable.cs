@@ -30,6 +30,7 @@ internal static class KeyBindingActionTable
             ["move_column_left"] = KeyBindingAction.MoveColumnLeft,
             ["move_column_right"] = KeyBindingAction.MoveColumnRight,
             ["reload_config"] = KeyBindingAction.ReloadConfig,
+            ["reload_rules"] = KeyBindingAction.ReloadRules,
             ["set_layout_primary"] = KeyBindingAction.SetLayoutPrimary,
             ["set_layout_secondary"] = KeyBindingAction.SetLayoutSecondary,
             ["set_layout_tertiary"] = KeyBindingAction.SetLayoutTertiary,

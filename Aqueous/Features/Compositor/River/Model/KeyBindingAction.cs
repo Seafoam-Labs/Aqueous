@@ -25,6 +25,7 @@ internal enum KeyBindingAction
     MoveColumnLeft,
     MoveColumnRight,
     ReloadConfig,
+    ReloadRules,
     SetLayoutPrimary,
     SetLayoutSecondary,
     SetLayoutTertiary,

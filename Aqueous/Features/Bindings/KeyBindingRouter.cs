@@ -7,6 +7,7 @@ using Aqueous.Features.Configuration;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Rules;
 using Aqueous.Features.State;
 using Aqueous.Features.Tags;
 
@@ -29,6 +30,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly WindowStateController _windowState;
     private readonly ViewportInteractionService _viewport;
     private readonly LibinputConfigApplier _libinputApplier;
+    private readonly IRulesReloader _rulesReloader;
 
     public KeyBindingRouter(
         IFocusService focusService,
@@ -37,7 +39,8 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
         ViewportInteractionService viewport,
-        LibinputConfigApplier libinputApplier)
+        LibinputConfigApplier libinputApplier,
+        IRulesReloader rulesReloader)
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
@@ -46,6 +49,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
         _libinputApplier = libinputApplier ?? throw new ArgumentNullException(nameof(libinputApplier));
+        _rulesReloader = rulesReloader ?? throw new ArgumentNullException(nameof(rulesReloader));
     }
 
     // Static dispatch table for built-in (parameterless) key-binding actions. Tag actions (which need
@@ -67,6 +71,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.MoveColumnLeft]       = c => c._viewport.MoveColumn(FocusDirection.Left),
             [KeyBindingAction.MoveColumnRight]      = c => c._viewport.MoveColumn(FocusDirection.Right),
             [KeyBindingAction.ReloadConfig]         = c => c.ReloadConfig(),
+            [KeyBindingAction.ReloadRules]          = c => c._rulesReloader.Reload(),
             [KeyBindingAction.SetLayoutPrimary]     = c => c.SetLayoutByIdOrSlot("primary"),
             [KeyBindingAction.SetLayoutSecondary]   = c => c.SetLayoutByIdOrSlot("secondary"),
             [KeyBindingAction.SetLayoutTertiary]    = c => c.SetLayoutByIdOrSlot("tertiary"),
@@ -191,6 +196,9 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             _layoutController.ReplaceConfig(fresh);
             _libinputApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");
+            // PR #5 — Super+R reloads rules.toml in lockstep with wm.toml. A rules-only
+            // reload (reload_rules) is also bindable separately.
+            _rulesReloader.Reload();
             _managerRequestSender.ScheduleManage();
         }
         catch (Exception ex)

@@ -1,0 +1,55 @@
+# =============================================================================
+# Aqueous WM - window rules (example)
+#
+# Copy to ~/.config/aqueous/rules.toml to enable per-application placement
+# (including game-mode). Missing file is fine - rules are simply disabled.
+#
+# Discovery order (first hit wins):
+#   1. $AQUEOUS_RULES                        (env var, absolute path)
+#   2. [rules].path in wm.toml               (override)
+#   3. $XDG_CONFIG_HOME/aqueous/rules.toml
+#   4. ~/.config/aqueous/rules.toml
+#
+# Reloaded by Super+R together with wm.toml. Bind `reload_rules` for rules-only
+# reload (default unbound).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Game-mode layout options. Only relevant when at least one [[window]] rule
+# below targets layout = "game-mode". These keys USED TO live in wm.toml under
+# [layout.options.game-mode]; that location is deprecated and Aqueous warns
+# once on load. Two-release deprecation window.
+# -----------------------------------------------------------------------------
+[game_mode]
+remainder_layout = "grid"    # tile | grid | monocle | scrolling | float
+gaps_inner       = 8
+fallback_layout  = "grid"    # used on outputs with no anchor
+
+# -----------------------------------------------------------------------------
+# Window rules. First match wins; rules are evaluated on manage_start and on
+# every app_id / title change. At least one matcher (app_id / class / title)
+# is required - matcher-less rules are dropped with a warning.
+#
+# Globs (`*`, `?`) are supported in matchers.
+# -----------------------------------------------------------------------------
+
+# Example: Dota 2 anchors centered at its requested resolution, with every
+# other visible window tiled into the largest surrounding band.
+# [[window]]
+# app_id     = "dota2"
+# layout     = "game-mode"
+# anchor     = "center"        # center | top | bottom | left | right
+# size       = "native"        # "native" | "WxH" | "FxF"
+# scale      = 1.0
+# tag        = 9               # optional - also move to this tag
+# fullscreen = false
+
+# Example: force a specific size regardless of what the client asks for.
+# [[window]]
+# app_id = "cs2"
+# layout = "game-mode"
+# size   = "2560x1080"
+
+# v1 NOTE: the remainder is a single band - the largest of the four bands
+# (top / bottom / left / right) surrounding the anchor. v2 may ship multi-band
+# (L-shape) tiling. File an issue if you need it.

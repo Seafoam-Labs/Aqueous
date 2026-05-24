@@ -684,6 +684,18 @@ public static class LayoutConfigLoader
             Right = Math.Max(0, strutRight),
         };
 
+        // PR #5 — deprecation: [layout.options.game-mode] was the original home for the
+        // game-mode engine's options (remainder_layout / fallback_layout / gaps_inner). Those
+        // settings now live in rules.toml under [game_mode] so they can be hot-reloaded
+        // independently of wm.toml. We do NOT silently consume the legacy values; we just warn
+        // once per load. Two-release deprecation window — after which this becomes an error.
+        if (perLayout.ContainsKey("game-mode"))
+        {
+            Aqueous.Diagnostics.RiverLog.Write(
+                "[layout.options.game-mode] in wm.toml is deprecated — game-mode options live " +
+                "in rules.toml under [game_mode]. Values here are ignored. See docs/rules.md.");
+        }
+
         // Build per-layout options. Scalars inherit from defaults unless overridden via dedicated keys
         // (gaps_outer, gaps_inner, master_*).
         var perLayoutOpts = new Dictionary<string, LayoutOptions>(StringComparer.Ordinal);

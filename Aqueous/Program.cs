@@ -73,6 +73,10 @@ class Program
         services.AddSingleton<Aqueous.Features.Rules.IWindowRuleEngine>(sp =>
             new Aqueous.Features.Rules.WindowRuleEngine(
                 sp.GetRequiredService<Aqueous.Features.Rules.RulesConfig>().Windows));
+        // PR #5 — hot reload entry point. Bound to Super+R (alongside wm.toml reload) and the
+        // optional standalone `reload_rules` keybind verb.
+        services.AddSingleton<Aqueous.Features.Rules.IRulesReloader,
+            Aqueous.Features.Rules.RulesReloader>();
 
         // - Layout subsystem ---------------------------------------------
         services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();

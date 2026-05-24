@@ -75,19 +75,12 @@ internal sealed unsafe class WindowEventService
     /// </summary>
     private void ApplyRule(WindowEntry w)
     {
-        var resolved = _ruleEngine.Resolve(new WindowIdentity(w.AppId, XClass: null, w.Title));
-        var old = w.Placement;
-        // Two placements compare equal iff they reference the same rule (records compare
-        // by value); cheap reference fall-through covers the common no-match -> no-match
-        // case where both are null.
-        bool changed =
-            (old is null) != (resolved is null) ||
-            (old is not null && resolved is not null && !old.Rule.Equals(resolved));
-        if (!changed) return;
-        w.Placement = resolved is null ? null : new RulePlacement(resolved);
-        // A placement change means the anchor set on the owning output may have shifted;
-        // re-run layout so GameModeLayout sees the update.
-        _managerRequestSender.ScheduleManage();
+        // PR #5 — delegate to the shared helper so the on-event path and the bulk-reload
+        // path (RulesReloader.Reload) cannot drift in their placement-change semantics.
+        if (RuleApplication.Apply(_ruleEngine, w))
+        {
+            _managerRequestSender.ScheduleManage();
+        }
     }
 
     private static string? MarshalUtf8(IntPtr p) =>
