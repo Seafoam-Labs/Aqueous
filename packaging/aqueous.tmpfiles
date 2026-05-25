@@ -1,0 +1,8 @@
+# /usr/lib/tmpfiles.d/aqueous.conf
+# Per-user state/cache/config dirs for Aqueous, the OutputDaemon, and
+# the River supervisor. systemd-tmpfiles --user expands %h to the
+# user's home at login time.
+d %h/.cache/aqueous          0700 - - -
+d %h/.config/aqueous         0700 - - -
+d %h/.local/state/aqueous    0700 - - -
+d %h/.local/state/river      0700 - - -

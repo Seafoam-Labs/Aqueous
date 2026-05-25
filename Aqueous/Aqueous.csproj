@@ -7,6 +7,19 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- NativeAOT. AOT-friendly: no reflection, no dynamic codegen.
+         Declared here so Rider and CI see the same publish profile as
+         the PKGBUILD; the command line in PKGBUILD also passes
+         -p:PublishAot=true defensively. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- Analyzers are intentionally NOT enabled here yet; flip these
+         on once IL2026/IL3050 warnings from Microsoft.Extensions.* are
+         triaged. -->
+    <!-- <EnableTrimAnalyzer>true</EnableTrimAnalyzer> -->
+    <!-- <EnableAotAnalyzer>true</EnableAotAnalyzer> -->
   </PropertyGroup>
 
   <PropertyGroup>
