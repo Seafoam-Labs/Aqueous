@@ -108,6 +108,27 @@ public readonly record struct KeyChord(uint Modifiers, uint Keysym)
             ["grave"] = 0x0060,
             ["apostrophe"] = 0x0027,
             ["backslash"] = 0x005c,
+            // Audio
+            ["xf86audioraisevolume"]  = 0x1008ff13,
+            ["xf86audiolowervolume"]  = 0x1008ff11,
+            ["xf86audiomute"]         = 0x1008ff12,
+            ["xf86audiomicmute"]      = 0x1008ffb2,
+            ["xf86audioplay"]         = 0x1008ff14,
+            ["xf86audiopause"]        = 0x1008ff31,
+            ["xf86audiostop"]         = 0x1008ff15,
+            ["xf86audionext"]         = 0x1008ff17,
+            ["xf86audioprev"]         = 0x1008ff16,
+
+// Brightness
+            ["xf86monbrightnessup"]   = 0x1008ff02,
+            ["xf86monbrightnessdown"] = 0x1008ff03,
+            ["xf86kbdbrightnessup"]   = 0x1008ff05,
+            ["xf86kbdbrightnessdown"] = 0x1008ff06,
+
+// Misc
+            ["xf86display"]           = 0x1008ff59,
+            ["xf86search"]            = 0x1008ff1b,
+            ["xf86launch1"]           = 0x1008ff41,
         };
 
     private static uint? ResolveKeysym(string token)

@@ -239,6 +239,7 @@ env     = { DISPLAY = ":0" }
 toggle_start_menu = "qs -c noctalia-shell ipc call launcher toggle"
 spawn_terminal = "tabby"
 lock_screen = "qs -c noctalia-shell ipc call lockScreen lock"
+
 # Keybindings.
 #
 # Each built-in action maps to either:
@@ -372,6 +373,15 @@ lock_screen     = "Super+Ctrl+L"      # default
 "Super+E"            = "spawn:nemo"
 "Super+Shift+S"      = "spawn:grim -g \"$(slurp)\" - | wl-copy"
 "Super+B"            = "spawn:firefox"
+"XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
+"XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+"XF86AudioMute"         = "spawn:wpctl set-mute   @DEFAULT_AUDIO_SINK@ toggle"
+"XF86AudioMicMute"      = "spawn:wpctl set-mute   @DEFAULT_AUDIO_SOURCE@ toggle"
+"XF86MonBrightnessUp"   = "spawn:brightnessctl set +5%"
+"XF86MonBrightnessDown" = "spawn:brightnessctl set 5%-"
+"XF86AudioPlay"         = "spawn:playerctl play-pause"
+"XF86AudioNext"         = "spawn:playerctl next"
+"XF86AudioPrev"         = "spawn:playerctl previous"
 
 # Direct layout switches (bypassing slots).
 # NOTE: Super+1..5 are reserved by the tag bindings above (view_tag_1..5).
