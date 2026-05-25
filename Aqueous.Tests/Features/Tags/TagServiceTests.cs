@@ -25,6 +25,7 @@ public class TagServiceTests
         public bool InsideManageSequence { get; set; }
         public bool IsBound => true;
         public void Init(IntPtr managerProxy, IntPtr display) { }
+        public void Reset() { }
         public void SendManagerRequest(uint opcode) => SendManagerRequestCalls++;
         public void ScheduleManage() => ScheduleManageCalls++;
     }

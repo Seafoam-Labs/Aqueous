@@ -50,4 +50,14 @@ internal interface IManagerRequestSender
     /// diagnostics + tests.
     /// </summary>
     bool IsBound { get; }
+
+    /// <summary>
+    /// Teardown counterpart to <see cref="Init"/>. Clears the cached <c>river_window_manager_v1</c>
+    /// proxy and <c>wl_display*</c> handles so that subsequent <see cref="SendManagerRequest"/> /
+    /// <see cref="ScheduleManage"/> calls become silent no-ops. Must be called when the manager
+    /// global is removed (<c>wl_registry::global_remove</c>) or the display is disconnected — once
+    /// the proxy is destroyed the stored pointer becomes a dangling write target inside
+    /// libwayland's <c>wl_proxy_marshal_flags</c> (the symptom is a NULL-deref at offset 0x2c).
+    /// </summary>
+    void Reset();
 }

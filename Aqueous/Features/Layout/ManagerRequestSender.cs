@@ -34,6 +34,13 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         _display = display;
     }
 
+    public void Reset()
+    {
+        _manager = IntPtr.Zero;
+        _display = IntPtr.Zero;
+        _insideManageSequence = false;
+    }
+
     public void SendManagerRequest(uint opcode)
     {
         if (_manager == IntPtr.Zero)

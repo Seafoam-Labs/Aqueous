@@ -48,7 +48,10 @@ internal sealed class ViewportInteractionService
         }
 
         _layoutController.ScrollViewport(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), deltaColumns);
-        _requests.ScheduleManage();
+        if (_requests.IsBound)
+        {
+            _requests.ScheduleManage();
+        }
     }
 
     /// <summary>
@@ -62,7 +65,7 @@ internal sealed class ViewportInteractionService
             return;
         }
 
-        if (_layoutController.MoveFocused(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir))
+        if (_layoutController.MoveFocused(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir) && _requests.IsBound)
         {
             _requests.ScheduleManage();
         }

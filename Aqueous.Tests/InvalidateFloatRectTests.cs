@@ -73,6 +73,7 @@ public class InvalidateFloatRectTests
         public bool InsideManageSequence { get; set; }
         public void Init(IntPtr managerProxy, IntPtr display) { }
         public bool IsBound => false;
+        public void Reset() { }
     }
 
     [Fact]

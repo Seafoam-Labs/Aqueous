@@ -39,6 +39,7 @@ public class RulesReloaderTests
         public bool InsideManageSequence { get; set; }
         public void Init(IntPtr managerProxy, IntPtr display) { }
         public bool IsBound => false;
+        public void Reset() { }
     }
 
     // We use the real WindowRegistry (internal — accessible via InternalsVisibleTo) and
