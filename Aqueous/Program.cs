@@ -86,7 +86,7 @@ class Program
         // - Layout subsystem ---------------------------------------------
         services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
         services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>
-            Aqueous.Features.Layout.LayoutConfig.Load(DefaultConfigPath.Resolve()));
+            Aqueous.Features.Layout.LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve()));
         services.AddSingleton<Aqueous.Features.Layout.LayoutController>();
         services.AddSingleton<Aqueous.Features.Layout.IManagerRequestSender,
             Aqueous.Features.Layout.ManagerRequestSender>();

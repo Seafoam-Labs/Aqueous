@@ -192,7 +192,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         try
         {
-            var fresh = LayoutConfig.Load(DefaultConfigPath.Resolve());
+            var fresh = LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve());
             _layoutController.ReplaceConfig(fresh);
             _libinputApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");

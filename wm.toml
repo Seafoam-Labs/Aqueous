@@ -10,8 +10,15 @@
 # Basic Layout Configuration
 # ------------------------------------------------------------------------------
 [layout]
+# Optional sidecar file. If set, the [layout], [layout.slots] and
+# [layout.options.*] sections in that file overlay the ones below.
+# Relative paths resolve next to this wm.toml. See layout.toml.example.
+# Discovery order: $AQUEOUS_LAYOUT → this `path` → $XDG_CONFIG_HOME/aqueous/
+# layout.toml → ~/.config/aqueous/layout.toml → /etc/xdg/aqueous/layout.toml.
+#path          = "layout.toml"
+
 # Global default layout id. One of: tile | monocle | grid | float | scrolling
-default       = "float"
+default       = "game-mode"
 
 # Gaps (px). Outer = around the screen edge; inner = between tiles.
 gaps_outer    = 8        # default 8

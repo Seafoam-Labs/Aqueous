@@ -1,0 +1,86 @@
+# =============================================================================
+# Aqueous WM — example layout.toml (sidecar)
+# Path: ~/.config/aqueous/layout.toml
+#
+# Optional standalone file that overlays the layout-only sections of wm.toml.
+# Only [layout], [layout.slots] and [layout.options.*] are read here; every
+# other section (keybinds, input, output, snap_zones, exec, scratchpad, state,
+# rules, …) stays in wm.toml and is ignored if present here.
+#
+# Discovery order (first hit wins):
+#   1. $AQUEOUS_LAYOUT environment variable (verbatim, ~ expanded)
+#   2. [layout].path in wm.toml (relative paths resolve next to wm.toml)
+#   3. $XDG_CONFIG_HOME/aqueous/layout.toml
+#   4. ~/.config/aqueous/layout.toml
+#   5. /etc/xdg/aqueous/layout.toml
+#
+# Merge semantics:
+#   • Scalar fields ([layout].default, gaps_*, master_*, border_*) — sidecar
+#     wins wholesale when present.
+#   • [layout.slots] — merged per key; sidecar overrides on conflict, base
+#     keys missing from the sidecar are preserved.
+#   • [layout.options.<id>] — merged per layout id; the entire block from the
+#     sidecar replaces the same id from wm.toml (no deep-merge of Extra).
+#
+# A missing or malformed sidecar is non-fatal: Aqueous falls back to the
+# [layout]* sections of wm.toml and logs a single line.
+#
+# Hot reload: Super+R re-reads both wm.toml and this file.
+# =============================================================================
+
+
+# ------------------------------------------------------------------------------
+# Global layout defaults
+# ------------------------------------------------------------------------------
+[layout]
+# Global default layout id. One of: tile | monocle | grid | float | scrolling
+default       = "game-mode"
+
+# Gaps (px). Outer = around the screen edge; inner = between tiles.
+gaps_outer    = 8
+gaps_inner    = 4
+
+# Master/stack split for the `tile` engine.
+master_ratio  = 0.55     # 0.0–1.0
+master_count  = 1        # windows in the master area
+
+# Borders (ARGB hex, 0xAARRGGBB).
+border_width   = 2
+border_focused = 0xFF88C0D0   # Nord frost
+border_normal  = 0xFF3B4252   # Nord polar night
+border_urgent  = 0xFFBF616A   # Nord aurora red
+
+
+# ------------------------------------------------------------------------------
+# Layout slots — symbolic names bindable from [keybinds] in wm.toml.
+# ------------------------------------------------------------------------------
+[layout.slots]
+primary    = "tile"
+secondary  = "scrolling"
+tertiary   = "monocle"
+quaternary = "grid"
+
+
+# ------------------------------------------------------------------------------
+# Per-layout option overrides. Section pattern: [layout.options.<id>]
+# Recognised scalar keys: gaps_outer, gaps_inner, master_ratio, master_count.
+# Any other key lands in LayoutOptions.Extra (string→string) for the engine.
+# ------------------------------------------------------------------------------
+[layout.options.tile]
+gaps_outer   = 12
+gaps_inner   = 6
+master_ratio = 0.6
+
+[layout.options.grid]
+gaps_inner = 8
+
+[layout.options.scrolling]
+# PaperWM-style knobs consumed by ScrollingLayout via Extra:
+column_fraction = "0.5"     # each column = 50% of output width
+center_focused  = "true"    # auto-pan so the focused column is centred
+
+[layout.options.monocle]
+# Monocle has no scalar knobs today; reserved for future use.
+
+[layout.options.float]
+# Floating engine has no scalar knobs today; reserved for future use.
