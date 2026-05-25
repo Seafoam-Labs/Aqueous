@@ -45,6 +45,15 @@ internal sealed class RiverCompositorHost : IHostedService
     private bool _started;
 
     /// <summary>
+    /// <c>wl_registry</c> name advertised for the currently-bound <c>river_window_manager_v1</c>
+    /// global, or <c>null</c> if it is not bound. Tracked so <c>wl_registry::global_remove</c> can be
+    /// matched against the manager and the cached proxy in <see cref="IManagerRequestSender"/> can be
+    /// cleared before the proxy is destroyed (otherwise <c>wl_proxy_marshal_flags</c> dereferences a
+    /// freed proxy at offset 0x2c — see the segfault traced from <c>super+shift+arrow</c>).
+    /// </summary>
+    private uint? _managerGlobalName;
+
+    /// <summary>
     /// Join timeout applied to <see cref="IEventPump.Stop"/> during shutdown. Long enough to let an
     /// in-flight <c>wl_display_dispatch</c> return after we cancel; short enough that a wedged
     /// libwayland never blocks shutdown indefinitely.
@@ -177,6 +186,7 @@ internal sealed class RiverCompositorHost : IHostedService
         _bindSiteState.TrackProxyInterface(_registryBinder.Handle, "wl_registry");
 
         _registryBinder.Discovered += HandleRegistryGlobal;
+        _registryBinder.Removed += HandleRegistryRemove;
 
         // Flush globals; then a second roundtrip so any events the compositor sends immediately on bind
         // (for an existing window list) are delivered before we return.
@@ -207,6 +217,12 @@ internal sealed class RiverCompositorHost : IHostedService
             // Critical ordering: stop the pump first so it is no longer touching wl_display, then dispose the
             // connection.
             _pump.Stop(PumpJoinTimeout);
+            // Clear the cached manager proxy/display in IManagerRequestSender *before* the connection
+            // tears the proxies down — any pump-thread send that races past this point becomes a silent
+            // no-op instead of a NULL-deref inside libwayland.
+            _managerRequestSender.Reset();
+            _managerGlobalName = null;
+            _bindSiteState.Manager = IntPtr.Zero;
             _connection.Dispose();
 
             _windowRegistry.Clear();
@@ -246,6 +262,7 @@ internal sealed class RiverCompositorHost : IHostedService
                 WaylandInterop.wl_proxy_add_dispatcher(managerProxy, dispatcher, ctxHandle, IntPtr.Zero);
                 _bindSiteState.TrackProxyInterface(managerProxy, "river_window_manager_v1");
                 _managerRequestSender.Init(managerProxy, _connection.Display);
+                _managerGlobalName = global.Name;
                 RiverLog.Write($"bound river_window_manager_v1 (version {managerVersion})");
             }
         }
@@ -313,6 +330,24 @@ internal sealed class RiverCompositorHost : IHostedService
                 ctxHandle,
                 dispatcher,
                 RiverLog.Write);
+        }
+    }
+
+    /// <summary>
+    /// Counterpart to <see cref="HandleRegistryGlobal"/>: routes <c>wl_registry::global_remove</c>
+    /// for the currently-bound <c>river_window_manager_v1</c> global to <see
+    /// cref="IManagerRequestSender.Reset"/>. Clearing <see cref="WaylandBindSiteState.Manager"/> and
+    /// <see cref="_managerGlobalName"/> also re-arms the <c>Manager == IntPtr.Zero</c> guard in the
+    /// bind path so a subsequently re-advertised global rebinds automatically.
+    /// </summary>
+    internal void HandleRegistryRemove(uint name)
+    {
+        if (_managerGlobalName is { } bound && bound == name)
+        {
+            RiverLog.Write("river_window_manager_v1 global removed; unbinding manager request sender");
+            _managerRequestSender.Reset();
+            _bindSiteState.Manager = IntPtr.Zero;
+            _managerGlobalName = null;
         }
     }
 }
