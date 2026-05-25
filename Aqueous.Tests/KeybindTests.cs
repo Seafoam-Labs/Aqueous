@@ -86,11 +86,11 @@ public class KeybindTests
     {
         const string toml = """
             [keybinds]
-            move_column_left = ["Super+Shift+H", "Super+BracketLeft"]
+            move_window_left = ["Super+Shift+H", "Super+BracketLeft"]
             cycle_focus = []
             """;
         var cfg = LayoutConfig.Parse(toml);
-        var chords = cfg.Keybinds.ChordsFor("move_column_left");
+        var chords = cfg.Keybinds.ChordsFor("move_window_left");
         Assert.Equal(2, chords.Count);
         Assert.Equal("Super+Shift+H", chords[0]);
         Assert.Equal("Super+BracketLeft", chords[1]);

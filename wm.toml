@@ -275,11 +275,17 @@ focus_right           = "Super+L"          # default
 focus_up              = "Super+K"          # default
 focus_down            = "Super+J"          # default
 
-# --- Scrolling-layout viewport pan + column move ---
+# --- Scrolling-layout viewport pan ---
 scroll_viewport_left  = "Super+Comma"      # default
 scroll_viewport_right = "Super+Period"     # default
-move_column_left      = "Super+Shift+H"    # default
-move_column_right     = "Super+Shift+L"    # default
+
+# --- Move focused window between slots in the active layout ---
+# NOTE: `move_column_left`/`move_column_right` were renamed to
+# `move_window_{left,right,up,down}` — update your config.
+move_window_left      = "Super+Shift+Left"   # default
+move_window_right     = "Super+Shift+Right"  # default
+move_window_up        = "Super+Shift+Up"     # default
+move_window_down      = "Super+Shift+Down"   # default
 
 # --- Opt-in actions (no default chord) ---
 reload_config         = "Super+R"          # re-read this file (layout opts hot-swap;

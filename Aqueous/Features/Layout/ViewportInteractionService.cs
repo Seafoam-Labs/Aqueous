@@ -6,7 +6,7 @@ namespace Aqueous.Features.Layout;
 
 /// <summary>
 /// Increment: lifts the focused-window-aware viewport helpers (<c>HandleScrollViewport</c>,
-/// <c>HandleMoveColumn</c>) off the <c>RiverWindowManagerClient.LayoutProposer</c> partial.
+/// <c>HandleMoveFocusedWindow</c>) off the <c>RiverWindowManagerClient.LayoutProposer</c> partial.
 /// Combines the focused-window lookup (<see cref="FocusedWindowTracker"/> + <see
 /// cref="IWindowRegistry"/>), the output-name resolution (<see
 /// cref="ILayoutProposer.ResolveOutputName"/>), the layout-engine dispatch (<see
@@ -52,9 +52,9 @@ internal sealed class ViewportInteractionService
     }
 
     /// <summary>
-    /// Move the focused window's column in the given direction.
+    /// Move the focused window in the given direction within the active layout's slot ordering.
     /// </summary>
-    public void MoveColumn(FocusDirection dir)
+    public void MoveFocusedWindow(FocusDirection dir)
     {
         var focused = _focused.Current;
         if (focused == IntPtr.Zero || !_windows.Entries.TryGetValue(focused, out var fw))

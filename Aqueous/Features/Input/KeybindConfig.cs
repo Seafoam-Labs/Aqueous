@@ -41,7 +41,7 @@ public sealed class KeybindConfig
         "cycle_focus",
         "focus_left", "focus_right", "focus_up", "focus_down",
         "scroll_viewport_left", "scroll_viewport_right",
-        "move_column_left", "move_column_right",
+        "move_window_left", "move_window_right", "move_window_up", "move_window_down",
         "reload_config",
         "set_layout_primary", "set_layout_secondary",
         "set_layout_tertiary", "set_layout_quaternary",
@@ -82,8 +82,10 @@ public sealed class KeybindConfig
             ["focus_down"] = "Super+J",
             ["scroll_viewport_left"] = "Super+Comma",
             ["scroll_viewport_right"] = "Super+Period",
-            ["move_column_left"] = "Super+Shift+H",
-            ["move_column_right"] = "Super+Shift+L",
+            ["move_window_left"] = "Super+Shift+Left",
+            ["move_window_right"] = "Super+Shift+Right",
+            ["move_window_up"] = "Super+Shift+Up",
+            ["move_window_down"] = "Super+Shift+Down",
             ["reload_config"] = "Super+R",
 
             // Phase B1c — Tag default chords.
