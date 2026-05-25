@@ -518,7 +518,6 @@ fn renderFinish(wm: *WindowManager) void {
                 .window => |window| {
                     window.renderFinish();
                     if (!reorder) continue;
-                    window.popup_tree.node.reparent(server.scene.layers.popups);
                     if (window.wm_requested.fullscreen != null) {
                         window.tree.node.reparent(server.scene.layers.fullscreen);
                         window.tree.node.raiseToTop();

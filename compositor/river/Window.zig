@@ -307,7 +307,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const tree = try server.scene.hidden_tree.createSceneTree();
     errdefer tree.node.destroy();
 
-    const popup_tree = try server.scene.hidden_tree.createSceneTree();
+    const popup_tree = try server.scene.layers.popups.createSceneTree();
     errdefer popup_tree.node.destroy();
 
     window.* = .{
