@@ -54,6 +54,30 @@ public sealed class GameModeLayout : ILayoutEngine
 
     public string Id => LayoutId;
 
+    /// <summary>
+    /// Per-output state. Persists across <c>Arrange</c> calls so that <see cref="MoveFocused"/>
+    /// can reorder non-anchor windows and have the next <c>Arrange</c> honour the new order via
+    /// the round-robin partition into left/right side columns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>NonAnchorOrder</c> is the canonical ordering of every non-anchor window the engine has
+    /// seen on this output. <c>Arrange</c> rebuilds it each frame by (a) dropping handles no
+    /// longer in <c>visibleWindows</c> or that have become the anchor, and (b) appending newly
+    /// seen non-anchor windows in encounter order. Existing positions are preserved.
+    /// </para>
+    /// <para>
+    /// <c>CurrentAnchor</c> is recorded by <c>Arrange</c> after anchor selection so that
+    /// <see cref="MoveFocused"/> can refuse to move the anchor without re-running anchor
+    /// selection itself.
+    /// </para>
+    /// </remarks>
+    private sealed class State
+    {
+        public readonly List<IntPtr> NonAnchorOrder = new();
+        public IntPtr CurrentAnchor;
+    }
+
     public IReadOnlyList<WindowPlacement> Arrange(
         Rect usableArea,
         IReadOnlyList<WindowEntryView> visibleWindows,
@@ -61,9 +85,15 @@ public sealed class GameModeLayout : ILayoutEngine
         LayoutOptions opts,
         ref object? perOutputState)
     {
+        // ---- 0. Hydrate per-output state. Held across frames so MoveFocused can reorder the
+        // non-anchor band and have the change observed by the next Arrange. We also use this to
+        // expose the active anchor handle to MoveFocused for the anchor guard.
+        State state = perOutputState as State ?? new State();
+        perOutputState = state;
+
         // ---- 1. Resolve the sub-engine ids from LayoutOptions.Extra (defaults: grid).
-        string remainderId = opts.GetExtra(RemainderKey) ?? DefaultSub;
-        string fallbackId  = opts.GetExtra(FallbackKey)  ?? DefaultSub;
+        var remainderId = opts.GetExtra(RemainderKey) ?? DefaultSub;
+        var fallbackId  = opts.GetExtra(FallbackKey)  ?? DefaultSub;
 
         if (string.Equals(remainderId, LayoutId, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(fallbackId,  LayoutId, StringComparison.OrdinalIgnoreCase))
@@ -75,11 +105,10 @@ public sealed class GameModeLayout : ILayoutEngine
 
         // ---- 2. Pick anchor candidate (most-recently-focused IsAnchor window).
         WindowEntryView? anchor = null;
-        long bestTick = long.MinValue;
+        var bestTick = long.MinValue;
         long bestHandleTieBreak = 0;
-        for (int i = 0; i < visibleWindows.Count; i++)
+        foreach (WindowEntryView w in visibleWindows)
         {
-            var w = visibleWindows[i];
             if (!w.IsAnchor)
             {
                 continue;
@@ -88,32 +117,43 @@ public sealed class GameModeLayout : ILayoutEngine
             // Most-recently-focused wins. Ties (same tick — should not happen in practice
             // since FocusedWindowTracker bumps the counter monotonically) are broken by
             // higher Handle value, deterministic and stable across runs.
-            long h = w.Handle.ToInt64();
-            if (w.LastFocusTick > bestTick ||
-                (w.LastFocusTick == bestTick && h > bestHandleTieBreak))
+            var h = w.Handle.ToInt64();
+            if (w.LastFocusTick <= bestTick &&
+                (w.LastFocusTick != bestTick || h <= bestHandleTieBreak))
             {
-                anchor = w;
-                bestTick = w.LastFocusTick;
-                bestHandleTieBreak = h;
+                continue;
             }
+
+            anchor = w;
+            bestTick = w.LastFocusTick;
+            bestHandleTieBreak = h;
         }
 
-        // ---- 3. No anchor → behave exactly like the fallback layout.
+        // ---- 3. No anchor → behave exactly like the fallback layout. The sub-engine gets its
+        // own transient state slot so it doesn't clobber our per-output State; ours is preserved
+        // (with CurrentAnchor cleared) so a subsequent MoveFocused on an empty band is a no-op
+        // rather than a crash.
         if (anchor is null)
         {
-            var fallback = _registry.Create(fallbackId);
-            return fallback.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref perOutputState);
+            state.CurrentAnchor = IntPtr.Zero;
+            SyncNonAnchorOrder(state, visibleWindows, anchorHandle: IntPtr.Zero);
+
+            ILayoutEngine fallback = _registry.Create(fallbackId);
+            object? subState = null;
+            return fallback.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref subState);
         }
 
-        var a = anchor.Value;
-        var rule = a.Placement!.Rule;
+        WindowEntryView a = anchor.Value;
+        WindowRule rule = a.Placement!.Rule;
+        state.CurrentAnchor = a.Handle;
+        SyncNonAnchorOrder(state, visibleWindows, anchorHandle: a.Handle);
 
         // ---- 4. Resolve anchor rect via the pure geometry kernel.
         // RequestedBuffer{W,H} fall through to "use usableArea" when zero so a window
         // that hasn't surfaced its buffer size yet still produces a sensible centered
         // anchor instead of a 0×0 rect. The geometry kernel additionally clamps.
-        int bufW = a.RequestedBufferW > 0 ? a.RequestedBufferW : usableArea.W;
-        int bufH = a.RequestedBufferH > 0 ? a.RequestedBufferH : usableArea.H;
+        var bufW = a.RequestedBufferW > 0 ? a.RequestedBufferW : usableArea.W;
+        var bufH = a.RequestedBufferH > 0 ? a.RequestedBufferH : usableArea.H;
 
         // `ignore_struts = true` resolves the anchor against the raw output rect so the
         // anchored window can reach the very top/left/etc edges of the output, ignoring the
@@ -123,54 +163,60 @@ public sealed class GameModeLayout : ILayoutEngine
             ? opts.OutputRect
             : usableArea;
 
-        var anchorRect = GameModeGeometry.ResolveAnchor(
+        Rect anchorRect = GameModeGeometry.ResolveAnchor(
             anchorArea, bufW, bufH, rule.Size, rule.Anchor, rule.Scale);
 
         // ---- 5. Compute the two side columns flanking the anchor.
-        var (leftCol, rightCol) = GameModeGeometry.ResolveSideColumns(usableArea, anchorRect);
+        (Rect leftCol, Rect rightCol) = GameModeGeometry.ResolveSideColumns(usableArea, anchorRect);
 
         // ---- 6. Partition non-anchor windows across the two columns and hand each
         // non-empty column to a fresh sub-layout instance.
         //
-        // Partitioning strategy: stable round-robin over the visible-window order
-        // (even index → left, odd index → right), with the anchor itself skipped. If
-        // one column is Rect.Empty (edge-anchored game), all non-anchor windows go to
-        // the surviving column, preserving today's behavior in that degenerate case.
+        // Partitioning strategy: stable round-robin over `state.NonAnchorOrder` (even index →
+        // left, odd index → right). Using the persisted order — not raw `visibleWindows`
+        // order — lets `MoveFocused` swap adjacent entries and have the next Arrange observe
+        // the new column assignment. The anchor is never in `NonAnchorOrder`. If one column
+        // is `Rect.Empty` (edge-anchored game) all non-anchor windows go to the surviving
+        // column, preserving today's degenerate-case behaviour.
+        var byHandle = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
+        foreach (WindowEntryView t in visibleWindows)
+        {
+            byHandle[t.Handle] = t;
+        }
+
         var leftWindows  = new List<WindowEntryView>(visibleWindows.Count);
         var rightWindows = new List<WindowEntryView>(visibleWindows.Count);
-        bool leftEmpty  = leftCol  == Rect.Empty;
-        bool rightEmpty = rightCol == Rect.Empty;
+        var leftEmpty  = leftCol  == Rect.Empty;
+        var rightEmpty = rightCol == Rect.Empty;
 
-        int nonAnchorIndex = 0;
-        for (int i = 0; i < visibleWindows.Count; i++)
+        for (var idx = 0; idx < state.NonAnchorOrder.Count; idx++)
         {
-            var w = visibleWindows[i];
-            if (w.Handle == a.Handle)
+            if (!byHandle.TryGetValue(state.NonAnchorOrder[idx], out WindowEntryView w))
             {
-                continue;
+                continue; // shouldn't happen — SyncNonAnchorOrder keeps order in sync with visible set.
             }
 
-            if (leftEmpty && rightEmpty)
+            switch (leftEmpty)
             {
-                // No surviving column — nothing to place this frame.
-                nonAnchorIndex++;
-                continue;
+                case true when rightEmpty:
+                    continue;
+                case true:
+                    rightWindows.Add(w);
+                    break;
+                default:
+                {
+                    if (rightEmpty || (idx & 1) == 0)
+                    {
+                        leftWindows.Add(w);
+                    }
+                    else
+                    {
+                        rightWindows.Add(w);
+                    }
+
+                    break;
+                }
             }
-            else if (leftEmpty)
-            {
-                rightWindows.Add(w);
-            }
-            else if (rightEmpty)
-            {
-                leftWindows.Add(w);
-            }
-            else
-            {
-                // Both columns alive → round-robin by stable non-anchor index.
-                if ((nonAnchorIndex & 1) == 0) leftWindows.Add(w);
-                else                            rightWindows.Add(w);
-            }
-            nonAnchorIndex++;
         }
 
         var result = new List<WindowPlacement>(visibleWindows.Count);
@@ -182,26 +228,20 @@ public sealed class GameModeLayout : ILayoutEngine
         // recomputes from scratch each frame, same cost grid/tile already pay.
         if (!leftEmpty && leftWindows.Count > 0)
         {
-            var sub = _registry.Create(remainderId);
+            ILayoutEngine sub = _registry.Create(remainderId);
             object? subState = null;
-            var subPlacements = sub.Arrange(
+            IReadOnlyList<WindowPlacement> subPlacements = sub.Arrange(
                 leftCol, leftWindows, focusedWindow, opts, ref subState);
-            for (int i = 0; i < subPlacements.Count; i++)
-            {
-                result.Add(subPlacements[i]);
-            }
+            result.AddRange(subPlacements);
         }
 
         if (!rightEmpty && rightWindows.Count > 0)
         {
-            var sub = _registry.Create(remainderId);
+            ILayoutEngine sub = _registry.Create(remainderId);
             object? subState = null;
-            var subPlacements = sub.Arrange(
+            IReadOnlyList<WindowPlacement> subPlacements = sub.Arrange(
                 rightCol, rightWindows, focusedWindow, opts, ref subState);
-            for (int i = 0; i < subPlacements.Count; i++)
-            {
-                result.Add(subPlacements[i]);
-            }
+            result.AddRange(subPlacements);
         }
 
         // ---- 7. Append the anchor placement. ZOrder=1 to render above remainder tiles
@@ -215,6 +255,108 @@ public sealed class GameModeLayout : ILayoutEngine
             Border: BorderSpec.None));
 
         return result;
+    }
+
+    /// <summary>
+    /// Keep <see cref="State.NonAnchorOrder"/> in sync with <paramref name="visibleWindows"/>:
+    /// drop handles that are no longer visible <em>or</em> that have become the anchor, then
+    /// append newly seen non-anchor windows in encounter order. Existing positions are
+    /// preserved so user-issued <see cref="MoveFocused"/> reorders survive across frames.
+    /// </summary>
+    private static void SyncNonAnchorOrder(
+        State state,
+        IReadOnlyList<WindowEntryView> visibleWindows,
+        IntPtr anchorHandle)
+    {
+        var live = new HashSet<IntPtr>();
+        foreach (WindowEntryView t in visibleWindows)
+        {
+            var h = t.Handle;
+            if (h != anchorHandle)
+            {
+                live.Add(h);
+            }
+        }
+
+        state.NonAnchorOrder.RemoveAll(h => !live.Contains(h));
+
+        var known = new HashSet<IntPtr>(state.NonAnchorOrder);
+        foreach (WindowEntryView t in visibleWindows)
+        {
+            var h = t.Handle;
+            if (h == anchorHandle)
+            {
+                continue;
+            }
+
+            if (known.Contains(h))
+            {
+                continue;
+            }
+
+            state.NonAnchorOrder.Add(h);
+            known.Add(h);
+        }
+    }
+
+    /// <summary>
+    /// Reorder the focused window within the non-anchor band. The anchor is rule-driven and
+    /// positionally fixed by <see cref="GameModeGeometry"/>; this method refuses to move it and
+    /// never places a non-anchor window into the anchor's slot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Left</c>/<c>Up</c>/<c>Prev</c> swap with the previous non-anchor entry;
+    /// <c>Right</c>/<c>Down</c>/<c>Next</c> with the next. Returns <c>false</c> (no-op, no
+    /// mutation) when the focused window is the active anchor, is unknown to the engine, or is
+    /// at the edge of the band.
+    /// </para>
+    /// <para>
+    /// Crash-safety: never throws on missing state, empty band, or unknown direction; never
+    /// calls into Wayland. State is mutated only when a valid swap occurs.
+    /// </para>
+    /// </remarks>
+    public bool MoveFocused(
+        IntPtr output,
+        IntPtr focused,
+        FocusDirection dir,
+        ref object? perOutputState)
+    {
+        if (perOutputState is not State state)
+        {
+            return false;
+        }
+
+        // Anchor guard: the anchor window is positionally fixed by rules.toml + geometry kernel.
+        // Refuse to move it; use rules.toml to change which window is the anchor.
+        if (focused == IntPtr.Zero || focused == state.CurrentAnchor)
+        {
+            return false;
+        }
+
+        var i = state.NonAnchorOrder.IndexOf(focused);
+        if (i < 0)
+        {
+            return false;
+        }
+
+        var j = dir switch
+        {
+            FocusDirection.Left or FocusDirection.Up or FocusDirection.Prev   => i - 1,
+            FocusDirection.Right or FocusDirection.Down or FocusDirection.Next => i + 1,
+            _ => i
+        };
+
+        if (j < 0 || j >= state.NonAnchorOrder.Count || j == i)
+        {
+            return false;
+        }
+
+        // By construction NonAnchorOrder never contains the anchor handle, so this swap
+        // cannot put a non-anchor window into the anchor's geometric slot.
+        (state.NonAnchorOrder[i], state.NonAnchorOrder[j]) =
+            (state.NonAnchorOrder[j], state.NonAnchorOrder[i]);
+        return true;
     }
 }
 

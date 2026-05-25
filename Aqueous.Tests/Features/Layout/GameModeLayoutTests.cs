@@ -377,4 +377,157 @@ public class GameModeLayoutTests
         Assert.Single(result);
         Assert.Equal(new IntPtr(42), result[0].Handle);
     }
+
+    // ----- MoveFocused: anchor guard + non-anchor reordering -----------------
+
+    private static GameModeLayout NewEngine() => (GameModeLayout)new LayoutRegistry().Create("game-mode");
+
+    /// <summary>
+    /// Arrange once to hydrate per-output state (CurrentAnchor + NonAnchorOrder), then return it
+    /// so the test can invoke MoveFocused with a populated state slot.
+    /// </summary>
+    private static object? HydrateState(
+        GameModeLayout engine,
+        IReadOnlyList<WindowEntryView> windows,
+        LayoutOptions? opts = null)
+    {
+        object? state = null;
+        engine.Arrange(UA2560, windows, IntPtr.Zero, opts ?? LayoutOptions.Default, ref state);
+        return state;
+    }
+
+    [Fact]
+    public void MoveFocused_FocusedIsAnchor_ReturnsFalse_AndDoesNotMutateState()
+    {
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), anchor };
+        var state = HydrateState(engine, windows);
+
+        var snapshot = (state, windows: windows.Count);
+        bool moved = engine.MoveFocused(IntPtr.Zero, anchor.Handle, FocusDirection.Right, ref state);
+
+        Assert.False(moved);
+        // Re-arrange — the anchor must still appear in the same slot.
+        var re = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+        Assert.Equal(anchor.Handle, re[^1].Handle);
+    }
+
+    [Fact]
+    public void MoveFocused_NoState_ReturnsFalse()
+    {
+        var engine = NewEngine();
+        object? state = null;
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state));
+    }
+
+    [Fact]
+    public void MoveFocused_FocusedNotInBand_ReturnsFalse()
+    {
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), anchor };
+        var state = HydrateState(engine, windows);
+
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(0xDEAD), FocusDirection.Right, ref state));
+        Assert.False(engine.MoveFocused(IntPtr.Zero, IntPtr.Zero, FocusDirection.Right, ref state));
+    }
+
+    [Fact]
+    public void MoveFocused_Right_SwapsAdjacentNonAnchorWindows()
+    {
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        // Three non-anchor windows: 1, 2, 3. With centered anchor, round-robin partition
+        // (idx 0,1,2 → left, right, left) places 1+3 on the left column and 2 on the right.
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), anchor };
+        var state = HydrateState(engine, windows);
+
+        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state);
+        Assert.True(moved);
+
+        // After swap, NonAnchorOrder is [2,1,3]. Round-robin: idx0=2→left, idx1=1→right, idx2=3→left.
+        var result = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        // Last placement is the anchor.
+        Assert.Equal(anchor.Handle, result[^1].Handle);
+
+        // Find handle 1's geometry; it should now be in the right column (x >= anchor.X).
+        Rect anchorRect = result[^1].Geometry;
+        Rect g1 = default, g2 = default;
+        bool f1 = false, f2 = false;
+        for (int i = 0; i < result.Count; i++)
+        {
+            if (result[i].Handle == new IntPtr(1)) { g1 = result[i].Geometry; f1 = true; }
+            else if (result[i].Handle == new IntPtr(2)) { g2 = result[i].Geometry; f2 = true; }
+        }
+        Assert.True(f1 && f2);
+        Assert.True(g1.X >= anchorRect.X,
+            "window 1 should be in right column after swap; got " + g1);
+        Assert.True(g2.X + g2.W <= anchorRect.X,
+            "window 2 should be in left column after swap; got " + g2);
+    }
+
+    [Fact]
+    public void MoveFocused_AtEdge_ReturnsFalse()
+    {
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), anchor };
+        var state = HydrateState(engine, windows);
+
+        // Window 1 is at index 0 in NonAnchorOrder → cannot move Left.
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Left, ref state));
+        // Window 2 is at the last index → cannot move Right.
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Right, ref state));
+    }
+
+    [Fact]
+    public void MoveFocused_UpDown_BehaveLikePrevNext()
+    {
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), anchor };
+        var state = HydrateState(engine, windows);
+
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Down, ref state));
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Up, ref state));
+    }
+
+    [Fact]
+    public void MoveFocused_DoesNotThrow_OnNoAnchorBand()
+    {
+        var engine = NewEngine();
+        // No anchor present → fallback path; CurrentAnchor stays Zero, NonAnchorOrder populated.
+        var windows = new List<WindowEntryView> { View(1), View(2) };
+        object? state = null;
+        engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        // MoveFocused must not throw; swap should succeed within the non-anchor list.
+        var ex = Record.Exception(
+            () => engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void MoveFocused_FollowedByArrange_ProducesValidPlacements_NoCrash()
+    {
+        // Regression: ensure MoveFocused + Arrange round-trip never throws for the
+        // historically-crashy game-mode path.
+        var engine = NewEngine();
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), View(4), anchor };
+        var state = HydrateState(engine, windows);
+
+        foreach (var dir in new[]
+        {
+            FocusDirection.Left, FocusDirection.Right, FocusDirection.Up, FocusDirection.Down
+        })
+        {
+            engine.MoveFocused(IntPtr.Zero, new IntPtr(2), dir, ref state);
+            var ex = Record.Exception(
+                () => engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state));
+            Assert.Null(ex);
+        }
+    }
 }

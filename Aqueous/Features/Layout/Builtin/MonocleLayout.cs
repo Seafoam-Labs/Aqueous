@@ -13,7 +13,40 @@ public sealed class MonocleLayout : ILayoutEngine
 {
     public string Id => "monocle";
 
-    private sealed class State { public IntPtr Current; }
+    private sealed class State
+    {
+        public IntPtr Current;
+
+        /// <summary>
+        /// Stable z-stack ordering of every window the engine has seen on this output. Reordered
+        /// only by <see cref="MoveFocused"/>; otherwise rebuilt by appending new windows in
+        /// encounter order and dropping handles that have disappeared from <c>visibleWindows</c>.
+        /// </summary>
+        public readonly List<IntPtr> Order = new();
+    }
+
+    private static void SyncOrder(State state, IReadOnlyList<WindowEntryView> windows)
+    {
+        // Drop entries no longer visible.
+        if (state.Order.Count > 0)
+        {
+            var live = new HashSet<IntPtr>();
+            for (int i = 0; i < windows.Count; i++) live.Add(windows[i].Handle);
+            state.Order.RemoveAll(h => !live.Contains(h));
+        }
+
+        // Append newly-seen handles in encounter order.
+        var known = new HashSet<IntPtr>(state.Order);
+        for (int i = 0; i < windows.Count; i++)
+        {
+            var h = windows[i].Handle;
+            if (!known.Contains(h))
+            {
+                state.Order.Add(h);
+                known.Add(h);
+            }
+        }
+    }
 
     public IReadOnlyList<WindowPlacement> Arrange(
         Rect usableArea,
@@ -24,6 +57,7 @@ public sealed class MonocleLayout : ILayoutEngine
     {
         var state = perOutputState as State ?? new State();
         perOutputState = state;
+        SyncOrder(state, windows);
 
         var result = new List<WindowPlacement>(windows.Count);
         if (windows.Count == 0) { state.Current = IntPtr.Zero; return result; }
@@ -70,6 +104,45 @@ public sealed class MonocleLayout : ILayoutEngine
                 isCurrent ? border : BorderSpec.None));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Reorder the focused window within the monocle z-stack: <c>Left</c>/<c>Up</c>/<c>Prev</c>
+    /// swap with the previous slot; <c>Right</c>/<c>Down</c>/<c>Next</c> swap with the next.
+    /// Returns <c>false</c> at the edges, on unknown handles, or when the engine has never seen
+    /// the window before.
+    /// </summary>
+    public bool MoveFocused(
+        IntPtr output,
+        IntPtr focused,
+        FocusDirection dir,
+        ref object? perOutputState)
+    {
+        if (perOutputState is not State s)
+        {
+            return false;
+        }
+
+        int i = s.Order.IndexOf(focused);
+        if (i < 0)
+        {
+            return false;
+        }
+
+        int j = dir switch
+        {
+            FocusDirection.Left or FocusDirection.Up or FocusDirection.Prev   => i - 1,
+            FocusDirection.Right or FocusDirection.Down or FocusDirection.Next => i + 1,
+            _ => i
+        };
+
+        if (j < 0 || j >= s.Order.Count || j == i)
+        {
+            return false;
+        }
+
+        (s.Order[i], s.Order[j]) = (s.Order[j], s.Order[i]);
+        return true;
     }
 }
 

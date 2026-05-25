@@ -280,8 +280,13 @@ scroll_viewport_left  = "Super+Comma"      # default
 scroll_viewport_right = "Super+Period"     # default
 
 # --- Move focused window between slots in the active layout ---
-# NOTE: `move_column_left`/`move_column_right` were renamed to
-# `move_window_{left,right,up,down}` — update your config.
+# Per-engine semantics:
+#   tile/grid/dwindle → swap with neighbour at (row±1, col)/(row, col±1)
+#   scrolling         → swap columns (L/R) or intra-column reorder (U/D)
+#   monocle           → reorder in z-stack
+#   game-mode         → reorder within the non-anchor band (anchor immovable;
+#                       use rules.toml to change which window is the anchor)
+#   float             → no-op (use rules.toml / future nudge_floating_*)
 move_window_left      = "Super+Shift+Left"   # default
 move_window_right     = "Super+Shift+Right"  # default
 move_window_up        = "Super+Shift+Up"     # default
@@ -371,6 +376,10 @@ lock_screen     = "Super+Ctrl+L"      # default
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
 #   close_focused = []                      # disables Super+Q entirely
+
+# Actions without a default chord (opt-in via [keybinds.custom] only):
+#   toggle_scratchpad_named:<name>
+#   send_to_scratchpad_named:<name>
 
 
 # -----------------------------------------------------------------------------

@@ -73,6 +73,17 @@ public sealed class FloatingLayout : ILayoutEngine
         }
         return result;
     }
+
+    /// <summary>
+    /// Floating windows have absolute geometry and no slot ordering. <c>move_window_*</c> is an
+    /// explicit no-op; a future <c>nudge_floating_*</c> action will move them by pixels. This
+    /// override exists for discoverability — do not let it fall back to the interface default.
+    /// </summary>
+    public bool MoveFocused(
+        IntPtr output,
+        IntPtr focused,
+        FocusDirection dir,
+        ref object? perOutputState) => false;
 }
 
 public sealed class FloatingLayoutFactory : ILayoutFactory
