@@ -156,8 +156,36 @@ public sealed class GameModeLayout : ILayoutEngine
                 state.FallbackState    = null;
             }
 
+            // Permute visibleWindows by NonAnchorOrder so the fallback engine sees windows
+            // in the order MoveFocused has put them. This is the single source of truth for
+            // ordering: the fallback engine itself need not implement MoveFocused (most don't —
+            // grid/tile/floating have no swap of their own). Anything not yet in NonAnchorOrder
+            // (race between Sync and a brand-new window) is appended in arrival order.
+            var byHandleNoAnchor = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
+            foreach (WindowEntryView w in visibleWindows)
+            {
+                byHandleNoAnchor[w.Handle] = w;
+            }
+            var ordered = new List<WindowEntryView>(visibleWindows.Count);
+            var orderedSeen = new HashSet<IntPtr>();
+            foreach (var h in state.NonAnchorOrder)
+            {
+                if (byHandleNoAnchor.TryGetValue(h, out WindowEntryView w))
+                {
+                    ordered.Add(w);
+                    orderedSeen.Add(h);
+                }
+            }
+            foreach (WindowEntryView w in visibleWindows)
+            {
+                if (!orderedSeen.Contains(w.Handle))
+                {
+                    ordered.Add(w);
+                }
+            }
+
             return state.FallbackEngine.Arrange(
-                usableArea, visibleWindows, focusedWindow, opts, ref state.FallbackState);
+                usableArea, ordered, focusedWindow, opts, ref state.FallbackState);
         }
 
         WindowEntryView a = anchor.Value;
@@ -350,21 +378,12 @@ public sealed class GameModeLayout : ILayoutEngine
             return false;
         }
 
-        // Degenerate mode: no anchor is currently active → Arrange is delegating to the
-        // fallback sub-engine, so MoveFocused must do the same. Mutating NonAnchorOrder
-        // here would be invisible because Arrange's no-anchor branch never reads it for
-        // placement.
-        if (state.CurrentAnchor == IntPtr.Zero)
-        {
-            if (state.FallbackEngine is null)
-            {
-                return false; // MoveFocused before first Arrange — nothing to delegate to.
-            }
-            return state.FallbackEngine.MoveFocused(output, focused, dir, ref state.FallbackState);
-        }
-
         // Anchor guard: the anchor window is positionally fixed by rules.toml + geometry kernel.
         // Refuse to move it; use rules.toml to change which window is the anchor.
+        // In degenerate mode (CurrentAnchor == Zero), a real window handle can never match
+        // IntPtr.Zero, so this guard is a no-op there — which is what we want: the same
+        // NonAnchorOrder swap drives both anchor and no-anchor layout paths, since Arrange's
+        // no-anchor branch now permutes visibleWindows by NonAnchorOrder before delegating.
         if (focused == IntPtr.Zero || focused == state.CurrentAnchor)
         {
             return false;

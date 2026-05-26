@@ -509,84 +509,114 @@ public class GameModeLayoutTests
         Assert.Null(ex);
     }
 
-    // ----- MoveFocused: degenerate (no anchor) → fallback delegation ----------
+    // ----- MoveFocused: degenerate (no anchor) → permutes fallback input ------
 
     [Fact]
-    public void MoveFocused_NoAnchor_DelegatesToFallback_Monocle()
+    public void MoveFocused_NoAnchor_PermutesFallbackInput_Grid()
     {
-        // With fallback = monocle (which implements MoveFocused by reordering its z-stack),
-        // game-mode in degenerate mode must route MoveFocused into that same monocle instance.
+        // With the default fallback (grid), MoveFocused must swap the focused window with
+        // its neighbour in NonAnchorOrder, and the next Arrange must hand the fallback engine
+        // the permuted order — observed as the two windows' grid cells swapping.
         var engine = NewEngine();
-        var opts = OptsWith(fallback: "monocle");
-        var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), View(4) };
 
         object? state = null;
-        // Arrange once with focusedWindow = 1 → monocle picks window 1 as Current.
-        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+        var before = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
 
-        // Delegate a swap into monocle's Order list (Next swaps W1 with W2).
-        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state);
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        var w1Before = cellOf(before, 1);
+        var w2Before = cellOf(before, 2);
+        Assert.NotEqual(w1Before, w2Before);
+
+        // Swap W1 with its next neighbour (W2) via the game-mode order.
+        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state);
         Assert.True(moved);
 
-        // Re-arrange and ensure the delegation actually changed monocle's persisted ordering:
-        // monocle's z-stack should now start with W2.
-        var re = engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
-        Assert.Equal(3, re.Count);
-        // The Current placement (the visible one) is still W1 (monocle.Current doesn't move
-        // on MoveFocused — only the Order slot index does); the asserted invariant is that
-        // MoveFocused returned true (i.e. wasn't a no-op), proving the call reached monocle
-        // through GameModeLayout's persisted FallbackState.
+        var after = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+        // After swap, W1 occupies W2's old cell and vice versa — this is the proof that
+        // grid (which has no MoveFocused override of its own) sees the permuted input.
+        Assert.Equal(w2Before, cellOf(after, 1));
+        Assert.Equal(w1Before, cellOf(after, 2));
     }
 
     [Fact]
-    public void MoveFocused_NoAnchor_SurvivesAcrossFrames()
+    public void MoveFocused_NoAnchor_SurvivesAcrossFrames_Grid()
     {
-        // Two consecutive Move calls with an Arrange in between must compose, proving the
-        // fallback engine's per-output state is persisted across frames (not re-created).
+        // Two consecutive Move calls with an Arrange in between must compose: NonAnchorOrder
+        // is mutated by MoveFocused and persisted across Arrange.
         var engine = NewEngine();
-        var opts = OptsWith(fallback: "monocle");
-        var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), View(4) };
 
         object? state = null;
-        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+        var f0 = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
 
-        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
-        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
-        // After first move + Arrange, monocle's Order is [2,1,3]. Moving W1 Next again
-        // should still succeed (W1 is now at index 1 → can move to 2).
-        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
-        // And moving once more should fail (W1 is now at the last index).
-        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
-        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        // Capture cell-by-index (grid is order-dependent, so cell at index i is stable
+        // across permutations of the input list).
+        var cell0 = f0[0].Geometry;
+        var cell1 = f0[1].Geometry;
+        var cell2 = f0[2].Geometry;
+
+        // First move: W1 → cell1, W2 → cell0.
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state));
+        var f1 = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+        Assert.Equal(cell1, cellOf(f1, 1));
+
+        // Second move: W1 (now at index 1) → cell2; order becomes [2,3,1,4].
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state));
+        var f2 = engine.Arrange(UA2560, windows, IntPtr.Zero, LayoutOptions.Default, ref state);
+        Assert.Equal(cell2, cellOf(f2, 1));
+        // W2 stays at cell0 across both frames (it was never moved after the first swap).
+        Assert.Equal(cell0, cellOf(f2, 2));
     }
 
     [Fact]
     public void MoveFocused_FallbackIdChanged_ResetsState()
     {
         // Switching game_mode.fallback_layout between Arranges must drop the previous
-        // engine's state instead of feeding it to a different engine.
+        // engine + its state instead of feeding it to a different engine. The new engine
+        // takes over without throwing and produces placements consistent with itself.
         var engine = NewEngine();
         var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
 
         object? state = null;
-        // Frame 1: fallback = monocle → monocle stashes Order [1,2,3].
-        engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "monocle"), ref state);
-        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+        // Frame 1: fallback = monocle.
+        var monoFrame = engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "monocle"), ref state);
+        Assert.Equal(3, monoFrame.Count);
 
-        // Frame 2: fallback = grid (which has no MoveFocused override → default returns false).
-        // If state were leaked, GameModeLayout would still hold a monocle reference and the
-        // call below would return true. Reset must drop it.
-        var grid = engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "grid"), ref state);
-        Assert.Equal(3, grid.Count);
-        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state);
-        Assert.False(moved); // grid's default MoveFocused returns false → confirms reset.
+        // Frame 2: fallback = grid. Must not throw, must produce grid-style placements
+        // (every window visible and given a non-empty cell).
+        var ex = Record.Exception(
+            () => engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "grid"), ref state));
+        Assert.Null(ex);
+        var gridFrame = engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "grid"), ref state);
+        foreach (var p in gridFrame)
+        {
+            Assert.True(p.Visible);
+            Assert.True(p.Geometry.W > 0 && p.Geometry.H > 0);
+        }
     }
 
     [Fact]
     public void MoveFocused_BeforeFirstArrange_NoCrash()
     {
-        // MoveFocused called with a freshly-allocated state (no Arrange yet) must not crash;
-        // it simply returns false because there is no fallback engine to delegate to.
+        // MoveFocused called with no state (no Arrange yet) must not crash; returns false.
         var engine = NewEngine();
         object? state = null;
         bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state);
