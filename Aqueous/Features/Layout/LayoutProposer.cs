@@ -390,27 +390,45 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 w.Visible = true;
                 w.TagVisible = true;
                 w.HideSent = false;
-
-                if (pw == w.LastHintW && ph == w.LastHintH)
-                {
-                    w.X = p.Geometry.X;
-                    w.Y = p.Geometry.Y;
-                    continue;
-                }
-
-                w.LastHintW = pw;
-                w.LastHintH = ph;
-                w.ProposedW = pw;
-                w.ProposedH = ph;
                 w.X = p.Geometry.X;
                 w.Y = p.Geometry.Y;
 
-                if (windowRegistry.Entries.ContainsKey(p.Handle))
+                if (pw != w.LastHintW || ph != w.LastHintH)
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        p.Handle, 3, IntPtr.Zero, 0, 0,
-                        (IntPtr)pw, (IntPtr)ph,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    w.LastHintW = pw;
+                    w.LastHintH = ph;
+                    w.ProposedW = pw;
+                    w.ProposedH = ph;
+
+                    if (windowRegistry.Entries.ContainsKey(p.Handle))
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            p.Handle, 3, IntPtr.Zero, 0, 0,
+                            (IntPtr)pw, (IntPtr)ph,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        // Mark the proxy as bound on the compositor side: this is the first request we
+                        // ever marshal into a freshly-tracked river_window_v1, so subsequent passes can
+                        // safely send hide(opcode 4) without risking the libwayland NULL-deref at 0x2c
+                        // that hits never-bound or already-torn-down proxies.
+                        w.ShowSent = true;
+                    }
+                }
+
+                // Propagate node-position updates so same-tag reorders (engine MoveFocused swaps)
+                // actually move surfaces on screen. Mirrors the floating/maximized branches; gated
+                // on LastPosX/Y change so we only marshal when geometry actually shifts.
+                if (w.NodeProxy != IntPtr.Zero
+                    && (w.LastPosX != w.X || w.LastPosY != w.Y))
+                {
+                    if (windowRegistry.Entries.ContainsKey(p.Handle))
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                            (IntPtr)w.X, (IntPtr)w.Y,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    }
+                    w.LastPosX = w.X;
+                    w.LastPosY = w.Y;
                 }
             }
         }
@@ -462,6 +480,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    // See tiled branch above: first marshal into the proxy proves liveness for the
+                    // hide-pass liveness gate.
+                    w.ShowSent = true;
                 }
             }
 
@@ -517,6 +538,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    // See tiled branch above: first marshal into the proxy proves liveness for the
+                    // hide-pass liveness gate.
+                    w.ShowSent = true;
                 }
             }
 
@@ -586,6 +610,9 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         handle, 3, IntPtr.Zero, 0, 0,
                         (IntPtr)pw, (IntPtr)ph,
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    // See tiled branch above: first marshal into the proxy proves liveness for the
+                    // hide-pass liveness gate.
+                    w.ShowSent = true;
                 }
             }
 

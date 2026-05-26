@@ -86,6 +86,10 @@ internal sealed class WindowRegistry : IWindowRegistry
         // ManagerRequestSender.Reset() pattern: the field is the single source of truth for
         // "this proxy is gone".
         entry.Proxy = IntPtr.Zero;
+        // Clear ShowSent so a future re-Track of a freshly-allocated proxy at the same address
+        // starts from the "never shown" state and the hide-pass liveness gate in LayoutProposer
+        // correctly skips it until we've emitted dimensions(opcode 3) again.
+        entry.ShowSent = false;
         return true;
     }
 
