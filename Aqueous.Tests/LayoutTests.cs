@@ -238,7 +238,8 @@ public class LayoutTests
         var output = new IntPtr(0xAA);
         var wins = new List<WindowEntryView> { MakeWin(1, minW: 300) };
 
-        var result = ctrl.Arrange(output, "X-1", new Rect(0, 0, 100, 100), wins, IntPtr.Zero);
+        var result = ctrl.Arrange(output, "X-1", new Rect(0, 0, 100, 100), wins, IntPtr.Zero,
+            visibleTags: 0xFFFFFFFFu);
         Assert.Single(result);
         Assert.Equal(300, result[0].Geometry.W);
     }
@@ -268,14 +269,16 @@ public class LayoutTests
         var wins = new List<WindowEntryView> { MakeWin(1) };
 
         // First arrange picks an engine for the output.
-        ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero);
+        ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero,
+            visibleTags: 0xFFFFFFFFu);
         long before = ctrl.Epoch;
 
         ctrl.ReplaceConfig(LayoutConfig.Default);
         Assert.Equal(before + 1, ctrl.Epoch);
 
         // After reload, arrange must still succeed.
-        var result = ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero);
+        var result = ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero,
+            visibleTags: 0xFFFFFFFFu);
         Assert.Single(result);
     }
 }

@@ -208,7 +208,15 @@ internal sealed class FocusService : IFocusService
         IntPtr output = fw.Output;
         string? outputName = _layoutProposer.ResolveOutputName(output);
         var snapshot = _layoutProposer.BuildSnapshotFor(output);
-        var target = _layoutProposer.LayoutFocusNeighbor(output, outputName, current, dir, snapshot);
+        // Engine state is partitioned by (output, visibleTags). Read the tag mask from the output's
+        // registry entry so the neighbor lookup hits the same scope the proposer populated.
+        uint visibleTags = TagState.AllTags;
+        if (output != IntPtr.Zero && _outputRegistry.Entries.TryGetValue(output, out var oeForNav))
+        {
+            visibleTags = oeForNav.VisibleTags;
+        }
+        var target = _layoutProposer.LayoutFocusNeighbor(
+            output, outputName, current, dir, snapshot, visibleTags);
         if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
         {
             _managerRequestSender.ScheduleManage(); // engine may need to recentre viewport

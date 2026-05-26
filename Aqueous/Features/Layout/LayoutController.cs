@@ -17,15 +17,25 @@ public sealed class LayoutController
     private long _epoch;
 
     /// <summary>
-    /// Per-output engine instance
+    /// Engine state is partitioned by <c>(output, visibleTags)</c> so that the column / band /
+    /// monocle ordering a user produces with <see cref="MoveFocused"/> on tag 1 survives a switch to
+    /// tag 2 (whose snapshot would otherwise overwrite the single per-output slot during the next
+    /// <see cref="Arrange"/> reconciliation) and is restored intact on the return trip to tag 1.
     /// </summary>
-    private readonly Dictionary<IntPtr, ILayoutEngine> _engineByOutput = new();
+    private readonly record struct Scope(IntPtr Output, uint Tags);
+
     /// <summary>
-    /// Per-output engine private state (opaque)
+    /// Per-scope engine instance.
     /// </summary>
-    private readonly Dictionary<IntPtr, object?> _stateByOutput = new();
+    private readonly Dictionary<Scope, ILayoutEngine> _engineByScope = new();
     /// <summary>
-    /// Per-output id of the currently active layout (so we can detect swaps)
+    /// Per-scope engine private state (opaque).
+    /// </summary>
+    private readonly Dictionary<Scope, object?> _stateByScope = new();
+    /// <summary>
+    /// Per-output id of the currently active layout (so we can detect swaps). Kept per-output
+    /// rather than per-scope: the layout-id selection is an output-wide property — switching tags
+    /// does not change which engine the output uses.
     /// </summary>
     private readonly Dictionary<IntPtr, string> _idByOutput = new();
 
@@ -47,8 +57,8 @@ public sealed class LayoutController
     {
         _config = newConfig ?? throw new ArgumentNullException(nameof(newConfig));
         _epoch++;
-        _engineByOutput.Clear();
-        _stateByOutput.Clear();
+        _engineByScope.Clear();
+        _stateByScope.Clear();
         _idByOutput.Clear();
     }
 
@@ -63,8 +73,10 @@ public sealed class LayoutController
             layoutId = _config.DefaultLayout;
         }
 
-        _engineByOutput[output] = _registry.Create(layoutId);
-        _stateByOutput[output] = null;
+        // The id is a per-output property; the per-scope engine map is repopulated lazily on the
+        // first Arrange/MoveFocused/... call for a given (output, visibleTags) scope. Drop any
+        // pre-existing scopes for this output so they pick up the new id with fresh state.
+        DropScopesForOutput(output);
         _idByOutput[output] = layoutId;
     }
 
@@ -88,8 +100,9 @@ public sealed class LayoutController
         {
             layoutId = _config.DefaultLayout;
         }
-        // Snapshot keys to avoid mutation during iteration.
-        var outputs = new List<IntPtr>(_engineByOutput.Keys);
+        // Snapshot keys to avoid mutation during iteration. Use _idByOutput as the canonical set
+        // of outputs we have seen (the per-scope engine map may have multiple entries per output).
+        var outputs = new List<IntPtr>(_idByOutput.Keys);
         if (outputs.Count == 0)
         {
             // No outputs registered yet — use a sentinel so the first ResolveEngine call sees this id. We
@@ -141,6 +154,35 @@ public sealed class LayoutController
         return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
     }
 
+    private void DropScopesForOutput(IntPtr output)
+    {
+        // Snapshot keys to avoid mutating during iteration.
+        List<Scope>? toRemove = null;
+        foreach (var k in _engineByScope.Keys)
+        {
+            if (k.Output == output)
+            {
+                (toRemove ??= new List<Scope>()).Add(k);
+            }
+        }
+        foreach (var k in _stateByScope.Keys)
+        {
+            if (k.Output == output)
+            {
+                (toRemove ??= new List<Scope>()).Add(k);
+            }
+        }
+        if (toRemove == null)
+        {
+            return;
+        }
+        foreach (var k in toRemove)
+        {
+            _engineByScope.Remove(k);
+            _stateByScope.Remove(k);
+        }
+    }
+
     /// <summary>
     /// Compute placements for a single output. Caller is responsible for tag/floating/fullscreen
     /// filtering of <paramref name="visibleWindows"/> and for translating placements into Wayland
@@ -152,15 +194,17 @@ public sealed class LayoutController
         Rect usableArea,
         IReadOnlyList<WindowEntryView> visibleWindows,
         IntPtr focusedWindow,
+        uint visibleTags,
         Rect outputRect = default)
     {
-        var engine = ResolveEngine(output, outputName);
+        var scope = new Scope(output, visibleTags);
+        var engine = ResolveEngine(scope, outputName);
         var id = engine.Id;
 
         var opts = _config.OptionsFor(id) with { OutputRect = outputRect };
-        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
         var raw = engine.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref state);
-        _stateByOutput[output] = state;
+        _stateByScope[scope] = state;
 
         // Apply controller-enforced rules: clamp to min/max hints. Engines are advisory on size — the
         // controller is the source of truth so a buggy plugin layout cannot violate hints.
@@ -197,12 +241,14 @@ public sealed class LayoutController
         string? outputName,
         IntPtr current,
         FocusDirection dir,
-        IReadOnlyList<WindowEntryView> windows)
+        IReadOnlyList<WindowEntryView> windows,
+        uint visibleTags)
     {
-        var engine = ResolveEngine(output, outputName);
-        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        var scope = new Scope(output, visibleTags);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
         var r = engine.FocusNeighbor(output, current, dir, windows, ref state);
-        _stateByOutput[output] = state;
+        _stateByScope[scope] = state;
         return r;
     }
 
@@ -214,12 +260,14 @@ public sealed class LayoutController
         IntPtr output,
         string? outputName,
         IntPtr focused,
-        FocusDirection dir)
+        FocusDirection dir,
+        uint visibleTags)
     {
-        var engine = ResolveEngine(output, outputName);
-        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        var scope = new Scope(output, visibleTags);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
         var r = engine.MoveFocused(output, focused, dir, ref state);
-        _stateByOutput[output] = state;
+        _stateByScope[scope] = state;
         return r;
     }
 
@@ -230,34 +278,42 @@ public sealed class LayoutController
     public void ScrollViewport(
         IntPtr output,
         string? outputName,
-        int deltaColumns)
+        int deltaColumns,
+        uint visibleTags)
     {
-        var engine = ResolveEngine(output, outputName);
-        object? state = _stateByOutput.TryGetValue(output, out var s) ? s : null;
+        var scope = new Scope(output, visibleTags);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
         engine.ScrollViewport(output, deltaColumns, ref state);
-        _stateByOutput[output] = state;
+        _stateByScope[scope] = state;
     }
 
-    private ILayoutEngine ResolveEngine(IntPtr output, string? outputName)
+    private ILayoutEngine ResolveEngine(Scope scope, string? outputName)
     {
-        var id = ResolveLayoutId(output, outputName);
-        if (!_engineByOutput.TryGetValue(output, out var engine) || engine.Id != id)
+        var id = ResolveLayoutId(scope.Output, outputName);
+        if (!_engineByScope.TryGetValue(scope, out var engine) || engine.Id != id)
         {
+            // If the resolved id changed for this output (e.g. SetLayoutForOutput) drop *all* scopes
+            // for that output so every visible-tag partition picks up the new engine. Otherwise the
+            // user's current tag would adopt the new engine while other tags kept the stale one.
+            if (engine != null && engine.Id != id)
+            {
+                DropScopesForOutput(scope.Output);
+            }
             engine = _registry.Create(id);
-            _engineByOutput[output] = engine;
-            _stateByOutput[output] = null;
-            _idByOutput[output] = id;
+            _engineByScope[scope] = engine;
+            _stateByScope[scope] = null;
+            _idByOutput[scope.Output] = id;
         }
         return engine;
     }
 
     /// <summary>
-    /// Called when an output is removed.
+    /// Called when an output is removed. Drops every scope keyed on <paramref name="output"/>.
     /// </summary>
     public void ForgetOutput(IntPtr output)
     {
-        _engineByOutput.Remove(output);
-        _stateByOutput.Remove(output);
+        DropScopesForOutput(output);
         _idByOutput.Remove(output);
     }
 }

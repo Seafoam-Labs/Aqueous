@@ -62,5 +62,6 @@ internal interface ILayoutProposer
         string? outputName,
         IntPtr current,
         FocusDirection dir,
-        IReadOnlyList<WindowEntryView> snapshot);
+        IReadOnlyList<WindowEntryView> snapshot,
+        uint visibleTags);
 }

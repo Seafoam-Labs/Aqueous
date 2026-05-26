@@ -383,7 +383,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             try
             {
                 placements = layoutController.Arrange(
-                    output, outputName, usableArea, tiledSnapshot, focusedWindow, outputRect);
+                    output, outputName, usableArea, tiledSnapshot, focusedWindow,
+                    outputVisibleTags, outputRect);
             }
             catch (Exception ex)
             {
@@ -756,6 +757,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         string? outputName,
         IntPtr current,
         FocusDirection dir,
-        IReadOnlyList<WindowEntryView> snapshot) =>
-        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot);
+        IReadOnlyList<WindowEntryView> snapshot,
+        uint visibleTags) =>
+        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot, visibleTags);
 }
