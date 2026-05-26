@@ -74,6 +74,8 @@ public class InvalidateFloatRectTests
         public void Init(IntPtr managerProxy, IntPtr display) { }
         public bool IsBound => false;
         public void Reset() { }
+        public void SetPumpThread(int managedThreadId) { }
+        public void DrainPumpQueue() { }
     }
 
     [Fact]

@@ -40,6 +40,8 @@ public class RulesReloaderTests
         public void Init(IntPtr managerProxy, IntPtr display) { }
         public bool IsBound => false;
         public void Reset() { }
+        public void SetPumpThread(int managedThreadId) { }
+        public void DrainPumpQueue() { }
     }
 
     // We use the real WindowRegistry (internal — accessible via InternalsVisibleTo) and

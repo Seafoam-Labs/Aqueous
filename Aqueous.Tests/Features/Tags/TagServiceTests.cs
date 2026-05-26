@@ -28,6 +28,8 @@ public class TagServiceTests
         public void Reset() { }
         public void SendManagerRequest(uint opcode) => SendManagerRequestCalls++;
         public void ScheduleManage() => ScheduleManageCalls++;
+        public void SetPumpThread(int managedThreadId) { }
+        public void DrainPumpQueue() { }
     }
 
     /// <summary>

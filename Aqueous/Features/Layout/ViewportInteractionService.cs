@@ -65,9 +65,13 @@ internal sealed class ViewportInteractionService
             return;
         }
 
-        if (_layoutController.MoveFocused(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir) && _requests.IsBound)
-        {
-            _requests.ScheduleManage();
-        }
+        // manage_dirty is a hint, not a move command. The slot-order mutation above is purely
+        // local; the next natural manage event (focus change, commit, pointer motion) absorbs
+        // the reorder. Driving manage_dirty from a keybinding callback used to race
+        // wl_display_dispatch on a non-pump thread and produced
+        // `segfault at 2c … in libwayland-client.so.0.25.0` inside wl_proxy_marshal_flags;
+        // funnelled hints now go through IManagerRequestSender.ScheduleManage which queues
+        // onto the pump thread, but for MoveFocused we don't need to post anything at all.
+        _layoutController.MoveFocused(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir);
     }
 }

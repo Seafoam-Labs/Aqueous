@@ -60,4 +60,20 @@ internal interface IManagerRequestSender
     /// libwayland's <c>wl_proxy_marshal_flags</c> (the symptom is a NULL-deref at offset 0x2c).
     /// </summary>
     void Reset();
+
+    /// <summary>
+    /// Records the managed id of the Wayland event-pump thread. After this call, marshal sites
+    /// that detect they are on any other thread will enqueue their work onto the pump-thread
+    /// action queue (drained by <see cref="DrainPumpQueue"/>) instead of touching libwayland
+    /// directly. Pass <c>0</c> to clear (e.g. on teardown).
+    /// </summary>
+    void SetPumpThread(int managedThreadId);
+
+    /// <summary>
+    /// Drains the pump-thread action queue. MUST be invoked from the Wayland event-pump thread,
+    /// once per dispatch iteration. Each queued action runs under a fresh <see cref="IsBound"/>
+    /// re-check, so a <see cref="Reset"/> that landed between enqueue and drain turns the marshal
+    /// into a silent no-op.
+    /// </summary>
+    void DrainPumpQueue();
 }

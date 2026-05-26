@@ -44,7 +44,20 @@ class Program
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
-        services.AddSingleton<EventPumpOptions>();
+        // EventPumpOptions wires three pump-thread callbacks to IManagerRequestSender so that
+        // off-pump callers (KeyBindingRouter, drag pointer handlers, etc.) can post manage_dirty
+        // hints onto a queue drained on the dispatch thread — preventing the wl_proxy_marshal_flags
+        // / wl_display_dispatch race that surfaced as `segfault at 2c … in libwayland-client`.
+        services.AddSingleton<EventPumpOptions>(sp =>
+        {
+            var sender = sp.GetRequiredService<Aqueous.Features.Layout.IManagerRequestSender>();
+            return new EventPumpOptions
+            {
+                OnPumpThreadStart = () => sender.SetPumpThread(System.Threading.Thread.CurrentThread.ManagedThreadId),
+                OnDispatchIteration = sender.DrainPumpQueue,
+                OnPumpThreadStop = () => sender.SetPumpThread(0),
+            };
+        });
         services.AddSingleton<IEventPump, EventPump>();
         services.AddSingleton<WaylandBindSiteState>();
         services.AddSingleton<RegistryBinder>();

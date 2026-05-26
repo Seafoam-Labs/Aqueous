@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using Aqueous.Features.Compositor.River;
 
@@ -27,6 +28,13 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
     private IntPtr _display;
     private bool _insideManageSequence;
 
+    // Set once at pump start (and cleared on teardown). Marshal sites that observe a different
+    // managed thread id enqueue their work onto _pumpQueue instead of calling libwayland directly:
+    // wl_proxy_marshal_flags is not thread-safe against wl_display_dispatch on the same display.
+    private int _pumpThreadId;
+
+    private readonly ConcurrentQueue<Action> _pumpQueue = new();
+
     public bool InsideManageSequence
     {
         get => _insideManageSequence;
@@ -53,6 +61,12 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         Interlocked.Exchange(ref _manager, IntPtr.Zero);
         Interlocked.Exchange(ref _display, IntPtr.Zero);
         _insideManageSequence = false;
+        // Drain any queued pump-thread actions: with _manager/_display now zero they would be
+        // silent no-ops anyway, but clearing the queue prevents stale work from running against a
+        // future Init() that rebinds against a freshly-advertised global.
+        while (_pumpQueue.TryDequeue(out _))
+        {
+        }
     }
 
     public void SendManagerRequest(uint opcode)
@@ -80,6 +94,34 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
             return;
         }
 
+        // Off-pump callers (KeyBindingRouter, input pumps, etc.) cannot safely call
+        // wl_proxy_marshal_flags: it races wl_display_dispatch on the same display and the proxy
+        // can be torn down between the IsBound check and the marshal. Funnel onto the pump
+        // thread; the queued action re-checks IsBound under the same thread that processes Reset.
+        var pumpId = Volatile.Read(ref _pumpThreadId);
+        if (pumpId != 0 && Thread.CurrentThread.ManagedThreadId != pumpId)
+        {
+            _pumpQueue.Enqueue(MarshalManageDirty);
+            // Best-effort wake: flushing the display kicks any buffered output, but the pump only
+            // truly wakes when an event arrives. That's acceptable for manage_dirty (a hint).
+            var d = Volatile.Read(ref _display);
+            if (d != IntPtr.Zero)
+            {
+                WaylandInterop.wl_display_flush(d);
+            }
+            return;
+        }
+
+        MarshalManageDirty();
+    }
+
+    private void MarshalManageDirty()
+    {
+        if (_insideManageSequence)
+        {
+            return;
+        }
+
         var manager = Volatile.Read(ref _manager);
         var display = Volatile.Read(ref _display);
         if (manager == IntPtr.Zero || display == IntPtr.Zero)
@@ -91,5 +133,26 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
             manager, 3, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         WaylandInterop.wl_display_flush(display);
+    }
+
+    public void SetPumpThread(int managedThreadId)
+    {
+        Volatile.Write(ref _pumpThreadId, managedThreadId);
+    }
+
+    public void DrainPumpQueue()
+    {
+        while (_pumpQueue.TryDequeue(out var action))
+        {
+            try
+            {
+                action();
+            }
+            catch
+            {
+                // Pump-thread queued actions must never escape the drain — losing a manage_dirty
+                // hint is preferable to killing the dispatch loop.
+            }
+        }
     }
 }

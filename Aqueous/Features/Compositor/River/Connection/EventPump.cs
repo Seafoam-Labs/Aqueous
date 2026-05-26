@@ -204,6 +204,15 @@ internal sealed class EventPump : IEventPump
         PumpStopReason reason = PumpStopReason.StopRequested;
         try
         {
+            try
+            {
+                _options.OnPumpThreadStart?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnPumpThreadStart handler threw");
+            }
+
             while (_running)
             {
                 if (token.IsCancellationRequested)
@@ -237,6 +246,15 @@ internal sealed class EventPump : IEventPump
                     reason = PumpStopReason.DispatchError;
                     break;
                 }
+
+                try
+                {
+                    _options.OnDispatchIteration?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "OnDispatchIteration handler threw");
+                }
             }
 
             // If the while-condition itself fell through (_running was set false without
@@ -255,6 +273,15 @@ internal sealed class EventPump : IEventPump
         }
         finally
         {
+            try
+            {
+                _options.OnPumpThreadStop?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnPumpThreadStop handler threw");
+            }
+
             _running = false;
             _stopReason = reason;
 
