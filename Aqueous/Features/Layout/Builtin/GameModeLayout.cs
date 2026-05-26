@@ -76,6 +76,13 @@ public sealed class GameModeLayout : ILayoutEngine
     {
         public readonly List<IntPtr> NonAnchorOrder = new();
         public IntPtr CurrentAnchor;
+
+        // Persisted fallback sub-engine + its per-output state, populated only when
+        // Arrange takes the no-anchor branch. Kept alive across frames so MoveFocused
+        // can route into the same engine instance Arrange last used.
+        public ILayoutEngine? FallbackEngine;
+        public string?        FallbackEngineId;
+        public object?        FallbackState;
     }
 
     public IReadOnlyList<WindowPlacement> Arrange(
@@ -138,15 +145,31 @@ public sealed class GameModeLayout : ILayoutEngine
             state.CurrentAnchor = IntPtr.Zero;
             SyncNonAnchorOrder(state, visibleWindows, anchorHandle: IntPtr.Zero);
 
-            ILayoutEngine fallback = _registry.Create(fallbackId);
-            object? subState = null;
-            return fallback.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref subState);
+            // Hot-swap guard: if config changed game_mode.fallback_layout since last
+            // frame, drop the stale engine + state rather than feed alien state into a
+            // different engine. Mirrors LayoutProposer's engine-id invalidation.
+            if (state.FallbackEngine is null ||
+                !string.Equals(state.FallbackEngineId, fallbackId, StringComparison.OrdinalIgnoreCase))
+            {
+                state.FallbackEngine   = _registry.Create(fallbackId);
+                state.FallbackEngineId = fallbackId;
+                state.FallbackState    = null;
+            }
+
+            return state.FallbackEngine.Arrange(
+                usableArea, visibleWindows, focusedWindow, opts, ref state.FallbackState);
         }
 
         WindowEntryView a = anchor.Value;
         WindowRule rule = a.Placement!.Rule;
         state.CurrentAnchor = a.Handle;
         SyncNonAnchorOrder(state, visibleWindows, anchorHandle: a.Handle);
+
+        // Anchor mode owns layout now; release fallback engine state so a later
+        // degenerate frame starts cleanly (and doesn't pin a sub-engine instance in memory).
+        state.FallbackEngine   = null;
+        state.FallbackEngineId = null;
+        state.FallbackState    = null;
 
         // ---- 4. Resolve anchor rect via the pure geometry kernel.
         // RequestedBuffer{W,H} fall through to "use usableArea" when zero so a window
@@ -325,6 +348,19 @@ public sealed class GameModeLayout : ILayoutEngine
         if (perOutputState is not State state)
         {
             return false;
+        }
+
+        // Degenerate mode: no anchor is currently active → Arrange is delegating to the
+        // fallback sub-engine, so MoveFocused must do the same. Mutating NonAnchorOrder
+        // here would be invisible because Arrange's no-anchor branch never reads it for
+        // placement.
+        if (state.CurrentAnchor == IntPtr.Zero)
+        {
+            if (state.FallbackEngine is null)
+            {
+                return false; // MoveFocused before first Arrange — nothing to delegate to.
+            }
+            return state.FallbackEngine.MoveFocused(output, focused, dir, ref state.FallbackState);
         }
 
         // Anchor guard: the anchor window is positionally fixed by rules.toml + geometry kernel.

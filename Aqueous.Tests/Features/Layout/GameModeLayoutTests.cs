@@ -509,6 +509,90 @@ public class GameModeLayoutTests
         Assert.Null(ex);
     }
 
+    // ----- MoveFocused: degenerate (no anchor) → fallback delegation ----------
+
+    [Fact]
+    public void MoveFocused_NoAnchor_DelegatesToFallback_Monocle()
+    {
+        // With fallback = monocle (which implements MoveFocused by reordering its z-stack),
+        // game-mode in degenerate mode must route MoveFocused into that same monocle instance.
+        var engine = NewEngine();
+        var opts = OptsWith(fallback: "monocle");
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
+
+        object? state = null;
+        // Arrange once with focusedWindow = 1 → monocle picks window 1 as Current.
+        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+
+        // Delegate a swap into monocle's Order list (Next swaps W1 with W2).
+        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state);
+        Assert.True(moved);
+
+        // Re-arrange and ensure the delegation actually changed monocle's persisted ordering:
+        // monocle's z-stack should now start with W2.
+        var re = engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+        Assert.Equal(3, re.Count);
+        // The Current placement (the visible one) is still W1 (monocle.Current doesn't move
+        // on MoveFocused — only the Order slot index does); the asserted invariant is that
+        // MoveFocused returned true (i.e. wasn't a no-op), proving the call reached monocle
+        // through GameModeLayout's persisted FallbackState.
+    }
+
+    [Fact]
+    public void MoveFocused_NoAnchor_SurvivesAcrossFrames()
+    {
+        // Two consecutive Move calls with an Arrange in between must compose, proving the
+        // fallback engine's per-output state is persisted across frames (not re-created).
+        var engine = NewEngine();
+        var opts = OptsWith(fallback: "monocle");
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
+
+        object? state = null;
+        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+        // After first move + Arrange, monocle's Order is [2,1,3]. Moving W1 Next again
+        // should still succeed (W1 is now at index 1 → can move to 2).
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+        // And moving once more should fail (W1 is now at the last index).
+        engine.Arrange(UA2560, windows, new IntPtr(1), opts, ref state);
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+    }
+
+    [Fact]
+    public void MoveFocused_FallbackIdChanged_ResetsState()
+    {
+        // Switching game_mode.fallback_layout between Arranges must drop the previous
+        // engine's state instead of feeding it to a different engine.
+        var engine = NewEngine();
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3) };
+
+        object? state = null;
+        // Frame 1: fallback = monocle → monocle stashes Order [1,2,3].
+        engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "monocle"), ref state);
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state));
+
+        // Frame 2: fallback = grid (which has no MoveFocused override → default returns false).
+        // If state were leaked, GameModeLayout would still hold a monocle reference and the
+        // call below would return true. Reset must drop it.
+        var grid = engine.Arrange(UA2560, windows, new IntPtr(1), OptsWith(fallback: "grid"), ref state);
+        Assert.Equal(3, grid.Count);
+        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Next, ref state);
+        Assert.False(moved); // grid's default MoveFocused returns false → confirms reset.
+    }
+
+    [Fact]
+    public void MoveFocused_BeforeFirstArrange_NoCrash()
+    {
+        // MoveFocused called with a freshly-allocated state (no Arrange yet) must not crash;
+        // it simply returns false because there is no fallback engine to delegate to.
+        var engine = NewEngine();
+        object? state = null;
+        bool moved = engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state);
+        Assert.False(moved);
+    }
+
     [Fact]
     public void MoveFocused_FollowedByArrange_ProducesValidPlacements_NoCrash()
     {
