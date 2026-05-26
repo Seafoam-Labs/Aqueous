@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.State;
@@ -38,6 +39,15 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     private readonly OutputFullscreenMap _outputFullscreen;
     private readonly FocusedWindowTracker _focusedWindowTracker;
     private readonly PrevFullscreenStore _prevFullscreenStore;
+    // Used by the NodeProxy set_position liveness gate: a node proxy that is no longer in the
+    // bind-site interface map has been torn down (e.g. by a stale WindowEntry overwrite in an
+    // older codepath) and marshalling through it would write through a freed wl_proxy at +0x2c.
+    private readonly WaylandBindSiteState _bindSiteState;
+    // Tracks the layout id that was active on each output during the previous ProposeForArea pass.
+    // When the id changes (LayoutController engine-swap) we invalidate per-window LastHint*/LastPos*
+    // so the next pass cannot short-circuit on stale "same geometry" caches and skip the marshal,
+    // mirroring the prevFullscreenHandles cleanup pattern when exiting fullscreen.
+    private readonly Dictionary<IntPtr, string> _lastActiveIdByOutput = new();
 
     public LayoutProposer(
         LayoutController layoutController,
@@ -46,7 +56,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         WindowStateStore windowStates,
         OutputFullscreenMap outputFullscreen,
         FocusedWindowTracker focusedWindowTracker,
-        PrevFullscreenStore prevFullscreenStore)
+        PrevFullscreenStore prevFullscreenStore,
+        WaylandBindSiteState bindSiteState)
     {
         _layoutController     = layoutController     ?? throw new ArgumentNullException(nameof(layoutController));
         _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -55,6 +66,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         _outputFullscreen     = outputFullscreen     ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _prevFullscreenStore  = prevFullscreenStore  ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
+        _bindSiteState        = bindSiteState        ?? throw new ArgumentNullException(nameof(bindSiteState));
     }
 
     /// <summary>
@@ -97,6 +109,31 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         // engine itself is only.
         string activeId = layoutController.ResolveLayoutId(output, outputName);
         bool floatIsActive = activeId == "float";
+
+        // Engine-swap invalidation: if the active layout id on this output changed since the previous
+        // pass, walk every WindowEntry assigned to this output and reset the per-window geometry
+        // caches. Without this, a hot-swap that happens to land a window at the exact same (X,Y,W,H)
+        // as the previous engine would short-circuit the propose_dimensions / set_position emits
+        // below and the surface would never move (e.g. engine A without struts → engine B with
+        // struts can yield identical numbers for an unlucky window).
+        if (_lastActiveIdByOutput.TryGetValue(output, out var prevActiveId))
+        {
+            if (prevActiveId != activeId)
+            {
+                foreach (var kvp in windowRegistry.Entries)
+                {
+                    var pw = kvp.Value;
+                    if (pw.Output != output) continue;
+                    pw.LastHintW = 0;
+                    pw.LastHintH = 0;
+                    pw.LastPosX = int.MinValue;
+                    pw.LastPosY = int.MinValue;
+                    pw.LastClipW = 0;
+                    pw.LastClipH = 0;
+                }
+            }
+        }
+        _lastActiveIdByOutput[output] = activeId;
 
         // Per-output filter: an engine like ScrollingLayout maintains per-output state
         // (ScrollState.Columns) and *must* only see the windows that belong to this output, otherwise its
@@ -417,16 +454,22 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 // Propagate node-position updates so same-tag reorders (engine MoveFocused swaps)
                 // actually move surfaces on screen. Mirrors the floating/maximized branches; gated
                 // on LastPosX/Y change so we only marshal when geometry actually shifts.
+                // Liveness gate: only marshal set_position when the cached NodeProxy is still
+                // registered in the bind-site interface map AND the registry entry we just looked
+                // up is the same WindowEntry instance whose NodeProxy we are about to use. Without
+                // this, a stale node proxy (overwritten by an older HandleWindowInformation path)
+                // would crash at +0x2c inside wl_proxy_marshal_array_flags.
                 if (w.NodeProxy != IntPtr.Zero
-                    && (w.LastPosX != w.X || w.LastPosY != w.Y))
+                    && (w.LastPosX != w.X || w.LastPosY != w.Y)
+                    && _bindSiteState.TryGetProxyInterface(w.NodeProxy) == "river_node_v1"
+                    && windowRegistry.Entries.TryGetValue(p.Handle, out var liveT)
+                    && ReferenceEquals(liveT, w)
+                    && liveT.NodeProxy == w.NodeProxy)
                 {
-                    if (windowRegistry.Entries.ContainsKey(p.Handle))
-                    {
-                        WaylandInterop.wl_proxy_marshal_flags(
-                            w.NodeProxy, 1, IntPtr.Zero, 0, 0,
-                            (IntPtr)w.X, (IntPtr)w.Y,
-                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    }
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                        (IntPtr)w.X, (IntPtr)w.Y,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                     w.LastPosX = w.X;
                     w.LastPosY = w.Y;
                 }
@@ -486,16 +529,18 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 }
             }
 
+            // Liveness gate — see tiled branch for rationale.
             if (w.NodeProxy != IntPtr.Zero
-                && (w.LastPosX != w.X || w.LastPosY != w.Y))
+                && (w.LastPosX != w.X || w.LastPosY != w.Y)
+                && _bindSiteState.TryGetProxyInterface(w.NodeProxy) == "river_node_v1"
+                && windowRegistry.Entries.TryGetValue(handle, out var liveF)
+                && ReferenceEquals(liveF, w)
+                && liveF.NodeProxy == w.NodeProxy)
             {
-                if (windowRegistry.Entries.ContainsKey(handle))
-                {
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        w.NodeProxy, 1, IntPtr.Zero, 0, 0,
-                        (IntPtr)w.X, (IntPtr)w.Y,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                }
+                WaylandInterop.wl_proxy_marshal_flags(
+                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                    (IntPtr)w.X, (IntPtr)w.Y,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 w.LastPosX = w.X;
                 w.LastPosY = w.Y;
             }
@@ -544,16 +589,18 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 }
             }
 
+            // Liveness gate — see tiled branch for rationale.
             if (w.NodeProxy != IntPtr.Zero
-                && (w.LastPosX != w.X || w.LastPosY != w.Y))
+                && (w.LastPosX != w.X || w.LastPosY != w.Y)
+                && _bindSiteState.TryGetProxyInterface(w.NodeProxy) == "river_node_v1"
+                && windowRegistry.Entries.TryGetValue(handle, out var liveM)
+                && ReferenceEquals(liveM, w)
+                && liveM.NodeProxy == w.NodeProxy)
             {
-                if (windowRegistry.Entries.ContainsKey(handle))
-                {
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        w.NodeProxy, 1, IntPtr.Zero, 0, 0,
-                        (IntPtr)w.X, (IntPtr)w.Y,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                }
+                WaylandInterop.wl_proxy_marshal_flags(
+                    w.NodeProxy, 1, IntPtr.Zero, 0, 0,
+                    (IntPtr)w.X, (IntPtr)w.Y,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 w.LastPosX = w.X;
                 w.LastPosY = w.Y;
             }

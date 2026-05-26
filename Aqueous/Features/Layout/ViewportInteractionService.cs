@@ -65,13 +65,19 @@ internal sealed class ViewportInteractionService
             return;
         }
 
-        // manage_dirty is a hint, not a move command. The slot-order mutation above is purely
-        // local; the next natural manage event (focus change, commit, pointer motion) absorbs
-        // the reorder. Driving manage_dirty from a keybinding callback used to race
-        // wl_display_dispatch on a non-pump thread and produced
-        // `segfault at 2c … in libwayland-client.so.0.25.0` inside wl_proxy_marshal_flags;
-        // funnelled hints now go through IManagerRequestSender.ScheduleManage which queues
-        // onto the pump thread, but for MoveFocused we don't need to post anything at all.
-        _layoutController.MoveFocused(fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir);
+        // Slot-order mutation is purely local; the compositor only learns of the swap when the
+        // next manage cycle drives LayoutProposer.ProposeForArea and the new set_position is
+        // marshalled. Relying on a "natural" manage event (focus change, commit, pointer motion)
+        // means a swap of two same-size tiles on the visible tag with no focus change
+        // (Super+Shift+L/H repro) appears as a silent no-op until something unrelated wakes the
+        // pump. ScheduleManage funnels manage_dirty through IManagerRequestSender's pump-thread
+        // queue so the marshal happens on the dispatch thread — same guard that fixed the
+        // `+0x2c` libwayland-client crash; calling it from this keybinding callback is safe.
+        bool moved = _layoutController.MoveFocused(
+            fw.Output, _layoutProposer.ResolveOutputName(fw.Output), focused, dir);
+        if (moved && _requests.IsBound)
+        {
+            _requests.ScheduleManage();
+        }
     }
 }

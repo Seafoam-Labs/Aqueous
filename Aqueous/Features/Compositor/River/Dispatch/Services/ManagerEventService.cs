@@ -427,14 +427,23 @@ internal sealed unsafe class ManagerEventService
             return;
         }
 
-        var entry = new WindowEntry { Proxy = proxy };
-        entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
-            proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
-            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        // Update in place when this proxy is already known: river re-emits window_information on
+        // every manage cycle, and reconstructing WindowEntry was leaving a dangling NodeProxy whose
+        // wl_proxy libwayland tears down — the cached IntPtr then crashed at +0x2c when
+        // LayoutProposer marshalled set_position on a second swap. NodeProxy is allocated only on
+        // first sight; subsequent events leave the existing node proxy (and its bind-site tracking)
+        // untouched so callers can safely reuse the handle across manage cycles.
+        if (!_windowRegistry.Entries.TryGetValue(proxy, out var entry))
+        {
+            entry = new WindowEntry { Proxy = proxy };
+            entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
+                proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-        _windowRegistry.Entries[proxy] = entry;
-        _bindSiteState.TrackProxyInterface(proxy, "river_window_v1");
-        _bindSiteState.TrackProxyInterface(entry.NodeProxy, "river_node_v1");
+            _windowRegistry.Entries[proxy] = entry;
+            _bindSiteState.TrackProxyInterface(proxy, "river_window_v1");
+            _bindSiteState.TrackProxyInterface(entry.NodeProxy, "river_node_v1");
+        }
 
         if (_primarySeat.Current != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(proxy))
         {
