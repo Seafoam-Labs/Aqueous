@@ -237,7 +237,16 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             var w = hiddenThisCycle[hi];
             if (!w.HideSent)
             {
-                if (windowRegistry.Entries.ContainsKey(w.Proxy))
+                // Liveness gate: only marshal hide(opcode 4) when the proxy is non-null AND we have
+                // proof the compositor has already bound it (ShowSent == we previously emitted a
+                // show on this proxy, which implies it survived its manage_start round-trip). A
+                // window that has never been shown — e.g. one that opens on a non-visible tag —
+                // doesn't need a hide; the compositor isn't drawing it yet, and sending into a
+                // not-yet-bound or already-torn-down river_window_v1 proxy NULL-derefs libwayland
+                // at offset 0x2c. See WindowRegistry.Untrack which nulls Proxy on removal.
+                if (w.Proxy != IntPtr.Zero &&
+                    w.ShowSent &&
+                    windowRegistry.Entries.ContainsKey(w.Proxy))
                 {
                     WaylandInterop.wl_proxy_marshal_flags(
                         w.Proxy, 4, IntPtr.Zero, 0, 0,

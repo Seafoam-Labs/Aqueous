@@ -80,6 +80,12 @@ internal sealed class WindowRegistry : IWindowRegistry
 
         _logger.LogDebug("Untracked window proxy=0x{Proxy:X}", proxy.ToInt64());
         Removed?.Invoke(entry);
+        // Null the native handle on the entry after removal so any stale reference held by an
+        // in-flight layout/dispatch pass observes a zero proxy and short-circuits before calling
+        // into libwayland (see liveness gate in LayoutProposer's hide-pass). Mirrors the
+        // ManagerRequestSender.Reset() pattern: the field is the single source of truth for
+        // "this proxy is gone".
+        entry.Proxy = IntPtr.Zero;
         return true;
     }
 
