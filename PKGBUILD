@@ -11,7 +11,7 @@ license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite'
-         'xdg-desktop-portal-wlr' 'wlroots0.20'
+         'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
          'zlib' 'krb5' 'openssl')
 makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
