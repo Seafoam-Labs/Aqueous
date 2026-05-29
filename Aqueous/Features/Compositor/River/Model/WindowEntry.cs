@@ -89,4 +89,9 @@ internal sealed class WindowEntry
     /// focused window. Used by <c>GameModeLayout</c> to pick the most-recently-focused
     /// anchor candidate on outputs that host multiple matching windows.</summary>
     public long LastFocusTick;
+
+    /// <summary>
+    /// Toplevel proxy representing the parent of this window.
+    /// </summary>
+    public IntPtr ParentProxy;
 }

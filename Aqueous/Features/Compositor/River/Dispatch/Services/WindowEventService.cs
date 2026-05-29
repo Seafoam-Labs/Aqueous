@@ -53,18 +53,18 @@ internal sealed unsafe class WindowEventService
         IManagerRequestSender managerRequestSender,
         IWindowRuleEngine ruleEngine)
     {
-        _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _windowStates          = windowStates          ?? throw new ArgumentNullException(nameof(windowStates));
-        _outputFullscreen      = outputFullscreen      ?? throw new ArgumentNullException(nameof(outputFullscreen));
-        _prevFullscreenStore   = prevFullscreenStore   ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
-        _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
-        _pendingFocus          = pendingFocus          ?? throw new ArgumentNullException(nameof(pendingFocus));
-        _focusService          = focusService          ?? throw new ArgumentNullException(nameof(focusService));
-        _focusedWindowTracker  = focusedWindowTracker  ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
+        _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
+        _prevFullscreenStore = prevFullscreenStore ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
+        _dragState = dragState ?? throw new ArgumentNullException(nameof(dragState));
+        _pendingFocus = pendingFocus ?? throw new ArgumentNullException(nameof(pendingFocus));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _windowStateController = windowStateController ?? throw new ArgumentNullException(nameof(windowStateController));
-        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
-        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
-        _ruleEngine            = ruleEngine            ?? throw new ArgumentNullException(nameof(ruleEngine));
+        _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _ruleEngine = ruleEngine ?? throw new ArgumentNullException(nameof(ruleEngine));
     }
 
     /// <summary>
@@ -106,6 +106,7 @@ internal sealed unsafe class WindowEventService
                         _outputFullscreen.TryRemove(ofs.Key, out _);
                     }
                 }
+
                 _prevFullscreenStore.Handles.Remove(proxy);
 
                 _windowRegistry.Entries.TryRemove(proxy, out _);
@@ -138,6 +139,7 @@ internal sealed unsafe class WindowEventService
                     _focusService.ClearFocusedHandle();
                     _focusService.FocusAnyOtherWindow(proxy);
                 }
+
                 break;
 
             case RiverProtocolOpcodes.Window.DimensionsHint:
@@ -203,7 +205,8 @@ internal sealed unsafe class WindowEventService
             {
                 IntPtr resizeSeatProxy = args[0].o;
                 uint edges = args[1].u;
-                RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
+                RiverLog.Write(
+                    $"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
                 // Anchor windows are sized by the client-requested buffer (xdg_toplevel.configure),
                 // not by pointer resize. Client-driven changes still flow through
                 // Dimensions/DimensionsHint and re-arrange via the dirty path.
@@ -212,6 +215,7 @@ internal sealed unsafe class WindowEventService
                     RiverLog.Write($"pointer_resize_requested ignored: anchor window owns its size");
                     break;
                 }
+
                 if (edges == 0 || w.Output == IntPtr.Zero || !_layoutProposer.IsFloatLayoutActive(w.Output))
                 {
                     RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");
@@ -233,15 +237,15 @@ internal sealed unsafe class WindowEventService
                 _dragState.DragStartPointerY = prrP0.Y;
 
                 int startW = w.W > 0 ? w.W
-                            : w.FloatW > 0 ? w.FloatW
-                            : w.LastHintW > 0 ? w.LastHintW
-                            : w.ProposedW > 0 ? w.ProposedW
-                            : 800;
+                    : w.FloatW > 0 ? w.FloatW
+                    : w.LastHintW > 0 ? w.LastHintW
+                    : w.ProposedW > 0 ? w.ProposedW
+                    : 800;
                 int startH = w.H > 0 ? w.H
-                            : w.FloatH > 0 ? w.FloatH
-                            : w.LastHintH > 0 ? w.LastHintH
-                            : w.ProposedH > 0 ? w.ProposedH
-                            : 600;
+                    : w.FloatH > 0 ? w.FloatH
+                    : w.LastHintH > 0 ? w.LastHintH
+                    : w.ProposedH > 0 ? w.ProposedH
+                    : 600;
                 _dragState.DragStartW = startW;
                 _dragState.DragStartH = startH;
                 _dragState.DragEdges = edges;
@@ -257,6 +261,7 @@ internal sealed unsafe class WindowEventService
                 {
                     _windowStateController.ToggleMaximize(new WindowProxy(proxy));
                 }
+
                 _managerRequestSender.ScheduleManage();
                 break;
 
@@ -266,6 +271,7 @@ internal sealed unsafe class WindowEventService
                 {
                     _windowStateController.ToggleMaximize(new WindowProxy(proxy));
                 }
+
                 _managerRequestSender.ScheduleManage();
                 break;
 
@@ -290,6 +296,7 @@ internal sealed unsafe class WindowEventService
                 {
                     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                 }
+
                 _managerRequestSender.ScheduleManage();
                 break;
 
@@ -300,6 +307,7 @@ internal sealed unsafe class WindowEventService
                 {
                     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                 }
+
                 _focusService.RequestFocus(proxy);
                 _managerRequestSender.ScheduleManage();
                 break;
@@ -312,11 +320,34 @@ internal sealed unsafe class WindowEventService
                     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                     _focusService.RequestFocus(proxy);
                 }
+
                 _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.Identifier:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} identifier={MarshalUtf8(args[0].s)}");
+                break;
+            case RiverProtocolOpcodes.Window.Parent:
+                RiverLog.Write($"window 0x{proxy.ToString("x")} parent=0x{args[0].o.ToString("x")}");
+                var parentProxy = args[0].o;
+                if (parentProxy == IntPtr.Zero)
+                {
+                    w.ParentProxy = IntPtr.Zero;
+                    break;
+                }
+
+                w.ParentProxy = parentProxy;
+                w.Floating = true;
+                if (_windowRegistry.Entries.TryGetValue(parentProxy, out var parent))
+                {
+                    w.HasFloatRect = true;
+                    w.FloatW = w.WidthHint > 0 ? w.WidthHint : 580;
+                    w.FloatH = w.HeightHint > 0 ? w.HeightHint : 360;
+                    w.FloatX = parent.X + (parent.W - w.FloatW) / 2;
+                    w.FloatY = parent.Y + (parent.H - w.FloatH) / 2;
+                }
+
+                _managerRequestSender.ScheduleManage();
                 break;
 
             default:
