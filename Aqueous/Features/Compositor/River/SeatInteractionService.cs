@@ -4,7 +4,6 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
-using Aqueous.Features.SnapZones;
 
 namespace Aqueous.Features.Compositor.River;
 
@@ -16,7 +15,7 @@ namespace Aqueous.Features.Compositor.River;
 /// forwarders) is gone — that state now lives on <see cref="DragStateStore"/>, which the service
 /// consumes directly. All dependencies are now fine-grained DI singletons (<see
 /// cref="DragStateStore"/>, <see cref="IWindowRegistry"/>, <see cref="IFocusService"/>, <see
-/// cref="ILayoutProposer"/>, <see cref="ISnapZoneService"/>, <see cref="IManagerRequestSender"/>,
+/// cref="ILayoutProposer"/>, <see cref="IManagerRequestSender"/>,
 /// <see cref="LayoutController"/>).
 /// </para>
 /// <para>
@@ -29,7 +28,6 @@ internal sealed class SeatInteractionService
     private readonly IWindowRegistry _windowRegistry;
     private readonly IFocusService _focusService;
     private readonly ILayoutProposer _layoutProposer;
-    private readonly ISnapZoneService _snapZoneService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly LayoutController _layoutController;
 
@@ -38,7 +36,6 @@ internal sealed class SeatInteractionService
         IWindowRegistry windowRegistry,
         IFocusService focusService,
         ILayoutProposer layoutProposer,
-        ISnapZoneService snapZoneService,
         IManagerRequestSender managerRequestSender,
         LayoutController layoutController)
     {
@@ -46,7 +43,6 @@ internal sealed class SeatInteractionService
         _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
         _focusService          = focusService          ?? throw new ArgumentNullException(nameof(focusService));
         _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
-        _snapZoneService       = snapZoneService       ?? throw new ArgumentNullException(nameof(snapZoneService));
         _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _layoutController      = layoutController      ?? throw new ArgumentNullException(nameof(layoutController));
     }
@@ -128,8 +124,7 @@ internal sealed class SeatInteractionService
                 adw.FloatH = newFh;
             }
 
-            // SnapZones live preview.
-            _snapZoneService.ApplyLiveSnapPreview(seat);
+            _managerRequestSender.ScheduleManage();
         }
         else
         {
@@ -216,10 +211,6 @@ internal sealed class SeatInteractionService
     public void HandleOpRelease(IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleOpRelease seat=0x" + seat.ToString("x"));
-        if (_dragState.ActiveDragWindow != null && _dragState.DragEdges == 0)
-        {
-            _snapZoneService.TrySnapDraggedWindowToZone(seat);
-        }
         _dragState.DragFinished = true;
     }
 }

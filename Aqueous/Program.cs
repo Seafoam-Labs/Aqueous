@@ -107,13 +107,11 @@ class Program
             Aqueous.Features.Layout.LayoutProposer>();
         services.AddSingleton<Aqueous.Features.Layout.ViewportInteractionService>();
 
-        // - Focus / Tags / SnapZones / Screencopy ------------------------
+        // - Focus / Tags / Screencopy ------------------------------------
         services.AddSingleton<Aqueous.Features.Focus.IFocusService,
             Aqueous.Features.Focus.FocusService>();
         services.AddSingleton<Aqueous.Features.Tags.ITagService,
             Aqueous.Features.Tags.TagService>();
-        services.AddSingleton<Aqueous.Features.SnapZones.ISnapZoneService,
-            Aqueous.Features.SnapZones.SnapZoneService>();
         services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService,
             Aqueous.Features.Screencopy.ScreencopyService>();
 

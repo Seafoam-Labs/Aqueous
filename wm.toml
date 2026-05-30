@@ -1,242 +1,39 @@
 # =============================================================================
-# Aqueous WM — example config
+# Aqueous WM
 # Path: ~/.config/aqueous/wm.toml
 # Parser is a tiny TOML subset: [section], [[output]], key = value, # comments.
 # Unknown keys are ignored; a malformed file falls back to defaults silently.
 # =============================================================================
 
 
-# ------------------------------------------------------------------------------
-# Basic Layout Configuration
-# ------------------------------------------------------------------------------
-[layout]
-# Optional sidecar file. If set, the [layout], [layout.slots] and
-# [layout.options.*] sections in that file overlay the ones below.
-# Relative paths resolve next to this wm.toml. See layout.toml.example.
-# Discovery order: $AQUEOUS_LAYOUT → this `path` → $XDG_CONFIG_HOME/aqueous/
-# layout.toml → ~/.config/aqueous/layout.toml → /etc/xdg/aqueous/layout.toml.
-#path          = "layout.toml"
-
-# Global default layout id. One of: tile | monocle | grid | float | scrolling
-default       = "game-mode"
-
-# Gaps (px). Outer = around the screen edge; inner = between tiles.
-gaps_outer    = 8        # default 8
-gaps_inner    = 4        # default 4
-
-# Master/stack split for the `tile` engine.
-master_ratio  = 0.55     # default 0.55  (0.0–1.0)
-master_count  = 1        # default 1     (windows in master area)
-
-# Borders (ARGB hex, 0xAARRGGBB).
-border_width   = 2
-border_focused = 0xFF88C0D0   # Nord frost
-border_normal  = 0xFF3B4252   # Nord polar night
-border_urgent  = 0xFFBF616A   # Nord aurora red
-
-
-# -----------------------------------------------------------------------------
-# Layout slots — symbolic names you can later bind keys to (Super+t/f/m/g
-# wiring is deferred to phase B1c, but the slot table is already parsed).
-# -----------------------------------------------------------------------------
-[layout.slots]
-primary    = "tile"
-secondary  = "scrolling"
-tertiary   = "monocle"
-quaternary = "grid"
-
-
-# -----------------------------------------------------------------------------
-# Per-layout option overrides. Section name pattern: [layout.options.<id>]
-# Recognised scalar keys: gaps_outer, gaps_inner, master_ratio, master_count.
-# Anything else lands in LayoutOptions.Extra (string→string) for the engine.
-# -----------------------------------------------------------------------------
-[layout.options.tile]
-gaps_outer   = 12
-gaps_inner   = 6
-master_ratio = 0.6
-
-[layout.options.grid]
-gaps_inner = 8
-
-[layout.options.scrolling]
-# PaperWM-style knobs consumed by ScrollingLayout via Extra:
-column_fraction = "0.5"     # each column = 50% of output width
-center_focused  = "true"    # auto-pan so focused column is centred
-
-[layout.options.float]
-# Floating engine has no scalar knobs today; reserved for future use.
-
-
 # -----------------------------------------------------------------------------
 # Per-output overrides. Repeat the [[output]] block once per monitor.
-#
 # `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
-# `edid` (optional) is the SHA-256 of make|model|serial as reported by
-#        `wlr-randr --json`; preferred over `name` because connector
-#        names shuffle between boots and dock states.
-#
-# Display fields (mode/scale/transform/position/enabled/adaptive_sync)
-# are applied by `aqueous-outputd`, NOT by Aqueous itself — River 0.4
-# exposes no in-process output-management protocol to a WM client, so
-# the daemon (running inside RiverDelta's `-c` control context) calls
-# `wlr-randr` for us. The init wrapper /usr/bin/aqueous-init applies
-# these once before Aqueous draws its first frame, fixing the greetd
-# render-size handoff.
-#
-# Schema:
-#   name          = "DP-1"            connector name; supports glob (* and ?)
-#                                     e.g. "DP-*" fans the spec out to every
-#                                     plugged-in DisplayPort monitor. EDID is
-#                                     never globbed. When name globs, the
-#                                     `position` field is rejected (would stack
-#                                     monitors). Wildcard specs are applied
-#                                     first; subsequent specific [[output]]s
-#                                     override per-field.
-#   edid          = "sha256:..."      preferred matcher; survives replug
-#   layout        = "scrolling"       Aqueous layout id (existing field)
-#   enabled       = true              false → wlr-randr --output X --off
-#   mode          = "1920x1080@60"    "WIDTHxHEIGHT[@RATE]"
-#   scale         = 1.25              0.5 – 3.0; fractional allowed
-#   transform     = "normal"          normal | 90 | 180 | 270 |
-#                                     flipped | flipped-90 | flipped-180 |
-#                                     flipped-270
-#   position      = [0, 0]            [x, y] in layout coords
-#   adaptive_sync = false             VRR; only honoured if advertised
-#   primary       = false             at most one output may set this
 # -----------------------------------------------------------------------------
-#[[output]]
-#name   = "DP-1"
-#layout = "scrolling"
-#mode   = "2560x1440@144"
-#scale  = 1.0
-#position = [0, 0]
-#
-#[[output]]
-#name    = "HDMI-A-1"
-#layout  = "tile"
-#mode    = "1920x1080@60"
-#scale   = 1.0
-#position = [2560, 0]
-#
-#[[output]]
-#name    = "eDP-1"
-#layout  = "monocle"
-#scale   = 1.5
-#enabled = true
-#
-## Force every DisplayPort monitor to 1440p144. Wildcards match connector
-## names against `*` (any run) and `?` (single char). EDID is exact-only.
-#[[output]]
-#name = "DP-*"
-#mode = "2560x1440@144"
-#scale = 1.0
+[[output]]
+name   = "DP-4"
+mode   = "7680x2160@240.000000"
+scale  = 1.0
+position = [0,0]
+enabled = true
 
+[display]
+apply_on_start  = true
+apply_on_reload = true
+#
+#[[output]]
+#name   = "HDMI-A-1"
+#layout = "tile"
+#
+#[[output]]
+#name   = "eDP-1"
+#layout = "monocle"
 [struts]
-top    = 32   # Noctalia bar height
+top    = 32   # Noctalia bar height; adjust to match your bar
 bottom = 0
 left   = 0
 right  = 0
-# -----------------------------------------------------------------------------
-# Display-side global behaviour. Consumed by `aqueous-outputd` —
-# Aqueous itself only forwards these to the daemon.
-# -----------------------------------------------------------------------------
-#[display]
-#apply_on_start   = true       # apply [[output]] block before Aqueous draws
-#apply_on_reload  = true       # re-apply on Super+R
-#fallback_profile = "safe"     # name of a [[display.profile]] used if apply fails
-#identify_by      = "edid"     # "edid" | "name"
-#rollback_seconds = 15         # GNOME-style "keep these settings?" timeout; 0 disables
 
-
-# -----------------------------------------------------------------------------
-# Named display profiles — bind to a chord via [keybinds.custom] using the
-# "builtin:display_profile:<name>" verb (handled by aqueous-outputd's
-# `apply_profile` op).
-# -----------------------------------------------------------------------------
-#[[display.profile]]
-#name = "docked"
-#
-#[[display.profile.output]]
-#name     = "DP-1"
-#mode     = "3840x2160@60"
-#scale    = 1.5
-#position = [0, 0]
-#
-#[[display.profile.output]]
-#name    = "eDP-1"
-#enabled = false
-#
-#[[display.profile]]
-#name = "safe"
-#
-#[[display.profile.output]]
-#name  = "*"
-#mode  = "1920x1080@60"
-#scale = 1.0
-
-
-# -----------------------------------------------------------------------------
-# Autostart — supervised commands that Aqueous launches itself, after River
-# has advertised all its globals (so layer-shell clients like the bar can
-# attach successfully on first connect).
-#
-# Schema (one [[exec]] table per command):
-#   name    = "id"           required — identifier used in logs / IPC
-#   command = "sh command"   required — passed to /bin/sh -c, detached via setsid
-#   when    = "startup"      "startup" (default) | "reload" | "always"
-#   once    = true           don't relaunch on --reload
-#   restart = false          respawn (with backoff) on non-zero exit
-#   log     = "/tmp/x.log"   redirect stdout+stderr; default = /dev/null
-#   env     = { K = "v" }    per-entry env overrides
-# -----------------------------------------------------------------------------
-[[exec]]
-name    = "noctalia"
-command = "qs -c noctalia-shell"
-when    = "startup"
-once    = true
-restart = false
-log     = "/tmp/noctalia.log"
-
-# XWayland transport. River has no built-in XWayland; xwayland-satellite is a
-# rootless XWayland server that connects to River as a regular Wayland client
-# and re-exports each X11 toplevel as an xdg_toplevel via xwayland-shell-v1.
-# X11 clients (Steam, JetBrains, Zoom, …) find it through DISPLAY=:0, which
-# Aqueous's session launcher exports before any [[exec]] children are spawned.
-# Setting restart = true keeps the bridge alive across satellite crashes; X11
-# clients will reconnect on the next display-socket retry.
-
-[[exec]]
-name    = "xwayland-satellite"
-command = "xwayland-satellite :0"
-when    = "startup"
-restart = true
-log     = "/tmp/xwayland-satellite.log"
-env     = { DISPLAY = ":0" }
-
-# Idle + lock are handled by Noctalia (see autostart block above). The previous
-# swayidle/swaylock launcher is intentionally removed; configure timeouts in
-# Noctalia Settings (or ~/.config/noctalia/settings.json).
-#
-# Rollback (re-enable if Noctalia idle/lock breaks):
-# [[exec]]
-# name    = "swayidle"
-# command = "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' before-sleep 'swaylock -f -c 000000'"
-# when    = "startup"
-# once    = true
-# restart = true
-# log     = "/tmp/swayidle.log"
-
-# Additional examples:
-# [[exec]]
-# name    = "wallpaper"
-# command = "swaybg -i ~/Pictures/wall.png -m fill"
-#
-# [[exec]]
-# name    = "polkit"
-# command = "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
-# when    = "always"
-# restart = true
 
 # -----------------------------------------------------------------------------
 # Actions definitions.
@@ -247,6 +44,7 @@ toggle_start_menu = "qs -c noctalia-shell ipc call launcher toggle"
 spawn_terminal = "tabby"
 lock_screen = "qs -c noctalia-shell ipc call lockScreen lock"
 
+# -----------------------------------------------------------------------------
 # Keybindings.
 #
 # Each built-in action maps to either:
@@ -275,11 +73,17 @@ focus_right           = "Super+L"          # default
 focus_up              = "Super+K"          # default
 focus_down            = "Super+J"          # default
 
-# --- Scrolling-layout viewport pan ---
+# --- Scrolling-layout viewport pan + column move ---
 scroll_viewport_left  = "Super+Comma"      # default
 scroll_viewport_right = "Super+Period"     # default
+move_column_left      = "Super+Shift+H"    # default
+move_column_right     = "Super+Shift+L"    # default
 
-# --- Move focused window between slots in the active layout ---
+# --- Opt-in actions (no default chord) ---
+reload_config         = "Super+R"          # re-read this file (layout opts hot-swap;
+# chord changes still need WM restart)
+
+
 # Per-engine semantics:
 #   tile/grid/dwindle → swap with neighbour at (row±1, col)/(row, col±1)
 #   scrolling         → swap columns (L/R) or intra-column reorder (U/D)
@@ -292,9 +96,6 @@ move_window_right     = "Super+Shift+Right"  # default
 move_window_up        = "Super+Shift+Up"     # default
 move_window_down      = "Super+Shift+Down"   # default
 
-# --- Opt-in actions (no default chord) ---
-reload_config         = "Super+R"          # re-read this file (layout opts hot-swap;
-                                           # chord changes still need WM restart)
 
 # Layout-switch sugar: resolves through [layout.slots] above.
 set_layout_primary    = "Super+T"          # → tile
@@ -370,16 +171,9 @@ unminimize_last       = "Super+Shift+N"        # default — restore most-recent
 toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "default" pad
 send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
 
-# Lock screen:
-lock_screen     = "Super+Ctrl+L"      # default
-
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
 #   close_focused = []                      # disables Super+Q entirely
-
-# Actions without a default chord (opt-in via [keybinds.custom] only):
-#   toggle_scratchpad_named:<name>
-#   send_to_scratchpad_named:<name>
 
 
 # -----------------------------------------------------------------------------
@@ -394,7 +188,7 @@ lock_screen     = "Super+Ctrl+L"      # default
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
 "Super+Shift+S"      = "spawn:grim -g \"$(slurp)\" - | wl-copy"
-"Super+B"            = "spawn:firefox"
+"Super+B"            = "spawn:zen-browser"
 "XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
 "XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 "XF86AudioMute"         = "spawn:wpctl set-mute   @DEFAULT_AUDIO_SINK@ toggle"
@@ -460,167 +254,83 @@ anchor      = "center"
 # term  = "ghostty --class=aqueous-scratch-term"
 # notes = "obsidian"
 
-
-# -----------------------------------------------------------------------------
-# Input / focus policy.
-# -----------------------------------------------------------------------------
+# input settings
 [input]
-# Sloppy focus: when true (default), moving the pointer over a window
-# transfers keyboard focus to it. When false, focus only changes via
-# click, keybind, or directional focus (Super+H/J/K/L).
-focus_follows_mouse = false
+focus_follows_mouse = true
 
-# -----------------------------------------------------------------------------
-# Pointer drag bindings (hardcoded; documented here for reference).
-#
-# River draws no decorations and does not implement server-side decorations,
-# so undecorated clients (alacritty, foot, …) and CSD apps without libdecor
-# cannot initiate resize/move on their own. Aqueous therefore binds the
-# primary modifier (Super, see Mods.PrimaryMask) + mouse button as a
-# WM-driven drag, i3/sway-style:
-#
-#   Super + BTN_LEFT  drag → move the floating window under the pointer
-#   Super + BTN_RIGHT drag → resize the floating window; the edge is
-#                            derived from the pointer's quadrant inside
-#                            the window rect (top=1/bottom=2/left=4/right=8;
-#                            center third falls back to the SE corner).
-#
-# Both gestures are gated on the dragged window's output running the
-# `float` layout — in tile/scrolling/monocle/grid the gesture is ignored
-# cleanly. Switch the output to float (or set [layout].default = "float")
-# to enable. Requires `river_window_manager_v1` >= 4.
-# -----------------------------------------------------------------------------
-
-# Legacy flat keys (still honoured). Prefer [input.mouse] below for
-# fine-grained control; these map onto Mouse.accel-profile / accel-speed
-# when the per-device sub-table is omitted.
-# pointer_acceleration        = true   # true=adaptive, false=flat
-# pointer_acceleration_factor = 0.0    # libinput speed in [-1.0, 1.0]
-
-
-# -----------------------------------------------------------------------------
-# Per-device libinput configuration (niri-compatible schema).
-#
-# Aqueous applies these values directly to the compositor's own libinput
-# context via the river_libinput_config_v1 Wayland protocol, on
-# device-add and on every config reload (live, no relog, no separate
-# daemon).
-# -----------------------------------------------------------------------------
 [input.mouse]
-# accel_profile = "flat"   # "adaptive" | "flat"
-# accel_speed   = 0.0          # [-1.0, 1.0]; 0.0 = libinput neutral
-# natural_scroll = false
-# left_handed   = false
-# middle_emulation = false
+accel_profile = "flat"
+accel_speed   = 0.0
 
-[input.touchpad]
-# accel_profile  = "flat"
-# accel_speed    = 0.0
-# tap            = true
-# dwt            = true
-# natural_scroll = true
-# click_method   = "clickfinger"   # "clickfinger" | "button-areas"
-# scroll_method  = "two-finger"    # "two-finger" | "edge" | "no-scroll"
+# ---------------------------------------------------------------
+# Snap zones — port of Noctalia's "Priority Grid" KZones layout.
+# Coordinates are fractions of the output's usable area (0.0–1.0).
+# output = "*" applies to every output; replace with e.g. "DP-1"
+# for a per-output layout.
+# ---------------------------------------------------------------
+[[snapzones]]
+output = "*"
+layout = "Priority Grid"
+activator = "Shift"
 
-[input.trackpoint]
-# accel_profile = "flat"
-# accel_speed   = 0.0
+[[snapzones.zone]]
+name = "Top Left"
+x = 0.0
+y = 0.0
+w = 0.25
+h = 0.5
 
+[[snapzones.zone]]
+name = "Bottom Left 1"
+x = 0.0
+y = 0.5
+w = 0.125
+h = 0.5
 
-# -----------------------------------------------------------------------------
-# SnapZones (KWin KZones / Windows FancyZones equivalent).
-#
-# A user-defined grid of rectangles per output that floating windows snap
-# into when a Super+BTN_LEFT drag is released. Zones are declared in
-# normalized output coordinates ([0.0, 1.0] on each axis), so the same
-# config survives resolution changes and HiDPI scaling.
-#
-# Activation:
-#   * Drag a floating window with Super+BTN_LEFT (the existing move drag).
-#   * On release, if the pointer is inside a zone for the window's output,
-#     the window snaps to that zone's resolved rectangle.
-#   * Resize-drags (Super+BTN_RIGHT) are never snapped.
-#   * The float-layout gate still applies: snapping only happens on
-#     outputs running the `float` layout (or with a per-window Floating
-#     override). Non-floating windows are not snapped.
-#
-# Schema:
-#   [[snapzones]]                           # one bucket per (output, layout)
-#   output    = "DP-1"                      # river_output_v1.name; "*" = any
-#   layout    = "default"                   # optional name (KZones-style)
-#   activator = "Shift"                     # optional modifier gate (KZones-style):
-#                                           #   "always" / "none" / omitted = snap on
-#                                           #     any Super+LMB drag (default)
-#                                           #   "Shift" / "Ctrl" / "Alt" / "Super"
-#                                           #     = snap only when that extra modifier
-#                                           #     is held *at the moment the drag
-#                                           #     starts* (in addition to Super).
-#                                           # Internally Aqueous registers an extra
-#                                           # Super+<activator>+BTN_LEFT pointer
-#                                           # binding for each distinct activator
-#                                           # value declared here, so live mid-drag
-#                                           # mod release does not cancel snapping.
-#
-#   [[snapzones.zone]]                      # repeat for each zone
-#   name = "left-half"
-#   x = 0.0    # ∈ [0.0, 1.0]; out-of-range values are clamped
-#   y = 0.0
-#   w = 0.5
-#   h = 1.0
-#
-# An output-specific bucket wins over the wildcard "*" — they are not
-# concatenated. Zone overlap is permitted; the first match in declaration
-# order wins. Zones smaller than a window's min_size are refused
-# (the window stays where it was dropped).
-#
-# Examples — uncomment to try:
+[[snapzones.zone]]
+name = "Bottom Left 2"
+x = 0.125
+y = 0.5
+w = 0.125
+h = 0.5
 
-# [[snapzones]]
-# output = "*"
-# layout = "halves"
-#
-# [[snapzones.zone]]
-# name = "left-half"
-# x = 0.0
-# y = 0.0
-# w = 0.5
-# h = 1.0
-#
-# [[snapzones.zone]]
-# name = "right-half"
-# x = 0.5
-# y = 0.0
-# w = 0.5
-# h = 1.0
+[[snapzones.zone]]
+name = "Center"
+x = 0.25
+y = 0.0
+w = 0.5
+h = 1.0
+
+[[snapzones.zone]]
+name = "Right"
+x = 0.75
+⠀y = 0.0
+w = 0.25
+h = 1.0
 
 
-# Thirds layout — three vertical columns:
-# [[snapzones]]
-# output = "DP-1"
-# layout = "thirds"
-#
-# [[snapzones.zone]]
-# name = "left"
-# x = 0.0
-# y = 0.0
-# w = 0.3333
-# h = 1.0
-#
-# [[snapzones.zone]]
-# name = "center"
-# x = 0.3333
-# y = 0.0
-# w = 0.3334
-# h = 1.0
-#
-# [[snapzones.zone]]
-# name = "right"
-# x = 0.6667
-# y = 0.0
-# w = 0.3333
-# h = 1.0
+[[exec]]
+name    = "noctalia"
+command = "qs -c noctalia-shell"
+when    = "startup"          # "startup" (default) | "reload" | "always"
+once    = true               # don't relaunch on --reload
+restart = true              # respawn (with backoff) on non-zero exit
+log     = "/tmp/noctalia.log"
+
+#[[exec]]
+#name    = "xwayland-satellite"
+#command = "xwayland-satellite :0"
+#when    = "startup"
+#restart = true
+#log     = "/tmp/xwayland-satellite.log"
+#env     = { DISPLAY = ":0" }
+
+#[[exec]]
+#name    = "ghostty"
+#command = "ghostty"
+#when    = "startup"
 
 
 [rules]
 # Optional. Absolute path or ~-prefixed. Overrides the XDG search above.
-# path = "~/.config/aqueous/rules.toml"
+path = "~/.config/aqueous/rules.toml"

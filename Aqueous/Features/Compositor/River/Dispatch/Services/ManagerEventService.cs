@@ -37,7 +37,6 @@ internal sealed unsafe class ManagerEventService
     private readonly WindowStateStore _windowStates;
     private readonly LayoutController _layoutController;
     private readonly ILayoutProposer _layoutProposer;
-    private readonly ISnapZoneService _snapZoneService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly IKeyBindingRegistrar _keyBindingRegistrar;
     private readonly WaylandBindSiteState _bindSiteState;
@@ -59,7 +58,6 @@ internal sealed unsafe class ManagerEventService
         WindowStateStore windowStates,
         LayoutController layoutController,
         ILayoutProposer layoutProposer,
-        ISnapZoneService snapZoneService,
         IManagerRequestSender managerRequestSender,
         IKeyBindingRegistrar keyBindingRegistrar,
         WaylandBindSiteState bindSiteState,
@@ -80,7 +78,6 @@ internal sealed unsafe class ManagerEventService
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
         _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
-        _snapZoneService = snapZoneService ?? throw new ArgumentNullException(nameof(snapZoneService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _keyBindingRegistrar = keyBindingRegistrar ?? throw new ArgumentNullException(nameof(keyBindingRegistrar));
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
@@ -577,54 +574,5 @@ internal sealed unsafe class ManagerEventService
             }
         }
 
-        if (managerVersion >= 4 && _pointerBindings.SnapActivatorBindings.Count == 0)
-        {
-            const uint BTN_LEFT = 0x110;
-            var seenActivators = new HashSet<SnapActivator>();
-            foreach (var layoutList in _snapZoneService.CollectAllSnapLayouts())
-            {
-                foreach (var l in layoutList)
-                {
-                    if (l.Activator == SnapActivator.Always)
-                    {
-                        continue;
-                    }
-
-                    if (!seenActivators.Add(l.Activator))
-                    {
-                        continue;
-                    }
-
-                    uint extraMask = _snapZoneService.ActivatorToMask(l.Activator);
-                    if (extraMask == 0)
-                    {
-                        continue;
-                    }
-
-                    uint combinedMask = Mods.PrimaryMask | extraMask;
-                    var pb = WaylandInterop.wl_proxy_marshal_flags(
-                        proxy, 6, (IntPtr)WlInterfaces.RiverPointerBinding, managerVersion, 0,
-                        IntPtr.Zero, (IntPtr)BTN_LEFT, (IntPtr)combinedMask,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    if (pb == IntPtr.Zero)
-                    {
-                        continue;
-                    }
-
-                    _pointerBindings.SnapActivatorBindings[pb] = l.Activator;
-                    _pointerBindings.SnapActivatorBindingNeedsEnable[pb] = true;
-                    WaylandInterop.wl_proxy_add_dispatcher(
-                        pb,
-                        (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
-                            .NativeCallbackEntry.Dispatch,
-                        _keyBindingsRegistry.SelfHandlePtr,
-                        IntPtr.Zero);
-                    _bindSiteState.TrackProxyInterface(pb, "river_pointer_binding_v1");
-                    string maskHex = combinedMask.ToString("x");
-                    RiverLog.Write(
-                        $"registered {Mods.PrimaryName}+{l.Activator.ToString()}+BTN_LEFT snap-activator pointer binding (mask=0x{maskHex})");
-                }
-            }
-        }
     }
 }
