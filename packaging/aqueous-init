@@ -49,4 +49,25 @@ if [ -x /usr/bin/aqueous-outputd ]; then
     fi
 fi
 
+# Push the (now-live) Wayland env into systemd --user + D-Bus so
+# xdg-desktop-portal-gtk can actually connect to the compositor.
+# Must run here, NOT in aqueous-wm.sh, because WAYLAND_DISPLAY only
+# becomes valid once RiverDelta has exec'd us.
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd \
+        WAYLAND_DISPLAY \
+        XDG_CURRENT_DESKTOP=Aqueous \
+        XDG_SESSION_TYPE=wayland \
+        XDG_RUNTIME_DIR 2>/dev/null || true
+elif command -v systemctl >/dev/null 2>&1; then
+    systemctl --user import-environment \
+        WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
+        2>/dev/null || true
+fi
+
+# Kick the portal in case it already failed earlier in the boot.
+# reset-failed clears the start-limit so the restart actually runs.
+systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
+systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service 2>/dev/null || true
+
 exec /usr/bin/aqueous
