@@ -237,6 +237,38 @@ public sealed class WindowStateController
         return true;
     }
 
+    /// <summary>
+    /// Idempotently put <paramref name="window"/> into <see cref="WindowState.Floating"/> with the
+    /// supplied geometry. No-op when the window is already in an overlay state
+    /// (Fullscreen/Maximized/Minimized/Scratchpad) — callers must demote first, same contract as
+    /// <see cref="ToggleFloating"/>. Used by the river_window_v1::parent auto-float heuristic in
+    /// WindowEventService so transient toplevels (dialogs/file pickers) bypass the tiling engine
+    /// without a rules.toml entry.
+    /// </summary>
+    public bool SetFloating(WindowProxy window, Rect geom)
+    {
+        var w = _host.Get(window);
+        if (w is null) return false;
+
+        // Match ToggleFloating's overlay-state guard.
+        if (w.State is WindowState.Fullscreen or WindowState.Maximized
+            or WindowState.Minimized or WindowState.Scratchpad)
+        {
+            return false;
+        }
+
+        if (w.State != WindowState.Floating)
+        {
+            w.PreviousState = w.State;
+            w.State = WindowState.Floating;
+            _host.Log($"state ws=0x{window.Handle.ToInt64():x} {w.PreviousState}→floating (auto)");
+        }
+
+        w.FloatingGeom = geom;
+        _host.RequestRender(_host.FocusedOutput);
+        return true;
+    }
+
     private Rect ComputeDefaultFloatRect(OutputProxy output, WindowStateData? entry = null)
     {
         // Rule-matched windows with `ignore_struts = true` resolve their default float rect
