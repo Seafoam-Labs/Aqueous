@@ -4,7 +4,7 @@ namespace Aqueous.Features.Layout;
 
 /// <summary>
 /// Identity selector for a physical output, parsed from <c>wm.toml</c> blocks such as
-/// <c>[[output]]</c> and <c>[[snapzones]]</c>. Mirrors the <c>edid</c>/<c>name</c> rule used by
+/// <c>[[output]]</c>. Mirrors the <c>edid</c>/<c>name</c> rule used by
 /// <c>Aqueous.OutputDaemon.Validator.Resolve</c>: <c>Edid</c> wins, then <c>Make</c>/<c>Model</c>/
 /// <c>Serial</c> (all-of, case-insensitive, non-empty fields only), then <c>Name</c> as the
 /// connector-string fallback. At least one of the five fields must be non-empty — a fully empty

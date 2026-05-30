@@ -185,8 +185,6 @@ optional autologin snippet).
       …) and non-null `WM_TRANSIENT_FOR`.
 - [ ] Floating-window keybinds: toggle-float on focused tile, move/resize
       by keys, center-on-spawn, remembered geometry.
-- [ ] Surface `Features/SnapZones` as a daily-use feature (pointer
-      drag-to-snap for floating windows).
 - [ ] Dedicated `exit_fullscreen` action (separate from
       `toggle_fullscreen`) and audit of all state-transition bindings.
 - [ ] Scratchpad / iconify-equivalent semantics.

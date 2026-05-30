@@ -262,52 +262,6 @@ focus_follows_mouse = true
 accel_profile = "flat"
 accel_speed   = 0.0
 
-# ---------------------------------------------------------------
-# Snap zones — port of Noctalia's "Priority Grid" KZones layout.
-# Coordinates are fractions of the output's usable area (0.0–1.0).
-# output = "*" applies to every output; replace with e.g. "DP-1"
-# for a per-output layout.
-# ---------------------------------------------------------------
-[[snapzones]]
-output = "*"
-layout = "Priority Grid"
-activator = "Shift"
-
-[[snapzones.zone]]
-name = "Top Left"
-x = 0.0
-y = 0.0
-w = 0.25
-h = 0.5
-
-[[snapzones.zone]]
-name = "Bottom Left 1"
-x = 0.0
-y = 0.5
-w = 0.125
-h = 0.5
-
-[[snapzones.zone]]
-name = "Bottom Left 2"
-x = 0.125
-y = 0.5
-w = 0.125
-h = 0.5
-
-[[snapzones.zone]]
-name = "Center"
-x = 0.25
-y = 0.0
-w = 0.5
-h = 1.0
-
-[[snapzones.zone]]
-name = "Right"
-x = 0.75
-⠀y = 0.0
-w = 0.25
-h = 1.0
-
 
 [[exec]]
 name    = "noctalia"

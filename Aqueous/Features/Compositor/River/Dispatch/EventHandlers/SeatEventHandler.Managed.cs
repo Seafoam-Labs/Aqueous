@@ -22,9 +22,8 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
     private readonly IWindowRegistry _windows;
     private readonly ConcurrentDictionary<IntPtr, IntPtr> _seatHoveredWindow;
     // _seatPointerPos retained as a ctor param for signature stability with callers + tests, but
-    // PointerPosition writes now route through ISeatHandlerCollaborators.CachePointerPosition (see
-    // fix for snap-zone-broken regression). Field kept null-checked; future PR retires it once tests
-    // + RiverWindowManagerClient ctor migrate.
+    // PointerPosition writes now route through ISeatHandlerCollaborators.CachePointerPosition.
+    // Field kept null-checked; future PR retires it once tests + RiverWindowManagerClient ctor migrate.
     private readonly ConcurrentDictionary<IntPtr, (int X, int Y)> _seatPointerPos;
     // Routes through SeatInteractionService instead of RiverWindowManagerClient. The service consumes
     // fine-grained DI singletons directly.
@@ -140,9 +139,8 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
                     // Cache latest pointer position per seat so the Super+RMB drag-resize binding can derive the
-                    // resize edges from the click position relative to the hovered window's rect, and so SnapZones
-                    // can hit-test against the live cursor in OpDelta / OpRelease. Routed through the bridge — see
-                    // ISeatHandlerCollaborators.CachePointerPosition.
+                    // resize edges from the click position relative to the hovered window's rect.
+                    // Routed through the bridge — see ISeatHandlerCollaborators.CachePointerPosition.
                     _interaction.CachePointerPosition(proxy, args[0].i, args[1].i);
                 }
                 break;

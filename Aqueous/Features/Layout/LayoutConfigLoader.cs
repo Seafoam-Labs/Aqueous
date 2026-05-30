@@ -222,8 +222,7 @@ public static class LayoutConfigLoader
 
             if (line.StartsWith("[["))
             {
-                // Array-of-tables — [[output]], [[exec]]. Legacy [[snapzones]] / [[snapzones.zone]]
-                // are silently ignored for one release; remove them from your config.
+                // Array-of-tables — [[output]], [[exec]].
                 FlushOutput();
                 FlushExec();
                 int end = line.IndexOf("]]", StringComparison.Ordinal);
@@ -350,8 +349,6 @@ public static class LayoutConfigLoader
                     break;
                 case "[[snapzones]]":
                 case "[[snapzones.zone]]":
-                    // Legacy SnapZones config — silently ignored. Will be removed entirely in a
-                    // future release.
                     break;
                 case "keybinds":
                     if (knownActions.Contains(key))

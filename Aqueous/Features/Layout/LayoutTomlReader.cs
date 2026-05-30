@@ -18,7 +18,7 @@ namespace Aqueous.Features.Layout;
 /// </list>
 /// <para>
 /// Only the <c>[layout]</c>, <c>[layout.slots]</c> and <c>[layout.options.*]</c> sections of the
-/// sidecar take effect. Everything else (keybinds, output, snapzones, input, exec, …) stays in
+/// sidecar take effect. Everything else (keybinds, output, input, exec, …) stays in
 /// <c>wm.toml</c> and is untouched by this reader. When both files supply a layout-only field,
 /// the sidecar wins.
 /// </para>
