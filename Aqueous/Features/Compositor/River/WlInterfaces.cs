@@ -810,7 +810,7 @@ internal static unsafe class WlInterfaces
     private static void BuildRiverWindowManagement()
     {
         RiverWindowManager = AllocEmpty("river_window_manager_v1", 5);
-        RiverWindow = AllocEmpty("river_window_v1", 4);
+        RiverWindow = AllocEmpty("river_window_v1", 5);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
         RiverShellSurface = AllocEmpty("river_shell_surface_v1", 4);
         RiverNode = AllocEmpty("river_node_v1", 4);

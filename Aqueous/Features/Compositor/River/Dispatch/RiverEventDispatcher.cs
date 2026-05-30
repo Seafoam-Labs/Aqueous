@@ -40,8 +40,8 @@ internal sealed unsafe class RiverEventDispatcher
             RiverLog.Write("DISPATCH iface=" + iface + " target=0x" + target.ToString("x") + " opcode=" + opcode);
             int argCount = iface switch
             {
-                "river_window_manager_v1" => 4,
-                "river_window_v1" => 4,
+                "river_window_manager_v1" => 5,
+                "river_window_v1" => 5,
                 "river_output_v1" => 2,
                 "river_seat_v1" => 2,
                 "river_layer_shell_v1" => 1,
