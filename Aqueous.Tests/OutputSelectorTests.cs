@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using Aqueous.Features.Layout;
-using Aqueous.Features.SnapZones;
 using Xunit;
 
 namespace Aqueous.Tests;
@@ -8,9 +7,9 @@ namespace Aqueous.Tests;
 /// <summary>
 /// Coverage for the EDID-aware TOML selectors introduced in <see cref="OutputSelector"/>: the
 /// daemon-style <c>edid</c> hash, <c>make</c>/<c>model</c>/<c>serial</c>, and the <c>name</c>
-/// fallback all parse out of <c>[[output]]</c> and <c>[[snapzones]]</c> and resolve at lookup
-/// time. Mirrors the rule in <c>Aqueous.OutputDaemon/Validator.cs</c>: EDID wins, then
-/// make/model/serial (intersection), then connector name.
+/// fallback all parse out of <c>[[output]]</c> and resolve at lookup time. Mirrors the rule in
+/// <c>Aqueous.OutputDaemon/Validator.cs</c>: EDID wins, then make/model/serial (intersection),
+/// then connector name.
 /// </summary>
 public class OutputSelectorTests
 {
@@ -125,48 +124,4 @@ public class OutputSelectorTests
         Assert.Equal("monocle", cfg.ResolveLayoutForOutput("DP-2", edidSha256: Edid));
     }
 
-    // ---- TOML loader: [[snapzones]] with EDID/make/model/serial ------------
-
-    [Fact]
-    public void SnapZoneStore_ParsesEdidSelector_AndResolvesAcrossConnector()
-    {
-        var cfg = LayoutConfig.Parse($$"""
-            [[snapzones]]
-            edid   = "{{Edid}}"
-            layout = "default"
-            [[snapzones.zone]]
-            name = "full"
-            x = 0.0
-            y = 0.0
-            w = 1.0
-            h = 1.0
-            """);
-
-        // No name-keyed bucket exists.
-        Assert.Empty(cfg.SnapZones.LayoutsFor("DP-1"));
-        // EDID-keyed selector resolves regardless of connector.
-        var layouts = cfg.SnapZones.LayoutsFor("DP-7", edidSha256: Edid, make: null, model: null, serial: null);
-        Assert.Single(layouts);
-        Assert.Equal("default", layouts[0].Name);
-        Assert.Single(layouts[0].Zones);
-    }
-
-    [Fact]
-    public void SnapZoneStore_NameKeyedBlocks_StillWork_Unchanged()
-    {
-        var cfg = LayoutConfig.Parse("""
-            [[snapzones]]
-            output = "DP-1"
-            [[snapzones.zone]]
-            name = "left"
-            x = 0.0
-            y = 0.0
-            w = 0.5
-            h = 1.0
-            """);
-
-        Assert.Single(cfg.SnapZones.LayoutsFor("DP-1"));
-        // Other connectors get nothing (no wildcard, no EDID).
-        Assert.Empty(cfg.SnapZones.LayoutsFor("DP-2"));
-    }
 }

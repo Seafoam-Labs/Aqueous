@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Aqueous.Features.SnapZones;
 
 namespace Aqueous.Features.Input;
 
@@ -16,7 +15,5 @@ internal sealed class PointerBindingStore
     public bool DragPointerBindingNeedsEnable { get; set; }
     public IntPtr DragResizePointerBinding { get; set; }
     public bool DragResizePointerBindingNeedsEnable { get; set; }
-    public Dictionary<IntPtr, SnapActivator> SnapActivatorBindings { get; } = new();
-    public Dictionary<IntPtr, bool> SnapActivatorBindingNeedsEnable { get; } = new();
     public HashSet<IntPtr> SeatsWithPointerBindings { get; } = new();
 }

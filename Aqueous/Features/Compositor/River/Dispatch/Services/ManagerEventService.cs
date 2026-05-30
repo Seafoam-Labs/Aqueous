@@ -7,7 +7,6 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
-using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Compositor.River.Dispatch.Services;
@@ -162,25 +161,6 @@ internal sealed unsafe class ManagerEventService
                 RiverLog.Write("enabled Super+BTN_RIGHT pointer binding");
             }
 
-            if (_pointerBindings.SnapActivatorBindingNeedsEnable.Count > 0)
-            {
-                foreach (var pb in new List<IntPtr>(_pointerBindings.SnapActivatorBindingNeedsEnable.Keys))
-                {
-                    if (!_pointerBindings.SnapActivatorBindingNeedsEnable[pb])
-                    {
-                        continue;
-                    }
-
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        pb, 1, IntPtr.Zero, 0, 0,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    _pointerBindings.SnapActivatorBindingNeedsEnable[pb] = false;
-                    if (_pointerBindings.SnapActivatorBindings.TryGetValue(pb, out var act))
-                    {
-                        RiverLog.Write($"enabled Super+{act}+BTN_LEFT snap-activator pointer binding");
-                    }
-                }
-            }
 
             // Drag finish path.
             if (_dragState.DragFinished)
@@ -199,7 +179,6 @@ internal sealed unsafe class ManagerEventService
 
                 _dragState.ActiveDragWindow = null;
                 _dragState.ActiveDragSeat = IntPtr.Zero;
-                _dragState.ActiveDragActivator = SnapActivator.Always;
                 _dragState.DragFinished = false;
                 _dragState.DragStarted = false;
                 _dragState.DragEdges = 0;

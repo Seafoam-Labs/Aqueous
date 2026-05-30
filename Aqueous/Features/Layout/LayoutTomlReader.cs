@@ -206,7 +206,7 @@ public static class LayoutTomlReader
 
     /// <summary>
     /// Overlay merge: returns <paramref name="baseCfg"/> with the layout-only fields replaced by
-    /// those from <paramref name="overlay"/>. Non-layout fields (keybinds, snapzones, exec,
+    /// those from <paramref name="overlay"/>. Non-layout fields (keybinds, exec,
     /// output, input, struts, actions, state) are taken verbatim from <paramref name="baseCfg"/>.
     /// <para>
     /// Slot map and per-layout options map are merged per key (overlay wins per key; base keys
@@ -240,7 +240,6 @@ public static class LayoutTomlReader
             PerOutputSelectors = baseCfg.PerOutputSelectors,
             Keybinds = baseCfg.Keybinds,
             State = baseCfg.State,
-            SnapZones = baseCfg.SnapZones,
             Exec = baseCfg.Exec,
             Actions = baseCfg.Actions,
             Input = baseCfg.Input,

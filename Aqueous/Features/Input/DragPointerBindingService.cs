@@ -85,17 +85,6 @@ internal sealed unsafe class DragPointerBindingService
         bool isResize = (proxy == _pointerBindings.DragResizePointerBinding)
             && _pointerBindings.DragResizePointerBinding != IntPtr.Zero;
 
-        // SnapZones activator gate: if this event came from one of the Super+<activator>+BTN_LEFT pointer
-        // bindings, remember which activator armed the drag so TryResolveSnapForDrag can match the
-        // per-layout Activator. Otherwise default to Always (the plain Super+LMB / Super+RMB bindings —
-        // only Always-activated snap layouts are eligible).
-        Aqueous.Features.SnapZones.SnapActivator pressActivator =
-            Aqueous.Features.SnapZones.SnapActivator.Always;
-        if (_pointerBindings.SnapActivatorBindings.TryGetValue(proxy, out var act))
-        {
-            pressActivator = act;
-        }
-
         if (opcode == RiverProtocolOpcodes.Binding.Pressed)
         {
             // Find a seat that has a currently-hovered window and start a drag for it.
@@ -123,7 +112,6 @@ internal sealed unsafe class DragPointerBindingService
 
                 _dragState.ActiveDragWindow = w;
                 _dragState.ActiveDragSeat = seat;
-                _dragState.ActiveDragActivator = pressActivator;
                 _dragState.DragStartX = w.X;
                 _dragState.DragStartY = w.Y;
                 // Capture cursor at drag-start so OpDelta can synthesize live pointer coords for snap-zone

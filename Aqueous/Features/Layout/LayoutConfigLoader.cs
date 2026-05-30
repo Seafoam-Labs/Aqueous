@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Input;
-using Aqueous.Features.SnapZones;
 using Aqueous.Features.State;
 
 namespace Aqueous.Features.Layout;
@@ -211,123 +210,7 @@ public static class LayoutConfigLoader
             execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
-        // ------------------------------------------------------------- Snap-zone parsing state. Schema
-        // (line-oriented to fit this hand-rolled parser): [[snapzones]] output = "DP-1" # or "*" for
-        // every output layout = "default" # optional; defaults to "default" [[snapzones.zone]] name =
-        // "left-half" x = 0.0 y = 0.0 w = 0.5 h = 1.0 [[snapzones]] introduces a new (output, layout)
-        // bucket; [[snapzones.zone]] tables are appended to whatever bucket is currently open. A new
-        // [[snapzones]] flushes the previous pending zone and bucket; end-of-file flushes both.
-        // --------------------------------------------------------------- Ordered (output → ordered list
-        // of (layoutName, zones)).
-        var snapByOutput =
-            new Dictionary<string, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)>>(StringComparer.Ordinal);
-        // Selector-keyed snap buckets (when [[snapzones]] uses edid/make/model/serial instead of
-        // `output =`). Order-preserving; lookup walks this after the name dictionary.
-        var snapBySelector =
-            new List<(OutputSelector Selector, List<(string Name, SnapActivator Activator, List<SnapZone> Zones)> Layouts)>();
-        string? snapPendingOutput = null;
-        string? snapPendingEdid = null;
-        string? snapPendingMake = null;
-        string? snapPendingModel = null;
-        string? snapPendingSerial = null;
-        string? snapPendingLayout = null;
-        SnapActivator snapPendingActivator = SnapActivator.Always;
-        List<SnapZone>? snapPendingZones = null;
-        // Pending [[snapzones.zone]] fields.
-        string? zPendingName = null;
-        double zPendingX = 0.0, zPendingY = 0.0, zPendingW = 0.0, zPendingH = 0.0;
-        bool zPendingActive = false;
         Dictionary<string, string> actionsMap = [];
-
-        void FlushZone()
-        {
-            if (!zPendingActive)
-            {
-                return;
-            }
-
-            // Only attach to a bucket if [[snapzones]] is open.
-            if (snapPendingZones != null)
-            {
-                snapPendingZones.Add(new SnapZone(
-                    zPendingName ?? $"zone{snapPendingZones.Count}",
-                    zPendingX, zPendingY, zPendingW, zPendingH));
-            }
-
-            zPendingActive = false;
-            zPendingName = null;
-            zPendingX = zPendingY = zPendingW = zPendingH = 0.0;
-        }
-
-        void FlushSnapBucket()
-        {
-            FlushZone();
-            if (snapPendingZones == null || snapPendingZones.Count == 0)
-            {
-                snapPendingOutput = null;
-                snapPendingEdid = null;
-                snapPendingMake = null;
-                snapPendingModel = null;
-                snapPendingSerial = null;
-                snapPendingLayout = null;
-                snapPendingActivator = SnapActivator.Always;
-                snapPendingZones = null;
-                return;
-            }
-
-            // Route to the selector list when the user supplied an EDID/make/model/serial selector
-            // and did NOT set `output =`. Otherwise fall back to the name-keyed dictionary, using the
-            // "*" wildcard if neither selector nor `output =` was provided.
-            bool hasSelector = !string.IsNullOrEmpty(snapPendingEdid)
-                               || !string.IsNullOrEmpty(snapPendingMake)
-                               || !string.IsNullOrEmpty(snapPendingModel)
-                               || !string.IsNullOrEmpty(snapPendingSerial);
-            var entry = (snapPendingLayout ?? "default", snapPendingActivator, snapPendingZones);
-
-            if (snapPendingOutput == null && hasSelector)
-            {
-                var sel = new OutputSelector(
-                    Name: null,
-                    Edid: string.IsNullOrEmpty(snapPendingEdid) ? null : snapPendingEdid,
-                    Make: string.IsNullOrEmpty(snapPendingMake) ? null : snapPendingMake,
-                    Model: string.IsNullOrEmpty(snapPendingModel) ? null : snapPendingModel,
-                    Serial: string.IsNullOrEmpty(snapPendingSerial) ? null : snapPendingSerial);
-
-                // Append to an existing selector-equal bucket if present, so multiple [[snapzones]]
-                // blocks for the same monitor accumulate layouts in declaration order.
-                int idx = -1;
-                for (int i = 0; i < snapBySelector.Count; i++)
-                {
-                    if (snapBySelector[i].Selector.Equals(sel)) { idx = i; break; }
-                }
-                if (idx < 0)
-                {
-                    snapBySelector.Add((sel, new List<(string, SnapActivator, List<SnapZone>)> { entry }));
-                }
-                else
-                {
-                    snapBySelector[idx].Layouts.Add(entry);
-                }
-            }
-            else
-            {
-                var outKey = snapPendingOutput ?? SnapZoneStore.Wildcard;
-                if (!snapByOutput.TryGetValue(outKey, out var list))
-                {
-                    snapByOutput[outKey] = list = new List<(string, SnapActivator, List<SnapZone>)>();
-                }
-                list.Add(entry);
-            }
-
-            snapPendingOutput = null;
-            snapPendingEdid = null;
-            snapPendingMake = null;
-            snapPendingModel = null;
-            snapPendingSerial = null;
-            snapPendingLayout = null;
-            snapPendingActivator = SnapActivator.Always;
-            snapPendingZones = null;
-        }
 
         foreach (var rawLine in text.Split('\n'))
         {
@@ -339,44 +222,18 @@ public static class LayoutConfigLoader
 
             if (line.StartsWith("[["))
             {
-                // Array-of-tables — [[output]], [[snapzones]], [[snapzones.zone]], [[exec]].
+                // Array-of-tables — [[output]], [[exec]]. Legacy [[snapzones]] / [[snapzones.zone]]
+                // are silently ignored for one release; remove them from your config.
                 FlushOutput();
                 FlushExec();
                 int end = line.IndexOf("]]", StringComparison.Ordinal);
                 curSection = end > 2 ? "[[" + line.Substring(2, end - 2).Trim() + "]]" : line;
 
-                // Snap-zone book-keeping: each [[snapzones]] opens a new bucket (flushing the previous one); each
-                // [[snapzones.zone]] flushes the previous zone and arms a fresh one.
-                if (curSection == "[[snapzones]]")
-                {
-                    FlushSnapBucket();
-                    // Leave snapPendingOutput=null so FlushSnapBucket can tell between "user supplied
-                    // a selector (edid/make/model/serial)" and "user wrote nothing" (→ wildcard).
-                    snapPendingOutput = null;
-                    snapPendingEdid = null;
-                    snapPendingMake = null;
-                    snapPendingModel = null;
-                    snapPendingSerial = null;
-                    snapPendingLayout = null;
-                    snapPendingActivator = SnapActivator.Always;
-                    snapPendingZones = new List<SnapZone>();
-                }
-                else if (curSection == "[[snapzones.zone]]")
-                {
-                    FlushZone();
-                    zPendingActive = true;
-                }
-                else if (curSection == "[[exec]]")
+                if (curSection == "[[exec]]")
                 {
                     // Open a fresh exec entry buffer.
-                    FlushSnapBucket();
                     execHasPending = true;
                     execPendingEnv = new Dictionary<string, string>(StringComparer.Ordinal);
-                }
-                else
-                {
-                    // A non-snapzone aoT closes any open snap bucket.
-                    FlushSnapBucket();
                 }
 
                 continue;
@@ -386,7 +243,6 @@ public static class LayoutConfigLoader
             {
                 FlushOutput();
                 FlushExec();
-                FlushSnapBucket();
                 int end = line.IndexOf(']');
                 curSection = end > 1 ? line.Substring(1, end - 1).Trim() : line;
                 continue;
@@ -493,59 +349,9 @@ public static class LayoutConfigLoader
 
                     break;
                 case "[[snapzones]]":
-                    switch (key)
-                    {
-                        case "output":
-                            // Empty string → wildcard, so a [[snapzones]] with output="" still applies somewhere.
-                            snapPendingOutput = string.IsNullOrEmpty(val) ? SnapZoneStore.Wildcard : val;
-                            break;
-                        case "edid":
-                            snapPendingEdid = val;
-                            break;
-                        case "make":
-                            snapPendingMake = val;
-                            break;
-                        case "model":
-                            snapPendingModel = val;
-                            break;
-                        case "serial":
-                            snapPendingSerial = val;
-                            break;
-                        case "layout":
-                            snapPendingLayout = val;
-                            break;
-                        case "activator":
-                            // Optional modifier gate. Unknown / empty / "none" / "always" all map to Always (= no extra
-                            // gate).
-                            snapPendingActivator = StripQuotes(val).ToLowerInvariant() switch
-                            {
-                                "" or "none" or "always" => SnapActivator.Always,
-                                "shift" => SnapActivator.Shift,
-                                "ctrl" or "control" => SnapActivator.Ctrl,
-                                "alt" or "mod1" => SnapActivator.Alt,
-                                "super" or "logo" or "meta" or "mod4" => SnapActivator.Super,
-                                _ => SnapActivator.Always,
-                            };
-                            break;
-                    }
-
-                    break;
                 case "[[snapzones.zone]]":
-                    if (!zPendingActive)
-                    {
-                        // Defensive: a stray key under [[snapzones.zone]] with no preceding header is dropped silently.
-                        break;
-                    }
-
-                    switch (key)
-                    {
-                        case "name": zPendingName = val; break;
-                        case "x": zPendingX = ParseDouble(val, zPendingX); break;
-                        case "y": zPendingY = ParseDouble(val, zPendingY); break;
-                        case "w": zPendingW = ParseDouble(val, zPendingW); break;
-                        case "h": zPendingH = ParseDouble(val, zPendingH); break;
-                    }
-
+                    // Legacy SnapZones config — silently ignored. Will be removed entirely in a
+                    // future release.
                     break;
                 case "keybinds":
                     if (knownActions.Contains(key))
@@ -632,46 +438,6 @@ public static class LayoutConfigLoader
 
         FlushOutput();
         FlushExec();
-        FlushSnapBucket();
-
-        // Build the SnapZoneStore from the parsed buckets. The map is output → list-of-layouts; each
-        // layout owns its zones.
-        var snapStoreMap = new Dictionary<string, IReadOnlyList<SnapZoneLayout>>(StringComparer.Ordinal);
-        foreach (var kv in snapByOutput)
-        {
-            var layouts = new List<SnapZoneLayout>(kv.Value.Count);
-            foreach (var (lname, activator, zones) in kv.Value)
-            {
-                layouts.Add(new SnapZoneLayout
-                {
-                    Name = lname,
-                    Zones = zones,
-                    Activator = activator,
-                });
-            }
-
-            snapStoreMap[kv.Key] = layouts;
-        }
-
-        // Materialize selector-keyed snap buckets (parallel to snapStoreMap).
-        var snapStoreSelectors =
-            new List<(OutputSelector Selector, IReadOnlyList<SnapZoneLayout> Layouts)>(snapBySelector.Count);
-        foreach (var (sel, perLayoutList) in snapBySelector)
-        {
-            var layouts = new List<SnapZoneLayout>(perLayoutList.Count);
-            foreach (var (lname, activator, zones) in perLayoutList)
-            {
-                layouts.Add(new SnapZoneLayout
-                {
-                    Name = lname,
-                    Zones = zones,
-                    Activator = activator,
-                });
-            }
-            snapStoreSelectors.Add((sel, layouts));
-        }
-
-        var snapZones = new SnapZoneStore(snapStoreMap, snapStoreSelectors);
 
         var defaults = new LayoutOptions(
             gapsOuter, gapsInner, masterRatio, masterCount,
@@ -758,7 +524,6 @@ public static class LayoutConfigLoader
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Keybinds = keybinds,
             State = stateConfig,
-            SnapZones = snapZones,
             Exec = new ExecConfig { Entries = execEntries },
             Input = new InputConfig()
             {

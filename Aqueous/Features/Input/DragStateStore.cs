@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using Aqueous.Features.Compositor.River;
-using Aqueous.Features.SnapZones;
 
 namespace Aqueous.Features.Input;
 
@@ -14,18 +13,11 @@ namespace Aqueous.Features.Input;
 internal sealed class DragStateStore
 {
     private WindowEntry? _activeDragWindow;
-    private SnapActivator _activeDragActivator = SnapActivator.Always;
 
     public WindowEntry? ActiveDragWindow
     {
         get => Volatile.Read(ref _activeDragWindow);
         set => Volatile.Write(ref _activeDragWindow, value);
-    }
-
-    public SnapActivator ActiveDragActivator
-    {
-        get => _activeDragActivator;
-        set => _activeDragActivator = value;
     }
 
     public ConcurrentDictionary<IntPtr, (int X, int Y)> SeatPointerPos { get; } = new();
