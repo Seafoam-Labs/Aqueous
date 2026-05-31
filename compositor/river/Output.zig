@@ -183,6 +183,7 @@ destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
 frame: wl.Listener(*wlr.Output) = .init(handleFrame),
 present: wl.Listener(*wlr.Output.event.Present) = .init(handlePresent),
+commit: wl.Listener(*wlr.Output.event.Commit) = .init(handleCommit),
 
 pub fn create(wlr_output: *wlr.Output) !void {
     const output = try util.gpa.create(Output);
@@ -232,6 +233,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
     wlr_output.events.request_state.add(&output.request_state);
     wlr_output.events.frame.add(&output.frame);
     wlr_output.events.present.add(&output.present);
+    wlr_output.events.commit.add(&output.commit);
 
     output.scheduled.state = .enabled;
     if (wlr_output.preferredMode()) |preferred_mode| {
@@ -247,6 +249,24 @@ pub fn create(wlr_output: *wlr.Output) !void {
         output.scheduled.mode = .{ .custom = .{ .width = 1280, .height = 720, .refresh = 0 } };
     }
 
+    server.wm.dirtyWindowing();
+}
+
+fn handleCommit(
+    listener: *wl.Listener(*wlr.Output.event.Commit),
+    event: *wlr.Output.event.Commit,
+) void {
+    const output: *Output = @fieldParentPtr("commit", listener);
+    const committed = event.state.committed;
+    if (!(committed.scale or committed.mode or committed.transform or committed.enabled)) return;
+    const wlr_output = output.wlr_output orelse return;
+    log.debug("output {s}: commit affects layout (scale={} mode={} transform={} enabled={})", .{
+        wlr_output.name,
+        committed.scale,
+        committed.mode,
+        committed.transform,
+        committed.enabled,
+    });
     server.wm.dirtyWindowing();
 }
 
@@ -277,6 +297,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     output.request_state.link.remove();
     output.frame.link.remove();
     output.present.link.remove();
+    output.commit.link.remove();
 
     wlr_output.data = null;
 
