@@ -311,6 +311,10 @@ pub fn commitOutputState(om: *OutputManager) void {
             if (output.sent.adaptive_sync != (wlr_output.adaptive_sync_status == .enabled)) {
                 break :blk true;
             }
+            if (output.sent.state == .enabled) {
+                if (output.sent.scale != wlr_output.scale) break :blk true;
+                if (output.sent.transform != wlr_output.transform) break :blk true;
+            }
         }
         break :blk false;
     };
