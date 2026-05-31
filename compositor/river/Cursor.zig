@@ -252,9 +252,32 @@ pub fn setTheme(cursor: *Cursor, theme: ?[*:0]const u8, _size: ?u32) !void {
     cursor.xcursor_manager.destroy();
     cursor.xcursor_manager = xcursor_manager;
 
+    cursor.loadActiveScales();
+
     switch (cursor.image) {
         .none, .client => {},
         .xcursor => |name| cursor.wlr_cursor.setXcursor(xcursor_manager, name),
+    }
+}
+
+fn loadActiveScales(cursor: *Cursor) void {
+    cursor.xcursor_manager.load(1) catch {};
+
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |output| {
+        const wlr_output = output.wlr_output orelse continue;
+        if (!wlr_output.enabled) continue;
+        cursor.xcursor_manager.load(wlr_output.scale) catch {
+            log.err("failed to load xcursor theme at scale {d}", .{wlr_output.scale});
+        };
+    }
+}
+
+pub fn reloadScales(cursor: *Cursor) void {
+    cursor.loadActiveScales();
+    switch (cursor.image) {
+        .xcursor => |name| cursor.wlr_cursor.setXcursor(cursor.xcursor_manager, name),
+        .none, .client => {},
     }
 }
 

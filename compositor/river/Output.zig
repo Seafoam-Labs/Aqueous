@@ -268,6 +268,13 @@ fn handleCommit(
         committed.enabled,
     });
     server.wm.dirtyWindowing();
+
+    if (committed.scale or committed.enabled) {
+        var seat_it = server.input_manager.seats.iterator(.forward);
+        while (seat_it.next()) |seat| {
+            seat.cursor.reloadScales();
+        }
+    }
 }
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {

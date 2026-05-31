@@ -154,8 +154,11 @@ optional autologin snippet).
       output" semantics.
 - [ ] `[[output]]` config block: mode, scale, position, transform, VRR /
       adaptive-sync, DPMS / power management.
-- [ ] Fractional-scale (`wp-fractional-scale-v1`) and `viewporter` story for
-      mixed-DPI setups.
+- [x] Fractional-scale (`wp-fractional-scale-v1`) and `viewporter` story for
+      mixed-DPI setups — RiverDelta advertises `wp_fractional_scale_manager_v1`,
+      `wp_viewporter`, and `wl_compositor` v6; `wlr_scene` notifies each surface
+      of its per-output preferred (fractional) and `preferred_buffer_scale`
+      based on the output(s) it intersects, recomputed on every scale commit.
 - [ ] `gamma-control` / night-light support.
 - [ ] Cursor theme and size configuration.
 
