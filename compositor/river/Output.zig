@@ -17,6 +17,7 @@ const river = wayland.server.river;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
+const scaling = @import("scaling.zig");
 
 const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
@@ -60,7 +61,7 @@ pub const State = struct {
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
         assert(state.enabled);
         const requested_scale: f32 = @floatCast(state.scale);
-        const clamped_scale = std.math.clamp(requested_scale, 0.1, 10.0);
+        const clamped_scale = scaling.clampScale(requested_scale);
         if (clamped_scale != requested_scale) {
             std.log.scoped(.output).info(
                 "output {s}: scale {d} clamped to {d}",
@@ -82,7 +83,7 @@ pub const State = struct {
             },
             .x = state.x,
             .y = state.y,
-            .scale = @round(clamped_scale * 120) / 120,
+            .scale = scaling.roundScale(clamped_scale),
             .transform = state.transform,
             .adaptive_sync = state.adaptive_sync_enabled,
             .auto_layout = false,

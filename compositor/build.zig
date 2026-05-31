@@ -256,7 +256,19 @@ pub fn build(b: *Build) !void {
         });
         const run_slotmap_test = b.addRunArtifact(slotmap_test);
 
+        const scaling_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/scaling.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_scaling_test = b.addRunArtifact(scaling_test);
+
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
+        test_step.dependOn(&run_scaling_test.step);
     }
 }
