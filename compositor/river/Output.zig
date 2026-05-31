@@ -59,6 +59,14 @@ pub const State = struct {
 
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
         assert(state.enabled);
+        const requested_scale: f32 = @floatCast(state.scale);
+        const clamped_scale = std.math.clamp(requested_scale, 0.1, 10.0);
+        if (clamped_scale != requested_scale) {
+            std.log.scoped(.output).info(
+                "output {s}: scale {d} clamped to {d}",
+                .{ state.output.name, requested_scale, clamped_scale },
+            );
+        }
         return .{
             .state = .enabled,
             .mode = blk: {
@@ -74,9 +82,7 @@ pub const State = struct {
             },
             .x = state.x,
             .y = state.y,
-            // Round to nearest 1/120 to ensure the scale is exactly represented
-            // in the fractional-scale-v1 protocol.
-            .scale = @round(state.scale * 120) / 120,
+            .scale = @round(clamped_scale * 120) / 120,
             .transform = state.transform,
             .adaptive_sync = state.adaptive_sync_enabled,
             .auto_layout = false,

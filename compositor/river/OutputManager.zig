@@ -139,6 +139,12 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
     while (it.next()) |head| {
         const output: *Output = @ptrCast(@alignCast(head.state.output.data));
         if (head.state.enabled) {
+            log.debug("head {s}: enabled scale={d} transform={d} adaptive_sync={}", .{
+                head.state.output.name,
+                head.state.scale,
+                @intFromEnum(head.state.transform),
+                head.state.adaptive_sync_enabled,
+            });
             const previous = output.scheduled.state;
             output.scheduled = .fromHeadState(&head.state);
             // Maintain power management state set with wlr-output-power-management-v1
