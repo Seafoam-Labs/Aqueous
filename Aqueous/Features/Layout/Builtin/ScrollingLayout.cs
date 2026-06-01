@@ -15,23 +15,23 @@ public sealed class ScrollingLayout : ILayoutEngine
 
     internal sealed class ScrollState
     {
-        public readonly List<IntPtr> Columns = new();
+        public readonly List<IntPtr> Columns = [];
         public int ViewportX;
         public int FocusedIdx;
     }
 
     public IReadOnlyList<WindowPlacement> Arrange(
         Rect usableArea,
-        IReadOnlyList<WindowEntryView> windows,
+        IReadOnlyList<WindowEntryView> visibleWindows,
         IntPtr focusedWindow,
         LayoutOptions opts,
         ref object? perOutputState)
     {
-        var state = perOutputState as ScrollState ?? new ScrollState();
+        ScrollState state = perOutputState as ScrollState ?? new ScrollState();
         perOutputState = state;
 
-        var result = new List<WindowPlacement>(windows.Count);
-        if (windows.Count == 0)
+        var result = new List<WindowPlacement>(visibleWindows.Count);
+        if (visibleWindows.Count == 0)
         {
             state.Columns.Clear();
             state.ViewportX = 0;
@@ -39,30 +39,30 @@ public sealed class ScrollingLayout : ILayoutEngine
             return result;
         }
 
-        var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
+        Rect area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
 
         // Reconcile column order with current windows: keep existing order, remove gone, append new.
         var live = new HashSet<IntPtr>();
-        for (int i = 0; i < windows.Count; i++)
+        foreach (WindowEntryView t in visibleWindows)
         {
-            live.Add(windows[i].Handle);
+            live.Add(t.Handle);
         }
 
         state.Columns.RemoveAll(h => !live.Contains(h));
         var existing = new HashSet<IntPtr>(state.Columns);
-        for (int i = 0; i < windows.Count; i++)
+        foreach (WindowEntryView t in visibleWindows)
         {
-            if (!existing.Contains(windows[i].Handle))
+            if (!existing.Contains(t.Handle))
             {
-                state.Columns.Add(windows[i].Handle);
+                state.Columns.Add(t.Handle);
             }
         }
 
         // Index by handle for O(1) lookup of WindowEntryView during placement.
-        var byHandle = new Dictionary<IntPtr, WindowEntryView>(windows.Count);
-        for (int i = 0; i < windows.Count; i++)
+        var byHandle = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
+        foreach (WindowEntryView t in visibleWindows)
         {
-            byHandle[windows[i].Handle] = windows[i];
+            byHandle[t.Handle] = t;
         }
 
         double colFrac = opts.GetExtraDouble("column_width", 0.5);
@@ -77,7 +77,7 @@ public sealed class ScrollingLayout : ILayoutEngine
         // above already does this for state.Columns, but a stale handle could re-enter via a race with
         // concurrent manage cycles. Use TryGetValue so a missing handle is dropped instead of throwing
         // KeyNotFoundException (which would crash the manage thread).
-        for (int i = state.Columns.Count - 1; i >= 0; i--)
+        for (var i = state.Columns.Count - 1; i >= 0; i--)
         {
             if (!byHandle.ContainsKey(state.Columns[i]))
             {
@@ -103,7 +103,7 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         // Per-column width override for windows whose MinW exceeds colW.
         var colWidths = new int[state.Columns.Count];
-        for (int i = 0; i < state.Columns.Count; i++)
+        for (var i = 0; i < state.Columns.Count; i++)
         {
             if (!byHandle.TryGetValue(state.Columns[i], out var view))
             {
@@ -115,16 +115,16 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         // Compute virtual X for each column accounting for per-column widths.
         var virtX = new int[state.Columns.Count];
-        int cursor = 0;
-        for (int i = 0; i < state.Columns.Count; i++)
+        var cursor = 0;
+        for (var i = 0; i < state.Columns.Count; i++)
         {
             virtX[i] = cursor;
             cursor += colWidths[i] + gap;
         }
-        int totalW = cursor - gap; // last gap removed
+        var totalW = cursor - gap; // last gap removed
 
         // Resolve focused index.
-        for (int i = 0; i < state.Columns.Count; i++)
+        for (var i = 0; i < state.Columns.Count; i++)
         {
             if (state.Columns[i] == focusedWindow) { state.FocusedIdx = i; break; }
         }
@@ -141,7 +141,7 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         if (centerFocused && state.Columns.Count > 0)
         {
-            int focusCenter = virtX[state.FocusedIdx] + colWidths[state.FocusedIdx] / 2;
+            var focusCenter = virtX[state.FocusedIdx] + colWidths[state.FocusedIdx] / 2;
             state.ViewportX = focusCenter - area.W / 2;
         }
 
@@ -152,7 +152,7 @@ public sealed class ScrollingLayout : ILayoutEngine
         }
 
         // Clamp.
-        int maxViewport = Math.Max(0, totalW - area.W);
+        var maxViewport = Math.Max(0, totalW - area.W);
         if (state.ViewportX < 0)
         {
             state.ViewportX = 0;
@@ -163,11 +163,11 @@ public sealed class ScrollingLayout : ILayoutEngine
             state.ViewportX = maxViewport;
         }
 
-        for (int i = 0; i < state.Columns.Count; i++)
+        for (var i = 0; i < state.Columns.Count; i++)
         {
-            int screenX = area.X + virtX[i] - state.ViewportX;
-            int w = colWidths[i];
-            bool visible = (screenX + w > area.X) && (screenX < area.X + area.W);
+            var screenX = area.X + virtX[i] - state.ViewportX;
+            var w = colWidths[i];
+            var visible = (screenX + w > area.X) && (screenX < area.X + area.W);
             var rect = new Rect(screenX, area.Y, w, area.H);
             int z = (i == state.FocusedIdx) ? 1 : 0;
             result.Add(new WindowPlacement(state.Columns[i], rect, z, visible, opts.Border));
