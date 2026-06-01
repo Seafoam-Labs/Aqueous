@@ -474,6 +474,34 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     w.LastPosX = w.X;
                     w.LastPosY = w.Y;
                 }
+
+                // ------ Borders: pick focused/normal colour, marshal set_borders (opcode 8).
+                // Gated on a change in colour/width so we only re-send on focus switches instead
+                // of every render frame (mirrors the LastHintW/H and LastPosX/Y gating above).
+                {
+                    int    bWidth  = p.Border.Width;
+                    uint   bColor  = bWidth > 0
+                        ? (p.Handle == focusedWindow ? p.Border.Focused : p.Border.Normal)
+                        : 0u;
+                    if (!w.BordersSent || w.LastBorderColor != bColor || w.LastBorderWidth != bWidth)
+                    {
+                        // edges bitfield: top|bottom|left|right = 1|2|4|8 = 0xF (none == 0 disables).
+                        uint edges = bWidth > 0 ? 0xFu : 0u;
+                        // BorderSpec packs 8 bits/channel (0xAARRGGBB); set_borders expects 32 bits
+                        // per channel, so expand each channel by * 0x01010101.
+                        uint r = ((bColor >> 16) & 0xFF) * 0x01010101u;
+                        uint g = ((bColor >>  8) & 0xFF) * 0x01010101u;
+                        uint b = ( bColor        & 0xFF) * 0x01010101u;
+                        uint a = ((bColor >> 24) & 0xFF) * 0x01010101u;
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            p.Handle, 8, IntPtr.Zero, 0, 0,
+                            (IntPtr)edges, (IntPtr)bWidth,
+                            (IntPtr)r, (IntPtr)g, (IntPtr)b, (IntPtr)a);
+                        w.BordersSent     = true;
+                        w.LastBorderColor = bColor;
+                        w.LastBorderWidth = bWidth;
+                    }
+                }
             }
         }
 

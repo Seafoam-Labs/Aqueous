@@ -47,7 +47,7 @@ public sealed class GridLayout : ILayoutEngine
             int y = area.Y + r * (cellH + gap);
             result.Add(new WindowPlacement(
                 windows[i].Handle, new Rect(x, y, cellW, cellH),
-                0, true, BorderSpec.None));
+                0, true, opts.Border));
         }
         return result;
     }

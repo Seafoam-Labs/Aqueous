@@ -33,6 +33,11 @@ internal sealed class WindowEntry
     public int LastPosX = int.MinValue, LastPosY = int.MinValue;
     public int LastClipW, LastClipH;
     public bool BordersSent;
+    // Cached last border state marshalled via river_window_v1.set_borders (opcode 8) so the
+    // render pass only re-sends when the colour or width actually changes (e.g. focus switch).
+    // LastBorderColor is the packed 0xAARRGGBB active colour; LastBorderWidth the edge width.
+    public uint LastBorderColor;
+    public int LastBorderWidth = int.MinValue;
     public bool ShowSent;
 
     // Per-window floating override + remembered floating rect. Set when the user drags a window with

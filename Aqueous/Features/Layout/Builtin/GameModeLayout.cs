@@ -303,7 +303,7 @@ public sealed class GameModeLayout : ILayoutEngine
             Geometry: anchorRect,
             ZOrder: 1,
             Visible: true,
-            Border: BorderSpec.None));
+            Border: opts.Border));
 
         return result;
     }

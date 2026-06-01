@@ -170,7 +170,7 @@ public sealed class ScrollingLayout : ILayoutEngine
             bool visible = (screenX + w > area.X) && (screenX < area.X + area.W);
             var rect = new Rect(screenX, area.Y, w, area.H);
             int z = (i == state.FocusedIdx) ? 1 : 0;
-            result.Add(new WindowPlacement(state.Columns[i], rect, z, visible, BorderSpec.None));
+            result.Add(new WindowPlacement(state.Columns[i], rect, z, visible, opts.Border));
         }
         return result;
     }

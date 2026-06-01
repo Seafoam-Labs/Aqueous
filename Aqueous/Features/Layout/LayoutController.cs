@@ -201,7 +201,7 @@ public sealed class LayoutController
         var engine = ResolveEngine(scope, outputName);
         var id = engine.Id;
 
-        var opts = _config.OptionsFor(id) with { OutputRect = outputRect };
+        var opts = _config.OptionsFor(id) with { OutputRect = outputRect, Border = _config.Border };
         object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
         var raw = engine.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref state);
         _stateByScope[scope] = state;

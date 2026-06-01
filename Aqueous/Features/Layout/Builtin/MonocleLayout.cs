@@ -88,7 +88,7 @@ public sealed class MonocleLayout : ILayoutEngine
         var area = LayoutMath.Shrink(usableArea, opts.GapsOuter);
         bool hideOthers = opts.GetExtraBool("hide_others", true);
         bool showBorders = opts.GetExtraBool("show_borders", false);
-        var border = showBorders ? new BorderSpec(2, 0, 0, 0) : BorderSpec.None;
+        var border = showBorders ? opts.Border : BorderSpec.None;
 
         for (int i = 0; i < windows.Count; i++)
         {

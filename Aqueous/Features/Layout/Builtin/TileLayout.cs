@@ -29,10 +29,12 @@ public sealed class TileLayout : ILayoutEngine
         int n = windows.Count;
         int masterCount = Math.Max(1, Math.Min(opts.MasterCount, n));
 
+        var border = opts.Border;
+
         // Single window → fill.
         if (n == 1)
         {
-            result.Add(new WindowPlacement(windows[0].Handle, area, 0, true, BorderSpec.None));
+            result.Add(new WindowPlacement(windows[0].Handle, area, 0, true, border));
             return result;
         }
 
@@ -44,14 +46,14 @@ public sealed class TileLayout : ILayoutEngine
 
         // Master column.
         SplitVertical(area.X, area.Y, masterW, area.H,
-            masterCount, opts.GapsInner, windows, 0, result);
+            masterCount, opts.GapsInner, windows, 0, result, border);
 
         // Stack column.
         if (stackCount > 0)
         {
             int stackX = area.X + masterW + opts.GapsInner;
             SplitVertical(stackX, area.Y, stackW, area.H,
-                stackCount, opts.GapsInner, windows, masterCount, result);
+                stackCount, opts.GapsInner, windows, masterCount, result, border);
         }
         return result;
     }
@@ -60,14 +62,14 @@ public sealed class TileLayout : ILayoutEngine
         int x, int y, int w, int totalH,
         int count, int gap,
         IReadOnlyList<WindowEntryView> windows, int offset,
-        List<WindowPlacement> result)
+        List<WindowPlacement> result, BorderSpec border)
     {
         var rows = LayoutMath.SplitAxis(totalH, count, gap);
         for (int i = 0; i < rows.Count; i++)
         {
             var (dy, h) = rows[i];
             var rect = new Rect(x, y + dy, w, h);
-            result.Add(new WindowPlacement(windows[offset + i].Handle, rect, 0, true, BorderSpec.None));
+            result.Add(new WindowPlacement(windows[offset + i].Handle, rect, 0, true, border));
         }
     }
 }

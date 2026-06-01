@@ -45,7 +45,7 @@ public sealed class FloatingLayout : ILayoutEngine
                 state.Rects[w.Handle] = r;
             }
             int z = (w.Handle == focusedWindow) ? 1 : 0;
-            result.Add(new WindowPlacement(w.Handle, r, z, true, BorderSpec.None));
+            result.Add(new WindowPlacement(w.Handle, r, z, true, opts.Border));
         }
 
         // Garbage-collect rectangles for windows that disappeared.

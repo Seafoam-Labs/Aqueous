@@ -84,6 +84,13 @@ public sealed record LayoutOptions(
     /// </summary>
     public Rect OutputRect { get; init; } = Rect.Empty;
 
+    /// <summary>
+    /// Border styling for the output currently being arranged. Engines emit this on every visible
+    /// <see cref="WindowPlacement"/> so the proposer can pick the focused/normal/urgent colour and
+    /// width per window. Defaults to <see cref="BorderSpec.None"/> (borders disabled).
+    /// </summary>
+    public BorderSpec Border { get; init; } = BorderSpec.None;
+
     public string? GetExtra(string key) =>
         Extra.TryGetValue(key, out var v) ? v : null;
 
