@@ -254,13 +254,6 @@ anchor      = "center"
 # term  = "ghostty --class=aqueous-scratch-term"
 # notes = "obsidian"
 
-# input settings
-[input]
-focus_follows_mouse = true
-
-[input.mouse]
-accel_profile = "flat"
-accel_speed   = 0.0
 
 
 [[exec]]

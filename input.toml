@@ -1,0 +1,15 @@
+# input settings
+[input]
+focus_follows_mouse = true
+
+[input.mouse]
+accel_profile = "flat"
+accel_speed   = 0.0
+
+# --- XKB keyboard layout -----------------------------------------------------
+# Pushed to the compositor via river_xkb_config_v1. Null/unset -> compositor
+# default (xkbcommon honours XKB_DEFAULT_* environment variables).
+xkb_layout  = "us"
+# xkb_variant = "dvorak"
+# Remap Caps Lock to Escape (standard xkb option string).
+#xkb_options = "caps:escape"s
