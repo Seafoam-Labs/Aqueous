@@ -1,0 +1,37 @@
+# =============================================================================
+# Aqueous WM - input configuration (example)
+#
+# Copy to ~/.config/aqueous/input.toml to keep the whole [input] block in its
+# own file. Missing file is fine - the [input] block in wm.toml is used instead.
+#
+# Discovery order (first hit wins):
+#   1. $AQUEOUS_INPUT                        (env var, absolute path)
+#   2. [input].path in wm.toml               (override)
+#   3. $XDG_CONFIG_HOME/aqueous/input.toml
+#   4. ~/.config/aqueous/input.toml
+#   5. /etc/xdg/aqueous/input.toml
+#
+# Reloaded by Super+R together with wm.toml. When both wm.toml and input.toml
+# set the same field, input.toml wins (per field it actually sets).
+# =============================================================================
+
+[input]
+# Hover-to-focus (sloppy focus).
+focus_follows_mouse = true
+
+# --- XKB keyboard layout -----------------------------------------------------
+# Pushed to the compositor via river_xkb_config_v1. Null/unset -> compositor
+# default (xkbcommon honours XKB_DEFAULT_* environment variables).
+xkb_layout  = "us"
+# xkb_variant = "dvorak"
+# Remap Caps Lock to Escape (standard xkb option string).
+xkb_options = "caps:escape"
+
+# --- Per-device libinput knobs ----------------------------------------------
+[input.touchpad]
+natural_scroll = true
+tap = true
+
+# [input.mouse]
+# accel_profile = "flat"
+# accel_speed = 0.0

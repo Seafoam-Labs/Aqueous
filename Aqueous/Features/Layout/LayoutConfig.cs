@@ -14,7 +14,7 @@ namespace Aqueous.Features.Layout;
 /// by the layout subsystem are modelled. Parsing lives in <see cref="LayoutConfigLoader"/> — this
 /// file is the model and defaults only.
 /// </summary>
-public sealed class LayoutConfig
+public sealed record LayoutConfig
 {
     /// <summary>
     /// Global default layout id (used when nothing else applies).

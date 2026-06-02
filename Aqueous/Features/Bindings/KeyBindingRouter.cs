@@ -194,7 +194,13 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         try
         {
-            var fresh = LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve());
+            var baseFresh = LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve());
+            // Hot-reload input.toml in lockstep with wm.toml; sidecar wins per field it sets.
+            var inputOverlay = Aqueous.Features.Input.InputTomlReader.Load();
+            var fresh = baseFresh with
+            {
+                Input = Aqueous.Features.Input.InputTomlReader.Merge(baseFresh.Input, inputOverlay),
+            };
             _layoutController.ReplaceConfig(fresh);
             _libinputApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");

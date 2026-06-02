@@ -99,7 +99,13 @@ class Program
         // - Layout subsystem ---------------------------------------------
         services.AddSingleton<Aqueous.Features.Layout.LayoutRegistry>();
         services.AddSingleton<Aqueous.Features.Layout.LayoutConfig>(_ =>
-            Aqueous.Features.Layout.LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve()));
+        {
+            // Base config from wm.toml (+ optional layout.toml sidecar), then overlay an optional
+            // standalone input.toml on top of the [input] block (sidecar wins per field it sets).
+            var baseCfg = Aqueous.Features.Layout.LayoutTomlReader.LoadWithSidecar(DefaultConfigPath.Resolve());
+            var inputOverlay = Aqueous.Features.Input.InputTomlReader.Load();
+            return baseCfg with { Input = Aqueous.Features.Input.InputTomlReader.Merge(baseCfg.Input, inputOverlay) };
+        });
         services.AddSingleton<Aqueous.Features.Layout.LayoutController>();
         services.AddSingleton<Aqueous.Features.Layout.IManagerRequestSender,
             Aqueous.Features.Layout.ManagerRequestSender>();

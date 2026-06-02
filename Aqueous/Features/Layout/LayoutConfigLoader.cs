@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Configuration;
 using Aqueous.Features.Input;
 using Aqueous.Features.State;
 
@@ -81,16 +81,9 @@ public static class LayoutConfigLoader
         var spAnchor = ScratchpadConfig.Default.Anchor;
         var spSpawn = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        // Input Config
-        var inFocusFollowsMouse = InputConfig.Default.FocusFollowsMouse;
-        var pointerAcceleration = InputConfig.Default.PointerAcceleration;
-        var pointerAccelerationFactor = InputConfig.Default.PointerAccelerationFactor;
-        // Per-device libinput knobs ([input.mouse|touchpad|trackpoint]). Mutable PerDeviceInput-shaped
-        // buffers populated by the section switch below; flushed into immutable PerDeviceInput records at
-        // the end of Parse.
-        var devMouse = new PerDeviceBuf();
-        var devTouch = new PerDeviceBuf();
-        var devTrack = new PerDeviceBuf();
+        // [input] family of sections ([input], [input.mouse|touchpad|trackpoint]) is parsed
+        // separately by InputConfigParser (delegated at the end of Parse), so the input concern
+        // owns its own parsing.
 
         string? curSection = null;
         // Used by [[output]] tables.
@@ -386,24 +379,7 @@ public static class LayoutConfigLoader
                 case "scratchpad.spawn":
                     spSpawn[StripQuotes(key)] = val;
                     break;
-                case "input":
-                    switch (key)
-                    {
-                        case "focus_follows_mouse":
-                            inFocusFollowsMouse = ParseBool(val, inFocusFollowsMouse);
-                            break;
-                        case "pointer_acceleration":
-                            pointerAcceleration = ParseBool(val, pointerAcceleration);
-                            break;
-                        case "pointer_acceleration_factor":
-                            pointerAccelerationFactor = ParseDouble(val, pointerAccelerationFactor);
-                            break;
-                    }
-
-                    break;
-                case "input.mouse": ParseDeviceKey(devMouse, key, val); break;
-                case "input.touchpad": ParseDeviceKey(devTouch, key, val); break;
-                case "input.trackpoint": ParseDeviceKey(devTrack, key, val); break;
+                // [input], [input.mouse|touchpad|trackpoint] are handled by InputConfigParser.
                 case "struts":
                     switch (key)
                     {
@@ -522,93 +498,12 @@ public static class LayoutConfigLoader
             Keybinds = keybinds,
             State = stateConfig,
             Exec = new ExecConfig { Entries = execEntries },
-            Input = new InputConfig()
-            {
-                FocusFollowsMouse = inFocusFollowsMouse,
-                PointerAcceleration = pointerAcceleration,
-                PointerAccelerationFactor = pointerAccelerationFactor,
-                Mouse = devMouse.ToRecord(),
-                Touchpad = devTouch.ToRecord(),
-                Trackpoint = devTrack.ToRecord(),
-            },
+            Input = InputConfigParser.Parse(text),
             Struts = struts,
             Actions = actions
         };
     }
 
-    /// <summary>
-    /// Mutable scratch buffer that mirrors <see cref="PerDeviceInput"/>'s nullable fields. Used while
-    /// parsing <c>[input.mouse|touchpad|trackpoint]</c> sub-tables, then frozen via <see
-    /// cref="ToRecord"/>.
-    /// </summary>
-    private sealed class PerDeviceBuf
-    {
-        public string? AccelProfile;
-        public double? AccelSpeed;
-        public bool? NaturalScroll;
-        public bool? Tap;
-        public bool? Dwt;
-        public bool? LeftHanded;
-        public string? ClickMethod;
-        public string? ScrollMethod;
-        public bool? MiddleEmulation;
-
-        public PerDeviceInput ToRecord() => new()
-        {
-            AccelProfile = AccelProfile,
-            AccelSpeed = AccelSpeed,
-            NaturalScroll = NaturalScroll,
-            Tap = Tap,
-            Dwt = Dwt,
-            LeftHanded = LeftHanded,
-            ClickMethod = ClickMethod,
-            ScrollMethod = ScrollMethod,
-            MiddleEmulation = MiddleEmulation,
-        };
-    }
-
-    /// <summary>
-    /// Maps one <c>key = value</c> from an <c>[input.&lt;device&gt;]</c> sub-table onto <paramref
-    /// name="d"/>. Key names mirror niri's KDL schema (with <c>-</c> normalised to <c>_</c>) so
-    /// configs port trivially.
-    /// </summary>
-    private static void ParseDeviceKey(PerDeviceBuf d, string key, string val)
-    {
-        // Accept both "accel-speed" and "accel_speed" — niri uses dashes, most TOML tooling prefers
-        // underscores.
-        var k = key.Replace('-', '_');
-        var v = StripQuotes(val);
-        switch (k)
-        {
-            case "accel_profile":
-                d.AccelProfile = v;
-                break;
-            case "accel_speed":
-                d.AccelSpeed = ParseDouble(val, 0.0);
-                break;
-            case "natural_scroll":
-                d.NaturalScroll = ParseBool(val, false);
-                break;
-            case "tap":
-                d.Tap = ParseBool(val, false);
-                break;
-            case "dwt":
-                d.Dwt = ParseBool(val, false);
-                break;
-            case "left_handed":
-                d.LeftHanded = ParseBool(val, false);
-                break;
-            case "click_method":
-                d.ClickMethod = v;
-                break;
-            case "scroll_method":
-                d.ScrollMethod = v;
-                break;
-            case "middle_emulation":
-                d.MiddleEmulation = ParseBool(val, false);
-                break;
-        }
-    }
 
     /// <summary>
     /// Parses the right-hand side of a chord assignment. Accepts either a quoted/unquoted single
@@ -748,59 +643,17 @@ public static class LayoutConfigLoader
         }
     }
 
-    private static string StripQuotes(string s)
-    {
-        if (s.Length >= 2 && (s[0] == '"' && s[^1] == '"' || s[0] == '\'' && s[^1] == '\''))
-        {
-            return s.Substring(1, s.Length - 2);
-        }
+    // Scalar parsing helpers forward to the shared TomlScalars so LayoutConfigLoader and
+    // InputConfigParser stay byte-for-byte compatible.
+    private static string StripQuotes(string s) => TomlScalars.StripQuotes(s);
 
-        return s;
-    }
+    private static int IndexOfUnquoted(string s, char c) => TomlScalars.IndexOfUnquoted(s, c);
 
-    private static int IndexOfUnquoted(string s, char c)
-    {
-        bool inStr = false;
-        for (int i = 0; i < s.Length; i++)
-        {
-            if (s[i] == '"')
-            {
-                inStr = !inStr;
-            }
-            else if (!inStr && s[i] == c)
-            {
-                return i;
-            }
-        }
+    private static int ParseInt(string s, int fallback) => TomlScalars.ParseInt(s, fallback);
 
-        return -1;
-    }
+    private static double ParseDouble(string s, double fallback) => TomlScalars.ParseDouble(s, fallback);
 
-    private static int ParseInt(string s, int fallback) =>
-        int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+    private static bool ParseBool(string s, bool fallback) => TomlScalars.ParseBool(s, fallback);
 
-    private static double ParseDouble(string s, double fallback) =>
-        double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
-
-    private static bool ParseBool(string s, bool fallback) => s.Trim().ToLowerInvariant() switch
-    {
-        "true" or "yes" or "on" or "1" => true,
-        "false" or "no" or "off" or "0" => false,
-        _ => fallback,
-    };
-
-    private static uint ParseColor(string s, uint fallback)
-    {
-        // Accept "#RRGGBB" or "#AARRGGBB" or raw uint.
-        if (s.StartsWith("#"))
-        {
-            var hex = s.Substring(1);
-            if (uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
-            {
-                return hex.Length == 6 ? 0xFF000000u | v : v;
-            }
-        }
-
-        return uint.TryParse(s, out var p) ? p : fallback;
-    }
+    private static uint ParseColor(string s, uint fallback) => TomlScalars.ParseColor(s, fallback);
 }
