@@ -50,6 +50,23 @@ public sealed record InputConfig
     /// </summary>
     public PerDeviceInput Trackpoint { get; init; } = new();
 
+    /// <summary>
+    /// XKB layout(s), e.g. <c>"us"</c> or <c>"us,de"</c>. Null → compositor default
+    /// (xkbcommon honours <c>XKB_DEFAULT_LAYOUT</c>). Pushed to the compositor via
+    /// <c>river_xkb_config_v1</c>.
+    /// </summary>
+    public string? XkbLayout { get; init; }
+
+    /// <summary>
+    /// XKB variant, e.g. <c>"dvorak"</c>. Null → none.
+    /// </summary>
+    public string? XkbVariant { get; init; }
+
+    /// <summary>
+    /// XKB options, e.g. <c>"caps:escape"</c>. Null → none.
+    /// </summary>
+    public string? XkbOptions { get; init; }
+
     public static InputConfig Default { get; } = new();
 }
 
