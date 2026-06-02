@@ -12,6 +12,7 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
+         'xdg-desktop-portal-gtk'
          # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
          'zlib' 'krb5' 'openssl')
 makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
@@ -150,6 +151,14 @@ package() {
     install -Dm755 "$srcdir/aqueous/packaging/aqueous-init" "$pkgdir/usr/bin/aqueous-init"
     install -Dm755 "$srcdir/aqueous/packaging/aqueous-wm.sh" "$pkgdir/usr/bin/aqueous-wm"
     install -Dm644 "$srcdir/aqueous/aqueous.desktop" "$pkgdir/usr/share/wayland-sessions/aqueous.desktop"
+
+    # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
+    # wlroots backend (xdg-desktop-portal-wlr) so screen sharing works out of
+    # the box and is not silently won by a competing backend (cosmic/gtk).
+    # Installed system-wide; the 'aqueous' filename stem is applied because the
+    # session sets XDG_CURRENT_DESKTOP=Aqueous (see packaging/aqueous-init).
+    install -Dm644 "$srcdir/aqueous/packaging/aqueous-portals.conf" \
+        "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
 

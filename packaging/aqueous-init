@@ -68,6 +68,6 @@ fi
 # Kick the portal in case it already failed earlier in the boot.
 # reset-failed clears the start-limit so the restart actually runs.
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
-systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service 2>/dev/null || true
+systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-wlr.service 2>/dev/null || true
 
 exec /usr/bin/aqueous
