@@ -209,7 +209,18 @@ internal sealed unsafe class ManagerEventService
             // the drain after propose would let a hide-pass that just flipped HideSent on the
             // pending-focus target push the marshal into the defer branch on every cycle, recreating
             // the black-screen deadlock from the other side.
-            if (_pendingFocus.Seat != IntPtr.Zero)
+            if (_pendingFocus.Seat != IntPtr.Zero
+                && !_seatRegistry.Entries.ContainsKey(_pendingFocus.Seat))
+            {
+                // The marshal target itself is dead: the river_seat_v1 proxy was removed
+                // (river_seat_v1::removed) between queueing the focus and this drain. Marshaling
+                // focus_window / focus_shell_surface on it would be a use-after-free inside
+                // libwayland (segfault in wl_proxy_marshal_flags). Drop the stale pending focus.
+                RiverLog.Write(
+                    $"pending_focus: dropping focus on dead seat 0x{_pendingFocus.Seat.ToString("x")}");
+                _pendingFocus.Clear();
+            }
+            else if (_pendingFocus.Seat != IntPtr.Zero)
             {
                 bool consumed = true;
                 // If a pending window is queued and still live, it takes precedence. If it is queued
@@ -236,7 +247,8 @@ internal sealed unsafe class ManagerEventService
                         RiverLog.Write($"gave focus to window 0x{_pendingFocus.Window.ToString("x")}");
                     }
                 }
-                else if (_pendingFocus.ShellSurface != IntPtr.Zero)
+                else if (_pendingFocus.ShellSurface != IntPtr.Zero
+                         && _pendingFocus.IsShellSurfaceLive(_pendingFocus.ShellSurface))
                 {
                     if (_pendingFocus.Window != IntPtr.Zero)
                     {
@@ -247,6 +259,14 @@ internal sealed unsafe class ManagerEventService
                         IntPtr.Zero);
                     RiverLog.Write($"gave focus to shell surface 0x{_pendingFocus.ShellSurface.ToString("x")}");
                 }
+                else if (_pendingFocus.ShellSurface != IntPtr.Zero)
+                {
+                    // The shell surface proxy is no longer known to be live (the layer-shell client
+                    // closed between shell_surface_interaction and this drain). Marshaling
+                    // focus_shell_surface on the freed river_shell_surface proxy would segfault inside
+                    // libwayland-client (the "segfault at 2c" crash). Drop it instead.
+                    RiverLog.Write($"pending_focus: dropping stale shell surface 0x{_pendingFocus.ShellSurface.ToString("x")}");
+                }
                 else if (_pendingFocus.Window != IntPtr.Zero)
                 {
                     RiverLog.Write($"pending_focus: dropping stale window 0x{_pendingFocus.Window.ToString("x")}");
@@ -254,9 +274,7 @@ internal sealed unsafe class ManagerEventService
 
                 if (consumed)
                 {
-                    _pendingFocus.Seat = IntPtr.Zero;
-                    _pendingFocus.Window = IntPtr.Zero;
-                    _pendingFocus.ShellSurface = IntPtr.Zero;
+                    _pendingFocus.Clear();
                 }
             }
 

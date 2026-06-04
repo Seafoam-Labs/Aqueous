@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace Aqueous.Features.Focus;
@@ -17,6 +18,15 @@ internal sealed class PendingFocusStore
     private IntPtr _window;
     private IntPtr _shellSurface;
     private IntPtr _seat;
+
+    // Liveness tracking for shell-surface focus proxies. A <c>river_shell_surface_v1</c> proxy is
+    // only known to be alive between the moment its <c>shell_surface_interaction</c> event arrives
+    // (<see cref="MarkShellSurfaceLive"/>) and the moment it is superseded (window focus / clear) or
+    // consumed by the manage cycle (<see cref="ForgetShellSurface"/>). The manage-cycle drain gates
+    // the <c>focus_shell_surface</c> marshal on <see cref="IsShellSurfaceLive"/> so it never
+    // marshals on a stale/freed proxy — mirroring the <c>_windowRegistry.ContainsKey</c> guard the
+    // window-focus branch already uses. Keyed by raw proxy; value byte is unused.
+    private readonly ConcurrentDictionary<IntPtr, byte> _liveShellSurfaces = new();
 
     public IntPtr Window
     {
@@ -42,9 +52,16 @@ internal sealed class PendingFocusStore
     /// </summary>
     public void SetWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
+        IntPtr superseded = ShellSurface;
         Window = windowProxy;
         ShellSurface = IntPtr.Zero;
         Seat = seatProxy;
+        // The shell surface is no longer the focus target; drop its liveness so a later drain can
+        // never resurrect it.
+        if (superseded != IntPtr.Zero)
+        {
+            ForgetShellSurface(superseded);
+        }
     }
 
     /// <summary>
@@ -56,6 +73,10 @@ internal sealed class PendingFocusStore
         ShellSurface = shellSurfaceProxy;
         Window = IntPtr.Zero;
         Seat = seatProxy;
+        if (shellSurfaceProxy != IntPtr.Zero)
+        {
+            MarkShellSurfaceLive(shellSurfaceProxy);
+        }
     }
 
     /// <summary>
@@ -63,8 +84,43 @@ internal sealed class PendingFocusStore
     /// </summary>
     public void Clear()
     {
+        IntPtr superseded = ShellSurface;
         Window = IntPtr.Zero;
         ShellSurface = IntPtr.Zero;
         Seat = IntPtr.Zero;
+        if (superseded != IntPtr.Zero)
+        {
+            ForgetShellSurface(superseded);
+        }
+    }
+
+    /// <summary>
+    /// Record that a <c>river_shell_surface_v1</c> proxy is currently alive. Called from the
+    /// <c>shell_surface_interaction</c> path where the proxy is guaranteed valid.
+    /// </summary>
+    public void MarkShellSurfaceLive(IntPtr shellSurfaceProxy)
+    {
+        if (shellSurfaceProxy != IntPtr.Zero)
+        {
+            _liveShellSurfaces[shellSurfaceProxy] = 0;
+        }
+    }
+
+    /// <summary>
+    /// Drop a shell-surface proxy from the liveness set. Called when the focus is superseded /
+    /// cleared or after the manage cycle has consumed (marshaled) it.
+    /// </summary>
+    public void ForgetShellSurface(IntPtr shellSurfaceProxy)
+    {
+        _liveShellSurfaces.TryRemove(shellSurfaceProxy, out _);
+    }
+
+    /// <summary>
+    /// <c>true</c> when the given shell-surface proxy is still known to be alive and therefore safe
+    /// to marshal <c>focus_shell_surface</c> on.
+    /// </summary>
+    public bool IsShellSurfaceLive(IntPtr shellSurfaceProxy)
+    {
+        return shellSurfaceProxy != IntPtr.Zero && _liveShellSurfaces.ContainsKey(shellSurfaceProxy);
     }
 }
