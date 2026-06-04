@@ -50,6 +50,7 @@ public class TagServiceTests
         public void CycleFocus() { }
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr s, IntPtr seat) { }
+        public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
         public void RepairFocusAfterTagChange() { }
         public void ClearFocusedHandle() => FocusedWindow = IntPtr.Zero;
     }

@@ -87,6 +87,20 @@ pub fn create(
 fn roleDestroy(wlr_surface: *wlr.Surface) callconv(.c) void {
     const shell_surface = fromWlrSurface(wlr_surface) orelse return;
 
+    // Tell the window manager that this shell surface object is about to become
+    // invalid server-side (the underlying wl_surface/role is being destroyed,
+    // e.g. because the layer-shell client closed). Without this the WM has no way
+    // to know the object is gone and can marshal focus_shell_surface on a freed
+    // proxy, segfaulting inside libwayland (the "segfault at 2c" crash).
+    if (shell_surface.object.getVersion() >= 5) {
+        shell_surface.object.sendDestroyed();
+    }
+
+    // The backing ShellSurface is freed below, so detach the request handler and
+    // route any further client requests (e.g. a late destroy) through an inert
+    // handler instead of the dangling shell_surface pointer.
+    shell_surface.object.setHandler(?*anyopaque, handleRequestInert, null, null);
+
     shell_surface.surface.unmap();
 
     shell_surface.node.makeInert();
@@ -96,6 +110,14 @@ fn roleDestroy(wlr_surface: *wlr.Surface) callconv(.c) void {
     shell_surface.popup_tree.node.destroy();
 
     util.gpa.destroy(shell_surface);
+}
+
+fn handleRequestInert(
+    shell_surface_v1: *river.ShellSurfaceV1,
+    request: river.ShellSurfaceV1.Request,
+    _: ?*anyopaque,
+) void {
+    if (request == .destroy) shell_surface_v1.destroy();
 }
 
 fn handleRequest(

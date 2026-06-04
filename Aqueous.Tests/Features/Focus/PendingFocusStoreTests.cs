@@ -73,4 +73,29 @@ public sealed class PendingFocusStoreTests
         Assert.False(store.IsShellSurfaceLive(Shell));
         Assert.False(store.IsShellSurfaceLive(IntPtr.Zero));
     }
+
+    /// <summary>
+    /// Regression for the deterministic <c>river_shell_surface_v1::destroyed</c> fix: when a
+    /// shell-surface focus is queued and the compositor then reports the proxy destroyed, the
+    /// invalidation path (forget liveness + clear the matching pending focus) must leave the drain
+    /// with nothing to marshal — mirroring <c>FocusService.InvalidateShellSurface</c>.
+    /// </summary>
+    [Fact]
+    public void DestroyedFlow_DropsPendingFocusAndLiveness()
+    {
+        var store = new PendingFocusStore();
+        store.SetShellSurface(Shell, Seat);
+        Assert.True(store.IsShellSurfaceLive(Shell));
+
+        // Simulate FocusService.InvalidateShellSurface(Shell).
+        store.ForgetShellSurface(Shell);
+        if (store.ShellSurface == Shell)
+        {
+            store.Clear();
+        }
+
+        Assert.Equal(IntPtr.Zero, store.ShellSurface);
+        Assert.Equal(IntPtr.Zero, store.Seat);
+        Assert.False(store.IsShellSurfaceLive(Shell));
+    }
 }

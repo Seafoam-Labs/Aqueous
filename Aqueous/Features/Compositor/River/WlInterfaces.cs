@@ -812,7 +812,7 @@ internal static unsafe class WlInterfaces
         RiverWindowManager = AllocEmpty("river_window_manager_v1", 5);
         RiverWindow = AllocEmpty("river_window_v1", 5);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
-        RiverShellSurface = AllocEmpty("river_shell_surface_v1", 4);
+        RiverShellSurface = AllocEmpty("river_shell_surface_v1", 5);
         RiverNode = AllocEmpty("river_node_v1", 4);
         RiverOutput = AllocEmpty("river_output_v1", 4);
         RiverLayerShell = AllocEmpty("river_layer_shell_v1", 1);
@@ -919,7 +919,13 @@ internal static unsafe class WlInterfaces
                 Msg("get_node",         "n", new WaylandInterop.WlInterface*[] { RiverNode }),
                 Msg("sync_next_commit", "",  NoTypes),
             },
-            events: Array.Empty<WaylandInterop.WlMessage>());
+            events: new[]
+            {
+                // Opcode 0: destroyed (since v5). Sent when the shell-surface object becomes
+                // invalid server-side so the WM can drop pending focus before marshaling on a
+                // freed proxy (the "segfault at 2c" crash).
+                Msg("destroyed", "5", NoTypes),
+            });
 
         // River_layer_shell_v1
         Populate(RiverLayerShell,

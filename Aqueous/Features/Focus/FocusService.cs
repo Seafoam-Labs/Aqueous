@@ -237,6 +237,22 @@ internal sealed class FocusService : IFocusService
         _managerRequestSender.ScheduleManage();
     }
 
+    public void InvalidateShellSurface(IntPtr shellSurfaceProxy)
+    {
+        if (shellSurfaceProxy == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Drop liveness so the manage-cycle drain can never marshal focus_shell_surface on this
+        // now-destroyed proxy, and clear the pending focus entirely if it still targets it.
+        _pendingFocus.ForgetShellSurface(shellSurfaceProxy);
+        if (_pendingFocus.ShellSurface == shellSurfaceProxy)
+        {
+            _pendingFocus.Clear();
+        }
+    }
+
     public void RepairFocusAfterTagChange()
     {
         var focused = _focusedWindow.Current;

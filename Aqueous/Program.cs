@@ -175,6 +175,8 @@ class Program
                 sp.GetRequiredService<SeatInteractionService>(),
                 RiverLog.Write);
         });
+        services.AddSingleton<IEventHandler>(sp => new ShellSurfaceEventHandler(
+            sp.GetRequiredService<SeatInteractionService>()));
         services.AddSingleton<IEventHandler>(sp => new WindowEventHandler(
             sp.GetRequiredService<IWindowRegistry>(),
             sp.GetRequiredService<WindowEventService>(),

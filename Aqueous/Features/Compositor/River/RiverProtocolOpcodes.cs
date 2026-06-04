@@ -96,6 +96,14 @@ internal static class RiverProtocolOpcodes
     }
 
     /// <summary>
+    /// <c>river_shell_surface_v1</c> Event opcodes.
+    /// </summary>
+    internal static class ShellSurface
+    {
+        internal const uint Destroyed = 0; // since v5
+    }
+
+    /// <summary>
     /// Press/release opcodes shared by River key, pointer and drag bindings.
     /// </summary>
     internal static class Binding

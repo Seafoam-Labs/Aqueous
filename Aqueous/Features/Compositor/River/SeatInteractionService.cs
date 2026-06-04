@@ -1,5 +1,8 @@
 using System;
 using Aqueous.Diagnostics;
+using Aqueous.Features.Bindings;
+using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
@@ -22,7 +25,7 @@ namespace Aqueous.Features.Compositor.River;
 /// Pump-thread only.
 /// </para>
 /// </summary>
-internal sealed class SeatInteractionService
+internal sealed unsafe class SeatInteractionService
 {
     private readonly DragStateStore _dragState;
     private readonly IWindowRegistry _windowRegistry;
@@ -30,6 +33,8 @@ internal sealed class SeatInteractionService
     private readonly ILayoutProposer _layoutProposer;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly LayoutController _layoutController;
+    private readonly WaylandBindSiteState _bindSiteState;
+    private readonly KeyBindingsRegistry _keyBindingsRegistry;
 
     public SeatInteractionService(
         DragStateStore dragState,
@@ -37,7 +42,9 @@ internal sealed class SeatInteractionService
         IFocusService focusService,
         ILayoutProposer layoutProposer,
         IManagerRequestSender managerRequestSender,
-        LayoutController layoutController)
+        LayoutController layoutController,
+        WaylandBindSiteState bindSiteState,
+        KeyBindingsRegistry keyBindingsRegistry)
     {
         _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
         _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -45,6 +52,8 @@ internal sealed class SeatInteractionService
         _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
         _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _layoutController      = layoutController      ?? throw new ArgumentNullException(nameof(layoutController));
+        _bindSiteState         = bindSiteState         ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _keyBindingsRegistry   = keyBindingsRegistry   ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
     }
 
     public void CachePointerPosition(IntPtr seat, int x, int y)
@@ -63,7 +72,60 @@ internal sealed class SeatInteractionService
     public void HandleShellSurfaceInteraction(IntPtr shellSurface, IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleShellSurfaceInteraction ss=0x" + shellSurface.ToString("x") + " seat=0x" + seat.ToString("x"));
+        // First sight of this river_shell_surface_v1 proxy: install the event dispatcher and track
+        // its interface so its events (notably destroyed, opcode 0) route to ShellSurfaceEventHandler.
+        // Aqueous never calls get_shell_surface, so the proxy only ever surfaces here as an object
+        // argument and this is the only place it can be wired up. Idempotent: skip if already tracked.
+        EnsureShellSurfaceTracked(shellSurface);
         _focusService.SetFocusedShellSurface(shellSurface, seat);
+    }
+
+    private void EnsureShellSurfaceTracked(IntPtr shellSurface)
+    {
+        if (shellSurface == IntPtr.Zero || _bindSiteState.TryGetProxyInterface(shellSurface) != null)
+        {
+            return;
+        }
+
+        WaylandInterop.wl_proxy_add_dispatcher(
+            shellSurface,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)
+                &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+            _keyBindingsRegistry.SelfHandlePtr,
+            IntPtr.Zero);
+        _bindSiteState.TrackProxyInterface(shellSurface, "river_shell_surface_v1");
+        RiverLog.Write($"+ shell surface 0x{shellSurface.ToString("x")}");
+    }
+
+    /// <summary>
+    /// Handle <c>river_shell_surface_v1::destroyed</c>: the compositor has reported the shell-surface
+    /// object is no longer valid server-side. Drop any pending focus that targets it (so the manage
+    /// cycle can never marshal <c>focus_shell_surface</c> on the freed proxy — the "segfault at 2c"
+    /// crash), stop tracking it, and destroy the proxy per protocol.
+    /// </summary>
+    public void HandleShellSurfaceDestroyed(IntPtr shellSurface)
+    {
+        RiverLog.Write("BRIDGE HandleShellSurfaceDestroyed ss=0x" + shellSurface.ToString("x"));
+        if (shellSurface == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _focusService.InvalidateShellSurface(shellSurface);
+
+        // Guard against double-destroy: only act if we were still tracking the proxy. Untrack first so
+        // a re-entrant dispatch can't see it as live.
+        if (!_bindSiteState.ProxyInterface.Untrack(shellSurface))
+        {
+            return;
+        }
+
+        // Protocol: after destroyed the client must send the destroy request and stop using the
+        // object. river_shell_surface_v1::destroy is opcode 0 and a destructor, so marshal it with
+        // WL_MARSHAL_FLAG_DESTROY which also frees the local proxy.
+        WaylandInterop.wl_proxy_marshal_flags(
+            shellSurface, 0, IntPtr.Zero, 0, WaylandInterop.WL_MARSHAL_FLAG_DESTROY,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
     }
 
     public void HandlePointerEnterFocusFollow(IntPtr hoveredWindow, IntPtr seat)

@@ -72,6 +72,14 @@ public interface IFocusService
     void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy);
 
     /// <summary>
+    /// Invalidate a <c>river_shell_surface_v1</c> proxy that the compositor has reported as destroyed
+    /// (via the <c>river_shell_surface_v1::destroyed</c> event). Drops its liveness and clears any
+    /// pending focus that still targets it so the manage cycle can never marshal
+    /// <c>focus_shell_surface</c> on the freed proxy (the "segfault at 2c" crash).
+    /// </summary>
+    void InvalidateShellSurface(IntPtr shellSurfaceProxy);
+
+    /// <summary>
     /// Self-heal focus when the previously-focused window has just become invisible because of a tag
     /// change. Picks the first visible window on the focused output, else any visible window, else
     /// clears focus.

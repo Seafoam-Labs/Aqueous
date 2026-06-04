@@ -1211,12 +1211,25 @@
     </request>
   </interface>
 
-  <interface name="river_shell_surface_v1" version="4">
+  <interface name="river_shell_surface_v1" version="5">
     <description summary="a surface for window manager UI">
       The window manager might use a shell surface to display a status bar,
       background image, desktop notifications, launcher, desktop menu, or
       whatever else it wants.
     </description>
+
+    <event name="destroyed" since="5">
+      <description summary="the shell surface object is no longer valid">
+        Sent by the compositor immediately before the shell surface object
+        becomes invalid server-side (e.g. the underlying wl_surface/role was
+        destroyed because the client closed).
+
+        After receiving this event the client must not send any further
+        requests on the object and must destroy it. The compositor will not
+        reference the object in any subsequent event (e.g. via the
+        river_seat_v1.shell_surface_interaction event).
+      </description>
+    </event>
 
     <enum name="error">
       <entry name="node_exists" value="0"

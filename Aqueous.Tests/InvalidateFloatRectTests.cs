@@ -60,6 +60,7 @@ public class InvalidateFloatRectTests
         public void CycleFocus() { }
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }
+        public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
         public void RepairFocusAfterTagChange() { }
         public void ClearFocusedHandle() { }
     }
