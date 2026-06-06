@@ -86,6 +86,8 @@ internal sealed unsafe class ManagerEventService
 
     public void HandleEvent(uint opcode, WlArgument* args)
     {
+        try
+        {
         switch (opcode)
         {
             case RiverProtocolOpcodes.Manager.Unavailable:
@@ -117,6 +119,11 @@ internal sealed unsafe class ManagerEventService
             case RiverProtocolOpcodes.Manager.SeatInformation:
                 HandleSeatInformation(args);
                 break;
+        }
+        }
+        catch (Exception ex)
+        {
+            RiverLog.Write($"ManagerEventService.HandleEvent opcode={opcode} threw: {ex}");
         }
     }
 

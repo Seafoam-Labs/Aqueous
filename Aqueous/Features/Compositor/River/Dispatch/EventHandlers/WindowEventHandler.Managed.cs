@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River.Dispatch.Services;
 using Aqueous.Features.Compositor.River.Registry;
 
@@ -35,6 +36,13 @@ internal sealed unsafe class WindowEventHandler : IEventHandler
             return;
         }
         WlArgument* args = ev.ArgsPtr == IntPtr.Zero ? null : (WlArgument*)ev.ArgsPtr;
-        _service.HandleEvent(proxy, ev.Opcode, args);
+        try
+        {
+            _service.HandleEvent(proxy, ev.Opcode, args);
+        }
+        catch (Exception e)
+        {
+            (_log ?? RiverLog.Write)($"WindowEventHandler opcode={ev.Opcode} proxy=0x{proxy:x} threw: {e}");
+        }
     }
 }
