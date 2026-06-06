@@ -146,17 +146,17 @@ internal static unsafe class WlInterfaces
     public static WaylandInterop.WlInterface* RiverXkbBinding;
 
     /// <summary>
-    /// <c>river_xkb_bindings_v1</c> Keyboard config bindings
+    /// <c>river_xkb_config_v1</c> V2 Keyboard config bindings
     /// </summary>
     public static WaylandInterop.WlInterface* RiverXkbConfig;
 
     /// <summary>
-    /// <c>river_xkb_bindings_v1</c> Keymap state bindings
+    /// <c>river_xkb_config_v1</c> V2 Keymap state bindings
     /// </summary>
     public static WaylandInterop.WlInterface* RiverXkbKeymap;
 
     /// <summary>
-    /// <c>river_xkb_bindings_v1</c> Keyboard state bindings
+    /// <c>river_xkb_config_v1</c> V2 Keyboard state bindings
     /// </summary>
     public static WaylandInterop.WlInterface* RiverXkbKeyboard;
 

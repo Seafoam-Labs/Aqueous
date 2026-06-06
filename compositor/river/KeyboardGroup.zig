@@ -234,7 +234,7 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
     const consumer: KeyConsumer = blk: {
         if (event.state == .released) {
             // Decision is made on press; release only follows it
-            const kv = group.pressed.fetchSwapRemove(event.keycode).?;
+            const kv = group.pressed.fetchSwapRemove(event.keycode) orelse break :blk .focus;
             assert(kv.value.count == 0);
             break :blk kv.value.consumer;
         }
