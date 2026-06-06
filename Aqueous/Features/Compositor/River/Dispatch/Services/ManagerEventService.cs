@@ -124,6 +124,7 @@ internal sealed unsafe class ManagerEventService
     {
         _manageCycle.InsideManageSequence = true;
         _managerRequestSender.InsideManageSequence = true;
+        bool finished = false;
         try
         {
             RiverLog.Write(
@@ -297,10 +298,21 @@ internal sealed unsafe class ManagerEventService
                 }
             }
 
-            _managerRequestSender.SendManagerRequest(2); // manage_finish
+            _managerRequestSender.SendManagerRequest(2);
+            finished = true;
+        }
+        catch (Exception ex)
+        {
+            RiverLog.Write("manage_start handler threw: " + ex);
         }
         finally
         {
+            if (!finished)
+            {
+                _managerRequestSender.SendManagerRequest(2);
+                RiverLog.Write("manage_start: forced manage_finish after exception");
+            }
+
             _manageCycle.InsideManageSequence = false;
             _managerRequestSender.InsideManageSequence = false;
         }
@@ -309,6 +321,9 @@ internal sealed unsafe class ManagerEventService
     private void HandleRenderStart()
     {
         RiverLog.Write("render_start");
+        bool finished = false;
+        try
+        {
 
         void EmitWindow(IntPtr key, WindowEntry we)
         {
@@ -410,7 +425,21 @@ internal sealed unsafe class ManagerEventService
 
         EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
 
-        _managerRequestSender.SendManagerRequest(4); // render_finish
+        _managerRequestSender.SendManagerRequest(4);
+        finished = true;
+        }
+        catch (Exception ex)
+        {
+            RiverLog.Write("render_start handler threw: " + ex);
+        }
+        finally
+        {
+            if (!finished)
+            {
+                _managerRequestSender.SendManagerRequest(4);
+                RiverLog.Write("render_start: forced render_finish after exception");
+            }
+        }
     }
 
     private void HandleWindowInformation(WlArgument* args)
