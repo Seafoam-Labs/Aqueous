@@ -146,6 +146,21 @@ internal static unsafe class WlInterfaces
     public static WaylandInterop.WlInterface* RiverXkbBinding;
 
     /// <summary>
+    /// <c>river_xkb_bindings_v1</c> Keyboard config bindings
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverXkbConfig;
+
+    /// <summary>
+    /// <c>river_xkb_bindings_v1</c> Keymap state bindings
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverXkbKeymap;
+
+    /// <summary>
+    /// <c>river_xkb_bindings_v1</c> Keyboard state bindings
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverXkbKeyboard;
+
+    /// <summary>
     /// <c>river_xkb_bindings_seat_v1</c> V1 — per-seat keyboard binding context.
     /// </summary>
     public static WaylandInterop.WlInterface* RiverXkbBindingsSeat;
@@ -211,6 +226,8 @@ internal static unsafe class WlInterfaces
     /// <c>river_libinput_device_v1.apply_accel_config</c>; the WM never creates or destroys one.
     /// </summary>
     public static WaylandInterop.WlInterface* RiverLibinputAccelConfig;
+
+
 
     /// <summary>
     /// Set to <c>true</c> once <see cref="BuildAll"/> has fully populated every interface table.
