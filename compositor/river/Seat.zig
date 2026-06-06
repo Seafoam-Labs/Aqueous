@@ -748,7 +748,8 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
             }
         }
     }
-    seat.flushStalePressedKeys();
+    //Removing as this doesn't actually seem to be necessary anymore and was causing more harm than goo.
+    //seat.flushStalePressedKeys();
 }
 
 /// Removes extraneous keyboard inputs that are storing passed the focus limit.
