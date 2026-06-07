@@ -393,11 +393,6 @@ pub fn processEvents(seat: *Seat) void {
         }
     }
 
-    // Drain stale (non-focus) pressed keys here, outside of focus(), so that
-    // synthesized releases can never re-enter key processing during a focus
-    // change. Safe because the event loop has settled and wm.state == .idle.
-    seat.flushStalePressedKeys();
-
     assert(server.wm.state == .idle);
 }
 
@@ -751,55 +746,6 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
             } else {
                 seat.cursor.constraint = @ptrCast(@alignCast(wlr_constraint.data));
                 assert(seat.cursor.constraint != null);
-            }
-        }
-    }
-}
-
-/// Removes extraneous keyboard inputs that are storing passed the focus limit.
-/// This is called to prevent the buffer overflow that will cause keyboard inputs to be lost
-/// when the window manager is being used in float mode
-fn flushStalePressedKeys(seat: *Seat) void {
-    var iterator = seat.keyboard_groups.iterator(.forward);
-    while (iterator.next()) |group| {
-        // Only flush when actually approaching the wlroots 32-key buffer limit,
-        // which is the stated purpose of this function. Flushing on every pass
-        // would synthesize spurious releases and break key repeat / IME state.
-        if (group.pressed.count() < KeyboardGroup.pressed_count_max) continue;
-
-        var buffer: [KeyboardGroup.pressed_count_max]u32 = undefined;
-        var stale: std.ArrayList(u32) = .initBuffer(&buffer);
-        for (group.pressed.keys(), group.pressed.values()) |keycode, press| {
-            // Never synthesize releases for keys owned by the focused client or
-            // the input-method grab; those clients own the real press/release
-            // lifecycle (draining .im_grab keys breaks text input entirely).
-            if (press.consumer == .focus or press.consumer == .im_grab) continue;
-            // Don't drain a binding key whose press hasn't yet been flushed to
-            // the window manager. Draining it synchronously within the same
-            // event pass would synthesize a release before the WM update/ack
-            // cycle sets sent_pressed, tripping the assert(binding.sent_pressed)
-            // in XkbBinding.stopRepeat()/released() and aborting the process.
-            if (press.consumer == .binding) {
-                if (press.consumer.binding) |binding| {
-                    if (!binding.sent_pressed) continue;
-                }
-            }
-            stale.appendAssumeCapacity(keycode);
-        }
-
-        const now = util.msecTimestamp(); // match unref()'s timestamp source
-
-        for (stale.items) |keycode| {
-            // Re-validate against live state each iteration; drain via the
-            // safe processKey path so count/cap/"ignore unmatched release" apply.
-            while (group.pressed.getPtr(keycode)) |key| {
-                if (key.consumer == .focus or key.consumer == .im_grab) break;
-                group.processKey(&.{
-                    .time_msec = now,
-                    .keycode = keycode,
-                    .update_state = true,
-                    .state = .released,
-                });
             }
         }
     }
