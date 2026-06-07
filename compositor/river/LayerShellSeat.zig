@@ -80,7 +80,7 @@ fn handleRequest(
 }
 
 pub fn manageStart(shell_seat: *LayerShellSeat) void {
-    if (@as(std.meta.Tag(Focus), shell_seat.scheduled.focus) != shell_seat.sent.focus) {
+    if (!std.meta.eql(shell_seat.scheduled.focus, shell_seat.sent.focus)) {
         if (shell_seat.object) |shell_seat_v1| {
             switch (shell_seat.scheduled.focus) {
                 .exclusive => shell_seat_v1.sendFocusExclusive(),

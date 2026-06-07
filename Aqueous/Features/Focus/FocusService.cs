@@ -165,10 +165,13 @@ internal sealed class FocusService : IFocusService
         _pendingFocus.SetWindow(IntPtr.Zero, IntPtr.Zero);
         _focusedWindow.Current = IntPtr.Zero;
 
-        if (seat != IntPtr.Zero)
+        if (seat != IntPtr.Zero && _seatRegistry.Entries.ContainsKey(seat))
         {
             // Inlined from RiverWindowManagerClient.SendClearFocus. river_seat_v1::clear_focus is opcode 3
             // with no arguments.
+            // Guard against a freed seat proxy: under rapid layer-shell map/unmap (e.g. sherlock on
+            // fast typing) the seat can be torn down between ResolveSeat() and the marshal, which would
+            // otherwise marshal on a dangling river_seat_v1 and segfault inside libwayland-client.
             WaylandInterop.wl_proxy_marshal_flags(seat, 3, IntPtr.Zero, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             RiverLog.Write($"clear_focus on seat 0x{seat.ToString("x")}");
