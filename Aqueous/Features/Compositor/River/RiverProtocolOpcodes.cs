@@ -88,11 +88,41 @@ internal static class RiverProtocolOpcodes
     }
 
     /// <summary>
-    /// <c>river_layer_shell_v1</c> Events.
+    /// <c>river_layer_shell_v1</c> Request opcodes (new shape).
     /// </summary>
     internal static class LayerShell
     {
+        internal const uint Destroy = 0;
+        internal const uint GetOutput = 1;
+        internal const uint GetSeat = 2;
+
+        /// <summary>
+        /// Legacy <c>layer_surface</c> event opcode. Retained only until the legacy
+        /// <c>LayerShellEventHandler</c> is retired in Phase C; the new protocol shape does not
+        /// emit this event.
+        /// </summary>
         internal const uint LayerSurface = 0;
+    }
+
+    /// <summary>
+    /// <c>river_layer_shell_output_v1</c> Request/event opcodes (numbered independently).
+    /// </summary>
+    internal static class LayerShellOutput
+    {
+        internal const uint NonExclusiveArea = 0; // event
+        internal const uint Destroy = 0;          // request
+        internal const uint SetDefault = 1;       // request
+    }
+
+    /// <summary>
+    /// <c>river_layer_shell_seat_v1</c> Request/event opcodes (numbered independently).
+    /// </summary>
+    internal static class LayerShellSeat
+    {
+        internal const uint FocusExclusive = 0;    // event
+        internal const uint FocusNonExclusive = 1; // event
+        internal const uint FocusNone = 2;         // event
+        internal const uint Destroy = 0;           // request
     }
 
     /// <summary>

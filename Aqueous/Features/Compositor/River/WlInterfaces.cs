@@ -114,13 +114,27 @@ internal static unsafe class WlInterfaces
     public static WaylandInterop.WlInterface* RiverOutput;
 
     /// <summary>
-    /// <c>river_layer_shell_v1</c> V1 — layer-shell global; produces <c>river_layer_surface_v1</c>
-    /// objects.
+    /// <c>river_layer_shell_v1</c> V1 — layer-shell global. Binding it tells the compositor the WM
+    /// supports layer shell; it is the factory for <c>get_output</c>/<c>get_seat</c>.
     /// </summary>
     public static WaylandInterop.WlInterface* RiverLayerShell;
 
     /// <summary>
-    /// <c>river_layer_surface_v1</c> V1 — layer-surface proxy.
+    /// <c>river_layer_shell_output_v1</c> V1 — per-output layer-shell state obtained via
+    /// <c>river_layer_shell_v1.get_output</c>. Carries the <c>non_exclusive_area</c> event.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLayerShellOutput;
+
+    /// <summary>
+    /// <c>river_layer_shell_seat_v1</c> V1 — per-seat layer-shell state obtained via
+    /// <c>river_layer_shell_v1.get_seat</c>. Carries the
+    /// <c>focus_exclusive</c>/<c>focus_non_exclusive</c>/<c>focus_none</c> events.
+    /// </summary>
+    public static WaylandInterop.WlInterface* RiverLayerShellSeat;
+
+    /// <summary>
+    /// <c>river_layer_surface_v1</c> V1 — legacy layer-surface proxy. Retained only until the legacy
+    /// <c>LayerShellEventHandler</c> is retired (Phase C); the new protocol shape does not use it.
     /// </summary>
     public static WaylandInterop.WlInterface* RiverLayerSurface;
 
@@ -833,6 +847,8 @@ internal static unsafe class WlInterfaces
         RiverNode = AllocEmpty("river_node_v1", 4);
         RiverOutput = AllocEmpty("river_output_v1", 4);
         RiverLayerShell = AllocEmpty("river_layer_shell_v1", 1);
+        RiverLayerShellOutput = AllocEmpty("river_layer_shell_output_v1", 1);
+        RiverLayerShellSeat = AllocEmpty("river_layer_shell_seat_v1", 1);
         RiverLayerSurface = AllocEmpty("river_layer_surface_v1", 1);
         RiverSeat = AllocEmpty("river_seat_v1", 4);
         RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
@@ -944,15 +960,47 @@ internal static unsafe class WlInterfaces
                 Msg("destroyed", "5", NoTypes),
             });
 
-        // River_layer_shell_v1
+        // River_layer_shell_v1 (new shape) — requests only, no events.
+        // Request opcodes follow XML declaration order: destroy=0, get_output=1, get_seat=2.
         Populate(RiverLayerShell,
-            requests: Array.Empty<WaylandInterop.WlMessage>(),
+            requests: new[]
+            {
+                Msg("destroy",    "",  NoTypes),
+                Msg("get_output", "no", new WaylandInterop.WlInterface*[] { RiverLayerShellOutput, RiverOutput }),
+                Msg("get_seat",   "no", new WaylandInterop.WlInterface*[] { RiverLayerShellSeat,   RiverSeat   }),
+            },
+            events: Array.Empty<WaylandInterop.WlMessage>());
+
+        // River_layer_shell_output_v1 — request opcodes: destroy=0, set_default=1.
+        // Event opcode: non_exclusive_area=0 (request/event opcodes are numbered independently).
+        // set_default may only be sent inside a manage sequence.
+        Populate(RiverLayerShellOutput,
+            requests: new[]
+            {
+                Msg("destroy",     "", NoTypes),
+                Msg("set_default", "", NoTypes),
+            },
             events: new[]
             {
-                Msg("layer_surface", "n", new WaylandInterop.WlInterface*[] { RiverLayerSurface }),
+                Msg("non_exclusive_area", "iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
             });
 
-        // River_layer_surface_v1
+        // River_layer_shell_seat_v1 — request opcode: destroy=0.
+        // Event opcodes: focus_exclusive=0, focus_non_exclusive=1, focus_none=2 (all no-arg).
+        Populate(RiverLayerShellSeat,
+            requests: new[]
+            {
+                Msg("destroy", "", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("focus_exclusive",     "", NoTypes),
+                Msg("focus_non_exclusive", "", NoTypes),
+                Msg("focus_none",          "", NoTypes),
+            });
+
+        // River_layer_surface_v1 (legacy) — retained until the legacy LayerShellEventHandler is
+        // retired in Phase C. The new river_layer_shell_v1 shape no longer produces this object.
         Populate(RiverLayerSurface,
             requests: new[]
             {
