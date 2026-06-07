@@ -122,6 +122,47 @@ internal static unsafe partial class WaylandInterop
     /// </returns>
     [LibraryImport(Lib)] public static partial int wl_display_get_fd(IntPtr display);
 
+    /// <summary>
+    /// Announces the calling thread's intent to read events from the display fd. Returns <c>0</c> on
+    /// success or <c>-1</c> if there are already events queued for the default queue (the caller must
+    /// then call <see cref="wl_display_dispatch_pending"/> and retry).
+    /// </summary>
+    /// <param name="display">A live <c>wl_display</c> handle.</param>
+    /// <remarks>
+    /// Half of the thread-safe read pattern. Every successful <c>prepare_read</c> MUST be paired with
+    /// exactly one of <see cref="wl_display_read_events"/> or <see cref="wl_display_cancel_read"/>.
+    /// </remarks>
+    [LibraryImport(Lib)] public static partial int wl_display_prepare_read(IntPtr display);
+
+    /// <summary>
+    /// Reads all available events from the display fd into the event queues after a successful
+    /// <see cref="wl_display_prepare_read"/>. Returns <c>0</c> on success or <c>-1</c> on error.
+    /// </summary>
+    /// <param name="display">A live <c>wl_display</c> handle.</param>
+    [LibraryImport(Lib)] public static partial int wl_display_read_events(IntPtr display);
+
+    /// <summary>
+    /// Cancels a pending <see cref="wl_display_prepare_read"/> without reading from the fd. Used on
+    /// the wakeup path so the display is left in a clean state for the next reader.
+    /// </summary>
+    /// <param name="display">A live <c>wl_display</c> handle.</param>
+    [LibraryImport(Lib)] public static partial void wl_display_cancel_read(IntPtr display);
+
+    /// <summary>
+    /// Dispatches events already queued for the default queue without touching the socket. Returns
+    /// the number of events dispatched, or <c>-1</c> on error.
+    /// </summary>
+    /// <param name="display">A live <c>wl_display</c> handle.</param>
+    [LibraryImport(Lib)] public static partial int wl_display_dispatch_pending(IntPtr display);
+
+    /// <summary>
+    /// Returns the last error that occurred on the display connection (an <c>errno</c> value), or
+    /// <c>0</c> if the connection is still healthy. Use after a failed read to surface protocol
+    /// errors.
+    /// </summary>
+    /// <param name="display">A <c>wl_display</c> handle.</param>
+    [LibraryImport(Lib)] public static partial int wl_display_get_error(IntPtr display);
+
     // -------------- Wl_proxy ----------------
 
     /// <summary>

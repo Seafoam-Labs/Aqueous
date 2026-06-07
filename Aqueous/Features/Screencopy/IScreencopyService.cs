@@ -11,7 +11,7 @@ namespace Aqueous.Features.Screencopy;
 /// lifecycle (lazy-bind once both wl_shm and zwlr_screencopy_manager_v1 globals are present) and
 /// routes per-frame native callback events into the underlying client.
 /// </summary>
-internal interface IScreencopyService
+internal interface IScreencopyService : IDisposable
 {
     /// <summary>
     /// True once both wl_shm and zwlr_screencopy_manager_v1 have been bound.

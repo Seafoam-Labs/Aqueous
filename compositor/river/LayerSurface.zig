@@ -86,16 +86,27 @@ fn clearSeatFocus(layer_surface: *LayerSurface) void {
         }
         switch (seat.layer_shell.scheduled.focus) {
             .exclusive, .non_exclusive => |ref| {
-                if (ref == layer_surface.ref) seat.layer_shell.scheduled.focus = .none;
+                if (ref == layer_surface.ref) {
+                    seat.layer_shell.scheduled.focus = .none;
+                    // Re-run the windowing/focus arbitration so the WM is told the
+                    // layer surface relinquished its (possibly exclusive) keyboard
+                    // focus and can restore window focus.
+                    server.wm.dirtyWindowing();
+                }
             },
             .none => {},
         }
-        switch (seat.layer_shell.sent.focus) {
-            .exclusive, .non_exclusive => |ref| {
-                if (ref == layer_surface.ref) seat.layer_shell.sent.focus = .none;
-            },
-            .none => {},
-        }
+        // NOTE: deliberately do NOT clear seat.layer_shell.sent.focus here.
+        // LayerShellSeat.manageStart only emits focus_exclusive/non_exclusive/none
+        // to the WM when scheduled.focus != sent.focus. If we forced sent.focus to
+        // .none as well, the diff would vanish and the WM (Aqueous) would never be
+        // told the exclusive keyboard grab was released — it would stay in its
+        // "layer-shell exclusive" mode forever and suppress every window focus
+        // request, so keyboard/text input would die after the launcher (e.g.
+        // sherlock) closes. Leaving sent.focus intact lets manageStart detect the
+        // transition and notify the WM. The now-stale LayerSurface.Ref in sent.focus
+        // is harmless: it is only ever compared with == or resolved via Ref.get(),
+        // which safely returns null for the removed surface.
     }
 }
 

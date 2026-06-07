@@ -82,6 +82,26 @@ public class EventPumpTests
     }
 
     [Fact]
+    public void Stop_WakesPumpAndReturnsTrueWithStopRequested()
+    {
+        var conn = new FakeWaylandConnection();
+        using var pump = NewPump(conn);
+        var tcs = new TaskCompletionSource<PumpStopReason>(TaskCreationOptions.RunContinuationsAsynchronously);
+        pump.Stopped += r => tcs.TrySetResult(r);
+
+        pump.Start();
+        SpinWait.SpinUntil(() => conn.DispatchCalls > 0, Long);
+
+        // The wakeup fd must make Stop return quickly with the thread actually joined.
+        bool joined = pump.Stop(Long);
+
+        Assert.True(joined);
+        Assert.False(pump.IsRunning);
+        Assert.True(tcs.Task.Wait(Long));
+        Assert.Equal(PumpStopReason.StopRequested, tcs.Task.Result);
+    }
+
+    [Fact]
     public void Cancellation_ExitsAtNextIterationBoundary()
     {
         var conn = new FakeWaylandConnection();

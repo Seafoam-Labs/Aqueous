@@ -347,6 +347,22 @@ internal sealed class FocusService : IFocusService
         _focusedWindow.Current = IntPtr.Zero;
     }
 
+    public void ReassertFocusAfterLayerRelease()
+    {
+        // The seat just left exclusive/non-exclusive layer-shell focus. While it was held, the
+        // compositor cleared keyboard focus to nobody (seat.focus(.none)) and RequestFocus was
+        // suppressed (IsFocusLocked). Neither side restores the previously-focused window on its own,
+        // so re-issue the focus request for the still-tracked window to hand keyboard focus back.
+        var focused = _focusedWindow.Current;
+        if (focused == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(focused))
+        {
+            return;
+        }
+
+        RiverLog.Write($"ReassertFocusAfterLayerRelease: re-focusing window 0x{focused.ToString("x")}");
+        RequestFocus(focused);
+    }
+
     private IntPtr ResolveSeat()
     {
         IntPtr seat = _primarySeat.Current;

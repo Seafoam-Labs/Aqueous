@@ -202,5 +202,6 @@ public class Stage8Pr88Tests
             Func<uint, IntPtr> bindOutput,
             Action<IntPtr> destroyProxy,
             bool overlayCursor = false) => null;
+        public void Dispose() { }
     }
 }

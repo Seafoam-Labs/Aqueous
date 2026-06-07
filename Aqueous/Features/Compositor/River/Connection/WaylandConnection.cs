@@ -137,9 +137,41 @@ internal sealed class WaylandConnection : IWaylandConnection
             return -1;
         }
 
-        // Wl_display_dispatch_pending is not yet exposed by WaylandInterop; fall back to a non-blocking
-        // flush+dispatch approximation. When the P/Invoke is added, replace this with the direct call.
-        return WaylandInterop.wl_display_dispatch(Display);
+        var rc = WaylandInterop.wl_display_dispatch_pending(Display);
+        if (_options.VerboseProtocolTrace)
+        {
+            _logger.LogTrace("wl_display_dispatch_pending -> {Rc}", rc);
+        }
+        return rc;
+    }
+
+    public int PrepareRead()
+    {
+        return Display == IntPtr.Zero
+            ? -1
+            : WaylandInterop.wl_display_prepare_read(Display);
+    }
+
+    public int ReadEvents()
+    {
+        return Display == IntPtr.Zero
+            ? -1
+            : WaylandInterop.wl_display_read_events(Display);
+    }
+
+    public void CancelRead()
+    {
+        if (Display != IntPtr.Zero)
+        {
+            WaylandInterop.wl_display_cancel_read(Display);
+        }
+    }
+
+    public int GetError()
+    {
+        return Display == IntPtr.Zero
+            ? -1
+            : WaylandInterop.wl_display_get_error(Display);
     }
 
     public int Flush()

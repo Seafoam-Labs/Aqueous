@@ -47,10 +47,12 @@ internal interface IEventPump : IDisposable
     void Start(CancellationToken ct = default);
 
     /// <summary>
-    /// Signals the pump to exit at the next iteration boundary and waits up to <paramref
-    /// name="joinTimeout"/> for the thread to terminate. Idempotent.
+    /// Signals the pump to exit (waking it immediately via the wakeup fd) and waits up to <paramref
+    /// name="joinTimeout"/> for the thread to terminate. Idempotent. Returns <c>true</c> if the pump
+    /// thread has actually exited (or was never running); <c>false</c> if the join timed out and the
+    /// thread may still be inside libwayland — in which case the caller MUST NOT disconnect.
     /// </summary>
-    void Stop(TimeSpan joinTimeout);
+    bool Stop(TimeSpan joinTimeout);
 
     /// <summary>
     /// Awaitable variant of <see cref="Stop"/> for <c>IHostedService.StopAsync</c> ergonomics. Throws

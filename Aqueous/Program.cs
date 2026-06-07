@@ -165,6 +165,7 @@ class Program
         services.AddSingleton<IEventHandler>(sp => new LayerShellSeatEventHandler(
             sp.GetRequiredService<Aqueous.Features.Focus.ILayerShellFocusState>(),
             sp.GetRequiredService<WaylandBindSiteState>(),
+            sp.GetRequiredService<Aqueous.Features.Focus.IFocusService>(),
             RiverLog.Write));
         services.AddSingleton<IEventHandler>(sp => new LayerShellOutputEventHandler(
             sp.GetRequiredService<ILayerShellUsableAreaStore>(),

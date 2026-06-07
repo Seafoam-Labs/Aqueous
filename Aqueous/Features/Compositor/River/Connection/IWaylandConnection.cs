@@ -63,6 +63,28 @@ internal interface IWaylandConnection : IDisposable
     int DispatchPending();
 
     /// <summary>
+    /// <c>wl_display_prepare_read</c>. Returns <c>0</c> on success, <c>-1</c> if events are already
+    /// queued (caller must <see cref="DispatchPending"/> then retry). Pump thread only.
+    /// </summary>
+    int PrepareRead();
+
+    /// <summary>
+    /// <c>wl_display_read_events</c>. Pairs with a successful <see cref="PrepareRead"/>. Pump thread
+    /// only.
+    /// </summary>
+    int ReadEvents();
+
+    /// <summary>
+    /// <c>wl_display_cancel_read</c>. Cancels a pending <see cref="PrepareRead"/>. Pump thread only.
+    /// </summary>
+    void CancelRead();
+
+    /// <summary>
+    /// <c>wl_display_get_error</c>. Returns the last connection error (<c>errno</c>), or <c>0</c>.
+    /// </summary>
+    int GetError();
+
+    /// <summary>
     /// <c>wl_display_flush</c>.
     /// </summary>
     int Flush();

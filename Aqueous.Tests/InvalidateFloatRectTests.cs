@@ -63,6 +63,7 @@ public class InvalidateFloatRectTests
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
         public void RepairFocusAfterTagChange() { }
         public void ClearFocusedHandle() { }
+        public void ReassertFocusAfterLayerRelease() { }
     }
 
     // Minimal IManagerRequestSender stub: the host hooks under test do not marshal manager requests,

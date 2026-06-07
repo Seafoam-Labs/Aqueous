@@ -92,4 +92,15 @@ public interface IFocusService
     /// server-side and the protocol would treat a stale focus request as fatal.
     /// </summary>
     void ClearFocusedHandle();
+
+    /// <summary>
+    /// Re-assert window focus after a layer surface released its keyboard grab (the seat transitioned
+    /// out of <see cref="LayerFocusMode.Exclusive"/>). While the grab was held, the compositor cleared
+    /// window focus to nobody and the WM suppressed its focus requests; once the grab is gone neither
+    /// side spontaneously restores the previously-focused window, so the keyboard goes to nowhere
+    /// ("typing dies after the launcher closes"). This re-issues the focus request for the still-tracked
+    /// <see cref="FocusedWindow"/> so the compositor hands keyboard focus back. No-op when there is no
+    /// live tracked window.
+    /// </summary>
+    void ReassertFocusAfterLayerRelease();
 }

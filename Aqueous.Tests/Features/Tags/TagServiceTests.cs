@@ -53,6 +53,7 @@ public class TagServiceTests
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
         public void RepairFocusAfterTagChange() { }
         public void ClearFocusedHandle() => FocusedWindow = IntPtr.Zero;
+        public void ReassertFocusAfterLayerRelease() { }
     }
 
     private static (TagService svc, WindowRegistry wr, OutputRegistry or, FakeFocus co)

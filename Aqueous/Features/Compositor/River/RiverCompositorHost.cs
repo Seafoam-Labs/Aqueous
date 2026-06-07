@@ -54,11 +54,12 @@ internal sealed class RiverCompositorHost : IHostedService
     private uint? _managerGlobalName;
 
     /// <summary>
-    /// Join timeout applied to <see cref="IEventPump.Stop"/> during shutdown. Long enough to let an
-    /// in-flight <c>wl_display_dispatch</c> return after we cancel; short enough that a wedged
-    /// libwayland never blocks shutdown indefinitely.
+    /// Join timeout applied to <see cref="IEventPump.Stop"/> during shutdown. With the pump's wakeup
+    /// fd in place the join completes in milliseconds, so this is purely a safety net; it should
+    /// never be hit. If it ever is, <see cref="DisposeWayland"/> deliberately SKIPS
+    /// <c>wl_display_disconnect</c> rather than free the display under a live pump thread.
     /// </summary>
-    private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan PumpJoinTimeout = TimeSpan.FromSeconds(5);
 
     public RiverCompositorHost(
         IWaylandConnection connection,
@@ -214,16 +215,43 @@ internal sealed class RiverCompositorHost : IHostedService
         // cleans up.
         try
         {
-            // Critical ordering: stop the pump first so it is no longer touching wl_display, then dispose the
-            // connection.
-            _pump.Stop(PumpJoinTimeout);
+            // Critical ordering: stop the pump first so it is no longer touching wl_display, then dispose
+            // the connection. The pump's wakeup fd makes Stop return as soon as the thread leaves
+            // libwayland; the bool tells us whether it actually exited.
+            bool pumpExited = _pump.Stop(PumpJoinTimeout);
             // Clear the cached manager proxy/display in IManagerRequestSender *before* the connection
             // tears the proxies down — any pump-thread send that races past this point becomes a silent
             // no-op instead of a NULL-deref inside libwayland.
             _managerRequestSender.Reset();
             _managerGlobalName = null;
             _bindSiteState.Manager = IntPtr.Zero;
-            _connection.Dispose();
+
+            // Dispose the screencopy client (and the per-frame wl_buffer / zwlr_screencopy_frame_v1
+            // proxies it owns) HERE — after the pump has exited but while the display is STILL
+            // connected. WlrScreencopyClient.Dispose marshals zwlr_screencopy_manager_v1::destroy and
+            // friends via wl_proxy_marshal_flags; if that ran after wl_display_disconnect (the default
+            // DI-container disposal order in Program.Main) it would write into freed proxy memory —
+            // the `segfault at 2c` traced from WlrScreencopyClient.Dispose. The pump is already gone,
+            // so this marshal is single-threaded and safe.
+            if (pumpExited)
+            {
+                _screencopyService.Dispose();
+            }
+
+            // wl_display_disconnect MUST NOT run while the pump thread is still inside any wl_display_*
+            // call: freeing the display/proxies underneath it is exactly the `segfault at 2c` teardown
+            // race. Only disconnect once the pump has provably exited. If the (near-impossible) join
+            // timeout was hit, leak the display rather than crash — a leak at process exit is harmless.
+            if (pumpExited)
+            {
+                _connection.Dispose();
+            }
+            else
+            {
+                _log?.LogError(
+                    "pump thread did not exit within {Timeout}; SKIPPING wl_display_disconnect to avoid use-after-free",
+                    PumpJoinTimeout);
+            }
 
             _windowRegistry.Clear();
             _outputRegistry.Clear();

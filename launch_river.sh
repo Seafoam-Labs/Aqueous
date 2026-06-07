@@ -81,6 +81,12 @@ fi
 echo "[launch_river] Aqueous logs -> $AQ_SINK"
 # Surface snap-zone + dispatcher diagnostics by default during smoke runs.
 export AQUEOUS_LOG="${AQUEOUS_LOG:-trace}"
+# Capture a full managed (CoreCLR) minidump on crash so the off-pump
+# wl_proxy_marshal_flags caller can be resolved with `dotnet-dump analyze`
+# (clrstack/clrthreads). MiniDumpType=4 = "Full".
+export DOTNET_DbgEnableMiniDump=1
+export DOTNET_DbgMiniDumpType=4
+export DOTNET_DbgMiniDumpName="/tmp/aqueous_coredump.%d.dmp"
 INNER="exec '$WM_BIN' >'$AQ_SINK' 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

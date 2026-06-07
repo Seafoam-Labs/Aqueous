@@ -25,15 +25,18 @@ internal sealed class LayerShellSeatEventHandler : IEventHandler
 {
     private readonly ILayerShellFocusState _focusState;
     private readonly WaylandBindSiteState _bindSiteState;
+    private readonly IFocusService _focusService;
     private readonly Action<string>? _log;
 
     public LayerShellSeatEventHandler(
         ILayerShellFocusState focusState,
         WaylandBindSiteState bindSiteState,
+        IFocusService focusService,
         Action<string>? log = null)
     {
         _focusState = focusState ?? throw new ArgumentNullException(nameof(focusState));
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _log = log;
     }
 
@@ -48,6 +51,14 @@ internal sealed class LayerShellSeatEventHandler : IEventHandler
             return;
         }
 
+        // Snapshot the previous mode before mutating it so we can detect the transition OUT of a
+        // keyboard-grabbing mode (exclusive/non-exclusive) back to none. While the grab was held the
+        // compositor cleared window keyboard focus to nobody and the WM suppressed its focus requests;
+        // when it releases, neither side spontaneously restores the previously-focused window, so the
+        // keyboard goes nowhere ("typing dies after the launcher closes"). On that transition we
+        // re-assert window focus.
+        var previous = _focusState.ModeFor(seat);
+
         switch (ev.Opcode)
         {
             case RiverProtocolOpcodes.LayerShellSeat.FocusExclusive:
@@ -61,6 +72,13 @@ internal sealed class LayerShellSeatEventHandler : IEventHandler
             case RiverProtocolOpcodes.LayerShellSeat.FocusNone:
                 _focusState.SetNone(seat);
                 _log?.Invoke($"layer_shell_seat focus_none on seat 0x{seat:x}");
+                // A layer surface that held keyboard focus just released it. Restore window focus to
+                // the WM's tracked window (state is already None, so RequestFocus is no longer
+                // suppressed by IsFocusLocked).
+                if (previous != LayerFocusMode.None)
+                {
+                    _focusService.ReassertFocusAfterLayerRelease();
+                }
                 break;
         }
     }

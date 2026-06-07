@@ -301,6 +301,14 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
         .im_grab => if (group.getInputMethodGrab()) |keyboard_grab| {
             keyboard_grab.setKeyboard(&group.state);
             keyboard_grab.sendKey(event.time_msec, event.keycode, event.state);
+        } else if (event.state == .released) {
+            // The input-method grab was decided at press time but has since torn
+            // down (e.g. the launcher/IME client closed while the key was still
+            // held). Dropping the release here leaves the key logically stuck in
+            // the seat. Deliver the orphaned release to the focused client so the
+            // key state is reconciled instead of silently discarded.
+            group.seat.wlr_seat.setKeyboard(&group.state);
+            group.seat.wlr_seat.keyboardNotifyKey(event.time_msec, event.keycode, event.state);
         },
         .focus => {
             group.seat.wlr_seat.setKeyboard(&group.state);
