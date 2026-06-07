@@ -268,9 +268,12 @@ internal sealed class RiverCompositorHost : IHostedService
         }
         else if (global.Interface == "river_layer_shell_v1")
         {
+            // New protocol shape: river_layer_shell_v1 has no events, so no dispatcher is needed.
+            // Binding the global is still required — it tells the compositor the WM supports layer
+            // shell (an unbound global makes the compositor close layer surfaces). The bound proxy
+            // is retained as the factory for get_output/get_seat.
             var layerShell = _registryBinder.Bind(global.Name, WlInterfaces.RiverLayerShell, 1);
             _bindSiteState.LayerShell = layerShell;
-            WaylandInterop.wl_proxy_add_dispatcher(layerShell, dispatcher, ctxHandle, IntPtr.Zero);
             _bindSiteState.TrackProxyInterface(layerShell, "river_layer_shell_v1");
             RiverLog.Write("bound river_layer_shell_v1");
         }

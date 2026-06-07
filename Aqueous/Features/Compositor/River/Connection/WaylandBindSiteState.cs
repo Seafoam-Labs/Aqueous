@@ -56,6 +56,33 @@ internal sealed class WaylandBindSiteState
     public IntPtr SuperKeyBinding { get; set; }
 
     /// <summary>
+    /// <c>river_seat_v1</c> proxy → its <c>river_layer_shell_seat_v1</c> sub-object (created via
+    /// <c>river_layer_shell_v1.get_seat</c>). Lets teardown destroy the sub-object when the parent
+    /// seat is removed.
+    /// </summary>
+    public ConcurrentDictionary<IntPtr, IntPtr> LayerShellSeatBySeat { get; } = new();
+
+    /// <summary>
+    /// Reverse of <see cref="LayerShellSeatBySeat"/>: <c>river_layer_shell_seat_v1</c> proxy → its
+    /// parent <c>river_seat_v1</c>. Lets focus events resolve the controlled seat from the incoming
+    /// sub-object proxy.
+    /// </summary>
+    public ConcurrentDictionary<IntPtr, IntPtr> SeatByLayerShellSeat { get; } = new();
+
+    /// <summary>
+    /// <c>river_output_v1</c> proxy → its <c>river_layer_shell_output_v1</c> sub-object (created via
+    /// <c>river_layer_shell_v1.get_output</c>).
+    /// </summary>
+    public ConcurrentDictionary<IntPtr, IntPtr> LayerShellOutputByOutput { get; } = new();
+
+    /// <summary>
+    /// Reverse of <see cref="LayerShellOutputByOutput"/>: <c>river_layer_shell_output_v1</c> proxy →
+    /// its parent <c>river_output_v1</c>. Lets <c>non_exclusive_area</c> resolve the output for
+    /// layout.
+    /// </summary>
+    public ConcurrentDictionary<IntPtr, IntPtr> OutputByLayerShellOutput { get; } = new();
+
+    /// <summary>
     /// Proxy → interface-name map populated at every <c>wl_registry::bind</c> callsite. Stage-0 of the
     /// dispatch decomposition introduced this as a write-only seam; it now lives on the singleton so
     /// consumers no longer need a reference to the god class to record/lookup names.

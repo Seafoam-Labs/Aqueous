@@ -516,6 +516,101 @@ internal sealed unsafe class ManagerEventService
             IntPtr.Zero);
         _bindSiteState.TrackProxyInterface(proxy, "river_output_v1");
         RiverLog.Write($"+ output 0x{proxy.ToString("x")}");
+
+        CreateLayerShellOutput(proxy);
+    }
+
+    /// <summary>
+    /// Creates the per-output <c>river_layer_shell_output_v1</c> sub-object via
+    /// <c>river_layer_shell_v1.get_output</c> (request opcode 1, signature "no") and installs a
+    /// dispatcher so the <c>non_exclusive_area</c> event routes back to the WM. No-op when the
+    /// layer-shell global was never bound, or when this output already has a sub-object.
+    /// </summary>
+    private void CreateLayerShellOutput(IntPtr output)
+    {
+        if (_bindSiteState.LayerShell == IntPtr.Zero || output == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // The XML makes a second get_output for the same river_output_v1 a protocol error.
+        if (_bindSiteState.LayerShellOutputByOutput.ContainsKey(output))
+        {
+            return;
+        }
+
+        IntPtr lsOutput = WaylandInterop.wl_proxy_marshal_flags(
+            _bindSiteState.LayerShell,
+            RiverProtocolOpcodes.LayerShell.GetOutput,
+            (IntPtr)WlInterfaces.RiverLayerShellOutput,
+            1,
+            0,
+            IntPtr.Zero, // new_id (filled by libwayland)
+            output,      // the river_output_v1 object arg
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+        if (lsOutput == IntPtr.Zero)
+        {
+            return;
+        }
+
+        WaylandInterop.wl_proxy_add_dispatcher(
+            lsOutput,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                .NativeCallbackEntry.Dispatch,
+            _keyBindingsRegistry.SelfHandlePtr,
+            IntPtr.Zero);
+        _bindSiteState.TrackProxyInterface(lsOutput, "river_layer_shell_output_v1");
+        _bindSiteState.LayerShellOutputByOutput[output] = lsOutput;
+        _bindSiteState.OutputByLayerShellOutput[lsOutput] = output;
+        RiverLog.Write($"+ layer_shell_output 0x{lsOutput:x} for output 0x{output:x}");
+    }
+
+    /// <summary>
+    /// Creates the per-seat <c>river_layer_shell_seat_v1</c> sub-object via
+    /// <c>river_layer_shell_v1.get_seat</c> (request opcode 2, signature "no") and installs a
+    /// dispatcher so the <c>focus_exclusive</c>/<c>focus_non_exclusive</c>/<c>focus_none</c> events
+    /// route back to the WM. No-op when the layer-shell global was never bound, or when this seat
+    /// already has a sub-object.
+    /// </summary>
+    private void CreateLayerShellSeat(IntPtr seat)
+    {
+        if (_bindSiteState.LayerShell == IntPtr.Zero || seat == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // The XML makes a second get_seat for the same river_seat_v1 a protocol error.
+        if (_bindSiteState.LayerShellSeatBySeat.ContainsKey(seat))
+        {
+            return;
+        }
+
+        IntPtr lsSeat = WaylandInterop.wl_proxy_marshal_flags(
+            _bindSiteState.LayerShell,
+            RiverProtocolOpcodes.LayerShell.GetSeat,
+            (IntPtr)WlInterfaces.RiverLayerShellSeat,
+            1,
+            0,
+            IntPtr.Zero, // new_id (filled by libwayland)
+            seat,        // the river_seat_v1 object arg
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+        if (lsSeat == IntPtr.Zero)
+        {
+            return;
+        }
+
+        WaylandInterop.wl_proxy_add_dispatcher(
+            lsSeat,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)&Aqueous.Features.Compositor.River.Dispatch
+                .NativeCallbackEntry.Dispatch,
+            _keyBindingsRegistry.SelfHandlePtr,
+            IntPtr.Zero);
+        _bindSiteState.TrackProxyInterface(lsSeat, "river_layer_shell_seat_v1");
+        _bindSiteState.LayerShellSeatBySeat[seat] = lsSeat;
+        _bindSiteState.SeatByLayerShellSeat[lsSeat] = seat;
+        RiverLog.Write($"+ layer_shell_seat 0x{lsSeat:x} for seat 0x{seat:x}");
     }
 
     private void HandleSeatInformation(WlArgument* args)
@@ -535,6 +630,8 @@ internal sealed unsafe class ManagerEventService
             IntPtr.Zero);
         _bindSiteState.TrackProxyInterface(proxy, "river_seat_v1");
         RiverLog.Write($"+ seat 0x{proxy.ToString("x")}");
+
+        CreateLayerShellSeat(proxy);
 
         if (_primarySeat.Current == IntPtr.Zero)
         {
