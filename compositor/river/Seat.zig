@@ -765,7 +765,18 @@ fn flushStalePressedKeys(seat: *Seat) void {
         var buffer: [KeyboardGroup.pressed_count_max]u32 = undefined;
         var stale: std.ArrayList(u32) = .initBuffer(&buffer);
         for (group.pressed.keys(), group.pressed.values()) |keycode, press| {
-            if (press.consumer != .focus) stale.appendAssumeCapacity(keycode);
+            if (press.consumer == .focus) continue;
+            // Don't drain a binding key whose press hasn't yet been flushed to
+            // the window manager. Draining it synchronously within the same
+            // event pass would synthesize a release before the WM update/ack
+            // cycle sets sent_pressed, tripping the assert(binding.sent_pressed)
+            // in XkbBinding.stopRepeat()/released() and aborting the process.
+            if (press.consumer == .binding) {
+                if (press.consumer.binding) |binding| {
+                    if (!binding.sent_pressed) continue;
+                }
+            }
+            stale.appendAssumeCapacity(keycode);
         }
 
         const now = util.msecTimestamp(); // match unref()'s timestamp source
