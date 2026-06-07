@@ -7,7 +7,7 @@ using Aqueous.Features.State;
 namespace Aqueous.Features.Startup;
 
 /// <summary>
-/// Phase B1f — fires <c>[[exec]]</c> autostart entries from <c>wm.toml</c> after the compositor
+/// Fires <c>[[exec]]</c> autostart entries from <c>wm.toml</c> after the compositor
 /// has advertised its globals. Idempotent per <see cref="ExecEntry.Once"/>; supervises <see
 /// cref="ExecEntry.Restart"/> children with exponential backoff (250 ms → 500 → 1 s → 2 s → 4 s →
 /// 8 s → cap 10 s, reset on a clean exit).

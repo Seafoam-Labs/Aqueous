@@ -77,7 +77,7 @@ public sealed class TagController
     }
 
     /// <summary>
-    /// Event raised when tag state changes (consumed by IPC/bar in Phase B1g).
+    /// Event raised when tag state changes (consumed by the IPC/bar layer).
     /// </summary>
     public readonly record struct TagsChangedEvent(
         TagsChangeKind Kind,

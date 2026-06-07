@@ -9,8 +9,8 @@ namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// created via <c>river_layer_shell_v1.get_output</c>). It receives the single
 /// <c>non_exclusive_area</c> event (opcode 0, signature <c>iiii</c> = x, y, width, height in global
 /// coordinates) and records the usable area for the parent output in
-/// <see cref="ILayerShellUsableAreaStore"/> so the layout pipeline can avoid overlapping panels/bars
-/// (consumed in Phase D). The parent <c>river_output_v1</c> is resolved from the firing sub-object
+/// <see cref="ILayerShellUsableAreaStore"/> so the layout pipeline can avoid overlapping panels/bars.
+/// The parent <c>river_output_v1</c> is resolved from the firing sub-object
 /// proxy via the association map populated at creation
 /// (<see cref="WaylandBindSiteState.OutputByLayerShellOutput"/>).
 /// <para>

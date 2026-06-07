@@ -64,8 +64,7 @@ internal sealed unsafe class SeatInteractionService
 
     /// <summary>
     /// Handle <c>river_seat_v1::removed</c>: destroy the per-seat <c>river_layer_shell_seat_v1</c>
-    /// sub-object (now inert) and clear its layer-shell focus state. See Phase E of the
-    /// <c>river-layer-shell-v1</c> migration.
+    /// sub-object (now inert) and clear its layer-shell focus state.
     /// </summary>
     public void HandleSeatRemoved(IntPtr seat)
     {

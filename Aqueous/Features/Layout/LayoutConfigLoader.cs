@@ -133,8 +133,8 @@ public static class LayoutConfigLoader
             pendingOutputLayout = null;
         }
 
-        // ------------------------------------------------------------- [[exec]] autostart entries (Phase
-        // B1f). Each [[exec]] table becomes one ExecEntry. Required keys (`name`, `command`) must both be
+        // ------------------------------------------------------------- [[exec]] autostart entries.
+        // Each [[exec]] table becomes one ExecEntry. Required keys (`name`, `command`) must both be
         // present; otherwise the entry is silently dropped (a warning is logged once we have a logger
         // seam here). Duplicate `name`s: first wins.
         // ---------------------------------------------------------------

@@ -7,7 +7,7 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1e — pure unit tests for <see cref="WindowStateController"/> built against an in-memory
+/// Pure unit tests for <see cref="WindowStateController"/> built against an in-memory
 /// <see cref="IWindowStateHost"/> fake. The fake never touches Wayland; it only records mutations
 /// and answers queries.
 /// </summary>

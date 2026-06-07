@@ -9,7 +9,7 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1f — pure unit tests for <see cref="StartupExecRunner"/>. Uses a minimal in-memory <see
+/// Pure unit tests for <see cref="StartupExecRunner"/>. Uses a minimal in-memory <see
 /// cref="IWindowStateHost"/> fake that captures <see cref="SpawnRequest"/>s and exposes a manual
 /// clock for <c>ScheduleAfter</c> so backoff scheduling can be verified deterministically.
 /// </summary>

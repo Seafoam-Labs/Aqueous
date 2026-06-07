@@ -7,7 +7,7 @@ namespace Aqueous.Features.Compositor.River.Registry;
 /// Per-output usable (non-exclusive) area reported by
 /// <c>river_layer_shell_output_v1::non_exclusive_area</c>. The area is the region of the output that
 /// remains after subtracting layer-surface exclusive zones (panels/bars), in <b>global</b>
-/// coordinates. Phase C records it here; the layout pipeline consumes it in Phase D. The hint is
+/// coordinates. Recorded here when the event fires and consumed by the layout pipeline. The hint is
 /// advisory — the WM may ignore it.
 /// </summary>
 public interface ILayerShellUsableAreaStore

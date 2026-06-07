@@ -5,7 +5,7 @@ using Aqueous.Features.Rules;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// Phase B1e — high-level window state used by <see cref="WindowStateController"/> to drive layout
+/// High-level window state used by <see cref="WindowStateController"/> to drive layout
 /// filtering and render-path overrides.
 /// <para>
 /// <see cref="Tiled"/> and <see cref="Floating"/> are mutually exclusive "base" modes; the

@@ -4,9 +4,8 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// Coverage for the pure <see cref="LayoutMath.Intersect"/> helper used by Phase D of the
-/// <c>river-layer-shell-v1</c> migration to fold a per-output <c>non_exclusive_area</c> hint into
-/// the strut-derived usable rect.
+/// Coverage for the pure <see cref="LayoutMath.Intersect"/> helper that folds a per-output
+/// <c>non_exclusive_area</c> hint into the strut-derived usable rect.
 /// </summary>
 public class LayoutMathIntersectTests
 {

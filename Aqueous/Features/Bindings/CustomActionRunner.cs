@@ -115,7 +115,7 @@ internal sealed class CustomActionRunner : ICustomActionRunner
 
     private void RunBuiltinVerb(string arg)
     {
-        // Phase B1e Pass B: split one optional trailing ":argument" segment so chords like
+        // Split one optional trailing ":argument" segment so chords like
         // builtin:toggle_scratchpad_named:term can dispatch to the parameterised actions while preserving
         // the existing parameterless form (e.g. builtin:cycle_focus).
         string bname = arg;

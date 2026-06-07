@@ -82,7 +82,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     private void HandleRemoved(IntPtr proxy)
     {
         _log?.Invoke("output 0x" + proxy.ToString("x") + " removed");
-        // Phase E: destroy the per-output river_layer_shell_output_v1 sub-object (now inert) and drop
+        // Destroy the per-output river_layer_shell_output_v1 sub-object (now inert) and drop
         // its stored usable-area hint before forgetting the output.
         _layerShellTeardown.TeardownOutput(proxy);
         var goneOutputWindows = new List<WindowStateData>();

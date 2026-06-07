@@ -6,7 +6,7 @@ using Aqueous.Features.Layout;
 namespace Aqueous.Features.State;
 
 /// <summary>
-/// Phase B1f — extended spawn request used by <c>[[exec]]</c> autostart entries. Carries optional
+/// Extended spawn request used by <c>[[exec]]</c> autostart entries. Carries optional
 /// log redirection, per-entry environment overrides, and an exit callback used by the supervisor
 /// for restart scheduling. <see cref="IWindowStateHost.Spawn(string)"/> remains the fast path for
 /// keybind-driven spawns.
@@ -18,8 +18,8 @@ public sealed record SpawnRequest(
     Action<int>? OnExit = null);
 
 /// <summary>
-/// Phase B1e — protocol-agnostic surface that <see cref="WindowStateController"/> uses to query
-/// and mutate the WM. Implemented by the river client (Pass B); implemented by an in-memory fake
+/// Protocol-agnostic surface that <see cref="WindowStateController"/> uses to query
+/// and mutate the WM. Implemented by the river client; implemented by an in-memory fake
 /// in the unit tests so the controller's transition logic can be exercised without a Wayland
 /// fixture.
 /// <para>

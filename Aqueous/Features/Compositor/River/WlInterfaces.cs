@@ -337,7 +337,7 @@ internal static unsafe class WlInterfaces
     /// </returns>
     /// <remarks>
     /// Currently unused by <see cref="BuildAll"/>, which prefers the <see cref="AllocEmpty"/> + <see
-    /// cref="Populate"/> two-phase pattern so that interfaces can mutually reference each other. Kept
+    /// cref="Populate"/> allocate-then-populate pattern so that interfaces can mutually reference each other. Kept
     /// available for callers that build standalone interfaces with no forward references.
     /// </remarks>
     private static WaylandInterop.WlInterface* AllocInterface(string name, int version, WaylandInterop.WlMessage[] requests, WaylandInterop.WlMessage[] events)
@@ -450,7 +450,7 @@ internal static unsafe class WlInterfaces
     /// </summary>
     /// <remarks>
     /// Interfaces reference each other (e.g. the manager's <c>toplevel</c> event yields a
-    /// <c>new_id&lt;handle&gt;</c>) so the function runs in two phases: first <see cref="AllocEmpty"/>
+    /// <c>new_id&lt;handle&gt;</c>) so the function runs in two steps: first <see cref="AllocEmpty"/>
     /// reserves storage for every interface, then <see cref="Populate"/> fills in the message tables.
     /// This mirrors how wayland-scanner emits C with forward declarations.
     /// <para>
@@ -1097,8 +1097,8 @@ internal static unsafe class WlInterfaces
     }
 
     /// <summary>
-    /// Phase-1 allocator: reserves a forward-declared <see cref="WaylandInterop.WlInterface"/> with no
-    /// requests or events.
+    /// Allocator step: reserves a forward-declared <see cref="WaylandInterop.WlInterface"/> with no
+    /// requests or events, to be filled in later by <see cref="Populate"/>.
     /// </summary>
     /// <param name="name">
     /// Wire-protocol interface name.
@@ -1126,8 +1126,8 @@ internal static unsafe class WlInterfaces
     }
 
     /// <summary>
-    /// Phase-2 filler: writes <paramref name="requests"/> and <paramref name="events"/> into an
-    /// interface.
+    /// Populate step: writes <paramref name="requests"/> and <paramref name="events"/> into an
+    /// interface previously reserved by <see cref="AllocEmpty"/>.
     /// </summary>
     /// <param name="iface">
     /// Target interface (must be writable unmanaged memory).

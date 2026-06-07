@@ -143,7 +143,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         // otherwise skip. For the IntPtr.Zero fallback (no outputs), accept all.
         bool isFallback = output == IntPtr.Zero;
 
-        // Phase B1c — Tags. Resolve the visible-tag mask for this output (or AllTags for the IntPtr.Zero
+        // Tags. Resolve the visible-tag mask for this output (or AllTags for the IntPtr.Zero
         // fallback) so we can filter windows whose Tags do not intersect the mask out of the layout
         // snapshot before invoking the engine. Off-tag windows additionally need a one-shot hide(opcode
         // 4) so the compositor stops drawing them; see the transition pass below.

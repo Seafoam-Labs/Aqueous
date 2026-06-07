@@ -4,7 +4,7 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// Phase E regression — legacy <c>[[snapzones]]</c> / <c>[[snapzones.zone]]</c> TOML keys are
+/// Regression coverage: legacy <c>[[snapzones]]</c> / <c>[[snapzones.zone]]</c> TOML keys are
 /// silently ignored by <see cref="LayoutConfigLoader"/> for one release after the SnapZones
 /// subsystem was removed. Old user configs must continue to parse without error, and surrounding
 /// sections must not be corrupted by the ignored blocks.

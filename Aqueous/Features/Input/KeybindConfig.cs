@@ -88,7 +88,7 @@ public sealed class KeybindConfig
             ["move_window_down"] = "Super+Shift+Down",
             ["reload_config"] = "Super+R",
 
-            // Phase B1c — Tag default chords.
+            // Tag default chords.
             ["view_tag_1"] = "Super+1",
             ["view_tag_2"] = "Super+2",
             ["view_tag_3"] = "Super+3",

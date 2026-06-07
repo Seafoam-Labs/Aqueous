@@ -27,8 +27,7 @@ public static class TagState
     public const uint AllTags = 0xFFFFFFFFu;
 
     /// <summary>
-    /// Reserved scratchpad bit. Phase B1c reserves it; full scratchpad semantics are deferred to Phase
-    /// B1e. Windows are never auto-tagged onto this bit at <c>manage_start</c>.
+    /// Reserved scratchpad bit. Windows are never auto-tagged onto this bit at <c>manage_start</c>.
     /// </summary>
     public const uint ScratchpadTag = 1u << 31;
 

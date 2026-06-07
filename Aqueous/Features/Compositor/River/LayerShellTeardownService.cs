@@ -7,9 +7,9 @@ using Aqueous.Features.Focus;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Phase E of the <c>river-layer-shell-v1</c> migration: tears down the per-seat
-/// (<c>river_layer_shell_seat_v1</c>) and per-output (<c>river_layer_shell_output_v1</c>) sub-objects
-/// when their parent <c>river_seat_v1</c>/<c>river_output_v1</c> is removed.
+/// Tears down the per-seat (<c>river_layer_shell_seat_v1</c>) and per-output
+/// (<c>river_layer_shell_output_v1</c>) sub-objects when their parent
+/// <c>river_seat_v1</c>/<c>river_output_v1</c> is removed.
 /// <para>
 /// The XML makes the sub-objects inert once their parent is removed and requires the client to
 /// destroy them. This service marshals the <c>destroy</c> request (opcode 0, with

@@ -5,7 +5,7 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Phase B1f — pinning tests for the <c>[[exec]]</c> array-of-tables parser inside <see
+/// Pinning tests for the <c>[[exec]]</c> array-of-tables parser inside <see
 /// cref="LayoutConfigLoader"/>.
 /// </summary>
 public class ExecConfigTests

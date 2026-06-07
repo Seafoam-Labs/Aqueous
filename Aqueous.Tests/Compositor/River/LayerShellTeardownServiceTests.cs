@@ -8,9 +8,8 @@ using Xunit;
 namespace Aqueous.Tests.Compositor.River;
 
 /// <summary>
-/// Coverage for Phase E of the <c>river-layer-shell-v1</c> migration: <see
-/// cref="LayerShellTeardownService"/> must drop the per-seat/per-output association maps and clear
-/// the dependent focus/usable-area state when a parent is removed.
+/// Coverage for <see cref="LayerShellTeardownService"/>: it must drop the per-seat/per-output
+/// association maps and clear the dependent focus/usable-area state when a parent is removed.
 /// <para>
 /// The sub-object proxies are deliberately left untracked in <see cref="WaylandBindSiteState"/>'s
 /// proxy-interface map, so the destructor short-circuits before any native

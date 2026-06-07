@@ -47,7 +47,7 @@ internal sealed class WindowEntry
     public bool HasFloatRect;
     public int FloatX, FloatY, FloatW, FloatH;
 
-    // Phase B1b scrolling fix: visibility comes from the layout engine's WindowPlacement.Visible.
+    // Visibility comes from the layout engine's WindowPlacement.Visible.
     // Off-screen scrolling columns must NOT be repositioned/clipped/place_top'd, and must NOT receive
     // propose_dimensions storms. Defaults to true so windows mapped before the first manage cycle
     // stay visible.
@@ -59,7 +59,7 @@ internal sealed class WindowEntry
     // outputs in their per-output ScrollState.
     public IntPtr Output;
 
-    // Phase B1c — Tags / Workspaces. 32-bit tag bitmask. A window is rendered iff (Tags &
+    // Tags / Workspaces. 32-bit tag bitmask. A window is rendered iff (Tags &
     // Output.VisibleTags) != 0. Default is tag 1 (bit 0). At manage_start a freshly-mapped window is
     // re-tagged to whatever its assigned output currently views (minus the reserved scratchpad bit).
     // See TagState for semantics.

@@ -60,7 +60,7 @@ internal sealed unsafe class SeatEventHandler : IEventHandler
         {
             case RiverProtocolOpcodes.Seat.Removed:
                 _log?.Invoke("seat 0x" + proxy.ToString("x") + " removed");
-                // Phase E: destroy the per-seat river_layer_shell_seat_v1 sub-object (now inert) and
+                // Destroy the per-seat river_layer_shell_seat_v1 sub-object (now inert) and
                 // clear its layer-shell focus state before forgetting the seat.
                 _interaction.HandleSeatRemoved(proxy);
                 _seats.Entries.TryRemove(proxy, out _);

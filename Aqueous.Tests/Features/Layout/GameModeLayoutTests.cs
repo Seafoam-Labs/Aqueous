@@ -276,7 +276,7 @@ public class GameModeLayoutTests
         }
     }
 
-    // ----- Phase 2: per-column partitioning ----------------------------------
+    // ----- Per-column partitioning -------------------------------------------
 
     [Fact]
     public void Arrange_CenteredAnchor_RoundRobinSplitsLeftRight()

@@ -75,7 +75,7 @@ public sealed record LayoutConfig
     public KeybindConfig Keybinds { get; init; } = new();
 
     /// <summary>
-    /// Phase B1e — <c>[state]</c> + <c>[scratchpad]</c> sections.
+    /// <c>[state]</c> + <c>[scratchpad]</c> sections.
     /// </summary>
     public StateConfig State { get; init; } = StateConfig.Default;
 

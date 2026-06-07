@@ -14,7 +14,7 @@ internal sealed class OutputEntry
     public uint WlOutputName;
     public int X, Y, Width, Height;
 
-    // Phase B1c — Tags / Workspaces. 32-bit "currently visible tags" mask. Default is tag 1 (bit 0).
+    // Tags / Workspaces. 32-bit "currently visible tags" mask. Default is tag 1 (bit 0).
     // Mutated by TagController in response to Super+1.0 / Super+Ctrl+1.9 / Super+grave bindings.
     public uint VisibleTags = Aqueous.Features.Tags.TagState.DefaultTag;
 
