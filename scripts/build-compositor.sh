@@ -29,7 +29,7 @@ if ! command -v zig >/dev/null 2>&1; then
 fi
 
 echo "[build-compositor] zig $(zig version), optimize=$optimize, linker_flag=${linker_flag:-<none>}"
-(cd "$here/compositor" && zig build -Doptimize="$optimize" -Dxwayland ${linker_flag:+$linker_flag})
+(cd "$here/compositor" && zig build -Doptimize="$optimize" -Dscenefx=true -Dxwayland ${linker_flag:+$linker_flag})
 
 mkdir -p "$here/bin"
 # Upstream RiverDelta names the produced binary `riverdelta` (older

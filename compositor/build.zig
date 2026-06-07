@@ -210,15 +210,19 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("libevdev", .{});
         river.root_module.linkSystemLibrary("libinput", .{});
         river.root_module.linkSystemLibrary("wayland-server", .{});
+        if (scenefx) {
+            // SceneFX is a drop-in replacement for the wlroots scene API. It
+            // MUST be linked before wlroots so that in DT_NEEDED order its
+            // duplicate wlr_scene_* symbols (and the augmented struct layout,
+            // e.g. wlr_scene_buffer with the corner-radius field) win symbol
+            // resolution at runtime. Otherwise wlroots' plain (smaller) scene
+            // objects get allocated while the FX renderer / SceneFX commit code
+            // expects the augmented layout, causing a crash on the first frame.
+            river.root_module.linkSystemLibrary(scenefx_pkgconf, .{});
+        }
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
-        if (scenefx) {
-            // SceneFX is a drop-in replacement for the wlroots scene API; its
-            // include dir must precede wlroots so its augmented struct
-            // wlr_scene_buffer (with the corner-radius field) wins.
-            river.root_module.linkSystemLibrary(scenefx_pkgconf, .{});
-        }
 
         river.root_module.addImport("wayland", wayland);
         river.root_module.addImport("xkbcommon", xkbcommon);
