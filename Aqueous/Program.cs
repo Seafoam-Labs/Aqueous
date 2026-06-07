@@ -42,6 +42,7 @@ class Program
         // - Connection & transport state ---------------------------------
         services.AddSingleton<IWaylandConnection, WaylandConnection>();
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
+        services.AddSingleton<IShellSurfaceRegistry, ShellSurfaceRegistry>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
         // EventPumpOptions wires three pump-thread callbacks to IManagerRequestSender so that

@@ -35,6 +35,7 @@ internal sealed unsafe class SeatInteractionService
     private readonly LayoutController _layoutController;
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
+    private readonly IShellSurfaceRegistry _shellSurfaceRegistry;
 
     public SeatInteractionService(
         DragStateStore dragState,
@@ -44,16 +45,18 @@ internal sealed unsafe class SeatInteractionService
         IManagerRequestSender managerRequestSender,
         LayoutController layoutController,
         WaylandBindSiteState bindSiteState,
-        KeyBindingsRegistry keyBindingsRegistry)
+        KeyBindingsRegistry keyBindingsRegistry,
+        IShellSurfaceRegistry shellSurfaceRegistry)
     {
-        _dragState             = dragState             ?? throw new ArgumentNullException(nameof(dragState));
-        _windowRegistry        = windowRegistry        ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _focusService          = focusService          ?? throw new ArgumentNullException(nameof(focusService));
-        _layoutProposer        = layoutProposer        ?? throw new ArgumentNullException(nameof(layoutProposer));
-        _managerRequestSender  = managerRequestSender  ?? throw new ArgumentNullException(nameof(managerRequestSender));
-        _layoutController      = layoutController      ?? throw new ArgumentNullException(nameof(layoutController));
-        _bindSiteState         = bindSiteState         ?? throw new ArgumentNullException(nameof(bindSiteState));
-        _keyBindingsRegistry   = keyBindingsRegistry   ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
+        _dragState = dragState ?? throw new ArgumentNullException(nameof(dragState));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
+        _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
+        _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
+        _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
+        _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
     }
 
     public void CachePointerPosition(IntPtr seat, int x, int y)
@@ -77,6 +80,7 @@ internal sealed unsafe class SeatInteractionService
         // Aqueous never calls get_shell_surface, so the proxy only ever surfaces here as an object
         // argument and this is the only place it can be wired up. Idempotent: skip if already tracked.
         EnsureShellSurfaceTracked(shellSurface);
+        _shellSurfaceRegistry.Add(shellSurface);
         _focusService.SetFocusedShellSurface(shellSurface, seat);
     }
 
@@ -90,7 +94,7 @@ internal sealed unsafe class SeatInteractionService
         WaylandInterop.wl_proxy_add_dispatcher(
             shellSurface,
             (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, uint, IntPtr, IntPtr, int>)
-                &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
+            &Aqueous.Features.Compositor.River.Dispatch.NativeCallbackEntry.Dispatch,
             _keyBindingsRegistry.SelfHandlePtr,
             IntPtr.Zero);
         _bindSiteState.TrackProxyInterface(shellSurface, "river_shell_surface_v1");
@@ -112,6 +116,7 @@ internal sealed unsafe class SeatInteractionService
         }
 
         _focusService.InvalidateShellSurface(shellSurface);
+        _shellSurfaceRegistry.Remove(shellSurface);
 
         // Guard against double-destroy: only act if we were still tracking the proxy. Untrack first so
         // a re-entrant dispatch can't see it as live.
@@ -172,15 +177,16 @@ internal sealed unsafe class SeatInteractionService
             adw.FloatX = adw.X;
             adw.FloatY = adw.Y;
             int newFw = adw.W > 0 ? adw.W
-                      : adw.LastHintW > 0 ? adw.LastHintW
-                      : adw.ProposedW;
+                : adw.LastHintW > 0 ? adw.LastHintW
+                : adw.ProposedW;
             int newFh = adw.H > 0 ? adw.H
-                      : adw.LastHintH > 0 ? adw.LastHintH
-                      : adw.ProposedH;
+                : adw.LastHintH > 0 ? adw.LastHintH
+                : adw.ProposedH;
             if (newFw > 0)
             {
                 adw.FloatW = newFw;
             }
+
             if (newFh > 0)
             {
                 adw.FloatH = newFh;
@@ -231,30 +237,37 @@ internal sealed unsafe class SeatInteractionService
                 {
                     newX = startX + (startW - minW);
                 }
+
                 newW = minW;
             }
+
             if (newH < minH)
             {
                 if ((dragEdges & 1u) != 0)
                 {
                     newY = startY + (startH - minH);
                 }
+
                 newH = minH;
             }
+
             if (adw.MaxW > 0 && newW > adw.MaxW)
             {
                 if ((dragEdges & 4u) != 0)
                 {
                     newX = startX + (startW - adw.MaxW);
                 }
+
                 newW = adw.MaxW;
             }
+
             if (adw.MaxH > 0 && newH > adw.MaxH)
             {
                 if ((dragEdges & 1u) != 0)
                 {
                     newY = startY + (startH - adw.MaxH);
                 }
+
                 newH = adw.MaxH;
             }
 
