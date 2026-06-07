@@ -131,7 +131,8 @@ build() {
     cd "$srcdir/aqueous/compositor"
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
     # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
-    zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm --prefix "$srcdir/river-dist" install
+    zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dscenefx=true \
+        --prefix "$srcdir/river-dist" install
 }
 
 package() {
