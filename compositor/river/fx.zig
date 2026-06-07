@@ -16,6 +16,23 @@ const wlr = @import("wlroots");
 /// When SceneFX is unavailable this is always 0, i.e. square corners.
 pub const corner_radius: u31 = if (build_options.scenefx) 12 else 0;
 
+/// Create the renderer appropriate for the current build.
+///
+/// A SceneFX-backed scene (created by `wlr.Scene.create()` once SceneFX is
+/// linked) requires the SceneFX FX renderer; driving it with a stock
+/// autocreated GLES2/Vulkan renderer crashes on the first scene-output commit.
+/// When SceneFX is not compiled in, fall back to the normal autocreated
+/// wlroots renderer.
+pub fn createRenderer(backend: *wlr.Backend) !*wlr.Renderer {
+    if (comptime build_options.scenefx) {
+        const c = @import("c");
+        const r = c.fx_renderer_create(@ptrCast(backend)) orelse
+            return error.RendererCreateFailed;
+        return @ptrCast(@alignCast(r));
+    }
+    return wlr.Renderer.autocreate(backend);
+}
+
 /// Set the corner radius of a single scene buffer node.
 pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
     if (comptime !build_options.scenefx) return;

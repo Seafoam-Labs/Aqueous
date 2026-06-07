@@ -14,6 +14,7 @@ const wl = wayland.server.wl;
 const wp = wayland.server.wp;
 
 const util = @import("util.zig");
+const fx = @import("fx.zig");
 
 const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
@@ -123,7 +124,7 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
 
     var session: ?*wlr.Session = undefined;
     const backend = try wlr.Backend.autocreate(loop, &session);
-    const renderer = try wlr.Renderer.autocreate(backend);
+    const renderer = try fx.createRenderer(backend);
 
     const compositor = try wlr.Compositor.create(wl_server, 6, renderer);
 
@@ -435,7 +436,7 @@ fn gpuResetRecoverIdle(server: *Server) void {
 
 fn gpuResetRecover(server: *Server) !void {
     log.info("recovering from GPU reset", .{});
-    const new_renderer = try wlr.Renderer.autocreate(server.backend);
+    const new_renderer = try fx.createRenderer(server.backend);
     errdefer new_renderer.destroy();
 
     const new_allocator = try wlr.Allocator.autocreate(server.backend, new_renderer);

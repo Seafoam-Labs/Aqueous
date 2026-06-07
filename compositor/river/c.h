@@ -10,4 +10,5 @@
 // under <scenefx/...> and do not replace the wlroots <wlr/...> ones.
 #ifdef RIVER_SCENEFX
 #include <scenefx/types/wlr_scene.h>
+#include <scenefx/render/fx_renderer/fx_renderer.h>
 #endif
