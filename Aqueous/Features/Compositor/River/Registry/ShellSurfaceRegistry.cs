@@ -5,6 +5,7 @@ namespace Aqueous.Features.Compositor.River.Registry;
 public class ShellSurfaceRegistry : IShellSurfaceRegistry
 {
     private readonly ConcurrentDictionary<IntPtr, byte> _surfaces = new();
+    public int Count => _surfaces.Count;
     public void Add(IntPtr proxy) => _surfaces[proxy] = 0;
 
     public void Remove(IntPtr proxy) => _surfaces.TryRemove(proxy, out _);

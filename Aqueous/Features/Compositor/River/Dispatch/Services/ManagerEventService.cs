@@ -24,6 +24,7 @@ internal sealed unsafe class ManagerEventService
 {
     private readonly IEventPump _pump;
     private readonly IWindowRegistry _windowRegistry;
+    private readonly IShellSurfaceRegistry _shellSurfaceRegistry;
     private readonly IOutputRegistry _outputRegistry;
     private readonly ISeatRegistry _seatRegistry;
     private readonly FocusedWindowTracker _focusedWindowTracker;
@@ -61,7 +62,8 @@ internal sealed unsafe class ManagerEventService
         IKeyBindingRegistrar keyBindingRegistrar,
         WaylandBindSiteState bindSiteState,
         KeyBindingsRegistry keyBindingsRegistry,
-        IWindowStateHost windowStateHost)
+        IWindowStateHost windowStateHost,
+        IShellSurfaceRegistry shellSurfaceRegistry)
     {
         _pump = pump ?? throw new ArgumentNullException(nameof(pump));
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -82,6 +84,7 @@ internal sealed unsafe class ManagerEventService
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _windowStateHost = windowStateHost ?? throw new ArgumentNullException(nameof(windowStateHost));
+        _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
     }
 
     public void HandleEvent(uint opcode, WlArgument* args)
@@ -135,12 +138,12 @@ internal sealed unsafe class ManagerEventService
         try
         {
             RiverLog.Write(
-                $"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count})");
+                $"manage_start (windows={_windowRegistry.Entries.Count} outputs={_outputRegistry.Entries.Count} seats={_seatRegistry.Entries.Count} shells={_shellSurfaceRegistry.Count})");
 
             // Self-heal focus.
             if (_focusedWindowTracker.Current == IntPtr.Zero
                 && _pendingFocus.Window == IntPtr.Zero
-                && _pendingFocus.ShellSurface == IntPtr.Zero
+                && !_shellSurfaceRegistry.IsLive(_pendingFocus.ShellSurface)
                 && _windowRegistry.Entries.Count > 0)
             {
                 foreach (var wk in _windowRegistry.Entries.Keys)
@@ -256,7 +259,7 @@ internal sealed unsafe class ManagerEventService
                     }
                 }
                 else if (_pendingFocus.ShellSurface != IntPtr.Zero
-                         && _pendingFocus.IsShellSurfaceLive(_pendingFocus.ShellSurface))
+                         && _shellSurfaceRegistry.IsLive(_pendingFocus.ShellSurface))
                 {
                     if (_pendingFocus.Window != IntPtr.Zero)
                     {
