@@ -36,6 +36,7 @@ internal sealed unsafe class SeatInteractionService
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly IShellSurfaceRegistry _shellSurfaceRegistry;
+    private readonly ILayerShellTeardownService _layerShellTeardown;
 
     public SeatInteractionService(
         DragStateStore dragState,
@@ -46,7 +47,8 @@ internal sealed unsafe class SeatInteractionService
         LayoutController layoutController,
         WaylandBindSiteState bindSiteState,
         KeyBindingsRegistry keyBindingsRegistry,
-        IShellSurfaceRegistry shellSurfaceRegistry)
+        IShellSurfaceRegistry shellSurfaceRegistry,
+        ILayerShellTeardownService layerShellTeardown)
     {
         _dragState = dragState ?? throw new ArgumentNullException(nameof(dragState));
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -57,6 +59,18 @@ internal sealed unsafe class SeatInteractionService
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
+        _layerShellTeardown = layerShellTeardown ?? throw new ArgumentNullException(nameof(layerShellTeardown));
+    }
+
+    /// <summary>
+    /// Handle <c>river_seat_v1::removed</c>: destroy the per-seat <c>river_layer_shell_seat_v1</c>
+    /// sub-object (now inert) and clear its layer-shell focus state. See Phase E of the
+    /// <c>river-layer-shell-v1</c> migration.
+    /// </summary>
+    public void HandleSeatRemoved(IntPtr seat)
+    {
+        RiverLog.Write("BRIDGE HandleSeatRemoved seat=0x" + seat.ToString("x"));
+        _layerShellTeardown.TeardownSeat(seat);
     }
 
     public void CachePointerPosition(IntPtr seat, int x, int y)

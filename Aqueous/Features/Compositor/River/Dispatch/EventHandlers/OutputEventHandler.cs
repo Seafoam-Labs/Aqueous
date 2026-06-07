@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
@@ -18,6 +19,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     private readonly WindowStateStore _windowStates;
     private readonly WindowStateController _windowState;
     private readonly OutputFullscreenMap _outputFullscreen;
+    private readonly ILayerShellTeardownService _layerShellTeardown;
     private readonly Action<string>? _log;
     public OutputEventHandler(
         IWindowRegistry windows,
@@ -25,6 +27,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         WindowStateStore windowStates,
         WindowStateController windowState,
         OutputFullscreenMap outputFullscreen,
+        ILayerShellTeardownService layerShellTeardown,
         Action<string>? log = null)
     {
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
@@ -32,6 +35,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
+        _layerShellTeardown = layerShellTeardown ?? throw new ArgumentNullException(nameof(layerShellTeardown));
         _log = log;
     }
     public string InterfaceName => "river_output_v1";
@@ -78,6 +82,9 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     private void HandleRemoved(IntPtr proxy)
     {
         _log?.Invoke("output 0x" + proxy.ToString("x") + " removed");
+        // Phase E: destroy the per-output river_layer_shell_output_v1 sub-object (now inert) and drop
+        // its stored usable-area hint before forgetting the output.
+        _layerShellTeardown.TeardownOutput(proxy);
         var goneOutputWindows = new List<WindowStateData>();
         var outputProxy = new OutputProxy(proxy);
         foreach (var ws in _windowStates.Snapshot())

@@ -46,6 +46,8 @@ class Program
         services.AddSingleton<ILayerShellUsableAreaStore, LayerShellUsableAreaStore>();
         services.AddSingleton<Aqueous.Features.Focus.ILayerShellFocusState,
             Aqueous.Features.Focus.LayerShellFocusState>();
+        services.AddSingleton<Aqueous.Features.Compositor.River.ILayerShellTeardownService,
+            Aqueous.Features.Compositor.River.LayerShellTeardownService>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
         // EventPumpOptions wires three pump-thread callbacks to IManagerRequestSender so that
@@ -174,6 +176,7 @@ class Program
             sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
             sp.GetRequiredService<Aqueous.Features.State.WindowStateController>(),
             sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
+            sp.GetRequiredService<Aqueous.Features.Compositor.River.ILayerShellTeardownService>(),
             RiverLog.Write));
         services.AddSingleton<IEventHandler>(sp =>
         {
