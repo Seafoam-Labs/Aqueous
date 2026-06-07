@@ -95,13 +95,6 @@ internal static class RiverProtocolOpcodes
         internal const uint Destroy = 0;
         internal const uint GetOutput = 1;
         internal const uint GetSeat = 2;
-
-        /// <summary>
-        /// Legacy <c>layer_surface</c> event opcode. Retained only until the legacy
-        /// <c>LayerShellEventHandler</c> is retired in Phase C; the new protocol shape does not
-        /// emit this event.
-        /// </summary>
-        internal const uint LayerSurface = 0;
     }
 
     /// <summary>

@@ -42,6 +42,7 @@ internal sealed unsafe class ManagerEventService
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly IWindowStateHost _windowStateHost;
+    private readonly ILayerShellUsableAreaStore _layerShellUsableAreas;
 
     public ManagerEventService(
         IEventPump pump,
@@ -63,7 +64,8 @@ internal sealed unsafe class ManagerEventService
         WaylandBindSiteState bindSiteState,
         KeyBindingsRegistry keyBindingsRegistry,
         IWindowStateHost windowStateHost,
-        IShellSurfaceRegistry shellSurfaceRegistry)
+        IShellSurfaceRegistry shellSurfaceRegistry,
+        ILayerShellUsableAreaStore layerShellUsableAreas)
     {
         _pump = pump ?? throw new ArgumentNullException(nameof(pump));
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -85,6 +87,30 @@ internal sealed unsafe class ManagerEventService
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _windowStateHost = windowStateHost ?? throw new ArgumentNullException(nameof(windowStateHost));
         _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
+        _layerShellUsableAreas = layerShellUsableAreas ?? throw new ArgumentNullException(nameof(layerShellUsableAreas));
+    }
+
+    /// <summary>
+    /// Folds the per-output layer-shell <c>non_exclusive_area</c> hint (panels/bars exclusive zones,
+    /// in global coordinates) into the strut-derived usable rect by intersecting the two. The hint is
+    /// advisory: when no area has been reported for the output, or the intersection is degenerate,
+    /// the strut-derived <paramref name="strutUsable"/> is returned unchanged.
+    /// </summary>
+    private Rect ApplyLayerShellUsable(IntPtr output, Rect strutUsable)
+    {
+        if (output == IntPtr.Zero ||
+            !_layerShellUsableAreas.TryGet(output, out var a))
+        {
+            return strutUsable;
+        }
+
+        var layer = new Rect(a.X, a.Y, a.Width, a.Height);
+        var intersection = LayoutMath.Intersect(strutUsable, layer);
+
+        // Empty intersection means either nothing was reported, the hint was degenerate, or it does
+        // not overlap the strut rect (misreported). In all cases keep the strut rect rather than
+        // collapsing the layout to nothing.
+        return intersection is { W: > 0, H: > 0 } ? intersection : strutUsable;
     }
 
     public void HandleEvent(uint opcode, WlArgument* args)
@@ -304,6 +330,7 @@ internal sealed unsafe class ManagerEventService
                     var ah = oe.Height > 0 ? oe.Height : 1080;
                     var raw = new Rect(oe.X, oe.Y, aw, ah);
                     var usable = StrutsCalculator.Apply(raw, _layoutController.Config?.Struts);
+                    usable = ApplyLayerShellUsable(outputKvp.Key, usable);
                     _layoutProposer.ProposeForArea(outputKvp.Key, null, raw, usable);
                 }
             }

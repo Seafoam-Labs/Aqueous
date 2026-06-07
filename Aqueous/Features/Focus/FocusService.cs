@@ -42,6 +42,10 @@ internal sealed class FocusService : IFocusService
     // (manifested as a black nested screen with only the two Aqueous.Program banner lines logged).
     private readonly Lazy<WindowStateController> _stateController;
 
+    // Layer-shell focus policy: when a seat is in exclusive layer-focus mode, the compositor ignores
+    // all WM focus-change requests for it. Suppressing them here avoids spurious manage churn.
+    private readonly ILayerShellFocusState _layerShellFocus;
+
     public FocusService(
         IWindowRegistry windowRegistry,
         IOutputRegistry outputRegistry,
@@ -51,7 +55,8 @@ internal sealed class FocusService : IFocusService
         PrimarySeatTracker primarySeat,
         IManagerRequestSender managerRequestSender,
         ILayoutProposer layoutProposer,
-        Lazy<WindowStateController> stateController)
+        Lazy<WindowStateController> stateController,
+        ILayerShellFocusState layerShellFocus)
     {
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
         _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
@@ -62,6 +67,7 @@ internal sealed class FocusService : IFocusService
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
         _stateController = stateController ?? throw new ArgumentNullException(nameof(stateController));
+        _layerShellFocus = layerShellFocus ?? throw new ArgumentNullException(nameof(layerShellFocus));
     }
 
     public IntPtr FocusedWindow => _focusedWindow.Current;
@@ -103,6 +109,12 @@ internal sealed class FocusService : IFocusService
             return; // already focused and applied
         }
 
+        // Suppress focus changes while a layer surface holds exclusive focus on this seat.
+        if (_layerShellFocus.IsFocusLocked(seatProxy))
+        {
+            return;
+        }
+
         _pendingFocus.SetWindow(windowProxy, seatProxy);
         _focusedWindow.Current = windowProxy;
         _managerRequestSender.ScheduleManage();
@@ -124,6 +136,14 @@ internal sealed class FocusService : IFocusService
         IntPtr seat = ResolveSeat();
         if (seat == IntPtr.Zero)
         {
+            return;
+        }
+
+        // A layer surface holds exclusive keyboard focus on this seat; the compositor would ignore
+        // this request anyway. Drop it to avoid scheduling a needless manage cycle.
+        if (_layerShellFocus.IsFocusLocked(seat))
+        {
+            RiverLog.Write($"RequestFocus: suppressed (layer-shell exclusive) on seat 0x{seat.ToString("x")}");
             return;
         }
 

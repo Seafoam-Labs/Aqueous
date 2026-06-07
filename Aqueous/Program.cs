@@ -43,6 +43,9 @@ class Program
         services.AddSingleton<IWaylandConnection, WaylandConnection>();
         services.AddSingleton<IWindowRegistry, WindowRegistry>();
         services.AddSingleton<IShellSurfaceRegistry, ShellSurfaceRegistry>();
+        services.AddSingleton<ILayerShellUsableAreaStore, LayerShellUsableAreaStore>();
+        services.AddSingleton<Aqueous.Features.Focus.ILayerShellFocusState,
+            Aqueous.Features.Focus.LayerShellFocusState>();
         services.AddSingleton<IOutputRegistry, OutputRegistry>();
         services.AddSingleton<ISeatRegistry, SeatRegistry>();
         // EventPumpOptions wires three pump-thread callbacks to IManagerRequestSender so that
@@ -157,7 +160,14 @@ class Program
         services.AddSingleton<WindowEventService>();
 
         // - Event-handler registrations (the dispatcher table) -----------
-        services.AddSingleton<IEventHandler>(_ => new LayerShellEventHandler(RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new LayerShellSeatEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Focus.ILayerShellFocusState>(),
+            sp.GetRequiredService<WaylandBindSiteState>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new LayerShellOutputEventHandler(
+            sp.GetRequiredService<ILayerShellUsableAreaStore>(),
+            sp.GetRequiredService<WaylandBindSiteState>(),
+            RiverLog.Write));
         services.AddSingleton<IEventHandler>(sp => new OutputEventHandler(
             sp.GetRequiredService<IWindowRegistry>(),
             sp.GetRequiredService<IOutputRegistry>(),

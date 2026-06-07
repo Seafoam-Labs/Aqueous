@@ -133,12 +133,6 @@ internal static unsafe class WlInterfaces
     public static WaylandInterop.WlInterface* RiverLayerShellSeat;
 
     /// <summary>
-    /// <c>river_layer_surface_v1</c> V1 — legacy layer-surface proxy. Retained only until the legacy
-    /// <c>LayerShellEventHandler</c> is retired (Phase C); the new protocol shape does not use it.
-    /// </summary>
-    public static WaylandInterop.WlInterface* RiverLayerSurface;
-
-    /// <summary>
     /// <c>river_seat_v1</c> V4 — per-seat proxy emitted by <c>river_window_manager_v1.seat</c>.
     /// </summary>
     public static WaylandInterop.WlInterface* RiverSeat;
@@ -849,7 +843,6 @@ internal static unsafe class WlInterfaces
         RiverLayerShell = AllocEmpty("river_layer_shell_v1", 1);
         RiverLayerShellOutput = AllocEmpty("river_layer_shell_output_v1", 1);
         RiverLayerShellSeat = AllocEmpty("river_layer_shell_seat_v1", 1);
-        RiverLayerSurface = AllocEmpty("river_layer_surface_v1", 1);
         RiverSeat = AllocEmpty("river_seat_v1", 4);
         RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
         RiverXkbBindings = AllocEmpty("river_xkb_bindings_v1", 3);
@@ -998,15 +991,6 @@ internal static unsafe class WlInterfaces
                 Msg("focus_non_exclusive", "", NoTypes),
                 Msg("focus_none",          "", NoTypes),
             });
-
-        // River_layer_surface_v1 (legacy) — retained until the legacy LayerShellEventHandler is
-        // retired in Phase C. The new river_layer_shell_v1 shape no longer produces this object.
-        Populate(RiverLayerSurface,
-            requests: new[]
-            {
-                Msg("get_node", "n", new WaylandInterop.WlInterface*[] { RiverNode }),
-            },
-            events: Array.Empty<WaylandInterop.WlMessage>());
 
         // River_node_v1
         Populate(RiverNode,

@@ -39,6 +39,32 @@ public static class LayoutMath
     }
 
     /// <summary>
+    /// Returns the geometric intersection of <paramref name="a"/> and <paramref name="b"/> (both in
+    /// the same coordinate space). When the two rects do not overlap — or either is degenerate
+    /// (W/H &lt;= 0) — returns <see cref="Rect.Empty"/>. Total: never throws.
+    /// </summary>
+    public static Rect Intersect(Rect a, Rect b)
+    {
+        if (a.W <= 0 || a.H <= 0 || b.W <= 0 || b.H <= 0)
+        {
+            return Rect.Empty;
+        }
+
+        int x = Math.Max(a.X, b.X);
+        int y = Math.Max(a.Y, b.Y);
+        int right = Math.Min(a.Right, b.Right);
+        int bottom = Math.Min(a.Bottom, b.Bottom);
+        int w = right - x;
+        int h = bottom - y;
+        if (w <= 0 || h <= 0)
+        {
+            return Rect.Empty;
+        }
+
+        return new Rect(x, y, w, h);
+    }
+
+    /// <summary>
     /// Clamps a rect's W/H to a window's min/max hints. A hint of 0 is treated as "unbounded" (Wayland
     /// convention).
     /// </summary>
