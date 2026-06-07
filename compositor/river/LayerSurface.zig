@@ -73,6 +73,32 @@ pub fn destroyPopups(layer_surface: *LayerSurface) void {
     while (it.next()) |wlr_xdg_popup| wlr_xdg_popup.destroy();
 }
 
+/// Clear any seat keyboard focus, scheduled focus, or sent focus still pointing
+/// at this surface. Shared by handleUnmap and handleDestroy so that a destroy
+/// arriving without a preceding matching unmap (e.g. the direct
+/// wlr_layer_surface.destroy() for bogus exclusive zones) cannot leave a
+/// dangling *LayerSurface in any seat.
+fn clearSeatFocus(layer_surface: *LayerSurface) void {
+    var it = server.input_manager.seats.iterator(.forward);
+    while (it.next()) |seat| {
+        if (seat.focused == .layer_surface and seat.focused.layer_surface == layer_surface) {
+            seat.focus(.none);
+        }
+        switch (seat.layer_shell.scheduled.focus) {
+            .exclusive, .non_exclusive => |ref| {
+                if (ref == layer_surface.ref) seat.layer_shell.scheduled.focus = .none;
+            },
+            .none => {},
+        }
+        switch (seat.layer_shell.sent.focus) {
+            .exclusive, .non_exclusive => |ref| {
+                if (ref == layer_surface.ref) seat.layer_shell.sent.focus = .none;
+            },
+            .none => {},
+        }
+    }
+}
+
 fn handleDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), _: *wlr.LayerSurfaceV1) void {
     const layer_surface: *LayerSurface = @fieldParentPtr("destroy", listener);
 
@@ -85,6 +111,10 @@ fn handleDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), _: *wlr.LayerSurfa
     layer_surface.new_popup.link.remove();
 
     layer_surface.destroyPopups();
+
+    // Defensively clear any seat focus/scheduled/sent focus still pointing at
+    // this surface, in case destroy arrives without a preceding matching unmap.
+    layer_surface.clearSeatFocus();
 
     layer_surface.popup_tree.node.destroy();
 
@@ -122,19 +152,7 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
 
     log.debug("layer surface '{s}' unmapped", .{layer_surface.wlr_layer_surface.namespace});
 
-    {
-        var it = server.input_manager.seats.iterator(.forward);
-        while (it.next()) |seat| {
-            if (seat.focused == .layer_surface and seat.focused.layer_surface == layer_surface) {
-                seat.focus(.none);
-            }
-            if (seat.layer_shell.scheduled.focus == .non_exclusive and
-                seat.layer_shell.scheduled.focus.non_exclusive == layer_surface.ref)
-            {
-                seat.layer_shell.scheduled.focus = .none;
-            }
-        }
-    }
+    layer_surface.clearSeatFocus();
 
     // Beware: it is possible for arrange() to destroy this LayerSurface!
     const output: *Output = @ptrCast(@alignCast(layer_surface.wlr_layer_surface.output.?.data));

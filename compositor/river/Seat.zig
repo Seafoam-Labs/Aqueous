@@ -392,6 +392,12 @@ pub fn processEvents(seat: *Seat) void {
             .pointer_hold_end => |ev| pg.sendHoldEnd(seat.wlr_seat, ev.time_msec, ev.cancelled),
         }
     }
+
+    // Drain stale (non-focus) pressed keys here, outside of focus(), so that
+    // synthesized releases can never re-enter key processing during a focus
+    // change. Safe because the event loop has settled and wm.state == .idle.
+    seat.flushStalePressedKeys();
+
     assert(server.wm.state == .idle);
 }
 
@@ -748,8 +754,6 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
             }
         }
     }
-    //Removing as this doesn't actually seem to be necessary anymore and was causing more harm than goo.
-    seat.flushStalePressedKeys();
 }
 
 /// Removes extraneous keyboard inputs that are storing passed the focus limit.
