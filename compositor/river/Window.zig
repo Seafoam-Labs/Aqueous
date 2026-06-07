@@ -19,6 +19,7 @@ const util = @import("util.zig");
 
 const Decoration = @import("Decoration.zig");
 const Output = @import("Output.zig");
+const fx = @import("fx.zig");
 const Scene = @import("Scene.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
@@ -62,6 +63,9 @@ pub const Border = struct {
     b: u32 = 0,
     g: u32 = 0,
     a: u32 = 0,
+    /// Corner radius applied to the border rects and window content. Defaults
+    /// to `fx.corner_radius`, which is 0 (square) unless SceneFX is compiled in.
+    corner_radius: u31 = fx.corner_radius,
 };
 
 /// Windowing state requested by the wm.
@@ -1020,11 +1024,16 @@ pub fn renderFinish(window: *Window) void {
         inline for (.{ "left", "right", "top", "bottom" }) |edge| {
             @field(window.border, edge).node.setEnabled(false);
         }
+        // Fullscreen content should not be rounded.
+        fx.setTreeRadius(window.surfaces.tree, 0);
+        fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
         window.box.x = requested.x;
         window.box.y = requested.y;
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
+        fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
+        fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
     }
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
@@ -1112,6 +1121,7 @@ fn drawBorders(window: *Window) void {
             rect.node.setPosition(edge.box.x, edge.box.y);
             rect.setSize(edge.box.width, edge.box.height);
             rect.setColor(&color);
+            fx.setRectRadius(rect, border.corner_radius);
         }
     }
 }

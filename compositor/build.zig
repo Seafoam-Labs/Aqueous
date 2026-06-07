@@ -43,6 +43,22 @@ pub fn build(b: *Build) !void {
         "Set to true to enable xwayland support",
     ) orelse false;
 
+    // soname/pkg-config name from the SceneFX wlroots-0.20 branch (SceneFX 0.5.0).
+    const scenefx_pkgconf = "scenefx-0.5";
+    const scenefx = b.option(
+        bool,
+        "scenefx",
+        "Enable SceneFX (rounded corners/blur/shadows). Defaults to true if scenefx is found.",
+    ) orelse detected: {
+        var ret: u8 = undefined;
+        _ = b.runAllowFail(
+            &.{ "pkg-config", "--exists", scenefx_pkgconf },
+            &ret,
+            .ignore,
+        ) catch break :detected false;
+        break :detected ret == 0;
+    };
+
     const full_version = blk: {
         if (b.option([]const u8, "version-string", "Override `riverdelta -version` output.")) |version_override| {
             break :blk version_override;
@@ -71,6 +87,7 @@ pub fn build(b: *Build) !void {
 
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
+    options.addOption(bool, "scenefx", scenefx);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});
@@ -164,6 +181,16 @@ pub fn build(b: *Build) !void {
     });
     translate_c.linkSystemLibrary("libevdev", .{});
     translate_c.linkSystemLibrary("libinput", .{});
+    if (scenefx) {
+        // Expose SceneFX's augmented scene headers/symbols to the `c` module.
+        // Its include dir must precede wlroots so its augmented struct
+        // wlr_scene_buffer (with the corner-radius field) wins, and the
+        // RIVER_SCENEFX macro enables the include in river/c.h.
+        translate_c.linkSystemLibrary(scenefx_pkgconf, .{});
+        translate_c.defineCMacro("RIVER_SCENEFX", null);
+        // The SceneFX/wlroots scene headers require unstable wlroots features.
+        translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
+    }
 
     {
         const river = b.addExecutable(.{
@@ -186,6 +213,12 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
+        if (scenefx) {
+            // SceneFX is a drop-in replacement for the wlroots scene API; its
+            // include dir must precede wlroots so its augmented struct
+            // wlr_scene_buffer (with the corner-radius field) wins.
+            river.root_module.linkSystemLibrary(scenefx_pkgconf, .{});
+        }
 
         river.root_module.addImport("wayland", wayland);
         river.root_module.addImport("xkbcommon", xkbcommon);
