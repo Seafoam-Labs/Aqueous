@@ -23,6 +23,7 @@ const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
+const Workspace = @import("Workspace.zig");
 
 const log = std.log.scoped(.output);
 
@@ -168,6 +169,11 @@ lock_render_state: enum {
 /// Root.outputs
 link: wl.list.Link,
 
+/// Ordered list of workspaces belonging to this output.
+workspaces: wl.list.Head(Workspace, .link),
+/// The single workspace currently visible on this output.
+active_workspace: ?*Workspace = null,
+
 /// State to be sent to the wm in the next manage sequence.
 scheduled: State,
 /// State sent to the wm in the latest manage sequence.
@@ -224,11 +230,14 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .current = initial,
         .link = undefined,
         .link_sent = undefined,
+        .workspaces = undefined,
     };
     wlr_output.data = output;
 
     server.om.outputs.append(output);
     output.link_sent.init();
+    output.workspaces.init();
+    output.ensureWorkspaces();
 
     wlr_output.events.destroy.add(&output.destroy);
     wlr_output.events.request_state.add(&output.request_state);
@@ -251,6 +260,68 @@ pub fn create(wlr_output: *wlr.Output) !void {
     }
 
     server.wm.dirtyWindowing();
+}
+
+/// Ensure the output has at least one workspace and an active workspace.
+pub fn ensureWorkspaces(output: *Output) void {
+    if (output.active_workspace == null and output.workspaces.first() == null) {
+        const workspace = output.createWorkspace() orelse return;
+        output.active_workspace = workspace;
+    } else if (output.active_workspace == null) {
+        output.active_workspace = output.workspaces.first();
+    }
+}
+
+/// Make the given workspace the single active workspace on this output.
+pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
+    assert(workspace.output == output);
+    if (output.active_workspace == workspace) return;
+    output.active_workspace = workspace;
+    output.reapEmpty();
+    server.wm.dirtyWindowing();
+}
+
+/// Append a new empty workspace if the last one is not already empty, keeping
+/// a single empty trailing workspace available at all times.
+pub fn ensureTrailingEmpty(output: *Output) void {
+    if (output.workspaces.last()) |last| {
+        if (last.empty()) return;
+    }
+    _ = output.createWorkspace();
+}
+
+/// Destroy empty workspaces that are neither active nor the trailing one.
+pub fn reapEmpty(output: *Output) void {
+    const last = output.workspaces.last();
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |workspace| {
+        if (workspace == output.active_workspace) continue;
+        if (workspace == last) continue;
+        if (workspace.empty()) workspace.destroy();
+    }
+}
+
+/// Destroy all workspaces, detaching any remaining windows first. Detaching is
+/// done without triggering reaping so it is safe to call while iterating the
+/// workspace list.
+fn clearWorkspaces(output: *Output) void {
+    output.active_workspace = null;
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |workspace| {
+        var window_it = workspace.windows.iterator(.forward);
+        while (window_it.next()) |window| window.detachWorkspace();
+        workspace.destroy();
+    }
+}
+
+fn createWorkspace(output: *Output) ?*Workspace {
+    var buf: [16]u8 = undefined;
+    const index = output.workspaces.length() + 1;
+    const name = fmt.bufPrint(&buf, "{d}", .{index}) catch "workspace";
+    return Workspace.create(output, name) catch {
+        log.err("out of memory creating workspace", .{});
+        return null;
+    };
 }
 
 fn handleCommit(
@@ -395,6 +466,8 @@ pub fn manageStart(output: *Output) void {
                         }
                     }
                 }
+                output.clearWorkspaces();
+
                 output.link.remove();
                 output.link_sent.remove();
 

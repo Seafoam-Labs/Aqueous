@@ -24,6 +24,7 @@ const Scene = @import("Scene.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
 const WmNode = @import("WmNode.zig");
+const Workspace = @import("Workspace.zig");
 const XdgToplevel = @import("XdgToplevel.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
 
@@ -155,6 +156,13 @@ pub const Ref = packed struct {
 };
 
 ref: Ref,
+
+/// The workspace this window currently belongs to, or null if unassigned.
+/// An unassigned window is always visible; an assigned window is visible only
+/// while its workspace is the active one on its output.
+workspace: ?*Workspace = null,
+/// Node in the owning workspace's member list (`Workspace.windows`).
+workspace_link: wl.list.Link,
 
 /// The window management protocol object for this window
 /// Created in manageStart() when state is .ready
@@ -333,9 +341,11 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_above_tree = try tree.createSceneTree(),
         .popup_tree = popup_tree,
         .capture_scene = try wlr.Scene.create(),
+        .workspace_link = undefined,
     };
 
     window.node.init(.window);
+    window.workspace_link.init();
 
     window.decorations_below.init();
     window.decorations_above.init();
@@ -390,6 +400,35 @@ pub fn destroy(window: *Window) void {
     server.wm.windows.remove(window.ref.key);
 
     util.gpa.destroy(window);
+}
+
+/// Assign this window to the given workspace, removing it from any previous one.
+pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
+    if (window.workspace == workspace) return;
+    const previous = window.workspace;
+    window.workspace_link.remove();
+    workspace.windows.append(window);
+    window.workspace = workspace;
+    if (previous) |prev| prev.output.reapEmpty();
+    workspace.output.ensureTrailingEmpty();
+    server.wm.dirtyWindowing();
+}
+
+/// Remove this window from its workspace, if any.
+pub fn clearWorkspace(window: *Window) void {
+    const workspace = window.workspace orelse return;
+    window.detachWorkspace();
+    workspace.output.reapEmpty();
+    server.wm.dirtyWindowing();
+}
+
+/// Detach this window from its workspace without any further side effects.
+/// Safe to call while the owning output iterates its workspace list.
+pub fn detachWorkspace(window: *Window) void {
+    if (window.workspace == null) return;
+    window.workspace_link.remove();
+    window.workspace_link.init();
+    window.workspace = null;
 }
 
 pub fn setDimensionsHint(window: *Window, hint: DimensionsHint) void {
@@ -1004,7 +1043,8 @@ pub fn renderFinish(window: *Window) void {
     // commits its initial buffer and before the render sequence with the first
     // dimensions event is completed.
     // Keeping the nodes enabled while closing is necessary for frame perfection.
-    const enabled = !requested.hidden and (window.state == .mapped or window.state == .closing);
+    const workspace_visible = if (window.workspace) |workspace| workspace.isActive() else true;
+    const enabled = workspace_visible and !requested.hidden and (window.state == .mapped or window.state == .closing);
     window.tree.node.setEnabled(enabled);
     window.popup_tree.node.setEnabled(enabled);
 
@@ -1243,6 +1283,12 @@ pub fn map(window: *Window) !void {
     assert(window.impl != .destroying);
     assert(window.state == .initialized);
     window.state = .mapped;
+
+    if (window.workspace == null) {
+        if (server.om.outputs.first()) |output| {
+            if (output.active_workspace) |workspace| window.setWorkspace(workspace);
+        }
+    }
 }
 
 /// Called by the impl when the surface will no longer be displayed
@@ -1254,6 +1300,8 @@ pub fn unmap(window: *Window) void {
     assert(window.impl != .destroying);
     assert(window.state == .mapped);
     window.state = .closing;
+
+    window.clearWorkspace();
 
     server.wm.dirtyWindowing();
 
