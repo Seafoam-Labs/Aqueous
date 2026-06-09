@@ -34,6 +34,11 @@ output: *Output,
 /// Human-readable name, heap owned by this workspace.
 name: [:0]const u8,
 
+/// Name of the output this workspace was originally created on, heap owned by
+/// this workspace. Used to move a workspace back to its home output if that
+/// output is reconnected after having been disconnected.
+home_output_name: [:0]const u8,
+
 /// Windows that are members of this workspace.
 windows: wl.list.Head(Window, .workspace_link),
 
@@ -45,12 +50,19 @@ pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
     errdefer util.gpa.destroy(workspace);
 
     const owned_name = try util.gpa.dupeZ(u8, name);
+    errdefer util.gpa.free(owned_name);
+
+    const home_name = if (output.wlr_output) |wlr_output|
+        try util.gpa.dupeZ(u8, std.mem.span(wlr_output.name))
+    else
+        try util.gpa.dupeZ(u8, "");
     errdefer comptime unreachable;
 
     workspace.* = .{
         .link = undefined,
         .output = output,
         .name = owned_name,
+        .home_output_name = home_name,
         .windows = undefined,
     };
     workspace.windows.init();
@@ -70,6 +82,7 @@ pub fn destroy(workspace: *Workspace) void {
 
     workspace.link.remove();
     util.gpa.free(workspace.name);
+    util.gpa.free(workspace.home_output_name);
     util.gpa.destroy(workspace);
 }
 

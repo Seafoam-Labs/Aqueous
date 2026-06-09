@@ -52,6 +52,11 @@ const Handle = struct {
     /// Set to null once the underlying workspace is gone (the handle is inert).
     workspace: ?*Workspace,
     resource: *ext.WorkspaceHandleV1,
+    /// Last state bitfield sent to the client, so only changes are re-emitted.
+    sent_state: ext.WorkspaceHandleV1.State = .{},
+    /// The group this handle currently belongs to from the client's view. Drives
+    /// workspace_enter/workspace_leave and composes correctly with migration.
+    entered_group: ?*Group = null,
 };
 
 /// A buffered request, applied atomically on commit.
@@ -72,31 +77,52 @@ const Manager = struct {
     pending: std.ArrayListUnmanaged(Pending) = .empty,
     stopped: bool = false,
 
-    /// Bring the client fully up to date and terminate with a single done.
+    /// Bring the client up to date by emitting only the deltas since it was last
+    /// told, terminating with a single done if anything changed.
     fn publish(manager: *Manager) void {
         const client = manager.resource.getClient();
         const version = manager.resource.getVersion();
 
+        var changed = false;
+
         var output_it = server.om.outputs.iterator(.forward);
         while (output_it.next()) |output| {
-            const group = manager.ensureGroup(output, client, version) orelse continue;
+            const group_result = manager.ensureGroup(output, client, version) orelse continue;
+            if (group_result.created) changed = true;
+            const group = group_result.group;
 
             var ws_it = output.workspaces.iterator(.forward);
             while (ws_it.next()) |workspace| {
                 const result = manager.ensureHandle(workspace, client, version) orelse continue;
-                if (result.created) group.resource.sendWorkspaceEnter(result.handle.resource);
-                result.handle.resource.sendState(.{
+                const handle = result.handle;
+                if (result.created) changed = true;
+
+                if (handle.entered_group != group) {
+                    if (handle.entered_group) |old| old.resource.sendWorkspaceLeave(handle.resource);
+                    group.resource.sendWorkspaceEnter(handle.resource);
+                    handle.entered_group = group;
+                    changed = true;
+                }
+
+                const state: ext.WorkspaceHandleV1.State = .{
                     .active = workspace.isActive(),
                     .urgent = workspace.urgent,
-                });
+                };
+                if (!std.meta.eql(state, handle.sent_state)) {
+                    handle.resource.sendState(state);
+                    handle.sent_state = state;
+                    changed = true;
+                }
             }
         }
 
-        manager.resource.sendDone();
+        if (changed) manager.resource.sendDone();
     }
 
-    fn ensureGroup(manager: *Manager, output: *Output, client: *wl.Client, version: u32) ?*Group {
-        if (manager.groups.get(output)) |group| return group;
+    const EnsureGroup = struct { group: *Group, created: bool };
+
+    fn ensureGroup(manager: *Manager, output: *Output, client: *wl.Client, version: u32) ?EnsureGroup {
+        if (manager.groups.get(output)) |group| return .{ .group = group, .created = false };
 
         const resource = ext.WorkspaceGroupHandleV1.create(client, version, 0) catch {
             client.postNoMemory();
@@ -129,7 +155,7 @@ const Manager = struct {
             }
         }
 
-        return group;
+        return .{ .group = group, .created = true };
     }
 
     const EnsureHandle = struct { handle: *Handle, created: bool };
@@ -251,29 +277,57 @@ pub fn notifyWorkspaceRemoved(wsm: *WorkspaceManager, workspace: *Workspace) voi
     while (it.next()) |manager| {
         if (manager.handles.fetchRemove(workspace)) |entry| {
             const handle = entry.value;
-            if (manager.groups.get(workspace.output)) |group| {
+            if (handle.entered_group) |group| {
                 group.resource.sendWorkspaceLeave(handle.resource);
             }
             handle.resource.sendRemoved();
             handle.workspace = null;
+            handle.entered_group = null;
         }
     }
     wsm.dirty();
 }
 
-/// Notify clients that an output (and thus its workspace group) is gone. Its
-/// workspaces must already have been removed.
-pub fn notifyOutputRemoved(wsm: *WorkspaceManager, output: *Output) void {
+/// Handle the disconnection of an output. Any workspaces have already either
+/// been migrated to `dest` (if non-null) or destroyed. For each client this
+/// emits the workspace_leave/workspace_enter choreography for migrated
+/// workspaces, then removes the departing output's group, terminating with a
+/// single done per client.
+pub fn handleOutputRemoved(wsm: *WorkspaceManager, output: *Output, dest: ?*Output) void {
     if (!wsm.initialized) return;
     var it = wsm.managers.iterator(.forward);
     while (it.next()) |manager| {
+        const client = manager.resource.getClient();
+        const version = manager.resource.getVersion();
+        var changed = false;
+
+        if (dest) |to| {
+            if (manager.ensureGroup(to, client, version)) |group_result| {
+                if (group_result.created) changed = true;
+                const dest_group = group_result.group;
+                var hit = manager.handles.valueIterator();
+                while (hit.next()) |handle_ptr| {
+                    const handle = handle_ptr.*;
+                    const ws = handle.workspace orelse continue;
+                    if (ws.output != to) continue;
+                    if (handle.entered_group == dest_group) continue;
+                    if (handle.entered_group) |old| old.resource.sendWorkspaceLeave(handle.resource);
+                    dest_group.resource.sendWorkspaceEnter(handle.resource);
+                    handle.entered_group = dest_group;
+                    changed = true;
+                }
+            }
+        }
+
         if (manager.groups.fetchRemove(output)) |entry| {
             const group = entry.value;
             group.resource.sendRemoved();
             group.output = null;
+            changed = true;
         }
+
+        if (changed) manager.resource.sendDone();
     }
-    wsm.dirty();
 }
 
 fn bind(client: *wl.Client, wsm: *WorkspaceManager, version: u32, id: u32) void {

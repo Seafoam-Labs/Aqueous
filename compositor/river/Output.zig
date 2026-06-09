@@ -302,6 +302,38 @@ pub fn reapEmpty(output: *Output) void {
     }
 }
 
+/// Return another enabled output to which this output's workspaces may be
+/// migrated, or null if this is the last remaining output.
+fn fallbackOutput(output: *Output) ?*Output {
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |other| {
+        if (other == output) continue;
+        if (other.scheduled.state == .destroying) continue;
+        if (other.wlr_output == null) continue;
+        return other;
+    }
+    return null;
+}
+
+/// Move all of this output's workspaces to the destination output. The migrated
+/// workspaces become inactive on the destination, which keeps its own active
+/// workspace. Member windows follow their workspaces. This performs no protocol
+/// signalling; the caller is responsible for the matching workspace handle
+/// choreography.
+fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
+    output.active_workspace = null;
+    var it = output.workspaces.safeIterator(.forward);
+    while (it.next()) |workspace| {
+        workspace.link.remove();
+        workspace.output = dest;
+        dest.workspaces.append(workspace);
+    }
+    dest.ensureTrailingEmpty();
+    dest.reapEmpty();
+    server.wm.dirtyWindowing();
+    server.workspace_manager.dirty();
+}
+
 /// Destroy all workspaces, detaching any remaining windows first. Detaching is
 /// done without triggering reaping so it is safe to call while iterating the
 /// workspace list.
@@ -467,8 +499,13 @@ pub fn manageStart(output: *Output) void {
                         }
                     }
                 }
-                output.clearWorkspaces();
-                server.workspace_manager.notifyOutputRemoved(output);
+                const dest = output.fallbackOutput();
+                if (dest) |to| {
+                    output.migrateWorkspacesTo(to);
+                } else {
+                    output.clearWorkspaces();
+                }
+                server.workspace_manager.handleOutputRemoved(output, dest);
 
                 output.link.remove();
                 output.link_sent.remove();
