@@ -184,7 +184,7 @@ internal sealed class FocusService : IFocusService
     {
         var keys = _windowRegistry.Entries.Keys.ToList();
         var pick = IntPtr.Zero;
-        foreach (var k in keys.Where(k => k == avoid))
+        foreach (var k in keys.Where(k => k != avoid))
         {
             pick = k;
             break;
