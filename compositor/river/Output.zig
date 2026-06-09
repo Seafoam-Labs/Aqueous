@@ -279,6 +279,7 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     output.active_workspace = workspace;
     output.reapEmpty();
     server.wm.dirtyWindowing();
+    server.workspace_manager.dirty();
 }
 
 /// Append a new empty workspace if the last one is not already empty, keeping
@@ -467,6 +468,7 @@ pub fn manageStart(output: *Output) void {
                     }
                 }
                 output.clearWorkspaces();
+                server.workspace_manager.notifyOutputRemoved(output);
 
                 output.link.remove();
                 output.link_sent.remove();

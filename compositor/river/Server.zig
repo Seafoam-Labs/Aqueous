@@ -39,13 +39,6 @@ const XwaylandWindow = @import("XwaylandWindow.zig");
 
 const log = std.log;
 
-// ext-workspace-v1 compile-only reference: forces analysis of the generated
-// server bindings so the scanner wiring stays green. Removed once the real
-// WorkspaceManager global/handlers are wired.
-comptime {
-    _ = WorkspaceManager.bindings_resolve;
-}
-
 wl_server: *wl.Server,
 
 sigint_source: *wl.EventSource,
@@ -108,6 +101,7 @@ om: OutputManager,
 idle_inhibit_manager: IdleInhibitManager,
 lock_manager: LockManager,
 wm: WindowManager,
+workspace_manager: WorkspaceManager,
 xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
 
@@ -195,6 +189,7 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
         .idle_inhibit_manager = undefined,
         .lock_manager = undefined,
         .wm = undefined,
+        .workspace_manager = undefined,
         .xkb_bindings = undefined,
         .layer_shell = undefined,
     };
@@ -232,6 +227,7 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
     }
 
     try server.wm.init();
+    try server.workspace_manager.init();
     try server.xkb_bindings.init();
     try server.layer_shell.init();
     try server.scene.init();
@@ -371,6 +367,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.input_manager.tablet_manager.global or
         global == server.input_manager.pointer_gestures.global or
         global == server.idle_inhibit_manager.wlr_manager.global or
+        global == server.workspace_manager.global or
         global == server.screencopy_manager.global;
 }
 

@@ -324,6 +324,7 @@ const LogScope = enum {
     input,
     lock,
     wm,
+    workspace,
     xdg,
     xwayland,
 };

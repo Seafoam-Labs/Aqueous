@@ -19,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
 
+const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
 const Output = @import("Output.zig");
@@ -31,7 +32,7 @@ link: wl.list.Link,
 output: *Output,
 
 /// Human-readable name, heap owned by this workspace.
-name: []const u8,
+name: [:0]const u8,
 
 /// Windows that are members of this workspace.
 windows: wl.list.Head(Window, .workspace_link),
@@ -43,7 +44,7 @@ pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
     const workspace = try util.gpa.create(Workspace);
     errdefer util.gpa.destroy(workspace);
 
-    const owned_name = try util.gpa.dupe(u8, name);
+    const owned_name = try util.gpa.dupeZ(u8, name);
     errdefer comptime unreachable;
 
     workspace.* = .{
@@ -56,12 +57,16 @@ pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
 
     output.workspaces.append(workspace);
 
+    server.workspace_manager.dirty();
+
     return workspace;
 }
 
 pub fn destroy(workspace: *Workspace) void {
     assert(workspace.windows.empty());
     assert(workspace.output.active_workspace != workspace);
+
+    server.workspace_manager.notifyWorkspaceRemoved(workspace);
 
     workspace.link.remove();
     util.gpa.free(workspace.name);

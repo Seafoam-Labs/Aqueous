@@ -3,25 +3,392 @@
 
 //! ext-workspace-v1 manager.
 //!
-//! Scaffold only: this file exists to prove the generated zig-wayland server
-//! bindings for `ext-workspace-v1` resolve and to give later work its import
-//! seam. It creates no global and registers no handlers yet. The full protocol
-//! surface this module must serve is specified in
-//! `protocol/EXT_WORKSPACE_NOTES.md`.
+//! Advertises the `ext_workspace_manager_v1` global and serves the protocol on
+//! top of the compositor-owned workspace model (see `Workspace.zig`,
+//! `Output.zig` and `Window.zig`). Each output maps to a workspace group and
+//! each workspace to a workspace handle. Many clients may bind concurrently
+//! (bars and the window manager); every bound client gets its own handle
+//! objects for the same underlying workspaces.
+//!
+//! Inbound requests are buffered per client and applied atomically on commit.
+//! Any state change is broadcast to all bound clients coalesced into a single
+//! done per client per change. The full protocol surface served here is
+//! documented in `protocol/EXT_WORKSPACE_NOTES.md`.
 
+const WorkspaceManager = @This();
+
+const std = @import("std");
+const wl = @import("wayland").server.wl;
 const ext = @import("wayland").server.ext;
 
-/// Compile-only reference: forces analysis of all three generated server-side
-/// `ext-workspace-v1` interface types and their bitfield enums so a build fails
-/// loudly if the scanner wiring regresses. Referenced from Server.zig.
-pub const bindings_resolve = blk: {
-    // The three interfaces (see EXT_WORKSPACE_NOTES.md §2a).
-    _ = ext.WorkspaceManagerV1;
-    _ = ext.WorkspaceGroupHandleV1;
-    _ = ext.WorkspaceHandleV1;
-    // The pinned bitfields (see EXT_WORKSPACE_NOTES.md §2b).
-    _ = ext.WorkspaceGroupHandleV1.GroupCapabilities;
-    _ = ext.WorkspaceHandleV1.State;
-    _ = ext.WorkspaceHandleV1.WorkspaceCapabilities;
-    break :blk true;
+const server = &@import("main.zig").server;
+const util = @import("util.zig");
+
+const Output = @import("Output.zig");
+const Workspace = @import("Workspace.zig");
+
+const log = std.log.scoped(.workspace);
+
+const group_capabilities: ext.WorkspaceGroupHandleV1.GroupCapabilities = .{
+    .create_workspace = true,
 };
+
+const workspace_capabilities: ext.WorkspaceHandleV1.WorkspaceCapabilities = .{
+    .activate = true,
+    .remove = true,
+};
+
+/// A workspace group handle as seen by a single client.
+const Group = struct {
+    manager: *Manager,
+    /// Set to null once the underlying output is gone (the handle is inert).
+    output: ?*Output,
+    resource: *ext.WorkspaceGroupHandleV1,
+};
+
+/// A workspace handle as seen by a single client.
+const Handle = struct {
+    manager: *Manager,
+    /// Set to null once the underlying workspace is gone (the handle is inert).
+    workspace: ?*Workspace,
+    resource: *ext.WorkspaceHandleV1,
+};
+
+/// A buffered request, applied atomically on commit.
+const Pending = union(enum) {
+    activate: *Workspace,
+    deactivate: *Workspace,
+    remove: *Workspace,
+    create_workspace: struct { output: *Output, name: [:0]const u8 },
+};
+
+/// Per-client manager state. Owns the client's handle objects and its pending
+/// transaction.
+const Manager = struct {
+    link: wl.list.Link,
+    resource: *ext.WorkspaceManagerV1,
+    groups: std.AutoHashMapUnmanaged(*Output, *Group) = .empty,
+    handles: std.AutoHashMapUnmanaged(*Workspace, *Handle) = .empty,
+    pending: std.ArrayListUnmanaged(Pending) = .empty,
+    stopped: bool = false,
+
+    /// Bring the client fully up to date and terminate with a single done.
+    fn publish(manager: *Manager) void {
+        const client = manager.resource.getClient();
+        const version = manager.resource.getVersion();
+
+        var output_it = server.om.outputs.iterator(.forward);
+        while (output_it.next()) |output| {
+            const group = manager.ensureGroup(output, client, version) orelse continue;
+
+            var ws_it = output.workspaces.iterator(.forward);
+            while (ws_it.next()) |workspace| {
+                const result = manager.ensureHandle(workspace, client, version) orelse continue;
+                if (result.created) group.resource.sendWorkspaceEnter(result.handle.resource);
+                result.handle.resource.sendState(.{
+                    .active = workspace.isActive(),
+                    .urgent = workspace.urgent,
+                });
+            }
+        }
+
+        manager.resource.sendDone();
+    }
+
+    fn ensureGroup(manager: *Manager, output: *Output, client: *wl.Client, version: u32) ?*Group {
+        if (manager.groups.get(output)) |group| return group;
+
+        const resource = ext.WorkspaceGroupHandleV1.create(client, version, 0) catch {
+            client.postNoMemory();
+            return null;
+        };
+        const group = util.gpa.create(Group) catch {
+            resource.destroy();
+            client.postNoMemory();
+            return null;
+        };
+        group.* = .{ .manager = manager, .output = output, .resource = resource };
+        manager.groups.put(util.gpa, output, group) catch {
+            util.gpa.destroy(group);
+            resource.destroy();
+            client.postNoMemory();
+            return null;
+        };
+
+        resource.setHandler(*Group, handleGroupRequest, handleGroupDestroy, group);
+        manager.resource.sendWorkspaceGroup(resource);
+        resource.sendCapabilities(group_capabilities);
+
+        if (output.wlr_output) |wlr_output| {
+            var res_it = wlr_output.resources.iterator(.forward);
+            while (res_it.next()) |output_resource| {
+                if (output_resource.getClient() == client) {
+                    resource.sendOutputEnter(output_resource);
+                    break;
+                }
+            }
+        }
+
+        return group;
+    }
+
+    const EnsureHandle = struct { handle: *Handle, created: bool };
+
+    fn ensureHandle(manager: *Manager, workspace: *Workspace, client: *wl.Client, version: u32) ?EnsureHandle {
+        if (manager.handles.get(workspace)) |handle| {
+            return .{ .handle = handle, .created = false };
+        }
+
+        const resource = ext.WorkspaceHandleV1.create(client, version, 0) catch {
+            client.postNoMemory();
+            return null;
+        };
+        const handle = util.gpa.create(Handle) catch {
+            resource.destroy();
+            client.postNoMemory();
+            return null;
+        };
+        handle.* = .{ .manager = manager, .workspace = workspace, .resource = resource };
+        manager.handles.put(util.gpa, workspace, handle) catch {
+            util.gpa.destroy(handle);
+            resource.destroy();
+            client.postNoMemory();
+            return null;
+        };
+
+        resource.setHandler(*Handle, handleHandleRequest, handleHandleDestroy, handle);
+        manager.resource.sendWorkspace(resource);
+        resource.sendName(workspace.name.ptr);
+        resource.sendCapabilities(workspace_capabilities);
+
+        return .{ .handle = handle, .created = true };
+    }
+
+    fn apply(manager: *Manager) void {
+        for (manager.pending.items) |pending| {
+            switch (pending) {
+                .activate => |workspace| workspace.output.activateWorkspace(workspace),
+                .deactivate => {},
+                .remove => |workspace| {
+                    if (!workspace.isActive() and workspace.empty()) workspace.destroy();
+                },
+                .create_workspace => |args| {
+                    _ = Workspace.create(args.output, args.name) catch {
+                        log.err("out of memory creating workspace", .{});
+                    };
+                    util.gpa.free(args.name);
+                },
+            }
+        }
+        manager.pending.clearRetainingCapacity();
+        server.workspace_manager.dirty();
+    }
+
+    fn destroyHandles(manager: *Manager) void {
+        while (true) {
+            var it = manager.handles.valueIterator();
+            const handle = it.next() orelse break;
+            handle.*.resource.destroy();
+        }
+        while (true) {
+            var it = manager.groups.valueIterator();
+            const group = it.next() orelse break;
+            group.*.resource.destroy();
+        }
+    }
+};
+
+global: *wl.Global,
+server_destroy: wl.Listener(*wl.Server) = .init(handleServerDestroy),
+
+managers: wl.list.Head(Manager, .link),
+
+initialized: bool = false,
+publish_idle: ?*wl.EventSource = null,
+
+pub fn init(wsm: *WorkspaceManager) !void {
+    wsm.* = .{
+        .global = try wl.Global.create(server.wl_server, ext.WorkspaceManagerV1, 1, *WorkspaceManager, wsm, bind),
+        .managers = undefined,
+    };
+    wsm.managers.init();
+    wsm.initialized = true;
+
+    server.wl_server.addDestroyListener(&wsm.server_destroy);
+}
+
+fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
+    const wsm: *WorkspaceManager = @fieldParentPtr("server_destroy", listener);
+    if (wsm.publish_idle) |idle| {
+        idle.remove();
+        wsm.publish_idle = null;
+    }
+    wsm.global.destroy();
+}
+
+/// Schedule a coalesced broadcast of the current state to all bound clients.
+pub fn dirty(wsm: *WorkspaceManager) void {
+    if (!wsm.initialized) return;
+    if (wsm.publish_idle != null) return;
+    const event_loop = server.wl_server.getEventLoop();
+    wsm.publish_idle = event_loop.addIdle(*WorkspaceManager, publishIdle, wsm) catch {
+        log.err("out of memory", .{});
+        return;
+    };
+}
+
+fn publishIdle(wsm: *WorkspaceManager) void {
+    wsm.publish_idle = null;
+    var it = wsm.managers.iterator(.forward);
+    while (it.next()) |manager| manager.publish();
+}
+
+/// Notify clients that a workspace is about to be destroyed. Called before the
+/// native workspace memory is freed so handles can be torn down safely.
+pub fn notifyWorkspaceRemoved(wsm: *WorkspaceManager, workspace: *Workspace) void {
+    if (!wsm.initialized) return;
+    var it = wsm.managers.iterator(.forward);
+    while (it.next()) |manager| {
+        if (manager.handles.fetchRemove(workspace)) |entry| {
+            const handle = entry.value;
+            if (manager.groups.get(workspace.output)) |group| {
+                group.resource.sendWorkspaceLeave(handle.resource);
+            }
+            handle.resource.sendRemoved();
+            handle.workspace = null;
+        }
+    }
+    wsm.dirty();
+}
+
+/// Notify clients that an output (and thus its workspace group) is gone. Its
+/// workspaces must already have been removed.
+pub fn notifyOutputRemoved(wsm: *WorkspaceManager, output: *Output) void {
+    if (!wsm.initialized) return;
+    var it = wsm.managers.iterator(.forward);
+    while (it.next()) |manager| {
+        if (manager.groups.fetchRemove(output)) |entry| {
+            const group = entry.value;
+            group.resource.sendRemoved();
+            group.output = null;
+        }
+    }
+    wsm.dirty();
+}
+
+fn bind(client: *wl.Client, wsm: *WorkspaceManager, version: u32, id: u32) void {
+    const resource = ext.WorkspaceManagerV1.create(client, version, id) catch {
+        client.postNoMemory();
+        log.err("out of memory", .{});
+        return;
+    };
+
+    const manager = util.gpa.create(Manager) catch {
+        resource.destroy();
+        client.postNoMemory();
+        log.err("out of memory", .{});
+        return;
+    };
+    manager.* = .{ .link = undefined, .resource = resource };
+    wsm.managers.append(manager);
+
+    resource.setHandler(*Manager, handleManagerRequest, handleManagerDestroy, manager);
+
+    manager.publish();
+}
+
+fn handleManagerRequest(
+    resource: *ext.WorkspaceManagerV1,
+    request: ext.WorkspaceManagerV1.Request,
+    manager: *Manager,
+) void {
+    switch (request) {
+        .commit => {
+            if (manager.stopped) return;
+            manager.apply();
+        },
+        .stop => {
+            manager.stopped = true;
+            resource.destroySendFinished();
+        },
+    }
+}
+
+fn handleManagerDestroy(_: *ext.WorkspaceManagerV1, manager: *Manager) void {
+    manager.destroyHandles();
+
+    for (manager.pending.items) |pending| {
+        if (pending == .create_workspace) util.gpa.free(pending.create_workspace.name);
+    }
+    manager.pending.deinit(util.gpa);
+    manager.handles.deinit(util.gpa);
+    manager.groups.deinit(util.gpa);
+
+    manager.link.remove();
+    util.gpa.destroy(manager);
+}
+
+fn handleGroupRequest(
+    _: *ext.WorkspaceGroupHandleV1,
+    request: ext.WorkspaceGroupHandleV1.Request,
+    group: *Group,
+) void {
+    switch (request) {
+        .create_workspace => |args| {
+            const manager = group.manager;
+            if (manager.stopped) return;
+            const output = group.output orelse return;
+            const name = util.gpa.dupeZ(u8, std.mem.span(args.workspace)) catch {
+                log.err("out of memory", .{});
+                return;
+            };
+            manager.pending.append(util.gpa, .{
+                .create_workspace = .{ .output = output, .name = name },
+            }) catch {
+                util.gpa.free(name);
+                log.err("out of memory", .{});
+            };
+        },
+        .destroy => {},
+    }
+}
+
+fn handleGroupDestroy(_: *ext.WorkspaceGroupHandleV1, group: *Group) void {
+    if (group.output) |output| _ = group.manager.groups.remove(output);
+    util.gpa.destroy(group);
+}
+
+fn handleHandleRequest(
+    _: *ext.WorkspaceHandleV1,
+    request: ext.WorkspaceHandleV1.Request,
+    handle: *Handle,
+) void {
+    const manager = handle.manager;
+    switch (request) {
+        .activate => {
+            if (manager.stopped) return;
+            const workspace = handle.workspace orelse return;
+            manager.pending.append(util.gpa, .{ .activate = workspace }) catch
+                log.err("out of memory", .{});
+        },
+        .deactivate => {
+            if (manager.stopped) return;
+            const workspace = handle.workspace orelse return;
+            manager.pending.append(util.gpa, .{ .deactivate = workspace }) catch
+                log.err("out of memory", .{});
+        },
+        .remove => {
+            if (manager.stopped) return;
+            const workspace = handle.workspace orelse return;
+            manager.pending.append(util.gpa, .{ .remove = workspace }) catch
+                log.err("out of memory", .{});
+        },
+        .assign => {},
+        .destroy => {},
+    }
+}
+
+fn handleHandleDestroy(_: *ext.WorkspaceHandleV1, handle: *Handle) void {
+    if (handle.workspace) |workspace| _ = handle.manager.handles.remove(workspace);
+    util.gpa.destroy(handle);
+}

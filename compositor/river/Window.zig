@@ -412,6 +412,7 @@ pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
     if (previous) |prev| prev.output.reapEmpty();
     workspace.output.ensureTrailingEmpty();
     server.wm.dirtyWindowing();
+    server.workspace_manager.dirty();
 }
 
 /// Remove this window from its workspace, if any.
@@ -420,6 +421,7 @@ pub fn clearWorkspace(window: *Window) void {
     window.detachWorkspace();
     workspace.output.reapEmpty();
     server.wm.dirtyWindowing();
+    server.workspace_manager.dirty();
 }
 
 /// Detach this window from its workspace without any further side effects.
