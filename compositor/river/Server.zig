@@ -27,6 +27,7 @@ const Seat = @import("Seat.zig");
 const TabletTool = @import("TabletTool.zig");
 const Window = @import("Window.zig");
 const WindowManager = @import("WindowManager.zig");
+const WorkspaceManager = @import("WorkspaceManager.zig");
 const XkbBindings = @import("XkbBindings.zig");
 const LayerShell = @import("LayerShell.zig");
 const LibinputConfig = @import("LibinputConfig.zig");
@@ -37,6 +38,13 @@ const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
 
 const log = std.log;
+
+// ext-workspace-v1 compile-only reference: forces analysis of the generated
+// server bindings so the scanner wiring stays green. Removed once the real
+// WorkspaceManager global/handlers are wired.
+comptime {
+    _ = WorkspaceManager.bindings_resolve;
+}
 
 wl_server: *wl.Server,
 

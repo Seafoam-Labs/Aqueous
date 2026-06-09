@@ -117,7 +117,7 @@ pub fn build(b: *Build) !void {
     scanner.addCustomProtocol(b.path("protocol/upstream/virtual-keyboard-unstable-v1.xml"));
     // ext-workspace-v1: vendored pinned copy of the staging protocol merged upstream
     // (wayland-protocols MR !40). wlroots ships no implementation; bindings are generated
-    // here for the hand-rolled WorkspaceManager added in later steps.
+    // here for the hand-rolled WorkspaceManager.
     scanner.addCustomProtocol(b.path("protocol/upstream/ext-workspace-v1.xml"));
 
     // Some of these versions may be out of date with what wlroots implements.
