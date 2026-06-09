@@ -124,6 +124,10 @@ class Program
             Aqueous.Features.Focus.FocusService>();
         services.AddSingleton<Aqueous.Features.Tags.ITagService,
             Aqueous.Features.Tags.TagService>();
+        services.AddSingleton<Aqueous.Features.Workspaces.WorkspaceStore>();
+        services.AddSingleton<Aqueous.Features.Workspaces.WorkspaceEventService>();
+        services.AddSingleton<Aqueous.Features.Workspaces.IWorkspaceService,
+            Aqueous.Features.Workspaces.WorkspaceService>();
         services.AddSingleton<Aqueous.Features.Screencopy.IScreencopyService,
             Aqueous.Features.Screencopy.ScreencopyService>();
 
@@ -220,6 +224,12 @@ class Program
         services.AddSingleton<IEventHandler>(sp => new LibinputDeviceEventHandler(
             sp.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>(),
             RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new Aqueous.Features.Workspaces.ExtWorkspaceManagerEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Workspaces.WorkspaceEventService>()));
+        services.AddSingleton<IEventHandler>(sp => new Aqueous.Features.Workspaces.ExtWorkspaceGroupEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Workspaces.WorkspaceEventService>()));
+        services.AddSingleton<IEventHandler>(sp => new Aqueous.Features.Workspaces.ExtWorkspaceHandleEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Workspaces.WorkspaceEventService>()));
 
         // - Top-level dispatcher + host ----------------------------------
         services.AddSingleton<IEventDispatcher>(sp => new EventDispatcher(

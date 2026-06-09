@@ -252,6 +252,14 @@ fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
     wsm.global.destroy();
 }
 
+/// Resolve the native workspace backing a client-facing workspace handle
+/// resource, or null if the handle is inert or not one of ours.
+pub fn workspaceForResource(resource: *ext.WorkspaceHandleV1) ?*Workspace {
+    const data = resource.getUserData() orelse return null;
+    const handle: *Handle = @ptrCast(@alignCast(data));
+    return handle.workspace;
+}
+
 /// Schedule a coalesced broadcast of the current state to all bound clients.
 pub fn dirty(wsm: *WorkspaceManager) void {
     if (!wsm.initialized) return;

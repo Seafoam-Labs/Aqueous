@@ -10,6 +10,7 @@ using Aqueous.Features.Layout;
 using Aqueous.Features.Rules;
 using Aqueous.Features.State;
 using Aqueous.Features.Tags;
+using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Bindings;
 
@@ -26,6 +27,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly IFocusService _focusService;
     private readonly LayoutController _layoutController;
     private readonly ITagService _tagService;
+    private readonly IWorkspaceService _workspaceService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly WindowStateController _windowState;
     private readonly ViewportInteractionService _viewport;
@@ -36,6 +38,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         IFocusService focusService,
         LayoutController layoutController,
         ITagService tagService,
+        IWorkspaceService workspaceService,
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
         ViewportInteractionService viewport,
@@ -45,6 +48,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
         _tagService = tagService ?? throw new ArgumentNullException(nameof(tagService));
+        _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
@@ -81,6 +85,13 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.ViewTagAll]           = c => c._tagService.ViewAll(),
             [KeyBindingAction.SendTagAll]           = c => c._tagService.SendFocusedToTags(TagState.AllTags),
             [KeyBindingAction.SwapLastTagset]       = c => c._tagService.SwapLastTagset(),
+            [KeyBindingAction.FocusWorkspaceUp]      = c => c._workspaceService.FocusWorkspaceUp(),
+            [KeyBindingAction.FocusWorkspaceDown]    = c => c._workspaceService.FocusWorkspaceDown(),
+            [KeyBindingAction.FocusPreviousWorkspace] = c => c._workspaceService.FocusPreviousWorkspace(),
+            [KeyBindingAction.MoveToWorkspaceUp]     = c => c._workspaceService.MoveFocusedToWorkspaceUp(),
+            [KeyBindingAction.MoveToWorkspaceDown]   = c => c._workspaceService.MoveFocusedToWorkspaceDown(),
+            [KeyBindingAction.MoveWorkspaceUp]       = c => c._workspaceService.MoveWorkspaceUp(),
+            [KeyBindingAction.MoveWorkspaceDown]     = c => c._workspaceService.MoveWorkspaceDown(),
             [KeyBindingAction.ToggleFullscreen]     = c => c.OnFocused("toggle_fullscreen", w => c._windowState.ToggleFullscreen(w)),
             [KeyBindingAction.ToggleMaximize]       = c => c.OnFocused("toggle_maximize",   w => c._windowState.ToggleMaximize(w)),
             [KeyBindingAction.ToggleFloating]       = c => c.OnFocused("toggle_floating",   w => c._windowState.ToggleFloating(w)),
@@ -117,6 +128,16 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         if (action >= KeyBindingAction.ToggleWindowTag1 && action <= KeyBindingAction.ToggleWindowTag9)
         {
             _tagService.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
+            return;
+        }
+        if (action >= KeyBindingAction.FocusWorkspace1 && action <= KeyBindingAction.FocusWorkspace9)
+        {
+            _workspaceService.FocusWorkspaceByIndex(action - KeyBindingAction.FocusWorkspace1 + 1);
+            return;
+        }
+        if (action >= KeyBindingAction.MoveToWorkspace1 && action <= KeyBindingAction.MoveToWorkspace9)
+        {
+            _workspaceService.MoveFocusedToWorkspaceByIndex(action - KeyBindingAction.MoveToWorkspace1 + 1);
             return;
         }
 

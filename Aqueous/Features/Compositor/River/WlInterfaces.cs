@@ -235,6 +235,21 @@ internal static unsafe class WlInterfaces
     /// </summary>
     public static WaylandInterop.WlInterface* RiverLibinputAccelConfig;
 
+    /// <summary>
+    /// <c>ext_workspace_manager_v1</c> v1 — the workspace manager global.
+    /// </summary>
+    public static WaylandInterop.WlInterface* ExtWorkspaceManager;
+
+    /// <summary>
+    /// <c>ext_workspace_group_handle_v1</c> v1 — one group per output.
+    /// </summary>
+    public static WaylandInterop.WlInterface* ExtWorkspaceGroupHandle;
+
+    /// <summary>
+    /// <c>ext_workspace_handle_v1</c> v1 — one handle per workspace.
+    /// </summary>
+    public static WaylandInterop.WlInterface* ExtWorkspaceHandle;
+
 
 
     /// <summary>
@@ -570,9 +585,74 @@ internal static unsafe class WlInterfaces
                 Msg("parent",       "3?o", new WaylandInterop.WlInterface*[] { ZwlrHandle }),
             });
 
+        BuildExtWorkspace();
         BuildRiverWindowManagement();
         BuildWlrScreencopy();
         BuildRiverLibinputConfig();
+    }
+
+    // -------- ext_workspace_v1 (v1) ----------
+
+    /// <summary>
+    /// Builds the <c>ext-workspace-v1</c> interface graph (manager + group handle + workspace
+    /// handle). Signatures and opcodes are taken verbatim from the vendored
+    /// <c>ext-workspace-v1.xml</c>. Built before <see cref="BuildRiverWindowManagement"/> so that
+    /// <c>river_window_v1.set_workspace</c> can reference <see cref="ExtWorkspaceHandle"/>.
+    /// </summary>
+    private static void BuildExtWorkspace()
+    {
+        ExtWorkspaceManager = AllocEmpty("ext_workspace_manager_v1", 1);
+        ExtWorkspaceGroupHandle = AllocEmpty("ext_workspace_group_handle_v1", 1);
+        ExtWorkspaceHandle = AllocEmpty("ext_workspace_handle_v1", 1);
+
+        Populate(ExtWorkspaceManager,
+            requests: new[]
+            {
+                Msg("commit", "", NoTypes),
+                Msg("stop",   "", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("workspace_group", "n", new WaylandInterop.WlInterface*[] { ExtWorkspaceGroupHandle }),
+                Msg("workspace",       "n", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
+                Msg("done",            "",  NoTypes),
+                Msg("finished",        "",  NoTypes),
+            });
+
+        Populate(ExtWorkspaceGroupHandle,
+            requests: new[]
+            {
+                Msg("create_workspace", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("destroy",          "",  NoTypes),
+            },
+            events: new[]
+            {
+                Msg("capabilities",    "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("output_enter",    "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("output_leave",    "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("workspace_enter", "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
+                Msg("workspace_leave", "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
+                Msg("removed",         "",  NoTypes),
+            });
+
+        Populate(ExtWorkspaceHandle,
+            requests: new[]
+            {
+                Msg("destroy",    "", NoTypes),
+                Msg("activate",   "", NoTypes),
+                Msg("deactivate", "", NoTypes),
+                Msg("assign",     "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceGroupHandle }),
+                Msg("remove",     "", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("id",           "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("name",         "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("coordinates",  "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("state",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("capabilities", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("removed",      "",  NoTypes),
+            });
     }
 
     // -------- River_libinput_config_v1 (v2) ----------
@@ -834,8 +914,8 @@ internal static unsafe class WlInterfaces
     /// </remarks>
     private static void BuildRiverWindowManagement()
     {
-        RiverWindowManager = AllocEmpty("river_window_manager_v1", 5);
-        RiverWindow = AllocEmpty("river_window_v1", 5);
+        RiverWindowManager = AllocEmpty("river_window_manager_v1", 6);
+        RiverWindow = AllocEmpty("river_window_v1", 6);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
         RiverShellSurface = AllocEmpty("river_shell_surface_v1", 5);
         RiverNode = AllocEmpty("river_node_v1", 4);
@@ -902,6 +982,7 @@ internal static unsafe class WlInterfaces
                 Msg("set_clip_box",         "2iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
                 Msg("set_content_clip_box", "3iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
                 Msg("set_dimension_bounds", "4ii",     new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("set_workspace",        "6o",      new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
             },
             events: new[]
             {

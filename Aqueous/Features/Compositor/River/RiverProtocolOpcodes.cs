@@ -58,6 +58,72 @@ internal static class RiverProtocolOpcodes
         internal const uint Identifier = 17;
         internal const uint ActivateRequested = 18;
         internal const uint UnminimizeRequested = 19;
+
+        /// <summary>
+        /// <c>set_workspace</c> request opcode (since v6). Added as the last request so existing
+        /// request opcodes are unchanged.
+        /// </summary>
+        internal const uint SetWorkspace = 24;
+    }
+
+    /// <summary>
+    /// <c>ext_workspace_manager_v1</c> opcodes.
+    /// </summary>
+    internal static class ExtWorkspaceManager
+    {
+        // Events.
+        internal const uint WorkspaceGroup = 0;
+        internal const uint Workspace = 1;
+        internal const uint Done = 2;
+        internal const uint Finished = 3;
+
+        // Requests.
+        internal const uint Commit = 0;
+        internal const uint Stop = 1;
+    }
+
+    /// <summary>
+    /// <c>ext_workspace_group_handle_v1</c> opcodes.
+    /// </summary>
+    internal static class ExtWorkspaceGroup
+    {
+        // Events.
+        internal const uint Capabilities = 0;
+        internal const uint OutputEnter = 1;
+        internal const uint OutputLeave = 2;
+        internal const uint WorkspaceEnter = 3;
+        internal const uint WorkspaceLeave = 4;
+        internal const uint Removed = 5;
+
+        // Requests.
+        internal const uint CreateWorkspace = 0;
+        internal const uint Destroy = 1;
+    }
+
+    /// <summary>
+    /// <c>ext_workspace_handle_v1</c> opcodes plus the <c>state</c> bitfield.
+    /// </summary>
+    internal static class ExtWorkspaceHandle
+    {
+        // Events.
+        internal const uint Id = 0;
+        internal const uint Name = 1;
+        internal const uint Coordinates = 2;
+        internal const uint State = 3;
+        internal const uint Capabilities = 4;
+        internal const uint Removed = 5;
+
+        // Requests.
+        internal const uint Destroy = 0;
+        internal const uint Activate = 1;
+        internal const uint Deactivate = 2;
+        internal const uint Assign = 3;
+        internal const uint Remove = 4;
+
+        // state bitfield.
+        internal const uint StateActive = 1;
+        internal const uint StateUrgent = 2;
+        internal const uint StateHidden = 4;
     }
 
     /// <summary>

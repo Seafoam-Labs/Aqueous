@@ -158,6 +158,30 @@ toggle_window_tag_9   = "Super+Shift+Ctrl+9"   # default
 # Back-and-forth between the current and previous tagset on this output.
 swap_last_tagset      = "Super+grave"      # default (the ` key)
 
+# --- Workspaces (niri-style, ext-workspace-v1) ---
+# Workspaces are exclusive: a window lives on exactly one workspace and exactly
+# one workspace is active per output. These verbs drive RiverDelta's native
+# ext-workspace-v1 implementation (focus = activate+commit; "send to workspace"
+# = river_window_v1.set_workspace). They are listed here but left UNBOUND by
+# default because the chords below are owned by the tag bindings above; bind
+# them once you migrate a config away from tags. Indices are 1-based.
+#
+# focus_workspace_1        = "Super+1"
+# ... through focus_workspace_9
+# focus_workspace_up       = "Super+Bracketleft"     # previous workspace in the list
+# focus_workspace_down     = "Super+Bracketright"    # next workspace in the list
+# focus_previous_workspace = "Super+grave"           # back-and-forth
+#
+# Send the focused window to a workspace (the niri move-window-to-workspace verb,
+# the workspace analogue of send_tag_*):
+# move_to_workspace_1      = "Super+Shift+1"
+# ... through move_to_workspace_9
+# move_to_workspace_up     = "Super+Shift+Bracketleft"
+# move_to_workspace_down   = "Super+Shift+Bracketright"
+#
+# (move_workspace_up / move_workspace_down — reorder — are accepted verbs but
+#  have no ext-workspace-v1 wire representation and are no-ops.)
+
 # --- Window state ops (Phase B1e) ---
 # Fullscreen / Maximize / Floating / Minimize / Scratchpad. Each toggle
 # remembers the prior state so a second press round-trips. Only ONE

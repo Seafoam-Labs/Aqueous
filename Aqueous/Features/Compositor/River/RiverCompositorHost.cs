@@ -281,7 +281,7 @@ internal sealed class RiverCompositorHost : IHostedService
 
         if (global.Interface == "river_window_manager_v1" && _bindSiteState.Manager == IntPtr.Zero)
         {
-            var managerVersion = Math.Min(global.Version, 5u);
+            var managerVersion = Math.Min(global.Version, 6u);
             _manageCycleState.ManagerVersion = managerVersion;
             var managerProxy = _registryBinder.Bind(global.Name, WlInterfaces.RiverWindowManager, managerVersion);
             _bindSiteState.Manager = managerProxy;
@@ -292,6 +292,17 @@ internal sealed class RiverCompositorHost : IHostedService
                 _managerRequestSender.Init(managerProxy, _connection.Display);
                 _managerGlobalName = global.Name;
                 RiverLog.Write($"bound river_window_manager_v1 (version {managerVersion})");
+            }
+        }
+        else if (global.Interface == "ext_workspace_manager_v1" && _bindSiteState.WorkspaceManager == IntPtr.Zero)
+        {
+            var wsmProxy = _registryBinder.Bind(global.Name, WlInterfaces.ExtWorkspaceManager, 1);
+            _bindSiteState.WorkspaceManager = wsmProxy;
+            if (wsmProxy != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_add_dispatcher(wsmProxy, dispatcher, ctxHandle, IntPtr.Zero);
+                _bindSiteState.TrackProxyInterface(wsmProxy, "ext_workspace_manager_v1");
+                RiverLog.Write("bound ext_workspace_manager_v1 (version 1)");
             }
         }
         else if (global.Interface == "river_layer_shell_v1")

@@ -34,7 +34,7 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_window_manager_v1" version="5">
+  <interface name="river_window_manager_v1" version="6">
     <description summary="window manager global interface">
       This global interface should only be advertised to the window manager
       process. Only one window management client may be active at a time. The
@@ -319,7 +319,7 @@
     </request>
   </interface>
 
-  <interface name="river_window_v1" version="5">
+  <interface name="river_window_v1" version="6">
     <description summary="a logical window">
       This represents a logical window. For example, a window may correspond to
       an xdg_toplevel or Xwayland window.
@@ -1120,6 +1120,16 @@
       </description>
       <arg name="max_width" type="int" summary="maximum width"/>
       <arg name="max_height" type="int" summary="maximum height"/>
+    </request>
+
+    <request name="set_workspace" since="6">
+      <description summary="move this window to a workspace">
+        Move the window to the workspace identified by the given
+        ext_workspace_handle_v1. The handle must belong to an
+        ext_workspace_manager_v1 bound by this same client.
+      </description>
+      <arg name="workspace" type="object" interface="ext_workspace_handle_v1"
+        summary="target workspace"/>
     </request>
 
     <event name="activate_requested" since="5">

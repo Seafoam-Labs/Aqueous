@@ -48,6 +48,9 @@ internal sealed unsafe class RiverEventDispatcher
                 "river_super_key_binding_v1" => 0,
                 "river_pointer_binding_v1" => 0,
                 "river_xkb_binding_v1" => 0,
+                "ext_workspace_manager_v1" => 1,
+                "ext_workspace_group_handle_v1" => 1,
+                "ext_workspace_handle_v1" => 1,
                 "wl_registry" => 4,
                 // river_libinput_config_v1::libinput_device(new_id<device>): 1 arg.
                 // The only other event we handle (finished) has 0 args.

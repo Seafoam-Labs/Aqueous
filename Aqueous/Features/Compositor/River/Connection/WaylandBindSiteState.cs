@@ -24,6 +24,13 @@ internal sealed class WaylandBindSiteState
     public IntPtr XkbBindings { get; set; }
 
     /// <summary>
+    /// The bound <c>ext_workspace_manager_v1</c> global. <see cref="IntPtr.Zero"/> until the
+    /// compositor advertises and we bind it. Used to issue <c>commit</c> after batching
+    /// <c>activate</c>/<c>create_workspace</c> requests on workspace/group handles.
+    /// </summary>
+    public IntPtr WorkspaceManager { get; set; }
+
+    /// <summary>
     /// The bound <c>river_libinput_config_v1</c> global (set at registry global discovery time).
     /// Used by <c>LibinputConfigApplier</c> as the parent for every per-device proxy emitted by the
     /// compositor's libinput layer.

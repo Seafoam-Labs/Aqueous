@@ -25,6 +25,7 @@ const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
 const WmNode = @import("WmNode.zig");
 const Workspace = @import("Workspace.zig");
+const WorkspaceManager = @import("WorkspaceManager.zig");
 const XdgToplevel = @import("XdgToplevel.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
 
@@ -703,6 +704,10 @@ fn handleRequest(
         .show => {
             if (!server.wm.ensureRendering()) return;
             rendering_requested.hidden = false;
+        },
+        .set_workspace => |args| {
+            const workspace = WorkspaceManager.workspaceForResource(args.workspace) orelse return;
+            window.setWorkspace(workspace);
         },
         .use_ssd => {
             if (!server.wm.ensureWindowing()) return;
