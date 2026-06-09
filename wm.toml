@@ -103,84 +103,51 @@ set_layout_secondary  = "Super+F"          # → scrolling
 set_layout_tertiary   = "Super+M"          # → monocle
 set_layout_quaternary = "Super+G"          # → grid
 
-# --- Tags / workspaces (Phase B1c) ---
-# Tags are a per-output 32-bit bitmask. A window is visible on its output iff
-# (window.tags & output.visible_tags) != 0. Bits 1..9 map to digits 1..9;
-# the "all" actions use the full mask 0xFFFFFFFF (sticky / show-everything).
-#
-# View: switch the focused output's visible tagset to exactly this tag.
-view_tag_1            = "Super+1"          # default
-view_tag_2            = "Super+2"          # default
-view_tag_3            = "Super+3"          # default
-view_tag_4            = "Super+4"          # default
-view_tag_5            = "Super+5"          # default
-view_tag_6            = "Super+6"          # default
-view_tag_7            = "Super+7"          # default
-view_tag_8            = "Super+8"          # default
-view_tag_9            = "Super+9"          # default
-view_tag_all          = "Super+0"          # default — show every tag
-
-# Send: reassign the focused window to exactly this tag (moves it).
-send_tag_1            = "Super+Shift+1"    # default
-send_tag_2            = "Super+Shift+2"    # default
-send_tag_3            = "Super+Shift+3"    # default
-send_tag_4            = "Super+Shift+4"    # default
-send_tag_5            = "Super+Shift+5"    # default
-send_tag_6            = "Super+Shift+6"    # default
-send_tag_7            = "Super+Shift+7"    # default
-send_tag_8            = "Super+Shift+8"    # default
-send_tag_9            = "Super+Shift+9"    # default
-send_tag_all          = "Super+Shift+0"    # default — make focused sticky
-
-# Toggle view: add/remove this tag from the output's visible mask (union view).
-toggle_view_tag_1     = "Super+Ctrl+1"     # default
-toggle_view_tag_2     = "Super+Ctrl+2"     # default
-toggle_view_tag_3     = "Super+Ctrl+3"     # default
-toggle_view_tag_4     = "Super+Ctrl+4"     # default
-toggle_view_tag_5     = "Super+Ctrl+5"     # default
-toggle_view_tag_6     = "Super+Ctrl+6"     # default
-toggle_view_tag_7     = "Super+Ctrl+7"     # default
-toggle_view_tag_8     = "Super+Ctrl+8"     # default
-toggle_view_tag_9     = "Super+Ctrl+9"     # default
-
-# Toggle window tag: add/remove this tag from the focused window's mask
-# (a window can live on multiple tags simultaneously).
-toggle_window_tag_1   = "Super+Shift+Ctrl+1"   # default
-toggle_window_tag_2   = "Super+Shift+Ctrl+2"   # default
-toggle_window_tag_3   = "Super+Shift+Ctrl+3"   # default
-toggle_window_tag_4   = "Super+Shift+Ctrl+4"   # default
-toggle_window_tag_5   = "Super+Shift+Ctrl+5"   # default
-toggle_window_tag_6   = "Super+Shift+Ctrl+6"   # default
-toggle_window_tag_7   = "Super+Shift+Ctrl+7"   # default
-toggle_window_tag_8   = "Super+Shift+Ctrl+8"   # default
-toggle_window_tag_9   = "Super+Shift+Ctrl+9"   # default
-
-# Back-and-forth between the current and previous tagset on this output.
-swap_last_tagset      = "Super+grave"      # default (the ` key)
-
 # --- Workspaces (niri-style, ext-workspace-v1) ---
 # Workspaces are exclusive: a window lives on exactly one workspace and exactly
 # one workspace is active per output. These verbs drive RiverDelta's native
 # ext-workspace-v1 implementation (focus = activate+commit; "send to workspace"
-# = river_window_v1.set_workspace). They are listed here but left UNBOUND by
-# default because the chords below are owned by the tag bindings above; bind
-# them once you migrate a config away from tags. Indices are 1-based.
+# = river_window_v1.set_workspace, with no hide/show emulation). Indices are
+# 1-based positions in the per-output ordered workspace list.
 #
-# focus_workspace_1        = "Super+1"
-# ... through focus_workspace_9
-# focus_workspace_up       = "Super+Bracketleft"     # previous workspace in the list
-# focus_workspace_down     = "Super+Bracketright"    # next workspace in the list
-# focus_previous_workspace = "Super+grave"           # back-and-forth
-#
-# Send the focused window to a workspace (the niri move-window-to-workspace verb,
-# the workspace analogue of send_tag_*):
-# move_to_workspace_1      = "Super+Shift+1"
-# ... through move_to_workspace_9
-# move_to_workspace_up     = "Super+Shift+Bracketleft"
-# move_to_workspace_down   = "Super+Shift+Bracketright"
+# Focus / switch the active workspace.
+focus_workspace_1        = "Super+1"
+focus_workspace_2        = "Super+2"
+focus_workspace_3        = "Super+3"
+focus_workspace_4        = "Super+4"
+focus_workspace_5        = "Super+5"
+focus_workspace_6        = "Super+6"
+focus_workspace_7        = "Super+7"
+focus_workspace_8        = "Super+8"
+focus_workspace_9        = "Super+9"
+
+# Send the focused window to a workspace (niri move-window-to-workspace).
+move_to_workspace_1      = "Super+Shift+1"
+move_to_workspace_2      = "Super+Shift+2"
+move_to_workspace_3      = "Super+Shift+3"
+move_to_workspace_4      = "Super+Shift+4"
+move_to_workspace_5      = "Super+Shift+5"
+move_to_workspace_6      = "Super+Shift+6"
+move_to_workspace_7      = "Super+Shift+7"
+move_to_workspace_8      = "Super+Shift+8"
+move_to_workspace_9      = "Super+Shift+9"
+
+# Directional switching / moving + back-and-forth.
+focus_workspace_up       = "Super+Bracketleft"        # previous workspace in the list
+focus_workspace_down     = "Super+Bracketright"       # next workspace in the list
+focus_previous_workspace = "Super+grave"              # back-and-forth (the ` key)
+move_to_workspace_up     = "Super+Shift+Bracketleft"
+move_to_workspace_down   = "Super+Shift+Bracketright"
 #
 # (move_workspace_up / move_workspace_down — reorder — are accepted verbs but
 #  have no ext-workspace-v1 wire representation and are no-ops.)
+#
+# The following chords are now FREE (the multi-select tag verbs they used to
+# carry have no workspace analogue in the exclusive model). Bind them to
+# anything you like, e.g. under [keybinds.custom]:
+#   Super+0, Super+Shift+0          (were view_tag_all / send_tag_all)
+#   Super+Ctrl+1..9                 (were toggle_view_tag_1..9)
+#   Super+Shift+Ctrl+1..9           (were toggle_window_tag_1..9)
 
 # --- Window state ops (Phase B1e) ---
 # Fullscreen / Maximize / Floating / Minimize / Scratchpad. Each toggle
@@ -224,7 +191,7 @@ send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "d
 "XF86AudioPrev"         = "spawn:playerctl previous"
 
 # Direct layout switches (bypassing slots).
-# NOTE: Super+1..5 are reserved by the tag bindings above (view_tag_1..5).
+# NOTE: Super+1..9 are reserved by the workspace bindings above (focus_workspace_1..9).
 # Use the [layout.slots]-based set_layout_primary/secondary/... built-ins
 # (Super+T/F/M/G) instead, or pick non-conflicting chords. Examples:
 # "Super+Alt+T"        = "set_layout:tile"
