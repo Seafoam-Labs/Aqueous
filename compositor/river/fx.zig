@@ -115,34 +115,66 @@ pub fn ensureOptimizedBlur(tree: *wlr.SceneTree, existing: ?*anyopaque) ?*anyopa
 /// Per-window content opacity. Driven by river_window_v1.set_window_opacity with the
 /// global default from river_window_manager_v1.set_opacity. This uses the core
 /// wlroots scene-buffer opacity, so it is available with or without SceneFX.
+/// Note: wlroots' forEachBuffer skips disabled nodes, but river toggles the
+/// live/saved trees disabled around transactions, so a manual recursion that
+/// ignores the enabled flag is required for the value to stick in every state.
 pub fn setTreeOpacity(tree: *wlr.SceneTree, opacity: f32) void {
-    var value = opacity;
-    tree.node.forEachBuffer(*f32, setBufferOpacityIter, &value);
+    setNodeOpacity(&tree.node, opacity);
 }
 
-fn setBufferOpacityIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, opacity: *f32) void {
-    _ = sx;
-    _ = sy;
-    buffer.setOpacity(opacity.*);
+fn setNodeOpacity(node: *wlr.SceneNode, opacity: f32) void {
+    switch (node.type) {
+        .buffer => wlr.SceneBuffer.fromNode(node).setOpacity(opacity),
+        .tree => {
+            const tree: *wlr.SceneTree = @fieldParentPtr("node", node);
+            var it = tree.children.iterator(.forward);
+            while (it.next()) |child| setNodeOpacity(child, opacity);
+        },
+        else => {},
+    }
 }
 
 /// Per-window blur exclusion. When `excluded` is true, the window's buffers are
 /// marked fully opaque so the optimized-blur pass clips them out (no per-frame
 /// backdrop blur cost behind e.g. games); when false the opaque region override is
 /// cleared so the client's own opacity hints apply again.
+/// Like setTreeOpacity, this recurses manually so disabled (saved/hidden)
+/// trees are still updated.
 pub fn setTreeBlurExcluded(tree: *wlr.SceneTree, excluded: bool) void {
     if (comptime !build_options.scenefx) return;
-    var ex = excluded;
-    tree.node.forEachBuffer(*bool, setBufferBlurExcludedIter, &ex);
+    setNodeBlurExcluded(&tree.node, excluded);
 }
 
-fn setBufferBlurExcludedIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, excluded: *bool) void {
-    _ = sx;
-    _ = sy;
+fn setNodeBlurExcluded(node: *wlr.SceneNode, excluded: bool) void {
+    switch (node.type) {
+        .buffer => setBufferBlurExcluded(wlr.SceneBuffer.fromNode(node), excluded),
+        .tree => {
+            const tree: *wlr.SceneTree = @fieldParentPtr("node", node);
+            var it = tree.children.iterator(.forward);
+            while (it.next()) |child| setNodeBlurExcluded(child, excluded);
+        },
+        else => {},
+    }
+}
+
+/// Copy the SceneFX-specific attributes (corner radii and the opaque-region
+/// blur-exclusion override) from one scene buffer to another. Used when cloning
+/// buffers into a transaction snapshot tree, where freshly created buffers would
+/// otherwise reset to square corners / default blur participation.
+pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
+    if (comptime !build_options.scenefx) return;
+    const c = @import("c");
+    const s: *c.struct_wlr_scene_buffer = @ptrCast(src);
+    const d: *c.struct_wlr_scene_buffer = @ptrCast(dst);
+    c.wlr_scene_buffer_set_corner_radii(d, s.corners);
+    c.wlr_scene_buffer_set_opaque_region(d, &s.opaque_region);
+}
+
+fn setBufferBlurExcluded(buffer: *wlr.SceneBuffer, excluded: bool) void {
     if (comptime !build_options.scenefx) return;
     const c = @import("c");
     const scene_buffer: *c.struct_wlr_scene_buffer = @ptrCast(buffer);
-    if (excluded.*) {
+    if (excluded) {
         var region: c.pixman_region32_t = undefined;
         c.pixman_region32_init_rect(
             &region,

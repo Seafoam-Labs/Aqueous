@@ -12,6 +12,7 @@ const zwlr = @import("wayland").server.zwlr;
 const server = &@import("main.zig").server;
 
 const SceneNodeData = @import("SceneNodeData.zig");
+const fx = @import("fx.zig");
 
 wlr_scene: *wlr.Scene,
 /// All windows, status bars, drowdown menus, etc. that can recieve pointer events and similar.
@@ -186,6 +187,7 @@ pub const SaveableSurfaces = struct {
         scene_buffer.setSourceBox(&buffer.src_box);
         scene_buffer.setTransform(buffer.transform);
         scene_buffer.setOpacity(buffer.opacity);
+        fx.copyBufferFx(scene_buffer, buffer);
     }
 
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {

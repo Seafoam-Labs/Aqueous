@@ -971,7 +971,17 @@ pub fn manageFinish(window: *Window) bool {
     };
 
     if (track_configure and window.state == .mapped) {
-        window.surfaces.save();
+        // Only snapshot the surfaces when the configure actually changes the
+        // window's dimensions. State-only configures (e.g. the activated flag
+        // flipping on every focus change) don't need the old content kept on
+        // screen, and the snapshot churn would dirty the optimized-blur backdrop
+        // and momentarily drop per-buffer fx state on each focus toggle.
+        if (width != null or height != null) {
+            window.surfaces.save();
+            // The freshly cloned snapshot buffers copy their fx state, but make
+            // sure both trees reflect the current opacity regardless.
+            window.applyOpacity();
+        }
         window.sendFrameDone();
     }
 
