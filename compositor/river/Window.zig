@@ -137,6 +137,10 @@ const RenderingRequested = struct {
     border: Border,
     clip: wlr.Box,
     content_clip: wlr.Box,
+    /// Whether backdrop blur applies to this window. Driven by
+    /// river_window_v1.set_window_blur; defaults to true so windows inherit the
+    /// global blur state until the wm says otherwise (false excludes e.g. games).
+    blur_enabled: bool = true,
 
     pub const init: RenderingRequested = .{
         .x = 0,
@@ -145,6 +149,7 @@ const RenderingRequested = struct {
         .border = .{},
         .clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
         .content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+        .blur_enabled = true,
     };
 };
 
@@ -736,6 +741,10 @@ fn handleRequest(
             if (!server.wm.ensureWindowing()) return;
             wm_requested.tiled = args.edges;
         },
+        .set_window_blur => |args| {
+            if (!server.wm.ensureRendering()) return;
+            rendering_requested.blur_enabled = args.enabled != 0;
+        },
         inline .get_decoration_above, .get_decoration_below => |args, req| {
             const above = req == .get_decoration_above;
             const surface = wlr.Surface.fromWlSurface(args.surface);
@@ -1082,6 +1091,12 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
         fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
     }
+
+    // Per-window blur exclusion: when blur is disabled for this window, mark its
+    // buffers opaque so the global optimized-blur pass clips them out (games etc.).
+    const blur_excluded = !requested.blur_enabled;
+    fx.setTreeBlurExcluded(window.surfaces.tree, blur_excluded);
+    fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 

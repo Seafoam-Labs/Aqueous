@@ -70,6 +70,13 @@ public sealed record LayoutConfig
     public BorderSpec Border { get; init; } = new(2, 0xFF88C0D0u, 0xFF3B4252u, 0xFFBF616Au);
 
     /// <summary>
+    /// Global backdrop-blur configuration parsed from the <c>[blur]</c> section of
+    /// <c>wm.toml</c>. Sent once (and on reload) to riverdelta via the manager-level
+    /// <c>river_window_manager_v1.set_blur</c> request; drawn by SceneFX optimized blur.
+    /// </summary>
+    public BlurSpec Blur { get; init; } = BlurSpec.Default;
+
+    /// <summary>
     /// Configurable keybind table parsed from <c>[keybinds]</c>.
     /// </summary>
     public KeybindConfig Keybinds { get; init; } = new();

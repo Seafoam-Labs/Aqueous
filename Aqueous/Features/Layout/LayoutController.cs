@@ -117,6 +117,7 @@ public sealed class LayoutController
                 PerOutput = _config.PerOutput,
                 PerOutputSelectors = _config.PerOutputSelectors,
                 Border = _config.Border,
+                Blur = _config.Blur,
                 Keybinds = _config.Keybinds,
             };
             _epoch++;

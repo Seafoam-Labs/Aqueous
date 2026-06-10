@@ -17,4 +17,13 @@ public sealed record RulePlacement(WindowRule Rule)
     public bool IsAnchor =>
         string.Equals(Rule.Layout, "game-mode", System.StringComparison.Ordinal)
         && !Rule.Fullscreen;
+
+    /// <summary>
+    /// Per-window blur override resolved from the matching rule's <c>blur = …</c> field.
+    /// <see langword="null"/> means "inherit the global <c>[blur].enabled</c> default";
+    /// <see langword="false"/> force-excludes the window (e.g. games); <see langword="true"/>
+    /// force-includes it. Read by <c>LayoutProposer</c> when marshalling
+    /// <c>river_window_v1.set_window_blur</c>.
+    /// </summary>
+    public bool? BlurOverride => Rule.Blur;
 }

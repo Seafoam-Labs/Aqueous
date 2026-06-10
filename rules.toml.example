@@ -52,6 +52,14 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # layout = "game-mode"
 # size   = "2560x1080"
 
+# Example: exclude a window from backdrop blur (see [blur] in wm.toml). Useful
+# for games / fullscreen video so they neither look blurred nor pay the blur
+# cost. `blur` is tri-state: omit = inherit the global [blur].enabled default,
+# false = force-exclude, true = force-include.
+# [[window]]
+# app_id = "steam_app_*"
+# blur   = false
+
 # Example: let a window extend all the way to the edge of the output, ignoring
 # the exclusion zone reserved for bars / panels by `[struts]` in wm.toml. When
 # `ignore_struts = true`, the matched window's geometry is resolved against the

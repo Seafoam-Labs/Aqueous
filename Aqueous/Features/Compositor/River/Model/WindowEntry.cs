@@ -40,6 +40,13 @@ internal sealed class WindowEntry
     public int LastBorderWidth = int.MinValue;
     public bool ShowSent;
 
+    // Cached last per-window blur flag marshalled via river_window_v1.set_window_blur (opcode 25)
+    // so the render pass only re-sends when the effective decision flips (rule change / global
+    // [blur].enabled toggle on reload). WindowBlurSent latches the first emit so an unchanged
+    // value is never re-sent (mirrors BordersSent above).
+    public bool WindowBlurSent;
+    public bool LastWindowBlurEnabled;
+
     // Per-window floating override + remembered floating rect. Set when the user drags a window with
     // Super+BTN_LEFT; honoured by ProposeForArea so floating windows bypass the active layout engine
     // and keep their dragged position across manage cycles.

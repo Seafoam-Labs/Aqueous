@@ -15,6 +15,7 @@ const util = @import("util.zig");
 
 const Output = @import("Output.zig");
 const Scene = @import("Scene.zig");
+const fx = @import("fx.zig");
 const Seat = @import("Seat.zig");
 const ShellSurface = @import("ShellSurface.zig");
 const Window = @import("Window.zig");
@@ -74,6 +75,17 @@ rendering_requested: struct {
     order_hash: u64 = 0,
 },
 
+/// Global backdrop-blur state driven by river_window_manager_v1.set_blur. The
+/// optimized-blur SceneFX node is lazily created on the first enabling request and
+/// kept thereafter; the on/off toggle is expressed by zeroing radius/passes when
+/// disabled. `node` is an opaque pointer so non-SceneFX builds still compile.
+blur: struct {
+    enabled: bool = false,
+    radius: i32 = 0,
+    passes: i32 = 0,
+    node: ?*anyopaque = null,
+} = .{},
+
 dirty_idle: ?*wl.EventSource = null,
 
 timeout: *wl.EventSource,
@@ -84,7 +96,7 @@ pub fn init(wm: *WindowManager) !void {
     errdefer timeout.remove();
 
     wm.* = .{
-        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 6, *WindowManager, wm, bind),
+        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 7, *WindowManager, wm, bind),
         .sent = .{
             .outputs = undefined,
             .seats = undefined,
@@ -210,6 +222,30 @@ fn handleRequest(
             log.info("window manager requested to exit session", .{});
             server.wl_server.terminate();
         },
+        .set_blur => |args| {
+            if (!wm.ensureRendering()) return;
+            // The client clamps these, but guard defensively against negatives
+            // (the protocol documents them as out of range).
+            wm.blur.enabled = args.enabled != 0;
+            wm.blur.radius = if (args.radius > 0) args.radius else 0;
+            wm.blur.passes = if (args.passes > 0) args.passes else 0;
+            wm.applyBlur();
+        },
+    }
+}
+
+/// Apply the current global blur state to the scene. Creates the optimized-blur
+/// node on first enable and pushes the radius/pass parameters; when disabled the
+/// parameters are zeroed so SceneFX skips the blur pass entirely. No-op on builds
+/// without SceneFX.
+fn applyBlur(wm: *WindowManager) void {
+    if (comptime !fx.blur_available) return;
+    const scene = server.scene.wlr_scene;
+    if (wm.blur.enabled) {
+        wm.blur.node = fx.ensureOptimizedBlur(server.scene.layers.wm, wm.blur.node);
+        fx.setBlurParams(scene, @intCast(wm.blur.radius), @intCast(wm.blur.passes));
+    } else {
+        fx.setBlurParams(scene, 0, 0);
     }
 }
 

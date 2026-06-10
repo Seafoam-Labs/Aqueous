@@ -66,6 +66,10 @@ public static class LayoutConfigLoader
         int strutTop = 0, strutBottom = 0, strutLeft = 0, strutRight = 0;
         double masterRatio = 0.55;
         uint borderFocused = 0xFF88C0D0u, borderNormal = 0xFF3B4252u, borderUrgent = 0xFFBF616Au;
+        // [blur] section — global backdrop blur driven to riverdelta via set_blur. Defaults mirror BlurSpec.Default.
+        bool blurEnabled = BlurSpec.Default.Enabled;
+        int blurRadius = BlurSpec.Default.Radius;
+        int blurPasses = BlurSpec.Default.Passes;
 
         // Keybind tables.
         var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -380,6 +384,15 @@ public static class LayoutConfigLoader
                     spSpawn[StripQuotes(key)] = val;
                     break;
                 // [input], [input.mouse|touchpad|trackpoint] are handled by InputConfigParser.
+                case "blur":
+                    switch (key)
+                    {
+                        case "enabled": blurEnabled = ParseBool(val, blurEnabled); break;
+                        case "radius": blurRadius = Math.Max(0, ParseInt(val, blurRadius)); break;
+                        case "passes": blurPasses = Math.Max(0, ParseInt(val, blurPasses)); break;
+                    }
+
+                    break;
                 case "struts":
                     switch (key)
                     {
@@ -495,6 +508,7 @@ public static class LayoutConfigLoader
             PerOutput = perOutput,
             PerOutputSelectors = perOutputSelectors,
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
+            Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
             Keybinds = keybinds,
             State = stateConfig,
             Exec = new ExecConfig { Entries = execEntries },

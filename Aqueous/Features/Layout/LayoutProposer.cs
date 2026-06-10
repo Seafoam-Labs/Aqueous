@@ -52,6 +52,13 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     // mirroring the prevFullscreenHandles cleanup pattern when exiting fullscreen.
     private readonly Dictionary<IntPtr, string> _lastActiveIdByOutput = new();
 
+    // Global backdrop-blur change-gate. The manager-level set_blur (opcode 7) is render state, so
+    // it is marshalled from ProposeForArea (already inside the render sequence, like set_borders)
+    // but only when the resolved [blur] config differs from what was last sent. _blurSent latches
+    // the first emit so an unchanged config is never re-sent every frame.
+    private bool _blurSent;
+    private BlurSpec _lastBlurSent;
+
     public LayoutProposer(
         LayoutController layoutController,
         IWindowRegistry windowRegistry,
@@ -98,6 +105,27 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         var outputFullscreen = _outputFullscreen;
         var focusedWindow = _focusedWindowTracker.Current;
         var prevFullscreenHandles = _prevFullscreenStore.Handles;
+
+        // ------ Global backdrop blur: marshal the manager-level set_blur (opcode 7) once and on
+        // every [blur] config change (Super+R reload). This is render state, so it is sent here
+        // inside the render sequence, mirroring set_borders. Gated against the last-sent BlurSpec
+        // so it is not re-marshalled every frame.
+        var blurCfg = _layoutController.Config.Blur;
+        if (!_blurSent || !_lastBlurSent.Equals(blurCfg))
+        {
+            var manager = _bindSiteState.Manager;
+            if (manager != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_marshal_flags(
+                    manager, 7, IntPtr.Zero, 0, 0,
+                    (IntPtr)(blurCfg.Enabled ? 1u : 0u),
+                    (IntPtr)blurCfg.Radius,
+                    (IntPtr)blurCfg.Passes,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                _blurSent = true;
+                _lastBlurSent = blurCfg;
+            }
+        }
 
         // Stamp the currently-focused window's LastFocusTick from the tracker once per pass
         // so GameModeLayout can break anchor ties deterministically ("most-recently focused
@@ -516,6 +544,23 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         w.BordersSent     = true;
                         w.LastBorderColor = bColor;
                         w.LastBorderWidth = bWidth;
+                    }
+                }
+
+                // ------ Per-window blur: marshal set_window_blur (opcode 25). The effective
+                // decision is the matching rule's blur override (null = inherit) falling back to
+                // the global [blur].enabled default. Change-gated against the cached value so we
+                // only re-send when it flips (rule match change / global toggle on reload).
+                {
+                    bool blurEnabled = w.Placement?.BlurOverride ?? blurCfg.Enabled;
+                    if (!w.WindowBlurSent || w.LastWindowBlurEnabled != blurEnabled)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            p.Handle, 25, IntPtr.Zero, 0, 0,
+                            (IntPtr)(blurEnabled ? 1u : 0u),
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        w.WindowBlurSent = true;
+                        w.LastWindowBlurEnabled = blurEnabled;
                     }
                 }
             }

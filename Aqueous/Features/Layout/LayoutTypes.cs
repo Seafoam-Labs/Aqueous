@@ -51,6 +51,18 @@ public readonly record struct BorderSpec(int Width, uint Focused, uint Normal, u
 }
 
 /// <summary>
+/// Global backdrop-blur parameters parsed from the <c>[blur]</c> section of <c>wm.toml</c>.
+/// <see cref="Enabled"/> toggles whether riverdelta creates the SceneFX optimized-blur node at
+/// all; <see cref="Radius"/> and <see cref="Passes"/> map directly onto
+/// <c>wlr_scene_set_blur_data</c>.
+/// </summary>
+public readonly record struct BlurSpec(bool Enabled, int Radius, int Passes)
+{
+    /// <summary>Blur off by default, with sane parameters used once it is enabled.</summary>
+    public static readonly BlurSpec Default = new(false, 5, 3);
+}
+
+/// <summary>
 /// What a layout engine returns for a single window: target geometry, stacking order and whether
 /// the controller should actually show the window this frame (off-screen / monocle-hidden windows
 /// return <c>Visible=false</c>).

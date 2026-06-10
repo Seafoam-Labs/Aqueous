@@ -128,6 +128,7 @@ public static class RulesTomlReader
         int? wTag = null;
         bool wFullscreen = false;
         bool wIgnoreStruts = false;
+        bool? wBlur = null;
 
         void ResetWindow()
         {
@@ -141,6 +142,7 @@ public static class RulesTomlReader
             wTag = null;
             wFullscreen = false;
             wIgnoreStruts = false;
+            wBlur = null;
         }
 
         void FlushWindow()
@@ -190,7 +192,8 @@ public static class RulesTomlReader
                 Scale: wScale,
                 Tag: wTag,
                 Fullscreen: wFullscreen,
-                IgnoreStruts: wIgnoreStruts));
+                IgnoreStruts: wIgnoreStruts,
+                Blur: wBlur));
 
             ResetWindow();
         }
@@ -294,6 +297,11 @@ public static class RulesTomlReader
                             break;
                         case "ignore_struts":
                             wIgnoreStruts = ParseBool(val, wIgnoreStruts);
+                            break;
+                        case "blur":
+                            // null = inherit global [blur].enabled; false = force-exclude
+                            // (e.g. games); true = force-include.
+                            wBlur = ParseBool(val, false);
                             break;
                     }
                     break;

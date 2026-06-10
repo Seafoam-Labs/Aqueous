@@ -236,6 +236,7 @@ public static class LayoutTomlReader
             Border = overlay.Border,
 
             // Non-layout fields: inherit verbatim from base (wm.toml).
+            Blur = baseCfg.Blur,
             PerOutput = baseCfg.PerOutput,
             PerOutputSelectors = baseCfg.PerOutputSelectors,
             Keybinds = baseCfg.Keybinds,

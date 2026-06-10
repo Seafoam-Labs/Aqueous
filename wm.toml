@@ -34,6 +34,15 @@ bottom = 0
 left   = 0
 right  = 0
 
+# -----------------------------------------------------------------------------
+# Backdrop blur (requires riverdelta built with SceneFX). Applied behind window
+# content. Per-window exclusions (e.g. games) live in rules.toml as `blur = false`.
+# -----------------------------------------------------------------------------
+[blur]
+enabled = false  # set true to enable compositor backdrop blur
+radius  = 5      # blur radius in pixels
+passes  = 3      # number of blur passes (higher = blurrier, costlier)
+
 
 # -----------------------------------------------------------------------------
 # Actions definitions.
