@@ -1108,13 +1108,7 @@ pub fn renderFinish(window: *Window) void {
     fx.setTreeBlurExcluded(window.surfaces.tree, blur_excluded);
     fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
 
-    // Per-window content opacity: the per-window value (set_window_opacity) wins over
-    // the global default (set_opacity); both are 32-bit unsigned fractions.
-    const opacity_frac = requested.opacity orelse server.wm.default_opacity;
-    const opacity: f32 = @floatCast(@as(f64, @floatFromInt(opacity_frac)) /
-        @as(f64, @floatFromInt(std.math.maxInt(u32))));
-    fx.setTreeOpacity(window.surfaces.tree, opacity);
-    fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
+    window.applyOpacity();
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 
@@ -1317,12 +1311,29 @@ pub fn getAppId(window: Window) ?[*:0]const u8 {
     };
 }
 
+/// Per-window content opacity: the per-window value (set_window_opacity) wins over
+/// the global default (set_opacity); both are 32-bit unsigned fractions. Newly
+/// created scene buffers default to opacity 1.0, so this must be reapplied whenever
+/// buffers may have been (re)created, not only at render-finish.
+pub fn applyOpacity(window: *Window) void {
+    const opacity_frac = window.rendering_requested.opacity orelse server.wm.default_opacity;
+    const opacity: f32 = @floatCast(@as(f64, @floatFromInt(opacity_frac)) /
+        @as(f64, @floatFromInt(std.math.maxInt(u32))));
+    fx.setTreeOpacity(window.surfaces.tree, opacity);
+    fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
+}
+
 /// Called by the impl when the surface is ready to be displayed
 pub fn map(window: *Window) !void {
     log.debug("window '{?s}' mapped", .{window.getTitle()});
     assert(window.impl != .destroying);
     assert(window.state == .initialized);
     window.state = .mapped;
+
+    // The first buffer was just committed; scene buffers start at opacity 1.0, so
+    // apply the requested/global opacity now rather than waiting for the next
+    // render sequence.
+    window.applyOpacity();
 
     if (window.workspace == null) {
         if (server.om.outputs.first()) |output| {

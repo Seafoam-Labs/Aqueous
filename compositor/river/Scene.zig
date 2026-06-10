@@ -185,6 +185,7 @@ pub const SaveableSurfaces = struct {
         scene_buffer.setDestSize(buffer.dst_width, buffer.dst_height);
         scene_buffer.setSourceBox(&buffer.src_box);
         scene_buffer.setTransform(buffer.transform);
+        scene_buffer.setOpacity(buffer.opacity);
     }
 
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {
