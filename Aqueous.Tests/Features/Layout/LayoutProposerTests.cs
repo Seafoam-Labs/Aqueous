@@ -17,7 +17,7 @@ public sealed class LayoutProposerTests
     public void Ctor_NullArg_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new LayoutProposer(
-            null!, null!, null!, null!, null!, null!, null!, null!));
+            null!, null!, null!, null!, null!, null!, null!, null!, null!));
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public sealed class LayoutProposerTests
     {
         var ctor = typeof(LayoutProposer).GetConstructors().Single();
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
-        Assert.Equal(8, paramTypes.Length);
+        Assert.Equal(9, paramTypes.Length);
         Assert.Equal(typeof(LayoutController), paramTypes[0]);
     }
 

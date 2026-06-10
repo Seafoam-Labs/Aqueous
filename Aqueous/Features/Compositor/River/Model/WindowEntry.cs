@@ -59,6 +59,14 @@ internal sealed class WindowEntry
     // outputs in their per-output ScrollState.
     public IntPtr Output;
 
+    // Workspace this window is assigned to: the ext_workspace_handle_v1 proxy the client last
+    // passed to river_window_v1.set_workspace (opcode 24) via WorkspaceService. IntPtr.Zero means
+    // "unassigned / visible on every workspace" (the default for freshly-mapped windows, mirroring
+    // the Visible = true rationale above). LayoutProposer hides a window only when this handle is
+    // still tracked by WorkspaceStore *and* that workspace is not the active one — a reaped handle
+    // (untracked) is treated as visible so a freed workspace can never strand its windows.
+    public IntPtr Workspace;
+
     // Tags / Workspaces. 32-bit tag bitmask. A window is rendered iff (Tags &
     // Output.VisibleTags) != 0. Default is tag 1 (bit 0). At manage_start a freshly-mapped window is
     // re-tagged to whatever its assigned output currently views (minus the reserved scratchpad bit).

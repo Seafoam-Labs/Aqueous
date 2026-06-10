@@ -43,6 +43,7 @@ internal sealed unsafe class ManagerEventService
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly IWindowStateHost _windowStateHost;
     private readonly ILayerShellUsableAreaStore _layerShellUsableAreas;
+    private readonly Workspaces.WorkspaceStore _workspaceStore;
 
     public ManagerEventService(
         IEventPump pump,
@@ -65,7 +66,8 @@ internal sealed unsafe class ManagerEventService
         KeyBindingsRegistry keyBindingsRegistry,
         IWindowStateHost windowStateHost,
         IShellSurfaceRegistry shellSurfaceRegistry,
-        ILayerShellUsableAreaStore layerShellUsableAreas)
+        ILayerShellUsableAreaStore layerShellUsableAreas,
+        Workspaces.WorkspaceStore workspaceStore)
     {
         _pump = pump ?? throw new ArgumentNullException(nameof(pump));
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -88,6 +90,7 @@ internal sealed unsafe class ManagerEventService
         _windowStateHost = windowStateHost ?? throw new ArgumentNullException(nameof(windowStateHost));
         _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
         _layerShellUsableAreas = layerShellUsableAreas ?? throw new ArgumentNullException(nameof(layerShellUsableAreas));
+        _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
     }
 
     /// <summary>
@@ -496,6 +499,17 @@ internal sealed unsafe class ManagerEventService
         if (!_windowRegistry.Entries.TryGetValue(proxy, out var entry))
         {
             entry = new WindowEntry { Proxy = proxy };
+
+            // Assign the freshly-mapped window to its group's active workspace so the layout
+            // proposer's workspace filter can hide it once the user switches away. Without this the
+            // Workspace field stays IntPtr.Zero ("visible everywhere"), the filter is a no-op, and a
+            // window from another workspace keeps stealing a master/stack slot (the half-size bug).
+            var group = _workspaceStore.GetCurrentGroup();
+            if (group != null)
+            {
+                entry.Workspace = _workspaceStore.ActiveIn(group);
+            }
+
             entry.NodeProxy = WaylandInterop.wl_proxy_marshal_flags(
                 proxy, 2, (IntPtr)WlInterfaces.RiverNode, 1, 0,
                 IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);

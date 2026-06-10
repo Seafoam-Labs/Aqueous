@@ -39,6 +39,10 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     private readonly OutputFullscreenMap _outputFullscreen;
     private readonly FocusedWindowTracker _focusedWindowTracker;
     private readonly PrevFullscreenStore _prevFullscreenStore;
+    // Workspace-visibility oracle: ProposeForArea drops any window whose assigned workspace is
+    // tracked-but-inactive so off-workspace windows never enter the tiled snapshot (the fix for the
+    // half-size symptom where a window hidden on another workspace still claimed a master/stack slot).
+    private readonly Aqueous.Features.Workspaces.WorkspaceStore _workspaceStore;
     // Used by the NodeProxy set_position liveness gate: a node proxy that is no longer in the
     // bind-site interface map has been torn down (e.g. by a stale WindowEntry overwrite in an
     // older codepath) and marshalling through it would write through a freed wl_proxy at +0x2c.
@@ -57,7 +61,8 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         OutputFullscreenMap outputFullscreen,
         FocusedWindowTracker focusedWindowTracker,
         PrevFullscreenStore prevFullscreenStore,
-        WaylandBindSiteState bindSiteState)
+        WaylandBindSiteState bindSiteState,
+        Aqueous.Features.Workspaces.WorkspaceStore workspaceStore)
     {
         _layoutController     = layoutController     ?? throw new ArgumentNullException(nameof(layoutController));
         _windowRegistry       = windowRegistry       ?? throw new ArgumentNullException(nameof(windowRegistry));
@@ -67,6 +72,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         _focusedWindowTracker = focusedWindowTracker ?? throw new ArgumentNullException(nameof(focusedWindowTracker));
         _prevFullscreenStore  = prevFullscreenStore  ?? throw new ArgumentNullException(nameof(prevFullscreenStore));
         _bindSiteState        = bindSiteState        ?? throw new ArgumentNullException(nameof(bindSiteState));
+        _workspaceStore       = workspaceStore       ?? throw new ArgumentNullException(nameof(workspaceStore));
     }
 
     /// <summary>
@@ -197,6 +203,17 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             bool tagVisible = Aqueous.Features.Tags.TagState.IsVisible(
                 w.Tags, outputVisibleTags);
             if (!tagVisible)
+            {
+                hiddenThisCycle.Add(w);
+                continue;
+            }
+
+            // Workspace filter (sits alongside the legacy tag filter; option 5-A). A window whose
+            // assigned workspace is tracked but not active belongs to another workspace and must be
+            // hidden the same one-shot way tag-hidden windows are, so it never reaches the engine and
+            // n reflects only the visible workspace. Unassigned (Zero) and reaped/untracked handles
+            // fall through as visible — see WorkspaceStore.IsHiddenByWorkspace.
+            if (_workspaceStore.IsHiddenByWorkspace(w.Workspace))
             {
                 hiddenThisCycle.Add(w);
                 continue;

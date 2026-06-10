@@ -57,10 +57,17 @@ class Program
         services.AddSingleton<EventPumpOptions>(sp =>
         {
             var sender = sp.GetRequiredService<Aqueous.Features.Layout.IManagerRequestSender>();
+            var workspaces = sp.GetRequiredService<Aqueous.Features.Workspaces.IWorkspaceService>();
             return new EventPumpOptions
             {
                 OnPumpThreadStart = () => sender.SetPumpThread(System.Threading.Thread.CurrentThread.ManagedThreadId),
-                OnDispatchIteration = sender.DrainPumpQueue,
+                // Drain the off-pump action queue, then flush any workspace switch the rapid-switch
+                // debounce coalesced — both run once per dispatch iteration on the pump thread.
+                OnDispatchIteration = () =>
+                {
+                    sender.DrainPumpQueue();
+                    workspaces.FlushPending();
+                },
                 OnPumpThreadStop = () => sender.SetPumpThread(0),
             };
         });

@@ -43,6 +43,25 @@ internal sealed unsafe class WorkspaceEventService
         _bindSiteState.TrackProxyInterface(proxy, interfaceName);
     }
 
+    /// <summary>
+    /// Finalize a reaped <c>ext_workspace_*</c> handle: marshal its <c>destroy</c> request (which
+    /// also frees the proxy via <see cref="WaylandInterop.WL_MARSHAL_FLAG_DESTROY"/>, per the
+    /// protocol's destructor semantics) and drop it from the proxy → interface tracker so no further
+    /// events route to the dead object.
+    /// </summary>
+    private void FinalizeHandle(IntPtr proxy, uint destroyOpcode)
+    {
+        if (proxy == IntPtr.Zero)
+        {
+            return;
+        }
+
+        WaylandInterop.wl_proxy_marshal_flags(
+            proxy, destroyOpcode, IntPtr.Zero, 0, WaylandInterop.WL_MARSHAL_FLAG_DESTROY,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        _bindSiteState.UntrackProxyInterface(proxy);
+    }
+
     public void HandleManagerEvent(WlEvent ev)
     {
         var args = (WlArgument*)ev.ArgsPtr;
@@ -92,6 +111,7 @@ internal sealed unsafe class WorkspaceEventService
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceGroup.Removed:
                 _store.RemoveGroup(group);
+                FinalizeHandle(group, RiverProtocolOpcodes.ExtWorkspaceGroup.Destroy);
                 break;
             // capabilities / output_enter / output_leave carry no state the client model needs.
         }
@@ -121,6 +141,7 @@ internal sealed unsafe class WorkspaceEventService
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceHandle.Removed:
                 _store.RemoveWorkspace(workspace);
+                FinalizeHandle(workspace, RiverProtocolOpcodes.ExtWorkspaceHandle.Destroy);
                 break;
             // id / coordinates / capabilities are not consumed by the client model.
         }

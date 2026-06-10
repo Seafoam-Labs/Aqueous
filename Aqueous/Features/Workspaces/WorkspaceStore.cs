@@ -167,6 +167,25 @@ internal sealed class WorkspaceStore
     public bool TryGetWorkspace(IntPtr workspace, out WorkspaceInfo info)
         => _workspaces.TryGetValue(workspace, out info!);
 
+    /// <summary>
+    /// Whether a live workspace handle is still tracked. Used to guard against driving (activating /
+    /// moving to) a workspace that has been reaped by the compositor.
+    /// </summary>
+    public bool ContainsWorkspace(IntPtr workspace)
+        => workspace != IntPtr.Zero && _workspaces.ContainsKey(workspace);
+
+    /// <summary>
+    /// Whether a window assigned to <paramref name="workspace"/> must be hidden from the active
+    /// layout this cycle. True only when the handle is still tracked <i>and</i> its workspace is not
+    /// the active one in its group. Returns false for <see cref="IntPtr.Zero"/> (unassigned windows
+    /// are visible everywhere) and for reaped/untracked handles (so a freed workspace can never
+    /// strand its windows off-screen). Consumed by <c>LayoutProposer.ProposeForArea</c>.
+    /// </summary>
+    public bool IsHiddenByWorkspace(IntPtr workspace)
+        => workspace != IntPtr.Zero
+           && _workspaces.TryGetValue(workspace, out var w)
+           && !w.Active;
+
     public WorkspaceGroupInfo? GetCurrentGroup()
     {
         if (CurrentGroup != IntPtr.Zero && _groups.TryGetValue(CurrentGroup, out var g))

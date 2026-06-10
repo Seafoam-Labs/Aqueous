@@ -406,21 +406,21 @@ pub fn destroy(window: *Window) void {
 /// Assign this window to the given workspace, removing it from any previous one.
 pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
     if (window.workspace == workspace) return;
-    const previous = window.workspace;
     window.workspace_link.remove();
     workspace.windows.append(window);
     window.workspace = workspace;
-    if (previous) |prev| prev.output.reapEmpty();
-    workspace.output.ensureTrailingEmpty();
+    // Reaping the emptied source workspace and ensuring a trailing empty are
+    // deferred to the coalesced workspace cycle so a workspace is never freed
+    // synchronously while another in-flight request still references it.
     server.wm.dirtyWindowing();
     server.workspace_manager.dirty();
 }
 
 /// Remove this window from its workspace, if any.
 pub fn clearWorkspace(window: *Window) void {
-    const workspace = window.workspace orelse return;
+    if (window.workspace == null) return;
     window.detachWorkspace();
-    workspace.output.reapEmpty();
+    // Reaping is deferred to the coalesced workspace cycle (see setWorkspace).
     server.wm.dirtyWindowing();
     server.workspace_manager.dirty();
 }

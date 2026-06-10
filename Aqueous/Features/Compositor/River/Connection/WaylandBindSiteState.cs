@@ -102,5 +102,8 @@ internal sealed class WaylandBindSiteState
     public string? TryGetProxyInterface(IntPtr proxy)
         => ProxyInterface.TryGet(proxy);
 
+    public bool UntrackProxyInterface(IntPtr proxy)
+        => ProxyInterface.Untrack(proxy);
+
     public int TrackedProxyCount => ProxyInterface.Count;
 }

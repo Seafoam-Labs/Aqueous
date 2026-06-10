@@ -43,6 +43,12 @@ public interface IWorkspaceService
     /// <summary>Reorder the active workspace later in the current group's list.</summary>
     bool MoveWorkspaceDown();
 
+    /// <summary>
+    /// Dispatch a workspace switch that was coalesced by the rapid-switch debounce once its window
+    /// has elapsed. Must be called from the Wayland event-pump thread, once per dispatch iteration.
+    /// </summary>
+    void FlushPending();
+
     /// <summary>Optional sink invoked after every successful workspace mutation (bar / IPC hook).</summary>
     Action? WorkspacesChanged { get; set; }
 }

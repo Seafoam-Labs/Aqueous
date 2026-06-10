@@ -87,11 +87,13 @@ public class WorkspaceControllerTests
     public void FocusWorkspaceDownThenUp_MovesRelativeToActive()
     {
         var (host, ws) = Seed(3);
-        var c = new WorkspaceController(host);
+        long clock = 0;
+        var c = new WorkspaceController(host, () => clock);
 
         Assert.True(c.FocusWorkspaceDown());
         Assert.Equal(ws[1], host.Activated[^1]);
 
+        clock += 1000; // past the debounce window so the second switch dispatches immediately
         Assert.True(c.FocusWorkspaceUp());
         Assert.Equal(ws[0], host.Activated[^1]);
     }
@@ -110,11 +112,66 @@ public class WorkspaceControllerTests
     public void FocusPreviousWorkspace_ReturnsToPriorActive()
     {
         var (host, ws) = Seed(3);
-        var c = new WorkspaceController(host);
+        long clock = 0;
+        var c = new WorkspaceController(host, () => clock);
 
         Assert.True(c.FocusWorkspaceByIndex(3)); // switch to ws[2]; previous = ws[0]
+        clock += 1000;
         Assert.True(c.FocusPreviousWorkspace());
         Assert.Equal(ws[0], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void RapidSwitch_CommitsLeadingImmediately_CoalescesLatestUntilFlush()
+    {
+        var (host, ws) = Seed(4);
+        long clock = 0;
+        var c = new WorkspaceController(host, () => clock);
+
+        Assert.True(c.FocusWorkspaceByIndex(2)); // leading edge -> ws[1] dispatched immediately
+        Assert.True(c.FocusWorkspaceByIndex(3)); // within window -> coalesced
+        Assert.True(c.FocusWorkspaceByIndex(4)); // within window -> coalesced; latest = ws[3]
+
+        // Only the leading switch reached the host; the burst is suppressed.
+        Assert.Equal(ws[1], Assert.Single(host.Activated));
+
+        // Still inside the window: flushing is a no-op.
+        c.FlushPending();
+        Assert.Single(host.Activated);
+
+        // Past the window: the latest coalesced target is dispatched.
+        clock += 1000;
+        c.FlushPending();
+        Assert.Equal(2, host.Activated.Count);
+        Assert.Equal(ws[3], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void RapidSwitch_EndingOnLeadingTarget_FlushIsNoOp()
+    {
+        var (host, ws) = Seed(3);
+        long clock = 0;
+        var c = new WorkspaceController(host, () => clock);
+
+        Assert.True(c.FocusWorkspaceByIndex(2)); // leading -> ws[1]
+        Assert.True(c.FocusWorkspaceByIndex(1)); // coalesced -> ws[0]
+        Assert.True(c.FocusWorkspaceByIndex(2)); // coalesced -> ws[1] (== last committed)
+
+        clock += 1000;
+        c.FlushPending();
+
+        // The pending target equals the already-active workspace, so nothing is re-dispatched.
+        Assert.Equal(ws[1], Assert.Single(host.Activated));
+    }
+
+    [Fact]
+    public void FlushPending_NothingPending_DoesNothing()
+    {
+        var (host, _) = Seed(3);
+        var c = new WorkspaceController(host);
+
+        c.FlushPending();
+        Assert.Empty(host.Activated);
     }
 
     [Fact]
@@ -135,6 +192,37 @@ public class WorkspaceControllerTests
         var c = new WorkspaceController(host);
 
         Assert.False(c.MoveFocusedToWorkspaceByIndex(2));
+        Assert.Empty(host.Moved);
+    }
+
+    [Fact]
+    public void FocusPreviousWorkspace_WhenPreviousReaped_DoesNotDriveDeadHandle()
+    {
+        var (host, ws) = Seed(3);
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(3)); // switch to ws[2]; previous = ws[0]
+        host.Activated.Clear();
+
+        // The previously-active workspace is reaped by the compositor (removed event).
+        host.Store.RemoveWorkspace(ws[0]);
+
+        // Must not activate a workspace that no longer exists.
+        Assert.False(c.FocusPreviousWorkspace());
+        Assert.Empty(host.Activated);
+    }
+
+    [Fact]
+    public void MoveFocusedToWorkspace_WhenTargetReaped_ReturnsFalse()
+    {
+        var (host, ws) = Seed(3);
+        var c = new WorkspaceController(host);
+
+        // Reaping ws[2] removes it from the group, so index 3 no longer resolves; but even a
+        // directly-resolved dead handle must be rejected by the guard.
+        host.Store.RemoveWorkspace(ws[2]);
+
+        Assert.False(c.MoveFocusedToWorkspaceByIndex(3));
         Assert.Empty(host.Moved);
     }
 

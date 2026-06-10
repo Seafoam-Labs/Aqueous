@@ -2,6 +2,7 @@ using System;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Connection;
+using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Layout;
 
@@ -23,18 +24,21 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly IFocusService _focusService;
     private readonly IManagerRequestSender _managerRequestSender;
+    private readonly IWindowRegistry _windowRegistry;
     private readonly WorkspaceController _controller;
 
     public WorkspaceService(
         WorkspaceStore store,
         WaylandBindSiteState bindSiteState,
         IFocusService focusService,
-        IManagerRequestSender managerRequestSender)
+        IManagerRequestSender managerRequestSender,
+        IWindowRegistry windowRegistry)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
+        _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
         _controller = new WorkspaceController(this);
     }
 
@@ -51,6 +55,7 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
     public bool MoveFocusedToWorkspaceDown() => _controller.MoveFocusedToWorkspaceDown();
     public bool MoveWorkspaceUp() => _controller.MoveWorkspaceUp();
     public bool MoveWorkspaceDown() => _controller.MoveWorkspaceDown();
+    public void FlushPending() => _controller.FlushPending();
 
     // -- WorkspaceController.IWorkspaceHost --------------------------------
 
@@ -95,6 +100,15 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
         WaylandInterop.wl_proxy_marshal_flags(
             focused, RiverProtocolOpcodes.Window.SetWorkspace, IntPtr.Zero, 0, 0,
             workspace, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+        // Mirror the assignment into our per-window state in lock-step with the request so the
+        // layout proposer can hide this window when its destination workspace is not the active one
+        // (the fix for the half-size symptom: an off-workspace window must not enter the tiled
+        // snapshot and steal a master/stack slot).
+        if (_windowRegistry.TryGet(focused, out var entry))
+        {
+            entry.Workspace = workspace;
+        }
 
         RiverLog.Write($"set_workspace window 0x{focused.ToString("x")} -> 0x{workspace.ToString("x")}");
         return true;

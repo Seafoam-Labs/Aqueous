@@ -277,7 +277,9 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     assert(workspace.output == output);
     if (output.active_workspace == workspace) return;
     output.active_workspace = workspace;
-    output.reapEmpty();
+    // Reaping is intentionally not performed here: it is deferred to the end of
+    // the workspace transaction so an in-flight batch cannot free a workspace
+    // it still references. Other call sites (window unmap/move) reap directly.
     server.wm.dirtyWindowing();
     server.workspace_manager.dirty();
 }

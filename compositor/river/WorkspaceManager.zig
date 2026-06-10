@@ -59,11 +59,14 @@ const Handle = struct {
     entered_group: ?*Group = null,
 };
 
-/// A buffered request, applied atomically on commit.
+/// A buffered request, applied atomically on commit. Workspace-targeting
+/// variants carry the per-client *Handle (whose `workspace` field is nulled
+/// when the underlying workspace is reaped) rather than a raw *Workspace, so
+/// liveness can be re-resolved at apply time and stale entries skipped.
 const Pending = union(enum) {
-    activate: *Workspace,
-    deactivate: *Workspace,
-    remove: *Workspace,
+    activate: *Handle,
+    deactivate: *Handle,
+    remove: *Handle,
     create_workspace: struct { output: *Output, name: [:0]const u8 },
 };
 
@@ -193,9 +196,13 @@ const Manager = struct {
     fn apply(manager: *Manager) void {
         for (manager.pending.items) |pending| {
             switch (pending) {
-                .activate => |workspace| workspace.output.activateWorkspace(workspace),
+                .activate => |handle| {
+                    const workspace = handle.workspace orelse continue;
+                    workspace.output.activateWorkspace(workspace);
+                },
                 .deactivate => {},
-                .remove => |workspace| {
+                .remove => |handle| {
+                    const workspace = handle.workspace orelse continue;
                     if (!workspace.isActive() and workspace.empty()) workspace.destroy();
                 },
                 .create_workspace => |args| {
@@ -207,6 +214,10 @@ const Manager = struct {
             }
         }
         manager.pending.clearRetainingCapacity();
+
+        // Reaping is deferred until the whole transaction is applied so that no
+        // entry in the same batch can resolve a workspace freed earlier in the
+        // loop. activateWorkspace no longer reaps synchronously.
         server.workspace_manager.dirty();
     }
 
@@ -273,8 +284,25 @@ pub fn dirty(wsm: *WorkspaceManager) void {
 
 fn publishIdle(wsm: *WorkspaceManager) void {
     wsm.publish_idle = null;
+    // Destroy empty workspaces and restore the trailing-empty invariant once per
+    // coalesced cycle, after every dirtying mutation (switch, move, unmap) has
+    // been applied. Doing this here, rather than synchronously inside the
+    // mutating call sites, guarantees a workspace is only ever freed at a single
+    // well-defined point where nothing holds a transient pointer to it.
+    reapAllOutputs();
     var it = wsm.managers.iterator(.forward);
     while (it.next()) |manager| manager.publish();
+}
+
+/// Reap empty, non-active, non-trailing workspaces on every output, then ensure
+/// each output still has an empty trailing workspace. Reap before ensuring so a
+/// freshly created trailing empty is not immediately destroyed.
+fn reapAllOutputs() void {
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |output| {
+        output.reapEmpty();
+        output.ensureTrailingEmpty();
+    }
 }
 
 /// Notify clients that a workspace is about to be destroyed. Called before the
@@ -429,20 +457,17 @@ fn handleHandleRequest(
     switch (request) {
         .activate => {
             if (manager.stopped) return;
-            const workspace = handle.workspace orelse return;
-            manager.pending.append(util.gpa, .{ .activate = workspace }) catch
+            manager.pending.append(util.gpa, .{ .activate = handle }) catch
                 log.err("out of memory", .{});
         },
         .deactivate => {
             if (manager.stopped) return;
-            const workspace = handle.workspace orelse return;
-            manager.pending.append(util.gpa, .{ .deactivate = workspace }) catch
+            manager.pending.append(util.gpa, .{ .deactivate = handle }) catch
                 log.err("out of memory", .{});
         },
         .remove => {
             if (manager.stopped) return;
-            const workspace = handle.workspace orelse return;
-            manager.pending.append(util.gpa, .{ .remove = workspace }) catch
+            manager.pending.append(util.gpa, .{ .remove = handle }) catch
                 log.err("out of memory", .{});
         },
         .assign => {},
