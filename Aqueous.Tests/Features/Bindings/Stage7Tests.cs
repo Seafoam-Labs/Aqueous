@@ -44,7 +44,7 @@ public class Stage7Tests
 
     [Fact]
     public void KeyBindingRouter_NullCtorArg_Throws()
-        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!, null!, null!, null!, null!, null!, null!, null!, null!));
+        => Assert.Throws<ArgumentNullException>(() => new KeyBindingRouter(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
 
     [Fact]
     public void KeyBindingRegistrar_NullCtorArg_Throws()

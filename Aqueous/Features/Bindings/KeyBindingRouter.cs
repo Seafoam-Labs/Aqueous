@@ -32,6 +32,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     private readonly WindowStateController _windowState;
     private readonly ViewportInteractionService _viewport;
     private readonly LibinputConfigApplier _libinputApplier;
+    private readonly XkbConfigApplier _xkbApplier;
     private readonly IRulesReloader _rulesReloader;
 
     public KeyBindingRouter(
@@ -43,6 +44,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         WindowStateController windowState,
         ViewportInteractionService viewport,
         LibinputConfigApplier libinputApplier,
+        XkbConfigApplier xkbApplier,
         IRulesReloader rulesReloader)
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
@@ -53,6 +55,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _viewport = viewport ?? throw new ArgumentNullException(nameof(viewport));
         _libinputApplier = libinputApplier ?? throw new ArgumentNullException(nameof(libinputApplier));
+        _xkbApplier = xkbApplier ?? throw new ArgumentNullException(nameof(xkbApplier));
         _rulesReloader = rulesReloader ?? throw new ArgumentNullException(nameof(rulesReloader));
     }
 
@@ -224,6 +227,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             };
             _layoutController.ReplaceConfig(fresh);
             _libinputApplier.Apply(fresh.Input);
+            _xkbApplier.Apply(fresh.Input);
             Aqueous.Diagnostics.RiverLog.Write("config reloaded");
             // Super+R reloads rules.toml in lockstep with wm.toml; the reload_rules verb
             // is the rules-only equivalent.

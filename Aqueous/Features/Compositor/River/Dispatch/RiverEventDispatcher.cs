@@ -58,6 +58,12 @@ internal sealed unsafe class RiverEventDispatcher
                 // river_libinput_device_v1 events vary 0..1 args; we only inspect args[0] in
                 // the 1-arg cases (tap_support). Sizing at 1 is safe.
                 "river_libinput_device_v1" => 1,
+                // river_xkb_config_v1::xkb_keyboard(new_id): 1 arg; finished: 0.
+                "river_xkb_config_v1" => 1,
+                // river_xkb_keymap_v1::failure(string): 1 arg; success: 0.
+                "river_xkb_keymap_v1" => 1,
+                // river_xkb_keyboard_v1::layout(uint, string): 2 args; others 0..1.
+                "river_xkb_keyboard_v1" => 2,
                 _ => 4,
             };
             _eventDispatcher.Dispatch(

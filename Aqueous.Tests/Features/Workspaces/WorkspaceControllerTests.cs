@@ -128,32 +128,35 @@ public class WorkspaceControllerTests
     }
 
     [Fact]
-    public void Chord_AllPressesInSameFrame_CollapseToSingleFinalSwitch()
+    public void Chord_AllPressesInSameFrame_CollapseToSingleLeadingSwitch()
     {
         var (host, ws) = Seed(4);
         long clock = 0;
         var c = new WorkspaceController(host, () => clock);
 
         // A Super+1+2(+3+4) chord: all presses land in the same dispatch batch before FlushPending.
-        Assert.True(c.FocusWorkspaceByIndex(2)); // coalesced
-        Assert.True(c.FocusWorkspaceByIndex(3)); // coalesced
-        Assert.True(c.FocusWorkspaceByIndex(4)); // coalesced; latest = ws[3]
+        // First-wins: only the leading press commits (immediately, on the pump thread); the trailing
+        // keys of the same frame are ignored, so the gesture produces a single activate+commit and
+        // no second transaction can straddle the compositor's workspace reap.
+        Assert.True(c.FocusWorkspaceByIndex(2)); // leading -> ws[1], committed immediately
+        Assert.True(c.FocusWorkspaceByIndex(3)); // same frame -> ignored
+        Assert.True(c.FocusWorkspaceByIndex(4)); // same frame -> ignored
 
-        // Nothing committed on the calling edge: no intermediate switch can race the compositor reap.
-        Assert.Empty(host.Activated);
+        Assert.Equal(ws[1], Assert.Single(host.Activated));
 
-        // The dispatch-iteration boundary commits exactly once, to the final target.
+        // FlushPending just clears the per-iteration guard; it dispatches nothing.
         c.FlushPending();
-        Assert.Equal(ws[3], Assert.Single(host.Activated));
+        Assert.Equal(ws[1], Assert.Single(host.Activated));
 
-        // Nothing left pending: subsequent flushes are no-ops.
+        // A later, separate frame is free to switch again.
         clock += 1000;
-        c.FlushPending();
-        Assert.Single(host.Activated);
+        Assert.True(c.FocusWorkspaceByIndex(4)); // -> ws[3]
+        Assert.Equal(2, host.Activated.Count);
+        Assert.Equal(ws[3], host.Activated[^1]);
     }
 
     [Fact]
-    public void RapidSwitch_EndingOnLeadingTarget_FlushIsNoOp()
+    public void Chord_SameFrameTrailingKeysIgnored_FirstWins()
     {
         var (host, ws) = Seed(3);
         long clock = 0;
@@ -163,15 +166,16 @@ public class WorkspaceControllerTests
         c.FlushPending();
         Assert.Equal(ws[1], Assert.Single(host.Activated));
 
-        // A later burst that ends on the already-active workspace must not re-dispatch.
-        Assert.True(c.FocusWorkspaceByIndex(1)); // coalesced -> ws[0]
-        Assert.True(c.FocusWorkspaceByIndex(2)); // coalesced -> ws[1] (== last committed)
+        // A same-frame chord whose leading key targets ws[0] and trailing key ws[1]: first-wins, so
+        // the switch lands on ws[0] and the trailing press is ignored.
+        Assert.True(c.FocusWorkspaceByIndex(1)); // leading -> ws[0], committed immediately
+        Assert.True(c.FocusWorkspaceByIndex(2)); // same frame -> ignored
 
-        clock += 1000;
+        Assert.Equal(2, host.Activated.Count);
+        Assert.Equal(ws[0], host.Activated[^1]);
+
         c.FlushPending();
-
-        // The pending target equals the already-active workspace, so nothing is re-dispatched.
-        Assert.Equal(ws[1], Assert.Single(host.Activated));
+        Assert.Equal(2, host.Activated.Count);
     }
 
     [Fact]

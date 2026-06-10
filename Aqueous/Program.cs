@@ -83,6 +83,7 @@ class Program
         services.AddSingleton<Aqueous.Features.Focus.PrimarySeatTracker>();
         services.AddSingleton<Aqueous.Features.Input.DragStateStore>();
         services.AddSingleton<Aqueous.Features.Input.LibinputConfigApplier>();
+        services.AddSingleton<Aqueous.Features.Input.XkbConfigApplier>();
         services.AddSingleton<Aqueous.Features.State.PrevFullscreenStore>();
         services.AddSingleton<Aqueous.Features.Bindings.KeyBindingsRegistry>();
         services.AddSingleton<Aqueous.Features.Input.PointerBindingStore>();
@@ -231,6 +232,16 @@ class Program
         services.AddSingleton<IEventHandler>(sp => new LibinputDeviceEventHandler(
             sp.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>(),
             RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new XkbConfigEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.XkbConfigApplier>(),
+            sp.GetRequiredService<WaylandBindSiteState>(),
+            sp.GetRequiredService<Aqueous.Features.Bindings.KeyBindingsRegistry>(),
+            RiverLog.Write));
+        services.AddSingleton<IEventHandler>(sp => new XkbKeymapEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.XkbConfigApplier>()));
+        services.AddSingleton<IEventHandler>(sp => new XkbKeyboardEventHandler(
+            sp.GetRequiredService<Aqueous.Features.Input.XkbConfigApplier>(),
+            sp.GetRequiredService<WaylandBindSiteState>()));
         services.AddSingleton<IEventHandler>(sp => new Aqueous.Features.Workspaces.ExtWorkspaceManagerEventHandler(
             sp.GetRequiredService<Aqueous.Features.Workspaces.WorkspaceEventService>()));
         services.AddSingleton<IEventHandler>(sp => new Aqueous.Features.Workspaces.ExtWorkspaceGroupEventHandler(
@@ -253,10 +264,13 @@ class Program
         {
             var cfg = provider.GetRequiredService<Aqueous.Features.Layout.LayoutConfig>();
             provider.GetRequiredService<Aqueous.Features.Input.LibinputConfigApplier>().Apply(cfg.Input);
+            // Seed the xkb applier too: it stores the config now and compiles the keymap once the
+            // river_xkb_config_v1 global is bound (OnBound), then set_keymap on each announced keyboard.
+            provider.GetRequiredService<Aqueous.Features.Input.XkbConfigApplier>().Apply(cfg.Input);
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, "LibinputConfigApplier.Apply failed");
+            log.LogWarning(ex, "Input config applier seeding failed");
         }
 
         Console.CancelKeyPress += (_, e) =>

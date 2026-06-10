@@ -49,6 +49,13 @@ internal sealed class WaylandBindSiteState
     /// compositor's libinput layer.
     /// </summary>
     public IntPtr LibinputConfig { get; set; }
+
+    /// <summary>
+    /// The bound <c>river_xkb_config_v1</c> global (set at registry global discovery time). Used by
+    /// <c>XkbConfigApplier</c> to compile and push the xkb keymap to every announced keyboard.
+    /// </summary>
+    public IntPtr XkbConfig { get; set; }
+
     /// <summary>
     /// Protocol version advertised by the bound <c>river_xkb_bindings_v1</c> global. Captured at bind
     /// time so child <c>river_xkb_binding_v1</c> proxies created by <see

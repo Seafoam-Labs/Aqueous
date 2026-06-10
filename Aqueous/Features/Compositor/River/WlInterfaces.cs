@@ -589,6 +589,7 @@ internal static unsafe class WlInterfaces
         BuildRiverWindowManagement();
         BuildWlrScreencopy();
         BuildRiverLibinputConfig();
+        BuildRiverXkbConfig();
     }
 
     // -------- ext_workspace_v1 (v1) ----------
@@ -803,6 +804,82 @@ internal static unsafe class WlInterfaces
                 Msg("rotation_default",              "u", new WaylandInterop.WlInterface*[] { null }),
                 Msg("rotation_current",              "u", new WaylandInterop.WlInterface*[] { null }),
                 Msg("done",                          "2", NoTypes),
+            });
+    }
+
+    // -------- River_xkb_config_v1 (v2) ----------
+
+    /// <summary>
+    /// Builds the <c>river_xkb_config_v1</c> / <c>river_xkb_keymap_v1</c> / <c>river_xkb_keyboard_v1</c>
+    /// interface graph from <c>compositor/protocol/river-xkb-config-v1.xml</c>. Used to compile an
+    /// xkbcommon keymap from <c>[input] xkb_*</c> in <c>wm.toml</c> and push it to every keyboard
+    /// device the compositor announces (see <c>XkbConfigApplier</c>).
+    /// </summary>
+    /// <remarks>
+    /// Built after <see cref="BuildRiverLibinputConfig"/> so the <c>input_device</c> event of
+    /// <c>river_xkb_keyboard_v1</c> can reference <see cref="RiverInputDevice"/> (allocated there).
+    /// Opcodes/signatures are taken verbatim from the XML; every request and event is declared so
+    /// libwayland's opcode arithmetic stays sound even for messages we never send/inspect.
+    /// </remarks>
+    private static void BuildRiverXkbConfig()
+    {
+        RiverXkbConfig   = AllocEmpty("river_xkb_config_v1", 2);
+        RiverXkbKeymap   = AllocEmpty("river_xkb_keymap_v1", 2);
+        RiverXkbKeyboard = AllocEmpty("river_xkb_keyboard_v1", 2);
+
+        // river_xkb_config_v1 requests: 0 stop, 1 destroy, 2 create_keymap(new_id, fd, format)
+        // events: 0 finished, 1 xkb_keyboard(new_id<river_xkb_keyboard_v1>)
+        Populate(RiverXkbConfig,
+            requests: new[]
+            {
+                Msg("stop",          "",    NoTypes),
+                Msg("destroy",       "",    NoTypes),
+                Msg("create_keymap", "nhu", new WaylandInterop.WlInterface*[] { RiverXkbKeymap, null, null }),
+            },
+            events: new[]
+            {
+                Msg("finished",     "",  NoTypes),
+                Msg("xkb_keyboard", "n", new WaylandInterop.WlInterface*[] { RiverXkbKeyboard }),
+            });
+
+        // river_xkb_keymap_v1 requests: 0 destroy events: 0 success, 1 failure(string)
+        Populate(RiverXkbKeymap,
+            requests: new[]
+            {
+                Msg("destroy", "", NoTypes),
+            },
+            events: new[]
+            {
+                Msg("success", "",  NoTypes),
+                Msg("failure", "s", new WaylandInterop.WlInterface*[] { null }),
+            });
+
+        // river_xkb_keyboard_v1 requests: 0 destroy, 1 set_keymap(object<keymap>), 2 set_layout_by_index(int),
+        // 3 set_layout_by_name(string), 4 capslock_enable, 5 capslock_disable, 6 numlock_enable, 7 numlock_disable
+        // events: 0 removed, 1 input_device(object<river_input_device_v1>), 2 layout(uint, string), 3
+        // capslock_enabled, 4 capslock_disabled, 5 numlock_enabled, 6 numlock_disabled, 7 done [since v2]
+        Populate(RiverXkbKeyboard,
+            requests: new[]
+            {
+                Msg("destroy",             "",  NoTypes),
+                Msg("set_keymap",          "o", new WaylandInterop.WlInterface*[] { RiverXkbKeymap }),
+                Msg("set_layout_by_index", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("set_layout_by_name",  "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("capslock_enable",     "",  NoTypes),
+                Msg("capslock_disable",    "",  NoTypes),
+                Msg("numlock_enable",      "",  NoTypes),
+                Msg("numlock_disable",     "",  NoTypes),
+            },
+            events: new[]
+            {
+                Msg("removed",           "",   NoTypes),
+                Msg("input_device",      "o",  new WaylandInterop.WlInterface*[] { RiverInputDevice }),
+                Msg("layout",            "us", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("capslock_enabled",  "",   NoTypes),
+                Msg("capslock_disabled", "",   NoTypes),
+                Msg("numlock_enabled",   "",   NoTypes),
+                Msg("numlock_disabled",  "",   NoTypes),
+                Msg("done",              "2",  NoTypes),
             });
     }
 
@@ -1163,8 +1240,9 @@ internal static unsafe class WlInterfaces
             },
             events: new[]
             {
-                Msg("pressed", "", NoTypes),
-                Msg("released", "", NoTypes),
+                Msg("pressed", "", NoTypes),     // opcode 0
+                Msg("released", "", NoTypes),    // opcode 1
+                Msg("stop_repeat", "", NoTypes), // opcode 2, since v2 — REQUIRED at bind version 3
             });
 
         // River_xkb_bindings_seat_v1

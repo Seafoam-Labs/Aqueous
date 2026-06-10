@@ -38,6 +38,7 @@ internal sealed class RiverCompositorHost : IHostedService
     private readonly ManageCycleState _manageCycleState;
     private readonly StartupExecRunner _startupExec;
     private readonly LibinputConfigApplier _libinputApplier;
+    private readonly XkbConfigApplier _xkbApplier;
     private readonly ILogger<RiverCompositorHost>? _log;
 
     private NativeCallbackContext? _callbackContext;
@@ -76,6 +77,7 @@ internal sealed class RiverCompositorHost : IHostedService
         ManageCycleState manageCycleState,
         StartupExecRunner startupExec,
         LibinputConfigApplier libinputApplier,
+        XkbConfigApplier xkbApplier,
         ILogger<RiverCompositorHost>? log = null)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -92,6 +94,7 @@ internal sealed class RiverCompositorHost : IHostedService
         _manageCycleState = manageCycleState ?? throw new ArgumentNullException(nameof(manageCycleState));
         _startupExec = startupExec ?? throw new ArgumentNullException(nameof(startupExec));
         _libinputApplier = libinputApplier ?? throw new ArgumentNullException(nameof(libinputApplier));
+        _xkbApplier = xkbApplier ?? throw new ArgumentNullException(nameof(xkbApplier));
         _log = log;
     }
 
@@ -337,6 +340,20 @@ internal sealed class RiverCompositorHost : IHostedService
                 _bindSiteState.TrackProxyInterface(libinput, "river_libinput_config_v1");
                 _libinputApplier.OnBound();
                 RiverLog.Write($"bound river_libinput_config_v1 (version {version})");
+            }
+        }
+        else if (global.Interface == "river_xkb_config_v1" && _bindSiteState.XkbConfig == IntPtr.Zero)
+        {
+            // Cap to v2 — that's what compositor/protocol/river-xkb-config-v1.xml advertises.
+            uint version = Math.Min(global.Version, 2u);
+            var xkbCfg = _registryBinder.Bind(global.Name, WlInterfaces.RiverXkbConfig, version);
+            _bindSiteState.XkbConfig = xkbCfg;
+            if (xkbCfg != IntPtr.Zero)
+            {
+                WaylandInterop.wl_proxy_add_dispatcher(xkbCfg, dispatcher, ctxHandle, IntPtr.Zero);
+                _bindSiteState.TrackProxyInterface(xkbCfg, "river_xkb_config_v1");
+                _xkbApplier.OnBound(xkbCfg, dispatcher, ctxHandle);
+                RiverLog.Write($"bound river_xkb_config_v1 (version {version})");
             }
         }
         else if (global.Interface == "wl_shm" && _bindSiteState.WlShm == IntPtr.Zero)

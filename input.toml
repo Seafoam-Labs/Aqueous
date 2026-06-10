@@ -12,4 +12,4 @@ accel_speed   = 0.0
 xkb_layout  = "us"
 # xkb_variant = "dvorak"
 # Remap Caps Lock to Escape (standard xkb option string).
-#xkb_options = "caps:escape"s
+#xkb_options = "caps:escape"

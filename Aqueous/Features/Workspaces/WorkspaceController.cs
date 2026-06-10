@@ -29,33 +29,37 @@ internal sealed class WorkspaceController
     }
 
     /// <summary>
-    /// Default coalescing window for rapid workspace switches. Bursts of focus requests landing
-    /// within this many milliseconds of the last committed switch are collapsed so that only the
-    /// leading request is dispatched immediately and only the latest target is flushed afterwards
-    /// (see <see cref="FlushPending"/>). This throttles the <c>activate</c>+<c>commit</c> storm that
-    /// rapid back-and-forth switching otherwise produces.
+    /// Retained for source/binary compatibility with callers that pass a debounce window. The
+    /// debounce/coalesce machinery has been replaced by a per-dispatch-iteration chord guard
+    /// (see <see cref="Focus"/>), so this value is no longer used to throttle commits.
     /// </summary>
     internal const int DefaultDebounceMillis = 60;
 
     private readonly IWorkspaceHost _host;
-    private readonly Func<long> _nowMillis;
-    private readonly int _debounceMillis;
 
     // Pump-thread affinity is enforced by the WorkspaceService facade, which funnels every verb
     // through IManagerRequestSender.Post; both the verb entry points and the per-iteration
     // FlushPending therefore run on the Wayland event-pump thread, so no synchronization is
-    // required for this debounce state.
-    private IntPtr _pendingFocus;
-    private bool _hasPendingFocus;
+    // required for this state.
     private bool _everCommitted;
     private IntPtr _lastCommittedFocus;
-    private long _lastFocusCommitMillis;
+
+    // Set by the first workspace switch/move in a Wayland dispatch iteration and cleared by
+    // FlushPending at the iteration boundary. A simultaneous multi-key chord (e.g. Super+1+2)
+    // delivers all `pressed` events in the same DispatchPending batch, so every press after the
+    // first sees this flag set and is ignored. This collapses the chord to a single switch
+    // (first-wins), committed immediately on the pump thread, eliminating the second
+    // activate+commit transaction that previously raced the compositor's workspace reap (crash)
+    // and the deferred commit that later stalled the pump past river's watchdog (hang).
+    private bool _switchedThisIteration;
 
     public WorkspaceController(IWorkspaceHost host, Func<long>? nowMillis = null, int debounceMillis = DefaultDebounceMillis)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
-        _nowMillis = nowMillis ?? (static () => Environment.TickCount64);
-        _debounceMillis = debounceMillis < 0 ? 0 : debounceMillis;
+        // nowMillis / debounceMillis are retained for API compatibility but no longer used: the
+        // first-wins chord guard does not depend on wall-clock timing.
+        _ = nowMillis;
+        _ = debounceMillis;
     }
 
     private WorkspaceStore Store => _host.Store;
@@ -119,20 +123,33 @@ internal sealed class WorkspaceController
             return false;
         }
 
-        // Never commit on the calling edge: always coalesce into the pending slot and let
-        // FlushPending dispatch it at the dispatch-iteration boundary. A simultaneous multi-key
-        // chord (e.g. Super+1+2) delivers all `pressed` events in the same DispatchPending batch,
-        // which run before the iteration's FlushPending; they therefore collapse into a single
-        // commit of the final target. This eliminates the intermediate switch that previously
-        // raced the compositor's workspace reap (the two activate+commit transactions straddling a
-        // `removed` that crashed libwayland). Presses spaced further apart land in separate batches
-        // and commit one-by-one on the next iteration's FlushPending, so responsiveness is intact.
-        _pendingFocus = workspace;
-        _hasPendingFocus = true;
+        if (_switchedThisIteration)
+        {
+            // A workspace switch already happened in this dispatch iteration: this press is one of
+            // the trailing keys of a simultaneous chord (e.g. the `2` of Super+1+2). Ignore it so
+            // the gesture produces a single switch (first-wins) rather than two activate+commit
+            // transactions that can straddle the compositor's workspace reap.
+            RiverLog.Write("workspace switch ignored: chord (already switched this dispatch frame)");
+            return true;
+        }
+
+        // Claim the frame even when the target is already active, so a chord's trailing keys are
+        // still ignored, then commit immediately on the pump thread (the press already runs there).
+        // Committing on the calling edge keeps river's manage transaction fed promptly — fully
+        // deferring it could leave the WM silent past river's 3s watchdog.
+        _switchedThisIteration = true;
+
+        if (_everCommitted && workspace == _lastCommittedFocus)
+        {
+            // Already on this workspace; nothing to dispatch.
+            return true;
+        }
+
+        CommitFocus(workspace);
         return true;
     }
 
-    private void CommitFocus(IntPtr workspace, long now)
+    private void CommitFocus(IntPtr workspace)
     {
         // Record the workspace being left so FocusPreviousWorkspace can return to it (deterministic,
         // not reconstructed from compositor state-event ordering).
@@ -149,45 +166,19 @@ internal sealed class WorkspaceController
         _host.ActivateWorkspace(workspace);
         _host.AfterChange();
 
-        _lastFocusCommitMillis = now;
         _lastCommittedFocus = workspace;
         _everCommitted = true;
-        _pendingFocus = IntPtr.Zero;
-        _hasPendingFocus = false;
     }
 
     /// <summary>
-    /// Dispatch any focus target that was coalesced during a rapid switch burst, once the debounce
-    /// window has elapsed. Invoked once per Wayland dispatch iteration (pump-thread). No-ops when
-    /// nothing is pending, when still inside the window, or when the pending target has since been
-    /// reaped or is already the active workspace.
+    /// Clears the per-dispatch-iteration chord guard. Invoked once per Wayland dispatch iteration
+    /// (pump-thread), at the iteration boundary, so the next batch of input is free to switch
+    /// again. Switches themselves now commit immediately in <see cref="Focus"/>, so this no longer
+    /// dispatches any deferred work.
     /// </summary>
     public void FlushPending()
     {
-        if (!_hasPendingFocus)
-        {
-            return;
-        }
-
-        long now = _nowMillis();
-        // Debounce: once a switch commits, suppress further commits until the window elapses so a
-        // rapid back-and-forth burst commits at most twice (the leading target and the final one)
-        // instead of once per keystroke. The very first commit is never throttled.
-        if (_everCommitted && now - _lastFocusCommitMillis < _debounceMillis)
-        {
-            return;
-        }
-
-        IntPtr workspace = _pendingFocus;
-        _pendingFocus = IntPtr.Zero;
-        _hasPendingFocus = false;
-
-        if (!Store.ContainsWorkspace(workspace) || (_everCommitted && workspace == _lastCommittedFocus))
-        {
-            return;
-        }
-
-        CommitFocus(workspace, now);
+        _switchedThisIteration = false;
     }
 
     private bool Move(IntPtr workspace)
@@ -197,11 +188,19 @@ internal sealed class WorkspaceController
             return false;
         }
 
+        if (_switchedThisIteration)
+        {
+            // Trailing key of a same-frame chord (e.g. Super+Shift+1+2): collapse to a single move.
+            RiverLog.Write("workspace move ignored: chord (already switched this dispatch frame)");
+            return true;
+        }
+
         if (!_host.MoveFocusedToWorkspace(workspace))
         {
             return false;
         }
 
+        _switchedThisIteration = true;
         _host.AfterChange();
         return true;
     }

@@ -295,6 +295,63 @@ internal static class RiverProtocolOpcodes
     }
 
     /// <summary>
+    /// <c>river_xkb_config_v1</c> Request opcodes.
+    /// </summary>
+    internal static class XkbConfigRequest
+    {
+        internal const uint Stop         = 0;
+        internal const uint Destroy      = 1;
+        internal const uint CreateKeymap = 2;
+    }
+
+    /// <summary>
+    /// <c>river_xkb_config_v1</c> Event opcodes.
+    /// </summary>
+    internal static class XkbConfig
+    {
+        internal const uint Finished    = 0;
+        internal const uint XkbKeyboard = 1;
+    }
+
+    /// <summary>
+    /// <c>river_xkb_config_v1</c> <c>keymap_format</c> enum (mirrors <c>XKB_KEYMAP_FORMAT_TEXT_V1</c>).
+    /// </summary>
+    internal static class XkbKeymapFormat
+    {
+        internal const uint TextV1 = 1;
+        internal const uint TextV2 = 2;
+    }
+
+    /// <summary>
+    /// <c>river_xkb_keymap_v1</c> Event opcodes.
+    /// </summary>
+    internal static class XkbKeymap
+    {
+        internal const uint Success = 0;
+        internal const uint Failure = 1;
+    }
+
+    /// <summary>
+    /// <c>river_xkb_keyboard_v1</c> Request opcodes.
+    /// </summary>
+    internal static class XkbKeyboardRequest
+    {
+        internal const uint Destroy   = 0;
+        internal const uint SetKeymap = 1;
+    }
+
+    /// <summary>
+    /// <c>river_xkb_keyboard_v1</c> Event opcodes (only <c>removed</c> is acted on).
+    /// </summary>
+    internal static class XkbKeyboard
+    {
+        internal const uint Removed     = 0;
+        internal const uint InputDevice = 1;
+        internal const uint Layout      = 2;
+        internal const uint Done        = 7;
+    }
+
+    /// <summary>
     /// <c>zwlr_screencopy_frame_v1</c> Event opcodes.
     /// </summary>
     internal static class ScreencopyFrame
