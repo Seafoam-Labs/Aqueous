@@ -47,6 +47,13 @@ internal sealed class WindowEntry
     public bool WindowBlurSent;
     public bool LastWindowBlurEnabled;
 
+    // Cached last per-window opacity marshalled via river_window_v1.set_window_opacity (opcode 26)
+    // so the render pass only re-sends when the effective value changes (rule change / global
+    // [opacity] edit on reload). WindowOpacitySent latches the first emit so an unchanged value
+    // is never re-sent (mirrors WindowBlurSent above).
+    public bool WindowOpacitySent;
+    public double LastWindowOpacity;
+
     // Per-window floating override + remembered floating rect. Set when the user drags a window with
     // Super+BTN_LEFT; honoured by ProposeForArea so floating windows bypass the active layout engine
     // and keep their dragged position across manage cycles.

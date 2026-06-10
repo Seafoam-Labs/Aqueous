@@ -43,6 +43,12 @@ enabled = false  # set true to enable compositor backdrop blur
 radius  = 5      # blur radius in pixels
 passes  = 3      # number of blur passes (higher = blurrier, costlier)
 
+# Default window-content opacity (requires riverdelta with opacity support).
+# Per-window overrides live in rules.toml as `opacity = 0.85`.
+[opacity]
+enabled = false  # set true to apply the default opacity below to all windows
+value   = 0.9    # 0.0 = fully transparent .. 1.0 = fully opaque
+
 
 # -----------------------------------------------------------------------------
 # Actions definitions.

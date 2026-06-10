@@ -26,4 +26,12 @@ public sealed record RulePlacement(WindowRule Rule)
     /// <c>river_window_v1.set_window_blur</c>.
     /// </summary>
     public bool? BlurOverride => Rule.Blur;
+
+    /// <summary>
+    /// Per-window opacity override resolved from the matching rule's <c>opacity = …</c> field.
+    /// <see langword="null"/> means "inherit the global <c>[opacity]</c> default"; otherwise
+    /// a 0..1 fraction applied to the window's content. Read by <c>LayoutProposer</c> when
+    /// marshalling <c>river_window_v1.set_window_opacity</c>.
+    /// </summary>
+    public double? OpacityOverride => Rule.Opacity;
 }

@@ -63,6 +63,19 @@ public readonly record struct BlurSpec(bool Enabled, int Radius, int Passes)
 }
 
 /// <summary>
+/// Global window-opacity parameters parsed from the <c>[opacity]</c> section of <c>wm.toml</c>.
+/// <see cref="Enabled"/> toggles whether the default opacity is applied at all;
+/// <see cref="Value"/> is the opacity fraction (0 = fully transparent, 1 = fully opaque)
+/// marshalled to riverdelta as a 32-bit unsigned fraction via
+/// <c>river_window_manager_v1.set_opacity</c> / <c>river_window_v1.set_window_opacity</c>.
+/// </summary>
+public readonly record struct OpacitySpec(bool Enabled, double Value)
+{
+    /// <summary>Opacity off by default (fully opaque), with a sane value once enabled.</summary>
+    public static readonly OpacitySpec Default = new(false, 1.0);
+}
+
+/// <summary>
 /// What a layout engine returns for a single window: target geometry, stacking order and whether
 /// the controller should actually show the window this frame (off-screen / monocle-hidden windows
 /// return <c>Visible=false</c>).

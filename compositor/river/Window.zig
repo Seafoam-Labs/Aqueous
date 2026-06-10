@@ -141,6 +141,11 @@ const RenderingRequested = struct {
     /// river_window_v1.set_window_blur; defaults to true so windows inherit the
     /// global blur state until the wm says otherwise (false excludes e.g. games).
     blur_enabled: bool = true,
+    /// Window-content opacity as a 32-bit unsigned fraction (0 = transparent,
+    /// 0xffffffff = opaque); null inherits the global default driven by
+    /// river_window_manager_v1.set_opacity. Driven by
+    /// river_window_v1.set_window_opacity.
+    opacity: ?u32 = null,
 
     pub const init: RenderingRequested = .{
         .x = 0,
@@ -150,6 +155,7 @@ const RenderingRequested = struct {
         .clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
         .content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
         .blur_enabled = true,
+        .opacity = null,
     };
 };
 
@@ -745,6 +751,10 @@ fn handleRequest(
             if (!server.wm.ensureRendering()) return;
             rendering_requested.blur_enabled = args.enabled != 0;
         },
+        .set_window_opacity => |args| {
+            if (!server.wm.ensureRendering()) return;
+            rendering_requested.opacity = args.value;
+        },
         inline .get_decoration_above, .get_decoration_below => |args, req| {
             const above = req == .get_decoration_above;
             const surface = wlr.Surface.fromWlSurface(args.surface);
@@ -1097,6 +1107,14 @@ pub fn renderFinish(window: *Window) void {
     const blur_excluded = !requested.blur_enabled;
     fx.setTreeBlurExcluded(window.surfaces.tree, blur_excluded);
     fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
+
+    // Per-window content opacity: the per-window value (set_window_opacity) wins over
+    // the global default (set_opacity); both are 32-bit unsigned fractions.
+    const opacity_frac = requested.opacity orelse server.wm.default_opacity;
+    const opacity: f32 = @floatCast(@as(f64, @floatFromInt(opacity_frac)) /
+        @as(f64, @floatFromInt(std.math.maxInt(u32))));
+    fx.setTreeOpacity(window.surfaces.tree, opacity);
+    fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 

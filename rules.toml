@@ -29,3 +29,15 @@ fullscreen = false
 # class  = "steam_app_570"
 # layout = "game-mode"
 # size   = "1920x1080"
+
+# Example: override the window-content opacity (see [opacity] in wm.toml).
+# `opacity` is a 0.0..1.0 fraction (0 = fully transparent, 1 = fully opaque);
+# omit it to inherit the global [opacity] default.
+# [[window]]
+# app_id  = "com.mitchellh.ghostty"
+# opacity = 0.85
+
+# Example: force a window fully opaque even when the global default is lower.
+# [[window]]
+# app_id  = "mpv"
+# opacity = 1.0

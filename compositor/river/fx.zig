@@ -112,6 +112,20 @@ pub fn ensureOptimizedBlur(tree: *wlr.SceneTree, existing: ?*anyopaque) ?*anyopa
     return @ptrCast(node);
 }
 
+/// Per-window content opacity. Driven by river_window_v1.set_window_opacity with the
+/// global default from river_window_manager_v1.set_opacity. This uses the core
+/// wlroots scene-buffer opacity, so it is available with or without SceneFX.
+pub fn setTreeOpacity(tree: *wlr.SceneTree, opacity: f32) void {
+    var value = opacity;
+    tree.node.forEachBuffer(*f32, setBufferOpacityIter, &value);
+}
+
+fn setBufferOpacityIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, opacity: *f32) void {
+    _ = sx;
+    _ = sy;
+    buffer.setOpacity(opacity.*);
+}
+
 /// Per-window blur exclusion. When `excluded` is true, the window's buffers are
 /// marked fully opaque so the optimized-blur pass clips them out (no per-frame
 /// backdrop blur cost behind e.g. games); when false the opaque region override is

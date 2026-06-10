@@ -34,7 +34,7 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_window_manager_v1" version="7">
+  <interface name="river_window_manager_v1" version="8">
     <description summary="window manager global interface">
       This global interface should only be advertised to the window manager
       process. Only one window management client may be active at a time. The
@@ -339,9 +339,25 @@
       <arg name="radius" type="int" summary="blur radius in pixels"/>
       <arg name="passes" type="int" summary="number of blur passes"/>
     </request>
+
+    <request name="set_opacity" since="8">
+      <description summary="configure the default window opacity">
+        Set the default opacity applied to window content. The value is a
+        32-bit unsigned fraction: 0 means fully transparent and 0xffffffff
+        means fully opaque. Windows for which set_window_opacity has been
+        sent use their per-window value instead of this default.
+
+        This request completely overrides all previous set_opacity requests.
+        Only the most recent set_opacity request has an effect.
+
+        This request modifies rendering state and may only be made as part of a
+        render sequence, see the river_window_manager_v1 description.
+      </description>
+      <arg name="value" type="uint" summary="opacity fraction, 0 = transparent, 0xffffffff = opaque"/>
+    </request>
   </interface>
 
-  <interface name="river_window_v1" version="7">
+  <interface name="river_window_v1" version="8">
     <description summary="a logical window">
       This represents a logical window. For example, a window may correspond to
       an xdg_toplevel or Xwayland window.
@@ -1171,6 +1187,22 @@
         render sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="enabled" type="uint" summary="0 = excluded (e.g. games), non-zero = blurred"/>
+    </request>
+
+    <request name="set_window_opacity" since="8">
+      <description summary="set the opacity of this window">
+        Set the opacity applied to this specific window's content, overriding
+        the default configured via river_window_manager_v1.set_opacity. The
+        value is a 32-bit unsigned fraction: 0 means fully transparent and
+        0xffffffff means fully opaque.
+
+        This request completely overrides all previous set_window_opacity
+        requests for this window. Only the most recent request has an effect.
+
+        This request modifies rendering state and may only be made as part of a
+        render sequence, see the river_window_manager_v1 description.
+      </description>
+      <arg name="value" type="uint" summary="opacity fraction, 0 = transparent, 0xffffffff = opaque"/>
     </request>
 
     <event name="activate_requested" since="5">

@@ -70,6 +70,9 @@ public static class LayoutConfigLoader
         bool blurEnabled = BlurSpec.Default.Enabled;
         int blurRadius = BlurSpec.Default.Radius;
         int blurPasses = BlurSpec.Default.Passes;
+        // [opacity] section — global window opacity driven to riverdelta via set_opacity. Defaults mirror OpacitySpec.Default.
+        bool opacityEnabled = OpacitySpec.Default.Enabled;
+        double opacityValue = OpacitySpec.Default.Value;
 
         // Keybind tables.
         var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -393,6 +396,14 @@ public static class LayoutConfigLoader
                     }
 
                     break;
+                case "opacity":
+                    switch (key)
+                    {
+                        case "enabled": opacityEnabled = ParseBool(val, opacityEnabled); break;
+                        case "value": opacityValue = Math.Clamp(ParseDouble(val, opacityValue), 0.0, 1.0); break;
+                    }
+
+                    break;
                 case "struts":
                     switch (key)
                     {
@@ -509,6 +520,7 @@ public static class LayoutConfigLoader
             PerOutputSelectors = perOutputSelectors,
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
+            Opacity = new OpacitySpec(opacityEnabled, opacityValue),
             Keybinds = keybinds,
             State = stateConfig,
             Exec = new ExecConfig { Entries = execEntries },

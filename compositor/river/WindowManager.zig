@@ -86,6 +86,12 @@ blur: struct {
     node: ?*anyopaque = null,
 } = .{},
 
+/// Default window-content opacity driven by river_window_manager_v1.set_opacity,
+/// stored as the raw 32-bit unsigned fraction (0 = transparent, 0xffffffff = opaque).
+/// Windows that received river_window_v1.set_window_opacity use their own value
+/// instead of this default.
+default_opacity: u32 = std.math.maxInt(u32),
+
 dirty_idle: ?*wl.EventSource = null,
 
 timeout: *wl.EventSource,
@@ -96,7 +102,7 @@ pub fn init(wm: *WindowManager) !void {
     errdefer timeout.remove();
 
     wm.* = .{
-        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 7, *WindowManager, wm, bind),
+        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 8, *WindowManager, wm, bind),
         .sent = .{
             .outputs = undefined,
             .seats = undefined,
@@ -230,6 +236,10 @@ fn handleRequest(
             wm.blur.radius = if (args.radius > 0) args.radius else 0;
             wm.blur.passes = if (args.passes > 0) args.passes else 0;
             wm.applyBlur();
+        },
+        .set_opacity => |args| {
+            if (!wm.ensureRendering()) return;
+            wm.default_opacity = args.value;
         },
     }
 }

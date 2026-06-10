@@ -991,8 +991,8 @@ internal static unsafe class WlInterfaces
     /// </remarks>
     private static void BuildRiverWindowManagement()
     {
-        RiverWindowManager = AllocEmpty("river_window_manager_v1", 7);
-        RiverWindow = AllocEmpty("river_window_v1", 7);
+        RiverWindowManager = AllocEmpty("river_window_manager_v1", 8);
+        RiverWindow = AllocEmpty("river_window_v1", 8);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
         RiverShellSurface = AllocEmpty("river_shell_surface_v1", 5);
         RiverNode = AllocEmpty("river_node_v1", 4);
@@ -1019,6 +1019,8 @@ internal static unsafe class WlInterfaces
                 Msg("exit_session",      "4",  NoTypes),
                 // Opcode 7 (since v7): global backdrop-blur parameters. enabled/radius/passes.
                 Msg("set_blur",          "7uii", new WaylandInterop.WlInterface*[] { null, null, null }),
+                // Opcode 8 (since v8): default window-content opacity (32-bit unsigned fraction).
+                Msg("set_opacity",       "8u",   new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {
@@ -1064,6 +1066,8 @@ internal static unsafe class WlInterfaces
                 Msg("set_workspace",        "6o",      new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
                 // Opcode 25 (since v7): per-window blur opt-out (0 = excluded, e.g. games).
                 Msg("set_window_blur",      "7u",      new WaylandInterop.WlInterface*[] { null }),
+                // Opcode 26 (since v8): per-window content opacity (32-bit unsigned fraction).
+                Msg("set_window_opacity",   "8u",      new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {

@@ -60,6 +60,13 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # app_id = "steam_app_*"
 # blur   = false
 
+# Example: override the window-content opacity (see [opacity] in wm.toml).
+# `opacity` is a 0.0..1.0 fraction (0 = fully transparent, 1 = fully opaque);
+# omit it to inherit the global [opacity] default.
+# [[window]]
+# app_id  = "Alacritty"
+# opacity = 0.85
+
 # Example: let a window extend all the way to the edge of the output, ignoring
 # the exclusion zone reserved for bars / panels by `[struts]` in wm.toml. When
 # `ignore_struts = true`, the matched window's geometry is resolved against the

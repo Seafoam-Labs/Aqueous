@@ -59,6 +59,20 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
     private bool _blurSent;
     private BlurSpec _lastBlurSent;
 
+    // Global window-opacity change-gate. The manager-level set_opacity (opcode 8) is render
+    // state, so it is marshalled from ProposeForArea (already inside the render sequence, like
+    // set_blur) but only when the resolved [opacity] config differs from what was last sent.
+    // _opacitySent latches the first emit so an unchanged config is never re-sent every frame.
+    private bool _opacitySent;
+    private OpacitySpec _lastOpacitySent;
+
+    /// <summary>
+    /// Convert a 0..1 opacity fraction to the 32-bit unsigned wire encoding expected by
+    /// <c>set_opacity</c> / <c>set_window_opacity</c> (0 = transparent, 0xffffffff = opaque).
+    /// </summary>
+    private static uint EncodeOpacity(double opacity) =>
+        (uint)Math.Round(Math.Clamp(opacity, 0.0, 1.0) * uint.MaxValue);
+
     public LayoutProposer(
         LayoutController layoutController,
         IWindowRegistry windowRegistry,
@@ -124,6 +138,26 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 _blurSent = true;
                 _lastBlurSent = blurCfg;
+            }
+        }
+
+        // ------ Global window opacity: marshal the manager-level set_opacity (opcode 8) once and
+        // on every [opacity] config change (Super+R reload). This is render state, so it is sent
+        // here inside the render sequence, mirroring set_blur. Gated against the last-sent
+        // OpacitySpec so it is not re-marshalled every frame.
+        var opacityCfg = _layoutController.Config.Opacity;
+        if (!_opacitySent || !_lastOpacitySent.Equals(opacityCfg))
+        {
+            var manager = _bindSiteState.Manager;
+            if (manager != IntPtr.Zero)
+            {
+                double globalOpacity = opacityCfg.Enabled ? opacityCfg.Value : 1.0;
+                WaylandInterop.wl_proxy_marshal_flags(
+                    manager, 8, IntPtr.Zero, 0, 0,
+                    (IntPtr)EncodeOpacity(globalOpacity),
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                _opacitySent = true;
+                _lastOpacitySent = opacityCfg;
             }
         }
 
@@ -561,6 +595,24 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                         w.WindowBlurSent = true;
                         w.LastWindowBlurEnabled = blurEnabled;
+                    }
+                }
+
+                // ------ Per-window opacity: marshal set_window_opacity (opcode 26). The effective
+                // value is the matching rule's opacity override (null = inherit) falling back to
+                // the global [opacity] default. Change-gated against the cached value so we only
+                // re-send when it changes (rule match change / global edit on reload).
+                {
+                    double opacity = w.Placement?.OpacityOverride
+                                     ?? (opacityCfg.Enabled ? opacityCfg.Value : 1.0);
+                    if (!w.WindowOpacitySent || w.LastWindowOpacity != opacity)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            p.Handle, 26, IntPtr.Zero, 0, 0,
+                            (IntPtr)EncodeOpacity(opacity),
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        w.WindowOpacitySent = true;
+                        w.LastWindowOpacity = opacity;
                     }
                 }
             }

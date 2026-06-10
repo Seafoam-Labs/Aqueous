@@ -53,7 +53,8 @@ public sealed record WindowRule(
     int? Tag,
     bool Fullscreen,
     bool IgnoreStruts = false,
-    bool? Blur = null);
+    bool? Blur = null,
+    double? Opacity = null);
 
 /// <summary>
 /// Options for the <c>game-mode</c> layout engine, parsed from the <c>[game_mode]</c> section

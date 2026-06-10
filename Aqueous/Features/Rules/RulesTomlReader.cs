@@ -129,6 +129,7 @@ public static class RulesTomlReader
         bool wFullscreen = false;
         bool wIgnoreStruts = false;
         bool? wBlur = null;
+        double? wOpacity = null;
 
         void ResetWindow()
         {
@@ -143,6 +144,7 @@ public static class RulesTomlReader
             wFullscreen = false;
             wIgnoreStruts = false;
             wBlur = null;
+            wOpacity = null;
         }
 
         void FlushWindow()
@@ -193,7 +195,8 @@ public static class RulesTomlReader
                 Tag: wTag,
                 Fullscreen: wFullscreen,
                 IgnoreStruts: wIgnoreStruts,
-                Blur: wBlur));
+                Blur: wBlur,
+                Opacity: wOpacity));
 
             ResetWindow();
         }
@@ -302,6 +305,11 @@ public static class RulesTomlReader
                             // null = inherit global [blur].enabled; false = force-exclude
                             // (e.g. games); true = force-include.
                             wBlur = ParseBool(val, false);
+                            break;
+                        case "opacity":
+                            // null = inherit global [opacity] default; otherwise a 0..1
+                            // fraction applied to this window's content.
+                            wOpacity = Math.Clamp(ParseDouble(val, 1.0), 0.0, 1.0);
                             break;
                     }
                     break;

@@ -77,6 +77,14 @@ public sealed record LayoutConfig
     public BlurSpec Blur { get; init; } = BlurSpec.Default;
 
     /// <summary>
+    /// Global window-opacity configuration parsed from the <c>[opacity]</c> section of
+    /// <c>wm.toml</c>. Sent once (and on reload) to riverdelta via the manager-level
+    /// <c>river_window_manager_v1.set_opacity</c> request; per-window overrides come
+    /// from <c>rules.toml</c> via <c>river_window_v1.set_window_opacity</c>.
+    /// </summary>
+    public OpacitySpec Opacity { get; init; } = OpacitySpec.Default;
+
+    /// <summary>
     /// Configurable keybind table parsed from <c>[keybinds]</c>.
     /// </summary>
     public KeybindConfig Keybinds { get; init; } = new();
