@@ -69,6 +69,8 @@ public class WorkspaceControllerTests
         var c = new WorkspaceController(host);
 
         Assert.True(c.FocusWorkspaceByIndex(2));
+        // Commits are deferred to the dispatch-iteration boundary so a same-frame chord collapses.
+        c.FlushPending();
         Assert.Equal(ws[1], Assert.Single(host.Activated));
         Assert.Equal(1, host.AfterChangeCount);
     }
@@ -91,10 +93,12 @@ public class WorkspaceControllerTests
         var c = new WorkspaceController(host, () => clock);
 
         Assert.True(c.FocusWorkspaceDown());
+        c.FlushPending();
         Assert.Equal(ws[1], host.Activated[^1]);
 
         clock += 1000; // past the debounce window so the second switch dispatches immediately
         Assert.True(c.FocusWorkspaceUp());
+        c.FlushPending();
         Assert.Equal(ws[0], host.Activated[^1]);
     }
 
@@ -116,34 +120,36 @@ public class WorkspaceControllerTests
         var c = new WorkspaceController(host, () => clock);
 
         Assert.True(c.FocusWorkspaceByIndex(3)); // switch to ws[2]; previous = ws[0]
+        c.FlushPending();
         clock += 1000;
         Assert.True(c.FocusPreviousWorkspace());
+        c.FlushPending();
         Assert.Equal(ws[0], host.Activated[^1]);
     }
 
     [Fact]
-    public void RapidSwitch_CommitsLeadingImmediately_CoalescesLatestUntilFlush()
+    public void Chord_AllPressesInSameFrame_CollapseToSingleFinalSwitch()
     {
         var (host, ws) = Seed(4);
         long clock = 0;
         var c = new WorkspaceController(host, () => clock);
 
-        Assert.True(c.FocusWorkspaceByIndex(2)); // leading edge -> ws[1] dispatched immediately
-        Assert.True(c.FocusWorkspaceByIndex(3)); // within window -> coalesced
-        Assert.True(c.FocusWorkspaceByIndex(4)); // within window -> coalesced; latest = ws[3]
+        // A Super+1+2(+3+4) chord: all presses land in the same dispatch batch before FlushPending.
+        Assert.True(c.FocusWorkspaceByIndex(2)); // coalesced
+        Assert.True(c.FocusWorkspaceByIndex(3)); // coalesced
+        Assert.True(c.FocusWorkspaceByIndex(4)); // coalesced; latest = ws[3]
 
-        // Only the leading switch reached the host; the burst is suppressed.
-        Assert.Equal(ws[1], Assert.Single(host.Activated));
+        // Nothing committed on the calling edge: no intermediate switch can race the compositor reap.
+        Assert.Empty(host.Activated);
 
-        // Still inside the window: flushing is a no-op.
+        // The dispatch-iteration boundary commits exactly once, to the final target.
         c.FlushPending();
-        Assert.Single(host.Activated);
+        Assert.Equal(ws[3], Assert.Single(host.Activated));
 
-        // Past the window: the latest coalesced target is dispatched.
+        // Nothing left pending: subsequent flushes are no-ops.
         clock += 1000;
         c.FlushPending();
-        Assert.Equal(2, host.Activated.Count);
-        Assert.Equal(ws[3], host.Activated[^1]);
+        Assert.Single(host.Activated);
     }
 
     [Fact]
@@ -153,7 +159,11 @@ public class WorkspaceControllerTests
         long clock = 0;
         var c = new WorkspaceController(host, () => clock);
 
-        Assert.True(c.FocusWorkspaceByIndex(2)); // leading -> ws[1]
+        Assert.True(c.FocusWorkspaceByIndex(2)); // -> ws[1]
+        c.FlushPending();
+        Assert.Equal(ws[1], Assert.Single(host.Activated));
+
+        // A later burst that ends on the already-active workspace must not re-dispatch.
         Assert.True(c.FocusWorkspaceByIndex(1)); // coalesced -> ws[0]
         Assert.True(c.FocusWorkspaceByIndex(2)); // coalesced -> ws[1] (== last committed)
 
@@ -202,6 +212,7 @@ public class WorkspaceControllerTests
         var c = new WorkspaceController(host);
 
         Assert.True(c.FocusWorkspaceByIndex(3)); // switch to ws[2]; previous = ws[0]
+        c.FlushPending();
         host.Activated.Clear();
 
         // The previously-active workspace is reaped by the compositor (removed event).

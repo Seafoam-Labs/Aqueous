@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using Aqueous.Features.Compositor.River.Dispatch;
 
 namespace Aqueous.Features.Compositor.River.Connection;
@@ -23,12 +24,24 @@ internal sealed class WaylandBindSiteState
     public IntPtr WlShm { get; set; }
     public IntPtr XkbBindings { get; set; }
 
+    private IntPtr _workspaceManager;
+
     /// <summary>
     /// The bound <c>ext_workspace_manager_v1</c> global. <see cref="IntPtr.Zero"/> until the
     /// compositor advertises and we bind it. Used to issue <c>commit</c> after batching
     /// <c>activate</c>/<c>create_workspace</c> requests on workspace/group handles.
+    /// <para>
+    /// Published/read with <see cref="Volatile"/> so a teardown that clears this handle on one
+    /// thread cannot turn a non-null check on the marshalling thread into a torn-down-proxy
+    /// dereference inside libwayland (the same discipline <c>ManagerRequestSender</c> applies to
+    /// its manager/display handles).
+    /// </para>
     /// </summary>
-    public IntPtr WorkspaceManager { get; set; }
+    public IntPtr WorkspaceManager
+    {
+        get => Volatile.Read(ref _workspaceManager);
+        set => Volatile.Write(ref _workspaceManager, value);
+    }
 
     /// <summary>
     /// The bound <c>river_libinput_config_v1</c> global (set at registry global discovery time).

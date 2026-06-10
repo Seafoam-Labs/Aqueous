@@ -41,8 +41,10 @@ internal sealed class WorkspaceController
     private readonly Func<long> _nowMillis;
     private readonly int _debounceMillis;
 
-    // Pump-thread only: keybinding dispatch and the per-iteration FlushPending both run on the
-    // Wayland event-pump thread, so no synchronization is required for this debounce state.
+    // Pump-thread affinity is enforced by the WorkspaceService facade, which funnels every verb
+    // through IManagerRequestSender.Post; both the verb entry points and the per-iteration
+    // FlushPending therefore run on the Wayland event-pump thread, so no synchronization is
+    // required for this debounce state.
     private IntPtr _pendingFocus;
     private bool _hasPendingFocus;
     private bool _everCommitted;
@@ -117,21 +119,16 @@ internal sealed class WorkspaceController
             return false;
         }
 
-        long now = _nowMillis();
-        if (!_everCommitted || now - _lastFocusCommitMillis >= _debounceMillis)
-        {
-            // Leading edge: dispatch immediately.
-            CommitFocus(workspace, now);
-        }
-        else
-        {
-            // Inside the debounce window: coalesce. Remember only the latest target; it is dispatched
-            // by FlushPending once the window elapses, so a rapid burst commits at most twice (the
-            // leading request and the final target) instead of once per keystroke.
-            _pendingFocus = workspace;
-            _hasPendingFocus = true;
-        }
-
+        // Never commit on the calling edge: always coalesce into the pending slot and let
+        // FlushPending dispatch it at the dispatch-iteration boundary. A simultaneous multi-key
+        // chord (e.g. Super+1+2) delivers all `pressed` events in the same DispatchPending batch,
+        // which run before the iteration's FlushPending; they therefore collapse into a single
+        // commit of the final target. This eliminates the intermediate switch that previously
+        // raced the compositor's workspace reap (the two activate+commit transactions straddling a
+        // `removed` that crashed libwayland). Presses spaced further apart land in separate batches
+        // and commit one-by-one on the next iteration's FlushPending, so responsiveness is intact.
+        _pendingFocus = workspace;
+        _hasPendingFocus = true;
         return true;
     }
 
@@ -173,7 +170,10 @@ internal sealed class WorkspaceController
         }
 
         long now = _nowMillis();
-        if (now - _lastFocusCommitMillis < _debounceMillis)
+        // Debounce: once a switch commits, suppress further commits until the window elapses so a
+        // rapid back-and-forth burst commits at most twice (the leading target and the final one)
+        // instead of once per keystroke. The very first commit is never throttled.
+        if (_everCommitted && now - _lastFocusCommitMillis < _debounceMillis)
         {
             return;
         }
@@ -182,7 +182,7 @@ internal sealed class WorkspaceController
         _pendingFocus = IntPtr.Zero;
         _hasPendingFocus = false;
 
-        if (!Store.ContainsWorkspace(workspace) || workspace == _lastCommittedFocus)
+        if (!Store.ContainsWorkspace(workspace) || (_everCommitted && workspace == _lastCommittedFocus))
         {
             return;
         }

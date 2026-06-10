@@ -69,12 +69,12 @@ export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
 export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
 export _JAVA_AWT_WM_NONREPARENTING=1
-# Decide where Aqueous logs go. AQUEOUS_LOG_SINK overrides; else if launched
-# from a tty, stream live to that tty; else fall back to /tmp/aqueous_wm.log.
+# Decide where Aqueous logs go. The file sink is forced so a run always
+# produces /tmp/aqueous_wm.log (the WM-side log needed to diagnose the pump
+# stall) regardless of how the script was launched. AQUEOUS_LOG_SINK still
+# overrides if a caller explicitly wants a different destination.
 if [ -n "${AQUEOUS_LOG_SINK:-}" ]; then
     AQ_SINK="$AQUEOUS_LOG_SINK"
-elif [ -t 1 ] && AQ_TTY=$(tty 2>/dev/null) && [ -n "$AQ_TTY" ] && [ -w "$AQ_TTY" ]; then
-    AQ_SINK="$AQ_TTY"
 else
     AQ_SINK="/tmp/aqueous_wm.log"
 fi

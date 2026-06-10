@@ -30,6 +30,8 @@ public class TagServiceTests
         public void ScheduleManage() => ScheduleManageCalls++;
         public void SetPumpThread(int managedThreadId) { }
         public void DrainPumpQueue() { }
+        public bool IsOnPumpThread => true;
+        public void Post(Action action) => action();
     }
 
     /// <summary>

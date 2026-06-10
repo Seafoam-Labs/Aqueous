@@ -42,6 +42,8 @@ public class RulesReloaderTests
         public void Reset() { }
         public void SetPumpThread(int managedThreadId) { }
         public void DrainPumpQueue() { }
+        public bool IsOnPumpThread => true;
+        public void Post(Action action) => action();
     }
 
     // We use the real WindowRegistry (internal — accessible via InternalsVisibleTo) and

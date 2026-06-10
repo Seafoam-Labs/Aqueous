@@ -78,6 +78,8 @@ public class InvalidateFloatRectTests
         public void Reset() { }
         public void SetPumpThread(int managedThreadId) { }
         public void DrainPumpQueue() { }
+        public bool IsOnPumpThread => true;
+        public void Post(Action action) => action();
     }
 
     [Fact]

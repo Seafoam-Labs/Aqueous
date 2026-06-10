@@ -155,4 +155,38 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
             }
         }
     }
+
+    public bool IsOnPumpThread
+    {
+        get
+        {
+            var pumpId = Volatile.Read(ref _pumpThreadId);
+            return pumpId == 0 || Thread.CurrentThread.ManagedThreadId == pumpId;
+        }
+    }
+
+    public void Post(Action action)
+    {
+        if (action is null)
+        {
+            return;
+        }
+
+        var pumpId = Volatile.Read(ref _pumpThreadId);
+        if (pumpId == 0 || Thread.CurrentThread.ManagedThreadId == pumpId)
+        {
+            // Already on the pump thread (or the pump has not started yet) → safe to run inline.
+            action();
+            return;
+        }
+
+        // Off-pump caller: funnel onto the same queue that DrainPumpQueue drains on the pump
+        // thread, so any Wayland marshalling inside the action cannot race wl_display_dispatch.
+        _pumpQueue.Enqueue(action);
+        var d = Volatile.Read(ref _display);
+        if (d != IntPtr.Zero)
+        {
+            WaylandInterop.wl_display_flush(d);
+        }
+    }
 }

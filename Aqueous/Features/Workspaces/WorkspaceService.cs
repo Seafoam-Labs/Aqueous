@@ -46,15 +46,67 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
 
     // -- IWorkspaceService (facade forwarding to WorkspaceController) -------
 
-    public bool FocusWorkspaceByIndex(int index) => _controller.FocusWorkspaceByIndex(index);
-    public bool FocusWorkspaceUp() => _controller.FocusWorkspaceUp();
-    public bool FocusWorkspaceDown() => _controller.FocusWorkspaceDown();
-    public bool FocusPreviousWorkspace() => _controller.FocusPreviousWorkspace();
-    public bool MoveFocusedToWorkspaceByIndex(int index) => _controller.MoveFocusedToWorkspaceByIndex(index);
-    public bool MoveFocusedToWorkspaceUp() => _controller.MoveFocusedToWorkspaceUp();
-    public bool MoveFocusedToWorkspaceDown() => _controller.MoveFocusedToWorkspaceDown();
-    public bool MoveWorkspaceUp() => _controller.MoveWorkspaceUp();
-    public bool MoveWorkspaceDown() => _controller.MoveWorkspaceDown();
+    // Every verb that ultimately marshals a Wayland request (activate/commit/set_workspace) is
+    // funnelled onto the Wayland event-pump thread via IManagerRequestSender.Post. Key-binding
+    // dispatch may run off the pump thread; marshalling there races wl_display_dispatch and can hit
+    // a torn-down proxy (the libwayland segfault at ~0x2c). Post runs inline when already on the
+    // pump thread, so this is a no-op fast-path in that case. The bool result is now "accepted":
+    // the actual switch is resolved + dispatched on the pump thread (and additionally debounced).
+    public bool FocusWorkspaceByIndex(int index)
+    {
+        _managerRequestSender.Post(() => _controller.FocusWorkspaceByIndex(index));
+        return true;
+    }
+
+    public bool FocusWorkspaceUp()
+    {
+        _managerRequestSender.Post(() => _controller.FocusWorkspaceUp());
+        return true;
+    }
+
+    public bool FocusWorkspaceDown()
+    {
+        _managerRequestSender.Post(() => _controller.FocusWorkspaceDown());
+        return true;
+    }
+
+    public bool FocusPreviousWorkspace()
+    {
+        _managerRequestSender.Post(() => _controller.FocusPreviousWorkspace());
+        return true;
+    }
+
+    public bool MoveFocusedToWorkspaceByIndex(int index)
+    {
+        _managerRequestSender.Post(() => _controller.MoveFocusedToWorkspaceByIndex(index));
+        return true;
+    }
+
+    public bool MoveFocusedToWorkspaceUp()
+    {
+        _managerRequestSender.Post(() => _controller.MoveFocusedToWorkspaceUp());
+        return true;
+    }
+
+    public bool MoveFocusedToWorkspaceDown()
+    {
+        _managerRequestSender.Post(() => _controller.MoveFocusedToWorkspaceDown());
+        return true;
+    }
+
+    public bool MoveWorkspaceUp()
+    {
+        _managerRequestSender.Post(() => _controller.MoveWorkspaceUp());
+        return true;
+    }
+
+    public bool MoveWorkspaceDown()
+    {
+        _managerRequestSender.Post(() => _controller.MoveWorkspaceDown());
+        return true;
+    }
+
+    // FlushPending's only caller (OnDispatchIteration) is already on the pump thread; call directly.
     public void FlushPending() => _controller.FlushPending();
 
     // -- WorkspaceController.IWorkspaceHost --------------------------------
@@ -63,10 +115,20 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
 
     void WorkspaceController.IWorkspaceHost.ActivateWorkspace(IntPtr workspace)
     {
+        // Re-snapshot + re-validate on the marshalling (pump) thread, immediately before the call.
         IntPtr manager = _bindSiteState.WorkspaceManager;
         if (manager == IntPtr.Zero || workspace == IntPtr.Zero)
         {
             RiverLog.Write("activate_workspace: ext_workspace_manager_v1 not bound");
+            return;
+        }
+
+        // Liveness re-check: the handle may have been reaped (a `removed` event destroyed the proxy)
+        // between resolution in WorkspaceController and this marshal. Marshalling a torn-down proxy
+        // segfaults inside libwayland; skipping is the correct no-op.
+        if (!_store.ContainsWorkspace(workspace))
+        {
+            RiverLog.Write($"activate_workspace: 0x{workspace.ToString("x")} no longer live; skipping");
             return;
         }
 
@@ -93,6 +155,14 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
         if (!_focusService.TryGetFocusedAlive(out var focused))
         {
             RiverLog.Write("move_to_workspace: no focused window");
+            return false;
+        }
+
+        // Liveness re-check on the marshalling (pump) thread, immediately before set_workspace: the
+        // destination handle may have been reaped between resolution and this marshal.
+        if (!_store.ContainsWorkspace(workspace))
+        {
+            RiverLog.Write($"move_to_workspace: 0x{workspace.ToString("x")} no longer live; skipping");
             return false;
         }
 

@@ -76,4 +76,18 @@ internal interface IManagerRequestSender
     /// into a silent no-op.
     /// </summary>
     void DrainPumpQueue();
+
+    /// <summary>
+    /// True iff the caller is currently running on the Wayland event-pump thread (or the pump has
+    /// not started yet, in which case inline execution is safe).
+    /// </summary>
+    bool IsOnPumpThread { get; }
+
+    /// <summary>
+    /// Run <paramref name="action"/> on the pump thread. If the caller is already on the pump
+    /// thread (or the pump has not started yet) it runs inline; otherwise it is enqueued onto the
+    /// same queue drained by <see cref="DrainPumpQueue"/>. Use for any code that must marshal
+    /// Wayland requests from a potentially off-pump caller (e.g. <c>KeyBindingRouter</c>).
+    /// </summary>
+    void Post(Action action);
 }
