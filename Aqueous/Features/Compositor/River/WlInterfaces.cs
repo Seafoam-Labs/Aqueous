@@ -465,8 +465,8 @@ internal static unsafe class WlInterfaces
     /// </summary>
     /// <remarks>
     /// Interfaces reference each other (e.g. the manager's <c>toplevel</c> event yields a
-    /// <c>new_id&lt;handle&gt;</c>) so the function runs in two steps: first <see cref="AllocEmpty"/>
-    /// reserves storage for every interface, then <see cref="Populate"/> fills in the message tables.
+    /// <c>new_id&lt;handle&gt;</c>) so the function first uses <see cref="AllocEmpty"/> to
+    /// reserve storage for every interface, then <see cref="Populate"/> fills in the message tables.
     /// This mirrors how wayland-scanner emits C with forward declarations.
     /// <para>
     /// Layout:
@@ -1256,7 +1256,7 @@ internal static unsafe class WlInterfaces
     }
 
     /// <summary>
-    /// Allocator step: reserves a forward-declared <see cref="WaylandInterop.WlInterface"/> with no
+    /// Reserves a forward-declared <see cref="WaylandInterop.WlInterface"/> with no
     /// requests or events, to be filled in later by <see cref="Populate"/>.
     /// </summary>
     /// <param name="name">
@@ -1285,7 +1285,7 @@ internal static unsafe class WlInterfaces
     }
 
     /// <summary>
-    /// Populate step: writes <paramref name="requests"/> and <paramref name="events"/> into an
+    /// Writes <paramref name="requests"/> and <paramref name="events"/> into an
     /// interface previously reserved by <see cref="AllocEmpty"/>.
     /// </summary>
     /// <param name="iface">

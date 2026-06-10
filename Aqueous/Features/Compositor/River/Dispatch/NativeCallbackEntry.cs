@@ -16,7 +16,7 @@ namespace Aqueous.Features.Compositor.River.Dispatch;
 /// <c>NativeCallbackContext</c> owned by <c>RiverCompositorHost</c>.
 /// </para>
 /// <para>
-/// Routing: interface-name lookup against the Stage-0 proxy → interface map, then dispatch via
+/// Routing: interface-name lookup against the proxy → interface map, then dispatch via
 /// <see cref="IEventDispatcher"/>. Screencopy frame proxies (owned by <c>WlrScreencopyClient</c>,
 /// not tracked in the map) keep their dedicated fallback through
 /// <c>IScreencopyService.TryDispatchFrameEvent</c>.

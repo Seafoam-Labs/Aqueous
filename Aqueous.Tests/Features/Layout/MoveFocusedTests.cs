@@ -7,7 +7,7 @@ using Xunit;
 namespace Aqueous.Tests.Features.Layout;
 
 /// <summary>
-/// Step 6 — <c>MoveFocused</c> coverage for layouts that previously inherited the
+/// <c>MoveFocused</c> coverage for layouts that previously inherited the
 /// interface's default no-op: <see cref="MonocleLayout"/> (z-stack reorder) and
 /// <see cref="FloatingLayout"/> (explicit no-op).
 /// GameMode coverage lives in <see cref="GameModeLayoutTests"/>.

@@ -14,8 +14,8 @@ namespace Aqueous.Features.Tags;
 /// <para>
 /// All methods are <b>pump-thread only</b>: they read/write registry entries and trigger a
 /// relayout. Behaviour is identical to driving <see cref="TagController"/> directly; <see
-/// cref="ITagService"/> exists so future stages can swap the implementation (e.g. once an
-/// <c>IFocusService</c> and <c>ILayoutProposer</c> land in Stages 4-5).
+/// cref="ITagService"/> exists so the implementation can be swapped (e.g. by an
+/// <c>IFocusService</c> and <c>ILayoutProposer</c>).
 /// </para>
 /// </summary>
 public interface ITagService

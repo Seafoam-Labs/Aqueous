@@ -8,7 +8,7 @@ namespace Aqueous.Features.Focus;
 /// Owns the keyboard-focus behaviour.
 /// <para>
 /// Single-seat by design — the existing god class only models a "primary seat" focus; multi-seat
-/// awaits a post-Stage-9
+/// support is deferred.
 /// </para>
 /// <para>
 /// All members are pump-thread-only: they either marshal Wayland requests on the focused seat or

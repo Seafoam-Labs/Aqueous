@@ -110,9 +110,8 @@ internal sealed class WaylandBindSiteState
     public ConcurrentDictionary<IntPtr, IntPtr> OutputByLayerShellOutput { get; } = new();
 
     /// <summary>
-    /// Proxy → interface-name map populated at every <c>wl_registry::bind</c> callsite. Stage-0 of the
-    /// dispatch decomposition introduced this as a write-only seam; it now lives on the singleton so
-    /// consumers no longer need a reference to the god class to record/lookup names.
+    /// Proxy → interface-name map populated at every <c>wl_registry::bind</c> callsite. Lives on the
+    /// singleton so consumers no longer need a reference to the god class to record/lookup names.
     /// </summary>
     public ProxyInterfaceMap ProxyInterface { get; } = new();
 

@@ -29,7 +29,7 @@ namespace Aqueous.Features.Bindings;
 /// <c>XkbBindingsVersion</c>, <c>KeyBindings</c>, <c>CustomBindingActions</c>,
 /// <c>SelfHandlePtr</c>, <c>LayoutConfigForRegistrar</c>, <c>KeyBindingRouter</c>,
 /// <c>CustomActionRunner</c>, <c>TrackProxyInterface</c>). Those accessors retire together with
-/// the god class in the final demolition step.
+/// the god class.
 /// </para>
 /// </summary>
 internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar

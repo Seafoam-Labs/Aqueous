@@ -9,7 +9,7 @@ namespace Aqueous.Features.Screencopy;
 /// <summary>
 /// Part 2 facade — owns the <see cref="WlrScreencopyClient"/> instance and routes the screencopy
 /// branch of the native callback. No collaborator bridge is required: the service has no callbacks
-/// back into <c>RiverWindowManagerClient</c> (first bridge-less Stage in the decomposition).
+/// back into <c>RiverWindowManagerClient</c> (the first bridge-less service in the decomposition).
 /// </summary>
 internal sealed class ScreencopyService : IScreencopyService, IDisposable
 {

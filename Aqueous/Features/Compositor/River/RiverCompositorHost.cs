@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging;
 namespace Aqueous.Features.Compositor.River;
 
 /// <summary>
-/// Final demolition. The host now owns the complete Wayland lifecycle directly, with no
+/// The host now owns the complete Wayland lifecycle directly, with no
 /// <c>RiverWindowManagerClient</c> god class in the picture. All collaborators are resolved from
 /// DI.
 /// </summary>

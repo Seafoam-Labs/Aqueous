@@ -31,7 +31,7 @@ class Program
 
         using var lifetimeCts = new CancellationTokenSource();
 
-        // Final demolition. The RiverWindowManagerClient god class is gone. Every service it formerly
+        // The RiverWindowManagerClient god class is gone. Every service it formerly
         // built in its ctor is now registered directly with DI. RiverCompositorHost takes the same ctor
         // args via DI and owns the Wayland lifecycle outright.
         var services = new ServiceCollection();

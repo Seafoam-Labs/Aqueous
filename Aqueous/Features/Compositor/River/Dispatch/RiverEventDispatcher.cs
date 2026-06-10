@@ -5,7 +5,7 @@ using Aqueous.Features.Screencopy;
 namespace Aqueous.Features.Compositor.River.Dispatch;
 
 /// <summary>
-/// Final demolition. The dispatcher no longer references the retired
+/// The dispatcher no longer references the retired
 /// <c>RiverWindowManagerClient</c> god class. Its three collaborators (<see
 /// cref="WaylandBindSiteState"/>, <see cref="IEventDispatcher"/>, <see
 /// cref="IScreencopyService"/>) are now injected directly.

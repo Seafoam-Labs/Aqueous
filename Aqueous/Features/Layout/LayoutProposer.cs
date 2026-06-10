@@ -20,8 +20,7 @@ namespace Aqueous.Features.Layout;
 /// <c>_layoutController</c>, the <c>IWindowRegistry</c> / <c>IOutputRegistry</c>, the
 /// <c>WindowStateStore</c>, the <c>OutputFullscreenMap</c>, the focused-window handle, and the
 /// <c>_prevFullscreenHandles</c> hash set. Each is reached through a small set of <c>internal</c>
-/// accessors on the god class. Those accessors retire together with the god class in the final
-/// demolition step.
+/// accessors on the god class. Those accessors retire together with the god class.
 /// </para>
 /// <para>
 /// Pump-thread only. Mirrors the prior partial's threading contract exactly; no new locks or

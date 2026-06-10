@@ -208,7 +208,7 @@ public class StartupExecRunnerTests
         host.Spawns[^1].OnExit!(0);
         Assert.Empty(host.Scheduled);
 
-        // A subsequent crashing exit should restart at the *first* backoff step, because clean exits
+        // A subsequent crashing exit should restart at the *first* backoff delay, because clean exits
         // reset the supervisor's attempt counter. We fake this by having `restart=true` +
         // `once=false`-ish behavior: Note: with once=true the entry won't be re-fired manually here, so
         // we trigger the supervisor path directly via OnExit again.

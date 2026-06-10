@@ -87,8 +87,8 @@ internal sealed class StartupExecRunner
     }
 
     /// <summary>
-    /// Per-entry restart-attempt counter. The 7-step ladder is exposed for tests via the public <see
-    /// cref="NextBackoff"/> method.
+    /// Per-entry restart-attempt counter. The 7-rung backoff ladder is exposed for tests via the
+    /// public <see cref="NextBackoff"/> method.
     /// </summary>
     internal sealed class Supervisor
     {
