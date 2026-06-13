@@ -65,6 +65,14 @@ elif command -v systemctl >/dev/null 2>&1; then
         2>/dev/null || true
 fi
 
+# Bring the graphical session up. xdg-desktop-portal.service has
+# Requisite=graphical-session.target, so the portal cannot start until that
+# target is active. graphical-session.target is static (RefuseManualStart),
+# so we go through the aqueous-session.target wrapper that Requires/BindsTo
+# it. Without this the portal restart below is doomed on a fresh boot and
+# flameshot/screencast fail with "could not locate org.freedesktop.portal.Desktop".
+systemctl --user start aqueous-session.target 2>/dev/null || true
+
 # Kick the portal in case it already failed earlier in the boot.
 # reset-failed clears the start-limit so the restart actually runs.
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true

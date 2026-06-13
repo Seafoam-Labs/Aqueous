@@ -1,0 +1,12 @@
+[Unit]
+Description=Aqueous Wayland session
+# graphical-session.target is static with RefuseManualStart=yes, so it can
+# only be activated as a dependency of another unit. This wrapper target is
+# the one Aqueous starts manually (from packaging/aqueous-init); pulling in
+# graphical-session.target satisfies the Requisite=graphical-session.target
+# on xdg-desktop-portal.service. BindsTo ensures the session — and everything
+# PartOf=graphical-session.target (aqueous-outputd.service, the portals) —
+# tears down cleanly on logout.
+Requires=graphical-session.target
+BindsTo=graphical-session.target
+Before=graphical-session.target

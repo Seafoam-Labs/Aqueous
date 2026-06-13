@@ -96,4 +96,12 @@ fi
 /usr/bin/riverdelta -c /usr/bin/aqueous-init
 status=$?
 echo "[aqueous-wm] $(date -Is) riverdelta exited status=$status"
+
+# Tear down the graphical session wrapper so everything PartOf/BindsTo
+# graphical-session.target (aqueous-outputd, the portals) stops cleanly.
+# BindsTo should already do this, but stop it explicitly for robustness.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user stop aqueous-session.target 2>/dev/null || true
+fi
+
 exit $status

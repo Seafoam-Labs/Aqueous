@@ -171,6 +171,15 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-outputd.service" \
         "$pkgdir/usr/lib/systemd/user/aqueous-outputd.service"
 
+    # Session wrapper target. graphical-session.target is static
+    # (RefuseManualStart) and xdg-desktop-portal.service has
+    # Requisite=graphical-session.target, so the portal cannot start until the
+    # target is active. aqueous-init starts this wrapper (which Requires/BindsTo
+    # graphical-session.target) to activate it legitimately and tear it down on
+    # logout — making the portal (and flameshot/screencast) work out of the box.
+    install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
+        "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
+
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.
     install -Dm644 "$srcdir/aqueous/packaging/aqueous.tmpfiles" \
