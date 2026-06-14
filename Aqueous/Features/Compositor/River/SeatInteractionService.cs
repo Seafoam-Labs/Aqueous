@@ -171,7 +171,9 @@ internal sealed unsafe class SeatInteractionService
         // tile/scrolling/monocle/grid the per- window Floating override is suppressed by LayoutProposer
         // bucketing and any FloatX/Y/W/H written here would be overwritten on the next manage cycle.
         // Treat a not-float OpDelta as an abandoned drag so the next legitimate drag starts clean.
-        if (!_layoutProposer.IsFloatLayoutActive(adw.Output))
+        // Allow the live drag when the whole output is on the dedicated float engine OR this
+        // specific window is an individually-floating popup/dialog overlaying a tiling layout.
+        if (!(_layoutProposer.IsFloatLayoutActive(adw.Output) || adw.Floating))
         {
             _dragState.DragFinished = true;
             _managerRequestSender.ScheduleManage();

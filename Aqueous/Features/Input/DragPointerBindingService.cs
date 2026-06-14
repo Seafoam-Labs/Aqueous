@@ -104,7 +104,9 @@ internal sealed unsafe class DragPointerBindingService
 
                 // Strict v1 gate: keybind-driven move/resize honours the same "only when float layout is active"
                 // UX as the client-driven pointer_move_requested / pointer_resize_requested paths.
-                if (!_layoutProposer.IsFloatLayoutActive(w.Output))
+                // Allow keybind-driven move/resize when the output is on the float engine OR this
+                // specific window is an individually-floating popup/dialog over a tiling layout.
+                if (!(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
                 {
                     RiverLog.Write($"super+{(isResize ? "RMB" : "LMB")} drag ignored: float layout not active for window 0x{hovered.ToString("x")}");
                     break;

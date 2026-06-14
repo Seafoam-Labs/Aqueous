@@ -175,7 +175,9 @@ internal sealed unsafe class WindowEventService
             {
                 IntPtr seatProxy = args[0].o;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
-                if (!_layoutProposer.IsFloatLayoutActive(w.Output))
+                // Allow the client-driven move when the output is on the float engine OR this
+                // specific window is an individually-floating popup/dialog over a tiling layout.
+                if (!(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
                 {
                     break;
                 }
@@ -216,7 +218,8 @@ internal sealed unsafe class WindowEventService
                     break;
                 }
 
-                if (edges == 0 || w.Output == IntPtr.Zero || !_layoutProposer.IsFloatLayoutActive(w.Output))
+                if (edges == 0 || w.Output == IntPtr.Zero
+                    || !(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
                 {
                     RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");
                     break;
