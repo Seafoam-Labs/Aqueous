@@ -172,8 +172,11 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             id = resolved;
         }
 
-        _layoutController.SetLayout(id);
-        _managerRequestSender.ScheduleManage();
+        // Per-workspace: a set_layout_* keybinding changes only the focused workspace (the focused
+        // output's visible-tag set), leaving sibling workspaces and other monitors untouched. The
+        // viewport service owns the focus/output/visible-tag resolution and schedules the manage
+        // cycle so the new engine is applied.
+        _viewport.SetLayoutForFocusedWorkspace(id);
     }
 
     // -- Built-in action helpers (one tiny method per ActionTable entry) ----

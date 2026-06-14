@@ -226,6 +226,15 @@ public static class LayoutTomlReader
         foreach (var kv in baseCfg.PerLayoutOpts) { perLayout[kv.Key] = kv.Value; }
         foreach (var kv in overlay.PerLayoutOpts) { perLayout[kv.Key] = kv.Value; }
 
+        // Per-workspace layout overrides: per-key overlay ([[workspace]] is a layout-only concept).
+        var perWorkspace = new Dictionary<int, string>();
+        foreach (var kv in baseCfg.PerWorkspace) { perWorkspace[kv.Key] = kv.Value; }
+        foreach (var kv in overlay.PerWorkspace) { perWorkspace[kv.Key] = kv.Value; }
+
+        var perOutputWorkspace = new Dictionary<(string, int), string>();
+        foreach (var kv in baseCfg.PerOutputWorkspace) { perOutputWorkspace[kv.Key] = kv.Value; }
+        foreach (var kv in overlay.PerOutputWorkspace) { perOutputWorkspace[kv.Key] = kv.Value; }
+
         return new LayoutConfig
         {
             // Layout-only fields: overlay wins wholesale.
@@ -233,6 +242,8 @@ public static class LayoutTomlReader
             Defaults = overlay.Defaults,
             Slots = slots,
             PerLayoutOpts = perLayout,
+            PerWorkspace = perWorkspace,
+            PerOutputWorkspace = perOutputWorkspace,
             Border = overlay.Border,
 
             // Non-layout fields: inherit verbatim from base (wm.toml).

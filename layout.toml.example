@@ -3,8 +3,8 @@
 # Path: ~/.config/aqueous/layout.toml
 #
 # Optional standalone file that overlays the layout-only sections of wm.toml.
-# Only [layout], [layout.slots] and [layout.options.*] are read here; every
-# other section (keybinds, input, output, exec, scratchpad, state,
+# Only [layout], [layout.slots], [layout.options.*] and [[workspace]] are read
+# here; every other section (keybinds, input, output, exec, scratchpad, state,
 # rules, …) stays in wm.toml and is ignored if present here.
 #
 # Discovery order (first hit wins):
@@ -21,6 +21,8 @@
 #     keys missing from the sidecar are preserved.
 #   • [layout.options.<id>] — merged per layout id; the entire block from the
 #     sidecar replaces the same id from wm.toml (no deep-merge of Extra).
+#   • [[workspace]] — merged per workspace key; sidecar overrides on conflict,
+#     base entries missing from the sidecar are preserved.
 #
 # A missing or malformed sidecar is non-fatal: Aqueous falls back to the
 # [layout]* sections of wm.toml and logs a single line.
@@ -84,3 +86,23 @@ center_focused  = "true"    # auto-pan so the focused column is centred
 
 [layout.options.float]
 # Floating engine has no scalar knobs today; reserved for future use.
+
+
+# ------------------------------------------------------------------------------
+# Per-workspace layout overrides. Each [[workspace]] block forces one workspace
+# to a given layout id, independently of the others on the same monitor.
+# Identify the workspace by its 1-based number:
+#   workspace = 1   # workspace 1, 2, 3, …
+# An optional `output` connector name scopes the override to one monitor.
+# Resolution precedence: a per-keybinding set_layout_* override (per workspace)
+# > output+workspace block > workspace-only block > [[output]] > [layout].default.
+# For a multi-tag view the lowest matching workspace number wins.
+# ------------------------------------------------------------------------------
+#[[workspace]]
+#workspace = 1
+#layout    = "tile"
+#
+#[[workspace]]
+#output    = "DP-1"
+#workspace = 2
+#layout    = "monocle"

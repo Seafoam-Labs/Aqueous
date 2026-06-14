@@ -33,11 +33,21 @@ public sealed class LayoutController
     /// </summary>
     private readonly Dictionary<Scope, object?> _stateByScope = new();
     /// <summary>
-    /// Per-output id of the currently active layout (so we can detect swaps). Kept per-output
-    /// rather than per-scope: the layout-id selection is an output-wide property — switching tags
-    /// does not change which engine the output uses.
+    /// Per-scope id of the currently active layout (so we can detect swaps). Keyed by
+    /// <c>(output, visibleTags)</c> so that each workspace remembers its own layout id: switching
+    /// tags restores that workspace's layout, and <see cref="SetLayoutForWorkspace"/> changes only
+    /// the focused workspace. Populated both by explicit per-workspace overrides and lazily by
+    /// <see cref="ResolveEngine"/> as the resolved id is cached.
     /// </summary>
-    private readonly Dictionary<IntPtr, string> _idByOutput = new();
+    private readonly Dictionary<Scope, string> _idByScope = new();
+
+    /// <summary>
+    /// Per-output forced layout id set by <see cref="SetLayoutForOutput"/> ("apply to the whole
+    /// monitor"). Ranks below an explicit per-workspace override but above the config-derived
+    /// defaults. Kept separate from <see cref="_idByScope"/> so it can be honoured even before any
+    /// workspace on the output has been arranged.
+    /// </summary>
+    private readonly Dictionary<IntPtr, string> _forcedByOutput = new();
 
     public LayoutController(LayoutRegistry registry, LayoutConfig config)
     {
@@ -59,7 +69,8 @@ public sealed class LayoutController
         _epoch++;
         _engineByScope.Clear();
         _stateByScope.Clear();
-        _idByOutput.Clear();
+        _idByScope.Clear();
+        _forcedByOutput.Clear();
     }
 
     /// <summary>
@@ -73,12 +84,39 @@ public sealed class LayoutController
             layoutId = _config.DefaultLayout;
         }
 
-        // The id is a per-output property; the per-scope engine map is repopulated lazily on the
-        // first Arrange/MoveFocused/... call for a given (output, visibleTags) scope. Drop any
-        // pre-existing scopes for this output so they pick up the new id with fresh state.
+        // Apply to the whole monitor: drop every (output, *) scope so each workspace picks up the
+        // new id with fresh state on its next Arrange/MoveFocused/... call, and remember the forced
+        // id so it is honoured even before any workspace on the output has been arranged.
         DropScopesForOutput(output);
-        _idByOutput[output] = layoutId;
+        _forcedByOutput[output] = layoutId;
     }
+
+    /// <summary>
+    /// Force a single workspace — identified by <paramref name="output"/> and its visible-tag
+    /// bitmask <paramref name="tags"/> — to use a specific layout id, without disturbing the
+    /// sibling workspaces on the same output. Falls back to the configured default if the id is not
+    /// registered. This is the entry point for per-workspace <c>set_layout_*</c> keybindings.
+    /// </summary>
+    public void SetLayoutForWorkspace(IntPtr output, uint tags, string layoutId)
+    {
+        if (!_registry.Contains(layoutId))
+        {
+            layoutId = _config.DefaultLayout;
+        }
+
+        var scope = new Scope(output, tags);
+        // Drop only this workspace's engine/state so it restarts fresh under the new id; sibling
+        // workspaces keep their engines and ordering.
+        _engineByScope.Remove(scope);
+        _stateByScope.Remove(scope);
+        _idByScope[scope] = layoutId;
+    }
+
+    /// <summary>
+    /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForWorkspace(IntPtr, uint, string)"/>.
+    /// </summary>
+    public void SetLayoutForWorkspace(IntPtr output, uint tags, LayoutId layoutId) =>
+        SetLayoutForWorkspace(output, tags, layoutId.Value);
 
     /// <summary>
     /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForOutput(IntPtr, string)"/>.
@@ -100,9 +138,19 @@ public sealed class LayoutController
         {
             layoutId = _config.DefaultLayout;
         }
-        // Snapshot keys to avoid mutation during iteration. Use _idByOutput as the canonical set
-        // of outputs we have seen (the per-scope engine map may have multiple entries per output).
-        var outputs = new List<IntPtr>(_idByOutput.Keys);
+        // Snapshot the set of outputs we have seen: the union of forced-output ids and the outputs
+        // appearing in any (output, tags) scope (the per-scope map may have multiple entries per
+        // output).
+        var outputSet = new HashSet<IntPtr>(_forcedByOutput.Keys);
+        foreach (var scope in _idByScope.Keys)
+        {
+            outputSet.Add(scope.Output);
+        }
+        foreach (var scope in _engineByScope.Keys)
+        {
+            outputSet.Add(scope.Output);
+        }
+        var outputs = new List<IntPtr>(outputSet);
         if (outputs.Count == 0)
         {
             // No outputs registered yet — use a sentinel so the first ResolveEngine call sees this id. We
@@ -116,6 +164,8 @@ public sealed class LayoutController
                 PerLayoutOpts = _config.PerLayoutOpts,
                 PerOutput = _config.PerOutput,
                 PerOutputSelectors = _config.PerOutputSelectors,
+                PerWorkspace = _config.PerWorkspace,
+                PerOutputWorkspace = _config.PerOutputWorkspace,
                 Border = _config.Border,
                 Blur = _config.Blur,
                 Opacity = _config.Opacity,
@@ -136,15 +186,59 @@ public sealed class LayoutController
     public void SetLayout(LayoutId layoutId) => SetLayout(layoutId.Value);
 
     /// <summary>
-    /// Resolve which layout an output should be using, considering (in order): 1) an explicit override
-    /// set via <see cref="SetLayoutForOutput"/>; 2) per-output config (<c>[[output]]</c> in wm.toml);
-    /// 3) the global default.
+    /// Resolve which layout a workspace (output + visible-tag bitmask) should be using, considering
+    /// (in order): 1) an explicit per-workspace override / cached resolution
+    /// (<see cref="SetLayoutForWorkspace"/>); 2) a per-output forced id (<see cref="SetLayoutForOutput"/>);
+    /// 3) per-workspace config (<c>[[workspace]]</c> in wm.toml); 4) per-output config
+    /// (<c>[[output]]</c>); 5) the global default.
+    /// </summary>
+    public string ResolveLayoutId(IntPtr output, string? outputName, uint tags)
+    {
+        var scope = new Scope(output, tags);
+        if (_idByScope.TryGetValue(scope, out var scoped) && _registry.Contains(scoped))
+        {
+            return scoped;
+        }
+
+        if (_forcedByOutput.TryGetValue(output, out var forced) && _registry.Contains(forced))
+        {
+            return forced;
+        }
+
+        var byWorkspace = _config.ResolveLayoutForWorkspace(outputName, tags);
+        if (byWorkspace != null && _registry.Contains(byWorkspace))
+        {
+            return byWorkspace;
+        }
+
+        if (outputName != null && _config.PerOutput.TryGetValue(outputName, out var perOutId)
+            && _registry.Contains(perOutId))
+        {
+            return perOutId;
+        }
+
+        return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
+    }
+
+    /// <summary>
+    /// Output-wide resolution that ignores the visible-tag dimension. Returns an explicit
+    /// per-workspace override for any tracked workspace on the output if present, then the forced
+    /// per-output id, then per-output config, then the global default. Used by callers that only
+    /// have an output handle (e.g. the legacy float-active check).
     /// </summary>
     public string ResolveLayoutId(IntPtr output, string? outputName)
     {
-        if (_idByOutput.TryGetValue(output, out var id) && _registry.Contains(id))
+        foreach (var kv in _idByScope)
         {
-            return id;
+            if (kv.Key.Output == output && _registry.Contains(kv.Value))
+            {
+                return kv.Value;
+            }
+        }
+
+        if (_forcedByOutput.TryGetValue(output, out var forced) && _registry.Contains(forced))
+        {
+            return forced;
         }
 
         if (outputName != null && _config.PerOutput.TryGetValue(outputName, out var perOutId)
@@ -174,6 +268,13 @@ public sealed class LayoutController
                 (toRemove ??= new List<Scope>()).Add(k);
             }
         }
+        foreach (var k in _idByScope.Keys)
+        {
+            if (k.Output == output)
+            {
+                (toRemove ??= new List<Scope>()).Add(k);
+            }
+        }
         if (toRemove == null)
         {
             return;
@@ -182,6 +283,7 @@ public sealed class LayoutController
         {
             _engineByScope.Remove(k);
             _stateByScope.Remove(k);
+            _idByScope.Remove(k);
         }
     }
 
@@ -292,20 +394,22 @@ public sealed class LayoutController
 
     private ILayoutEngine ResolveEngine(Scope scope, string? outputName)
     {
-        var id = ResolveLayoutId(scope.Output, outputName);
+        var id = ResolveLayoutId(scope.Output, outputName, scope.Tags);
         if (!_engineByScope.TryGetValue(scope, out var engine) || engine.Id != id)
         {
-            // If the resolved id changed for this output (e.g. SetLayoutForOutput) drop *all* scopes
-            // for that output so every visible-tag partition picks up the new engine. Otherwise the
-            // user's current tag would adopt the new engine while other tags kept the stale one.
+            // Drop only *this* workspace's stale engine/state when its resolved id changes; sibling
+            // workspaces on the same output keep their own engines and ordering (the whole point of
+            // per-workspace layouts). DropScopesForOutput also clears _idByScope, so do the removal
+            // inline for the single scope instead.
             if (engine != null && engine.Id != id)
             {
-                DropScopesForOutput(scope.Output);
+                _engineByScope.Remove(scope);
+                _stateByScope.Remove(scope);
             }
             engine = _registry.Create(id);
             _engineByScope[scope] = engine;
             _stateByScope[scope] = null;
-            _idByOutput[scope.Output] = id;
+            _idByScope[scope] = id;
         }
         return engine;
     }
@@ -316,6 +420,6 @@ public sealed class LayoutController
     public void ForgetOutput(IntPtr output)
     {
         DropScopesForOutput(output);
-        _idByOutput.Remove(output);
+        _forcedByOutput.Remove(output);
     }
 }

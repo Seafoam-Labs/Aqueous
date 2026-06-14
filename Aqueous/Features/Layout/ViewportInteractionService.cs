@@ -58,6 +58,44 @@ internal sealed class ViewportInteractionService
     }
 
     /// <summary>
+    /// Resolve the focused output: the output owning the focused window, or the first known output
+    /// as a fallback when nothing is focused (so a fresh session's <c>set_layout_*</c> still lands
+    /// on the visible monitor). Returns <see cref="IntPtr.Zero"/> only when no outputs exist.
+    /// </summary>
+    private IntPtr ResolveFocusedOutput()
+    {
+        var focused = _focused.Current;
+        if (focused != IntPtr.Zero
+            && _windows.Entries.TryGetValue(focused, out var fw)
+            && fw.Output != IntPtr.Zero)
+        {
+            return fw.Output;
+        }
+
+        foreach (var k in _outputs.Entries.Keys)
+        {
+            return k;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Set the layout id of the currently-focused workspace (the focused output's visible-tag set)
+    /// without touching the sibling workspaces or other monitors. This is the per-workspace
+    /// <c>set_layout_*</c> entry point routed from <c>KeyBindingRouter</c>.
+    /// </summary>
+    public void SetLayoutForFocusedWorkspace(string layoutId)
+    {
+        var output = ResolveFocusedOutput();
+        _layoutController.SetLayoutForWorkspace(output, ResolveVisibleTags(output), layoutId);
+        if (_requests.IsBound)
+        {
+            _requests.ScheduleManage();
+        }
+    }
+
+    /// <summary>
     /// Pan the focused window's output by <paramref name="deltaColumns"/>.
     /// </summary>
     public void ScrollViewport(int deltaColumns)

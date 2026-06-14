@@ -65,6 +65,24 @@ public sealed record LayoutConfig
         Array.Empty<(OutputSelector, string)>();
 
     /// <summary>
+    /// Per-workspace layout id, keyed by 1-based workspace number (workspace 1, 2, 3, …). Consulted
+    /// after an explicit per-workspace override and the per-output config, but it ranks above
+    /// <see cref="DefaultLayout"/>. Populated from <c>[[workspace]]</c> blocks without an
+    /// <c>output</c> key.
+    /// </summary>
+    public IReadOnlyDictionary<int, string> PerWorkspace { get; init; } =
+        new Dictionary<int, string>();
+
+    /// <summary>
+    /// Per-(output, workspace) layout id, for "monitor X workspace N = monocle". The string key is
+    /// the connector name; the int is the 1-based workspace number. Most specific config override;
+    /// wins over <see cref="PerWorkspace"/>. Populated from <c>[[workspace]]</c> blocks with an
+    /// <c>output</c> key.
+    /// </summary>
+    public IReadOnlyDictionary<(string OutputName, int Workspace), string> PerOutputWorkspace { get; init; } =
+        new Dictionary<(string, int), string>();
+
+    /// <summary>
     /// Border styling shared by every layout that draws borders.
     /// </summary>
     public BorderSpec Border { get; init; } = new(2, 0xFF88C0D0u, 0xFF3B4252u, 0xFFBF616Au);
@@ -160,6 +178,40 @@ public sealed record LayoutConfig
             if (sel.Matches(name, edidSha256, make, model, serial))
             {
                 return id;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve the layout id for a workspace given the output connector and the visible-tag bitmask
+    /// surfaced by the layout pipeline. The mask is mapped to a 1-based workspace number by walking
+    /// its set bits from low to high, so a pure single-bit mask behaves exactly as the matching
+    /// workspace number; for a multi-bit mask (e.g. <c>AllTags</c>) the lowest matching workspace
+    /// wins. Within each workspace the most specific <see cref="PerOutputWorkspace"/> entry wins,
+    /// then a connector-agnostic <see cref="PerWorkspace"/> entry. Returns <c>null</c> when no
+    /// workspace override applies — callers fall back to <see cref="ResolveLayoutForOutput"/> then
+    /// <see cref="DefaultLayout"/>.
+    /// </summary>
+    public string? ResolveLayoutForWorkspace(string? outputName, uint tags)
+    {
+        uint remaining = tags;
+        while (remaining != 0)
+        {
+            int bit = System.Numerics.BitOperations.TrailingZeroCount(remaining);
+            int ws = bit + 1;                // 1-based workspace number
+            remaining &= remaining - 1;      // clear the lowest set bit
+
+            if (!string.IsNullOrEmpty(outputName)
+                && PerOutputWorkspace.TryGetValue((outputName!, ws), out var byBoth))
+            {
+                return byBoth;
+            }
+
+            if (PerWorkspace.TryGetValue(ws, out var byWs))
+            {
+                return byWs;
             }
         }
 

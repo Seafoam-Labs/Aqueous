@@ -212,6 +212,36 @@ public static class LayoutConfigLoader
 
         Dictionary<string, string> actionsMap = [];
 
+        // ------------------------------------------------------------- [[workspace]] per-workspace
+        // layout overrides. Each [[workspace]] table maps a workspace — identified by its 1-based
+        // workspace number (`workspace = 1`) — to a layout id. An optional `output` connector scopes
+        // the override to one monitor. Blocks missing a layout or a workspace number are silently
+        // dropped.
+        var perWorkspace = new Dictionary<int, string>();
+        var perOutputWorkspace = new Dictionary<(string, int), string>();
+        string? wsPendingOutput = null;
+        int wsPendingWorkspace = 0;
+        string? wsPendingLayout = null;
+
+        void FlushWorkspace()
+        {
+            if (wsPendingLayout != null && wsPendingWorkspace >= 1)
+            {
+                if (!string.IsNullOrEmpty(wsPendingOutput))
+                {
+                    perOutputWorkspace[(wsPendingOutput!, wsPendingWorkspace)] = wsPendingLayout;
+                }
+                else
+                {
+                    perWorkspace[wsPendingWorkspace] = wsPendingLayout;
+                }
+            }
+
+            wsPendingOutput = null;
+            wsPendingWorkspace = 0;
+            wsPendingLayout = null;
+        }
+
         foreach (var rawLine in text.Split('\n'))
         {
             var line = rawLine.Trim();
@@ -222,9 +252,10 @@ public static class LayoutConfigLoader
 
             if (line.StartsWith("[["))
             {
-                // Array-of-tables — [[output]], [[exec]].
+                // Array-of-tables — [[output]], [[exec]], [[workspace]].
                 FlushOutput();
                 FlushExec();
+                FlushWorkspace();
                 int end = line.IndexOf("]]", StringComparison.Ordinal);
                 curSection = end > 2 ? "[[" + line.Substring(2, end - 2).Trim() + "]]" : line;
 
@@ -242,6 +273,7 @@ public static class LayoutConfigLoader
             {
                 FlushOutput();
                 FlushExec();
+                FlushWorkspace();
                 int end = line.IndexOf(']');
                 curSection = end > 1 ? line.Substring(1, end - 1).Trim() : line;
                 continue;
@@ -347,6 +379,22 @@ public static class LayoutConfigLoader
                     }
 
                     break;
+                case "[[workspace]]":
+                    switch (key)
+                    {
+                        case "output":
+                            wsPendingOutput = val;
+                            break;
+                        case "workspace":
+                            // 1-based workspace number (workspace 1, 2, 3, …).
+                            wsPendingWorkspace = ParseInt(val, 0);
+                            break;
+                        case "layout":
+                            wsPendingLayout = val;
+                            break;
+                    }
+
+                    break;
                 case "[[snapzones]]":
                 case "[[snapzones.zone]]":
                     break;
@@ -435,6 +483,7 @@ public static class LayoutConfigLoader
 
         FlushOutput();
         FlushExec();
+        FlushWorkspace();
 
         var defaults = new LayoutOptions(
             gapsOuter, gapsInner, masterRatio, masterCount,
@@ -518,6 +567,8 @@ public static class LayoutConfigLoader
             PerLayoutOpts = perLayoutOpts,
             PerOutput = perOutput,
             PerOutputSelectors = perOutputSelectors,
+            PerWorkspace = perWorkspace,
+            PerOutputWorkspace = perOutputWorkspace,
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
             Opacity = new OpacitySpec(opacityEnabled, opacityValue),

@@ -28,6 +28,25 @@ apply_on_reload = true
 #[[output]]
 #name   = "eDP-1"
 #layout = "monocle"
+
+# -----------------------------------------------------------------------------
+# Per-workspace layout overrides. Each [[workspace]] block forces one workspace
+# to a given layout id. Identify the workspace by its 1-based number:
+#   workspace = 1   # workspace 1, 2, 3, …
+# An optional `output` connector name scopes the override to one monitor; a
+# block without `output` applies to that workspace on every monitor. Precedence
+# at resolution time: a per-keybinding set_layout_* override (per workspace) >
+# an output+workspace block > a workspace-only block > [[output]] > [layout].default.
+# For a multi-tag view the lowest matching workspace number wins.
+# -----------------------------------------------------------------------------
+#[[workspace]]
+#workspace = 1
+#layout    = "tile"
+#
+#[[workspace]]
+#output    = "DP-1"
+#workspace = 2
+#layout    = "monocle"
 [struts]
 top    = 32   # Noctalia bar height; adjust to match your bar
 bottom = 0
