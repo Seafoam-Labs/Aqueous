@@ -245,6 +245,7 @@ public static class LayoutTomlReader
             PerWorkspace = perWorkspace,
             PerOutputWorkspace = perOutputWorkspace,
             Border = overlay.Border,
+            ForceSsd = overlay.ForceSsd,
 
             // Non-layout fields: inherit verbatim from base (wm.toml).
             Blur = baseCfg.Blur,

@@ -73,6 +73,8 @@ public static class LayoutConfigLoader
         // [opacity] section — global window opacity driven to riverdelta via set_opacity. Defaults mirror OpacitySpec.Default.
         bool opacityEnabled = OpacitySpec.Default.Enabled;
         double opacityValue = OpacitySpec.Default.Value;
+        // [layout].force_ssd — ask SSD-capable windows to drop client-side decorations.
+        bool forceSsd = false;
 
         // Keybind tables.
         var kbBuiltins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -310,6 +312,7 @@ public static class LayoutConfigLoader
                         case "border_focused": borderFocused = ParseColor(val, borderFocused); break;
                         case "border_normal": borderNormal = ParseColor(val, borderNormal); break;
                         case "border_urgent": borderUrgent = ParseColor(val, borderUrgent); break;
+                        case "force_ssd": forceSsd = ParseBool(val, forceSsd); break;
                     }
 
                     break;
@@ -573,6 +576,7 @@ public static class LayoutConfigLoader
             Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
             Opacity = new OpacitySpec(opacityEnabled, opacityValue),
             Keybinds = keybinds,
+            ForceSsd = forceSsd,
             State = stateConfig,
             Exec = new ExecConfig { Entries = execEntries },
             Input = InputConfigParser.Parse(text),

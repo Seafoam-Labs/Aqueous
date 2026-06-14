@@ -171,6 +171,22 @@ internal sealed unsafe class WindowEventService
                 ApplyRule(w);
                 break;
 
+            case RiverProtocolOpcodes.Window.DecorationHint:
+                // decoration_hint (event opcode 6): the client's CSD/SSD capability. Cached so the
+                // manage sequence can decide whether river_window_v1.use_ssd will have any effect
+                // (it is a no-op on only_supports_csd clients). The hint may be re-sent if the
+                // client changes its preference, so re-arm the SSD latch when it flips back to
+                // only-CSD so a later SSD-capable hint can re-trigger the apply.
+                w.DecorationHint = args[0].u;
+                w.DecorationHintReceived = true;
+                if (w.DecorationHint == RiverProtocolOpcodes.Window.DecorationOnlyCsd)
+                {
+                    w.SsdApplied = false;
+                }
+
+                RiverLog.Write($"window 0x{proxy.ToString("x")} decoration_hint={w.DecorationHint}");
+                break;
+
             case RiverProtocolOpcodes.Window.PointerMoveRequested:
             {
                 IntPtr seatProxy = args[0].o;

@@ -40,6 +40,15 @@ internal sealed class WindowEntry
     public int LastBorderWidth = int.MinValue;
     public bool ShowSent;
 
+    // Decoration mode handling. DecorationHint caches the last decoration_hint event
+    // (river_window_v1 event opcode 6): only_csd / prefers_csd / prefers_ssd / no_preference.
+    // DecorationHintReceived gates the manage-pass apply until at least one hint has arrived.
+    // SsdApplied latches once use_ssd (request opcode 7) has been marshalled so it is never
+    // re-sent per manage cycle (mirrors the BordersSent latch above).
+    public uint DecorationHint;
+    public bool DecorationHintReceived;
+    public bool SsdApplied;
+
     // Cached last per-window blur flag marshalled via river_window_v1.set_window_blur (opcode 25)
     // so the render pass only re-sends when the effective decision flips (rule change / global
     // [blur].enabled toggle on reload). WindowBlurSent latches the first emit so an unchanged

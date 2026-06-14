@@ -45,6 +45,12 @@ internal sealed unsafe class ManagerEventService
     private readonly ILayerShellUsableAreaStore _layerShellUsableAreas;
     private readonly Workspaces.WorkspaceStore _workspaceStore;
 
+    // Tracks the LayoutController epoch the force_ssd decision was last applied for. When the epoch
+    // advances (config reload via Super+R) the SSD latches are re-armed so a toggled force_ssd
+    // value re-applies, and windows previously switched to SSD are reverted to CSD when the flag is
+    // turned off. -1 forces the first manage cycle to seed the epoch.
+    private long _ssdConfigEpoch = -1;
+
     public ManagerEventService(
         IEventPump pump,
         IWindowRegistry windowRegistry,
@@ -159,6 +165,69 @@ internal sealed unsafe class ManagerEventService
         }
     }
 
+    /// <summary>
+    /// Applies the <c>[layout].force_ssd</c> decision during a manage sequence. When enabled, asks
+    /// every SSD-capable window (one whose <c>decoration_hint</c> is not <c>only_supports_csd</c>)
+    /// to drop its client-side decorations via <c>river_window_v1.use_ssd</c>, suppressing the
+    /// client-drawn titlebar / minimize / maximize / close buttons. The send is latched per window
+    /// (<see cref="WindowEntry.SsdApplied"/>) so it fires once. On config reload (epoch bump) the
+    /// latches are re-armed; windows previously switched to SSD are reverted with <c>use_csd</c>
+    /// when the flag is turned off. only_csd clients (most GTK apps) are skipped — the request is a
+    /// protocol no-op for them.
+    /// </summary>
+    private void ApplyForceSsd()
+    {
+        bool forceSsd = _layoutController.Config.ForceSsd;
+
+        // Config-reload re-arm: re-evaluate on every window when the epoch advances.
+        if (_ssdConfigEpoch != _layoutController.Epoch)
+        {
+            _ssdConfigEpoch = _layoutController.Epoch;
+            foreach (var entry in _windowRegistry.Entries.Values)
+            {
+                if (entry.SsdApplied && !forceSsd)
+                {
+                    // force_ssd was turned off: ask the window to return to client-side decoration.
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        entry.Proxy, RiverProtocolOpcodes.Window.UseCsd, IntPtr.Zero, 0, 0,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    RiverLog.Write($"use_csd on window 0x{entry.Proxy.ToString("x")} (force_ssd disabled)");
+                }
+
+                entry.SsdApplied = false;
+            }
+        }
+
+        if (!forceSsd)
+        {
+            return;
+        }
+
+        foreach (var entry in _windowRegistry.Entries.Values)
+        {
+            if (entry.SsdApplied)
+            {
+                continue; // latch: send use_ssd once per window.
+            }
+
+            if (!entry.DecorationHintReceived)
+            {
+                continue; // wait for the client's decoration_hint before deciding.
+            }
+
+            if (entry.DecorationHint == RiverProtocolOpcodes.Window.DecorationOnlyCsd)
+            {
+                continue; // protocol no-op for only_csd clients — skip.
+            }
+
+            WaylandInterop.wl_proxy_marshal_flags(
+                entry.Proxy, RiverProtocolOpcodes.Window.UseSsd, IntPtr.Zero, 0, 0,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            entry.SsdApplied = true;
+            RiverLog.Write($"use_ssd on window 0x{entry.Proxy.ToString("x")}");
+        }
+    }
+
     private void HandleManageStart()
     {
         _manageCycle.InsideManageSequence = true;
@@ -201,6 +270,9 @@ internal sealed unsafe class ManagerEventService
                 RiverLog.Write("enabled Super+BTN_RIGHT pointer binding");
             }
 
+            // Server-side decoration: honour [layout].force_ssd. use_ssd/use_csd may only be sent
+            // inside a manage sequence, which is exactly here.
+            ApplyForceSsd();
 
             // Drag finish path.
             if (_dragState.DragFinished)

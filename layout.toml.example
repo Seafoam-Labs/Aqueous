@@ -15,8 +15,8 @@
 #   5. /etc/xdg/aqueous/layout.toml
 #
 # Merge semantics:
-#   • Scalar fields ([layout].default, gaps_*, master_*, border_*) — sidecar
-#     wins wholesale when present.
+#   • Scalar fields ([layout].default, gaps_*, master_*, border_*, force_ssd) —
+#     sidecar wins wholesale when present.
 #   • [layout.slots] — merged per key; sidecar overrides on conflict, base
 #     keys missing from the sidecar are preserved.
 #   • [layout.options.<id>] — merged per layout id; the entire block from the
@@ -51,6 +51,12 @@ border_width   = 2
 border_focused = 0xFF88C0D0   # Nord frost
 border_normal  = 0xFF3B4252   # Nord polar night
 border_urgent  = 0xFFBF616A   # Nord aurora red
+
+# Force server-side decoration: hides the client-drawn titlebar / minimize /
+# maximize / close buttons on SSD-capable apps (most Qt/KDE, libdecor-aware,
+# correctly-flagged Electron). CSD-only apps (most GTK/GNOME) are unaffected —
+# a Wayland protocol limitation, not an Aqueous one. Default: false.
+force_ssd      = false
 
 
 # ------------------------------------------------------------------------------

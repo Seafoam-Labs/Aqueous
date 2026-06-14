@@ -64,6 +64,28 @@ internal static class RiverProtocolOpcodes
         /// request opcodes are unchanged.
         /// </summary>
         internal const uint SetWorkspace = 24;
+
+        /// <summary>
+        /// <c>use_csd</c> request opcode: tell the window to draw its own client-side
+        /// decorations (titlebar/borders). Manage-sequence only.
+        /// </summary>
+        internal const uint UseCsd = 6;
+
+        /// <summary>
+        /// <c>use_ssd</c> request opcode: tell the window to use server-side decoration and not
+        /// draw any client-side decorations. Manage-sequence only; no effect on only_csd clients.
+        /// </summary>
+        internal const uint UseSsd = 7;
+
+        /// <summary>
+        /// <c>decoration_hint</c> event values mirroring the protocol enum: the client's
+        /// CSD/SSD capability. <see cref="DecorationOnlyCsd"/> is the value that makes
+        /// <see cref="UseSsd"/> a no-op, so it must be skipped when forcing SSD.
+        /// </summary>
+        internal const uint DecorationOnlyCsd = 0;
+        internal const uint DecorationPrefersCsd = 1;
+        internal const uint DecorationPrefersSsd = 2;
+        internal const uint DecorationNoPreference = 3;
     }
 
     /// <summary>

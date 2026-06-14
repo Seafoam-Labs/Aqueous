@@ -198,6 +198,7 @@ public sealed class LayoutController
                 Blur = _config.Blur,
                 Opacity = _config.Opacity,
                 Keybinds = _config.Keybinds,
+                ForceSsd = _config.ForceSsd,
             };
             _epoch++;
             return;

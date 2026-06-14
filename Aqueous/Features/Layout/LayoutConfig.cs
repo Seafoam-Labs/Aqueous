@@ -108,6 +108,14 @@ public sealed record LayoutConfig
     public KeybindConfig Keybinds { get; init; } = new();
 
     /// <summary>
+    /// When true, Aqueous asks every SSD-capable window to use server-side decoration
+    /// (river_window_v1.use_ssd), suppressing the client's own titlebar / minimize /
+    /// maximize / close buttons. Has no effect on only_csd clients (most GTK/GNOME apps) —
+    /// a Wayland protocol limitation. Parsed from <c>[layout].force_ssd</c>.
+    /// </summary>
+    public bool ForceSsd { get; init; } = false;
+
+    /// <summary>
     /// <c>[state]</c> + <c>[scratchpad]</c> sections.
     /// </summary>
     public StateConfig State { get; init; } = StateConfig.Default;
