@@ -483,15 +483,21 @@ public class GameModeLayoutTests
     }
 
     [Fact]
-    public void MoveFocused_UpDown_BehaveLikePrevNext()
+    public void MoveFocused_Anchor_UpDownMoveWithinColumn_PlusMinusTwo()
     {
+        // Anchor branch: non-anchor windows round-robin into two side columns, so Up/Down move
+        // within a column (idx ± 2), not idx ± 1. With 4 non-anchor windows [1,2,3,4], moving
+        // window 1 (idx 0) Down swaps it with window 3 (idx 2); moving it Up swaps back.
         var engine = NewEngine();
         var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080);
-        var windows = new List<WindowEntryView> { View(1), View(2), View(3), anchor };
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), View(4), anchor };
         var state = HydrateState(engine, windows);
 
-        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Down, ref state));
-        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Up, ref state));
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Down, ref state));
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Up, ref state));
+
+        // Edge: window 2 (idx 1) cannot move Up (idx-2 < 0).
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Up, ref state));
     }
 
     [Fact]

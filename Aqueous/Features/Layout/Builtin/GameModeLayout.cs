@@ -389,20 +389,38 @@ public sealed class GameModeLayout : ILayoutEngine
             return false;
         }
 
+        // No-anchor branch: the fallback sub-engine (grid by default) owns the windows directly
+        // and, being stateful, keeps its own positional ordering. Delegate the move to it so the
+        // sub-engine's native swap semantics apply — in particular GridLayout's 2-D swap (Left/Right
+        // = idx ± 1, Up/Down = idx ± cols, the "position 2 ↔ position 4" behaviour). Permuting
+        // NonAnchorOrder here would be ignored, since the grid engine reconciles to its own order.
+        if (state.CurrentAnchor == IntPtr.Zero)
+        {
+            return state.FallbackEngine is not null
+                && state.FallbackEngine.MoveFocused(output, focused, dir, ref state.FallbackState);
+        }
+
         var i = state.NonAnchorOrder.IndexOf(focused);
         if (i < 0)
         {
             return false;
         }
 
+        var count = state.NonAnchorOrder.Count;
+
+        // Anchor branch: non-anchor windows are split round-robin across two side columns (even
+        // idx → left, odd idx → right). Up/Down move within a column (the entry two positions
+        // away, idx ± 2); Left/Right cross to the other column (the adjacent entry, idx ± 1).
         var j = dir switch
         {
-            FocusDirection.Left or FocusDirection.Up or FocusDirection.Prev   => i - 1,
-            FocusDirection.Right or FocusDirection.Down or FocusDirection.Next => i + 1,
-            _ => i
+            FocusDirection.Up or FocusDirection.Prev => i - 2,
+            FocusDirection.Down or FocusDirection.Next => i + 2,
+            FocusDirection.Left => i - 1,
+            FocusDirection.Right => i + 1,
+            _ => i,
         };
 
-        if (j < 0 || j >= state.NonAnchorOrder.Count || j == i)
+        if (j < 0 || j >= count || j == i)
         {
             return false;
         }
@@ -412,6 +430,67 @@ public sealed class GameModeLayout : ILayoutEngine
         (state.NonAnchorOrder[i], state.NonAnchorOrder[j]) =
             (state.NonAnchorOrder[j], state.NonAnchorOrder[i]);
         return true;
+    }
+
+    /// <summary>
+    /// Move focus across the non-anchor band so <c>focus_*</c> tracks the same geometry as
+    /// <see cref="MoveFocused"/>: the no-anchor branch steps by grid math (<c>±1</c> horizontal,
+    /// <c>±cols</c> vertical); the anchor branch steps within a side column (<c>±2</c>) or crosses
+    /// columns (<c>±1</c>). The anchor itself is never returned, and the result is live-checked
+    /// against the current snapshot. Returns <c>null</c> (controller falls back to its default
+    /// cycle) on any edge / missing-state case.
+    /// </summary>
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows,
+        ref object? perOutputState)
+    {
+        if (perOutputState is not State state)
+        {
+            return null;
+        }
+
+        // No-anchor branch: delegate to the fallback sub-engine so focus movement tracks the
+        // sub-engine's geometry (grid's ± cols / ± 1 navigation).
+        if (state.CurrentAnchor == IntPtr.Zero)
+        {
+            return state.FallbackEngine?.FocusNeighbor(
+                output, current, dir, windows, ref state.FallbackState);
+        }
+
+        var i = state.NonAnchorOrder.IndexOf(current);
+        if (i < 0)
+        {
+            return null;
+        }
+
+        var count = state.NonAnchorOrder.Count;
+
+        // Anchor branch: ± 2 within a side column, ± 1 to cross columns (mirrors MoveFocused).
+        var j = dir switch
+        {
+            FocusDirection.Up or FocusDirection.Prev => i - 2,
+            FocusDirection.Down or FocusDirection.Next => i + 2,
+            FocusDirection.Left => i - 1,
+            FocusDirection.Right => i + 1,
+            _ => i,
+        };
+
+        if (j < 0 || j >= count || j == i)
+        {
+            return null;
+        }
+
+        var h = state.NonAnchorOrder[j];
+
+        var live = new HashSet<IntPtr>();
+        foreach (WindowEntryView w in windows)
+        {
+            live.Add(w.Handle);
+        }
+        return live.Contains(h) ? h : (IntPtr?)null;
     }
 }
 
