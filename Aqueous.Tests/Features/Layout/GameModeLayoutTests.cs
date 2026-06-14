@@ -620,6 +620,62 @@ public class GameModeLayoutTests
     }
 
     [Fact]
+    public void MoveFocused_NoAnchor_SurvivesModeTransition_Grid()
+    {
+        // Regression: a no-anchor swap must live in NonAnchorOrder (not just the transient
+        // fallback sub-engine state), so it survives an anchor frame appearing and disappearing.
+        // Before the fix the swap was only stored in FallbackState, which is wiped when an anchor
+        // appears, so the band reverted to its original order on the next no-anchor frame.
+        var engine = NewEngine();
+        var noAnchor = new List<WindowEntryView> { View(1), View(2), View(3), View(4) };
+
+        object? state = null;
+        var f0 = engine.Arrange(UA2560, noAnchor, IntPtr.Zero, LayoutOptions.Default, ref state);
+
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        var cell1 = f0[1].Geometry; // grid cell at index 1
+
+        // Swap W1 with W2 → order becomes [2,1,3,4]; W1 should sit at cell index 1.
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, ref state));
+        var f1 = engine.Arrange(UA2560, noAnchor, IntPtr.Zero, LayoutOptions.Default, ref state);
+        Assert.Equal(cell1, cellOf(f1, 1));
+
+        // An anchor launches: one frame in anchor mode (this resets the fallback engine state).
+        var anchor = View(99, AnchorPlacement(), bufW: 1920, bufH: 1080, lastFocusTick: 10);
+        var withAnchor = new List<WindowEntryView> { View(1), View(2), View(3), View(4), anchor };
+        engine.Arrange(UA2560, withAnchor, anchor.Handle, LayoutOptions.Default, ref state);
+
+        // Anchor closes: back to the no-anchor band. The swapped order must be intact.
+        var f2 = engine.Arrange(UA2560, noAnchor, IntPtr.Zero, LayoutOptions.Default, ref state);
+        Assert.Equal(cell1, cellOf(f2, 1));
+    }
+
+    [Fact]
+    public void FocusNeighbor_NoAnchor_StepsByGridMath()
+    {
+        // focus_* in the no-anchor band must track the same grid geometry as MoveFocused:
+        // Right steps +1, Down steps +cols. With 4 windows (2x2 grid, cols = 2):
+        // from W1 (idx 0): Right → W2 (idx 1), Down → W3 (idx 2).
+        var engine = NewEngine();
+        var windows = new List<WindowEntryView> { View(1), View(2), View(3), View(4) };
+        var state = HydrateState(engine, windows);
+
+        var right = engine.FocusNeighbor(IntPtr.Zero, new IntPtr(1), FocusDirection.Right, windows, ref state);
+        Assert.Equal(new IntPtr(2), right);
+
+        var down = engine.FocusNeighbor(IntPtr.Zero, new IntPtr(1), FocusDirection.Down, windows, ref state);
+        Assert.Equal(new IntPtr(3), down);
+    }
+
+    [Fact]
     public void MoveFocused_BeforeFirstArrange_NoCrash()
     {
         // MoveFocused called with no state (no Arrange yet) must not crash; returns false.

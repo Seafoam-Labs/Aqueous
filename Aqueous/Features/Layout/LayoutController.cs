@@ -59,18 +59,36 @@ public sealed class LayoutController
     public long Epoch => _epoch;
 
     /// <summary>
-    /// Atomically swap to a new config. All per-output engine state is dropped on the next <see
-    /// cref="Arrange"/> so engines recompute from scratch (epoch bump). Floating per-window overrides
-    /// are stored outside the controller and survive.
+    /// Atomically swap to a new config (epoch bump). Per-scope engine state is kept for workspaces
+    /// whose resolved layout id is unchanged — so layout-order memory (e.g. grid/game-mode slot
+    /// order) survives a reload — and dropped only for scopes whose resolved id changed, which
+    /// recompute from scratch on their next <see cref="Arrange"/>. Floating per-window overrides are
+    /// stored outside the controller and survive.
     /// </summary>
     public void ReplaceConfig(LayoutConfig newConfig)
     {
         _config = newConfig ?? throw new ArgumentNullException(nameof(newConfig));
         _epoch++;
-        _engineByScope.Clear();
-        _stateByScope.Clear();
-        _idByScope.Clear();
-        _forcedByOutput.Clear();
+
+        // Layout-order memory across config reloads: rather than dropping everything, keep each
+        // workspace's engine + per-scope state (its slot order) when the resolved layout id is
+        // unchanged under the new config, and drop only the scopes whose resolved id actually
+        // changed so they restart fresh. Explicit per-workspace (_idByScope) and per-output
+        // (_forcedByOutput) overrides are preserved so resolution — and thus the kept ordering —
+        // stays stable across the reload. Engines recompute geometry every Arrange regardless, so
+        // honouring a changed default/per-output id only requires dropping the diverging scopes.
+        foreach (var scope in new List<Scope>(_engineByScope.Keys))
+        {
+            var newId = ResolveLayoutId(scope.Output, null, scope.Tags);
+            if (_engineByScope.TryGetValue(scope, out var engine) && engine.Id == newId)
+            {
+                continue;
+            }
+
+            _engineByScope.Remove(scope);
+            _stateByScope.Remove(scope);
+            _idByScope.Remove(scope);
+        }
     }
 
     /// <summary>
@@ -105,6 +123,16 @@ public sealed class LayoutController
         }
 
         var scope = new Scope(output, tags);
+
+        // Layout-order memory: if this workspace is already on the requested layout id, keep its
+        // engine + per-scope state (the slot order) intact so a redundant set_layout_* keybinding
+        // doesn't reset the ordering. Only drop and restart fresh when the id actually changes.
+        if (_idByScope.TryGetValue(scope, out var currentId)
+            && string.Equals(currentId, layoutId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         // Drop only this workspace's engine/state so it restarts fresh under the new id; sibling
         // workspaces keep their engines and ordering.
         _engineByScope.Remove(scope);

@@ -261,6 +261,52 @@ public class LayoutTests
     }
 
     [Fact]
+    public void Controller_ReloadPreservesGridOrder_WhenResolvedIdUnchanged()
+    {
+        // Layout-order memory: reloading the config (e.g. on file change) must NOT reset a grid
+        // workspace's slot order when the resolved layout id is unchanged. A move performed before
+        // the reload must still be visible after it.
+        var registry = new LayoutRegistry();
+        var cfg = LayoutConfig.Parse("""
+            [layout]
+            default = "grid"
+            """);
+        var ctrl = new LayoutController(registry, cfg);
+        var output = new IntPtr(0xAB);
+        const uint tags = 0xFFFFFFFFu;
+        var wins = new List<WindowEntryView>
+        {
+            MakeWin(1), MakeWin(2), MakeWin(3), MakeWin(4)
+        };
+
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        var f0 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        var cell1 = f0[1].Geometry; // grid cell at index 1
+
+        // Swap window 1 with its neighbour → order [2,1,3,4]; window 1 now sits at cell index 1.
+        Assert.True(ctrl.MoveFocused(output, null, new IntPtr(1), FocusDirection.Right, tags));
+        var f1 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        Assert.Equal(cell1, cellOf(f1, 1));
+
+        // Reload an equivalent config: the resolved id stays "grid", so the slot order must survive.
+        ctrl.ReplaceConfig(LayoutConfig.Parse("""
+            [layout]
+            default = "grid"
+            """));
+
+        var f2 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        Assert.Equal(cell1, cellOf(f2, 1));
+    }
+
+    [Fact]
     public void Controller_ReloadDropsEngineState()
     {
         var registry = new LayoutRegistry();

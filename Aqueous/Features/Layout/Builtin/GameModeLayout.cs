@@ -157,8 +157,8 @@ public sealed class GameModeLayout : ILayoutEngine
             }
 
             // Permute visibleWindows by NonAnchorOrder so the fallback engine sees windows
-            // in the order MoveFocused has put them. This is the single source of truth for
-            // ordering: the fallback engine itself need not implement MoveFocused (most don't —
+            // in the order MoveFocused has put them. NonAnchorOrder is the single source of truth
+            // for ordering: the fallback engine itself need not implement MoveFocused (most don't —
             // grid/tile/floating have no swap of their own). Anything not yet in NonAnchorOrder
             // (race between Sync and a brand-new window) is appended in arrival order.
             var byHandleNoAnchor = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
@@ -184,8 +184,15 @@ public sealed class GameModeLayout : ILayoutEngine
                 }
             }
 
+            // Hand the fallback engine a *fresh, transient* state each frame so it renders exactly
+            // the order we computed from NonAnchorOrder. A stateful sub-engine (e.g. grid) persists
+            // its own slot order and reconciles by keeping existing entries, so reusing its state
+            // would make it ignore our permutation. Because NonAnchorOrder is authoritative and is
+            // preserved across frames (and across anchor/no-anchor transitions), the sub-engine's
+            // own ordering memory is redundant here — FallbackState is just per-frame scratch.
+            object? scratch = null;
             return state.FallbackEngine.Arrange(
-                usableArea, ordered, focusedWindow, opts, ref state.FallbackState);
+                usableArea, ordered, focusedWindow, opts, ref scratch);
         }
 
         WindowEntryView a = anchor.Value;
@@ -389,15 +396,48 @@ public sealed class GameModeLayout : ILayoutEngine
             return false;
         }
 
-        // No-anchor branch: the fallback sub-engine (grid by default) owns the windows directly
-        // and, being stateful, keeps its own positional ordering. Delegate the move to it so the
-        // sub-engine's native swap semantics apply — in particular GridLayout's 2-D swap (Left/Right
-        // = idx ± 1, Up/Down = idx ± cols, the "position 2 ↔ position 4" behaviour). Permuting
-        // NonAnchorOrder here would be ignored, since the grid engine reconciles to its own order.
+        // No-anchor branch: apply the grid swap math directly to NonAnchorOrder, the single source
+        // of truth for band ordering. Delegating to the fallback sub-engine's own state would only
+        // mutate FallbackState (transient scratch that is wiped whenever an anchor appears or the
+        // fallback id changes), so the move would be lost across mode transitions. Mirrors
+        // GridLayout.MoveFocused: Left/Right = idx ± 1, Up/Down = idx ± cols (cols = ceil(sqrt(n))),
+        // with the short-last-row Down clamp. Arrange's no-anchor branch then permutes
+        // visibleWindows by NonAnchorOrder, so the grid renders the new order without needing its
+        // own swap.
         if (state.CurrentAnchor == IntPtr.Zero)
         {
-            return state.FallbackEngine is not null
-                && state.FallbackEngine.MoveFocused(output, focused, dir, ref state.FallbackState);
+            var idx = state.NonAnchorOrder.IndexOf(focused);
+            if (idx < 0 || state.NonAnchorOrder.Count < 2)
+            {
+                return false;
+            }
+
+            int n = state.NonAnchorOrder.Count;
+            int cols = (int)Math.Ceiling(Math.Sqrt(n));
+
+            int target = dir switch
+            {
+                FocusDirection.Left or FocusDirection.Prev => idx - 1,
+                FocusDirection.Right or FocusDirection.Next => idx + 1,
+                FocusDirection.Up => idx - cols,
+                FocusDirection.Down => idx + cols,
+                _ => idx,
+            };
+
+            // Down into the empty cell of a short last row clamps to the last existing window.
+            if (dir == FocusDirection.Down && target >= n && idx < n - 1)
+            {
+                target = n - 1;
+            }
+
+            if (target < 0 || target >= n || target == idx)
+            {
+                return false;
+            }
+
+            (state.NonAnchorOrder[idx], state.NonAnchorOrder[target]) =
+                (state.NonAnchorOrder[target], state.NonAnchorOrder[idx]);
+            return true;
         }
 
         var i = state.NonAnchorOrder.IndexOf(focused);
@@ -452,12 +492,46 @@ public sealed class GameModeLayout : ILayoutEngine
             return null;
         }
 
-        // No-anchor branch: delegate to the fallback sub-engine so focus movement tracks the
-        // sub-engine's geometry (grid's ± cols / ± 1 navigation).
+        // No-anchor branch: step through NonAnchorOrder by the same grid math MoveFocused uses
+        // (±1 horizontal, ±cols vertical, short-last-row Down clamp) so focus_* tracks the band's
+        // canonical order rather than the transient FallbackState.
         if (state.CurrentAnchor == IntPtr.Zero)
         {
-            return state.FallbackEngine?.FocusNeighbor(
-                output, current, dir, windows, ref state.FallbackState);
+            var idx = state.NonAnchorOrder.IndexOf(current);
+            if (idx < 0)
+            {
+                return null;
+            }
+
+            int n = state.NonAnchorOrder.Count;
+            int cols = (int)Math.Ceiling(Math.Sqrt(n));
+
+            int target = dir switch
+            {
+                FocusDirection.Left or FocusDirection.Prev => idx - 1,
+                FocusDirection.Right or FocusDirection.Next => idx + 1,
+                FocusDirection.Up => idx - cols,
+                FocusDirection.Down => idx + cols,
+                _ => idx,
+            };
+
+            if (dir == FocusDirection.Down && target >= n && idx < n - 1)
+            {
+                target = n - 1;
+            }
+
+            if (target < 0 || target >= n || target == idx)
+            {
+                return null;
+            }
+
+            var hh = state.NonAnchorOrder[target];
+            var liveNoAnchor = new HashSet<IntPtr>();
+            foreach (WindowEntryView w in windows)
+            {
+                liveNoAnchor.Add(w.Handle);
+            }
+            return liveNoAnchor.Contains(hh) ? hh : (IntPtr?)null;
         }
 
         var i = state.NonAnchorOrder.IndexOf(current);
