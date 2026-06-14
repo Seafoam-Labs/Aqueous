@@ -268,7 +268,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
                 "lock_screen: no command configured in [actions]");
             return;
         }
-        RunShell(cmd, "lock_screens");
+        RunShell(cmd, "lock_screen");
     }
 
     private static void RunShell(string cmd, string tag)

@@ -76,7 +76,7 @@ value   = 0.9    # 0.0 = fully transparent .. 1.0 = fully opaque
 [actions]
 toggle_start_menu = "qs -c noctalia-shell ipc call launcher toggle"
 spawn_terminal = "tabby"
-lock_screen = "qs -c noctalia-shell ipc call lockScreen lock"
+lock_screen = "swaylock -f --screenshots --clock --indicator --effect-blur 7x5 --effect-vignette 0.5:0.5 --fade-in 0.2 --grace 2 --ring-color bb00cc --key-hover-color ee00ee --line-color 00000000 --inside-color 00000088 --separator-color 00000000"
 
 # -----------------------------------------------------------------------------
 # Keybindings.
@@ -288,6 +288,16 @@ when    = "startup"          # "startup" (default) | "reload" | "always"
 once    = true               # don't relaunch on --reload
 restart = true              # respawn (with backoff) on non-zero exit
 log     = "/tmp/noctalia.log"
+
+# Idle → lock only (swaylock-effects). No screen blank, no suspend on idle.
+# Uses the same effects-enabled swaylock command as the lock_screen action.
+[[exec]]
+name    = "swayidle"
+command = "swayidle -w timeout 300 'swaylock -f --screenshots --clock --indicator --effect-blur 7x5 --effect-vignette 0.5:0.5 --fade-in 0.2 --ring-color bb00cc --key-hover-color ee00ee --line-color 00000000 --inside-color 00000088 --separator-color 00000000'"
+when    = "startup"
+once    = true               # don't relaunch on --reload → avoids duplicate daemons
+restart = true               # respawn (with backoff) if it dies
+log     = "/tmp/swayidle.log"
 
 #[[exec]]
 #name    = "xwayland-satellite"

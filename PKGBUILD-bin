@@ -3,7 +3,7 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous Wayland window manager bundled with RiverDelta (prebuilt binary release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -11,7 +11,8 @@ license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite'
-         'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard')
+         'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
+         'swaylock-effects' 'swayidle')
 optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
             'greetd: minimal login manager for tuigreet'
             'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
