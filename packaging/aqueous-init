@@ -53,15 +53,35 @@ fi
 # xdg-desktop-portal-gtk can actually connect to the compositor.
 # Must run here, NOT in aqueous-wm.sh, because WAYLAND_DISPLAY only
 # becomes valid once RiverDelta has exec'd us.
+# The GPU-pin vars (MESA_VK_DEVICE_SELECT/__GLX_VENDOR_LIBRARY_NAME/DRI_PRIME/
+# __NV_PRIME_RENDER_OFFLOAD) are set by RiverDelta on this process's environment
+# only on multi-GPU systems (empty on single-GPU). Forwarding them in the bare
+# KEY form means the tools silently skip any that are unset, so this is inert on
+# single-GPU machines and pins .desktop/systemd-launched apps to the same GPU
+# the compositor renders on, closing the last launch path that could straddle
+# two GPU stacks (the dual-GPU GObject toggle-ref crash).
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
     dbus-update-activation-environment --systemd \
         WAYLAND_DISPLAY \
         XDG_CURRENT_DESKTOP=Aqueous \
         XDG_SESSION_TYPE=wayland \
-        XDG_RUNTIME_DIR 2>/dev/null || true
+        XDG_RUNTIME_DIR \
+        MESA_VK_DEVICE_SELECT \
+        __GLX_VENDOR_LIBRARY_NAME \
+        DRI_PRIME \
+        __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
 elif command -v systemctl >/dev/null 2>&1; then
+    # Only import vars that are actually set, so older systemd versions never
+    # warn on unset names (keeps the single-GPU case clean).
+    gpu_vars=""
+    for v in MESA_VK_DEVICE_SELECT __GLX_VENDOR_LIBRARY_NAME DRI_PRIME __NV_PRIME_RENDER_OFFLOAD; do
+        eval "val=\${$v:-}"
+        [ -n "$val" ] && gpu_vars="$gpu_vars $v"
+    done
+    # shellcheck disable=SC2086
     systemctl --user import-environment \
         WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
+        $gpu_vars \
         2>/dev/null || true
 fi
 

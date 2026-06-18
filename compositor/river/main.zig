@@ -207,10 +207,24 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             const name = mem.sliceTo(entry, '=');
             if (mem.eql(u8, name, "WAYLAND_DISPLAY")) continue;
             if (mem.eql(u8, name, "DISPLAY")) continue;
+            // Drop any inherited copy of a GPU-pin var we are about to set so a
+            // stale value (e.g. from a nested session) cannot shadow the
+            // compositor's choice. Mirrors the WAYLAND_DISPLAY filter above.
+            if (server.gpu_pin.vk_select != null and mem.eql(u8, name, "MESA_VK_DEVICE_SELECT")) continue;
+            if (server.gpu_pin.gl_vendor != null and mem.eql(u8, name, "__GLX_VENDOR_LIBRARY_NAME")) continue;
+            if (server.gpu_pin.dri_prime != null and mem.eql(u8, name, "DRI_PRIME")) continue;
+            if (server.gpu_pin.nv_offload != null and mem.eql(u8, name, "__NV_PRIME_RENDER_OFFLOAD")) continue;
             try env_list.append(util.gpa, entry);
         }
         try env_list.append(util.gpa, wayland_display.ptr);
         if (display_buf) |d| try env_list.append(util.gpa, d.ptr);
+        // Append the resolved GPU-pin selector vars (each null unless applicable
+        // or on single-GPU systems), exactly like WAYLAND_DISPLAY. Downstream
+        // clients inherit these through the WM's environment.
+        if (server.gpu_pin.vk_select) |s| try env_list.append(util.gpa, s.ptr);
+        if (server.gpu_pin.gl_vendor) |s| try env_list.append(util.gpa, s.ptr);
+        if (server.gpu_pin.dri_prime) |s| try env_list.append(util.gpa, s.ptr);
+        if (server.gpu_pin.nv_offload) |s| try env_list.append(util.gpa, s.ptr);
         try env_list.append(util.gpa, null);
 
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(env_list.items.ptr);

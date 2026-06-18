@@ -38,6 +38,19 @@ const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
 
 const log = std.log;
+const linux = std.os.linux;
+
+/// Final, ready-to-use `KEY=VALUE` selector strings for the chosen render
+/// device. Each is NUL-terminated so it can be appended verbatim to the child
+/// `envp` in main.zig, exactly like `WAYLAND_DISPLAY`. A field is null when it
+/// does not apply (e.g. `dri_prime` is never set for the NVIDIA proprietary
+/// driver, which DRI_PRIME cannot select). All-null means "do not pin".
+pub const GpuPin = struct {
+    vk_select: ?[:0]u8 = null,
+    gl_vendor: ?[:0]u8 = null,
+    dri_prime: ?[:0]u8 = null,
+    nv_offload: ?[:0]u8 = null,
+};
 
 wl_server: *wl.Server,
 
@@ -52,6 +65,12 @@ session: ?*wlr.Session,
 renderer: *wlr.Renderer,
 allocator: *wlr.Allocator,
 gpu_reset_recover: ?*wl.EventSource = null,
+
+/// GPU selector environment variables resolved from the renderer's DRM device.
+/// Injected into the spawned init child (see main.zig) so every downstream
+/// client pins to the same GPU the compositor renders on, avoiding the
+/// dual-GPU GObject toggle-ref crash. Empty on single-GPU systems.
+gpu_pin: GpuPin = .{},
 
 security_context_manager: *wlr.SecurityContextManagerV1,
 
@@ -115,6 +134,149 @@ new_toplevel_decoration: wl.Listener(*wlr.XdgToplevelDecorationV1) = .init(handl
 request_activate: wl.Listener(*wlr.XdgActivationV1.event.RequestActivate) = .init(handleRequestActivate),
 request_set_cursor_shape: wl.Listener(*wlr.CursorShapeManagerV1.event.RequestSetShape) = .init(handleRequestSetCursorShape),
 toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceManagerV1.Request) = .init(handleToplevelCaptureRequest),
+
+/// Count render-capable GPUs by probing the conventional render-node range.
+/// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
+/// result <= 1 means we leave the environment untouched.
+fn countRenderNodes() usize {
+    var count: usize = 0;
+    var n: u32 = 128;
+    while (n < 192) : (n += 1) {
+        var buf: [64]u8 = undefined;
+        const p = std.fmt.bufPrintZ(&buf, "/dev/dri/renderD{d}", .{n}) catch continue;
+        if (linux.errno(linux.access(p, linux.F_OK)) == .SUCCESS) count += 1;
+    }
+    return count;
+}
+
+/// Read a small sysfs attribute, returning a trimmed slice into `out`.
+fn readSysValue(path_z: [:0]const u8, out: []u8) ?[]const u8 {
+    const rc = linux.open(path_z, .{}, 0);
+    if (linux.errno(rc) != .SUCCESS) return null;
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    const rn = linux.read(fd, out.ptr, out.len);
+    if (linux.errno(rn) != .SUCCESS) return null;
+    if (rn == 0) return null;
+    return mem.trim(u8, out[0..rn], " \t\r\n");
+}
+
+/// readlink(2) wrapper returning a slice into `out`, or null on error.
+fn readLinkZ(path_z: [:0]const u8, out: []u8) ?[]const u8 {
+    const rc = linux.readlink(path_z, out.ptr, out.len);
+    if (linux.errno(rc) != .SUCCESS) return null;
+    return out[0..rc];
+}
+
+/// sysfs stores PCI ids as "0x10de"; strip the prefix for the selector format.
+fn stripHexPrefix(s: []const u8) []const u8 {
+    return if (mem.startsWith(u8, s, "0x")) s[2..] else s;
+}
+
+fn isBootVga(device_dir: []const u8) bool {
+    var pbuf: [256]u8 = undefined;
+    var vbuf: [16]u8 = undefined;
+    const p = std.fmt.bufPrintZ(&pbuf, "{s}/boot_vga", .{device_dir}) catch return false;
+    const v = readSysValue(p, &vbuf) orelse return false;
+    return mem.eql(u8, v, "1");
+}
+
+/// Resolve the DRM device behind `drm_fd` and build the per-vendor client
+/// selector env vars. Returns an empty `GpuPin` on single-GPU systems or on any
+/// failure/ambiguity (fail-safe: never emit a possibly-wrong pin).
+fn resolveGpuPin(drm_fd: c_int) GpuPin {
+    if (drm_fd < 0) return .{};
+    if (countRenderNodes() <= 1) return .{};
+
+    // Resolve which DRM node the renderer fd points at via /proc/self/fd,
+    // avoiding the need for fstat (removed from std.posix in this Zig version).
+    var fdlink_buf: [64]u8 = undefined;
+    const fdlink = std.fmt.bufPrintZ(&fdlink_buf, "/proc/self/fd/{d}", .{drm_fd}) catch return .{};
+    var node_buf: [256]u8 = undefined;
+    const node_path = readLinkZ(fdlink, &node_buf) orelse return .{};
+    const node_name = std.fs.path.basename(node_path); // cardN or renderDN
+    if (node_name.len == 0) return .{};
+
+    var dir_buf: [128]u8 = undefined;
+    const device_dir = std.fmt.bufPrintZ(
+        &dir_buf,
+        "/sys/class/drm/{s}/device",
+        .{node_name},
+    ) catch return .{};
+
+    // vendor:device (e.g. 10de:2b85), the cross-vendor Vulkan selector value.
+    var path_buf: [192]u8 = undefined;
+    var vendor_buf: [16]u8 = undefined;
+    var device_buf: [16]u8 = undefined;
+
+    const vendor_path = std.fmt.bufPrintZ(&path_buf, "{s}/vendor", .{device_dir}) catch return .{};
+    const vendor = stripHexPrefix(readSysValue(vendor_path, &vendor_buf) orelse return .{});
+
+    const device_path = std.fmt.bufPrintZ(&path_buf, "{s}/device", .{device_dir}) catch return .{};
+    const device = stripHexPrefix(readSysValue(device_path, &device_buf) orelse return .{});
+
+    // PCI bus tag (e.g. pci-0000_01_00_0) from the device symlink target.
+    var link_buf: [256]u8 = undefined;
+    const link = readLinkZ(device_dir, &link_buf) orelse return .{};
+    const pci = std.fs.path.basename(link); // 0000:01:00.0
+    var tag_buf: [64]u8 = undefined;
+    if (pci.len == 0 or pci.len > tag_buf.len) return .{};
+    for (pci, 0..) |ch, idx| {
+        tag_buf[idx] = if (ch == ':' or ch == '.') '_' else ch;
+    }
+    const pci_tag = tag_buf[0..pci.len];
+
+    // Driver name (e.g. nvidia, amdgpu) from the device's driver symlink.
+    var driver_link_buf: [256]u8 = undefined;
+    var driver_path_buf: [192]u8 = undefined;
+    const driver_path = std.fmt.bufPrintZ(&driver_path_buf, "{s}/driver", .{device_dir}) catch return .{};
+    const driver: []const u8 = readLinkZ(driver_path, &driver_link_buf) orelse "";
+    const driver_name = std.fs.path.basename(driver);
+
+    var pin: GpuPin = .{};
+
+    // MESA_VK_DEVICE_SELECT works above all ICDs (incl. the NVIDIA proprietary
+    // one), so it is the right cross-vendor Vulkan lever on every system.
+    pin.vk_select = std.fmt.allocPrintSentinel(
+        util.gpa,
+        "MESA_VK_DEVICE_SELECT={s}:{s}",
+        .{ vendor, device },
+        0,
+    ) catch null;
+
+    if (mem.eql(u8, driver_name, "nvidia") or mem.eql(u8, driver_name, "nvidia-drm")) {
+        // DRI_PRIME is Mesa-only and cannot select the proprietary NVIDIA GPU.
+        pin.gl_vendor = std.fmt.allocPrintSentinel(
+            util.gpa,
+            "__GLX_VENDOR_LIBRARY_NAME=nvidia",
+            .{},
+            0,
+        ) catch null;
+        if (!isBootVga(device_dir)) {
+            pin.nv_offload = std.fmt.allocPrintSentinel(
+                util.gpa,
+                "__NV_PRIME_RENDER_OFFLOAD=1",
+                .{},
+                0,
+            ) catch null;
+        }
+    } else {
+        // Mesa drivers (amdgpu/radeonsi/i915/xe/nouveau): GL via DRI_PRIME.
+        pin.dri_prime = std.fmt.allocPrintSentinel(
+            util.gpa,
+            "DRI_PRIME=pci-{s}",
+            .{pci_tag},
+            0,
+        ) catch null;
+    }
+
+    log.info("gpu-pin: device={s}:{s} pci={s} driver={s} -> vk={?s} gl={?s} prime={?s} offload={?s}", .{
+        vendor,        device,        pci_tag,       driver_name,
+        pin.vk_select, pin.gl_vendor, pin.dri_prime, pin.nv_offload,
+    });
+
+    return pin;
+}
 
 pub fn init(server: *Server, runtime_xwayland: bool) !void {
     // We intentionally don't try to prevent memory leaks on error in this function
@@ -203,6 +365,12 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
             server.linux_drm_syncobj_manager = wlr.LinuxDrmSyncobjManagerV1.create(wl_server, 1, drm_fd);
         }
     }
+
+    // Resolve the GPU the renderer landed on and build the client selector env
+    // vars. This is the single source of truth for "which GPU"; clients are
+    // pinned to the exact device behind the renderer's DRM fd so they can never
+    // straddle two GPU stacks. No-op on single-GPU systems.
+    server.gpu_pin = resolveGpuPin(renderer.getDrmFd());
 
     if (renderer.features.input_color_transform) {
         const render_intents: []const wp.ColorManagerV1.RenderIntent = &.{.perceptual};
