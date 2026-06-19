@@ -44,6 +44,13 @@ const Group = struct {
     /// Set to null once the underlying output is gone (the handle is inert).
     output: ?*Output,
     resource: *ext.WorkspaceGroupHandleV1,
+    /// The set of wl_output resources for which output_enter has already been
+    /// sent. Delta-tracked so output_enter can be (re-)emitted reliably from
+    /// publish() whenever the client binds the matching wl_output, regardless
+    /// of bind ordering. noctalia v5 matches by raw wl_output pointer identity,
+    /// so every matching resource of the client must be covered, not just the
+    /// first.
+    sent_outputs: std.AutoHashMapUnmanaged(*wl.Output, void) = .empty,
 };
 
 /// A workspace handle as seen by a single client.
@@ -54,6 +61,8 @@ const Handle = struct {
     resource: *ext.WorkspaceHandleV1,
     /// Last state bitfield sent to the client, so only changes are re-emitted.
     sent_state: ext.WorkspaceHandleV1.State = .{},
+    sent_coordinate: u32 = std.math.maxInt(u32),
+    sent_name: ?[]u8 = null,
     /// The group this handle currently belongs to from the client's view. Drives
     /// workspace_enter/workspace_leave and composes correctly with migration.
     entered_group: ?*Group = null,
@@ -94,11 +103,39 @@ const Manager = struct {
             if (group_result.created) changed = true;
             const group = group_result.group;
 
+            if (manager.sendOutputEnters(group, client)) changed = true;
+
+            var coordinate: u32 = 0;
             var ws_it = output.workspaces.iterator(.forward);
-            while (ws_it.next()) |workspace| {
+            while (ws_it.next()) |workspace| : (coordinate += 1) {
                 const result = manager.ensureHandle(workspace, client, version) orelse continue;
                 const handle = result.handle;
                 if (result.created) changed = true;
+
+                var name_buf: [16]u8 = undefined;
+                const effective_name: [:0]const u8 = if (workspace.name.len > 0)
+                    workspace.name
+                else
+                    std.fmt.bufPrintZ(&name_buf, "{d}", .{coordinate + 1}) catch "1";
+
+                if (handle.sent_name == null or !std.mem.eql(u8, handle.sent_name.?, effective_name)) {
+                    if (handle.sent_name) |old| util.gpa.free(old);
+                    handle.sent_name = util.gpa.dupe(u8, effective_name) catch null;
+                    handle.resource.sendName(effective_name.ptr);
+                    changed = true;
+                }
+
+                if (handle.sent_coordinate != coordinate) {
+                    handle.sent_coordinate = coordinate;
+                    var coords = [_]u32{coordinate};
+                    var array: wl.Array = .{
+                        .size = @sizeOf(u32),
+                        .alloc = @sizeOf(u32),
+                        .data = &coords,
+                    };
+                    handle.resource.sendCoordinates(&array);
+                    changed = true;
+                }
 
                 if (handle.entered_group != group) {
                     if (handle.entered_group) |old| old.resource.sendWorkspaceLeave(handle.resource);
@@ -148,17 +185,25 @@ const Manager = struct {
         manager.resource.sendWorkspaceGroup(resource);
         resource.sendCapabilities(group_capabilities);
 
-        if (output.wlr_output) |wlr_output| {
-            var res_it = wlr_output.resources.iterator(.forward);
-            while (res_it.next()) |output_resource| {
-                if (output_resource.getClient() == client) {
-                    resource.sendOutputEnter(output_resource);
-                    break;
-                }
-            }
-        }
-
         return .{ .group = group, .created = true };
+    }
+
+    /// Emit output_enter for every wl_output resource the client holds for the
+    /// group's output that has not yet been sent. Returns true if at least one
+    /// new output_enter was emitted (so the caller terminates with a done).
+    fn sendOutputEnters(_: *Manager, group: *Group, client: *wl.Client) bool {
+        const output = group.output orelse return false;
+        const wlr_output = output.wlr_output orelse return false;
+        var changed = false;
+        var res_it = wlr_output.resources.iterator(.forward);
+        while (res_it.next()) |output_resource| {
+            if (output_resource.getClient() != client) continue;
+            if (group.sent_outputs.contains(output_resource)) continue;
+            group.resource.sendOutputEnter(output_resource);
+            group.sent_outputs.put(util.gpa, output_resource, {}) catch continue;
+            changed = true;
+        }
+        return changed;
     }
 
     const EnsureHandle = struct { handle: *Handle, created: bool };
@@ -187,7 +232,9 @@ const Manager = struct {
 
         resource.setHandler(*Handle, handleHandleRequest, handleHandleDestroy, handle);
         manager.resource.sendWorkspace(resource);
-        resource.sendName(workspace.name.ptr);
+        var id_buf: [16]u8 = undefined;
+        const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{workspace.id}) catch "0";
+        resource.sendId(id_str.ptr);
         resource.sendCapabilities(workspace_capabilities);
 
         return .{ .handle = handle, .created = true };
@@ -445,6 +492,7 @@ fn handleGroupRequest(
 
 fn handleGroupDestroy(_: *ext.WorkspaceGroupHandleV1, group: *Group) void {
     if (group.output) |output| _ = group.manager.groups.remove(output);
+    group.sent_outputs.deinit(util.gpa);
     util.gpa.destroy(group);
 }
 
@@ -477,5 +525,6 @@ fn handleHandleRequest(
 
 fn handleHandleDestroy(_: *ext.WorkspaceHandleV1, handle: *Handle) void {
     if (handle.workspace) |workspace| _ = handle.manager.handles.remove(workspace);
+    if (handle.sent_name) |name| util.gpa.free(name);
     util.gpa.destroy(handle);
 }

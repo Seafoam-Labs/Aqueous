@@ -15,6 +15,8 @@
 
 const Workspace = @This();
 
+var next_id: u32 = 1;
+
 const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
@@ -30,6 +32,8 @@ link: wl.list.Link,
 
 /// The output this workspace belongs to.
 output: *Output,
+
+id: u32,
 
 /// Human-readable name, heap owned by this workspace.
 name: [:0]const u8,
@@ -58,9 +62,13 @@ pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
         try util.gpa.dupeZ(u8, "");
     errdefer comptime unreachable;
 
+    const id = next_id;
+    next_id += 1;
+
     workspace.* = .{
         .link = undefined,
         .output = output,
+        .id = id,
         .name = owned_name,
         .home_output_name = home_name,
         .windows = undefined,

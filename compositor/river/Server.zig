@@ -709,6 +709,19 @@ fn gpuResetRecover(server: *Server) !void {
 
     server.allocator.destroy();
     server.allocator = new_allocator;
+
+    if (server.linux_dmabuf) |old_dmabuf| {
+        if (new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
+            if (wlr.LinuxDmabufV1.createWithRenderer(server.wl_server, 5, new_renderer)) |new_dmabuf| {
+                old_dmabuf.global.destroy();
+                server.linux_dmabuf = new_dmabuf;
+                server.scene.wlr_scene.setLinuxDmabufV1(new_dmabuf);
+                log.info("re-advertised linux-dmabuf feedback after GPU reset", .{});
+            } else |err| {
+                log.err("failed to re-advertise linux-dmabuf after GPU reset: {s}", .{@errorName(err)});
+            }
+        }
+    }
 }
 
 fn handleNewXdgToplevel(_: *wl.Listener(*wlr.XdgToplevel), xdg_toplevel: *wlr.XdgToplevel) void {
