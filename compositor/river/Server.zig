@@ -181,6 +181,65 @@ fn isBootVga(device_dir: []const u8) bool {
     return mem.eql(u8, v, "1");
 }
 
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+fn resolveScanoutCard(out: []u8) ?[]const u8 {
+    if (countRenderNodes() <= 1) return null;
+
+    const open_rc = linux.open("/sys/class/drm", .{ .DIRECTORY = true }, 0);
+    if (linux.errno(open_rc) != .SUCCESS) return null;
+    const fd: i32 = @intCast(open_rc);
+    defer _ = linux.close(fd);
+
+    var best: ?u32 = null;
+    var best_boot_vga = true;
+
+    var dbuf: [4096]u8 align(8) = undefined;
+    while (true) {
+        const nread = linux.getdents64(fd, &dbuf, dbuf.len);
+        if (linux.errno(nread) != .SUCCESS) return null;
+        if (nread == 0) break;
+
+        var off: usize = 0;
+        while (off < nread) {
+            const ent: *linux.dirent64 = @ptrCast(@alignCast(&dbuf[off]));
+            const name_ptr: [*:0]const u8 = @ptrCast(&dbuf[off + @offsetOf(linux.dirent64, "name")]);
+            const name = mem.span(name_ptr);
+            off += ent.reclen;
+
+            const dash = mem.indexOfScalar(u8, name, '-') orelse continue;
+            const card = name[0..dash];
+            if (!mem.startsWith(u8, card, "card")) continue;
+            const num = std.fmt.parseInt(u32, card[4..], 10) catch continue;
+
+            var sbuf: [256]u8 = undefined;
+            const spath = std.fmt.bufPrintZ(&sbuf, "/sys/class/drm/{s}/status", .{name}) catch continue;
+            var vbuf: [32]u8 = undefined;
+            const status = readSysValue(spath, &vbuf) orelse continue;
+            if (!mem.eql(u8, status, "connected")) continue;
+
+            var ddbuf: [256]u8 = undefined;
+            const device_dir = std.fmt.bufPrintZ(&ddbuf, "/sys/class/drm/{s}/device", .{card}) catch continue;
+            var lbuf: [256]u8 = undefined;
+            if (readLinkZ(device_dir, &lbuf) == null) continue;
+
+            const bv = isBootVga(device_dir);
+            const take = if (best) |b| blk: {
+                if (best_boot_vga and !bv) break :blk true;
+                if (!best_boot_vga and bv) break :blk false;
+                break :blk num < b;
+            } else true;
+            if (take) {
+                best = num;
+                best_boot_vga = bv;
+            }
+        }
+    }
+
+    const num = best orelse return null;
+    return std.fmt.bufPrint(out, "/dev/dri/card{d}", .{num}) catch null;
+}
+
 /// Resolve the DRM device behind `drm_fd` and build the per-vendor client
 /// selector env vars. Returns an empty `GpuPin` on single-GPU systems or on any
 /// failure/ambiguity (fail-safe: never emit a possibly-wrong pin).
@@ -285,6 +344,19 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
 
     const wl_server = try wl.Server.create();
     const loop = wl_server.getEventLoop();
+
+    var scanout_buf: [64]u8 = undefined;
+    if (resolveScanoutCard(&scanout_buf)) |card| {
+        if (std.c.getenv("WLR_DRM_DEVICES") == null) {
+            const z = std.fmt.allocPrintSentinel(util.gpa, "{s}", .{card}, 0) catch null;
+            if (z) |zz| {
+                _ = setenv("WLR_DRM_DEVICES", zz.ptr, 1);
+                log.info("gpu-pin: scanout pinned to {s} (connected monitor)", .{card});
+            }
+        } else {
+            log.info("gpu-pin: WLR_DRM_DEVICES already set by env, leaving as-is", .{});
+        }
+    }
 
     var session: ?*wlr.Session = undefined;
     const backend = try wlr.Backend.autocreate(loop, &session);
