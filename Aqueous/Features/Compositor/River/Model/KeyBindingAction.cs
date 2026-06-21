@@ -104,5 +104,6 @@ internal enum KeyBindingAction
     ToggleScratchpad,
     SendToScratchpad,
     Custom,
-    LockScreen
+    LockScreen,
+    UntrapPointer,
 }

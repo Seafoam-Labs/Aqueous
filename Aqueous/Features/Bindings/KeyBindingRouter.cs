@@ -150,6 +150,25 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         }
     }
 
+    public void SetSeat(IntPtr seat) => _managerRequestSender.SetSeat(seat);
+
+    public void HandleHold(KeyBindingAction action, bool pressed)
+    {
+        switch (action)
+        {
+            case KeyBindingAction.UntrapPointer :
+                _managerRequestSender.SuppressPointerConstraints(pressed);
+                break;
+            default:
+                if (pressed)
+                {
+                    Handle(action);
+                }
+
+                break;
+        }
+    }
+
     /// <summary>
     /// Internal entry point used by <see cref="CustomActionRunner"/>'s <c>builtin:</c> verb (which has
     /// already done its own arg parse). Identical to <see cref="Handle"/>.

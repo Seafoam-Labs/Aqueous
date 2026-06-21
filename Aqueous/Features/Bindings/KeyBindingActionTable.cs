@@ -109,5 +109,6 @@ internal static class KeyBindingActionTable
             ["toggle_scratchpad"] = KeyBindingAction.ToggleScratchpad,
             ["send_to_scratchpad"] = KeyBindingAction.SendToScratchpad,
             ["lock_screen"] = KeyBindingAction.LockScreen,
+            ["untrap_pointer"] = KeyBindingAction.UntrapPointer
         };
 }

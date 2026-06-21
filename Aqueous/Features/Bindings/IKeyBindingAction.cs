@@ -11,6 +11,19 @@ internal interface IKeyBindingRouter
     /// Dispatch a built-in key-binding action. Pump-thread only.
     /// </summary>
     void Handle(KeyBindingAction action);
+
+    /// <summary>
+    /// Dispatch a built in key-binding action when the key is held down.
+    /// </summary>
+    /// <param name="action"></param>
+    /// <param name="pressed"></param>
+    void HandleHold(KeyBindingAction action, bool pressed);
+
+    /// <summary>
+    /// Records the bound <c>river_seat_v1</c> proxy for seat-scoped requests (e.g. pointer-constraint
+    /// suppression). Pass <see cref="System.IntPtr.Zero"/> to clear.
+    /// </summary>
+    void SetSeat(System.IntPtr seat);
 }
 
 /// <summary>

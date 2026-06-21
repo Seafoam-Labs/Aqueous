@@ -26,6 +26,7 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
 {
     private IntPtr _manager;
     private IntPtr _display;
+    private IntPtr _seat;
     private bool _insideManageSequence;
 
     // Set once at pump start (and cleared on teardown). Marshal sites that observe a different
@@ -53,6 +54,8 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         Interlocked.Exchange(ref _manager, managerProxy);
     }
 
+    public void SetSeat(IntPtr seat) => Interlocked.Exchange(ref _seat, seat);
+
     public void Reset()
     {
         // Null _manager FIRST so any racing IsBound check fails before _display is cleared;
@@ -60,6 +63,7 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         // a still-live pair) or see a null _manager and bail out.
         Interlocked.Exchange(ref _manager, IntPtr.Zero);
         Interlocked.Exchange(ref _display, IntPtr.Zero);
+        Interlocked.Exchange(ref _seat, IntPtr.Zero);
         _insideManageSequence = false;
         // Drain any queued pump-thread actions: with _manager/_display now zero they would be
         // silent no-ops anyway, but clearing the queue prevents stale work from running against a
@@ -188,5 +192,21 @@ internal sealed class ManagerRequestSender : IManagerRequestSender
         {
             WaylandInterop.wl_display_flush(d);
         }
+    }
+
+    public void SuppressPointerConstraints(bool pressed)
+    {
+        var seat = Volatile.Read(ref _seat);
+        var display = Volatile.Read(ref _display);
+        if (seat == IntPtr.Zero || display == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // river_seat_v1 opcode 9 = suppress_pointer_constraints; arg: enable (uint)
+        WaylandInterop.wl_proxy_marshal_flags(
+            seat, 9, IntPtr.Zero, 0, 0,
+            (IntPtr)(pressed ? 1u : 0u), IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        WaylandInterop.wl_display_flush(display);
     }
 }

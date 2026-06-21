@@ -46,6 +46,12 @@ internal interface IManagerRequestSender
     void Init(IntPtr managerProxy, IntPtr display);
 
     /// <summary>
+    /// Records the bound <c>river_seat_v1</c> proxy used for seat-scoped requests such as
+    /// <see cref="SuppressPointerConstraints"/>. Pass <see cref="IntPtr.Zero"/> to clear.
+    /// </summary>
+    void SetSeat(IntPtr seat);
+
+    /// <summary>
     /// True iff <see cref="Init"/> has been called with a non-zero manager proxy. Exposed for
     /// diagnostics + tests.
     /// </summary>
@@ -90,4 +96,10 @@ internal interface IManagerRequestSender
     /// Wayland requests from a potentially off-pump caller (e.g. <c>KeyBindingRouter</c>).
     /// </summary>
     void Post(Action action);
+
+    /// <summary>
+    /// Suppress pointer-constraint enforcement for the duration of <paramref name="pressed"/>.
+    /// </summary>
+    /// <param name="pressed"></param>
+    void SuppressPointerConstraints(bool pressed);
 }

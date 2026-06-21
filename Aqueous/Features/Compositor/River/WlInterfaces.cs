@@ -1200,7 +1200,7 @@ internal static unsafe class WlInterfaces
                 Msg("get_pointer_binding", "nuu", new WaylandInterop.WlInterface*[] { RiverPointerBinding, null, null }),
                 Msg("set_xcursor_theme", "2su", new WaylandInterop.WlInterface*[] { null, null }),
                 Msg("pointer_warp", "3ii", new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("suprress_pointer_constraints", "5u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("suppress_pointer_constraints", "5u", new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {

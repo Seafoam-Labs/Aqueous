@@ -99,7 +99,7 @@ lock_screen = "swaylock -f --screenshots --clock --indicator --effect-blur 7x5 -
 toggle_start_menu     = "Super+Space"      # default
 spawn_terminal        = "Super+Return"     # default
 close_focused         = "Super+Q"          # default
-cycle_focus           = "Super+Tab"        # default
+#cycle_focus           = "Super+Tab"        # default
 
 # --- Directional focus (works in tile/grid; scrolling = prev/next column) ---
 focus_left            = "Super+H"          # default
@@ -169,7 +169,7 @@ move_to_workspace_9      = "Super+Shift+9"
 # Directional switching / moving + back-and-forth.
 focus_workspace_up       = "Super+Bracketleft"        # previous workspace in the list
 focus_workspace_down     = "Super+Bracketright"       # next workspace in the list
-focus_previous_workspace = "Super+grave"              # back-and-forth (the ` key)
+focus_previous_workspace = "Super+Shit+grave"              # back-and-forth (the ` key)
 move_to_workspace_up     = "Super+Shift+Bracketleft"
 move_to_workspace_down   = "Super+Shift+Bracketright"
 #
@@ -195,6 +195,11 @@ toggle_minimize       = "Super+N"              # default — hide from layout
 unminimize_last       = "Super+Shift+N"        # default — restore most-recent minimized
 toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "default" pad
 send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
+
+# --- Pointer ---
+# Hold-to-untrap: while this chord is held down any active pointer constraint
+# (mouse "trap" from games etc.) is released; on release the trap re-engages.
+untrap_pointer        = "Super+grave"          # no compiled-in default
 
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]

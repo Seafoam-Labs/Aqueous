@@ -76,6 +76,8 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
     /// </summary>
     public void RegisterAllBindings(IntPtr seatProxy)
     {
+        _router.SetSeat(seatProxy);
+
         var kb = _layoutController.Config.Keybinds;
         foreach (var (actionName, builtin) in BuiltinActionMap)
         {
@@ -187,24 +189,42 @@ internal sealed unsafe class KeyBindingRegistrar : IKeyBindingRegistrar
     /// </summary>
     internal void HandleKeyBindingEvent(IntPtr proxy, uint opcode, WlArgument* args)
     {
-        // 0: pressed, 1: released
-        if (opcode != 0)
-        {
-            return;
-        }
 
         if (!_bindings.KeyBindings.TryGetValue(proxy, out var action))
         {
-            // Diagnostic: silent drops here were the original "keychord stops firing after second window"
-            // symptom. Log so the class of regression is visible in the next bug report.
             RiverLog.Write($"key binding miss proxy=0x{proxy.ToString("x")} opcode={opcode}");
+            return;
+        }
+
+        var effective = action;
+        string? verb = null;
+        if (action == KeyBindingAction.Custom && _bindings.CustomBindingActions.TryGetValue(proxy, out verb) &&
+            verb.StartsWith("builtin:", StringComparison.Ordinal) &&
+            KeyBindingActionTable.Map.TryGetValue(verb["builtin:".Length..], out var mapped))
+        {
+            effective = mapped;
+        }
+
+        if (effective == KeyBindingAction.UntrapPointer)
+        {
+            // opcode: 0 = pressed, 1 = released, 2 = stop_repeat
+            if (opcode == 0)
+                _router.HandleHold(KeyBindingAction.UntrapPointer, pressed: true);
+            else if (opcode == 1)
+                _router.HandleHold(KeyBindingAction.UntrapPointer, pressed: false);
+            return;
+        }
+
+        // 0: pressed, 1: released - all other actions stay press-only
+        if (opcode != 0)
+        {
             return;
         }
 
         RiverLog.Write($"key binding pressed: {action}");
         if (action == KeyBindingAction.Custom)
         {
-            if (_bindings.CustomBindingActions.TryGetValue(proxy, out var verb))
+            if (verb is not null)
             {
                 _customRunner.Run(verb);
             }
