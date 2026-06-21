@@ -61,6 +61,7 @@ pub fn maybeActivate(constraint: *PointerConstraint) void {
 
     assert(seat.cursor.constraint == constraint);
 
+    if (seat.cursor.constraints_suppressed) return;
     if (constraint.state == .active) return;
 
     if (seat.cursor.mode == .op) return;

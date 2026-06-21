@@ -611,6 +611,10 @@ fn handleRequest(
             if (!server.wm.ensureWindowing()) return;
             seat.wm_requested.op = .end;
         },
+        .suppress_pointer_constraints => |args| {
+            if (!server.wm.ensureWindowing()) return;
+            seat.cursor.setConstraintsSuppressed(args.enable != 0);
+        },
         .get_pointer_binding => |args| {
             PointerBinding.create(
                 seat,

@@ -59,7 +59,7 @@ internal static unsafe class WlInterfaces
     /// We never create or talk to <c>wl_surface</c>; this entry exists only so signatures referencing
     /// <c>wl_surface</c> (e.g. <c>set_rectangle</c>) have a non-null type pointer.
     /// </remarks>
-    public static WaylandInterop.WlInterface* WlSurface;      // used as null placeholder for rectangle()
+    public static WaylandInterop.WlInterface* WlSurface; // used as null placeholder for rectangle()
 
     /// <summary>
     /// <c>wl_output</c> V1 placeholder.
@@ -68,7 +68,7 @@ internal static unsafe class WlInterfaces
     /// Used only to type <c>output_enter</c> / <c>output_leave</c> / <c>set_fullscreen</c> arguments;
     /// we never receive events on a <c>wl_output</c> proxy.
     /// </remarks>
-    public static WaylandInterop.WlInterface* WlOutput;       // used as null placeholder for output_enter/leave
+    public static WaylandInterop.WlInterface* WlOutput; // used as null placeholder for output_enter/leave
 
     /// <summary>
     /// <c>zwlr_foreign_toplevel_manager_v1</c> V3.
@@ -251,7 +251,6 @@ internal static unsafe class WlInterfaces
     public static WaylandInterop.WlInterface* ExtWorkspaceHandle;
 
 
-
     /// <summary>
     /// Set to <c>true</c> once <see cref="BuildAll"/> has fully populated every interface table.
     /// </summary>
@@ -355,7 +354,8 @@ internal static unsafe class WlInterfaces
     /// cref="Populate"/> allocate-then-populate pattern so that interfaces can mutually reference each other. Kept
     /// available for callers that build standalone interfaces with no forward references.
     /// </remarks>
-    private static WaylandInterop.WlInterface* AllocInterface(string name, int version, WaylandInterop.WlMessage[] requests, WaylandInterop.WlMessage[] events)
+    private static WaylandInterop.WlInterface* AllocInterface(string name, int version, WaylandInterop.WlMessage[] requests,
+        WaylandInterop.WlMessage[] events)
     {
         var iface = (WaylandInterop.WlInterface*)Marshal.AllocHGlobal(sizeof(WaylandInterop.WlInterface));
         iface->name = AllocStringUtf8(name);
@@ -532,12 +532,12 @@ internal static unsafe class WlInterfaces
             },
             events: new[]
             {
-                Msg("geometry",    "iiiiissi", new WaylandInterop.WlInterface*[] { null, null, null, null, null, null, null, null }),
-                Msg("mode",        "uiii",     new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("done",        "2",        NoTypes),
-                Msg("scale",       "2i",       new WaylandInterop.WlInterface*[] { null }),
-                Msg("name",        "4s",       new WaylandInterop.WlInterface*[] { null }),
-                Msg("description", "4s",       new WaylandInterop.WlInterface*[] { null }),
+                Msg("geometry", "iiiiissi", new WaylandInterop.WlInterface*[] { null, null, null, null, null, null, null, null }),
+                Msg("mode", "uiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("done", "2", NoTypes),
+                Msg("scale", "2i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("name", "4s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("description", "4s", new WaylandInterop.WlInterface*[] { null }),
             });
 
         // 5. zwlr_foreign_toplevel_manager_v1 (version 3) request 0: stop event 0:
@@ -562,27 +562,27 @@ internal static unsafe class WlInterfaces
         Populate(ZwlrHandle,
             requests: new[]
             {
-                Msg("set_maximized",   "",      NoTypes),
-                Msg("unset_maximized", "",      NoTypes),
-                Msg("set_minimized",   "",      NoTypes),
-                Msg("unset_minimized", "",      NoTypes),
-                Msg("activate",        "o",     new WaylandInterop.WlInterface*[] { WlSeat }),
-                Msg("close",           "",      NoTypes),
-                Msg("set_rectangle",   "oiiii", new WaylandInterop.WlInterface*[] { WlSurface, null, null, null, null }),
-                Msg("destroy",         "",      NoTypes),
-                Msg("set_fullscreen",  "2?o",   new WaylandInterop.WlInterface*[] { WlOutput }),
-                Msg("unset_fullscreen","2",     NoTypes),
+                Msg("set_maximized", "", NoTypes),
+                Msg("unset_maximized", "", NoTypes),
+                Msg("set_minimized", "", NoTypes),
+                Msg("unset_minimized", "", NoTypes),
+                Msg("activate", "o", new WaylandInterop.WlInterface*[] { WlSeat }),
+                Msg("close", "", NoTypes),
+                Msg("set_rectangle", "oiiii", new WaylandInterop.WlInterface*[] { WlSurface, null, null, null, null }),
+                Msg("destroy", "", NoTypes),
+                Msg("set_fullscreen", "2?o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("unset_fullscreen", "2", NoTypes),
             },
             events: new[]
             {
-                Msg("title",        "s",  new WaylandInterop.WlInterface*[] { null }),
-                Msg("app_id",       "s",  new WaylandInterop.WlInterface*[] { null }),
-                Msg("output_enter", "o",  new WaylandInterop.WlInterface*[] { WlOutput }),
-                Msg("output_leave", "o",  new WaylandInterop.WlInterface*[] { WlOutput }),
-                Msg("state",        "a",  new WaylandInterop.WlInterface*[] { null }),
-                Msg("done",         "",   NoTypes),
-                Msg("closed",       "",   NoTypes),
-                Msg("parent",       "3?o", new WaylandInterop.WlInterface*[] { ZwlrHandle }),
+                Msg("title", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("app_id", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("output_enter", "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("output_leave", "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("state", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("done", "", NoTypes),
+                Msg("closed", "", NoTypes),
+                Msg("parent", "3?o", new WaylandInterop.WlInterface*[] { ZwlrHandle }),
             });
 
         BuildExtWorkspace();
@@ -610,49 +610,49 @@ internal static unsafe class WlInterfaces
             requests: new[]
             {
                 Msg("commit", "", NoTypes),
-                Msg("stop",   "", NoTypes),
+                Msg("stop", "", NoTypes),
             },
             events: new[]
             {
                 Msg("workspace_group", "n", new WaylandInterop.WlInterface*[] { ExtWorkspaceGroupHandle }),
-                Msg("workspace",       "n", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
-                Msg("done",            "",  NoTypes),
-                Msg("finished",        "",  NoTypes),
+                Msg("workspace", "n", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
+                Msg("done", "", NoTypes),
+                Msg("finished", "", NoTypes),
             });
 
         Populate(ExtWorkspaceGroupHandle,
             requests: new[]
             {
                 Msg("create_workspace", "s", new WaylandInterop.WlInterface*[] { null }),
-                Msg("destroy",          "",  NoTypes),
+                Msg("destroy", "", NoTypes),
             },
             events: new[]
             {
-                Msg("capabilities",    "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("output_enter",    "o", new WaylandInterop.WlInterface*[] { WlOutput }),
-                Msg("output_leave",    "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("capabilities", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("output_enter", "o", new WaylandInterop.WlInterface*[] { WlOutput }),
+                Msg("output_leave", "o", new WaylandInterop.WlInterface*[] { WlOutput }),
                 Msg("workspace_enter", "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
                 Msg("workspace_leave", "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
-                Msg("removed",         "",  NoTypes),
+                Msg("removed", "", NoTypes),
             });
 
         Populate(ExtWorkspaceHandle,
             requests: new[]
             {
-                Msg("destroy",    "", NoTypes),
-                Msg("activate",   "", NoTypes),
+                Msg("destroy", "", NoTypes),
+                Msg("activate", "", NoTypes),
                 Msg("deactivate", "", NoTypes),
-                Msg("assign",     "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceGroupHandle }),
-                Msg("remove",     "", NoTypes),
+                Msg("assign", "o", new WaylandInterop.WlInterface*[] { ExtWorkspaceGroupHandle }),
+                Msg("remove", "", NoTypes),
             },
             events: new[]
             {
-                Msg("id",           "s", new WaylandInterop.WlInterface*[] { null }),
-                Msg("name",         "s", new WaylandInterop.WlInterface*[] { null }),
-                Msg("coordinates",  "a", new WaylandInterop.WlInterface*[] { null }),
-                Msg("state",        "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("id", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("name", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("coordinates", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("state", "u", new WaylandInterop.WlInterface*[] { null }),
                 Msg("capabilities", "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("removed",      "",  NoTypes),
+                Msg("removed", "", NoTypes),
             });
     }
 
@@ -689,8 +689,8 @@ internal static unsafe class WlInterfaces
         Populate(RiverLibinputAccelConfig,
             requests: new[]
             {
-                Msg("destroy",   "",   NoTypes),
-                Msg("set_points","uaa", new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("destroy", "", NoTypes),
+                Msg("set_points", "uaa", new WaylandInterop.WlInterface*[] { null, null, null }),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -699,9 +699,9 @@ internal static unsafe class WlInterfaces
             requests: Array.Empty<WaylandInterop.WlMessage>(),
             events: new[]
             {
-                Msg("success",     "", NoTypes),
+                Msg("success", "", NoTypes),
                 Msg("unsupported", "", NoTypes),
-                Msg("invalid",     "", NoTypes),
+                Msg("invalid", "", NoTypes),
             });
 
         // River_libinput_config_v1 requests: 0 stop, 1 destroy, 2 create_accel_config(new_id, profile)
@@ -709,13 +709,13 @@ internal static unsafe class WlInterfaces
         Populate(RiverLibinputConfig,
             requests: new[]
             {
-                Msg("stop",                "",  NoTypes),
-                Msg("destroy",             "",  NoTypes),
+                Msg("stop", "", NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("create_accel_config", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputAccelConfig, null }),
             },
             events: new[]
             {
-                Msg("finished",        "",  NoTypes),
+                Msg("finished", "", NoTypes),
                 Msg("libinput_device", "n", new WaylandInterop.WlInterface*[] { RiverLibinputDevice }),
             });
 
@@ -723,87 +723,87 @@ internal static unsafe class WlInterfaces
         Populate(RiverLibinputDevice,
             requests: new[]
             {
-                Msg("destroy",                  "",   NoTypes),
-                Msg("set_send_events",          "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_tap",                  "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_tap_button_map",       "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_drag",                 "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_drag_lock",            "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_three_finger_drag",    "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_calibration_matrix",   "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_accel_profile",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_accel_speed",          "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("apply_accel_config",       "no", new WaylandInterop.WlInterface*[] { RiverLibinputResult, RiverLibinputAccelConfig }),
-                Msg("set_natural_scroll",       "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_left_handed",          "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_click_method",         "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_clickfinger_button_map","nu",new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_middle_emulation",     "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_scroll_method",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_scroll_button",        "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_scroll_button_lock",   "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_dwt",                  "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_dwtp",                 "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
-                Msg("set_rotation",             "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("destroy", "", NoTypes),
+                Msg("set_send_events", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_tap", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_tap_button_map", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_drag", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_drag_lock", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_three_finger_drag", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_calibration_matrix", "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_accel_profile", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_accel_speed", "na", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("apply_accel_config", "no", new WaylandInterop.WlInterface*[] { RiverLibinputResult, RiverLibinputAccelConfig }),
+                Msg("set_natural_scroll", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_left_handed", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_click_method", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_clickfinger_button_map", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_middle_emulation", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_method", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_button", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_scroll_button_lock", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_dwt", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_dwtp", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
+                Msg("set_rotation", "nu", new WaylandInterop.WlInterface*[] { RiverLibinputResult, null }),
             },
             events: new[]
             {
-                Msg("removed",                       "",  NoTypes),
-                Msg("input_device",                  "o", new WaylandInterop.WlInterface*[] { RiverInputDevice }),
-                Msg("send_events_support",           "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("send_events_default",           "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("send_events_current",           "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("tap_support",                   "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("tap_default",                   "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("tap_current",                   "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("tap_button_map_default",        "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("tap_button_map_current",        "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("drag_default",                  "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("drag_current",                  "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("drag_lock_default",             "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("drag_lock_current",             "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("three_finger_drag_support",     "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("three_finger_drag_default",     "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("three_finger_drag_current",     "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("calibration_matrix_support",    "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("calibration_matrix_default",    "a", new WaylandInterop.WlInterface*[] { null }),
-                Msg("calibration_matrix_current",    "a", new WaylandInterop.WlInterface*[] { null }),
-                Msg("accel_profiles_support",        "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("accel_profile_default",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("accel_profile_current",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("accel_speed_default",           "a", new WaylandInterop.WlInterface*[] { null }),
-                Msg("accel_speed_current",           "a", new WaylandInterop.WlInterface*[] { null }),
-                Msg("natural_scroll_support",        "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("natural_scroll_default",        "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("natural_scroll_current",        "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("left_handed_support",           "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("left_handed_default",           "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("left_handed_current",           "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("click_method_support",          "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("click_method_default",          "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("click_method_current",          "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("clickfinger_button_map_default","u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("clickfinger_button_map_current","u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("middle_emulation_support",      "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("middle_emulation_default",      "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("middle_emulation_current",      "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_method_support",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_method_default",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_method_current",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_button_default",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_button_current",         "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_button_lock_default",    "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("scroll_button_lock_current",    "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwt_support",                   "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwt_default",                   "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwt_current",                   "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwtp_support",                  "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwtp_default",                  "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("dwtp_current",                  "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("rotation_support",              "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("rotation_default",              "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("rotation_current",              "u", new WaylandInterop.WlInterface*[] { null }),
-                Msg("done",                          "2", NoTypes),
+                Msg("removed", "", NoTypes),
+                Msg("input_device", "o", new WaylandInterop.WlInterface*[] { RiverInputDevice }),
+                Msg("send_events_support", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("send_events_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("send_events_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_button_map_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("tap_button_map_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_lock_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("drag_lock_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("three_finger_drag_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_default", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("calibration_matrix_current", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profiles_support", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profile_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_profile_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_speed_default", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("accel_speed_current", "a", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("natural_scroll_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("left_handed_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_support", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("click_method_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("clickfinger_button_map_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("clickfinger_button_map_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("middle_emulation_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_support", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_method_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_lock_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("scroll_button_lock_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwt_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("dwtp_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_support", "i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_default", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("rotation_current", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("done", "2", NoTypes),
             });
     }
 
@@ -823,8 +823,8 @@ internal static unsafe class WlInterfaces
     /// </remarks>
     private static void BuildRiverXkbConfig()
     {
-        RiverXkbConfig   = AllocEmpty("river_xkb_config_v1", 2);
-        RiverXkbKeymap   = AllocEmpty("river_xkb_keymap_v1", 2);
+        RiverXkbConfig = AllocEmpty("river_xkb_config_v1", 2);
+        RiverXkbKeymap = AllocEmpty("river_xkb_keymap_v1", 2);
         RiverXkbKeyboard = AllocEmpty("river_xkb_keyboard_v1", 2);
 
         // river_xkb_config_v1 requests: 0 stop, 1 destroy, 2 create_keymap(new_id, fd, format)
@@ -832,13 +832,13 @@ internal static unsafe class WlInterfaces
         Populate(RiverXkbConfig,
             requests: new[]
             {
-                Msg("stop",          "",    NoTypes),
-                Msg("destroy",       "",    NoTypes),
+                Msg("stop", "", NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("create_keymap", "nhu", new WaylandInterop.WlInterface*[] { RiverXkbKeymap, null, null }),
             },
             events: new[]
             {
-                Msg("finished",     "",  NoTypes),
+                Msg("finished", "", NoTypes),
                 Msg("xkb_keyboard", "n", new WaylandInterop.WlInterface*[] { RiverXkbKeyboard }),
             });
 
@@ -850,7 +850,7 @@ internal static unsafe class WlInterfaces
             },
             events: new[]
             {
-                Msg("success", "",  NoTypes),
+                Msg("success", "", NoTypes),
                 Msg("failure", "s", new WaylandInterop.WlInterface*[] { null }),
             });
 
@@ -861,25 +861,25 @@ internal static unsafe class WlInterfaces
         Populate(RiverXkbKeyboard,
             requests: new[]
             {
-                Msg("destroy",             "",  NoTypes),
-                Msg("set_keymap",          "o", new WaylandInterop.WlInterface*[] { RiverXkbKeymap }),
+                Msg("destroy", "", NoTypes),
+                Msg("set_keymap", "o", new WaylandInterop.WlInterface*[] { RiverXkbKeymap }),
                 Msg("set_layout_by_index", "i", new WaylandInterop.WlInterface*[] { null }),
-                Msg("set_layout_by_name",  "s", new WaylandInterop.WlInterface*[] { null }),
-                Msg("capslock_enable",     "",  NoTypes),
-                Msg("capslock_disable",    "",  NoTypes),
-                Msg("numlock_enable",      "",  NoTypes),
-                Msg("numlock_disable",     "",  NoTypes),
+                Msg("set_layout_by_name", "s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("capslock_enable", "", NoTypes),
+                Msg("capslock_disable", "", NoTypes),
+                Msg("numlock_enable", "", NoTypes),
+                Msg("numlock_disable", "", NoTypes),
             },
             events: new[]
             {
-                Msg("removed",           "",   NoTypes),
-                Msg("input_device",      "o",  new WaylandInterop.WlInterface*[] { RiverInputDevice }),
-                Msg("layout",            "us", new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("capslock_enabled",  "",   NoTypes),
-                Msg("capslock_disabled", "",   NoTypes),
-                Msg("numlock_enabled",   "",   NoTypes),
-                Msg("numlock_disabled",  "",   NoTypes),
-                Msg("done",              "2",  NoTypes),
+                Msg("removed", "", NoTypes),
+                Msg("input_device", "o", new WaylandInterop.WlInterface*[] { RiverInputDevice }),
+                Msg("layout", "us", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("capslock_enabled", "", NoTypes),
+                Msg("capslock_disabled", "", NoTypes),
+                Msg("numlock_enabled", "", NoTypes),
+                Msg("numlock_disabled", "", NoTypes),
+                Msg("done", "2", NoTypes),
             });
     }
 
@@ -896,11 +896,11 @@ internal static unsafe class WlInterfaces
     /// </remarks>
     private static void BuildWlrScreencopy()
     {
-        WlShm                  = AllocEmpty("wl_shm", 1);
-        WlShmPool              = AllocEmpty("wl_shm_pool", 1);
-        WlBuffer               = AllocEmpty("wl_buffer", 1);
-        ZwlrScreencopyManager  = AllocEmpty("zwlr_screencopy_manager_v1", 3);
-        ZwlrScreencopyFrame    = AllocEmpty("zwlr_screencopy_frame_v1", 3);
+        WlShm = AllocEmpty("wl_shm", 1);
+        WlShmPool = AllocEmpty("wl_shm_pool", 1);
+        WlBuffer = AllocEmpty("wl_buffer", 1);
+        ZwlrScreencopyManager = AllocEmpty("zwlr_screencopy_manager_v1", 3);
+        ZwlrScreencopyFrame = AllocEmpty("zwlr_screencopy_frame_v1", 3);
 
         // Wl_shm request 0: create_pool(new_id<wl_shm_pool>, fd, size) event 0: format(uint)
         Populate(WlShm,
@@ -919,8 +919,8 @@ internal static unsafe class WlInterfaces
             requests: new[]
             {
                 Msg("create_buffer", "niiiiu", new WaylandInterop.WlInterface*[] { WlBuffer, null, null, null, null, null }),
-                Msg("destroy",       "",      NoTypes),
-                Msg("resize",        "i",     new WaylandInterop.WlInterface*[] { null }),
+                Msg("destroy", "", NoTypes),
+                Msg("resize", "i", new WaylandInterop.WlInterface*[] { null }),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -942,9 +942,10 @@ internal static unsafe class WlInterfaces
         Populate(ZwlrScreencopyManager,
             requests: new[]
             {
-                Msg("capture_output",        "nio",      new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput }),
-                Msg("capture_output_region", "nioiiii",  new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput, null, null, null, null }),
-                Msg("destroy",               "",         NoTypes),
+                Msg("capture_output", "nio", new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput }),
+                Msg("capture_output_region", "nioiiii",
+                    new WaylandInterop.WlInterface*[] { ZwlrScreencopyFrame, null, WlOutput, null, null, null, null }),
+                Msg("destroy", "", NoTypes),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -956,19 +957,19 @@ internal static unsafe class WlInterfaces
         Populate(ZwlrScreencopyFrame,
             requests: new[]
             {
-                Msg("copy",              "o",  new WaylandInterop.WlInterface*[] { WlBuffer }),
-                Msg("destroy",           "",   NoTypes),
-                Msg("copy_with_damage",  "o",  new WaylandInterop.WlInterface*[] { WlBuffer }),
+                Msg("copy", "o", new WaylandInterop.WlInterface*[] { WlBuffer }),
+                Msg("destroy", "", NoTypes),
+                Msg("copy_with_damage", "o", new WaylandInterop.WlInterface*[] { WlBuffer }),
             },
             events: new[]
             {
-                Msg("buffer",        "uuuu",  new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("flags",         "u",     new WaylandInterop.WlInterface*[] { null }),
-                Msg("ready",         "uuu",   new WaylandInterop.WlInterface*[] { null, null, null }),
-                Msg("failed",        "",      NoTypes),
-                Msg("damage",        "2uuuu", new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("linux_dmabuf",  "3uuu",  new WaylandInterop.WlInterface*[] { null, null, null }),
-                Msg("buffer_done",   "3",     NoTypes),
+                Msg("buffer", "uuuu", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("flags", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("ready", "uuu", new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("failed", "", NoTypes),
+                Msg("damage", "2uuuu", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("linux_dmabuf", "3uuu", new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("buffer_done", "3", NoTypes),
             });
     }
 
@@ -1000,7 +1001,7 @@ internal static unsafe class WlInterfaces
         RiverLayerShell = AllocEmpty("river_layer_shell_v1", 1);
         RiverLayerShellOutput = AllocEmpty("river_layer_shell_output_v1", 1);
         RiverLayerShellSeat = AllocEmpty("river_layer_shell_seat_v1", 1);
-        RiverSeat = AllocEmpty("river_seat_v1", 4);
+        RiverSeat = AllocEmpty("river_seat_v1", 5);
         RiverPointerBinding = AllocEmpty("river_pointer_binding_v1", 4);
         RiverXkbBindings = AllocEmpty("river_xkb_bindings_v1", 3);
         RiverXkbBinding = AllocEmpty("river_xkb_binding_v1", 3);
@@ -1010,96 +1011,96 @@ internal static unsafe class WlInterfaces
         Populate(RiverWindowManager,
             requests: new[]
             {
-                Msg("stop",              "",   NoTypes),
-                Msg("destroy",           "",   NoTypes),
-                Msg("manage_finish",     "",   NoTypes),
-                Msg("manage_dirty",      "",   NoTypes),
-                Msg("render_finish",     "",   NoTypes),
+                Msg("stop", "", NoTypes),
+                Msg("destroy", "", NoTypes),
+                Msg("manage_finish", "", NoTypes),
+                Msg("manage_dirty", "", NoTypes),
+                Msg("render_finish", "", NoTypes),
                 Msg("get_shell_surface", "no", new WaylandInterop.WlInterface*[] { RiverShellSurface, WlSurface }),
-                Msg("exit_session",      "4",  NoTypes),
+                Msg("exit_session", "4", NoTypes),
                 // Opcode 7 (since v7): global backdrop-blur parameters. enabled/radius/passes.
-                Msg("set_blur",          "7uii", new WaylandInterop.WlInterface*[] { null, null, null }),
+                Msg("set_blur", "7uii", new WaylandInterop.WlInterface*[] { null, null, null }),
                 // Opcode 8 (since v8): default window-content opacity (32-bit unsigned fraction).
-                Msg("set_opacity",       "8u",   new WaylandInterop.WlInterface*[] { null }),
+                Msg("set_opacity", "8u", new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {
-                Msg("unavailable",       "",   NoTypes),
-                Msg("finished",          "",   NoTypes),
-                Msg("manage_start",      "",   NoTypes),
-                Msg("render_start",      "",   NoTypes),
-                Msg("session_locked",    "",   NoTypes),
-                Msg("session_unlocked",  "",   NoTypes),
-                Msg("window",            "n",  new WaylandInterop.WlInterface*[] { RiverWindow }),
-                Msg("output",            "n",  new WaylandInterop.WlInterface*[] { RiverOutput }),
-                Msg("seat",              "n",  new WaylandInterop.WlInterface*[] { RiverSeat }),
+                Msg("unavailable", "", NoTypes),
+                Msg("finished", "", NoTypes),
+                Msg("manage_start", "", NoTypes),
+                Msg("render_start", "", NoTypes),
+                Msg("session_locked", "", NoTypes),
+                Msg("session_unlocked", "", NoTypes),
+                Msg("window", "n", new WaylandInterop.WlInterface*[] { RiverWindow }),
+                Msg("output", "n", new WaylandInterop.WlInterface*[] { RiverOutput }),
+                Msg("seat", "n", new WaylandInterop.WlInterface*[] { RiverSeat }),
             });
 
         // River_window_v1
         Populate(RiverWindow,
             requests: new[]
             {
-                Msg("destroy",              "",        NoTypes),
-                Msg("close",                "",        NoTypes),
-                Msg("get_node",             "n",       new WaylandInterop.WlInterface*[] { RiverNode }),
-                Msg("propose_dimensions",   "ii",      new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("hide",                 "",        NoTypes),
-                Msg("show",                 "",        NoTypes),
-                Msg("use_csd",              "",        NoTypes),
-                Msg("use_ssd",              "",        NoTypes),
-                Msg("set_borders",          "uiuuuu",  new WaylandInterop.WlInterface*[] { null, null, null, null, null, null }),
-                Msg("set_tiled",            "u",       new WaylandInterop.WlInterface*[] { null }),
-                Msg("get_decoration_above", "no",      new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
-                Msg("get_decoration_below", "no",      new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
-                Msg("inform_resize_start",  "",        NoTypes),
-                Msg("inform_resize_end",    "",        NoTypes),
-                Msg("set_capabilities",     "u",       new WaylandInterop.WlInterface*[] { null }),
-                Msg("inform_maximized",     "",        NoTypes),
-                Msg("inform_unmaximized",   "",        NoTypes),
-                Msg("inform_fullscreen",    "",        NoTypes),
-                Msg("inform_not_fullscreen","",        NoTypes),
-                Msg("fullscreen",           "o",       new WaylandInterop.WlInterface*[] { RiverOutput }),
-                Msg("exit_fullscreen",      "",        NoTypes),
-                Msg("set_clip_box",         "2iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("set_content_clip_box", "3iiii",   new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("set_dimension_bounds", "4ii",     new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("set_workspace",        "6o",      new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
+                Msg("destroy", "", NoTypes),
+                Msg("close", "", NoTypes),
+                Msg("get_node", "n", new WaylandInterop.WlInterface*[] { RiverNode }),
+                Msg("propose_dimensions", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("hide", "", NoTypes),
+                Msg("show", "", NoTypes),
+                Msg("use_csd", "", NoTypes),
+                Msg("use_ssd", "", NoTypes),
+                Msg("set_borders", "uiuuuu", new WaylandInterop.WlInterface*[] { null, null, null, null, null, null }),
+                Msg("set_tiled", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("get_decoration_above", "no", new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
+                Msg("get_decoration_below", "no", new WaylandInterop.WlInterface*[] { RiverDecoration, WlSurface }),
+                Msg("inform_resize_start", "", NoTypes),
+                Msg("inform_resize_end", "", NoTypes),
+                Msg("set_capabilities", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("inform_maximized", "", NoTypes),
+                Msg("inform_unmaximized", "", NoTypes),
+                Msg("inform_fullscreen", "", NoTypes),
+                Msg("inform_not_fullscreen", "", NoTypes),
+                Msg("fullscreen", "o", new WaylandInterop.WlInterface*[] { RiverOutput }),
+                Msg("exit_fullscreen", "", NoTypes),
+                Msg("set_clip_box", "2iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("set_content_clip_box", "3iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("set_dimension_bounds", "4ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("set_workspace", "6o", new WaylandInterop.WlInterface*[] { ExtWorkspaceHandle }),
                 // Opcode 25 (since v7): per-window blur opt-out (0 = excluded, e.g. games).
-                Msg("set_window_blur",      "7u",      new WaylandInterop.WlInterface*[] { null }),
+                Msg("set_window_blur", "7u", new WaylandInterop.WlInterface*[] { null }),
                 // Opcode 26 (since v8): per-window content opacity (32-bit unsigned fraction).
-                Msg("set_window_opacity",   "8u",      new WaylandInterop.WlInterface*[] { null }),
+                Msg("set_window_opacity", "8u", new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {
-                Msg("closed",                    "",     NoTypes),
-                Msg("dimensions_hint",           "iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
-                Msg("dimensions",                "ii",   new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("app_id",                    "?s",   new WaylandInterop.WlInterface*[] { null }),
-                Msg("title",                     "?s",   new WaylandInterop.WlInterface*[] { null }),
-                Msg("parent",                    "?o",   new WaylandInterop.WlInterface*[] { RiverWindow }),
-                Msg("decoration_hint",           "u",    new WaylandInterop.WlInterface*[] { null }),
-                Msg("pointer_move_requested",    "o",    new WaylandInterop.WlInterface*[] { RiverSeat }),
-                Msg("pointer_resize_requested",  "ou",   new WaylandInterop.WlInterface*[] { RiverSeat, null }),
-                Msg("show_window_menu_requested","ii",   new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("maximize_requested",        "",     NoTypes),
-                Msg("unmaximize_requested",      "",     NoTypes),
-                Msg("fullscreen_requested",      "?o",   new WaylandInterop.WlInterface*[] { RiverOutput }),
-                Msg("exit_fullscreen_requested", "",     NoTypes),
-                Msg("minimize_requested",        "",     NoTypes),
-                Msg("unreliable_pid",            "2i",   new WaylandInterop.WlInterface*[] { null }),
-                Msg("presentation_hint",         "4u",   new WaylandInterop.WlInterface*[] { null }),
-                Msg("identifier",                "4s",   new WaylandInterop.WlInterface*[] { null }),
-                Msg("activate_requested",        "5",    NoTypes),
-                Msg("unminimize_requested",      "5",    NoTypes),
+                Msg("closed", "", NoTypes),
+                Msg("dimensions_hint", "iiii", new WaylandInterop.WlInterface*[] { null, null, null, null }),
+                Msg("dimensions", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("app_id", "?s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("title", "?s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("parent", "?o", new WaylandInterop.WlInterface*[] { RiverWindow }),
+                Msg("decoration_hint", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("pointer_move_requested", "o", new WaylandInterop.WlInterface*[] { RiverSeat }),
+                Msg("pointer_resize_requested", "ou", new WaylandInterop.WlInterface*[] { RiverSeat, null }),
+                Msg("show_window_menu_requested", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("maximize_requested", "", NoTypes),
+                Msg("unmaximize_requested", "", NoTypes),
+                Msg("fullscreen_requested", "?o", new WaylandInterop.WlInterface*[] { RiverOutput }),
+                Msg("exit_fullscreen_requested", "", NoTypes),
+                Msg("minimize_requested", "", NoTypes),
+                Msg("unreliable_pid", "2i", new WaylandInterop.WlInterface*[] { null }),
+                Msg("presentation_hint", "4u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("identifier", "4s", new WaylandInterop.WlInterface*[] { null }),
+                Msg("activate_requested", "5", NoTypes),
+                Msg("unminimize_requested", "5", NoTypes),
             });
 
         // River_decoration_v1
         Populate(RiverDecoration,
             requests: new[]
             {
-                Msg("destroy",          "",   NoTypes),
-                Msg("set_offset",       "ii", new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("sync_next_commit", "",   NoTypes),
+                Msg("destroy", "", NoTypes),
+                Msg("set_offset", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("sync_next_commit", "", NoTypes),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -1107,9 +1108,9 @@ internal static unsafe class WlInterfaces
         Populate(RiverShellSurface,
             requests: new[]
             {
-                Msg("destroy",          "",  NoTypes),
-                Msg("get_node",         "n", new WaylandInterop.WlInterface*[] { RiverNode }),
-                Msg("sync_next_commit", "",  NoTypes),
+                Msg("destroy", "", NoTypes),
+                Msg("get_node", "n", new WaylandInterop.WlInterface*[] { RiverNode }),
+                Msg("sync_next_commit", "", NoTypes),
             },
             events: new[]
             {
@@ -1124,9 +1125,9 @@ internal static unsafe class WlInterfaces
         Populate(RiverLayerShell,
             requests: new[]
             {
-                Msg("destroy",    "",  NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("get_output", "no", new WaylandInterop.WlInterface*[] { RiverLayerShellOutput, RiverOutput }),
-                Msg("get_seat",   "no", new WaylandInterop.WlInterface*[] { RiverLayerShellSeat,   RiverSeat   }),
+                Msg("get_seat", "no", new WaylandInterop.WlInterface*[] { RiverLayerShellSeat, RiverSeat }),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -1136,7 +1137,7 @@ internal static unsafe class WlInterfaces
         Populate(RiverLayerShellOutput,
             requests: new[]
             {
-                Msg("destroy",     "", NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("set_default", "", NoTypes),
             },
             events: new[]
@@ -1153,21 +1154,21 @@ internal static unsafe class WlInterfaces
             },
             events: new[]
             {
-                Msg("focus_exclusive",     "", NoTypes),
+                Msg("focus_exclusive", "", NoTypes),
                 Msg("focus_non_exclusive", "", NoTypes),
-                Msg("focus_none",          "", NoTypes),
+                Msg("focus_none", "", NoTypes),
             });
 
         // River_node_v1
         Populate(RiverNode,
             requests: new[]
             {
-                Msg("destroy",      "",   NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("set_position", "ii", new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("place_top",    "",   NoTypes),
-                Msg("place_bottom", "",   NoTypes),
-                Msg("place_above",  "o",  new WaylandInterop.WlInterface*[] { RiverNode }),
-                Msg("place_below",  "o",  new WaylandInterop.WlInterface*[] { RiverNode }),
+                Msg("place_top", "", NoTypes),
+                Msg("place_bottom", "", NoTypes),
+                Msg("place_above", "o", new WaylandInterop.WlInterface*[] { RiverNode }),
+                Msg("place_below", "o", new WaylandInterop.WlInterface*[] { RiverNode }),
             },
             events: Array.Empty<WaylandInterop.WlMessage>());
 
@@ -1175,14 +1176,14 @@ internal static unsafe class WlInterfaces
         Populate(RiverOutput,
             requests: new[]
             {
-                Msg("destroy",               "",   NoTypes),
+                Msg("destroy", "", NoTypes),
                 Msg("set_presentation_mode", "4u", new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {
-                Msg("removed",    "",   NoTypes),
-                Msg("wl_output",  "u",  new WaylandInterop.WlInterface*[] { null }),
-                Msg("position",   "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("removed", "", NoTypes),
+                Msg("wl_output", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("position", "ii", new WaylandInterop.WlInterface*[] { null, null }),
                 Msg("dimensions", "ii", new WaylandInterop.WlInterface*[] { null, null }),
             });
 
@@ -1190,27 +1191,28 @@ internal static unsafe class WlInterfaces
         Populate(RiverSeat,
             requests: new[]
             {
-                Msg("destroy",              "",   NoTypes),
-                Msg("focus_window",         "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
-                Msg("focus_shell_surface",  "o",  new WaylandInterop.WlInterface*[] { RiverShellSurface }),
-                Msg("clear_focus",          "",   NoTypes),
-                Msg("op_start_pointer",     "",   NoTypes),
-                Msg("op_end",               "",   NoTypes),
-                Msg("get_pointer_binding",  "nuu",new WaylandInterop.WlInterface*[] { RiverPointerBinding, null, null }),
-                Msg("set_xcursor_theme",    "2su",new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("pointer_warp",         "3ii",new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("destroy", "", NoTypes),
+                Msg("focus_window", "o", new WaylandInterop.WlInterface*[] { RiverWindow }),
+                Msg("focus_shell_surface", "o", new WaylandInterop.WlInterface*[] { RiverShellSurface }),
+                Msg("clear_focus", "", NoTypes),
+                Msg("op_start_pointer", "", NoTypes),
+                Msg("op_end", "", NoTypes),
+                Msg("get_pointer_binding", "nuu", new WaylandInterop.WlInterface*[] { RiverPointerBinding, null, null }),
+                Msg("set_xcursor_theme", "2su", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("pointer_warp", "3ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("suprress_pointer_constraints", "5u", new WaylandInterop.WlInterface*[] { null }),
             },
             events: new[]
             {
-                Msg("removed",                    "",   NoTypes),
-                Msg("wl_seat",                    "u",  new WaylandInterop.WlInterface*[] { null }),
-                Msg("pointer_enter",              "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
-                Msg("pointer_leave",              "",   NoTypes),
-                Msg("window_interaction",         "o",  new WaylandInterop.WlInterface*[] { RiverWindow }),
-                Msg("shell_surface_interaction",  "o",  new WaylandInterop.WlInterface*[] { RiverShellSurface }),
-                Msg("op_delta",                   "ii", new WaylandInterop.WlInterface*[] { null, null }),
-                Msg("op_release",                 "",   NoTypes),
-                Msg("pointer_position",           "2ii",new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("removed", "", NoTypes),
+                Msg("wl_seat", "u", new WaylandInterop.WlInterface*[] { null }),
+                Msg("pointer_enter", "o", new WaylandInterop.WlInterface*[] { RiverWindow }),
+                Msg("pointer_leave", "", NoTypes),
+                Msg("window_interaction", "o", new WaylandInterop.WlInterface*[] { RiverWindow }),
+                Msg("shell_surface_interaction", "o", new WaylandInterop.WlInterface*[] { RiverShellSurface }),
+                Msg("op_delta", "ii", new WaylandInterop.WlInterface*[] { null, null }),
+                Msg("op_release", "", NoTypes),
+                Msg("pointer_position", "2ii", new WaylandInterop.WlInterface*[] { null, null }),
             });
 
         // River_pointer_binding_v1
@@ -1218,12 +1220,12 @@ internal static unsafe class WlInterfaces
             requests: new[]
             {
                 Msg("destroy", "", NoTypes),
-                Msg("enable",  "", NoTypes),
+                Msg("enable", "", NoTypes),
                 Msg("disable", "", NoTypes),
             },
             events: new[]
             {
-                Msg("pressed",  "", NoTypes),
+                Msg("pressed", "", NoTypes),
                 Msg("released", "", NoTypes),
             });
 
@@ -1248,8 +1250,8 @@ internal static unsafe class WlInterfaces
             },
             events: new[]
             {
-                Msg("pressed", "", NoTypes),     // opcode 0
-                Msg("released", "", NoTypes),    // opcode 1
+                Msg("pressed", "", NoTypes), // opcode 0
+                Msg("released", "", NoTypes), // opcode 1
                 Msg("stop_repeat", "", NoTypes), // opcode 2, since v2 — REQUIRED at bind version 3
             });
 

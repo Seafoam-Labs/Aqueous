@@ -105,6 +105,7 @@ pressed: std.AutoHashMapUnmanaged(u32, ?*PointerBinding) = .{},
 /// This constraint is not necessarily active, activation only occurs once the cursor
 /// has been moved inside the constraint region.
 constraint: ?*PointerConstraint = null,
+constraints_suppressed: bool = false,
 
 /// Keeps track of the last known location of all touch points in layout coordinates.
 /// This information is necessary for proper touch dnd support if there are multiple touch points.
@@ -257,6 +258,18 @@ pub fn setTheme(cursor: *Cursor, theme: ?[*:0]const u8, _size: ?u32) !void {
     switch (cursor.image) {
         .none, .client => {},
         .xcursor => |name| cursor.wlr_cursor.setXcursor(xcursor_manager, name),
+    }
+}
+
+pub fn setConstraintsSuppressed(cursor: *Cursor, value: bool) void{
+    if(cursor.constraints_suppressed == value)return;
+    cursor.constraints_suppressed = value;
+    if(value){
+        if(cursor.constraint) |c|{
+            if(c.state == .active) c.deactivate();
+        }
+    }else{
+        if(cursor.constraint) |c| c.maybeActivate();
     }
 }
 

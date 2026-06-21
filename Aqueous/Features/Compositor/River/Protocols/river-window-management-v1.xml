@@ -85,23 +85,23 @@
       To summarize, the main loop of this protocol is as follows:
 
       1. The server sends events indicating all changes since the last
-         manage sequence followed by the manage_start event.
+      manage sequence followed by the manage_start event.
 
       2. The client sends requests modifying window management state or
-         rendering state (as defined above) followed by the manage_finish
-         request.
+      rendering state (as defined above) followed by the manage_finish
+      request.
 
       3. The server sends new state to windows and waits for responses.
 
       4. The server sends new window dimensions to the client followed by the
-         render_start event.
+      render_start event.
 
       5. The client sends requests modifying rendering state (as defined above)
-         followed by the render_finish request.
+      followed by the render_finish request.
 
       6. If window dimensions change, loop back to step 4.
-         If state that requires a manage sequence changes or if the client makes
-         a manage_dirty request, loop back to step 1.
+      If state that requires a manage sequence changes or if the client makes
+      a manage_dirty request, loop back to step 1.
 
       For the purposes of frame perfection, the server may delay rendering new
       state committed by the windows in step 3 until after step 5 is finished.
@@ -112,11 +112,11 @@
 
     <enum name="error">
       <entry name="sequence_order" value="0"
-        summary="request violates manage/render sequence ordering"/>
+             summary="request violates manage/render sequence ordering"/>
       <entry name="role" value="1"
-        summary="given wl_surface already has a role"/>
+             summary="given wl_surface already has a role"/>
       <entry name="unresponsive" value="2"
-        summary="window manager unresponsive"/>
+             summary="window manager unresponsive"/>
     </enum>
 
     <event name="unavailable">
@@ -301,9 +301,9 @@
         attached or committed is a protocol error.
       </description>
       <arg name="id" type="new_id" interface="river_shell_surface_v1"
-        summary="new river shell surface"/>
+           summary="new river shell surface"/>
       <arg name="surface" type="object" interface="wl_surface"
-        summary="base surface"/>
+           summary="base surface"/>
     </request>
 
     <request name="exit_session" since="4">
@@ -370,13 +370,13 @@
 
     <enum name="error">
       <entry name="node_exists" value="0"
-        summary="window already has a node object"/>
+             summary="window already has a node object"/>
       <entry name="invalid_dimensions" value="1"
-        summary="proposed dimensions out of bounds"/>
+             summary="proposed dimensions out of bounds"/>
       <entry name="invalid_border" value="2"
-        summary="invalid arg to set_borders"/>
+             summary="invalid arg to set_borders"/>
       <entry name="invalid_clip_box" value="3"
-        summary="invalid arg to set_clip_box"/>
+             summary="invalid arg to set_clip_box"/>
     </enum>
 
     <request name="destroy" type="destructor">
@@ -546,7 +546,7 @@
         state has been sent by the server.
       </description>
       <arg name="app_id" type="string" allow-null="true"
-        summary="window application ID"/>
+           summary="window application ID"/>
     </event>
 
     <event name="title">
@@ -580,18 +580,18 @@
         state has been sent by the server.
       </description>
       <arg name="parent" type="object" allow-null="true"
-        interface="river_window_v1" summary="parent window, if any"/>
+           interface="river_window_v1" summary="parent window, if any"/>
     </event>
 
     <enum name="decoration_hint">
       <entry name="only_supports_csd" value="0"
-        summary="only supports client side decoration"/>
+             summary="only supports client side decoration"/>
       <entry name="prefers_csd" value="1"
-        summary="client side decoration preferred, both CSD and SSD supported"/>
+             summary="client side decoration preferred, both CSD and SSD supported"/>
       <entry name="prefers_ssd" value="2"
-        summary="server side decoration preferred, both CSD and SSD supported"/>
+             summary="server side decoration preferred, both CSD and SSD supported"/>
       <entry name="no_preference" value="3"
-        summary="no preference, both CSD and SSD supported"/>
+             summary="no preference, both CSD and SSD supported"/>
     </enum>
 
     <event name="decoration_hint">
@@ -713,9 +713,9 @@
         attached or committed is a protocol error.
       </description>
       <arg name="id" type="new_id" interface="river_decoration_v1"
-        summary="new decoration surface"/>
+           summary="new decoration surface"/>
       <arg name="surface" type="object" interface="wl_surface"
-        summary="base surface"/>
+           summary="base surface"/>
     </request>
 
     <request name="get_decoration_below">
@@ -728,9 +728,9 @@
         attached or committed is a protocol error.
       </description>
       <arg name="id" type="new_id" interface="river_decoration_v1"
-        summary="new decoration surface"/>
+           summary="new decoration surface"/>
       <arg name="surface" type="object" interface="wl_surface"
-        summary="base surface"/>
+           summary="base surface"/>
     </request>
 
     <event name="pointer_move_requested">
@@ -750,7 +750,7 @@
         state has been sent by the server.
       </description>
       <arg name="seat" type="object" interface="river_seat_v1"
-        summary="requested seat"/>
+           summary="requested seat"/>
     </event>
 
     <event name="pointer_resize_requested">
@@ -774,9 +774,9 @@
         state has been sent by the server.
       </description>
       <arg name="seat" type="object" interface="river_seat_v1"
-        summary="requested seat"/>
+           summary="requested seat"/>
       <arg name="edges" type="uint" enum="edges"
-        summary="requested edges"/>
+           summary="requested edges"/>
     </event>
 
     <request name="inform_resize_start">
@@ -829,7 +829,7 @@
         part of a manage sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="caps" type="uint" enum="capabilities"
-        summary="supported capabilities"/>
+           summary="supported capabilities"/>
     </request>
 
     <event name="show_window_menu_requested">
@@ -919,7 +919,7 @@
         state has been sent by the server.
       </description>
       <arg name="output" type="object" allow-null="true"
-        interface="river_output_v1" summary="fullscreen output requested"/>
+           interface="river_output_v1" summary="fullscreen output requested"/>
     </event>
 
     <event name="exit_fullscreen_requested">
@@ -1001,7 +1001,7 @@
         part of a manage sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="output" type="object" interface="river_output_v1"
-        summary="fullscreen output"/>
+           summary="fullscreen output"/>
     </request>
 
     <request name="exit_fullscreen">
@@ -1112,7 +1112,7 @@
         state has been sent by the server.
       </description>
       <arg name="hint" type="uint" enum="river_output_v1.presentation_mode"
-        summary="presentation hint"/>
+           summary="presentation hint"/>
     </event>
 
     <event name="identifier" since="4">
@@ -1124,10 +1124,10 @@
         properties must be upheld:
 
         1. The identifier must uniquely identify the window. Two windows must not
-           share the same identifier.
+        share the same identifier.
 
         2. The identifier must not be reused. This avoids races around window
-           creation/destruction when identifiers are used in out-of-band IPC.
+        creation/destruction when identifiers are used in out-of-band IPC.
 
         If the compositor implements the ext-foreign-toplevel-list-v1 protocol,
         the river_window_v1.identifier event must match the corresponding
@@ -1167,7 +1167,7 @@
         ext_workspace_manager_v1 bound by this same client.
       </description>
       <arg name="workspace" type="object" interface="ext_workspace_handle_v1"
-        summary="target workspace"/>
+           summary="target workspace"/>
     </request>
 
     <request name="set_window_blur" since="7">
@@ -1253,7 +1253,7 @@
 
     <enum name="error">
       <entry name="no_commit" value="0"
-        summary="failed to commit the surface before the window manager commit"/>
+             summary="failed to commit the surface before the window manager commit"/>
     </enum>
 
     <request name="destroy" type="destructor">
@@ -1316,9 +1316,9 @@
 
     <enum name="error">
       <entry name="node_exists" value="0"
-        summary="shell surface already has a node object"/>
+             summary="shell surface already has a node object"/>
       <entry name="no_commit" value="1"
-        summary="failed to commit the surface before the window manager commit"/>
+             summary="failed to commit the surface before the window manager commit"/>
     </enum>
 
     <request name="destroy" type="destructor">
@@ -1423,7 +1423,7 @@
         render sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="other" type="object" interface="river_node_v1"
-        summary="other node"/>
+           summary="other node"/>
     </request>
 
     <request name="place_below">
@@ -1437,7 +1437,7 @@
         render sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="other" type="object" interface="river_node_v1"
-        summary="other node"/>
+           summary="other node"/>
     </request>
   </interface>
 
@@ -1544,7 +1544,7 @@
 
     <enum name="error" since="4">
       <entry name="invalid_presentation_mode" value="0" since="4"
-        summary="invalid presentation mode enum value"/>
+             summary="invalid presentation mode enum value"/>
     </enum>
 
     <enum name="presentation_mode" since="4">
@@ -1572,11 +1572,11 @@
         render sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="mode" type="uint" enum="presentation_mode"
-        summary="preferred presentation mode"/>
+           summary="preferred presentation mode"/>
     </request>
   </interface>
 
-  <interface name="river_seat_v1" version="4">
+  <interface name="river_seat_v1" version="5">
     <description summary="a window management seat">
       This object represents a single user's collection of input devices. It
       allows the window manager to route keyboard input to windows, get
@@ -1614,7 +1614,7 @@
 
         The server will send no further events on this object and ignore any
         request (other than river_seat_v1.destroy) made after this event is
-        sent.  The client should destroy this object with the
+        sent. The client should destroy this object with the
         river_seat_v1.destroy request to free up resources.
 
         This event will be followed by a manage_start event after all other new
@@ -1654,7 +1654,7 @@
         part of a manage sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="window" type="object" interface="river_window_v1"
-        summary="window to focus"/>
+           summary="window to focus"/>
     </request>
 
     <request name="focus_shell_surface">
@@ -1666,7 +1666,7 @@
         part of a manage sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="shell_surface" type="object" interface="river_shell_surface_v1"
-        summary="shell surface to focus"/>
+           summary="shell surface to focus"/>
     </request>
 
     <request name="clear_focus">
@@ -1696,7 +1696,7 @@
         state has been sent by the server.
       </description>
       <arg name="window" type="object" interface="river_window_v1"
-        summary="window entered"/>
+           summary="window entered"/>
     </event>
 
     <event name="pointer_leave">
@@ -1728,7 +1728,7 @@
         state has been sent by the server.
       </description>
       <arg name="window" type="object" interface="river_window_v1"
-        summary="window interacted with"/>
+           summary="window interacted with"/>
     </event>
 
     <event name="shell_surface_interaction">
@@ -1751,7 +1751,7 @@
         state has been sent by the server.
       </description>
       <arg name="shell_surface" type="object" interface="river_shell_surface_v1"
-        summary="shell surface interacted with"/>
+           summary="shell surface interacted with"/>
     </event>
 
     <request name="op_start_pointer">
@@ -1848,10 +1848,10 @@
         completed and the enable request is made during a manage sequence.
       </description>
       <arg name="id" type="new_id" interface="river_pointer_binding_v1"
-        summary="new pointer binding"/>
+           summary="new pointer binding"/>
       <arg name="button" type="uint" summary="a Linux input event code"/>
       <arg name="modifiers" type="uint" enum="modifiers"
-        summary="keyboard modifiers"/>
+           summary="keyboard modifiers"/>
     </request>
 
     <request name="set_xcursor_theme" since="2">
@@ -1896,6 +1896,14 @@
       </description>
       <arg name="x" type="int" summary="global x coordinate"/>
       <arg name="y" type="int" summary="global y coordinate"/>
+    </request>
+
+    <request name="suppress_pointer_constraints" since="5">
+      <description summary="suppress and release active pointer constraints">
+        While enabled, any active pointer constraint is deactivated and no new
+        constraint may activate. Intended for a momentary 'hold to untrap' key.
+      </description>
+      <arg name="enable" type="uint" summary="non-zero to suppress, zero to re-arm"/>
     </request>
   </interface>
 

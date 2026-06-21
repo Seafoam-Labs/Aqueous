@@ -1576,7 +1576,7 @@
     </request>
   </interface>
 
-  <interface name="river_seat_v1" version="4">
+  <interface name="river_seat_v1" version="5">
     <description summary="a window management seat">
       This object represents a single user's collection of input devices. It
       allows the window manager to route keyboard input to windows, get
@@ -1896,6 +1896,14 @@
       </description>
       <arg name="x" type="int" summary="global x coordinate"/>
       <arg name="y" type="int" summary="global y coordinate"/>
+    </request>
+
+    <request name="suppress_pointer_constraints" since="5">
+      <description summary="suppress and release active pointer constraints">
+        While enabled, any active pointer constraint is deactivated and no new
+        constraint may activate. Intended for a momentary 'hold to untrap' key.
+      </description>
+      <arg name="enable" type="uint" summary="non-zero to suppress, zero to re-arm"/>
     </request>
   </interface>
 
