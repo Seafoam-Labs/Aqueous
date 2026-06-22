@@ -44,6 +44,8 @@ public class RulesReloaderTests
         public void DrainPumpQueue() { }
         public bool IsOnPumpThread => true;
         public void Post(Action action) => action();
+        public void SetSeat(IntPtr seat) { }
+        public void SuppressPointerConstraints(bool pressed) { }
     }
 
     // We use the real WindowRegistry (internal — accessible via InternalsVisibleTo) and

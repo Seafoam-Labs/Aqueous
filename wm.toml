@@ -172,6 +172,12 @@ focus_workspace_down     = "Super+Bracketright"       # next workspace in the li
 focus_previous_workspace = "Super+Shit+grave"              # back-and-forth (the ` key)
 move_to_workspace_up     = "Super+Shift+Bracketleft"
 move_to_workspace_down   = "Super+Shift+Bracketright"
+
+# Per-output focus / move (relative to the focused output, no wrap).
+focus_output_left        = "Super+Comma"
+focus_output_right       = "Super+Period"
+move_to_output_left      = "Super+Shift+Comma"
+move_to_output_right     = "Super+Shift+Period"
 #
 # (move_workspace_up / move_workspace_down — reorder — are accepted verbs but
 #  have no ext-workspace-v1 wire representation and are no-ops.)

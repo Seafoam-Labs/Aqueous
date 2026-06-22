@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Aqueous.Features.Compositor.River;
+using Aqueous.Features.Compositor.River.Registry;
 
 namespace Aqueous.Features.Workspaces;
 
@@ -29,6 +32,8 @@ internal sealed class WorkspaceGroupInfo
     public IntPtr Handle { get; }
     public List<IntPtr> Workspaces { get; } = new();
 
+    public IntPtr Output { get; set; }
+
     public WorkspaceGroupInfo(IntPtr handle) => Handle = handle;
 }
 
@@ -39,7 +44,7 @@ internal sealed class WorkspaceGroupInfo
 /// <c>ext_workspace_handle_v1</c> proxy to <c>activate</c> or move a window to.
 /// <para>
 /// ext-workspace groups carry a <c>wl_output</c> that Aqueous does not track as one of its
-/// <c>river_output_v1</c> proxies, so there is no direct group&#8596;output bridge on the client.
+/// <c>river_output_v1</c> proxies.
 /// Instead a single <see cref="CurrentGroup"/> is tracked: it follows the most recently activated
 /// workspace's group. Index/directional actions operate on that group, which matches the focused
 /// output for the common single-output and last-focused-output cases.
@@ -226,4 +231,67 @@ internal sealed class WorkspaceStore
     }
 
     public void NotifyChanged() => Changed?.Invoke();
+
+    /// <summary>
+    /// Sets the display output for a group.
+    /// </summary>
+    /// <param name="group">workspace group to set the output for</param>
+    /// <param name="output">output to set for the workspace group</param>
+    public void SetGroupOutput(IntPtr group, IntPtr output)
+    {
+        WorkspaceGroupInfo g = AddGroup(group);
+        g.Output = output;
+    }
+
+    /// <summary>
+    /// Clears the display output for a group.
+    /// </summary>
+    /// <param name="group">workspace group</param>
+    /// <param name="output"></param>
+    public void ClearGroupOutput(IntPtr group, IntPtr output)
+    {
+        if (_groups.TryGetValue(group, out WorkspaceGroupInfo? g) && g.Output == output)
+        {
+            g.Output = IntPtr.Zero;
+        }
+    }
+
+    public WorkspaceGroupInfo? GetGroupByOutput(IntPtr output) => _groups.Values.FirstOrDefault(x => x.Output == output);
+
+    public IReadOnlyList<WorkspaceGroupInfo> GroupsByOutput()
+        => _groups.Values
+            .Where(g => g.Output != IntPtr.Zero)
+            .OrderBy(g => g.Output.ToInt64())
+            .ToList();
+
+    public WorkspaceGroupInfo? GetGroupByOutputName(string name, IOutputRegistry registry)
+    {
+        if (string.IsNullOrEmpty(name) || registry is null)
+        {
+            return null;
+        }
+
+        if (!uint.TryParse(name, out uint wlOutputName))
+        {
+            return null;
+        }
+
+        OutputEntry? entry = null;
+        foreach (OutputEntry o in registry.Snapshot())
+        {
+            if (o.WlOutputName == wlOutputName)
+            {
+                entry = o;
+                break;
+            }
+        }
+
+        if (entry is null || entry.WlOutput == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        return GetGroupByOutput(entry.WlOutput);
+    }
+
 }

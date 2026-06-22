@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Dispatch;
+using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
@@ -16,6 +17,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
 {
     private readonly IWindowRegistry _windows;
     private readonly IOutputRegistry _outputs;
+    private readonly WaylandBindSiteState _bindSiteState;
     private readonly WindowStateStore _windowStates;
     private readonly WindowStateController _windowState;
     private readonly OutputFullscreenMap _outputFullscreen;
@@ -24,6 +26,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     public OutputEventHandler(
         IWindowRegistry windows,
         IOutputRegistry outputs,
+        WaylandBindSiteState bindSiteState,
         WindowStateStore windowStates,
         WindowStateController windowState,
         OutputFullscreenMap outputFullscreen,
@@ -32,6 +35,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     {
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
         _outputs = outputs ?? throw new ArgumentNullException(nameof(outputs));
+        _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
@@ -56,6 +60,10 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
                     o.WlOutputName = args[0].u;
+                    if (_bindSiteState.WlOutputProxies.TryGetValue(o.WlOutputName, out var wlProxy))
+                    {
+                        o.WlOutput = wlProxy;
+                    }
                     _log?.Invoke("output 0x" + proxy.ToString("x") + " wl_output_name=" + o.WlOutputName);
                 }
                 break;

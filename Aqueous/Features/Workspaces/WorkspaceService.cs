@@ -25,6 +25,7 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
     private readonly IFocusService _focusService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly IWindowRegistry _windowRegistry;
+    private readonly IOutputRegistry _outputRegistry;
     private readonly WorkspaceController _controller;
 
     public WorkspaceService(
@@ -32,14 +33,16 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
         WaylandBindSiteState bindSiteState,
         IFocusService focusService,
         IManagerRequestSender managerRequestSender,
-        IWindowRegistry windowRegistry)
+        IWindowRegistry windowRegistry,
+        IOutputRegistry outputRegistry)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
-        _controller = new WorkspaceController(this);
+        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
+        _controller = new WorkspaceController(this, outputs: _outputRegistry);
     }
 
     public Action? WorkspacesChanged { get; set; }
@@ -103,6 +106,30 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
     public bool MoveWorkspaceDown()
     {
         _managerRequestSender.Post(() => _controller.MoveWorkspaceDown());
+        return true;
+    }
+
+    public bool MoveFocusedToOutputByName(string name)
+    {
+        _managerRequestSender.Post(() => _controller.MoveFocusedToOutputByName(name));
+        return true;
+    }
+
+    public bool MoveFocusedToOutput(int delta)
+    {
+        _managerRequestSender.Post(() => _controller.MoveFocusedToOutput(delta));
+        return true;
+    }
+
+    public bool FocusOutputByName(string name)
+    {
+        _managerRequestSender.Post(() => _controller.FocusOutputByName(name));
+        return true;
+    }
+
+    public bool FocusOutput(int delta)
+    {
+        _managerRequestSender.Post(() => _controller.FocusOutput(delta));
         return true;
     }
 

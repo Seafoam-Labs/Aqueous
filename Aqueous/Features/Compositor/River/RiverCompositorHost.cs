@@ -371,9 +371,29 @@ internal sealed class RiverCompositorHost : IHostedService
         }
         else if (global.Interface == "wl_output")
         {
-            // Lazy-bind path: only remember the global. Real wl_output proxies are bound on-demand from
-            // CaptureOutputAsync and destroyed immediately after capture.
             _bindSiteState.WlOutputGlobals[global.Name] = global;
+
+            if (!_bindSiteState.WlOutputProxies.ContainsKey(global.Name))
+            {
+                uint version = Math.Min(global.Version, 4u);
+                var wlOutput = _registryBinder.Bind(global.Name, WlInterfaces.WlOutput, version);
+                if (wlOutput != IntPtr.Zero)
+                {
+                    WaylandInterop.wl_proxy_add_dispatcher(wlOutput, dispatcher, ctxHandle, IntPtr.Zero);
+                    _bindSiteState.TrackProxyInterface(wlOutput, "wl_output");
+                    _bindSiteState.WlOutputProxies[global.Name] = wlOutput;
+
+                    foreach (var entry in _outputRegistry.Snapshot())
+                    {
+                        if (entry.WlOutputName == global.Name && entry.WlOutput == IntPtr.Zero)
+                        {
+                            entry.WlOutput = wlOutput;
+                        }
+                    }
+
+                    RiverLog.Write($"bound wl_output (version {version}, name {global.Name})");
+                }
+            }
         }
         else if (global.Interface == "zwlr_screencopy_manager_v1" && _bindSiteState.ScreencopyManager == IntPtr.Zero)
         {
@@ -407,6 +427,18 @@ internal sealed class RiverCompositorHost : IHostedService
             _managerRequestSender.Reset();
             _bindSiteState.Manager = IntPtr.Zero;
             _managerGlobalName = null;
+        }
+
+        if (_bindSiteState.WlOutputProxies.TryRemove(name, out var wlOutput))
+        {
+            _bindSiteState.WlOutputGlobals.TryRemove(name, out _);
+            foreach (var entry in _outputRegistry.Snapshot())
+            {
+                if (entry.WlOutput == wlOutput)
+                {
+                    entry.WlOutput = IntPtr.Zero;
+                }
+            }
         }
     }
 }

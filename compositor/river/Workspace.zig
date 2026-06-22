@@ -49,6 +49,9 @@ windows: wl.list.Head(Window, .workspace_link),
 /// Set when a member window requests attention while the workspace is inactive.
 urgent: bool = false,
 
+pinned: bool = false,
+
+
 pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
     const workspace = try util.gpa.create(Workspace);
     errdefer util.gpa.destroy(workspace);

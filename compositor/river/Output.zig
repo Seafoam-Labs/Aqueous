@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: © 2020 The River Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 const Output = @This();
@@ -264,10 +265,19 @@ pub fn create(wlr_output: *wlr.Output) !void {
 
 /// Ensure the output has at least one workspace and an active workspace.
 pub fn ensureWorkspaces(output: *Output) void {
-    if (output.active_workspace == null and output.workspaces.first() == null) {
-        const workspace = output.createWorkspace() orelse return;
-        output.active_workspace = workspace;
-    } else if (output.active_workspace == null) {
+    if (output.workspaces.first() == null) {
+        var i: u32 = 1;
+        while (i <= 9) : (i += 1) {
+            var buf: [16]u8 = undefined;
+            const name = fmt.bufPrint(&buf, "{d}", .{i}) catch "workspace";
+            const ws = Workspace.create(output, name) catch {
+                log.err("out of memory creating static workspace", .{});
+                break;
+            };
+            ws.pinned = true;
+        }
+    }
+    if (output.active_workspace == null) {
         output.active_workspace = output.workspaces.first();
     }
 }
@@ -284,12 +294,9 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     server.workspace_manager.dirty();
 }
 
-/// Append a new empty workspace if the last one is not already empty, keeping
-/// a single empty trailing workspace available at all times.
+/// Made a noop as static exists but this is safer than removing the functionality entirely
 pub fn ensureTrailingEmpty(output: *Output) void {
-    if (output.workspaces.last()) |last| {
-        if (last.empty()) return;
-    }
+    if (output.workspaces.first() != null) return;
     _ = output.createWorkspace();
 }
 
@@ -298,6 +305,7 @@ pub fn reapEmpty(output: *Output) void {
     const last = output.workspaces.last();
     var it = output.workspaces.iterator(.forward);
     while (it.next()) |workspace| {
+        if (workspace.pinned) continue;
         if (workspace == output.active_workspace) continue;
         if (workspace == last) continue;
         if (workspace.empty()) workspace.destroy();
@@ -317,15 +325,25 @@ fn fallbackOutput(output: *Output) ?*Output {
     return null;
 }
 
-/// Move all of this output's workspaces to the destination output. The migrated
-/// workspaces become inactive on the destination, which keeps its own active
-/// workspace. Member windows follow their workspaces. This performs no protocol
-/// signalling; the caller is responsible for the matching workspace handle
-/// choreography.
 fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
     output.active_workspace = null;
     var it = output.workspaces.safeIterator(.forward);
     while (it.next()) |workspace| {
+        if (workspace.pinned) {
+            if (dest.pinnedByName(workspace.name)) |target| {
+                var win_it = workspace.windows.safeIterator(.forward);
+                while (win_it.next()) |window| window.setWorkspace(target);
+            } else {
+                workspace.link.remove();
+                workspace.output = dest;
+                dest.workspaces.append(workspace);
+                continue;
+            }
+            workspace.link.remove();
+            workspace.destroy();
+            continue;
+        }
+
         workspace.link.remove();
         workspace.output = dest;
         dest.workspaces.append(workspace);
@@ -694,4 +712,14 @@ fn handlePresent(
         },
         .blanked, .lock_surface => {},
     }
+}
+
+fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |workspace| {
+        if (workspace.pinned and std.mem.eql(u8, workspace.name, name)) {
+            return workspace;
+        }
+    }
+    return null;
 }

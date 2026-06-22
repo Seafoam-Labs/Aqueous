@@ -69,21 +69,21 @@ internal sealed unsafe class WorkspaceEventService
         {
             case RiverProtocolOpcodes.ExtWorkspaceManager.WorkspaceGroup:
                 if (ev.ArgCount < 1) return;
-                {
-                    IntPtr group = args[0].o;
-                    _store.AddGroup(group);
-                    Attach(group, "ext_workspace_group_handle_v1");
-                    RiverLog.Write($"+ workspace_group 0x{group.ToString("x")}");
-                }
+            {
+                IntPtr group = args[0].o;
+                _store.AddGroup(group);
+                Attach(group, "ext_workspace_group_handle_v1");
+                RiverLog.Write($"+ workspace_group 0x{group.ToString("x")}");
+            }
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceManager.Workspace:
                 if (ev.ArgCount < 1) return;
-                {
-                    IntPtr workspace = args[0].o;
-                    _store.AddWorkspace(workspace);
-                    Attach(workspace, "ext_workspace_handle_v1");
-                    RiverLog.Write($"+ workspace 0x{workspace.ToString("x")}");
-                }
+            {
+                IntPtr workspace = args[0].o;
+                _store.AddWorkspace(workspace);
+                Attach(workspace, "ext_workspace_handle_v1");
+                RiverLog.Write($"+ workspace 0x{workspace.ToString("x")}");
+            }
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceManager.Done:
                 _store.NotifyChanged();
@@ -102,18 +102,41 @@ internal sealed unsafe class WorkspaceEventService
         switch (ev.Opcode)
         {
             case RiverProtocolOpcodes.ExtWorkspaceGroup.WorkspaceEnter:
-                if (ev.ArgCount < 1) return;
+                if (ev.ArgCount < 1)
+                {
+                    return;
+                }
+
                 _store.EnterGroup(group, args[0].o);
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceGroup.WorkspaceLeave:
-                if (ev.ArgCount < 1) return;
+                if (ev.ArgCount < 1)
+                {
+                    return;
+                }
+
                 _store.LeaveGroup(group, args[0].o);
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceGroup.Removed:
                 _store.RemoveGroup(group);
                 FinalizeHandle(group, RiverProtocolOpcodes.ExtWorkspaceGroup.Destroy);
                 break;
-            // capabilities / output_enter / output_leave carry no state the client model needs.
+            case RiverProtocolOpcodes.ExtWorkspaceGroup.OutputEnter:
+                if (ev.ArgCount < 1)
+                {
+                    return;
+                }
+
+                _store.SetGroupOutput(group, args[0].o);
+                break;
+            case RiverProtocolOpcodes.ExtWorkspaceGroup.OutputLeave:
+                if (ev.ArgCount < 1)
+                {
+                    return;
+                }
+
+                _store.ClearGroupOutput(group, args[0].o);
+                break;
         }
     }
 
@@ -129,15 +152,16 @@ internal sealed unsafe class WorkspaceEventService
                 {
                     w.Name = WlArgumentDecoder.GetString(ev.ArgsPtr, 0);
                 }
+
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceHandle.State:
                 if (ev.ArgCount < 1) return;
-                {
-                    uint state = args[0].u;
-                    bool active = (state & RiverProtocolOpcodes.ExtWorkspaceHandle.StateActive) != 0;
-                    bool urgent = (state & RiverProtocolOpcodes.ExtWorkspaceHandle.StateUrgent) != 0;
-                    _store.SetState(workspace, active, urgent);
-                }
+            {
+                uint state = args[0].u;
+                bool active = (state & RiverProtocolOpcodes.ExtWorkspaceHandle.StateActive) != 0;
+                bool urgent = (state & RiverProtocolOpcodes.ExtWorkspaceHandle.StateUrgent) != 0;
+                _store.SetState(workspace, active, urgent);
+            }
                 break;
             case RiverProtocolOpcodes.ExtWorkspaceHandle.Removed:
                 _store.RemoveWorkspace(workspace);

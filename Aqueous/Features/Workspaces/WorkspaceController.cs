@@ -1,5 +1,6 @@
 using System;
 using Aqueous.Diagnostics;
+using Aqueous.Features.Compositor.River.Registry;
 
 namespace Aqueous.Features.Workspaces;
 
@@ -36,6 +37,7 @@ internal sealed class WorkspaceController
     internal const int DefaultDebounceMillis = 60;
 
     private readonly IWorkspaceHost _host;
+    private readonly IOutputRegistry? _outputs;
 
     // Pump-thread affinity is enforced by the WorkspaceService facade, which funnels every verb
     // through IManagerRequestSender.Post; both the verb entry points and the per-iteration
@@ -53,9 +55,10 @@ internal sealed class WorkspaceController
     // and the deferred commit that later stalled the pump past river's watchdog (hang).
     private bool _switchedThisIteration;
 
-    public WorkspaceController(IWorkspaceHost host, Func<long>? nowMillis = null, int debounceMillis = DefaultDebounceMillis)
+    public WorkspaceController(IWorkspaceHost host, Func<long>? nowMillis = null, int debounceMillis = DefaultDebounceMillis, IOutputRegistry? outputs = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
+        _outputs = outputs;
         // nowMillis / debounceMillis are retained for API compatibility but no longer used: the
         // first-wins chord guard does not depend on wall-clock timing.
         _ = nowMillis;
@@ -113,6 +116,71 @@ internal sealed class WorkspaceController
     public bool MoveWorkspaceUp() => Reorder();
 
     public bool MoveWorkspaceDown() => Reorder();
+
+    public bool MoveFocusedToOutputByName(string name) => Move(ResolveActiveOnOutput(name));
+
+    public bool MoveFocusedToOutput(int delta) => Move(ResolveActiveOnOutputRelative(delta));
+
+    public bool FocusOutputByName(string name) => Focus(ResolveActiveOnOutput(name));
+
+    public bool FocusOutput(int delta) => Focus(ResolveActiveOnOutputRelative(delta));
+
+    private IntPtr ResolveActiveOnOutput(string name)
+    {
+        if (_outputs is null)
+        {
+            return IntPtr.Zero;
+        }
+
+        var group = Store.GetGroupByOutputName(name, _outputs);
+        if (group is null || group.Workspaces.Count == 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        var active = Store.ActiveIn(group);
+        return active != IntPtr.Zero ? active : group.Workspaces[0];
+    }
+
+    private IntPtr ResolveActiveOnOutputRelative(int delta)
+    {
+        var current = Store.GetCurrentGroup();
+        if (current is null)
+        {
+            return IntPtr.Zero;
+        }
+
+        var ordered = Store.GroupsByOutput();
+        int idx = -1;
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            if (ReferenceEquals(ordered[i], current))
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        if (idx < 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        int target = idx + delta;
+        if (target < 0 || target >= ordered.Count)
+        {
+            return IntPtr.Zero;
+        }
+
+        var group = ordered[target];
+        if (group.Workspaces.Count == 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        var active = Store.ActiveIn(group);
+        return active != IntPtr.Zero ? active : group.Workspaces[0];
+    }
 
     private bool Focus(IntPtr workspace)
     {

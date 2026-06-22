@@ -40,6 +40,8 @@ public sealed class FocusServiceLayerShellSuppressionTests
         public void DrainPumpQueue() { }
         public bool IsOnPumpThread => true;
         public void Post(Action action) => action();
+        public void SetSeat(IntPtr seat) { }
+        public void SuppressPointerConstraints(bool pressed) { }
     }
 
     // The suppression paths under test never consult the layout proposer; any call is a bug.

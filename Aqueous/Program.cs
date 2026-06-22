@@ -186,6 +186,7 @@ class Program
         services.AddSingleton<IEventHandler>(sp => new OutputEventHandler(
             sp.GetRequiredService<IWindowRegistry>(),
             sp.GetRequiredService<IOutputRegistry>(),
+            sp.GetRequiredService<WaylandBindSiteState>(),
             sp.GetRequiredService<Aqueous.Features.State.WindowStateStore>(),
             sp.GetRequiredService<Aqueous.Features.State.WindowStateController>(),
             sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),

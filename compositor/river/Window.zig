@@ -641,6 +641,14 @@ pub fn makeInert(window: *Window) void {
     }
 }
 
+fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |ws| {
+        if (ws.pinned and std.mem.eql(u8, ws.name, name)) return ws;
+    }
+    return null;
+}
+
 fn handleRequestInert(
     window_v1: *river.WindowV1,
     request: river.WindowV1.Request,

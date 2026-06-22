@@ -43,6 +43,18 @@ public interface IWorkspaceService
     /// <summary>Reorder the active workspace later in the current group's list.</summary>
     bool MoveWorkspaceDown();
 
+    /// <summary>Move the focused window to the active workspace of the output addressed by <paramref name="name"/>.</summary>
+    bool MoveFocusedToOutputByName(string name);
+
+    /// <summary>Move the focused window to the active workspace of the output <paramref name="delta"/> steps away.</summary>
+    bool MoveFocusedToOutput(int delta);
+
+    /// <summary>Focus the active workspace of the output addressed by <paramref name="name"/>.</summary>
+    bool FocusOutputByName(string name);
+
+    /// <summary>Focus the active workspace of the output <paramref name="delta"/> steps away.</summary>
+    bool FocusOutput(int delta);
+
     /// <summary>
     /// Dispatch a workspace switch that was coalesced by the rapid-switch debounce once its window
     /// has elapsed. Must be called from the Wayland event-pump thread, once per dispatch iteration.

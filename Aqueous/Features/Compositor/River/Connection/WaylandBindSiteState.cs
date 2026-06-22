@@ -77,6 +77,8 @@ internal sealed class WaylandBindSiteState
     /// </summary>
     public ConcurrentDictionary<uint, RegistryGlobal> WlOutputGlobals { get; } = new();
 
+    public ConcurrentDictionary<uint, IntPtr> WlOutputProxies { get; } = new();
+
     /// <summary>
     /// The bound <c>river_super_key_binding_v1</c> proxy (set at registry global discovery time).
     /// </summary>
