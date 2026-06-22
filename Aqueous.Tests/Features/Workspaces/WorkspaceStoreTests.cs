@@ -58,6 +58,106 @@ public sealed class WorkspaceStoreTests
     }
 
     [Fact]
+    public void ActiveWorkspaceNumber_ReturnsOneBasedIndexOfActive()
+    {
+        var store = new WorkspaceStore();
+        IntPtr group = 1000;
+        IntPtr output = 5000;
+        IntPtr ws1 = 2000;
+        IntPtr ws2 = 2001;
+        IntPtr ws3 = 2002;
+        store.AddGroup(group);
+        store.SetGroupOutput(group, output);
+        store.EnterGroup(group, ws1);
+        store.EnterGroup(group, ws2);
+        store.EnterGroup(group, ws3);
+        store.SetState(ws2, active: true, urgent: false);
+
+        Assert.Equal(2, store.ActiveWorkspaceNumber(output));
+    }
+
+    [Fact]
+    public void ActiveWorkspaceNumber_ZeroWhenNoGroupForOutput()
+    {
+        var store = new WorkspaceStore();
+        Assert.Equal(0, store.ActiveWorkspaceNumber(9999));
+    }
+
+    [Fact]
+    public void ActiveWorkspaceNumber_ZeroWhenNoActiveWorkspace()
+    {
+        var store = new WorkspaceStore();
+        IntPtr group = 1000;
+        IntPtr output = 5000;
+        store.AddGroup(group);
+        store.SetGroupOutput(group, output);
+        store.EnterGroup(group, 2000);
+
+        Assert.Equal(0, store.ActiveWorkspaceNumber(output));
+    }
+
+    [Fact]
+    public void ActiveWorkspaceNumber_IndependentPerOutput()
+    {
+        var store = new WorkspaceStore();
+        IntPtr groupA = 1000;
+        IntPtr groupB = 1001;
+        IntPtr outputA = 5000;
+        IntPtr outputB = 5001;
+        store.AddGroup(groupA);
+        store.AddGroup(groupB);
+        store.SetGroupOutput(groupA, outputA);
+        store.SetGroupOutput(groupB, outputB);
+        store.EnterGroup(groupA, 2000);
+        store.EnterGroup(groupA, 2001);
+        store.EnterGroup(groupB, 3000);
+        store.EnterGroup(groupB, 3001);
+        store.EnterGroup(groupB, 3002);
+        store.SetState(2000, active: true, urgent: false);
+        store.SetState(3002, active: true, urgent: false);
+
+        Assert.Equal(1, store.ActiveWorkspaceNumber(outputA));
+        Assert.Equal(3, store.ActiveWorkspaceNumber(outputB));
+    }
+
+    [Fact]
+    public void ActiveWorkspaceNumber_RegistryOverload_TranslatesRiverProxyToWlOutput()
+    {
+        var store = new WorkspaceStore();
+        IntPtr group = 1000;
+        IntPtr riverProxy = new IntPtr(0x55abddc5e160);
+        IntPtr wlOutput = new IntPtr(0x55abddc6c490);
+        store.AddGroup(group);
+        store.SetGroupOutput(group, wlOutput);
+        store.EnterGroup(group, 2000);
+        store.EnterGroup(group, 2001);
+        store.SetState(2001, active: true, urgent: false);
+
+        var registry = new Aqueous.Features.Compositor.River.Registry.OutputRegistry();
+        var entry = registry.Track(riverProxy, 57);
+        entry.WlOutput = wlOutput;
+
+        Assert.Equal(0, store.ActiveWorkspaceNumber(riverProxy));
+        Assert.Equal(2, store.ActiveWorkspaceNumber(riverProxy, registry));
+    }
+
+    [Fact]
+    public void ActiveWorkspaceNumber_RegistryOverload_FallsBackWhenNoTranslation()
+    {
+        var store = new WorkspaceStore();
+        IntPtr group = 1000;
+        IntPtr output = 5000;
+        store.AddGroup(group);
+        store.SetGroupOutput(group, output);
+        store.EnterGroup(group, 2000);
+        store.SetState(2000, active: true, urgent: false);
+
+        var registry = new Aqueous.Features.Compositor.River.Registry.OutputRegistry();
+
+        Assert.Equal(1, store.ActiveWorkspaceNumber(output, registry));
+    }
+
+    [Fact]
     public void SwitchingActive_FlipsVisibility()
     {
         var store = Seed(out var first, out var second);

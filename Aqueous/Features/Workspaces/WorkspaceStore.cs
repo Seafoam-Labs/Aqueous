@@ -222,6 +222,40 @@ internal sealed class WorkspaceStore
         return IntPtr.Zero;
     }
 
+    public int ActiveWorkspaceNumber(IntPtr riverOutput, IOutputRegistry registry)
+    {
+        if (riverOutput != IntPtr.Zero && registry is not null)
+        {
+            foreach (OutputEntry o in registry.Snapshot())
+            {
+                if (o.Proxy == riverOutput && o.WlOutput != IntPtr.Zero)
+                {
+                    return ActiveWorkspaceNumber(o.WlOutput);
+                }
+            }
+        }
+
+        return ActiveWorkspaceNumber(riverOutput);
+    }
+
+    public int ActiveWorkspaceNumber(IntPtr output)
+    {
+        var g = GetGroupByOutput(output);
+        if (g is null)
+        {
+            return 0;
+        }
+
+        var active = ActiveIn(g);
+        if (active == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        int idx = g.Workspaces.IndexOf(active);
+        return idx < 0 ? 0 : idx + 1;
+    }
+
     public void Clear()
     {
         _workspaces.Clear();

@@ -170,21 +170,15 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             focusedEntry.LastFocusTick = _focusedWindowTracker.CurrentTick;
         }
 
-        // Resolve the visible-tag mask for this output up-front (or AllTags for the IntPtr.Zero
-        // fallback): it is the workspace dimension of the layout-id selection, so the active-id
-        // resolution below must consult it to honour per-workspace layouts.
-        bool isFallbackTags = output == IntPtr.Zero;
-        uint activeVisibleTags = Aqueous.Features.Tags.TagState.AllTags;
-        if (!isFallbackTags && outputRegistry.Entries.TryGetValue(output, out var oeForActiveId))
-        {
-            activeVisibleTags = oeForActiveId.VisibleTags;
-        }
+        int activeWorkspaceNumber = _workspaceStore.ActiveWorkspaceNumber(output, outputRegistry);
 
         // Floating windows are a layer, not a layout: they bypass the active engine entirely and use
         // their remembered FloatRect (set by the Super+BTN_LEFT drag handler). When the active engine is
         // "float", we additionally treat every window as floating so the user can drag any of them — the
         // engine itself is only.
-        string activeId = layoutController.ResolveLayoutId(output, outputName, activeVisibleTags);
+        string activeId = activeWorkspaceNumber > 0
+            ? layoutController.ResolveLayoutId(output, outputName, activeWorkspaceNumber)
+            : layoutController.ResolveLayoutId(output, outputName, 1);
         bool floatIsActive = activeId == "float";
 
         // Engine-swap invalidation: if the active layout id on this output changed since the previous

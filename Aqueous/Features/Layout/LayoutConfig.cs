@@ -226,6 +226,27 @@ public sealed record LayoutConfig
         return null;
     }
 
+    public string? ResolveLayoutForWorkspace(string? outputName, int workspaceNumber)
+    {
+        if (workspaceNumber <= 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(outputName)
+            && PerOutputWorkspace.TryGetValue((outputName!, workspaceNumber), out var byBoth))
+        {
+            return byBoth;
+        }
+
+        if (PerWorkspace.TryGetValue(workspaceNumber, out var byWs))
+        {
+            return byWs;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Convenience wrapper around <see cref="LayoutConfigLoader.Load"/>. Kept for source
     /// compatibility; new code should call the loader directly.

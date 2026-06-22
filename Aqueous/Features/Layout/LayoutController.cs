@@ -249,6 +249,35 @@ public sealed class LayoutController
         return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
     }
 
+    public string ResolveLayoutId(IntPtr output, string? outputName, int workspaceNumber)
+    {
+        uint scopeTags = workspaceNumber > 0 ? 1u << (workspaceNumber - 1) : 0u;
+        var scope = new Scope(output, scopeTags);
+        if (_idByScope.TryGetValue(scope, out var scoped) && _registry.Contains(scoped))
+        {
+            return scoped;
+        }
+
+        if (_forcedByOutput.TryGetValue(output, out var forced) && _registry.Contains(forced))
+        {
+            return forced;
+        }
+
+        var byWorkspace = _config.ResolveLayoutForWorkspace(outputName, workspaceNumber);
+        if (byWorkspace != null && _registry.Contains(byWorkspace))
+        {
+            return byWorkspace;
+        }
+
+        if (outputName != null && _config.PerOutput.TryGetValue(outputName, out var perOutId)
+            && _registry.Contains(perOutId))
+        {
+            return perOutId;
+        }
+
+        return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
+    }
+
     /// <summary>
     /// Output-wide resolution that ignores the visible-tag dimension. Returns an explicit
     /// per-workspace override for any tracked workspace on the output if present, then the forced

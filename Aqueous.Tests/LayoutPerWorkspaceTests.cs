@@ -99,6 +99,63 @@ public class LayoutPerWorkspaceTests
         Assert.Equal("monocle", cfg.ResolveLayoutForWorkspace(null, TagA | TagB));
     }
 
+    [Fact]
+    public void ResolveLayoutForWorkspaceNumber_OutputSpecificWinsOverGeneric()
+    {
+        var cfg = LayoutConfig.Parse("""
+            [[workspace]]
+            workspace = 1
+            layout    = "monocle"
+
+            [[workspace]]
+            output    = "DP-1"
+            workspace = 1
+            layout    = "grid"
+            """);
+
+        Assert.Equal("grid", cfg.ResolveLayoutForWorkspace("DP-1", Ws1));
+        Assert.Equal("monocle", cfg.ResolveLayoutForWorkspace("HDMI-A-1", Ws1));
+        Assert.Null(cfg.ResolveLayoutForWorkspace("DP-1", Ws2));
+    }
+
+    [Fact]
+    public void ResolveLayoutForWorkspaceNumber_NonPositiveYieldsNull()
+    {
+        var cfg = LayoutConfig.Parse("""
+            [[workspace]]
+            workspace = 1
+            layout    = "monocle"
+            """);
+
+        Assert.Null(cfg.ResolveLayoutForWorkspace(null, 0));
+        Assert.Null(cfg.ResolveLayoutForWorkspace(null, -1));
+    }
+
+    [Fact]
+    public void ResolveLayoutId_ByWorkspaceNumber_SelectsConfiguredLayout()
+    {
+        var registry = new LayoutRegistry();
+        var cfg = LayoutConfig.Parse("""
+            [layout]
+            default = "tile"
+
+            [[workspace]]
+            workspace = 2
+            layout    = "grid"
+
+            [[workspace]]
+            workspace = 5
+            layout    = "monocle"
+            """);
+        var ctrl = new LayoutController(registry, cfg);
+        var output = new IntPtr(0xEE);
+
+        Assert.Equal("grid", ctrl.ResolveLayoutId(output, "DP-1", 2));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, "DP-1", 5));
+        // Unconfigured workspace falls through to [layout].default.
+        Assert.Equal("tile", ctrl.ResolveLayoutId(output, "DP-1", 3));
+    }
+
     // -- Controller per-workspace id ---------------------------------
 
     [Fact]
