@@ -10,10 +10,10 @@ namespace Aqueous.Features.Layout;
 /// layout-only sections of <c>wm.toml</c> in their own file. Mirrors
 /// <see cref="Aqueous.Features.Rules.RulesTomlReader"/>'s discovery contract:
 /// <list type="number">
+///   <item><c>~/.config/aqueous/layout.toml</c>.</item>
 ///   <item><c>$AQUEOUS_LAYOUT</c> environment override (verbatim).</item>
 ///   <item><c>[layout].path</c> from <c>wm.toml</c> (resolved relative to <c>wm.toml</c>'s directory).</item>
 ///   <item><c>$XDG_CONFIG_HOME/aqueous/layout.toml</c>.</item>
-///   <item><c>~/.config/aqueous/layout.toml</c>.</item>
 ///   <item><c>/etc/xdg/aqueous/layout.toml</c>.</item>
 /// </list>
 /// <para>
@@ -42,14 +42,25 @@ public static class LayoutTomlReader
     /// </param>
     public static string? ResolvePath(string? configuredPath, string? wmTomlDir)
     {
-        // 1. $AQUEOUS_LAYOUT override (returned verbatim, may not exist).
+        // 1. ~/.config/aqueous/layout.toml (highest priority when it exists).
+        var home = Environment.GetEnvironmentVariable("HOME");
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            var p = Path.Combine(home, ".config", "aqueous", "layout.toml");
+            if (File.Exists(p))
+            {
+                return p;
+            }
+        }
+
+        // 2. $AQUEOUS_LAYOUT override (returned verbatim, may not exist).
         var env = Environment.GetEnvironmentVariable("AQUEOUS_LAYOUT");
         if (!string.IsNullOrWhiteSpace(env))
         {
             return ExpandHome(env);
         }
 
-        // 2. [layout].path — resolve relative to wm.toml's directory when not absolute.
+        // 3. [layout].path — resolve relative to wm.toml's directory when not absolute.
         if (!string.IsNullOrWhiteSpace(configuredPath))
         {
             var expanded = ExpandHome(configuredPath);
@@ -60,22 +71,11 @@ public static class LayoutTomlReader
             return expanded;
         }
 
-        // 3. $XDG_CONFIG_HOME/aqueous/layout.toml.
+        // 4. $XDG_CONFIG_HOME/aqueous/layout.toml.
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (!string.IsNullOrWhiteSpace(xdg))
         {
             var p = Path.Combine(xdg, "aqueous", "layout.toml");
-            if (File.Exists(p))
-            {
-                return p;
-            }
-        }
-
-        // 4. ~/.config/aqueous/layout.toml.
-        var home = Environment.GetEnvironmentVariable("HOME");
-        if (!string.IsNullOrWhiteSpace(home))
-        {
-            var p = Path.Combine(home, ".config", "aqueous", "layout.toml");
             if (File.Exists(p))
             {
                 return p;

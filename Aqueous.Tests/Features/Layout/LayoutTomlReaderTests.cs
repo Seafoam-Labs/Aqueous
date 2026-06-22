@@ -69,6 +69,7 @@ public class LayoutTomlReaderTests
     [Fact]
     public void ResolvePath_EnvOverride_WinsOverInlinePath()
     {
+        using var home = new ScopedEnv("HOME", "/no/such/home/dir");
         using var env = new ScopedEnv("AQUEOUS_LAYOUT", "/env/path/layout.toml");
 
         var resolved = LayoutTomlReader.ResolvePath("/configured/layout.toml", "/etc");
@@ -79,6 +80,7 @@ public class LayoutTomlReaderTests
     [Fact]
     public void ResolvePath_InlinePath_ResolvedRelativeToWmTomlDir()
     {
+        using var home = new ScopedEnv("HOME", "/no/such/home/dir");
         using var env = new ScopedEnv("AQUEOUS_LAYOUT", null);
 
         var resolved = LayoutTomlReader.ResolvePath("layout.toml", "/home/user/.config/aqueous");
@@ -89,6 +91,7 @@ public class LayoutTomlReaderTests
     [Fact]
     public void ResolvePath_InlinePath_AbsoluteKeptVerbatim()
     {
+        using var home = new ScopedEnv("HOME", "/no/such/home/dir");
         using var env = new ScopedEnv("AQUEOUS_LAYOUT", null);
 
         var resolved = LayoutTomlReader.ResolvePath("/absolute/layout.toml", "/wm/dir");
@@ -120,7 +123,7 @@ public class LayoutTomlReaderTests
     }
 
     [Fact]
-    public void ResolvePath_XdgFile_PreferredOverHomeWhenBothExist()
+    public void ResolvePath_HomeFile_PreferredOverXdgWhenBothExist()
     {
         using var envOverride = new ScopedEnv("AQUEOUS_LAYOUT", null);
         var xdgDir = Path.Combine(Path.GetTempPath(), "aq-test-xdg-" + Guid.NewGuid().ToString("N"));
@@ -139,11 +142,34 @@ public class LayoutTomlReaderTests
 
             var resolved = LayoutTomlReader.ResolvePath(null, null);
 
-            Assert.Equal(xdgFile, resolved);
+            Assert.Equal(homeFile, resolved);
         }
         finally
         {
             try { Directory.Delete(xdgDir, recursive: true); } catch { }
+            try { Directory.Delete(homeDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ResolvePath_HomeFile_WinsOverEnvOverrideAndInlinePath()
+    {
+        var homeDir = Path.Combine(Path.GetTempPath(), "aq-test-home-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(homeDir, ".config", "aqueous"));
+        try
+        {
+            var homeFile = Path.Combine(homeDir, ".config", "aqueous", "layout.toml");
+            File.WriteAllText(homeFile, "");
+
+            using var home = new ScopedEnv("HOME", homeDir);
+            using var envOverride = new ScopedEnv("AQUEOUS_LAYOUT", "/env/path/layout.toml");
+
+            var resolved = LayoutTomlReader.ResolvePath("/configured/layout.toml", "/etc");
+
+            Assert.Equal(homeFile, resolved);
+        }
+        finally
+        {
             try { Directory.Delete(homeDir, recursive: true); } catch { }
         }
     }
@@ -309,6 +335,8 @@ public class LayoutTomlReaderTests
         try
         {
             using var envOverride = new ScopedEnv("AQUEOUS_LAYOUT", null);
+            using var xdg = new ScopedEnv("XDG_CONFIG_HOME", "/no/such/dir/x");
+            using var home = new ScopedEnv("HOME", "/no/such/dir/h");
 
             var wm = Path.Combine(dir, "wm.toml");
             File.WriteAllText(wm, """

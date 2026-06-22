@@ -65,6 +65,233 @@ public class LayoutTests
         }
     }
 
+    [Fact]
+    public void TileLayout_SingleWindow_FillsArea()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1) };
+        object? state = null;
+
+        var result = engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        Assert.Single(result);
+        Assert.Equal(new IntPtr(1), result[0].Handle);
+        Assert.Equal(Area, result[0].Geometry);
+    }
+
+    [Fact]
+    public void TileLayout_RespectsInnerGapBetweenMasterAndStack()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        object? state = null;
+
+        var result = engine.Arrange(Area, wins, IntPtr.Zero, Opts(inner: 20, ratio: 0.5), ref state);
+
+        var master = result[0].Geometry;
+        var stack = result[1].Geometry;
+        // The stack column starts one inner gap to the right of the master's right edge.
+        Assert.Equal(master.Right + 20, stack.X);
+    }
+
+    [Fact]
+    public void TileLayout_MasterCount2_PutsTwoWindowsInMasterColumn()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3), MakeWin(4) };
+        object? state = null;
+
+        var result = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5, masterCount: 2), ref state);
+
+        Assert.Equal(4, result.Count);
+        var byHandle = new Dictionary<IntPtr, Rect>();
+        foreach (var p in result)
+        {
+            byHandle[p.Handle] = p.Geometry;
+        }
+
+        // Windows 1 & 2 share the master column (same X, masterW), windows 3 & 4 the stack column.
+        Assert.Equal(byHandle[new IntPtr(1)].X, byHandle[new IntPtr(2)].X);
+        Assert.Equal(byHandle[new IntPtr(1)].W, byHandle[new IntPtr(2)].W);
+        Assert.Equal(byHandle[new IntPtr(3)].X, byHandle[new IntPtr(4)].X);
+        Assert.Equal(byHandle[new IntPtr(3)].W, byHandle[new IntPtr(4)].W);
+        Assert.NotEqual(byHandle[new IntPtr(1)].X, byHandle[new IntPtr(3)].X);
+    }
+
+    [Fact]
+    public void TileLayout_MoveFocused_SwapsAdjacentInColumn()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3), MakeWin(4) };
+        object? state = null;
+
+        var first = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5), ref state);
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        var stackSlot1 = cellOf(first, 2); // window 2 is first stack slot (index 1)
+
+        // Move window 2 down → swaps with window 3 (index 1 ↔ 2).
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Down, ref state));
+
+        var second = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5), ref state);
+        // Window 3 now occupies what was window 2's slot.
+        Assert.Equal(stackSlot1, cellOf(second, 3));
+    }
+
+    [Fact]
+    public void TileLayout_MoveFocused_CrossesMasterStackBoundary()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        object? state = null;
+
+        var first = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5, masterCount: 1), ref state);
+        var masterX = first[0].Geometry.X;
+
+        // Move window 2 (stack) Left by masterCount(=1) → into the master slot (index 1 → 0).
+        Assert.True(engine.MoveFocused(IntPtr.Zero, new IntPtr(2), FocusDirection.Left, ref state));
+
+        var second = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5, masterCount: 1), ref state);
+        // Window 2 now sits in the master column.
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+        Assert.Equal(masterX, cellOf(second, 2).X);
+    }
+
+    [Fact]
+    public void TileLayout_MoveFocused_RejectsOutOfRange()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        // First slot cannot move further up/prev.
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Up, ref state));
+        // Unknown handle.
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(999), FocusDirection.Down, ref state));
+    }
+
+    [Fact]
+    public void TileLayout_MoveFocused_FalseWithFewerThanTwoWindows()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Down, ref state));
+    }
+
+    [Fact]
+    public void TileLayout_HoldsPositionAcrossReorderedArrange()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3), MakeWin(4) };
+        object? state = null;
+
+        var first = engine.Arrange(Area, wins, IntPtr.Zero, Opts(ratio: 0.5), ref state);
+        Rect cellOf(IReadOnlyList<WindowPlacement> ps, int handle)
+        {
+            foreach (var p in ps)
+            {
+                if (p.Handle == new IntPtr(handle)) return p.Geometry;
+            }
+            throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
+        }
+
+        var before = new Dictionary<int, Rect>();
+        for (int h = 1; h <= 4; h++)
+        {
+            before[h] = cellOf(first, h);
+        }
+
+        // Controller hands the windows in a different order; stored Order must keep slots stable.
+        var reordered = new List<WindowEntryView> { MakeWin(4), MakeWin(2), MakeWin(1), MakeWin(3) };
+        var second = engine.Arrange(Area, reordered, IntPtr.Zero, Opts(ratio: 0.5), ref state);
+
+        for (int h = 1; h <= 4; h++)
+        {
+            Assert.Equal(before[h], cellOf(second, h));
+        }
+    }
+
+    [Fact]
+    public void TileLayout_DropsClosedAndAppendsNewWindows()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        // Window 2 closes, window 4 opens.
+        var next = new List<WindowEntryView> { MakeWin(1), MakeWin(3), MakeWin(4) };
+        var result = engine.Arrange(Area, next, IntPtr.Zero, Opts(), ref state);
+
+        Assert.Equal(3, result.Count);
+        var handles = new HashSet<IntPtr>();
+        foreach (var p in result)
+        {
+            handles.Add(p.Handle);
+        }
+        Assert.Contains(new IntPtr(1), handles);
+        Assert.Contains(new IntPtr(3), handles);
+        Assert.Contains(new IntPtr(4), handles);
+        Assert.DoesNotContain(new IntPtr(2), handles);
+    }
+
+    [Fact]
+    public void TileLayout_FocusNeighbor_ReturnsAdjacentInColumn()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(masterCount: 1), ref state);
+
+        // Stack column holds 2 & 3 at indices 1 & 2; Down from 2 → 3.
+        var neighbor = engine.FocusNeighbor(IntPtr.Zero, new IntPtr(2), FocusDirection.Down, wins, ref state);
+        Assert.Equal(new IntPtr(3), neighbor);
+    }
+
+    [Fact]
+    public void TileLayout_FocusNeighbor_NullAtEdge()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        Assert.Null(engine.FocusNeighbor(IntPtr.Zero, new IntPtr(1), FocusDirection.Up, wins, ref state));
+        Assert.Null(engine.FocusNeighbor(IntPtr.Zero, new IntPtr(999), FocusDirection.Down, wins, ref state));
+    }
+
+    [Fact]
+    public void TileLayout_EmptyWindows_ClearsOrder()
+    {
+        var engine = new TileLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        object? state = null;
+        engine.Arrange(Area, wins, IntPtr.Zero, Opts(), ref state);
+
+        var result = engine.Arrange(Area, new List<WindowEntryView>(), IntPtr.Zero, Opts(), ref state);
+        Assert.Empty(result);
+        // Moving in an empty layout is a no-op.
+        Assert.False(engine.MoveFocused(IntPtr.Zero, new IntPtr(1), FocusDirection.Down, ref state));
+    }
+
     // -- MonocleLayout -----------------------------------------------
 
     [Fact]
