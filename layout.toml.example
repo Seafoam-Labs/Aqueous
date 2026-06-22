@@ -104,11 +104,38 @@ center_focused  = "true"    # auto-pan so the focused column is centred
 # > output+workspace block > workspace-only block > [[output]] > [layout].default.
 # For a multi-tag view the lowest matching workspace number wins.
 # ------------------------------------------------------------------------------
-#[[workspace]]
-#workspace = 1
-#layout    = "tile"
-#
-#[[workspace]]
-#output    = "DP-1"
-#workspace = 2
-#layout    = "monocle"
+# Workspace 1 on every monitor → classic master/stack tiling.
+[[workspace]]
+workspace = 1
+layout    = "tile"
+
+# Workspace 2 on every monitor → single full-screen window at a time.
+[[workspace]]
+workspace = 2
+layout    = "monocle"
+
+# Workspace 3 on every monitor → PaperWM-style horizontal scrolling.
+[[workspace]]
+workspace = 3
+layout    = "scrolling"
+
+# Workspace 4 → free-floating windows (good for graphics / dialog-heavy apps).
+[[workspace]]
+workspace = 4
+layout    = "float"
+
+# Output-scoped override: workspace 5 only on the DP-1 monitor uses grid;
+# on any other monitor workspace 5 falls back to [layout].default.
+[[workspace]]
+output    = "DP-1"
+workspace = 5
+layout    = "grid"
+
+# Output-scoped override: workspace 1 on the secondary HDMI monitor is
+# game-mode. An output+workspace block outranks the workspace-only block
+# above, so HDMI-A-1's workspace 1 is game-mode while every other monitor's
+# workspace 1 stays "tile".
+[[workspace]]
+output    = "HDMI-A-1"
+workspace = 1
+layout    = "game-mode"
