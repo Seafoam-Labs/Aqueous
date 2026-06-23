@@ -331,6 +331,7 @@ public class LayoutTests
         {
             ["column_width"] = "0.5",
             ["center_focused"] = "true",
+            ["allow_overscroll"] = "false",
             ["snap_to_columns"] = "false"
         });
 

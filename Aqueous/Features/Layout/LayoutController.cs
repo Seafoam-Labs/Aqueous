@@ -22,7 +22,7 @@ public sealed class LayoutController
     /// tag 2 (whose snapshot would otherwise overwrite the single per-output slot during the next
     /// <see cref="Arrange"/> reconciliation) and is restored intact on the return trip to tag 1.
     /// </summary>
-    private readonly record struct Scope(IntPtr Output, uint Tags);
+    private readonly record struct Scope(IntPtr Output, int WorkspaceNumber);
 
     /// <summary>
     /// Per-scope engine instance.
@@ -79,7 +79,7 @@ public sealed class LayoutController
         // honouring a changed default/per-output id only requires dropping the diverging scopes.
         foreach (var scope in new List<Scope>(_engineByScope.Keys))
         {
-            var newId = ResolveLayoutId(scope.Output, null, scope.Tags);
+            var newId = ResolveLayoutId(new WorkspaceId(scope.Output, scope.WorkspaceNumber));
             if (_engineByScope.TryGetValue(scope, out var engine) && engine.Id == newId)
             {
                 continue;
@@ -115,14 +115,14 @@ public sealed class LayoutController
     /// sibling workspaces on the same output. Falls back to the configured default if the id is not
     /// registered. This is the entry point for per-workspace <c>set_layout_*</c> keybindings.
     /// </summary>
-    public void SetLayoutForWorkspace(IntPtr output, uint tags, string layoutId)
+    public void SetLayoutForWorkspace(WorkspaceId workspaceId, string layoutId)
     {
         if (!_registry.Contains(layoutId))
         {
             layoutId = _config.DefaultLayout;
         }
 
-        var scope = new Scope(output, tags);
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
 
         // Layout-order memory: if this workspace is already on the requested layout id, keep its
         // engine + per-scope state (the slot order) intact so a redundant set_layout_* keybinding
@@ -140,6 +140,9 @@ public sealed class LayoutController
         _idByScope[scope] = layoutId;
     }
 
+    public void SetLayoutForWorkspace(IntPtr output, uint tags, string layoutId) =>
+        SetLayoutForWorkspace(new WorkspaceId(output, WorkspaceNumberForTags(tags)), layoutId);
+
     /// <summary>
     /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForWorkspace(IntPtr, uint, string)"/>.
     /// </summary>
@@ -147,7 +150,7 @@ public sealed class LayoutController
         SetLayoutForWorkspace(output, tags, layoutId.Value);
 
     public void SetLayoutForWorkspace(IntPtr output, int workspaceNumber, string layoutId) =>
-        SetLayoutForWorkspace(output, ScopeTagsForWorkspace(workspaceNumber), layoutId);
+        SetLayoutForWorkspace(new WorkspaceId(output, workspaceNumber), layoutId);
 
     /// <summary>
     /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForOutput(IntPtr, string)"/>.
@@ -225,19 +228,22 @@ public sealed class LayoutController
     /// (<c>[[output]]</c>); 5) the global default.
     /// </summary>
     public string ResolveLayoutId(IntPtr output, string? outputName, uint tags)
+        => ResolveLayoutId(new WorkspaceId(output, WorkspaceNumberForTags(tags)), outputName);
+
+    public string ResolveLayoutId(WorkspaceId workspaceId, string? outputName = null)
     {
-        var scope = new Scope(output, tags);
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
         if (_idByScope.TryGetValue(scope, out var scoped) && _registry.Contains(scoped))
         {
             return scoped;
         }
 
-        if (_forcedByOutput.TryGetValue(output, out var forced) && _registry.Contains(forced))
+        if (_forcedByOutput.TryGetValue(workspaceId.Output, out var forced) && _registry.Contains(forced))
         {
             return forced;
         }
 
-        var byWorkspace = _config.ResolveLayoutForWorkspace(outputName, tags);
+        var byWorkspace = _config.ResolveLayoutForWorkspace(outputName, workspaceId.Number);
         if (byWorkspace != null && _registry.Contains(byWorkspace))
         {
             return byWorkspace;
@@ -253,36 +259,13 @@ public sealed class LayoutController
     }
 
     public string ResolveLayoutId(IntPtr output, string? outputName, int workspaceNumber)
-    {
-        uint scopeTags = workspaceNumber > 0 ? 1u << (workspaceNumber - 1) : 0u;
-        var scope = new Scope(output, scopeTags);
-        if (_idByScope.TryGetValue(scope, out var scoped) && _registry.Contains(scoped))
-        {
-            return scoped;
-        }
-
-        if (_forcedByOutput.TryGetValue(output, out var forced) && _registry.Contains(forced))
-        {
-            return forced;
-        }
-
-        var byWorkspace = _config.ResolveLayoutForWorkspace(outputName, workspaceNumber);
-        if (byWorkspace != null && _registry.Contains(byWorkspace))
-        {
-            return byWorkspace;
-        }
-
-        if (outputName != null && _config.PerOutput.TryGetValue(outputName, out var perOutId)
-            && _registry.Contains(perOutId))
-        {
-            return perOutId;
-        }
-
-        return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
-    }
+        => ResolveLayoutId(new WorkspaceId(output, workspaceNumber), outputName);
 
     public LayoutOptions ResolveLayoutOptions(IntPtr output, string? outputName, uint tags)
         => _config.OptionsFor(ResolveLayoutId(output, outputName, tags));
+
+    public LayoutOptions ResolveLayoutOptions(WorkspaceId workspaceId, string? outputName = null)
+        => _config.OptionsFor(ResolveLayoutId(workspaceId, outputName));
 
     /// <summary>
     /// Output-wide resolution that ignores the visible-tag dimension. Returns an explicit
@@ -364,18 +347,94 @@ public sealed class LayoutController
         IntPtr focusedWindow,
         uint visibleTags,
         Rect outputRect = default)
-    {
-        var scope = new Scope(output, visibleTags);
-        var engine = ResolveEngine(scope, outputName);
-        var id = engine.Id;
+        => Arrange(output, outputName, usableArea, visibleWindows, focusedWindow,
+            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)), outputRect);
 
-        var opts = _config.OptionsFor(id) with { OutputRect = outputRect, Border = _config.Border };
+    /// <summary>
+    /// Engine-aware directional focus: ask the active engine for the neighbor of <paramref
+    /// name="current"/> in <paramref name="dir"/>. Returns <c>null</c> if the engine has no opinion
+    /// (the caller should then fall back to its layout-agnostic cycle).
+    /// </summary>
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        string? outputName,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows,
+        uint visibleTags)
+        => FocusNeighbor(output, outputName, current, dir, windows,
+            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
+
+    /// <summary>
+    /// Ask the active engine to move the focused window's slot. Returns true if the engine handled it;
+    /// the caller should schedule a manage cycle so the new ordering is applied.
+    /// </summary>
+    public bool MoveFocused(
+        IntPtr output,
+        string? outputName,
+        IntPtr focused,
+        FocusDirection dir,
+        uint visibleTags)
+        => MoveFocused(output, outputName, focused, dir,
+            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
+
+    /// <summary>
+    /// Pan the active engine's viewport by <paramref name="deltaColumns"/> (positive = right, negative
+    /// = left). No-op for engines without a viewport concept.
+    /// </summary>
+    public void ScrollViewport(
+        IntPtr output,
+        string? outputName,
+        int deltaColumns,
+        uint visibleTags)
+        => ScrollViewport(output, outputName, deltaColumns,
+            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
+
+    private static int WorkspaceNumberForTags(uint tags)
+    {
+        if (tags == 0u)
+        {
+            return 0;
+        }
+
+        for (var i = 0; i < 32; i++)
+        {
+            if ((tags & (1u << i)) != 0u)
+            {
+                return i + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    public IReadOnlyList<WindowPlacement> Arrange(
+        IntPtr output,
+        string? outputName,
+        Rect usableArea,
+        IReadOnlyList<WindowEntryView> visibleWindows,
+        IntPtr focusedWindow,
+        int workspaceNumber,
+        Rect outputRect = default)
+        => Arrange(output, outputName, usableArea, visibleWindows, focusedWindow,
+            new WorkspaceId(output, workspaceNumber), outputRect);
+
+    public IReadOnlyList<WindowPlacement> Arrange(
+        IntPtr output,
+        string? outputName,
+        Rect usableArea,
+        IReadOnlyList<WindowEntryView> visibleWindows,
+        IntPtr focusedWindow,
+        WorkspaceId workspaceId,
+        Rect outputRect = default)
+    {
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
+        var engine = ResolveEngine(scope, outputName);
         object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
+        var opts = _config.OptionsFor(engine.Id) with { OutputRect = outputRect, Border = _config.Border };
         var raw = engine.Arrange(usableArea, visibleWindows, focusedWindow, opts, ref state);
         _stateByScope[scope] = state;
 
-        // Apply controller-enforced rules: clamp to min/max hints. Engines are advisory on size — the
-        // controller is the source of truth so a buggy plugin layout cannot violate hints.
         var hintsByHandle = new Dictionary<IntPtr, WindowEntryView>(visibleWindows.Count);
         for (int i = 0; i < visibleWindows.Count; i++)
         {
@@ -399,77 +458,6 @@ public sealed class LayoutController
         return clamped;
     }
 
-    /// <summary>
-    /// Engine-aware directional focus: ask the active engine for the neighbor of <paramref
-    /// name="current"/> in <paramref name="dir"/>. Returns <c>null</c> if the engine has no opinion
-    /// (the caller should then fall back to its layout-agnostic cycle).
-    /// </summary>
-    public IntPtr? FocusNeighbor(
-        IntPtr output,
-        string? outputName,
-        IntPtr current,
-        FocusDirection dir,
-        IReadOnlyList<WindowEntryView> windows,
-        uint visibleTags)
-    {
-        var scope = new Scope(output, visibleTags);
-        var engine = ResolveEngine(scope, outputName);
-        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
-        var r = engine.FocusNeighbor(output, current, dir, windows, ref state);
-        _stateByScope[scope] = state;
-        return r;
-    }
-
-    /// <summary>
-    /// Ask the active engine to move the focused window's slot. Returns true if the engine handled it;
-    /// the caller should schedule a manage cycle so the new ordering is applied.
-    /// </summary>
-    public bool MoveFocused(
-        IntPtr output,
-        string? outputName,
-        IntPtr focused,
-        FocusDirection dir,
-        uint visibleTags)
-    {
-        var scope = new Scope(output, visibleTags);
-        var engine = ResolveEngine(scope, outputName);
-        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
-        var r = engine.MoveFocused(output, focused, dir, ref state);
-        _stateByScope[scope] = state;
-        return r;
-    }
-
-    /// <summary>
-    /// Pan the active engine's viewport by <paramref name="deltaColumns"/> (positive = right, negative
-    /// = left). No-op for engines without a viewport concept.
-    /// </summary>
-    public void ScrollViewport(
-        IntPtr output,
-        string? outputName,
-        int deltaColumns,
-        uint visibleTags)
-    {
-        var scope = new Scope(output, visibleTags);
-        var engine = ResolveEngine(scope, outputName);
-        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
-        engine.ScrollViewport(output, deltaColumns, ref state);
-        _stateByScope[scope] = state;
-    }
-
-    private static uint ScopeTagsForWorkspace(int workspaceNumber)
-        => workspaceNumber > 0 ? 1u << (workspaceNumber - 1) : 0u;
-
-    public IReadOnlyList<WindowPlacement> Arrange(
-        IntPtr output,
-        string? outputName,
-        Rect usableArea,
-        IReadOnlyList<WindowEntryView> visibleWindows,
-        IntPtr focusedWindow,
-        int workspaceNumber,
-        Rect outputRect = default)
-        => Arrange(output, outputName, usableArea, visibleWindows, focusedWindow,
-            ScopeTagsForWorkspace(workspaceNumber), outputRect);
-
     public IntPtr? FocusNeighbor(
         IntPtr output,
         string? outputName,
@@ -478,7 +466,23 @@ public sealed class LayoutController
         IReadOnlyList<WindowEntryView> windows,
         int workspaceNumber)
         => FocusNeighbor(output, outputName, current, dir, windows,
-            ScopeTagsForWorkspace(workspaceNumber));
+            new WorkspaceId(output, workspaceNumber));
+
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        string? outputName,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows,
+        WorkspaceId workspaceId)
+    {
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
+        var r = engine.FocusNeighbor(output, current, dir, windows, ref state);
+        _stateByScope[scope] = state;
+        return r;
+    }
 
     public bool MoveFocused(
         IntPtr output,
@@ -487,7 +491,22 @@ public sealed class LayoutController
         FocusDirection dir,
         int workspaceNumber)
         => MoveFocused(output, outputName, focused, dir,
-            ScopeTagsForWorkspace(workspaceNumber));
+            new WorkspaceId(output, workspaceNumber));
+
+    public bool MoveFocused(
+        IntPtr output,
+        string? outputName,
+        IntPtr focused,
+        FocusDirection dir,
+        WorkspaceId workspaceId)
+    {
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
+        var r = engine.MoveFocused(output, focused, dir, ref state);
+        _stateByScope[scope] = state;
+        return r;
+    }
 
     public void ScrollViewport(
         IntPtr output,
@@ -495,11 +514,24 @@ public sealed class LayoutController
         int deltaColumns,
         int workspaceNumber)
         => ScrollViewport(output, outputName, deltaColumns,
-            ScopeTagsForWorkspace(workspaceNumber));
+            new WorkspaceId(output, workspaceNumber));
+
+    public void ScrollViewport(
+        IntPtr output,
+        string? outputName,
+        int deltaColumns,
+        WorkspaceId workspaceId)
+    {
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
+        engine.ScrollViewport(output, deltaColumns, ref state);
+        _stateByScope[scope] = state;
+    }
 
     private ILayoutEngine ResolveEngine(Scope scope, string? outputName)
     {
-        var id = ResolveLayoutId(scope.Output, outputName, scope.Tags);
+        var id = ResolveLayoutId(new WorkspaceId(scope.Output, scope.WorkspaceNumber), outputName);
         if (!_engineByScope.TryGetValue(scope, out var engine) || engine.Id != id)
         {
             // Drop only *this* workspace's stale engine/state when its resolved id changes; sibling

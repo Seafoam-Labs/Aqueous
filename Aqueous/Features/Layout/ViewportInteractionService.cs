@@ -104,8 +104,9 @@ internal sealed class ViewportInteractionService
 
         var outputName = _layoutProposer.ResolveOutputName(fw.Output);
         var workspaceNumber = ResolveWorkspaceNumber(fw.Output);
-        var layoutId = _layoutController.ResolveLayoutId(fw.Output, outputName, fw.Tags);
-        if (layoutId == "scrolling" && ShouldSuppressScrollingNavigation(fw.Output, outputName, fw.Tags))
+        var workspaceId = new WorkspaceId(fw.Output, workspaceNumber);
+        var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
+        if (layoutId == "scrolling" && ShouldSuppressScrollingNavigation(workspaceId, outputName))
         {
             return;
         }
@@ -119,9 +120,9 @@ internal sealed class ViewportInteractionService
         }
     }
 
-    private bool ShouldSuppressScrollingNavigation(IntPtr output, string? outputName, uint tags)
+    private bool ShouldSuppressScrollingNavigation(WorkspaceId workspaceId, string? outputName)
     {
-        var opts = _layoutController.ResolveLayoutOptions(output, outputName, tags);
+        var opts = _layoutController.ResolveLayoutOptions(workspaceId, outputName);
         if (!opts.Extra.TryGetValue("scroll_navigation_throttle_ms", out var value)
             || !int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var throttleMs)
             || throttleMs <= 0)

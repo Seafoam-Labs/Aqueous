@@ -10,6 +10,7 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Compositor.River;
 
@@ -36,6 +37,8 @@ internal sealed unsafe class SeatInteractionService
     private readonly ILayoutProposer _layoutProposer;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly LayoutController _layoutController;
+    private readonly WorkspaceStore _workspaceStore;
+    private readonly IOutputRegistry _outputRegistry;
     private readonly WaylandBindSiteState _bindSiteState;
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly IShellSurfaceRegistry _shellSurfaceRegistry;
@@ -50,6 +53,8 @@ internal sealed unsafe class SeatInteractionService
         ILayoutProposer layoutProposer,
         IManagerRequestSender managerRequestSender,
         LayoutController layoutController,
+        WorkspaceStore workspaceStore,
+        IOutputRegistry outputRegistry,
         WaylandBindSiteState bindSiteState,
         KeyBindingsRegistry keyBindingsRegistry,
         IShellSurfaceRegistry shellSurfaceRegistry,
@@ -61,6 +66,8 @@ internal sealed unsafe class SeatInteractionService
         _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
+        _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
+        _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
         _bindSiteState = bindSiteState ?? throw new ArgumentNullException(nameof(bindSiteState));
         _keyBindingsRegistry = keyBindingsRegistry ?? throw new ArgumentNullException(nameof(keyBindingsRegistry));
         _shellSurfaceRegistry = shellSurfaceRegistry ?? throw new ArgumentNullException(nameof(shellSurfaceRegistry));
@@ -185,23 +192,25 @@ internal sealed unsafe class SeatInteractionService
         }
 
         var outputName = _layoutProposer.ResolveOutputName(entry.Output);
-        var layoutId = _layoutController.ResolveLayoutId(entry.Output, outputName, entry.Tags);
-        var opts = _layoutController.ResolveLayoutOptions(entry.Output, outputName, entry.Tags);
+        var workspaceId = ResolveWorkspaceId(entry.Output);
+        var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
+        var opts = _layoutController.ResolveLayoutOptions(workspaceId, outputName);
         opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
         var delayMs = layoutId == "scrolling" ? GetMouseFocusDelayMs(opts) : 0;
         RiverLog.Write("MOUSE_FOCUS resolve hovered=0x" + hoveredWindow.ToString("x")
             + " seat=0x" + seat.ToString("x")
             + " output=0x" + entry.Output.ToString("x")
             + " outputName=" + (outputName ?? "<null>")
+            + " workspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
             + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
             + " layoutId=" + layoutId
             + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture)
             + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
-        if (layoutId == "scrolling" && !MouseFocusScrollWithinLimit(hoveredWindow, entry.Output, entry.Tags, opts))
+        if (layoutId == "scrolling" && !MouseFocusScrollWithinLimit(hoveredWindow, entry.Output, opts))
         {
             RiverLog.Write("MOUSE_FOCUS block reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
                 + " output=0x" + entry.Output.ToString("x")
-                + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
+                + " workspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
                 + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
             return;
         }
@@ -224,9 +233,15 @@ internal sealed unsafe class SeatInteractionService
         RiverLog.Write("MOUSE_FOCUS schedule-delayed hovered=0x" + hoveredWindow.ToString("x")
             + " seat=0x" + seat.ToString("x")
             + " output=0x" + entry.Output.ToString("x")
-            + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
+            + " workspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
             + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture));
-        _ = ApplyDelayedPointerFocus(hoveredWindow, seat, entry.Output, outputName, entry.Tags, delayMs, cts);
+        _ = ApplyDelayedPointerFocus(hoveredWindow, seat, workspaceId, outputName, delayMs, cts);
+    }
+
+    private WorkspaceId ResolveWorkspaceId(IntPtr output)
+    {
+        var number = _workspaceStore.ActiveWorkspaceNumber(output, _outputRegistry);
+        return new WorkspaceId(output, number > 0 ? number : 1);
     }
 
     private static int GetMouseFocusDelayMs(LayoutOptions opts)
@@ -240,7 +255,7 @@ internal sealed unsafe class SeatInteractionService
         return 0;
     }
 
-    private bool MouseFocusScrollWithinLimit(IntPtr hoveredWindow, IntPtr output, uint tags, LayoutOptions opts)
+    private bool MouseFocusScrollWithinLimit(IntPtr hoveredWindow, IntPtr output, LayoutOptions opts)
     {
         if (!opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var raw))
         {
@@ -354,7 +369,7 @@ internal sealed unsafe class SeatInteractionService
             : null;
     }
 
-    private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, IntPtr output, string? outputName, uint tags, int delayMs, CancellationTokenSource cts)
+    private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, WorkspaceId workspaceId, string? outputName, int delayMs, CancellationTokenSource cts)
         => Task.Delay(delayMs, cts.Token).ContinueWith(t =>
         {
             try
@@ -383,17 +398,18 @@ internal sealed unsafe class SeatInteractionService
                     return;
                 }
 
-                if (entry.Output != output || entry.Tags != tags)
+                var currentWorkspaceId = ResolveWorkspaceId(entry.Output);
+                if (entry.Output != workspaceId.Output || currentWorkspaceId != workspaceId)
                 {
                     RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=stale-context hovered=0x" + hoveredWindow.ToString("x")
-                        + " expectedOutput=0x" + output.ToString("x")
+                        + " expectedOutput=0x" + workspaceId.Output.ToString("x")
                         + " actualOutput=0x" + entry.Output.ToString("x")
-                        + " expectedTags=" + tags.ToString(CultureInfo.InvariantCulture)
-                        + " actualTags=" + entry.Tags.ToString(CultureInfo.InvariantCulture));
+                        + " expectedWorkspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
+                        + " actualWorkspaceId=" + currentWorkspaceId.Number.ToString(CultureInfo.InvariantCulture));
                     return;
                 }
 
-                var layoutId = _layoutController.ResolveLayoutId(output, outputName, tags);
+                var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
                 if (layoutId != "scrolling")
                 {
                     RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=layout-changed hovered=0x" + hoveredWindow.ToString("x")
@@ -401,9 +417,9 @@ internal sealed unsafe class SeatInteractionService
                     return;
                 }
 
-                var opts = _layoutController.ResolveLayoutOptions(output, outputName, tags);
+                var opts = _layoutController.ResolveLayoutOptions(workspaceId, outputName);
                 opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
-                if (!MouseFocusScrollWithinLimit(hoveredWindow, output, tags, opts))
+                if (!MouseFocusScrollWithinLimit(hoveredWindow, workspaceId.Output, opts))
                 {
                     RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
                         + " maxScroll=" + (maxScrollRaw ?? "<missing>"));

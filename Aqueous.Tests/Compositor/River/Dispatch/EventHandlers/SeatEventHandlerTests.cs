@@ -11,6 +11,7 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
+using Aqueous.Features.Workspaces;
 using Xunit;
 
 namespace Aqueous.Tests.Compositor.River.Dispatch.EventHandlers;
@@ -215,10 +216,12 @@ public sealed class SeatEventHandlerTests
         };
 
         var controller = new LayoutController(new LayoutRegistry(), config);
+        var outputs = new OutputRegistry();
+        var workspaces = new WorkspaceStore();
         if (workspaceLayoutId != null)
         {
-            controller.SetLayoutForWorkspace(new IntPtr(26), 1u, workspaceLayoutId);
-            controller.SetLayoutForWorkspace(new IntPtr(27), 1u, workspaceLayoutId);
+            controller.SetLayoutForWorkspace(new WorkspaceId(new IntPtr(26), 1), workspaceLayoutId);
+            controller.SetLayoutForWorkspace(new WorkspaceId(new IntPtr(27), 1), workspaceLayoutId);
         }
 
         return new SeatInteractionService(
@@ -228,6 +231,8 @@ public sealed class SeatEventHandlerTests
             new RegistryLayoutProposer(registry),
             new NullManagerRequestSender(),
             controller,
+            workspaces,
+            outputs,
             new WaylandBindSiteState(),
             new KeyBindingsRegistry(),
             new ShellSurfaceRegistry(),

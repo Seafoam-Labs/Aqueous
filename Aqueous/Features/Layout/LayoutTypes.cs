@@ -14,6 +14,11 @@ public readonly record struct Rect(int X, int Y, int W, int H)
     public static readonly Rect Empty = new(0, 0, 0, 0);
 }
 
+public readonly record struct WorkspaceId(IntPtr Output, int Number)
+{
+    public bool IsValid => Number > 0;
+}
+
 /// <summary>
 /// Read-only view of a window the layout engine is allowed to see. Engines are pure: they never
 /// mutate window state, they only return <see cref="WindowPlacement"/>s describing where the
