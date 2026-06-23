@@ -466,7 +466,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             {
                 placements = layoutController.Arrange(
                     output, outputName, usableArea, tiledSnapshot, focusedWindow,
-                    outputVisibleTags, outputRect);
+                    activeWorkspaceNumber > 0 ? activeWorkspaceNumber : 1, outputRect);
             }
             catch (Exception ex)
             {

@@ -488,6 +488,60 @@ public class LayoutTests
     }
 
     [Fact]
+    public void Controller_ArrangeByWorkspaceNumber_SelectsConfiguredEngine()
+    {
+        var registry = new LayoutRegistry();
+        var cfg = LayoutConfig.Parse("""
+            [layout]
+            default = "tile"
+            master_ratio = 0.5
+
+            [[workspace]]
+            workspace = 2
+            layout    = "monocle"
+            """);
+        var ctrl = new LayoutController(registry, cfg);
+        var output = new IntPtr(0xAC);
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        var area = new Rect(0, 0, 1000, 800);
+
+        var ws2 = ctrl.Arrange(output, "DP-1", area, wins, IntPtr.Zero, workspaceNumber: 2);
+        Assert.True(ws2[0].Geometry.W > 900);
+
+        var ws3 = ctrl.Arrange(output, "DP-1", area, wins, IntPtr.Zero, workspaceNumber: 3);
+        Assert.True(ws3[0].Geometry.W < 600);
+        Assert.True(ws2[0].Geometry.W > ws3[0].Geometry.W);
+    }
+
+    [Fact]
+    public void Controller_ArrangeByWorkspaceNumber_MatchesTagMaskOverload()
+    {
+        var registry = new LayoutRegistry();
+        var cfg = LayoutConfig.Parse("""
+            [layout]
+            default = "tile"
+
+            [[workspace]]
+            workspace = 3
+            layout    = "monocle"
+            """);
+        var byNumber = new LayoutController(registry, cfg);
+        var byMask = new LayoutController(new LayoutRegistry(), cfg);
+        var area = new Rect(0, 0, 1000, 800);
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+
+        var a = byNumber.Arrange(new IntPtr(0xAD), "DP-1", area, wins, IntPtr.Zero, workspaceNumber: 3);
+        var b = byMask.Arrange(new IntPtr(0xAD), "DP-1", area, wins, IntPtr.Zero, visibleTags: 1u << 2);
+
+        Assert.Equal(b.Count, a.Count);
+        for (int i = 0; i < a.Count; i++)
+        {
+            Assert.Equal(b[i].Handle, a[i].Handle);
+            Assert.Equal(b[i].Geometry, a[i].Geometry);
+        }
+    }
+
+    [Fact]
     public void Controller_ReloadPreservesGridOrder_WhenResolvedIdUnchanged()
     {
         // Layout-order memory: reloading the config (e.g. on file change) must NOT reset a grid

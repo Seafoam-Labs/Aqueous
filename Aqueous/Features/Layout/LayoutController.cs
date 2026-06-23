@@ -146,6 +146,9 @@ public sealed class LayoutController
     public void SetLayoutForWorkspace(IntPtr output, uint tags, LayoutId layoutId) =>
         SetLayoutForWorkspace(output, tags, layoutId.Value);
 
+    public void SetLayoutForWorkspace(IntPtr output, int workspaceNumber, string layoutId) =>
+        SetLayoutForWorkspace(output, ScopeTagsForWorkspace(workspaceNumber), layoutId);
+
     /// <summary>
     /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForOutput(IntPtr, string)"/>.
     /// Plugin-friendly entry point — see <see cref="LayoutId"/> for the normalization rules.
@@ -449,6 +452,47 @@ public sealed class LayoutController
         engine.ScrollViewport(output, deltaColumns, ref state);
         _stateByScope[scope] = state;
     }
+
+    private static uint ScopeTagsForWorkspace(int workspaceNumber)
+        => workspaceNumber > 0 ? 1u << (workspaceNumber - 1) : 0u;
+
+    public IReadOnlyList<WindowPlacement> Arrange(
+        IntPtr output,
+        string? outputName,
+        Rect usableArea,
+        IReadOnlyList<WindowEntryView> visibleWindows,
+        IntPtr focusedWindow,
+        int workspaceNumber,
+        Rect outputRect = default)
+        => Arrange(output, outputName, usableArea, visibleWindows, focusedWindow,
+            ScopeTagsForWorkspace(workspaceNumber), outputRect);
+
+    public IntPtr? FocusNeighbor(
+        IntPtr output,
+        string? outputName,
+        IntPtr current,
+        FocusDirection dir,
+        IReadOnlyList<WindowEntryView> windows,
+        int workspaceNumber)
+        => FocusNeighbor(output, outputName, current, dir, windows,
+            ScopeTagsForWorkspace(workspaceNumber));
+
+    public bool MoveFocused(
+        IntPtr output,
+        string? outputName,
+        IntPtr focused,
+        FocusDirection dir,
+        int workspaceNumber)
+        => MoveFocused(output, outputName, focused, dir,
+            ScopeTagsForWorkspace(workspaceNumber));
+
+    public void ScrollViewport(
+        IntPtr output,
+        string? outputName,
+        int deltaColumns,
+        int workspaceNumber)
+        => ScrollViewport(output, outputName, deltaColumns,
+            ScopeTagsForWorkspace(workspaceNumber));
 
     private ILayoutEngine ResolveEngine(Scope scope, string? outputName)
     {
