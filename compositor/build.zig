@@ -85,9 +85,16 @@ pub fn build(b: *Build) !void {
         }
     };
 
+    const animations = b.option(
+        bool,
+        "animations",
+        "Enable compositor-side window position animations (smooth scrolling). Defaults to true.",
+    ) orelse true;
+
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "scenefx", scenefx);
+    options.addOption(bool, "animations", animations);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});

@@ -20,6 +20,7 @@ const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const scaling = @import("scaling.zig");
 
+const fx = @import("fx.zig");
 const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
@@ -186,6 +187,11 @@ rendering_requested: RenderingState = .init,
 /// State applied to the wlr_output and rendered.
 current: State,
 rendering_current: RenderingState = .init,
+
+/// Monotonic timestamp (nanoseconds) of the previous frame, used to compute the
+/// frame-rate-independent delta time for window position animations. 0 means no
+/// previous frame has been recorded yet.
+anim_last_ns: i64 = 0,
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -620,6 +626,8 @@ fn handleRequestState(listener: *wl.Listener(*wlr.Output.event.RequestState), ev
 fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("frame", listener);
 
+    const still_animating = output.stepAnimations();
+
     // TODO this should probably be retried on failure
     output.renderAndCommit() catch |err| switch (err) {
         error.CommitFailed => log.err("output commit failed for {s}", .{wlr_output.name}),
@@ -627,6 +635,44 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
 
     var now = util.timestamp();
     output.scene_output.?.sendFrameDone(&now);
+
+    // renderAndCommit early-returns when the scene reports no pending changes, so
+    // re-arm the frame loop ourselves while any window on this output is still
+    // moving; otherwise the animation would stall after the first eased frame.
+    if (still_animating) wlr_output.scheduleFrame();
+}
+
+/// Advance the position animation of every window currently displayed on this
+/// output by the time elapsed since the previous frame. Returns true while any
+/// window is still moving. Compiles out (always returns false) when animations
+/// are disabled.
+fn stepAnimations(output: *Output) bool {
+    if (comptime !fx.anim_enabled) return false;
+
+    const now = util.timestamp();
+    const now_ns: i64 = @as(i64, @intCast(now.sec)) * std.time.ns_per_s + @as(i64, @intCast(now.nsec));
+
+    var dt_s: f64 = 0;
+    if (output.anim_last_ns != 0) {
+        const delta_ns = now_ns - output.anim_last_ns;
+        dt_s = @as(f64, @floatFromInt(delta_ns)) / @as(f64, std.time.ns_per_s);
+        // Clamp so a stall (e.g. after the output was idle) does not teleport the
+        // window in a single huge step.
+        if (dt_s < 0) dt_s = 0;
+        if (dt_s > 0.1) dt_s = 0.1;
+    }
+    output.anim_last_ns = now_ns;
+
+    if (dt_s <= 0) return false;
+
+    var still_animating = false;
+    var it = server.wm.windows.iterator();
+    while (it.next()) |window| {
+        const ws = window.workspace orelse continue;
+        if (ws.output != output) continue;
+        if (window.stepAnimation(dt_s)) still_animating = true;
+    }
+    return still_animating;
 }
 
 fn renderAndCommit(output: *Output) !void {

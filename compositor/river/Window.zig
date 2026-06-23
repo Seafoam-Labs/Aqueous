@@ -289,6 +289,19 @@ rendering_requested: RenderingRequested = .init,
 /// The currently rendered position/dimensions of the window in the scene graph
 box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 
+/// Position animation state. `anim_target_{x,y}` is the destination requested by
+/// the window manager; `anim_{x,y}` is the eased value actually written to the
+/// scene node each frame. `renderFinish` feeds the target in and snaps on the
+/// first placement / fullscreen / hidden transitions; `Output.handleFrame` drives
+/// the interpolation while `anim_active` is set. All of this compiles out when
+/// `-Danimations=false` (see `fx.anim_enabled`).
+anim_target_x: f64 = 0,
+anim_target_y: f64 = 0,
+anim_x: f64 = 0,
+anim_y: f64 = 0,
+anim_active: bool = false,
+anim_initialized: bool = false,
+
 foreign_toplevel_handle: ?*wlr.ExtForeignToplevelHandleV1 = null,
 wlr_toplevel_handle: ?*wlr.ForeignToplevelHandleV1 = null,
 
@@ -1098,8 +1111,8 @@ pub fn renderFinish(window: *Window) void {
     var clip: wlr.Box = requested.clip;
     var content_clip: wlr.Box = requested.content_clip;
     if (window.wm_requested.fullscreen) |output| {
-        window.box.x = output.sent.x;
-        window.box.y = output.sent.y;
+        // Fullscreen positions are snapped: we never animate into/out of fullscreen.
+        window.setAnimationTarget(output.sent.x, output.sent.y, false);
         window.fullscreen_background.node.setEnabled(true);
         const width, const height = output.sent.dimensions();
         window.fullscreen_background.setSize(width, height);
@@ -1112,8 +1125,9 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
-        window.box.x = requested.x;
-        window.box.y = requested.y;
+        // Only animate when the window is actually on-screen; snap otherwise so a
+        // hidden/closing window does not visibly "catch up" when it reappears.
+        window.setAnimationTarget(requested.x, requested.y, enabled);
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
@@ -1142,6 +1156,66 @@ pub fn renderFinish(window: *Window) void {
             decoration.renderFinish(&clip);
         }
     }
+}
+
+/// Feed a new target position into the animator and write the value that should
+/// be rendered this frame into `window.box.{x,y}`.
+///
+/// `animate` is false (forcing a snap) when animations are compiled out, on the
+/// first ever placement, for fullscreen, and whenever the window is not currently
+/// on-screen — this prevents a hidden/closing window from sliding when it becomes
+/// visible again. Otherwise a changed target arms the animation; the actual
+/// interpolation happens in `stepAnimation`, driven by `Output.handleFrame`.
+fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bool) void {
+    const tx: f64 = @floatFromInt(target_x);
+    const ty: f64 = @floatFromInt(target_y);
+
+    if (!fx.anim_enabled or !animate or !window.anim_initialized) {
+        window.anim_x = tx;
+        window.anim_y = ty;
+        window.anim_active = false;
+        window.anim_initialized = true;
+    } else if (window.anim_target_x != tx or window.anim_target_y != ty) {
+        window.anim_active = true;
+        // Arming an animation may not move the node this frame (the first frame
+        // renders at the old position), so explicitly schedule a frame to ensure
+        // the per-frame driver in Output.handleFrame actually starts running.
+        if (window.workspace) |ws| {
+            if (ws.output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
+        }
+    }
+
+    window.anim_target_x = tx;
+    window.anim_target_y = ty;
+    window.box.x = @intFromFloat(@round(window.anim_x));
+    window.box.y = @intFromFloat(@round(window.anim_y));
+}
+
+/// Advance this window's position animation by `dt_s` seconds and re-position its
+/// scene nodes. Returns true while the window is still moving so the owning output
+/// keeps scheduling frames. Uses frame-rate-independent exponential smoothing.
+pub fn stepAnimation(window: *Window, dt_s: f64) bool {
+    if (comptime !fx.anim_enabled) return false;
+    if (!window.anim_active) return false;
+
+    const t = 1.0 - @exp(-fx.anim_rate * dt_s);
+    window.anim_x += (window.anim_target_x - window.anim_x) * t;
+    window.anim_y += (window.anim_target_y - window.anim_y) * t;
+
+    if (@abs(window.anim_target_x - window.anim_x) < fx.anim_epsilon and
+        @abs(window.anim_target_y - window.anim_y) < fx.anim_epsilon)
+    {
+        window.anim_x = window.anim_target_x;
+        window.anim_y = window.anim_target_y;
+        window.anim_active = false;
+    }
+
+    window.box.x = @intFromFloat(@round(window.anim_x));
+    window.box.y = @intFromFloat(@round(window.anim_y));
+    window.tree.node.setPosition(window.box.x, window.box.y);
+    window.popup_tree.node.setPosition(window.box.x, window.box.y);
+
+    return window.anim_active;
 }
 
 fn drawBorders(window: *Window) void {

@@ -16,6 +16,22 @@ const wlr = @import("wlroots");
 /// When SceneFX is unavailable this is always 0, i.e. square corners.
 pub const corner_radius: u31 = if (build_options.scenefx) 12 else 0;
 
+// ----------------------------------------------------------------------------
+// Window position animation tuning. Frame-rate-independent exponential
+// smoothing is used (factor = 1 - exp(-rate * dt)); a higher rate is snappier.
+// The whole feature is compiled out with `-Danimations=false`.
+// ----------------------------------------------------------------------------
+
+/// Whether compositor-side position animations are compiled in.
+pub const anim_enabled: bool = build_options.animations;
+
+/// Exponential smoothing rate for window position animations.
+pub const anim_rate: f64 = 18.0;
+
+/// Distance (in layout pixels) below which an animation is considered complete
+/// and snapped to its target.
+pub const anim_epsilon: f64 = 0.5;
+
 /// Create the renderer appropriate for the current build.
 ///
 /// A SceneFX-backed scene (created by `wlr.Scene.create()` once SceneFX is
