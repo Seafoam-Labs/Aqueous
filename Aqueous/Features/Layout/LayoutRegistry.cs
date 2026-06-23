@@ -33,6 +33,7 @@ public sealed class LayoutRegistry
         Register(new GridLayoutFactory());
         Register(new FloatingLayoutFactory());
         Register(new ScrollingLayoutFactory());
+        Register(new RowsLayoutFactory());
         // Game-mode is unusual: it dispatches to other engines (remainder + fallback) by id,
         // so its factory takes the registry itself. It is registered last to guarantee its
         // sub-engine dependencies (grid by default) are already resolvable.

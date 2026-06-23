@@ -7,7 +7,7 @@
 # Options for the game-mode layout engine. Moved out of wm.toml because they
 # only matter when at least one [[window]] rule targets layout = "game-mode".
 [game_mode]
-remainder_layout = "grid"   # tile | grid | monocle | scrolling | float
+remainder_layout = "rows"   # tile | grid | monocle | scrolling | float | rows
 gaps_inner       = 8
 fallback_layout  = "grid"   # used when no anchor is present on the output
 
