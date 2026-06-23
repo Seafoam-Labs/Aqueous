@@ -484,7 +484,27 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
 
                 if (!p.Visible)
                 {
-                    w.Visible    = false;
+                    if (!w.HideSent)
+                    {
+                        if (w.Proxy != IntPtr.Zero &&
+                            w.ShowSent &&
+                            windowRegistry.Entries.ContainsKey(w.Proxy))
+                        {
+                            WaylandInterop.wl_proxy_marshal_flags(
+                                w.Proxy, 4, IntPtr.Zero, 0, 0,
+                                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        }
+
+                        w.HideSent = true;
+                        w.LastHintW = 0;
+                        w.LastHintH = 0;
+                        w.LastPosX = int.MinValue;
+                        w.LastPosY = int.MinValue;
+                        w.LastClipW = 0;
+                        w.LastClipH = 0;
+                    }
+
+                    w.Visible = false;
                     w.TagVisible = false;
                     continue;
                 }

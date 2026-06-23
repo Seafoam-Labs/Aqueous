@@ -1,4 +1,7 @@
 using System;
+using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
 using Aqueous.Diagnostics;
 using Aqueous.Features.Bindings;
 using Aqueous.Features.Compositor.River.Connection;
@@ -37,6 +40,8 @@ internal sealed unsafe class SeatInteractionService
     private readonly KeyBindingsRegistry _keyBindingsRegistry;
     private readonly IShellSurfaceRegistry _shellSurfaceRegistry;
     private readonly ILayerShellTeardownService _layerShellTeardown;
+    private readonly object _pendingMouseFocusLock = new();
+    private CancellationTokenSource? _pendingMouseFocus;
 
     public SeatInteractionService(
         DragStateStore dragState,
@@ -69,6 +74,7 @@ internal sealed unsafe class SeatInteractionService
     public void HandleSeatRemoved(IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleSeatRemoved seat=0x" + seat.ToString("x"));
+        CancelPendingMouseFocus();
         _layerShellTeardown.TeardownSeat(seat);
     }
 
@@ -82,12 +88,14 @@ internal sealed unsafe class SeatInteractionService
     public void HandleWindowInteraction(IntPtr window, IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleWindowInteraction window=0x" + window.ToString("x") + " seat=0x" + seat.ToString("x"));
+        CancelPendingMouseFocus();
         _focusService.SetFocusedWindow(window, seat);
     }
 
     public void HandleShellSurfaceInteraction(IntPtr shellSurface, IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleShellSurfaceInteraction ss=0x" + shellSurface.ToString("x") + " seat=0x" + seat.ToString("x"));
+        CancelPendingMouseFocus();
         // First sight of this river_shell_surface_v1 proxy: install the event dispatcher and track
         // its interface so its events (notably destroyed, opcode 0) route to ShellSurfaceEventHandler.
         // Aqueous never calls get_shell_surface, so the proxy only ever surfaces here as an object
@@ -123,6 +131,7 @@ internal sealed unsafe class SeatInteractionService
     public void HandleShellSurfaceDestroyed(IntPtr shellSurface)
     {
         RiverLog.Write("BRIDGE HandleShellSurfaceDestroyed ss=0x" + shellSurface.ToString("x"));
+        CancelPendingMouseFocus();
         if (shellSurface == IntPtr.Zero)
         {
             return;
@@ -149,13 +158,87 @@ internal sealed unsafe class SeatInteractionService
     public void HandlePointerEnterFocusFollow(IntPtr hoveredWindow, IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandlePointerEnterFocusFollow hovered=0x" + hoveredWindow.ToString("x") + " seat=0x" + seat.ToString("x"));
-        if (_layoutController.Config.Input.FocusFollowsMouse
-            && hoveredWindow != IntPtr.Zero
-            && _windowRegistry.Entries.ContainsKey(hoveredWindow)
-            && hoveredWindow != _focusService.FocusedWindow)
+        CancelPendingMouseFocus();
+        if (!_layoutController.Config.Input.FocusFollowsMouse
+            || hoveredWindow == IntPtr.Zero
+            || hoveredWindow == _focusService.FocusedWindow
+            || !_windowRegistry.TryGet(hoveredWindow, out var entry))
+        {
+            return;
+        }
+
+        var layoutId = _layoutController.ResolveLayoutId(entry.Output, null, entry.Tags);
+        var opts = _layoutController.ResolveLayoutOptions(entry.Output, null, entry.Tags);
+        var delayMs = layoutId == "scrolling" ? GetMouseFocusDelayMs(opts) : 0;
+        if (delayMs <= 0)
         {
             _focusService.SetFocusedWindow(hoveredWindow, seat);
+            return;
         }
+
+        var cts = new CancellationTokenSource();
+        lock (_pendingMouseFocusLock)
+        {
+            _pendingMouseFocus = cts;
+        }
+
+        _ = ApplyDelayedPointerFocus(hoveredWindow, seat, entry.Output, entry.Tags, delayMs, cts);
+    }
+
+    private static int GetMouseFocusDelayMs(LayoutOptions opts)
+    {
+        if (opts.Extra.TryGetValue("focus_follows_mouse_delay_ms", out var v)
+            && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var delayMs))
+        {
+            return Math.Max(0, delayMs);
+        }
+
+        return 0;
+    }
+
+    private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, IntPtr output, uint tags, int delayMs, CancellationTokenSource cts)
+        => Task.Delay(delayMs, cts.Token).ContinueWith(t =>
+        {
+            try
+            {
+                if (t.IsCanceled
+                    || cts.IsCancellationRequested
+                    || !_layoutController.Config.Input.FocusFollowsMouse
+                    || hoveredWindow == _focusService.FocusedWindow
+                    || !_windowRegistry.TryGet(hoveredWindow, out var entry)
+                    || entry.Output != output
+                    || entry.Tags != tags
+                    || _layoutController.ResolveLayoutId(output, null, tags) != "scrolling")
+                {
+                    return;
+                }
+
+                _focusService.SetFocusedWindow(hoveredWindow, seat);
+            }
+            finally
+            {
+                lock (_pendingMouseFocusLock)
+                {
+                    if (ReferenceEquals(_pendingMouseFocus, cts))
+                    {
+                        _pendingMouseFocus = null;
+                    }
+                }
+
+                cts.Dispose();
+            }
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+    private void CancelPendingMouseFocus()
+    {
+        CancellationTokenSource? cts;
+        lock (_pendingMouseFocusLock)
+        {
+            cts = _pendingMouseFocus;
+            _pendingMouseFocus = null;
+        }
+
+        cts?.Cancel();
     }
 
     public void HandleOpDelta(IntPtr seat, int dx, int dy)

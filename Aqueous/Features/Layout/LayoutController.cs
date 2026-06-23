@@ -281,6 +281,9 @@ public sealed class LayoutController
         return _registry.Contains(_config.DefaultLayout) ? _config.DefaultLayout : "tile";
     }
 
+    public LayoutOptions ResolveLayoutOptions(IntPtr output, string? outputName, uint tags)
+        => _config.OptionsFor(ResolveLayoutId(output, outputName, tags));
+
     /// <summary>
     /// Output-wide resolution that ignores the visible-tag dimension. Returns an explicit
     /// per-workspace override for any tracked workspace on the output if present, then the forced
