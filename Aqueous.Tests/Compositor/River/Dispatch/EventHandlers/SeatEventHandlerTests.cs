@@ -150,12 +150,48 @@ public sealed class SeatEventHandlerTests
         Assert.Equal(1, focus.FocusCalls);
     }
 
+    [Fact]
+    public async Task PointerEnter_UsesWorkspaceSelectedLayout_ForScrollingDelay()
+    {
+        var focus = new RecordingFocusService();
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "game-mode", "40", workspaceLayoutId: "scrolling");
+        var window = registry.Track(new IntPtr(19));
+        window.Output = new IntPtr(26);
+        window.Tags = 1;
+
+        service.HandlePointerEnterFocusFollow(window.Proxy, new IntPtr(36));
+
+        Assert.Equal(IntPtr.Zero, focus.FocusedWindow);
+        await Task.Delay(120);
+        Assert.Equal(window.Proxy, focus.FocusedWindow);
+        Assert.Equal(1, focus.FocusCalls);
+    }
+
+    [Fact]
+    public void PointerEnter_UsesWorkspaceSelectedLayout_ForScrollingMaxScrollGuard()
+    {
+        var focus = new RecordingFocusService(new IntPtr(20));
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "game-mode", null, "0%", workspaceLayoutId: "scrolling");
+        var first = registry.Track(focus.FocusedWindow);
+        var second = registry.Track(new IntPtr(21));
+        first.Output = second.Output = new IntPtr(27);
+        first.Tags = second.Tags = 1;
+
+        service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(37));
+
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+        Assert.Equal(0, focus.FocusCalls);
+    }
+
     private static SeatInteractionService CreateService(
         RecordingFocusService focus,
         WindowRegistry registry,
         string layoutId,
         string? delayMs,
-        string? maxScrollAmount = null)
+        string? maxScrollAmount = null,
+        string? workspaceLayoutId = null)
     {
         var extra = new Dictionary<string, string>();
         if (delayMs != null)
@@ -178,13 +214,20 @@ public sealed class SeatEventHandlerTests
             },
         };
 
+        var controller = new LayoutController(new LayoutRegistry(), config);
+        if (workspaceLayoutId != null)
+        {
+            controller.SetLayoutForWorkspace(new IntPtr(26), 1u, workspaceLayoutId);
+            controller.SetLayoutForWorkspace(new IntPtr(27), 1u, workspaceLayoutId);
+        }
+
         return new SeatInteractionService(
             new DragStateStore(),
             registry,
             focus,
             new RegistryLayoutProposer(registry),
             new NullManagerRequestSender(),
-            new LayoutController(new LayoutRegistry(), config),
+            controller,
             new WaylandBindSiteState(),
             new KeyBindingsRegistry(),
             new ShellSurfaceRegistry(),

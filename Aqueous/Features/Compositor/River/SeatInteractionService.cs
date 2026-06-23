@@ -89,6 +89,7 @@ internal sealed unsafe class SeatInteractionService
     {
         RiverLog.Write("BRIDGE HandleWindowInteraction window=0x" + window.ToString("x") + " seat=0x" + seat.ToString("x"));
         CancelPendingMouseFocus();
+        RiverLog.Write("FOCUS request source=window-interaction window=0x" + window.ToString("x") + " seat=0x" + seat.ToString("x"));
         _focusService.SetFocusedWindow(window, seat);
     }
 
@@ -159,24 +160,57 @@ internal sealed unsafe class SeatInteractionService
     {
         RiverLog.Write("BRIDGE HandlePointerEnterFocusFollow hovered=0x" + hoveredWindow.ToString("x") + " seat=0x" + seat.ToString("x"));
         CancelPendingMouseFocus();
-        if (!_layoutController.Config.Input.FocusFollowsMouse
-            || hoveredWindow == IntPtr.Zero
-            || hoveredWindow == _focusService.FocusedWindow
-            || !_windowRegistry.TryGet(hoveredWindow, out var entry))
+        if (!_layoutController.Config.Input.FocusFollowsMouse)
         {
+            RiverLog.Write("MOUSE_FOCUS skip reason=disabled hovered=0x" + hoveredWindow.ToString("x") + " focused=0x" + _focusService.FocusedWindow.ToString("x"));
             return;
         }
 
-        var layoutId = _layoutController.ResolveLayoutId(entry.Output, null, entry.Tags);
-        var opts = _layoutController.ResolveLayoutOptions(entry.Output, null, entry.Tags);
+        if (hoveredWindow == IntPtr.Zero)
+        {
+            RiverLog.Write("MOUSE_FOCUS skip reason=zero-window seat=0x" + seat.ToString("x"));
+            return;
+        }
+
+        if (hoveredWindow == _focusService.FocusedWindow)
+        {
+            RiverLog.Write("MOUSE_FOCUS skip reason=already-focused hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
+        if (!_windowRegistry.TryGet(hoveredWindow, out var entry))
+        {
+            RiverLog.Write("MOUSE_FOCUS skip reason=untracked hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
+        var outputName = _layoutProposer.ResolveOutputName(entry.Output);
+        var layoutId = _layoutController.ResolveLayoutId(entry.Output, outputName, entry.Tags);
+        var opts = _layoutController.ResolveLayoutOptions(entry.Output, outputName, entry.Tags);
+        opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
+        var delayMs = layoutId == "scrolling" ? GetMouseFocusDelayMs(opts) : 0;
+        RiverLog.Write("MOUSE_FOCUS resolve hovered=0x" + hoveredWindow.ToString("x")
+            + " seat=0x" + seat.ToString("x")
+            + " output=0x" + entry.Output.ToString("x")
+            + " outputName=" + (outputName ?? "<null>")
+            + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
+            + " layoutId=" + layoutId
+            + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture)
+            + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
         if (layoutId == "scrolling" && !MouseFocusScrollWithinLimit(hoveredWindow, entry.Output, entry.Tags, opts))
         {
+            RiverLog.Write("MOUSE_FOCUS block reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
+                + " output=0x" + entry.Output.ToString("x")
+                + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
+                + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
             return;
         }
 
-        var delayMs = layoutId == "scrolling" ? GetMouseFocusDelayMs(opts) : 0;
         if (delayMs <= 0)
         {
+            RiverLog.Write("FOCUS request source=mouse-enter-immediate window=0x" + hoveredWindow.ToString("x")
+                + " seat=0x" + seat.ToString("x")
+                + " layoutId=" + layoutId);
             _focusService.SetFocusedWindow(hoveredWindow, seat);
             return;
         }
@@ -187,7 +221,12 @@ internal sealed unsafe class SeatInteractionService
             _pendingMouseFocus = cts;
         }
 
-        _ = ApplyDelayedPointerFocus(hoveredWindow, seat, entry.Output, entry.Tags, delayMs, cts);
+        RiverLog.Write("MOUSE_FOCUS schedule-delayed hovered=0x" + hoveredWindow.ToString("x")
+            + " seat=0x" + seat.ToString("x")
+            + " output=0x" + entry.Output.ToString("x")
+            + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
+            + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture));
+        _ = ApplyDelayedPointerFocus(hoveredWindow, seat, entry.Output, outputName, entry.Tags, delayMs, cts);
     }
 
     private static int GetMouseFocusDelayMs(LayoutOptions opts)
@@ -315,29 +354,65 @@ internal sealed unsafe class SeatInteractionService
             : null;
     }
 
-    private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, IntPtr output, uint tags, int delayMs, CancellationTokenSource cts)
+    private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, IntPtr output, string? outputName, uint tags, int delayMs, CancellationTokenSource cts)
         => Task.Delay(delayMs, cts.Token).ContinueWith(t =>
         {
             try
             {
-                if (t.IsCanceled
-                    || cts.IsCancellationRequested
-                    || !_layoutController.Config.Input.FocusFollowsMouse
-                    || hoveredWindow == _focusService.FocusedWindow
-                    || !_windowRegistry.TryGet(hoveredWindow, out var entry)
-                    || entry.Output != output
-                    || entry.Tags != tags
-                    || _layoutController.ResolveLayoutId(output, null, tags) != "scrolling")
+                if (t.IsCanceled || cts.IsCancellationRequested)
                 {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=cancelled hovered=0x" + hoveredWindow.ToString("x"));
                     return;
                 }
 
-                var opts = _layoutController.ResolveLayoutOptions(output, null, tags);
+                if (!_layoutController.Config.Input.FocusFollowsMouse)
+                {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=disabled hovered=0x" + hoveredWindow.ToString("x"));
+                    return;
+                }
+
+                if (hoveredWindow == _focusService.FocusedWindow)
+                {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=already-focused hovered=0x" + hoveredWindow.ToString("x"));
+                    return;
+                }
+
+                if (!_windowRegistry.TryGet(hoveredWindow, out var entry))
+                {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=untracked hovered=0x" + hoveredWindow.ToString("x"));
+                    return;
+                }
+
+                if (entry.Output != output || entry.Tags != tags)
+                {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=stale-context hovered=0x" + hoveredWindow.ToString("x")
+                        + " expectedOutput=0x" + output.ToString("x")
+                        + " actualOutput=0x" + entry.Output.ToString("x")
+                        + " expectedTags=" + tags.ToString(CultureInfo.InvariantCulture)
+                        + " actualTags=" + entry.Tags.ToString(CultureInfo.InvariantCulture));
+                    return;
+                }
+
+                var layoutId = _layoutController.ResolveLayoutId(output, outputName, tags);
+                if (layoutId != "scrolling")
+                {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=layout-changed hovered=0x" + hoveredWindow.ToString("x")
+                        + " layoutId=" + layoutId);
+                    return;
+                }
+
+                var opts = _layoutController.ResolveLayoutOptions(output, outputName, tags);
+                opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
                 if (!MouseFocusScrollWithinLimit(hoveredWindow, output, tags, opts))
                 {
+                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
+                        + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
                     return;
                 }
 
+                RiverLog.Write("FOCUS request source=mouse-enter-delayed window=0x" + hoveredWindow.ToString("x")
+                    + " seat=0x" + seat.ToString("x")
+                    + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture));
                 _focusService.SetFocusedWindow(hoveredWindow, seat);
             }
             finally
