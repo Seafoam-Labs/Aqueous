@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices.ComTypes;
 
 namespace Aqueous.Features.Layout.Builtin;
 
@@ -12,6 +13,7 @@ namespace Aqueous.Features.Layout.Builtin;
 public sealed class ScrollingLayout : ILayoutEngine
 {
     public string Id => "scrolling";
+
 
     internal sealed class ScrollState
     {
@@ -27,6 +29,7 @@ public sealed class ScrollingLayout : ILayoutEngine
         LayoutOptions opts,
         ref object? perOutputState)
     {
+        bool allowOverscroll = opts.GetExtraBool("allow_overscroll", true);
         ScrollState state = perOutputState as ScrollState ?? new ScrollState();
         perOutputState = state;
 
@@ -50,11 +53,14 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         state.Columns.RemoveAll(h => !live.Contains(h));
         var existing = new HashSet<IntPtr>(state.Columns);
+        IntPtr newlyAdded = IntPtr.Zero;
+
         foreach (WindowEntryView t in visibleWindows)
         {
             if (!existing.Contains(t.Handle))
             {
                 state.Columns.Add(t.Handle);
+                newlyAdded = t.Handle;
             }
         }
 
@@ -67,7 +73,8 @@ public sealed class ScrollingLayout : ILayoutEngine
 
         double colFrac = opts.GetExtraDouble("column_width", 0.5);
         bool centerFocused = opts.GetExtraBool("center_focused", true);
-        bool snap = opts.GetExtraBool("snap_to_columns", true);
+        bool followNewWindows = opts.GetExtraBool("follow_new_windows", true);
+        bool snap = opts.GetExtraBool("snap_to_columns", false);
 
         int colW = Math.Max(1, (int)Math.Round(area.W * colFrac));
         int gap = opts.GapsInner;
@@ -124,9 +131,25 @@ public sealed class ScrollingLayout : ILayoutEngine
         var totalW = cursor - gap; // last gap removed
 
         // Resolve focused index.
+        var resolvedFocus = false;
+
         for (var i = 0; i < state.Columns.Count; i++)
         {
-            if (state.Columns[i] == focusedWindow) { state.FocusedIdx = i; break; }
+            if (state.Columns[i] == focusedWindow)
+            {
+                state.FocusedIdx = i;
+                resolvedFocus = true;
+                break;
+            }
+        }
+
+        if (!resolvedFocus && followNewWindows && newlyAdded != IntPtr.Zero)
+        {
+            var idx = state.Columns.IndexOf(newlyAdded);
+            if (idx >= 0)
+            {
+                state.FocusedIdx = idx;
+            }
         }
 
         if (state.FocusedIdx >= state.Columns.Count)
@@ -151,18 +174,20 @@ public sealed class ScrollingLayout : ILayoutEngine
             state.ViewportX = (int)Math.Round((double)state.ViewportX / step) * step;
         }
 
-        // Clamp.
-        var maxViewport = Math.Max(0, totalW - area.W);
-        if (state.ViewportX < 0)
-        {
-            state.ViewportX = 0;
-        }
 
-        if (state.ViewportX > maxViewport)
+        if (!allowOverscroll)
         {
-            state.ViewportX = maxViewport;
-        }
+            if (state.ViewportX < 0)
+            {
+                state.ViewportX = 0;
+            }
 
+            var maxViewport = Math.Max(0, totalW - area.W);
+            if (state.ViewportX > maxViewport)
+            {
+                state.ViewportX = maxViewport;
+            }
+        }
         for (var i = 0; i < state.Columns.Count; i++)
         {
             var screenX = area.X + virtX[i] - state.ViewportX;

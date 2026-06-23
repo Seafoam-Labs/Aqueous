@@ -207,6 +207,84 @@ public class ScrollingLayoutTests
     }
 
     [Fact]
+    public void Arrange_NewWindow_FollowsNewWindow_WhenFocusedWindowMissing()
+    {
+        var engine = new ScrollingLayout();
+        var extra = new Dictionary<string, string> { ["column_width"] = "0.55" };
+        object? state = null;
+
+        var first = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        engine.Arrange(Area, first, new IntPtr(1), Opts(extra: extra), ref state);
+
+        var second = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        var r = engine.Arrange(Area, second, IntPtr.Zero, Opts(extra: extra), ref state);
+
+        Assert.Equal(1, r[2].ZOrder);
+        Assert.Equal(225, r[2].Geometry.X);
+    }
+
+    [Fact]
+    public void Arrange_NewWindow_DoesNotFollowNewWindow_WhenDisabled()
+    {
+        var engine = new ScrollingLayout();
+        var extra = new Dictionary<string, string>
+        {
+            ["column_width"] = "0.55",
+            ["follow_new_windows"] = "false",
+        };
+        object? state = null;
+
+        var first = new List<WindowEntryView> { MakeWin(1), MakeWin(2) };
+        engine.Arrange(Area, first, new IntPtr(1), Opts(extra: extra), ref state);
+
+        var second = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        var r = engine.Arrange(Area, second, IntPtr.Zero, Opts(extra: extra), ref state);
+
+        Assert.Equal(1, r[0].ZOrder);
+        Assert.Equal(225, r[0].Geometry.X);
+    }
+
+    [Theory]
+    [InlineData(1, 225)]
+    [InlineData(3, 225)]
+    public void Arrange_AllowOverscroll_CentersEdgeColumns(int focused, int expectedX)
+    {
+        var engine = new ScrollingLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        var extra = new Dictionary<string, string>
+        {
+            ["allow_overscroll"] = "true",
+            ["column_width"] = "0.55",
+        };
+        object? state = null;
+
+        var r = engine.Arrange(Area, wins, new IntPtr(focused), Opts(extra: extra), ref state);
+
+        Assert.Equal(expectedX, r[focused - 1].Geometry.X);
+        Assert.Equal(1, r[focused - 1].ZOrder);
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(3, 450)]
+    public void Arrange_DisallowOverscroll_ClampsEdgeColumns(int focused, int expectedX)
+    {
+        var engine = new ScrollingLayout();
+        var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
+        var extra = new Dictionary<string, string>
+        {
+            ["allow_overscroll"] = "false",
+            ["column_width"] = "0.55",
+        };
+        object? state = null;
+
+        var r = engine.Arrange(Area, wins, new IntPtr(focused), Opts(extra: extra), ref state);
+
+        Assert.Equal(expectedX, r[focused - 1].Geometry.X);
+        Assert.Equal(1, r[focused - 1].ZOrder);
+    }
+
+    [Fact]
     public void Factory_CreatesSharedSingleton()
     {
         var f = new ScrollingLayoutFactory();
