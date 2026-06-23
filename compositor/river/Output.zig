@@ -192,6 +192,7 @@ request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequest
 frame: wl.Listener(*wlr.Output) = .init(handleFrame),
 present: wl.Listener(*wlr.Output.event.Present) = .init(handlePresent),
 commit: wl.Listener(*wlr.Output.event.Commit) = .init(handleCommit),
+bind: wl.Listener(*wlr.Output.event.Bind) = .init(handleBind),
 
 pub fn create(wlr_output: *wlr.Output) !void {
     const output = try util.gpa.create(Output);
@@ -245,6 +246,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
     wlr_output.events.frame.add(&output.frame);
     wlr_output.events.present.add(&output.present);
     wlr_output.events.commit.add(&output.commit);
+    wlr_output.events.bind.add(&output.bind);
 
     output.scheduled.state = .enabled;
     if (wlr_output.preferredMode()) |preferred_mode| {
@@ -400,6 +402,13 @@ fn handleCommit(
             seat.cursor.reloadScales();
         }
     }
+}
+
+/// Handles a client binding to an output
+fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.event.Bind) void {
+    const output: *Output = @fieldParentPtr("bind", listener);
+    _ = output;
+    server.workspace_manager.dirty();
 }
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
