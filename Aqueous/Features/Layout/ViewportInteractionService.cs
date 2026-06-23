@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Tags;
@@ -25,6 +26,7 @@ internal sealed class ViewportInteractionService
     private readonly ILayoutProposer _layoutProposer;
     private readonly IManagerRequestSender _requests;
     private readonly WorkspaceStore _workspaceStore;
+    private long _lastScrollingNavigationTicks;
 
     public ViewportInteractionService(
         LayoutController layoutController,
@@ -100,13 +102,42 @@ internal sealed class ViewportInteractionService
             return;
         }
 
+        var outputName = _layoutProposer.ResolveOutputName(fw.Output);
+        var workspaceNumber = ResolveWorkspaceNumber(fw.Output);
+        var layoutId = _layoutController.ResolveLayoutId(fw.Output, outputName, fw.Tags);
+        if (layoutId == "scrolling" && ShouldSuppressScrollingNavigation(fw.Output, outputName, fw.Tags))
+        {
+            return;
+        }
+
         _layoutController.ScrollViewport(
-            fw.Output, _layoutProposer.ResolveOutputName(fw.Output), deltaColumns,
-            ResolveWorkspaceNumber(fw.Output));
+            fw.Output, outputName, deltaColumns,
+            workspaceNumber);
         if (_requests.IsBound)
         {
             _requests.ScheduleManage();
         }
+    }
+
+    private bool ShouldSuppressScrollingNavigation(IntPtr output, string? outputName, uint tags)
+    {
+        var opts = _layoutController.ResolveLayoutOptions(output, outputName, tags);
+        if (!opts.Extra.TryGetValue("scroll_navigation_throttle_ms", out var value)
+            || !int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var throttleMs)
+            || throttleMs <= 0)
+        {
+            return false;
+        }
+
+        var now = Environment.TickCount64;
+        var last = _lastScrollingNavigationTicks;
+        if (last != 0 && now - last < throttleMs)
+        {
+            return true;
+        }
+
+        _lastScrollingNavigationTicks = now;
+        return false;
     }
 
     /// <summary>

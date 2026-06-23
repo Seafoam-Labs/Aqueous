@@ -116,16 +116,56 @@ public sealed class SeatEventHandlerTests
         Assert.Equal(1, focus.FocusCalls);
     }
 
+    [Fact]
+    public void PointerEnter_DoesNotFocusScrollingWindow_WhenMouseFocusWouldScrollPastLimit()
+    {
+        var focus = new RecordingFocusService(new IntPtr(15));
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "scrolling", null, "0%");
+        var first = registry.Track(focus.FocusedWindow);
+        var second = registry.Track(new IntPtr(16));
+        first.Output = second.Output = new IntPtr(24);
+        first.Tags = second.Tags = 1;
+
+        service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(34));
+
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+        Assert.Equal(0, focus.FocusCalls);
+    }
+
+    [Fact]
+    public void PointerEnter_FocusesScrollingWindow_WhenMouseFocusScrollIsWithinLimit()
+    {
+        var focus = new RecordingFocusService(new IntPtr(17));
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "scrolling", null, "100%");
+        var first = registry.Track(focus.FocusedWindow);
+        var second = registry.Track(new IntPtr(18));
+        first.Output = second.Output = new IntPtr(25);
+        first.Tags = second.Tags = 1;
+
+        service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(35));
+
+        Assert.Equal(second.Proxy, focus.FocusedWindow);
+        Assert.Equal(1, focus.FocusCalls);
+    }
+
     private static SeatInteractionService CreateService(
         RecordingFocusService focus,
         WindowRegistry registry,
         string layoutId,
-        string? delayMs)
+        string? delayMs,
+        string? maxScrollAmount = null)
     {
         var extra = new Dictionary<string, string>();
         if (delayMs != null)
         {
             extra["focus_follows_mouse_delay_ms"] = delayMs;
+        }
+
+        if (maxScrollAmount != null)
+        {
+            extra["focus_follows_mouse_max_scroll_amount"] = maxScrollAmount;
         }
 
         var config = new LayoutConfig
@@ -142,7 +182,7 @@ public sealed class SeatEventHandlerTests
             new DragStateStore(),
             registry,
             focus,
-            new NullLayoutProposer(),
+            new RegistryLayoutProposer(registry),
             new NullManagerRequestSender(),
             new LayoutController(new LayoutRegistry(), config),
             new WaylandBindSiteState(),
@@ -153,6 +193,11 @@ public sealed class SeatEventHandlerTests
 
     private sealed class RecordingFocusService : IFocusService
     {
+        public RecordingFocusService(IntPtr focusedWindow = default)
+        {
+            FocusedWindow = focusedWindow;
+        }
+
         public IntPtr FocusedWindow { get; private set; }
         public int FocusCalls { get; private set; }
         public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = FocusedWindow; return proxy != IntPtr.Zero; }
@@ -169,13 +214,38 @@ public sealed class SeatEventHandlerTests
         public void ReassertFocusAfterLayerRelease() { }
     }
 
-    private sealed class NullLayoutProposer : ILayoutProposer
+    private sealed class RegistryLayoutProposer(WindowRegistry registry) : ILayoutProposer
     {
         public void ProposeForArea(IntPtr output, string? outputName, Rect usableArea) { }
         public void ProposeForArea(IntPtr output, string? outputName, Rect outputRect, Rect usableArea) { }
         public bool IsFloatLayoutActive() => false;
         public bool IsFloatLayoutActive(IntPtr output) => false;
-        public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output) => Array.Empty<WindowEntryView>();
+        public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output)
+        {
+            var snapshot = new List<WindowEntryView>();
+            foreach (var entry in registry.Entries.Values)
+            {
+                if (entry.Output == output)
+                {
+                    snapshot.Add(new WindowEntryView(
+                        entry.Proxy,
+                        entry.MinW,
+                        entry.MinH,
+                        entry.MaxW,
+                        entry.MaxH,
+                        entry.Floating,
+                        false,
+                        entry.Tags,
+                        entry.Placement,
+                        entry.WidthHint,
+                        entry.HeightHint,
+                        entry.LastFocusTick));
+                }
+            }
+
+            snapshot.Sort((a, b) => a.Handle.ToInt64().CompareTo(b.Handle.ToInt64()));
+            return snapshot;
+        }
         public string? ResolveOutputName(IntPtr output) => null;
         public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot, uint visibleTags) => null;
     }

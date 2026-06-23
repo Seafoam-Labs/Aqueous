@@ -169,6 +169,11 @@ internal sealed unsafe class SeatInteractionService
 
         var layoutId = _layoutController.ResolveLayoutId(entry.Output, null, entry.Tags);
         var opts = _layoutController.ResolveLayoutOptions(entry.Output, null, entry.Tags);
+        if (layoutId == "scrolling" && !MouseFocusScrollWithinLimit(hoveredWindow, entry.Output, entry.Tags, opts))
+        {
+            return;
+        }
+
         var delayMs = layoutId == "scrolling" ? GetMouseFocusDelayMs(opts) : 0;
         if (delayMs <= 0)
         {
@@ -196,6 +201,120 @@ internal sealed unsafe class SeatInteractionService
         return 0;
     }
 
+    private bool MouseFocusScrollWithinLimit(IntPtr hoveredWindow, IntPtr output, uint tags, LayoutOptions opts)
+    {
+        if (!opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var raw))
+        {
+            return true;
+        }
+
+        var snapshot = _layoutProposer.BuildSnapshotFor(output);
+        if (snapshot.Count == 0)
+        {
+            return true;
+        }
+
+        var focused = _focusService.FocusedWindow;
+        var currentViewport = EstimateScrollingViewport(snapshot, focused, opts, out var areaW);
+        var targetViewport = EstimateScrollingViewport(snapshot, hoveredWindow, opts, out _);
+        if (currentViewport == null || targetViewport == null)
+        {
+            return true;
+        }
+
+        var maxScroll = ParseMaxMouseFocusScroll(raw, areaW);
+        if (maxScroll == null)
+        {
+            return true;
+        }
+
+        return Math.Abs(targetViewport.Value - currentViewport.Value) <= maxScroll.Value;
+    }
+
+    private static int? EstimateScrollingViewport(IReadOnlyList<WindowEntryView> snapshot, IntPtr focusedWindow, LayoutOptions opts, out int areaW)
+    {
+        areaW = opts.OutputRect.W > 0 ? opts.OutputRect.W : 1000;
+        var area = LayoutMath.Shrink(new Rect(0, 0, areaW, opts.OutputRect.H > 0 ? opts.OutputRect.H : 1000), opts.GapsOuter);
+        areaW = area.W;
+        if (focusedWindow == IntPtr.Zero || area.W <= 0)
+        {
+            return null;
+        }
+
+        var colFrac = opts.GetExtraDouble("column_width", 0.5);
+        var snap = opts.GetExtraBool("snap_to_columns", false);
+        var allowOverscroll = opts.GetExtraBool("allow_overscroll", true);
+        var centerFocused = opts.GetExtraBool("center_focused", true);
+        var colW = Math.Max(1, (int)Math.Round(area.W * colFrac));
+        var gap = opts.GapsInner;
+        var step = colW + gap;
+        var cursor = 0;
+        var focusedIdx = -1;
+        var focusX = 0;
+        var focusW = colW;
+
+        for (var i = 0; i < snapshot.Count; i++)
+        {
+            var w = snapshot[i].MinW > colW ? snapshot[i].MinW : colW;
+            if (snapshot[i].Handle == focusedWindow)
+            {
+                focusedIdx = i;
+                focusX = cursor;
+                focusW = w;
+            }
+
+            cursor += w + gap;
+        }
+
+        if (focusedIdx < 0)
+        {
+            return null;
+        }
+
+        var totalW = cursor - gap;
+        var viewport = centerFocused ? focusX + focusW / 2 - area.W / 2 : 0;
+        if (snap && step > 0)
+        {
+            viewport = (int)Math.Round((double)viewport / step) * step;
+        }
+
+        if (!allowOverscroll)
+        {
+            if (viewport < 0)
+            {
+                viewport = 0;
+            }
+
+            var maxViewport = Math.Max(0, totalW - area.W);
+            if (viewport > maxViewport)
+            {
+                viewport = maxViewport;
+            }
+        }
+
+        return viewport;
+    }
+
+    private static double? ParseMaxMouseFocusScroll(string raw, int areaW)
+    {
+        var value = raw.Trim();
+        if (value.EndsWith("%", StringComparison.Ordinal))
+        {
+            return double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)
+                ? Math.Max(0, areaW * percent / 100.0)
+                : null;
+        }
+
+        if (value.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value[..^2].Trim();
+        }
+
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var px)
+            ? Math.Max(0, px)
+            : null;
+    }
+
     private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, IntPtr output, uint tags, int delayMs, CancellationTokenSource cts)
         => Task.Delay(delayMs, cts.Token).ContinueWith(t =>
         {
@@ -209,6 +328,12 @@ internal sealed unsafe class SeatInteractionService
                     || entry.Output != output
                     || entry.Tags != tags
                     || _layoutController.ResolveLayoutId(output, null, tags) != "scrolling")
+                {
+                    return;
+                }
+
+                var opts = _layoutController.ResolveLayoutOptions(output, null, tags);
+                if (!MouseFocusScrollWithinLimit(hoveredWindow, output, tags, opts))
                 {
                     return;
                 }
