@@ -1125,9 +1125,10 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
+        const animate = enabled and !window.shouldSnapPosition();
         // Only animate when the window is actually on-screen; snap otherwise so a
         // hidden/closing window does not visibly "catch up" when it reappears.
-        window.setAnimationTarget(requested.x, requested.y, enabled);
+        window.setAnimationTarget(requested.x, requested.y, animate);
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
@@ -1197,7 +1198,16 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
 pub fn stepAnimation(window: *Window, dt_s: f64) bool {
     if (comptime !fx.anim_enabled) return false;
     if (!window.anim_active) return false;
-
+    if (window.shouldSnapPosition()){
+        window.anim_x = window.anim_target_x;
+        window.anim_y = window.anim_target_y;
+        window.anim_active = false;
+        window.box.x = @intFromFloat(@round(window.anim_x));
+        window.box.y = @intFromFloat(@round(window.anim_y));
+        window.tree.node.setPosition(window.box.x, window.box.y);
+        window.popup_tree.node.setPosition(window.box.x, window.box.y);
+        return false;
+    }
     const t = 1.0 - @exp(-fx.anim_rate * dt_s);
     window.anim_x += (window.anim_target_x - window.anim_x) * t;
     window.anim_y += (window.anim_target_y - window.anim_y) * t;
@@ -1640,4 +1650,28 @@ fn handleFtmRequestClose(
     const window: *Window = @fieldParentPtr("ftm_request_close", listener);
     if (window.state != .mapped and window.state != .initialized) return;
     window.close();
+}
+
+fn hasActivePointerLock(window: *Window) bool{
+    if(window.wm_requested.fullscreen != null) return true;
+    const surface = window.rootSurface() orelse return false;
+    const seat = server.input_manager.defaultSeat();
+    const constraint = seat.cursor.constraint orelse return false;
+    return constraint.state == .active and constraint.wlr_constraint.surface == surface;
+}
+
+fn shouldSnapPosition(window: *Window) bool {
+
+    if (window.wm_requested.fullscreen != null) return true;
+
+    const surface = window.rootSurface() orelse return false;
+    const seat = server.input_manager.defaultSeat();
+
+    if (seat.wlr_seat.pointer_state.focused_surface == surface) return true;
+
+
+    if (seat.cursor.constraint) |c| {
+        if (c.state == .active and c.wlr_constraint.surface == surface) return true;
+    }
+    return false;
 }
