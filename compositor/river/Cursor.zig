@@ -116,6 +116,8 @@ constraints_suppressed: bool = false,
 /// cached surface pointer to avoid use-after-free on surface destroy.
 last_sent_lx: f64 = -1,
 last_sent_ly: f64 = -1,
+last_sent_sx: f64 = 0,
+last_sent_sy: f64 = 0,
 
 /// Keeps track of the last known location of all touch points in layout coordinates.
 /// This information is necessary for proper touch dnd support if there are multiple touch points.
@@ -389,6 +391,8 @@ fn clearFocus(cursor: *Cursor) void {
     cursor.seat.wlr_seat.pointerNotifyClearFocus();
     cursor.last_sent_lx = -1;
     cursor.last_sent_ly = -1;
+    cursor.last_sent_sx = 0;
+    cursor.last_sent_sy = 0;
 }
 
 pub fn opStartPointer(cursor: *Cursor) void {
@@ -870,8 +874,18 @@ fn passthrough(cursor: *Cursor, time: u32) void {
             const cursor_moved = (lx != cursor.last_sent_lx or ly != cursor.last_sent_ly);
 
             cursor.seat.wlr_seat.pointerNotifyEnter(surface, result.sx, result.sy);
+
+            var sx = result.sx;
+            var sy = result.sy;
+            if (!focus_changed and cursor_moved) {
+                sx = cursor.last_sent_sx + (lx - cursor.last_sent_lx);
+                sy = cursor.last_sent_sy + (ly - cursor.last_sent_ly);
+            }
+
             if (cursor_moved or focus_changed) {
-                cursor.seat.wlr_seat.pointerNotifyMotion(time, result.sx, result.sy);
+                cursor.seat.wlr_seat.pointerNotifyMotion(time, sx, sy);
+                cursor.last_sent_sx = sx;
+                cursor.last_sent_sy = sy;
             }
             cursor.last_sent_lx = lx;
             cursor.last_sent_ly = ly;

@@ -191,6 +191,12 @@ internal sealed unsafe class SeatInteractionService
             return;
         }
 
+        if (IsFocusFollowSuppressed(entry))
+        {
+            RiverLog.Write("MOUSE_FOCUS skip reason=game-no-reposition hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
         var outputName = _layoutProposer.ResolveOutputName(entry.Output);
         var workspaceId = ResolveWorkspaceId(entry.Output);
         var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
@@ -242,6 +248,42 @@ internal sealed unsafe class SeatInteractionService
     {
         var number = _workspaceStore.ActiveWorkspaceNumber(output, _outputRegistry);
         return new WorkspaceId(output, number > 0 ? number : 1);
+    }
+
+    private static readonly string[] GameAppIdPrefixes =
+    {
+        "steam_app_", "gamescope", "factorio", "dota2", "cs2", "Minecraft",
+    };
+
+    private static bool IsFocusFollowSuppressed(WindowEntry entry)
+    {
+        var placement = entry.Placement;
+        if (placement != null)
+        {
+            if (placement.Rule.Fullscreen)
+            {
+                return true;
+            }
+
+            if (string.Equals(placement.Rule.Layout, "game-mode", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        var appId = entry.AppId;
+        if (!string.IsNullOrEmpty(appId))
+        {
+            foreach (var prefix in GameAppIdPrefixes)
+            {
+                if (appId.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static int GetMouseFocusDelayMs(LayoutOptions opts)
