@@ -316,8 +316,20 @@ pub fn build(b: *Build) !void {
         });
         const run_scaling_test = b.addRunArtifact(scaling_test);
 
+        const cursor_lock_restore_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/cursor_lock_restore.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_cursor_lock_restore_test = b.addRunArtifact(cursor_lock_restore_test);
+
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_scaling_test.step);
+        test_step.dependOn(&run_cursor_lock_restore_test.step);
     }
 }

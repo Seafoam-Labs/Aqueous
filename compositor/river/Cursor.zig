@@ -15,6 +15,7 @@ const zwlr = wayland.server.zwlr;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
+const cursor_lock_restore = @import("cursor_lock_restore.zig");
 
 const DragIcon = @import("DragIcon.zig");
 const InputDevice = @import("InputDevice.zig");
@@ -83,6 +84,14 @@ const LayoutPoint = struct {
     ly: f64,
 };
 
+pub const PointerLockRestore = struct {
+    node: *wlr.SceneNode,
+    sx: f64,
+    sy: f64,
+};
+
+pub const SurfacePoint = cursor_lock_restore.SurfacePoint;
+
 /// Current cursor mode as well as any state needed to implement that mode
 mode: Mode = .passthrough,
 
@@ -106,6 +115,9 @@ pressed: std.AutoHashMapUnmanaged(u32, ?*PointerBinding) = .{},
 /// has been moved inside the constraint region.
 constraint: ?*PointerConstraint = null,
 constraints_suppressed: bool = false,
+pointer_lock_restore: ?PointerLockRestore = null,
+pointer_mode_generation: u64 = 0,
+stale_motion_suppression_until: u32 = 0,
 
 /// Layout coordinates of the last pointer motion we actually forwarded to a
 /// client. Used to suppress spurious motion events that would otherwise be
@@ -406,6 +418,13 @@ fn hasActivePointerConstraint(cursor: *const Cursor) bool {
     return false;
 }
 
+fn hasActiveLockedPointerConstraint(cursor: *const Cursor) bool {
+    if (cursor.constraint) |constraint| {
+        return constraint.state == .active and constraint.wlr_constraint.type == .locked;
+    }
+    return false;
+}
+
 pub fn opStartPointer(cursor: *Cursor) void {
     if (cursor.constraint) |constraint| {
         if (constraint.state == .active) constraint.deactivate();
@@ -432,11 +451,78 @@ pub fn processMotionRelative(cursor: *Cursor, event: *const Seat.Event.PointerMo
     cursor.processMotionRelativeInternal(event, true);
 }
 
+pub fn pointerModeGeneration(cursor: Cursor) u64 {
+    return cursor.pointer_mode_generation;
+}
+
+pub fn beginPointerLock(cursor: *Cursor, node: *wlr.SceneNode, sx: f64, sy: f64, time_msec: u32) void {
+    const point = cursor.clampSurfacePoint(node, sx, sy);
+    cursor.pointer_lock_restore = .{ .node = node, .sx = point.sx, .sy = point.sy };
+    cursor.transitionPointerMode(time_msec);
+    cursor.seat.wm_scheduled.hovered = null;
+}
+
+pub fn restorePointerLock(cursor: *Cursor, node: *wlr.SceneNode, sx: f64, sy: f64, time_msec: u32) void {
+    const point = cursor.clampSurfacePoint(node, sx, sy);
+    var lx: c_int = undefined;
+    var ly: c_int = undefined;
+    if (node.coords(&lx, &ly)) {
+        const layout_x = @as(f64, @floatFromInt(lx)) + point.sx;
+        const layout_y = @as(f64, @floatFromInt(ly)) + point.sy;
+        cursor.wlr_cursor.warpClosest(null, layout_x, layout_y);
+        cursor.last_sent_lx = layout_x;
+        cursor.last_sent_ly = layout_y;
+        cursor.last_sent_sx = point.sx;
+        cursor.last_sent_sy = point.sy;
+    }
+    cursor.pointer_lock_restore = null;
+    cursor.transitionPointerMode(time_msec);
+}
+
+pub fn cancelPointerLock(cursor: *Cursor, time_msec: u32) void {
+    cursor.pointer_lock_restore = null;
+    cursor.transitionPointerMode(time_msec);
+}
+
+pub fn transitionPointerMode(cursor: *Cursor, time_msec: u32) void {
+    cursor.pointer_mode_generation +%= 1;
+    cursor.stale_motion_suppression_until = time_msec +% cursor_lock_restore.transition_suppression_msec;
+}
+
+pub fn clampSurfacePoint(cursor: Cursor, node: *wlr.SceneNode, sx: f64, sy: f64) SurfacePoint {
+    _ = cursor;
+    const buffer = wlr.SceneBuffer.fromNode(node);
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer);
+    var width: f64 = 0;
+    var height: f64 = 0;
+    if (scene_surface) |surface| {
+        width = @floatFromInt(surface.surface.current.width);
+        height = @floatFromInt(surface.surface.current.height);
+    } else {
+        width = @floatFromInt(buffer.dst_width);
+        height = @floatFromInt(buffer.dst_height);
+    }
+    return cursor_lock_restore.clampPoint(sx, sy, width, height);
+}
+
+fn suppressTransitionMotion(cursor: Cursor, event: *const Seat.Event.PointerMotionRelative) bool {
+    return cursor_lock_restore.suppressMotion(
+        event.generation,
+        cursor.pointer_mode_generation,
+        event.time_msec,
+        cursor.stale_motion_suppression_until,
+        event.delta_x,
+        event.delta_y,
+    );
+}
+
 fn processMotionRelativeInternal(
     cursor: *Cursor,
     event: *const Seat.Event.PointerMotionRelative,
     send_relative_motion: bool,
 ) void {
+    if (cursor.suppressTransitionMotion(event)) return;
+
     if (send_relative_motion) {
         server.input_manager.relative_pointer_manager.sendRelativeMotion(
             cursor.seat.wlr_seat,
@@ -509,7 +595,9 @@ fn move(cursor: *const Cursor, mapping: *const wlr.Box, dx: f64, dy: f64) void {
 
 fn updateHovered(cursor: *Cursor) void {
     const old = cursor.seat.wm_scheduled.hovered;
-    if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |result| {
+    if (cursor.hasActiveLockedPointerConstraint()) {
+        cursor.seat.wm_scheduled.hovered = null;
+    } else if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |result| {
         switch (result.data) {
             .window => |window| {
                 switch (window.impl) {
@@ -546,6 +634,8 @@ fn updateHovered(cursor: *Cursor) void {
 }
 
 pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMotionAbsolute) void {
+    if (event.generation != cursor.pointer_mode_generation) return;
+
     var mapping = event.mapping;
     if (mapping.empty()) {
         server.om.output_layout.getBox(null, &mapping);
@@ -556,6 +646,7 @@ pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMo
     const dy = ly - cursor.wlr_cursor.y;
     cursor.processMotionRelativeInternal(&.{
         .mapping = event.mapping,
+        .generation = event.generation,
         .time_msec = event.time_msec,
         .delta_x = dx,
         .delta_y = dy,
@@ -863,6 +954,8 @@ pub fn updateState(cursor: *Cursor) void {
         constraint.updateState();
     }
 
+    if (cursor.hasActiveLockedPointerConstraint()) return;
+
     switch (cursor.mode) {
         .passthrough, .drag => {
             cursor.updateHovered();
@@ -933,6 +1026,7 @@ fn queueMotionRelative(listener: *wl.Listener(*wlr.Pointer.event.Motion), event:
     const device: *InputDevice = @ptrCast(@alignCast(event.device.data));
     cursor.seat.queueEvent(.{ .pointer_motion_relative = .{
         .mapping = device.activeMapping(),
+        .generation = cursor.pointerModeGeneration(),
         .time_msec = event.time_msec,
         .delta_x = event.delta_x,
         .delta_y = event.delta_y,
@@ -946,6 +1040,7 @@ fn queueMotionAbsolute(listener: *wl.Listener(*wlr.Pointer.event.MotionAbsolute)
     const device: *InputDevice = @ptrCast(@alignCast(event.device.data));
     cursor.seat.queueEvent(.{ .pointer_motion_absolute = .{
         .mapping = device.activeMapping(),
+        .generation = cursor.pointerModeGeneration(),
         .time_msec = event.time_msec,
         .x = event.x,
         .y = event.y,

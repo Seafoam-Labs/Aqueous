@@ -74,14 +74,18 @@ pub fn maybeActivate(constraint: *PointerConstraint) void {
     if (!constraint.wlr_constraint.region.containsPoint(sx, sy, null)) return;
 
     assert(constraint.state == .inactive);
+    const point = seat.cursor.clampSurfacePoint(result.node, result.sx, result.sy);
     constraint.state = .{
         .active = .{
             .node = result.node,
-            .sx = result.sx,
-            .sy = result.sy,
+            .sx = point.sx,
+            .sy = point.sy,
         },
     };
     result.node.events.destroy.add(&constraint.node_destroy);
+    if (constraint.wlr_constraint.type == .locked) {
+        seat.cursor.beginPointerLock(result.node, point.sx, point.sy, util.msecTimestamp());
+    }
     seat.cursor.invalidateLastSent();
 
     log.info("activating pointer constraint", .{});
@@ -148,12 +152,38 @@ pub fn deactivate(constraint: *PointerConstraint) void {
     assert(seat.cursor.constraint == constraint);
     assert(constraint.state == .active);
 
-    constraint.warpToHintIfSet();
-    seat.cursor.invalidateLastSent();
+    constraint.restoreLockedCursorOrHint(true);
 
     constraint.state = .inactive;
     constraint.node_destroy.link.remove();
     constraint.wlr_constraint.sendDeactivated();
+}
+
+fn restoreLockedCursorOrHint(constraint: *PointerConstraint, send_warp: bool) void {
+    const seat: *Seat = @ptrCast(@alignCast(constraint.wlr_constraint.seat.data));
+
+    if (constraint.wlr_constraint.type == .locked) {
+        const state = constraint.state.active;
+        var sx = state.sx;
+        var sy = state.sy;
+        if (constraint.wlr_constraint.current.cursor_hint.enabled) {
+            sx = constraint.wlr_constraint.current.cursor_hint.x;
+            sy = constraint.wlr_constraint.current.cursor_hint.y;
+        } else if (seat.cursor.pointer_lock_restore) |restore| {
+            if (restore.node == state.node) {
+                sx = restore.sx;
+                sy = restore.sy;
+            }
+        }
+
+        const point = seat.cursor.clampSurfacePoint(state.node, sx, sy);
+        seat.cursor.restorePointerLock(state.node, point.sx, point.sy, util.msecTimestamp());
+        if (send_warp) _ = seat.wlr_seat.pointerWarp(point.sx, point.sy);
+        return;
+    }
+
+    constraint.warpToHintIfSet();
+    seat.cursor.invalidateLastSent();
 }
 
 fn warpToHintIfSet(constraint: *PointerConstraint) void {
@@ -164,8 +194,9 @@ fn warpToHintIfSet(constraint: *PointerConstraint) void {
         var ly: i32 = undefined;
         _ = constraint.state.active.node.coords(&lx, &ly);
 
-        const sx = constraint.wlr_constraint.current.cursor_hint.x;
-        const sy = constraint.wlr_constraint.current.cursor_hint.y;
+        const point = seat.cursor.clampSurfacePoint(constraint.state.active.node, constraint.wlr_constraint.current.cursor_hint.x, constraint.wlr_constraint.current.cursor_hint.y);
+        const sx = point.sx;
+        const sy = point.sy;
         seat.cursor.invalidateLastSent();
         _ = seat.cursor.wlr_cursor.warp(null, @as(f64, @floatFromInt(lx)) + sx, @as(f64, @floatFromInt(ly)) + sy);
         _ = seat.wlr_seat.pointerWarp(sx, sy);
@@ -188,8 +219,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.PointerConstraintV1), _: *wlr.Point
         // We can't simply call deactivate() here as it calls sendDeactivated(),
         // which could in the case of a oneshot constraint lifetime recursively
         // destroy the constraint.
-        constraint.warpToHintIfSet();
-        seat.cursor.invalidateLastSent();
+        constraint.restoreLockedCursorOrHint(true);
         constraint.node_destroy.link.remove();
     }
 

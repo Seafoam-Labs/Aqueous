@@ -72,6 +72,7 @@ pub const Event = union(enum) {
 
     pub const PointerMotionRelative = struct {
         mapping: wlr.Box,
+        generation: u64,
         time_msec: u32,
         delta_x: f64,
         delta_y: f64,
@@ -80,6 +81,7 @@ pub const Event = union(enum) {
     };
     pub const PointerMotionAbsolute = struct {
         mapping: wlr.Box,
+        generation: u64,
         time_msec: u32,
         x: f64,
         y: f64,
