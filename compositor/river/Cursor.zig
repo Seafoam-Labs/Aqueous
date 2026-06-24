@@ -389,10 +389,21 @@ fn handleRequestSetCursor(
 fn clearFocus(cursor: *Cursor) void {
     cursor.setImage(cursor.wm_image);
     cursor.seat.wlr_seat.pointerNotifyClearFocus();
+    cursor.invalidateLastSent();
+}
+
+pub fn invalidateLastSent(cursor: *Cursor) void {
     cursor.last_sent_lx = -1;
     cursor.last_sent_ly = -1;
     cursor.last_sent_sx = 0;
     cursor.last_sent_sy = 0;
+}
+
+fn hasActivePointerConstraint(cursor: *const Cursor) bool {
+    if (cursor.constraint) |constraint| {
+        return constraint.state == .active;
+    }
+    return false;
 }
 
 pub fn opStartPointer(cursor: *Cursor) void {
@@ -418,14 +429,24 @@ pub fn opEndPointer(cursor: *Cursor) void {
 }
 
 pub fn processMotionRelative(cursor: *Cursor, event: *const Seat.Event.PointerMotionRelative) void {
-    server.input_manager.relative_pointer_manager.sendRelativeMotion(
-        cursor.seat.wlr_seat,
-        @as(u64, event.time_msec) * 1000,
-        event.delta_x,
-        event.delta_y,
-        event.unaccel_dx,
-        event.unaccel_dy,
-    );
+    cursor.processMotionRelativeInternal(event, true);
+}
+
+fn processMotionRelativeInternal(
+    cursor: *Cursor,
+    event: *const Seat.Event.PointerMotionRelative,
+    send_relative_motion: bool,
+) void {
+    if (send_relative_motion) {
+        server.input_manager.relative_pointer_manager.sendRelativeMotion(
+            cursor.seat.wlr_seat,
+            @as(u64, event.time_msec) * 1000,
+            event.delta_x,
+            event.delta_y,
+            event.unaccel_dx,
+            event.unaccel_dy,
+        );
+    }
 
     var dx: f64 = event.delta_x;
     var dy: f64 = event.delta_y;
@@ -533,14 +554,14 @@ pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMo
     const ly = @as(f64, @floatFromInt(mapping.y)) + @as(f64, @floatFromInt(mapping.height)) * event.y;
     const dx = lx - cursor.wlr_cursor.x;
     const dy = ly - cursor.wlr_cursor.y;
-    cursor.processMotionRelative(&.{
+    cursor.processMotionRelativeInternal(&.{
         .mapping = event.mapping,
         .time_msec = event.time_msec,
         .delta_x = dx,
         .delta_y = dy,
         .unaccel_dx = dx,
         .unaccel_dy = dy,
-    });
+    }, !cursor.hasActivePointerConstraint());
 }
 
 pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) void {
@@ -877,7 +898,7 @@ fn passthrough(cursor: *Cursor, time: u32) void {
 
             var sx = result.sx;
             var sy = result.sy;
-            if (!focus_changed and cursor_moved) {
+            if (!cursor.hasActivePointerConstraint() and !focus_changed and cursor_moved) {
                 sx = cursor.last_sent_sx + (lx - cursor.last_sent_lx);
                 sy = cursor.last_sent_sy + (ly - cursor.last_sent_ly);
             }

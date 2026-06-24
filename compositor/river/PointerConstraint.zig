@@ -82,6 +82,7 @@ pub fn maybeActivate(constraint: *PointerConstraint) void {
         },
     };
     result.node.events.destroy.add(&constraint.node_destroy);
+    seat.cursor.invalidateLastSent();
 
     log.info("activating pointer constraint", .{});
 
@@ -148,6 +149,7 @@ pub fn deactivate(constraint: *PointerConstraint) void {
     assert(constraint.state == .active);
 
     constraint.warpToHintIfSet();
+    seat.cursor.invalidateLastSent();
 
     constraint.state = .inactive;
     constraint.node_destroy.link.remove();
@@ -164,8 +166,10 @@ fn warpToHintIfSet(constraint: *PointerConstraint) void {
 
         const sx = constraint.wlr_constraint.current.cursor_hint.x;
         const sy = constraint.wlr_constraint.current.cursor_hint.y;
+        seat.cursor.invalidateLastSent();
         _ = seat.cursor.wlr_cursor.warp(null, @as(f64, @floatFromInt(lx)) + sx, @as(f64, @floatFromInt(ly)) + sy);
         _ = seat.wlr_seat.pointerWarp(sx, sy);
+        seat.cursor.invalidateLastSent();
     }
 }
 
@@ -185,6 +189,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.PointerConstraintV1), _: *wlr.Point
         // which could in the case of a oneshot constraint lifetime recursively
         // destroy the constraint.
         constraint.warpToHintIfSet();
+        seat.cursor.invalidateLastSent();
         constraint.node_destroy.link.remove();
     }
 
