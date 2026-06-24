@@ -225,6 +225,13 @@ decorations_above_tree: *wlr.SceneTree,
 
 popup_tree: *wlr.SceneTree,
 
+/// Cosmetic overlay tree used to render the position animation. It holds a
+/// frozen clone of the window's surfaces and is the only node moved while a
+/// position animation runs, so the live `tree`/`popup_tree` (and therefore
+/// scene hit-testing) stay pinned at the final target. No `SceneNodeData` is
+/// attached, so it is input-inert. Empty/disabled when not animating.
+anim_tree: *wlr.SceneTree,
+
 capture_scene: *wlr.Scene,
 capture_source: ?*wlr.ExtImageCaptureSourceV1 = null,
 
@@ -301,6 +308,8 @@ anim_x: f64 = 0,
 anim_y: f64 = 0,
 anim_active: bool = false,
 anim_initialized: bool = false,
+/// True while `anim_tree` currently holds a cloned snapshot of the surfaces.
+anim_snapshot: bool = false,
 
 foreign_toplevel_handle: ?*wlr.ExtForeignToplevelHandleV1 = null,
 wlr_toplevel_handle: ?*wlr.ForeignToplevelHandleV1 = null,
@@ -347,6 +356,9 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const popup_tree = try server.scene.layers.popups.createSceneTree();
     errdefer popup_tree.node.destroy();
 
+    const anim_tree = try server.scene.hidden_tree.createSceneTree();
+    errdefer anim_tree.node.destroy();
+
     window.* = .{
         .ref = .{ .key = key },
         .node = undefined,
@@ -365,6 +377,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_above = undefined,
         .decorations_above_tree = try tree.createSceneTree(),
         .popup_tree = popup_tree,
+        .anim_tree = anim_tree,
         .capture_scene = try wlr.Scene.create(),
         .workspace_link = undefined,
     };
@@ -377,6 +390,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
 
     window.tree.node.setEnabled(false);
     window.popup_tree.node.setEnabled(false);
+    window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
 
     window.capture_scene.restack_xwayland_surfaces = false;
@@ -418,6 +432,7 @@ pub fn destroy(window: *Window) void {
 
     window.tree.node.destroy();
     window.popup_tree.node.destroy();
+    window.anim_tree.node.destroy();
     window.capture_scene.tree.node.destroy();
 
     window.node.deinit();
@@ -1125,10 +1140,9 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
-        const animate = enabled and !window.shouldSnapPosition();
         // Only animate when the window is actually on-screen; snap otherwise so a
         // hidden/closing window does not visibly "catch up" when it reappears.
-        window.setAnimationTarget(requested.x, requested.y, animate);
+        window.setAnimationTarget(requested.x, requested.y, enabled);
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
@@ -1142,6 +1156,11 @@ pub fn renderFinish(window: *Window) void {
     fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
 
     window.applyOpacity();
+    // While a position animation is running the live surfaces stay pinned at the
+    // target (so scene hit-testing / input is correct) but are kept invisible;
+    // the eased clone in `anim_tree` is what the user sees. The full opacity is
+    // restored by `applyOpacity()` from `clearSnapshot()` once the slide ends.
+    if (window.anim_snapshot) fx.setTreeOpacity(window.surfaces.tree, 0);
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 
@@ -1159,28 +1178,40 @@ pub fn renderFinish(window: *Window) void {
     }
 }
 
-/// Feed a new target position into the animator and write the value that should
-/// be rendered this frame into `window.box.{x,y}`.
+/// Feed a new target position into the animator.
 ///
-/// `animate` is false (forcing a snap) when animations are compiled out, on the
-/// first ever placement, for fullscreen, and whenever the window is not currently
-/// on-screen — this prevents a hidden/closing window from sliding when it becomes
-/// visible again. Otherwise a changed target arms the animation; the actual
-/// interpolation happens in `stepAnimation`, driven by `Output.handleFrame`.
+/// The input/geometry nodes (`tree`/`popup_tree`, and `box`) ALWAYS jump to the
+/// final target immediately — they are never translated while an animation runs.
+/// This keeps scene hit-testing (`Scene.at`) reading the settled origin, so a
+/// moving window can no longer fabricate surface-local pointer motion. The visual
+/// slide is performed entirely by the input-inert `anim_tree` overlay, which holds
+/// a frozen clone of the surfaces and is eased from the old origin to the target in
+/// `stepAnimation`.
+///
+/// `animate` is false (forcing a snap, no overlay) when animations are compiled
+/// out, on the first ever placement, for fullscreen, and whenever the window is
+/// not currently on-screen.
 fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bool) void {
     const tx: f64 = @floatFromInt(target_x);
     const ty: f64 = @floatFromInt(target_y);
 
     if (!fx.anim_enabled or !animate or !window.anim_initialized) {
+        window.clearSnapshot();
         window.anim_x = tx;
         window.anim_y = ty;
         window.anim_active = false;
         window.anim_initialized = true;
     } else if (window.anim_target_x != tx or window.anim_target_y != ty) {
+        // Begin a fresh slide from the current on-screen origin. If a slide is
+        // already in flight, keep its current visual position and just retarget.
+        if (!window.anim_active) {
+            window.anim_x = @floatFromInt(window.box.x);
+            window.anim_y = @floatFromInt(window.box.y);
+        }
+        window.armSnapshot();
         window.anim_active = true;
-        // Arming an animation may not move the node this frame (the first frame
-        // renders at the old position), so explicitly schedule a frame to ensure
-        // the per-frame driver in Output.handleFrame actually starts running.
+        // Arming an animation does not move the live node, so explicitly schedule
+        // a frame to ensure the per-frame driver in Output.handleFrame runs.
         if (window.workspace) |ws| {
             if (ws.output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
         }
@@ -1188,26 +1219,52 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
 
     window.anim_target_x = tx;
     window.anim_target_y = ty;
-    window.box.x = @intFromFloat(@round(window.anim_x));
-    window.box.y = @intFromFloat(@round(window.anim_y));
+    // Geometry/input always settle at the target; only `anim_tree` animates.
+    window.box.x = target_x;
+    window.box.y = target_y;
 }
 
-/// Advance this window's position animation by `dt_s` seconds and re-position its
-/// scene nodes. Returns true while the window is still moving so the owning output
-/// keeps scheduling frames. Uses frame-rate-independent exponential smoothing.
+/// Capture a frozen clone of the live surfaces into `anim_tree`, positioned at the
+/// window's current on-screen origin, so it can be eased toward the target while
+/// the live surfaces are pinned (and kept invisible) at the target. No-op if a
+/// snapshot is already armed (a re-target reuses the existing clone).
+fn armSnapshot(window: *Window) void {
+    if (comptime !fx.anim_enabled) return;
+    if (window.anim_snapshot) return;
+    // Render the overlay as a sibling of the live tree so it draws in the same
+    // layer; raise it above so the (invisible) live surfaces don't occlude it.
+    if (window.tree.node.parent) |parent| {
+        window.anim_tree.node.reparent(parent);
+    }
+    window.surfaces.cloneInto(window.anim_tree);
+    window.anim_tree.node.setPosition(
+        @intFromFloat(@round(window.anim_x)),
+        @intFromFloat(@round(window.anim_y)),
+    );
+    window.anim_tree.node.raiseToTop();
+    window.anim_tree.node.setEnabled(true);
+    window.anim_snapshot = true;
+}
+
+/// Tear down the cosmetic overlay and restore the live surfaces' opacity, leaving
+/// no positional pop because the live tree has been at the target the whole time.
+fn clearSnapshot(window: *Window) void {
+    if (!window.anim_snapshot) return;
+    var it = window.anim_tree.children.safeIterator(.forward);
+    while (it.next()) |node| node.destroy();
+    window.anim_tree.node.setEnabled(false);
+    window.anim_snapshot = false;
+    window.applyOpacity();
+}
+
+/// Advance this window's position animation by `dt_s` seconds. Only the cosmetic
+/// `anim_tree` overlay is moved; the live `tree`/`popup_tree` stay pinned at the
+/// target. Returns true while still moving so the owning output keeps scheduling
+/// frames. Uses frame-rate-independent exponential smoothing.
 pub fn stepAnimation(window: *Window, dt_s: f64) bool {
     if (comptime !fx.anim_enabled) return false;
     if (!window.anim_active) return false;
-    if (window.shouldSnapPosition()){
-        window.anim_x = window.anim_target_x;
-        window.anim_y = window.anim_target_y;
-        window.anim_active = false;
-        window.box.x = @intFromFloat(@round(window.anim_x));
-        window.box.y = @intFromFloat(@round(window.anim_y));
-        window.tree.node.setPosition(window.box.x, window.box.y);
-        window.popup_tree.node.setPosition(window.box.x, window.box.y);
-        return false;
-    }
+
     const t = 1.0 - @exp(-fx.anim_rate * dt_s);
     window.anim_x += (window.anim_target_x - window.anim_x) * t;
     window.anim_y += (window.anim_target_y - window.anim_y) * t;
@@ -1218,14 +1275,16 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
         window.anim_x = window.anim_target_x;
         window.anim_y = window.anim_target_y;
         window.anim_active = false;
+        window.clearSnapshot();
+        return false;
     }
 
-    window.box.x = @intFromFloat(@round(window.anim_x));
-    window.box.y = @intFromFloat(@round(window.anim_y));
-    window.tree.node.setPosition(window.box.x, window.box.y);
-    window.popup_tree.node.setPosition(window.box.x, window.box.y);
+    window.anim_tree.node.setPosition(
+        @intFromFloat(@round(window.anim_x)),
+        @intFromFloat(@round(window.anim_y)),
+    );
 
-    return window.anim_active;
+    return true;
 }
 
 fn drawBorders(window: *Window) void {
@@ -1650,28 +1709,4 @@ fn handleFtmRequestClose(
     const window: *Window = @fieldParentPtr("ftm_request_close", listener);
     if (window.state != .mapped and window.state != .initialized) return;
     window.close();
-}
-
-fn hasActivePointerLock(window: *Window) bool{
-    if(window.wm_requested.fullscreen != null) return true;
-    const surface = window.rootSurface() orelse return false;
-    const seat = server.input_manager.defaultSeat();
-    const constraint = seat.cursor.constraint orelse return false;
-    return constraint.state == .active and constraint.wlr_constraint.surface == surface;
-}
-
-fn shouldSnapPosition(window: *Window) bool {
-
-    if (window.wm_requested.fullscreen != null) return true;
-
-    const surface = window.rootSurface() orelse return false;
-    const seat = server.input_manager.defaultSeat();
-
-    if (seat.wlr_seat.pointer_state.focused_surface == surface) return true;
-
-
-    if (seat.cursor.constraint) |c| {
-        if (c.state == .active and c.wlr_constraint.surface == surface) return true;
-    }
-    return false;
 }

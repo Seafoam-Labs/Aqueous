@@ -107,6 +107,16 @@ pressed: std.AutoHashMapUnmanaged(u32, ?*PointerBinding) = .{},
 constraint: ?*PointerConstraint = null,
 constraints_suppressed: bool = false,
 
+/// Layout coordinates of the last pointer motion we actually forwarded to a
+/// client. Used to suppress spurious motion events that would otherwise be
+/// re-emitted on every transaction (e.g. when a window's surface origin shifts
+/// under a perfectly stationary cursor), which games misread as mouse-look.
+/// These are plain floats, so they are always safe to compare; focus changes are
+/// detected via the seat's own (lifecycle-managed) `focused_surface` instead of a
+/// cached surface pointer to avoid use-after-free on surface destroy.
+last_sent_lx: f64 = -1,
+last_sent_ly: f64 = -1,
+
 /// Keeps track of the last known location of all touch points in layout coordinates.
 /// This information is necessary for proper touch dnd support if there are multiple touch points.
 touch_points: std.AutoHashMapUnmanaged(i32, LayoutPoint) = .{},
@@ -377,6 +387,8 @@ fn handleRequestSetCursor(
 fn clearFocus(cursor: *Cursor) void {
     cursor.setImage(cursor.wm_image);
     cursor.seat.wlr_seat.pointerNotifyClearFocus();
+    cursor.last_sent_lx = -1;
+    cursor.last_sent_ly = -1;
 }
 
 pub fn opStartPointer(cursor: *Cursor) void {
@@ -847,8 +859,22 @@ fn passthrough(cursor: *Cursor, time: u32) void {
         }
 
         if (result.surface) |surface| {
+            const lx = cursor.wlr_cursor.x;
+            const ly = cursor.wlr_cursor.y;
+            // Compare against the seat's own focused surface (cleared by wlroots
+            // when a surface is destroyed) so this never dereferences/compares a
+            // dangling pointer. A genuine enter/focus change always re-emits a
+            // motion so pointer-constraint / relative-pointer setup keyed off the
+            // first motion still works.
+            const focus_changed = (cursor.seat.wlr_seat.pointer_state.focused_surface != surface);
+            const cursor_moved = (lx != cursor.last_sent_lx or ly != cursor.last_sent_ly);
+
             cursor.seat.wlr_seat.pointerNotifyEnter(surface, result.sx, result.sy);
-            cursor.seat.wlr_seat.pointerNotifyMotion(time, result.sx, result.sy);
+            if (cursor_moved or focus_changed) {
+                cursor.seat.wlr_seat.pointerNotifyMotion(time, result.sx, result.sy);
+            }
+            cursor.last_sent_lx = lx;
+            cursor.last_sent_ly = ly;
             return;
         }
     }

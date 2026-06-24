@@ -190,6 +190,15 @@ pub const SaveableSurfaces = struct {
         fx.copyBufferFx(scene_buffer, buffer);
     }
 
+    /// Clone the current live surface buffers into an arbitrary target tree,
+    /// reusing the same per-buffer copy (including SceneFX attributes) as `save`.
+    /// Unlike `save`, this neither toggles `saved` nor disables the live tree, so
+    /// the clones can be displayed simultaneously with the live surfaces (used by
+    /// the cosmetic position-animation overlay).
+    pub fn cloneInto(surfaces: *const SaveableSurfaces, target: *wlr.SceneTree) void {
+        surfaces.tree.node.forEachBuffer(*wlr.SceneTree, saveSurfaceTreeIter, target);
+    }
+
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {
         if (!surfaces.saved) return;
         assert(!surfaces.tree.node.enabled);
