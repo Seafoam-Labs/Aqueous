@@ -586,6 +586,21 @@ fn renderFinish(wm: *WindowManager) void {
                 },
             }
         }
+
+        // The reorder loop above re-raised every window's live `tree` but never the
+        // animation clones, so any in-flight slide clone has just been buried by the
+        // opaque live trees. Lift each active clone back above its siblings, in list
+        // order so later clones sit above earlier ones (matching the live stacking the
+        // loop established). Gated on `reorder` so it costs nothing on the common path.
+        if (reorder) {
+            var it2 = wm.rendering_requested.list.iterator(.forward);
+            while (it2.next()) |node| {
+                switch (node.get()) {
+                    .window => |window| window.raiseSnapshotIfActive(),
+                    .shell_surface => {},
+                }
+            }
+        }
     }
 
     server.om.commitOutputState();

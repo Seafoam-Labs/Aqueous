@@ -1246,6 +1246,20 @@ fn armSnapshot(window: *Window) void {
     window.anim_snapshot = true;
 }
 
+/// If a slide animation clone is currently armed, re-raise it above its live
+/// siblings. Called after `WindowManager.renderFinish`'s reorder loop, which
+/// re-raises every window's live `tree` (and never the clones), so an in-flight
+/// clone would otherwise be buried by an opaque live tree mid-slide. Mirrors the
+/// reparent in `armSnapshot` so a window that became fullscreen during the slide
+/// still has its clone follow the live tree's (possibly new) parent layer.
+pub fn raiseSnapshotIfActive(window: *Window) void {
+    if (!window.anim_snapshot) return;
+    if (window.tree.node.parent) |parent| {
+        window.anim_tree.node.reparent(parent);
+    }
+    window.anim_tree.node.raiseToTop();
+}
+
 /// Tear down the cosmetic overlay and restore the live surfaces' opacity, leaving
 /// no positional pop because the live tree has been at the target the whole time.
 fn clearSnapshot(window: *Window) void {
