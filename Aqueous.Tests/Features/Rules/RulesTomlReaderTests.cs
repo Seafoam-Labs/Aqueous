@@ -9,6 +9,7 @@ namespace Aqueous.Tests.Features.Rules;
 /// Parser + discovery tests for <see cref="RulesTomlReader"/> (TOML shape, size variants,
 /// XDG / env path precedence).
 /// </summary>
+[Collection(EnvironmentVariableTestCollection.Name)]
 public class RulesTomlReaderTests
 {
     // -----------------------------------------------------------------------------------------

@@ -14,6 +14,7 @@ namespace Aqueous.Tests.Features.Rules;
 /// swap the engine's rule list, walk every managed <see cref="WindowEntry"/> applying the
 /// updated rule, and schedule a manage cycle iff something actually changed.
 /// </summary>
+[Collection(EnvironmentVariableTestCollection.Name)]
 public class RulesReloaderTests
 {
     /// <summary>Minimal scoped env helper so tests don't leak state to each other.</summary>

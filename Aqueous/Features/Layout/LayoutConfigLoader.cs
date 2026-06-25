@@ -73,6 +73,9 @@ public static class LayoutConfigLoader
         // [opacity] section — global window opacity driven to riverdelta via set_opacity. Defaults mirror OpacitySpec.Default.
         bool opacityEnabled = OpacitySpec.Default.Enabled;
         double opacityValue = OpacitySpec.Default.Value;
+        bool opacityFocusSensitive = OpacitySpec.Default.FocusSensitive;
+        double opacityFocused = OpacitySpec.Default.Focused;
+        double opacityUnfocused = OpacitySpec.Default.Unfocused;
         // [layout].force_ssd — ask SSD-capable windows to drop client-side decorations.
         bool forceSsd = false;
 
@@ -452,6 +455,9 @@ public static class LayoutConfigLoader
                     {
                         case "enabled": opacityEnabled = ParseBool(val, opacityEnabled); break;
                         case "value": opacityValue = Math.Clamp(ParseDouble(val, opacityValue), 0.0, 1.0); break;
+                        case "focus_sensitive": opacityFocusSensitive = ParseBool(val, opacityFocusSensitive); break;
+                        case "focused": opacityFocused = Math.Clamp(ParseDouble(val, opacityFocused), 0.0, 1.0); break;
+                        case "unfocused": opacityUnfocused = Math.Clamp(ParseDouble(val, opacityUnfocused), 0.0, 1.0); break;
                     }
 
                     break;
@@ -574,7 +580,7 @@ public static class LayoutConfigLoader
             PerOutputWorkspace = perOutputWorkspace,
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
-            Opacity = new OpacitySpec(opacityEnabled, opacityValue),
+            Opacity = new OpacitySpec(opacityEnabled, opacityValue, opacityFocusSensitive, opacityFocused, opacityUnfocused),
             Keybinds = keybinds,
             ForceSsd = forceSsd,
             State = stateConfig,

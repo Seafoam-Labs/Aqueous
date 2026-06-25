@@ -10,6 +10,7 @@ namespace Aqueous.Tests.Features.Layout;
 /// Coverage for the standalone <c>layout.toml</c> sidecar: path resolution order,
 /// <c>[layout].path</c> extraction, and the layout-only overlay merge.
 /// </summary>
+[Collection(EnvironmentVariableTestCollection.Name)]
 public class LayoutTomlReaderTests
 {
     // -----------------------------------------------------------------------------------------

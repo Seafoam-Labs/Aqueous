@@ -70,14 +70,21 @@ public readonly record struct BlurSpec(bool Enabled, int Radius, int Passes)
 /// <summary>
 /// Global window-opacity parameters parsed from the <c>[opacity]</c> section of <c>wm.toml</c>.
 /// <see cref="Enabled"/> toggles whether the default opacity is applied at all;
-/// <see cref="Value"/> is the opacity fraction (0 = fully transparent, 1 = fully opaque)
-/// marshalled to riverdelta as a 32-bit unsigned fraction via
-/// <c>river_window_manager_v1.set_opacity</c> / <c>river_window_v1.set_window_opacity</c>.
+/// <see cref="Value"/> is the focus-independent opacity fraction (0 = fully transparent,
+/// 1 = fully opaque). When <see cref="FocusSensitive"/> is enabled, <see cref="Focused"/> and
+/// <see cref="Unfocused"/> are used for per-window opacity instead. Values are marshalled to
+/// riverdelta as 32-bit unsigned fractions via <c>river_window_manager_v1.set_opacity</c> /
+/// <c>river_window_v1.set_window_opacity</c>.
 /// </summary>
-public readonly record struct OpacitySpec(bool Enabled, double Value)
+public readonly record struct OpacitySpec(
+    bool Enabled,
+    double Value,
+    bool FocusSensitive,
+    double Focused,
+    double Unfocused)
 {
     /// <summary>Opacity off by default (fully opaque), with a sane value once enabled.</summary>
-    public static readonly OpacitySpec Default = new(false, 1.0);
+    public static readonly OpacitySpec Default = new(false, 1.0, false, 1.0, 1.0);
 }
 
 /// <summary>

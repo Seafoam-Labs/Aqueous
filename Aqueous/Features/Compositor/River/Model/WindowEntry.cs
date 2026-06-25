@@ -1,4 +1,5 @@
 using System;
+using Aqueous.Features.Layout;
 using Aqueous.Features.Rules;
 
 namespace Aqueous.Features.Compositor.River;
@@ -33,8 +34,9 @@ internal sealed class WindowEntry
     public int LastPosX = int.MinValue, LastPosY = int.MinValue;
     public int LastClipW, LastClipH;
     public bool BordersSent;
-    // Cached last border state marshalled via river_window_v1.set_borders (opcode 8) so the
-    // render pass only re-sends when the colour or width actually changes (e.g. focus switch).
+    public BorderSpec LastResolvedBorder = BorderSpec.None;
+    // Last border state marshalled via river_window_v1.set_borders (opcode 8). Render sequences
+    // re-declare this state every time; these fields are bookkeeping for diagnostics/future readers.
     // LastBorderColor is the packed 0xAARRGGBB active colour; LastBorderWidth the edge width.
     public uint LastBorderColor;
     public int LastBorderWidth = int.MinValue;
@@ -49,17 +51,13 @@ internal sealed class WindowEntry
     public bool DecorationHintReceived;
     public bool SsdApplied;
 
-    // Cached last per-window blur flag marshalled via river_window_v1.set_window_blur (opcode 25)
-    // so the render pass only re-sends when the effective decision flips (rule change / global
-    // [blur].enabled toggle on reload). WindowBlurSent latches the first emit so an unchanged
-    // value is never re-sent (mirrors BordersSent above).
+    // Last per-window blur flag marshalled via river_window_v1.set_window_blur (opcode 25). Render
+    // sequences re-declare this state every time; these fields are bookkeeping only.
     public bool WindowBlurSent;
     public bool LastWindowBlurEnabled;
 
-    // Cached last per-window opacity marshalled via river_window_v1.set_window_opacity (opcode 26)
-    // so the render pass only re-sends when the effective value changes (rule change / global
-    // [opacity] edit on reload). WindowOpacitySent latches the first emit so an unchanged value
-    // is never re-sent (mirrors WindowBlurSent above).
+    // Last per-window opacity marshalled via river_window_v1.set_window_opacity (opcode 26). Render
+    // sequences re-declare this state every time; these fields are bookkeeping only.
     public bool WindowOpacitySent;
     public double LastWindowOpacity;
 

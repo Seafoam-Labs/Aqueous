@@ -51,6 +51,37 @@ internal sealed unsafe class ManagerEventService
     // turned off. -1 forces the first manage cycle to seed the epoch.
     private long _ssdConfigEpoch = -1;
 
+    private static uint EncodeOpacity(double opacity) =>
+        (uint)Math.Round(Math.Clamp(opacity, 0.0, 1.0) * uint.MaxValue);
+
+    internal static double ResolveWindowOpacity(WindowEntry we, IntPtr key, IntPtr focused, OpacitySpec opacityCfg)
+    {
+        if (we.Placement?.OpacityOverride is double overrideOpacity)
+        {
+            return Math.Clamp(overrideOpacity, 0.0, 1.0);
+        }
+
+        if (!opacityCfg.Enabled)
+        {
+            return 1.0;
+        }
+
+        if (opacityCfg.FocusSensitive)
+        {
+            return Math.Clamp(key == focused ? opacityCfg.Focused : opacityCfg.Unfocused, 0.0, 1.0);
+        }
+
+        return Math.Clamp(opacityCfg.Value, 0.0, 1.0);
+    }
+
+    private static void SplitArgb8888ToUint32Channels(uint color, out uint r, out uint g, out uint b, out uint a)
+    {
+        r = ((color >> 16) & 0xFF) * 0x01010101u;
+        g = ((color >>  8) & 0xFF) * 0x01010101u;
+        b = ( color        & 0xFF) * 0x01010101u;
+        a = ((color >> 24) & 0xFF) * 0x01010101u;
+    }
+
     public ManagerEventService(
         IEventPump pump,
         IWindowRegistry windowRegistry,
@@ -432,109 +463,160 @@ internal sealed unsafe class ManagerEventService
         bool finished = false;
         try
         {
-
-        void EmitWindow(IntPtr key, WindowEntry we)
-        {
-            if (!we.Visible)
+            var blurCfg = _layoutController.Config.Blur;
+            var opacityCfg = _layoutController.Config.Opacity;
+            IntPtr focused = _focusedWindowTracker.Current;
+            var manager = _bindSiteState.Manager;
+            if (manager != IntPtr.Zero)
             {
-                return;
+                WaylandInterop.wl_proxy_marshal_flags(
+                    manager, 7, IntPtr.Zero, 0, 0,
+                    (IntPtr)(blurCfg.Enabled ? 1u : 0u),
+                    (IntPtr)blurCfg.Radius,
+                    (IntPtr)blurCfg.Passes,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                double globalOpacity = opacityCfg.Enabled ? opacityCfg.Value : 1.0;
+                WaylandInterop.wl_proxy_marshal_flags(
+                    manager, 8, IntPtr.Zero, 0, 0,
+                    (IntPtr)EncodeOpacity(globalOpacity),
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
 
-            WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero,
-                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            WaylandInterop.wl_proxy_marshal_flags(key, 8, IntPtr.Zero, 0, 0, (IntPtr)0, (IntPtr)0,
-                (IntPtr)0, (IntPtr)0, (IntPtr)0, (IntPtr)0);
-
-            if (we.NodeProxy != IntPtr.Zero)
+            void EmitWindow(IntPtr key, WindowEntry we)
             {
-                WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                if (we.LastPosX != we.X || we.LastPosY != we.Y)
+                if (!we.Visible)
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X,
-                        (IntPtr)we.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    we.LastPosX = we.X;
-                    we.LastPosY = we.Y;
+                    return;
+                }
+
+                WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                {
+                    int bWidth = we.LastResolvedBorder.Width;
+                    uint bColor = bWidth > 0
+                        ? (key == focused ? we.LastResolvedBorder.Focused : we.LastResolvedBorder.Normal)
+                        : 0u;
+                    uint edges = bWidth > 0 ? 0xFu : 0u;
+                    SplitArgb8888ToUint32Channels(bColor, out uint r, out uint g, out uint b, out uint a);
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        key, 8, IntPtr.Zero, 0, 0,
+                        (IntPtr)edges, (IntPtr)bWidth,
+                        (IntPtr)r, (IntPtr)g, (IntPtr)b, (IntPtr)a);
+                    we.BordersSent = true;
+                    we.LastBorderColor = bColor;
+                    we.LastBorderWidth = bWidth;
+                }
+
+                if (we.NodeProxy != IntPtr.Zero)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    if (we.LastPosX != we.X || we.LastPosY != we.Y)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X,
+                            (IntPtr)we.Y, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        we.LastPosX = we.X;
+                        we.LastPosY = we.Y;
+                    }
+                }
+
+                if (_manageCycle.ManagerVersion >= 2 && we.W > 0 && we.H > 0 &&
+                    (we.LastClipW != we.W || we.LastClipH != we.H))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        key, 21, IntPtr.Zero, 0, 0,
+                        (IntPtr)0, (IntPtr)0, (IntPtr)we.W, (IntPtr)we.H,
+                        IntPtr.Zero, IntPtr.Zero);
+                    we.LastClipW = we.W;
+                    we.LastClipH = we.H;
+                }
+
+                {
+                    bool blurEnabled = we.Placement?.BlurOverride ?? blurCfg.Enabled;
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        key, 25, IntPtr.Zero, 0, 0,
+                        (IntPtr)(blurEnabled ? 1u : 0u),
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    we.WindowBlurSent = true;
+                    we.LastWindowBlurEnabled = blurEnabled;
+                }
+
+                {
+                    double opacity = ResolveWindowOpacity(we, key, focused, opacityCfg);
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        key, 26, IntPtr.Zero, 0, 0,
+                        (IntPtr)EncodeOpacity(opacity),
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    we.WindowOpacitySent = true;
+                    we.LastWindowOpacity = opacity;
                 }
             }
 
-            if (_manageCycle.ManagerVersion >= 2 && we.W > 0 && we.H > 0 &&
-                (we.LastClipW != we.W || we.LastClipH != we.H))
+            WindowState ClassifyState(IntPtr handle)
             {
-                WaylandInterop.wl_proxy_marshal_flags(
-                    key, 21, IntPtr.Zero, 0, 0,
-                    (IntPtr)0, (IntPtr)0, (IntPtr)we.W, (IntPtr)we.H,
-                    IntPtr.Zero, IntPtr.Zero);
-                we.LastClipW = we.W;
-                we.LastClipH = we.H;
-            }
-        }
+                if (_windowStates.TryGetValue(handle, out var sd) && sd != null)
+                {
+                    return sd.State;
+                }
 
-        WindowState ClassifyState(IntPtr handle)
-        {
-            if (_windowStates.TryGetValue(handle, out var sd) && sd != null)
-            {
-                return sd.State;
+                return WindowState.Tiled;
             }
 
-            return WindowState.Tiled;
-        }
+            WindowState focusedState = focused != IntPtr.Zero
+                ? ClassifyState(focused)
+                : WindowState.Tiled;
 
-        IntPtr focused = _focusedWindowTracker.Current;
-        WindowState focusedState = focused != IntPtr.Zero
-            ? ClassifyState(focused)
-            : WindowState.Tiled;
+            bool HasFocusedInLayer(WindowState layer) =>
+                focused != IntPtr.Zero
+                && _windowRegistry.Entries.ContainsKey(focused)
+                && focusedState == layer;
 
-        bool HasFocusedInLayer(WindowState layer) =>
-            focused != IntPtr.Zero
-            && _windowRegistry.Entries.ContainsKey(focused)
-            && focusedState == layer;
-
-        void EmitPass(Func<WindowState, bool> match, WindowState layer)
-        {
-            bool deferFocused = HasFocusedInLayer(layer);
-            foreach (var kvp in _windowRegistry.Entries)
+            void EmitPass(Func<WindowState, bool> match, WindowState layer)
             {
-                var s = ClassifyState(kvp.Key);
-                if (!match(s)) continue;
-                if (deferFocused && kvp.Key == focused) continue;
-                EmitWindow(kvp.Key, kvp.Value);
+                bool deferFocused = HasFocusedInLayer(layer);
+                foreach (var kvp in _windowRegistry.Entries)
+                {
+                    var s = ClassifyState(kvp.Key);
+                    if (!match(s)) continue;
+                    if (deferFocused && kvp.Key == focused) continue;
+                    EmitWindow(kvp.Key, kvp.Value);
+                }
+
+                if (deferFocused
+                    && _windowRegistry.Entries.TryGetValue(focused, out var fw))
+                {
+                    EmitWindow(focused, fw);
+                }
             }
 
-            if (deferFocused
-                && _windowRegistry.Entries.TryGetValue(focused, out var fw))
+            EmitPass(s => s == WindowState.Tiled, WindowState.Tiled);
+            EmitPass(s => s == WindowState.Maximized, WindowState.Maximized);
+
             {
-                EmitWindow(focused, fw);
+                bool deferFocused = focused != IntPtr.Zero
+                                    && _windowRegistry.Entries.ContainsKey(focused)
+                                    && (focusedState == WindowState.Floating
+                                        || focusedState == WindowState.Scratchpad);
+                foreach (var kvp in _windowRegistry.Entries)
+                {
+                    var s = ClassifyState(kvp.Key);
+                    if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
+                    if (deferFocused && kvp.Key == focused) continue;
+                    EmitWindow(kvp.Key, kvp.Value);
+                }
+
+                if (deferFocused
+                    && _windowRegistry.Entries.TryGetValue(focused, out var fw))
+                {
+                    EmitWindow(focused, fw);
+                }
             }
-        }
 
-        EmitPass(s => s == WindowState.Tiled, WindowState.Tiled);
-        EmitPass(s => s == WindowState.Maximized, WindowState.Maximized);
+            EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
 
-        {
-            bool deferFocused = focused != IntPtr.Zero
-                                && _windowRegistry.Entries.ContainsKey(focused)
-                                && (focusedState == WindowState.Floating
-                                    || focusedState == WindowState.Scratchpad);
-            foreach (var kvp in _windowRegistry.Entries)
-            {
-                var s = ClassifyState(kvp.Key);
-                if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
-                if (deferFocused && kvp.Key == focused) continue;
-                EmitWindow(kvp.Key, kvp.Value);
-            }
-
-            if (deferFocused
-                && _windowRegistry.Entries.TryGetValue(focused, out var fw))
-            {
-                EmitWindow(focused, fw);
-            }
-        }
-
-        EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
-
-        _managerRequestSender.SendManagerRequest(4);
-        finished = true;
+            _managerRequestSender.SendManagerRequest(4);
+            finished = true;
         }
         catch (Exception ex)
         {
