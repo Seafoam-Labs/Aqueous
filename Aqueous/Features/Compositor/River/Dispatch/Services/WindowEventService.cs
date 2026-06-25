@@ -159,6 +159,7 @@ internal sealed unsafe class WindowEventService
                 w.MaxW = args[2].i;
                 w.MaxH = args[3].i;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} dimensions_hint min {w.MinW}x{w.MinH} max {w.MaxW}x{w.MaxH}");
+                _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.Dimensions:
@@ -321,13 +322,14 @@ internal sealed unsafe class WindowEventService
 
             case RiverProtocolOpcodes.Window.MinimizeRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} minimize_requested");
-                if (!_windowStates.TryGetValue(proxy, out WindowStateData? minState)
-                    || minState.State != WindowState.Minimized)
-                {
-                    _windowStateController.ToggleMinimize(new WindowProxy(proxy));
-                }
-
-                _managerRequestSender.ScheduleManage();
+                RiverLog.Write($"Prevent Minimize: NoOp");
+                // if (!_windowStates.TryGetValue(proxy, out WindowStateData? minState)
+                //     || minState.State != WindowState.Minimized)
+                // {
+                //     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
+                // }
+                //
+                // _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.ActivateRequested:
@@ -344,14 +346,14 @@ internal sealed unsafe class WindowEventService
 
             case RiverProtocolOpcodes.Window.UnminimizeRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} unminimize_requested");
-                if (_windowStates.TryGetValue(proxy, out WindowStateData? unminState)
-                    && unminState.State == WindowState.Minimized)
-                {
-                    _windowStateController.ToggleMinimize(new WindowProxy(proxy));
-                    _focusService.RequestFocus(proxy);
-                }
-
-                _managerRequestSender.ScheduleManage();
+                // if (_windowStates.TryGetValue(proxy, out WindowStateData? unminState)
+                //     && unminState.State == WindowState.Minimized)
+                // {
+                //     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
+                //     _focusService.RequestFocus(proxy);
+                // }
+                //
+                // _managerRequestSender.ScheduleManage();
                 break;
 
             case RiverProtocolOpcodes.Window.Identifier:
