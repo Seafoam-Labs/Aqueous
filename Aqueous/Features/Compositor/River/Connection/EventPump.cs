@@ -320,6 +320,13 @@ internal sealed class EventPump : IEventPump
                     {
                         if (!_running || token.IsCancellationRequested)
                         {
+                            if (token.IsCancellationRequested)
+                            {
+                                reason = _stopRequested
+                                    ? PumpStopReason.StopRequested
+                                    : PumpStopReason.Cancelled;
+                            }
+
                             break;
                         }
 
@@ -336,6 +343,13 @@ internal sealed class EventPump : IEventPump
                     {
                         // Stop raced us between preparing the read and entering poll. Any successfully
                         // prepared read MUST be cancelled so the display is left clean for disconnect.
+                        if (token.IsCancellationRequested)
+                        {
+                            reason = _stopRequested
+                                ? PumpStopReason.StopRequested
+                                : PumpStopReason.Cancelled;
+                        }
+
                         if (readPrepared)
                         {
                             _connection.CancelRead();

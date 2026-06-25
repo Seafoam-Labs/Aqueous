@@ -5,6 +5,7 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
+using Aqueous.Features.Workspaces;
 using Xunit;
 
 namespace Aqueous.Tests.Features.Focus;
@@ -89,7 +90,7 @@ public sealed class FocusServiceLayerShellSuppressionTests
 
         var svc = new FocusService(
             windows, outputs, seats, focused, pending, primarySeat,
-            sender, proposer, stateController, layerFocus);
+            sender, proposer, stateController, layerFocus, new WorkspaceStore());
 
         return (svc, sender, focused, layerFocus, windows);
     }

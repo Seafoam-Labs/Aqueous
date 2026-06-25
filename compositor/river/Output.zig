@@ -626,10 +626,11 @@ fn handleRequestState(listener: *wl.Listener(*wlr.Output.event.RequestState), ev
 fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("frame", listener);
 
-    const still_animating = output.stepAnimations();
+    const animation_changed_scene = output.stepAnimations();
+    if (animation_changed_scene) output.scene_output.?.damage_ring.addWhole();
 
     // TODO this should probably be retried on failure
-    output.renderAndCommit() catch |err| switch (err) {
+    output.renderAndCommit(animation_changed_scene) catch |err| switch (err) {
         error.CommitFailed => log.err("output commit failed for {s}", .{wlr_output.name}),
     };
 
@@ -639,12 +640,12 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     // renderAndCommit early-returns when the scene reports no pending changes, so
     // re-arm the frame loop ourselves while any window on this output is still
     // moving; otherwise the animation would stall after the first eased frame.
-    if (still_animating) wlr_output.scheduleFrame();
+    if (output.hasActiveAnimations()) wlr_output.scheduleFrame();
 }
 
 /// Advance the position animation of every window currently displayed on this
-/// output by the time elapsed since the previous frame. Returns true while any
-/// window is still moving. Compiles out (always returns false) when animations
+/// output by the time elapsed since the previous frame. Returns true when any
+/// animation changed scene state. Compiles out (always returns false) when animations
 /// are disabled.
 fn stepAnimations(output: *Output) bool {
     if (comptime !fx.anim_enabled) return false;
@@ -665,18 +666,30 @@ fn stepAnimations(output: *Output) bool {
 
     if (dt_s <= 0) return false;
 
-    var still_animating = false;
+    var changed = false;
     var it = server.wm.windows.iterator();
     while (it.next()) |window| {
         const ws = window.workspace orelse continue;
         if (ws.output != output) continue;
-        if (window.stepAnimation(dt_s)) still_animating = true;
+        if (window.stepAnimation(dt_s)) changed = true;
     }
-    return still_animating;
+    return changed;
 }
 
-fn renderAndCommit(output: *Output) !void {
-    if (!output.scene_output.?.needsFrame()) return;
+fn hasActiveAnimations(output: *Output) bool {
+    if (comptime !fx.anim_enabled) return false;
+
+    var it = server.wm.windows.iterator();
+    while (it.next()) |window| {
+        const ws = window.workspace orelse continue;
+        if (ws.output != output) continue;
+        if (window.anim_active) return true;
+    }
+    return false;
+}
+
+fn renderAndCommit(output: *Output, force: bool) !void {
+    if (!force and !output.scene_output.?.needsFrame()) return;
 
     const wlr_output = output.wlr_output.?;
 

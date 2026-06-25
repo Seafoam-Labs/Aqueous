@@ -1259,8 +1259,8 @@ fn clearSnapshot(window: *Window) void {
 
 /// Advance this window's position animation by `dt_s` seconds. Only the cosmetic
 /// `anim_tree` overlay is moved; the live `tree`/`popup_tree` stay pinned at the
-/// target. Returns true while still moving so the owning output keeps scheduling
-/// frames. Uses frame-rate-independent exponential smoothing.
+/// target. Returns true when animation changed scene state, including the final
+/// snapshot teardown frame. Uses frame-rate-independent exponential smoothing.
 pub fn stepAnimation(window: *Window, dt_s: f64) bool {
     if (comptime !fx.anim_enabled) return false;
     if (!window.anim_active) return false;
@@ -1276,7 +1276,7 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
         window.anim_y = window.anim_target_y;
         window.anim_active = false;
         window.clearSnapshot();
-        return false;
+        return true;
     }
 
     window.anim_tree.node.setPosition(

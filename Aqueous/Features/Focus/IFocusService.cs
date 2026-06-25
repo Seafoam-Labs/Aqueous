@@ -56,6 +56,12 @@ public interface IFocusService
     void FocusAnyOtherWindow(IntPtr avoid);
 
     /// <summary>
+    /// Pick another window on <paramref name="workspace"/> (prefer not <paramref name="avoid"/>) and
+    /// focus it. <see cref="ClearFocus"/> if empty.
+    /// </summary>
+    void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace);
+
+    /// <summary>
     /// Advance keyboard focus to the next window in registry iteration order.
     /// </summary>
     void CycleFocus();

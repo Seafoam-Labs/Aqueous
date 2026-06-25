@@ -244,11 +244,7 @@ internal sealed unsafe class ManagerEventService
                 && !_shellSurfaceRegistry.IsLive(_pendingFocus.ShellSurface)
                 && _windowRegistry.Entries.Count > 0)
             {
-                foreach (var wk in _windowRegistry.Entries.Keys)
-                {
-                    _focusService.RequestFocus(wk);
-                    break;
-                }
+                _focusService.FocusAnyOtherWindow(IntPtr.Zero);
             }
 
             // Enable the pointer binding (must be issued inside a manage sequence).

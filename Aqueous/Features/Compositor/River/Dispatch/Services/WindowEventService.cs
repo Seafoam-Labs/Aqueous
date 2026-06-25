@@ -96,6 +96,10 @@ internal sealed unsafe class WindowEventService
         switch (opcode)
         {
             case RiverProtocolOpcodes.Window.Closed:
+                var wasFocused = _focusedWindowTracker.Current == proxy;
+                var parent = w.ParentProxy;
+                var workspace = w.Workspace;
+
                 RiverLog.Write($"window 0x{proxy.ToString("x")} closed");
                 _windowStateController.OnWindowDestroyed(new WindowProxy(proxy));
                 _windowStates.TryRemove(proxy, out _);
@@ -134,10 +138,17 @@ internal sealed unsafe class WindowEventService
                     }
                 }
 
-                if (_focusedWindowTracker.Current == proxy)
+                if (wasFocused)
                 {
                     _focusService.ClearFocusedHandle();
-                    _focusService.FocusAnyOtherWindow(proxy);
+                    if (parent != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(parent))
+                    {
+                        _focusService.RequestFocus(parent);
+                    }
+                    else
+                    {
+                        _focusService.FocusAnyOtherWindow(proxy, workspace);
+                    }
                 }
 
                 break;

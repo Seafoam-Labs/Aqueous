@@ -51,6 +51,7 @@ public class TagServiceTests
         public void RequestFocus(IntPtr windowProxy) { RequestFocusCalls++; LastRequestedFocus = windowProxy; FocusedWindow = windowProxy; }
         public void ClearFocus() { ClearFocusCalls++; FocusedWindow = IntPtr.Zero; }
         public void FocusAnyOtherWindow(IntPtr avoid) { }
+        public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace) { }
         public void CycleFocus() { }
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr s, IntPtr seat) { }

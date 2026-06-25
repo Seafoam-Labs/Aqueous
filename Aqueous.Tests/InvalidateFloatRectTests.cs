@@ -57,6 +57,7 @@ public class InvalidateFloatRectTests
         public void RequestFocus(IntPtr windowProxy) { }
         public void ClearFocus() { }
         public void FocusAnyOtherWindow(IntPtr avoid) { }
+        public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace) { }
         public void CycleFocus() { }
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }

@@ -1,6 +1,7 @@
 using System.Linq;
 using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Focus;
+using Aqueous.Features.Workspaces;
 using Xunit;
 
 namespace Aqueous.Tests.Features.Focus;
@@ -23,10 +24,12 @@ public sealed class FocusServiceTests
     {
         var ctor = typeof(FocusService).GetConstructors().Single();
         var p = ctor.GetParameters();
-        Assert.Equal(9, p.Length);
+        Assert.Equal(11, p.Length);
         Assert.Equal(typeof(FocusedWindowTracker), p[3].ParameterType);
         Assert.Equal(typeof(PendingFocusStore), p[4].ParameterType);
         Assert.Equal(typeof(PrimarySeatTracker), p[5].ParameterType);
+        Assert.Equal(typeof(ILayerShellFocusState), p[9].ParameterType);
+        Assert.Equal(typeof(WorkspaceStore), p[10].ParameterType);
     }
 
     [Fact]

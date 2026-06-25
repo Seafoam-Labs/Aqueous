@@ -169,7 +169,7 @@ move_to_workspace_9      = "Super+Shift+9"
 # Directional switching / moving + back-and-forth.
 focus_workspace_up       = "Super+Bracketleft"        # previous workspace in the list
 focus_workspace_down     = "Super+Bracketright"       # next workspace in the list
-focus_previous_workspace = "Super+Shit+grave"              # back-and-forth (the ` key)
+focus_previous_workspace = "Super+grave"                   # back-and-forth (the ` key)
 move_to_workspace_up     = "Super+Shift+Bracketleft"
 move_to_workspace_down   = "Super+Shift+Bracketright"
 

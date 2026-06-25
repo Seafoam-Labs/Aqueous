@@ -5,6 +5,7 @@ using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
 using Aqueous.Features.Tags;
+using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Focus;
 
@@ -28,14 +29,15 @@ internal sealed class FocusService : IFocusService
 
     private readonly ISeatRegistry _seatRegistry;
 
-    // Cut over off RiverWindowManagerClient. The focused/pending-focus/primary-seat state lives on
     // three DI singletons (FocusedWindowTracker / PendingFocusStore / PrimarySeatTracker);
     // SendClearFocus is now an inlined Wayland marshal local to this service.
     private readonly FocusedWindowTracker _focusedWindow;
     private readonly PendingFocusStore _pendingFocus;
     private readonly PrimarySeatTracker _primarySeat;
     private readonly IManagerRequestSender _managerRequestSender;
+
     private readonly ILayoutProposer _layoutProposer;
+
     // Lazy-resolved to break the DI cycle: FocusService -> WindowStateController -> IWindowStateHost
     // -> IFocusService. Resolving WindowStateController eagerly in this ctor would close the loop
     // at BuildServiceProvider/first-resolve time and abort startup before any RiverLog ever ran
@@ -45,6 +47,9 @@ internal sealed class FocusService : IFocusService
     // Layer-shell focus policy: when a seat is in exclusive layer-focus mode, the compositor ignores
     // all WM focus-change requests for it. Suppressing them here avoids spurious manage churn.
     private readonly ILayerShellFocusState _layerShellFocus;
+
+    private readonly FocusHistoryStore _focusHistory;
+    private readonly WorkspaceStore _workspaceStore;
 
     public FocusService(
         IWindowRegistry windowRegistry,
@@ -56,7 +61,8 @@ internal sealed class FocusService : IFocusService
         IManagerRequestSender managerRequestSender,
         ILayoutProposer layoutProposer,
         Lazy<WindowStateController> stateController,
-        ILayerShellFocusState layerShellFocus)
+        ILayerShellFocusState layerShellFocus,
+        WorkspaceStore workspaceStore)
     {
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
         _outputRegistry = outputRegistry ?? throw new ArgumentNullException(nameof(outputRegistry));
@@ -68,6 +74,8 @@ internal sealed class FocusService : IFocusService
         _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
         _stateController = stateController ?? throw new ArgumentNullException(nameof(stateController));
         _layerShellFocus = layerShellFocus ?? throw new ArgumentNullException(nameof(layerShellFocus));
+        _focusHistory = new FocusHistoryStore();
+        _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
     }
 
     public IntPtr FocusedWindow => _focusedWindow.Current;
@@ -117,6 +125,11 @@ internal sealed class FocusService : IFocusService
 
         _pendingFocus.SetWindow(windowProxy, seatProxy);
         _focusedWindow.Current = windowProxy;
+        if (_windowRegistry.Entries.TryGetValue(windowProxy, out WindowEntry? focusedWindow) && focusedWindow.Workspace != IntPtr.Zero)
+        {
+            _focusHistory.Record(focusedWindow.Workspace, windowProxy);
+        }
+
         _managerRequestSender.ScheduleManage();
     }
 
@@ -182,22 +195,50 @@ internal sealed class FocusService : IFocusService
 
     public void FocusAnyOtherWindow(IntPtr avoid)
     {
-        var keys = _windowRegistry.Entries.Keys.ToList();
-        var pick = IntPtr.Zero;
-        foreach (var k in keys.Where(k => k != avoid))
+        var workspace = GetActiveWorkspaceFromWindow(avoid);
+
+        FocusAnyOtherWindow(avoid, workspace);
+    }
+
+    public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace)
+    {
+        var replacement = _focusHistory.PickWindow(workspace, window => window != avoid
+                                                                        && _windowRegistry.Entries.TryGetValue(window,
+                                                                            out var focusWindow) &&
+                                                                        IsWindowVisibleOnWorkspace(focusWindow, workspace));
+
+        if (replacement == IntPtr.Zero)
         {
-            pick = k;
-            break;
+            replacement = PickFallbackWindow(avoid, workspace);
         }
 
-        if (pick != IntPtr.Zero)
+        if (replacement != IntPtr.Zero)
         {
-            RequestFocus(pick);
+            RequestFocus(replacement);
+            return;
         }
-        else
+
+        ClearFocus();
+    }
+
+    private IntPtr PickFallbackWindow(IntPtr avoid, IntPtr workspace)
+    {
+        foreach (var kv in _windowRegistry.Entries)
         {
-            ClearFocus();
+            if (kv.Key == avoid)
+            {
+                continue;
+            }
+
+            if (!IsWindowVisibleOnWorkspace(kv.Value, workspace))
+            {
+                continue;
+            }
+
+            return kv.Key;
         }
+
+        return IntPtr.Zero;
     }
 
     public void CycleFocus()
@@ -238,6 +279,7 @@ internal sealed class FocusService : IFocusService
         {
             visibleTags = oeForNav.VisibleTags;
         }
+
         var target = _layoutProposer.LayoutFocusNeighbor(
             output, outputName, current, dir, snapshot, visibleTags);
         if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
@@ -294,9 +336,9 @@ internal sealed class FocusService : IFocusService
             }
         }
 
-        IntPtr replacement = IntPtr.Zero;
         IntPtr focusedOutput = IntPtr.Zero;
         uint focusedMask = TagState.AllTags;
+        IntPtr workspace = GetActiveWorkspaceFromWindow(focused);
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw2) &&
             fw2.Output != IntPtr.Zero &&
@@ -315,21 +357,19 @@ internal sealed class FocusService : IFocusService
             }
         }
 
-        foreach (var kv in _windowRegistry.Entries)
+        var replacement = _focusHistory.PickWindow(workspace, window =>
         {
-            var w = kv.Value;
-            if (focusedOutput != IntPtr.Zero && w.Output != focusedOutput)
+            if (!_windowRegistry.Entries.TryGetValue(window, out var w))
             {
-                continue;
+                return false;
             }
 
-            if (!TagState.IsVisible(w.Tags, focusedMask))
-            {
-                continue;
-            }
+            return IsWindowEligibleForTagRepair(w, focusedOutput, focusedMask, workspace);
+        });
 
-            replacement = kv.Key;
-            break;
+        if (replacement == IntPtr.Zero)
+        {
+            replacement = PickFallbackWindowForTagRepair(focusedOutput, focusedMask, workspace);
         }
 
         if (replacement == IntPtr.Zero)
@@ -340,6 +380,37 @@ internal sealed class FocusService : IFocusService
         {
             RequestFocus(replacement);
         }
+    }
+
+    private IntPtr PickFallbackWindowForTagRepair(IntPtr focusedOutput, uint focusedMask, IntPtr workspace)
+    {
+        foreach (var kv in _windowRegistry.Entries)
+        {
+            var w = kv.Value;
+            if (!IsWindowEligibleForTagRepair(w, focusedOutput, focusedMask, workspace))
+            {
+                continue;
+            }
+
+            return kv.Key;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static bool IsWindowEligibleForTagRepair(WindowEntry entry, IntPtr focusedOutput, uint focusedMask, IntPtr workspace)
+    {
+        if (focusedOutput != IntPtr.Zero && entry.Output != focusedOutput)
+        {
+            return false;
+        }
+
+        if (!TagState.IsVisible(entry.Tags, focusedMask))
+        {
+            return false;
+        }
+
+        return IsWindowVisibleOnWorkspace(entry, workspace);
     }
 
     public void ClearFocusedHandle()
@@ -377,5 +448,57 @@ internal sealed class FocusService : IFocusService
         }
 
         return IntPtr.Zero;
+    }
+
+    private IntPtr GetActiveWorkspaceFromWindow(IntPtr preferredWindow)
+    {
+        if (TryGetWorkspaceForWindow(preferredWindow, out var workspace))
+        {
+            return workspace;
+        }
+
+        if (TryGetWorkspaceForWindow(_focusedWindow.Current, out workspace))
+        {
+            return workspace;
+        }
+
+        WorkspaceGroupInfo? currentGroup = _workspaceStore.GetCurrentGroup();
+        return currentGroup is null ? IntPtr.Zero : _workspaceStore.ActiveIn(currentGroup);
+    }
+
+    private bool TryGetWorkspaceForWindow(IntPtr windowProxy, out IntPtr workspace)
+    {
+        workspace = IntPtr.Zero;
+
+        if (windowProxy == IntPtr.Zero ||
+            !_windowRegistry.Entries.TryGetValue(windowProxy, out var windowEntry))
+        {
+            return false;
+        }
+
+        if (windowEntry.Workspace != IntPtr.Zero)
+        {
+            workspace = windowEntry.Workspace;
+            return true;
+        }
+
+        if (windowEntry.Output != IntPtr.Zero &&
+            _outputRegistry.Entries.TryGetValue(windowEntry.Output, out var output) &&
+            output.WlOutput != IntPtr.Zero)
+        {
+            var group = _workspaceStore.GetGroupByOutput(output.WlOutput);
+            if (group is not null)
+            {
+                workspace = _workspaceStore.ActiveIn(group);
+                return workspace != IntPtr.Zero;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsWindowVisibleOnWorkspace(WindowEntry entry, IntPtr workspace)
+    {
+        return workspace != IntPtr.Zero && entry.Workspace == workspace;
     }
 }
