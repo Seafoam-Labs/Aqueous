@@ -4,7 +4,6 @@ using Aqueous.Features.Compositor.River;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Layout;
 using Aqueous.Features.State;
-using Aqueous.Features.Tags;
 using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Focus;
@@ -272,16 +271,10 @@ internal sealed class FocusService : IFocusService
         IntPtr output = fw.Output;
         string? outputName = _layoutProposer.ResolveOutputName(output);
         var snapshot = _layoutProposer.BuildSnapshotFor(output);
-        // Engine state is partitioned by (output, visibleTags). Read the tag mask from the output's
-        // registry entry so the neighbor lookup hits the same scope the proposer populated.
-        uint visibleTags = TagState.AllTags;
-        if (output != IntPtr.Zero && _outputRegistry.Entries.TryGetValue(output, out var oeForNav))
-        {
-            visibleTags = oeForNav.VisibleTags;
-        }
+        int workspaceNumber = _workspaceStore.ActiveWorkspaceNumber(output, _outputRegistry);
 
         var target = _layoutProposer.LayoutFocusNeighbor(
-            output, outputName, current, dir, snapshot, visibleTags);
+            output, outputName, current, dir, snapshot, workspaceNumber);
         if (target is { } t && t != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(t))
         {
             _managerRequestSender.ScheduleManage(); // engine may need to recentre viewport
@@ -324,37 +317,33 @@ internal sealed class FocusService : IFocusService
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw))
         {
-            uint mask = TagState.AllTags;
-            if (fw.Output != IntPtr.Zero && _outputRegistry.Entries.TryGetValue(fw.Output, out var oe))
-            {
-                mask = oe.VisibleTags;
-            }
-
-            if (TagState.IsVisible(fw.Tags, mask))
+            if (!_workspaceStore.IsHiddenByWorkspace(fw.Workspace))
             {
                 return; // still visible; keep focus.
             }
         }
 
         IntPtr focusedOutput = IntPtr.Zero;
-        uint focusedMask = TagState.AllTags;
-        IntPtr workspace = GetActiveWorkspaceFromWindow(focused);
         if (focused != IntPtr.Zero &&
             _windowRegistry.Entries.TryGetValue(focused, out var fw2) &&
             fw2.Output != IntPtr.Zero &&
             _outputRegistry.Entries.TryGetValue(fw2.Output, out var oeFromFocus))
         {
             focusedOutput = oeFromFocus.Proxy;
-            focusedMask = oeFromFocus.VisibleTags;
         }
         else
         {
             foreach (var kv in _outputRegistry.Entries)
             {
                 focusedOutput = kv.Value.Proxy;
-                focusedMask = kv.Value.VisibleTags;
                 break;
             }
+        }
+
+        IntPtr workspace = GetActiveWorkspaceForOutput(focusedOutput);
+        if (workspace == IntPtr.Zero)
+        {
+            workspace = GetActiveWorkspaceFromWindow(focused);
         }
 
         var replacement = _focusHistory.PickWindow(workspace, window =>
@@ -364,12 +353,12 @@ internal sealed class FocusService : IFocusService
                 return false;
             }
 
-            return IsWindowEligibleForTagRepair(w, focusedOutput, focusedMask, workspace);
+            return IsWindowEligibleForWorkspaceRepair(w, focusedOutput, workspace);
         });
 
         if (replacement == IntPtr.Zero)
         {
-            replacement = PickFallbackWindowForTagRepair(focusedOutput, focusedMask, workspace);
+            replacement = PickFallbackWindowForWorkspaceRepair(focusedOutput, workspace);
         }
 
         if (replacement == IntPtr.Zero)
@@ -382,12 +371,12 @@ internal sealed class FocusService : IFocusService
         }
     }
 
-    private IntPtr PickFallbackWindowForTagRepair(IntPtr focusedOutput, uint focusedMask, IntPtr workspace)
+    private IntPtr PickFallbackWindowForWorkspaceRepair(IntPtr focusedOutput, IntPtr workspace)
     {
         foreach (var kv in _windowRegistry.Entries)
         {
             var w = kv.Value;
-            if (!IsWindowEligibleForTagRepair(w, focusedOutput, focusedMask, workspace))
+            if (!IsWindowEligibleForWorkspaceRepair(w, focusedOutput, workspace))
             {
                 continue;
             }
@@ -398,19 +387,36 @@ internal sealed class FocusService : IFocusService
         return IntPtr.Zero;
     }
 
-    private static bool IsWindowEligibleForTagRepair(WindowEntry entry, IntPtr focusedOutput, uint focusedMask, IntPtr workspace)
+    private static bool IsWindowEligibleForWorkspaceRepair(WindowEntry entry, IntPtr focusedOutput, IntPtr workspace)
     {
         if (focusedOutput != IntPtr.Zero && entry.Output != focusedOutput)
         {
             return false;
         }
 
-        if (!TagState.IsVisible(entry.Tags, focusedMask))
+        return IsWindowVisibleOnWorkspace(entry, workspace);
+    }
+
+    private IntPtr GetActiveWorkspaceForOutput(IntPtr output)
+    {
+        if (output != IntPtr.Zero)
         {
-            return false;
+            foreach (var entry in _outputRegistry.Snapshot())
+            {
+                if (entry.Proxy == output)
+                {
+                    var key = entry.WlOutput != IntPtr.Zero ? entry.WlOutput : output;
+                    var group = _workspaceStore.GetGroupByOutput(key);
+                    if (group is not null)
+                    {
+                        return _workspaceStore.ActiveIn(group);
+                    }
+                }
+            }
         }
 
-        return IsWindowVisibleOnWorkspace(entry, workspace);
+        var current = _workspaceStore.GetCurrentGroup();
+        return current is null ? IntPtr.Zero : _workspaceStore.ActiveIn(current);
     }
 
     public void ClearFocusedHandle()

@@ -192,40 +192,6 @@ public sealed record LayoutConfig
         return null;
     }
 
-    /// <summary>
-    /// Resolve the layout id for a workspace given the output connector and the visible-tag bitmask
-    /// surfaced by the layout pipeline. The mask is mapped to a 1-based workspace number by walking
-    /// its set bits from low to high, so a pure single-bit mask behaves exactly as the matching
-    /// workspace number; for a multi-bit mask (e.g. <c>AllTags</c>) the lowest matching workspace
-    /// wins. Within each workspace the most specific <see cref="PerOutputWorkspace"/> entry wins,
-    /// then a connector-agnostic <see cref="PerWorkspace"/> entry. Returns <c>null</c> when no
-    /// workspace override applies — callers fall back to <see cref="ResolveLayoutForOutput"/> then
-    /// <see cref="DefaultLayout"/>.
-    /// </summary>
-    public string? ResolveLayoutForWorkspace(string? outputName, uint tags)
-    {
-        uint remaining = tags;
-        while (remaining != 0)
-        {
-            int bit = System.Numerics.BitOperations.TrailingZeroCount(remaining);
-            int ws = bit + 1;                // 1-based workspace number
-            remaining &= remaining - 1;      // clear the lowest set bit
-
-            if (!string.IsNullOrEmpty(outputName)
-                && PerOutputWorkspace.TryGetValue((outputName!, ws), out var byBoth))
-            {
-                return byBoth;
-            }
-
-            if (PerWorkspace.TryGetValue(ws, out var byWs))
-            {
-                return byWs;
-            }
-        }
-
-        return null;
-    }
-
     public string? ResolveLayoutForWorkspace(string? outputName, int workspaceNumber)
     {
         if (workspaceNumber <= 0)

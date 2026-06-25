@@ -21,11 +21,6 @@ namespace Aqueous.Features.Compositor.River.Registry;
 /// the pump thread only. <see cref="Snapshot"/>, <see cref="TryGet"/> and <see cref="Count"/> are
 /// thread-safe.
 /// </para>
-/// <para>
-/// Per-output tag state on <see cref="OutputEntry"/> (<c>VisibleTags</c>, <c>LastVisibleTags</c>,
-/// <c>TagHistory</c>) is owned by <c>TagController</c>; this registry only stores entries and
-/// never mutates those fields.
-/// </para>
 /// </remarks>
 internal interface IOutputRegistry
 {

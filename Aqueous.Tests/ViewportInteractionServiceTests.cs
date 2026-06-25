@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
 using Aqueous.Features.Layout;
-using Aqueous.Features.Tags;
 using Aqueous.Features.Workspaces;
 using Xunit;
 
@@ -79,7 +78,6 @@ public class ViewportInteractionServiceTests
         var output = new IntPtr(20);
         var window = windows.Track(focused.Current);
         window.Output = output;
-        window.Tags = 1;
         var outputs = new OutputRegistry();
         outputs.Track(output, 1);
         var proposer = new NullLayoutProposer();
@@ -104,7 +102,7 @@ public class ViewportInteractionServiceTests
         public bool IsFloatLayoutActive(IntPtr output) => false;
         public IReadOnlyList<WindowEntryView> BuildSnapshotFor(IntPtr output) => Array.Empty<WindowEntryView>();
         public string? ResolveOutputName(IntPtr output) => null;
-        public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot, uint visibleTags) => null;
+        public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot, int workspaceNumber) => null;
     }
 
     private sealed class RecordingManagerRequestSender : IManagerRequestSender

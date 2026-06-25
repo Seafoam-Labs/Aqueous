@@ -63,5 +63,5 @@ internal interface ILayoutProposer
         IntPtr current,
         FocusDirection dir,
         IReadOnlyList<WindowEntryView> snapshot,
-        uint visibleTags);
+        int workspaceNumber);
 }

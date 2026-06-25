@@ -392,11 +392,11 @@ public class WindowStateTests
     }
 
     [Fact]
-    public void OnTagsChanged_DemotesFullscreen()
+    public void OnWorkspaceChanged_DemotesFullscreen()
     {
         var (host, ctrl, w1, _, o1) = Setup();
         ctrl.ToggleFullscreen(w1);
-        ctrl.OnTagsChanged(w1);
+        ctrl.OnWorkspaceChanged(w1);
         Assert.Equal(WindowState.Tiled, host.Data[w1].State);
         Assert.Equal(WindowProxy.Zero, host.GetFullscreenWindow(o1));
     }

@@ -42,7 +42,7 @@ public class WindowEntryRuleWiringTests
     private static WindowEntryView ViewOf(WindowEntry w) =>
         new(Handle: w.Proxy,
             MinW: w.MinW, MinH: w.MinH, MaxW: w.MaxW, MaxH: w.MaxH,
-            Floating: w.Floating, Fullscreen: false, Tags: w.Tags,
+            Floating: w.Floating, Fullscreen: false, Tags: 0u,
             Placement: w.Placement,
             RequestedBufferW: w.WidthHint,
             RequestedBufferH: w.HeightHint,

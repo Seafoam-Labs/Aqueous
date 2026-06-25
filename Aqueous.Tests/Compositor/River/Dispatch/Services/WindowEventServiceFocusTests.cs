@@ -134,7 +134,7 @@ public sealed unsafe class WindowEventServiceFocusTests
         public string? ResolveOutputName(IntPtr output) => null;
         public IntPtr? LayoutFocusNeighbor(
             IntPtr output, string? outputName, IntPtr current, FocusDirection dir,
-            IReadOnlyList<WindowEntryView> snapshot, uint visibleTags) => null;
+            IReadOnlyList<WindowEntryView> snapshot, int workspaceNumber) => null;
     }
 
     private sealed class NoopManagerRequestSender : IManagerRequestSender

@@ -5,15 +5,13 @@ using Xunit;
 namespace Aqueous.Tests;
 
 /// <summary>
-/// Per-workspace layout selection: the layout id is keyed by (output, visible-tag set) rather than
+/// Per-workspace layout selection: the layout id is keyed by (output, workspace number) rather than
 /// per-output, so each workspace remembers its own layout, a <c>set_layout_*</c> keybinding changes
 /// only the focused workspace, and <c>[[workspace]]</c> config blocks predeclare a workspace's
 /// layout. Engines are pure, so no Wayland fixture is required.
 /// </summary>
 public class LayoutPerWorkspaceTests
 {
-    private const uint TagA = 1u;      // workspace 1 (visible-tag mask)
-    private const uint TagB = 1u << 1; // workspace 2 (visible-tag mask)
     private const int Ws1 = 1;         // 1-based workspace number
     private const int Ws2 = 2;         // 1-based workspace number
 
@@ -77,26 +75,9 @@ public class LayoutPerWorkspaceTests
             layout    = "grid"
             """);
 
-        Assert.Equal("grid", cfg.ResolveLayoutForWorkspace("DP-1", TagA));   // output+ws wins
-        Assert.Equal("monocle", cfg.ResolveLayoutForWorkspace("HDMI-A-1", TagA)); // falls to ws-only
-        Assert.Null(cfg.ResolveLayoutForWorkspace("DP-1", TagB));            // no match
-    }
-
-    [Fact]
-    public void ResolveLayoutForWorkspace_MultiBitMask_LowestWorkspaceWins()
-    {
-        var cfg = LayoutConfig.Parse("""
-            [[workspace]]
-            workspace = 1
-            layout    = "monocle"
-
-            [[workspace]]
-            workspace = 2
-            layout    = "grid"
-            """);
-
-        // Mask with both bit 0 (ws 1) and bit 1 (ws 2) set resolves to the lowest matching ws.
-        Assert.Equal("monocle", cfg.ResolveLayoutForWorkspace(null, TagA | TagB));
+        Assert.Equal("grid", cfg.ResolveLayoutForWorkspace("DP-1", Ws1));   // output+ws wins
+        Assert.Equal("monocle", cfg.ResolveLayoutForWorkspace("HDMI-A-1", Ws1)); // falls to ws-only
+        Assert.Null(cfg.ResolveLayoutForWorkspace("DP-1", Ws2));            // no match
     }
 
     [Fact]
@@ -165,11 +146,11 @@ public class LayoutPerWorkspaceTests
         var ctrl = new LayoutController(registry, LayoutConfig.Default); // default = tile
         var output = new IntPtr(0xAA);
 
-        ctrl.SetLayoutForWorkspace(output, TagA, "monocle");
+        ctrl.SetLayoutForWorkspace(output, Ws1, "monocle");
 
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, TagA));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, Ws1));
         // Sibling workspace keeps the global default.
-        Assert.Equal("tile", ctrl.ResolveLayoutId(output, null, TagB));
+        Assert.Equal("tile", ctrl.ResolveLayoutId(output, null, Ws2));
     }
 
     [Fact]
@@ -179,13 +160,13 @@ public class LayoutPerWorkspaceTests
         var ctrl = new LayoutController(registry, LayoutConfig.Default);
         var output = new IntPtr(0xBB);
 
-        ctrl.SetLayoutForWorkspace(output, TagA, "monocle");
-        ctrl.SetLayoutForWorkspace(output, TagB, "grid");
+        ctrl.SetLayoutForWorkspace(output, Ws1, "monocle");
+        ctrl.SetLayoutForWorkspace(output, Ws2, "grid");
 
         // Round-trip A -> B -> A: each workspace restores its own id, not the last-set one.
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, TagA));
-        Assert.Equal("grid", ctrl.ResolveLayoutId(output, null, TagB));
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, TagA));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, Ws1));
+        Assert.Equal("grid", ctrl.ResolveLayoutId(output, null, Ws2));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, Ws1));
     }
 
     [Fact]
@@ -204,13 +185,13 @@ public class LayoutPerWorkspaceTests
         var output = new IntPtr(0xCC);
 
         // First visit: config workspace default applies.
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, "DP-1", TagA));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, "DP-1", Ws1));
         // Other workspace falls through to [layout].default.
-        Assert.Equal("tile", ctrl.ResolveLayoutId(output, "DP-1", TagB));
+        Assert.Equal("tile", ctrl.ResolveLayoutId(output, "DP-1", Ws2));
 
-        // A set_layout_* keybinding (per workspace) overrides the config default for TagA only.
-        ctrl.SetLayoutForWorkspace(output, TagA, "grid");
-        Assert.Equal("grid", ctrl.ResolveLayoutId(output, "DP-1", TagA));
+        // A set_layout_* keybinding (per workspace) overrides the config default for Ws1 only.
+        ctrl.SetLayoutForWorkspace(output, Ws1, "grid");
+        Assert.Equal("grid", ctrl.ResolveLayoutId(output, "DP-1", Ws1));
     }
 
     [Fact]
@@ -221,10 +202,10 @@ public class LayoutPerWorkspaceTests
         var output = new IntPtr(0xDD);
 
         // Give one workspace an explicit id first; SetLayoutForOutput is "whole monitor" and clears it.
-        ctrl.SetLayoutForWorkspace(output, TagA, "grid");
+        ctrl.SetLayoutForWorkspace(output, Ws1, "grid");
         ctrl.SetLayoutForOutput(output, "monocle");
 
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, TagA));
-        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, TagB));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, Ws1));
+        Assert.Equal("monocle", ctrl.ResolveLayoutId(output, null, Ws2));
     }
 }

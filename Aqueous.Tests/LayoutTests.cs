@@ -467,7 +467,7 @@ public class LayoutTests
         var wins = new List<WindowEntryView> { MakeWin(1, minW: 300) };
 
         var result = ctrl.Arrange(output, "X-1", new Rect(0, 0, 100, 100), wins, IntPtr.Zero,
-            visibleTags: 0xFFFFFFFFu);
+            workspaceNumber: 1);
         Assert.Single(result);
         Assert.Equal(300, result[0].Geometry.W);
     }
@@ -515,7 +515,7 @@ public class LayoutTests
     }
 
     [Fact]
-    public void Controller_ArrangeByWorkspaceNumber_MatchesTagMaskOverload()
+    public void Controller_ArrangeByWorkspaceNumber_UsesWorkspaceConfig()
     {
         var registry = new LayoutRegistry();
         var cfg = LayoutConfig.Parse("""
@@ -526,20 +526,18 @@ public class LayoutTests
             workspace = 3
             layout    = "monocle"
             """);
-        var byNumber = new LayoutController(registry, cfg);
-        var byMask = new LayoutController(new LayoutRegistry(), cfg);
+        var ctrl = new LayoutController(registry, cfg);
         var area = new Rect(0, 0, 1000, 800);
         var wins = new List<WindowEntryView> { MakeWin(1), MakeWin(2), MakeWin(3) };
 
-        var a = byNumber.Arrange(new IntPtr(0xAD), "DP-1", area, wins, IntPtr.Zero, workspaceNumber: 3);
-        var b = byMask.Arrange(new IntPtr(0xAD), "DP-1", area, wins, IntPtr.Zero, visibleTags: 1u << 2);
+        var placements = ctrl.Arrange(new IntPtr(0xAD), "DP-1", area, wins, IntPtr.Zero,
+            workspaceNumber: 3);
 
-        Assert.Equal(b.Count, a.Count);
-        for (int i = 0; i < a.Count; i++)
-        {
-            Assert.Equal(b[i].Handle, a[i].Handle);
-            Assert.Equal(b[i].Geometry, a[i].Geometry);
-        }
+        Assert.Equal(3, placements.Count);
+        Assert.True(placements[0].Visible);
+        Assert.True(placements[0].Geometry.W > 900);
+        Assert.False(placements[1].Visible);
+        Assert.False(placements[2].Visible);
     }
 
     [Fact]
@@ -555,7 +553,7 @@ public class LayoutTests
             """);
         var ctrl = new LayoutController(registry, cfg);
         var output = new IntPtr(0xAB);
-        const uint tags = 0xFFFFFFFFu;
+        const int workspaceNumber = 1;
         var wins = new List<WindowEntryView>
         {
             MakeWin(1), MakeWin(2), MakeWin(3), MakeWin(4)
@@ -570,12 +568,12 @@ public class LayoutTests
             throw new Xunit.Sdk.XunitException($"handle {handle} not placed");
         }
 
-        var f0 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        var f0 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, workspaceNumber);
         var cell1 = f0[1].Geometry; // grid cell at index 1
 
         // Swap window 1 with its neighbour → order [2,1,3,4]; window 1 now sits at cell index 1.
-        Assert.True(ctrl.MoveFocused(output, null, new IntPtr(1), FocusDirection.Right, tags));
-        var f1 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        Assert.True(ctrl.MoveFocused(output, null, new IntPtr(1), FocusDirection.Right, workspaceNumber));
+        var f1 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, workspaceNumber);
         Assert.Equal(cell1, cellOf(f1, 1));
 
         // Reload an equivalent config: the resolved id stays "grid", so the slot order must survive.
@@ -584,7 +582,7 @@ public class LayoutTests
             default = "grid"
             """));
 
-        var f2 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, tags);
+        var f2 = ctrl.Arrange(output, null, new Rect(0, 0, 1000, 800), wins, IntPtr.Zero, workspaceNumber);
         Assert.Equal(cell1, cellOf(f2, 1));
     }
 
@@ -598,7 +596,7 @@ public class LayoutTests
 
         // First arrange picks an engine for the output.
         ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero,
-            visibleTags: 0xFFFFFFFFu);
+            workspaceNumber: 1);
         long before = ctrl.Epoch;
 
         ctrl.ReplaceConfig(LayoutConfig.Default);
@@ -606,7 +604,7 @@ public class LayoutTests
 
         // After reload, arrange must still succeed.
         var result = ctrl.Arrange(output, null, new Rect(0, 0, 200, 200), wins, IntPtr.Zero,
-            visibleTags: 0xFFFFFFFFu);
+            workspaceNumber: 1);
         Assert.Single(result);
     }
 }

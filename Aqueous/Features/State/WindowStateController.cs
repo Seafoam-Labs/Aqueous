@@ -621,10 +621,10 @@ public sealed class WindowStateController
     }
 
     /// <summary>
-    /// Called by the host when a window's tag mask changes. Fullscreen windows demote to their
-    /// previous state on tag-change (matches dwm / awesome behaviour).
+    /// Called by the host when a window's workspace changes. Fullscreen windows demote to their
+    /// previous state when moved away from their current workspace.
     /// </summary>
-    public void OnTagsChanged(WindowProxy window)
+    public void OnWorkspaceChanged(WindowProxy window)
     {
         var w = _host.Get(window);
         if (w is null)

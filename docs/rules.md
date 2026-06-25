@@ -64,7 +64,6 @@ matters.
 | `anchor` | string | no (default `center`) | `center` / `top` / `bottom` / `left` / `right`. |
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
-| `tag` | int | no | Optional 1..9. On manage_start, also move the window to this tag. |
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
 
 ## Game-mode layout pattern

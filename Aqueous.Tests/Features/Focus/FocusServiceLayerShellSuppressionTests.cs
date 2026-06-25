@@ -68,7 +68,7 @@ public sealed class FocusServiceLayerShellSuppressionTests
 
         public IntPtr? LayoutFocusNeighbor(
             IntPtr output, string? outputName, IntPtr current, FocusDirection dir,
-            IReadOnlyList<WindowEntryView> snapshot, uint visibleTags)
+            IReadOnlyList<WindowEntryView> snapshot, int workspaceNumber)
             => throw new InvalidOperationException("layout proposer must not be touched");
     }
 

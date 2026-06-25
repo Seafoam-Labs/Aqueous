@@ -216,7 +216,7 @@ internal sealed class WindowStateHost : IWindowStateHost
         }
 
         // Probe used by WindowStateController.UnminimizeLast to guard the focus_window call against a
-        // window that hasn't been re-shown yet. True when the entry is tag-visible and not awaiting a
+        // window that hasn't been re-shown yet. True when the entry is visible and not awaiting a
         // hide-flush. Output assignment happens during the propose pass that follows the focus drain,
         // so gating on Output != 0 here deadlocks the very first manage cycle in nested sessions
         // (entry stays pristine, defer→reschedule loops forever, screen stays black).
@@ -225,7 +225,7 @@ internal sealed class WindowStateHost : IWindowStateHost
             return false;
         }
 
-        return entry.TagVisible && !entry.HideSent;
+        return entry.Visible && !entry.HideSent;
     }
 
     public void SetToplevelMaximizedState(WindowProxy window, bool maximized)

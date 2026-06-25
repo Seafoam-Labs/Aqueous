@@ -45,15 +45,6 @@ public sealed class KeybindConfig
         "reload_config",
         "set_layout_primary", "set_layout_secondary",
         "set_layout_tertiary", "set_layout_quaternary",
-        "view_tag_1","view_tag_2","view_tag_3","view_tag_4","view_tag_5",
-        "view_tag_6","view_tag_7","view_tag_8","view_tag_9","view_tag_all",
-        "send_tag_1","send_tag_2","send_tag_3","send_tag_4","send_tag_5",
-        "send_tag_6","send_tag_7","send_tag_8","send_tag_9","send_tag_all",
-        "toggle_view_tag_1","toggle_view_tag_2","toggle_view_tag_3","toggle_view_tag_4","toggle_view_tag_5",
-        "toggle_view_tag_6","toggle_view_tag_7","toggle_view_tag_8","toggle_view_tag_9",
-        "toggle_window_tag_1","toggle_window_tag_2","toggle_window_tag_3","toggle_window_tag_4","toggle_window_tag_5",
-        "toggle_window_tag_6","toggle_window_tag_7","toggle_window_tag_8","toggle_window_tag_9",
-        "swap_last_tagset",
         "focus_workspace_1","focus_workspace_2","focus_workspace_3","focus_workspace_4","focus_workspace_5",
         "focus_workspace_6","focus_workspace_7","focus_workspace_8","focus_workspace_9",
         "move_to_workspace_1","move_to_workspace_2","move_to_workspace_3","move_to_workspace_4","move_to_workspace_5",
@@ -95,9 +86,7 @@ public sealed class KeybindConfig
             ["move_window_down"] = "Super+Shift+Down",
             ["reload_config"] = "Super+R",
 
-            // Workspace default chords (niri-style, ext-workspace-v1). The tag verbs
-            // remain valid action names but are intentionally left without default
-            // chords so they no longer claim Super+1..9 etc.
+            // Workspace default chords (niri-style, ext-workspace-v1).
             ["focus_workspace_1"] = "Super+1",
             ["focus_workspace_2"] = "Super+2",
             ["focus_workspace_3"] = "Super+3",

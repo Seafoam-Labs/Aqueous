@@ -208,7 +208,6 @@ internal sealed unsafe class SeatInteractionService
             + " output=0x" + entry.Output.ToString("x")
             + " outputName=" + (outputName ?? "<null>")
             + " workspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
-            + " tags=" + entry.Tags.ToString(CultureInfo.InvariantCulture)
             + " layoutId=" + layoutId
             + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture)
             + " maxScroll=" + (maxScrollRaw ?? "<missing>"));

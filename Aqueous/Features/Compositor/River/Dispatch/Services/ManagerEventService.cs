@@ -351,7 +351,7 @@ internal sealed unsafe class ManagerEventService
 
             // Drain pending focus BEFORE the propose pass. IsWindowLayoutReady no longer gates on
             // entry.Output (which is only populated by ProposeForArea below), so the pre-propose
-            // bucket state (TagVisible && !HideSent) is the authoritative readiness signal. Running
+            // bucket state (Visible && !HideSent) is the authoritative readiness signal. Running
             // the drain after propose would let a hide-pass that just flipped HideSent on the
             // pending-focus target push the marshal into the defer branch on every cycle, recreating
             // the black-screen deadlock from the other side.

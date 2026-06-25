@@ -155,16 +155,6 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         // otherwise skip. For the IntPtr.Zero fallback (no outputs), accept all.
         bool isFallback = output == IntPtr.Zero;
 
-        // Tags. Resolve the visible-tag mask for this output (or AllTags for the IntPtr.Zero
-        // fallback) so we can filter windows whose Tags do not intersect the mask out of the layout
-        // snapshot before invoking the engine. Off-tag windows additionally need a one-shot hide(opcode
-        // 4) so the compositor stops drawing them; see the transition pass below.
-        uint outputVisibleTags = Aqueous.Features.Tags.TagState.AllTags;
-        if (!isFallback && outputRegistry.Entries.TryGetValue(output, out var oeForTags))
-        {
-            outputVisibleTags = oeForTags.VisibleTags;
-        }
-
         var tiledSnapshot = new List<WindowEntryView>(windowRegistry.Entries.Count);
         var floatingHandles = new List<IntPtr>();
         var fullscreenHandles = new List<IntPtr>();
@@ -185,15 +175,6 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     if (adopt)
                     {
                         w.Output = output;
-                        if (w.Tags == Aqueous.Features.Tags.TagState.DefaultTag)
-                        {
-                            uint inheritMask = outputVisibleTags &
-                                               ~Aqueous.Features.Tags.TagState.ScratchpadTag;
-                            if (inheritMask != 0u)
-                            {
-                                w.Tags = inheritMask;
-                            }
-                        }
                     }
                     else
                     {
@@ -206,18 +187,10 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 }
             }
 
-            bool tagVisible = Aqueous.Features.Tags.TagState.IsVisible(
-                w.Tags, outputVisibleTags);
-            if (!tagVisible)
-            {
-                hiddenThisCycle.Add(w);
-                continue;
-            }
-
-            // Workspace filter (sits alongside the legacy tag filter; option 5-A). A window whose
+            // Workspace filter. A window whose
             // assigned workspace is tracked but not active belongs to another workspace and must be
-            // hidden the same one-shot way tag-hidden windows are, so it never reaches the engine and
-            // n reflects only the visible workspace. Unassigned (Zero) and reaped/untracked handles
+            // hidden, so it never reaches the engine and n reflects only the visible workspace.
+            // Unassigned (Zero) and reaped/untracked handles
             // fall through as visible — see WorkspaceStore.IsHiddenByWorkspace.
             if (_workspaceStore.IsHiddenByWorkspace(w.Workspace))
             {
@@ -280,7 +253,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     MaxW: w.MaxW, MaxH: w.MaxH,
                     Floating: false,
                     Fullscreen: false,
-                    Tags: w.Tags,
+                    Tags: 0u,
                     // Propagate game-mode anchor metadata (Placement + requested buffer + focus
                     // tick) into the engine view. RequestedBuffer* mirrors WidthHint/HeightHint,
                     // i.e. the client's last dimensions_hint.
@@ -322,7 +295,6 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 w.LastClipH = 0;
             }
 
-            w.TagVisible = false;
             w.Visible = false;
         }
 
@@ -353,7 +325,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                             tiledSnapshot.Add(new WindowEntryView(
                                 Handle: kvp.Key, MinW: w.MinW, MinH: w.MinH,
                                 MaxW: w.MaxW, MaxH: w.MaxH,
-                                Floating: false, Fullscreen: false, Tags: w.Tags,
+                                Floating: false, Fullscreen: false, Tags: 0u,
                                 Placement: w.Placement,
                                 RequestedBufferW: w.WidthHint,
                                 RequestedBufferH: w.HeightHint,
@@ -448,7 +420,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     }
 
                     w.Visible = false;
-                    w.TagVisible = false;
+                    w.Visible = false;
                     continue;
                 }
 
@@ -471,7 +443,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                 }
 
                 w.Visible = true;
-                w.TagVisible = true;
+                w.Visible = true;
                 w.HideSent = false;
                 w.X = p.Geometry.X;
                 w.Y = p.Geometry.Y;
@@ -556,7 +528,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             w.X = w.FloatX;
             w.Y = w.FloatY;
             w.Visible = true;
-            w.TagVisible = true;
+            w.Visible = true;
             w.HideSent = false;
             w.LastResolvedBorder = layoutController.Config.Border;
 
@@ -617,7 +589,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             w.X = tx;
             w.Y = ty;
             w.Visible = true;
-            w.TagVisible = true;
+            w.Visible = true;
             w.HideSent = false;
             w.LastResolvedBorder = layoutController.Config.Border;
 
@@ -692,7 +664,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
             w.X = tx;
             w.Y = ty;
             w.Visible = true;
-            w.TagVisible = true;
+            w.Visible = true;
             w.HideSent = false;
             w.LastResolvedBorder = BorderSpec.None;
 
@@ -808,6 +780,6 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
         IntPtr current,
         FocusDirection dir,
         IReadOnlyList<WindowEntryView> snapshot,
-        uint visibleTags) =>
-        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot, visibleTags);
+        int workspaceNumber) =>
+        _layoutController.FocusNeighbor(output, outputName, current, dir, snapshot, workspaceNumber);
 }

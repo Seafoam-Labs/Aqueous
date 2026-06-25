@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.Focus;
-using Aqueous.Features.Tags;
 using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Layout;
@@ -77,8 +76,8 @@ internal sealed class ViewportInteractionService
     }
 
     /// <summary>
-    /// Set the layout id of the currently-focused workspace (the focused output's visible-tag set)
-    /// without touching the sibling workspaces or other monitors. This is the per-workspace
+    /// Set the layout id of the currently-focused workspace without touching the sibling workspaces
+    /// or other monitors. This is the per-workspace
     /// <c>set_layout_*</c> entry point routed from <c>KeyBindingRouter</c>.
     /// </summary>
     public void SetLayoutForFocusedWorkspace(string layoutId)
@@ -155,7 +154,7 @@ internal sealed class ViewportInteractionService
         // Slot-order mutation is purely local; the compositor only learns of the swap when the
         // next manage cycle drives LayoutProposer.ProposeForArea and the new set_position is
         // marshalled. Relying on a "natural" manage event (focus change, commit, pointer motion)
-        // means a swap of two same-size tiles on the visible tag with no focus change
+        // means a swap of two same-size tiles on the visible workspace with no focus change
         // (Super+Shift+L/H repro) appears as a silent no-op until something unrelated wakes the
         // pump. ScheduleManage funnels manage_dirty through IManagerRequestSender's pump-thread
         // queue so the marshal happens on the dispatch thread — same guard that fixed the

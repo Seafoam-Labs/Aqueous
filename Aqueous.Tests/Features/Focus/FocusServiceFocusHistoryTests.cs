@@ -13,6 +13,7 @@ namespace Aqueous.Tests.Features.Focus;
 public sealed class FocusServiceFocusHistoryTests
 {
     private static readonly IntPtr Seat = new(0x5EA7);
+    private static readonly IntPtr Group = new(0x700);
     private static readonly IntPtr Workspace = new(0x1000);
     private static readonly IntPtr OtherWorkspace = new(0x2000);
 
@@ -76,17 +77,22 @@ public sealed class FocusServiceFocusHistoryTests
     }
 
     [Fact]
-    public void RepairFocusAfterTagChange_UsesMruVisibleWindowInSameWorkspace()
+    public void RepairFocusAfterTagChange_UsesMruVisibleWindowInActiveWorkspace()
     {
         var fixture = Build();
         var output = new IntPtr(0x7000);
         var oldVisible = new IntPtr(0x3000);
         var mruVisible = new IntPtr(0x4000);
         var nowHidden = new IntPtr(0x5000);
-        fixture.Outputs.Entries[output] = new OutputEntry { Proxy = output, VisibleTags = 0b10 };
-        fixture.Windows.Entries[oldVisible] = Window(oldVisible, Workspace, output, 0b10);
-        fixture.Windows.Entries[mruVisible] = Window(mruVisible, Workspace, output, 0b10);
-        fixture.Windows.Entries[nowHidden] = Window(nowHidden, Workspace, output, 0b01);
+        fixture.Outputs.Entries[output] = new OutputEntry { Proxy = output };
+        fixture.Workspaces.SetGroupOutput(Group, output);
+        fixture.Workspaces.EnterGroup(Group, Workspace);
+        fixture.Workspaces.EnterGroup(Group, OtherWorkspace);
+        fixture.Workspaces.SetState(Workspace, active: true, urgent: false);
+        fixture.Workspaces.SetState(OtherWorkspace, active: false, urgent: false);
+        fixture.Windows.Entries[oldVisible] = Window(oldVisible, Workspace, output);
+        fixture.Windows.Entries[mruVisible] = Window(mruVisible, Workspace, output);
+        fixture.Windows.Entries[nowHidden] = Window(nowHidden, OtherWorkspace, output);
 
         fixture.Service.SetFocusedWindow(oldVisible, Seat);
         fixture.Service.SetFocusedWindow(mruVisible, Seat);
@@ -98,7 +104,7 @@ public sealed class FocusServiceFocusHistoryTests
         Assert.Equal(mruVisible, fixture.Pending.Window);
     }
 
-    private static (FocusService Service, WindowRegistry Windows, OutputRegistry Outputs, FocusedWindowTracker Focused, PendingFocusStore Pending) Build()
+    private static (FocusService Service, WindowRegistry Windows, OutputRegistry Outputs, FocusedWindowTracker Focused, PendingFocusStore Pending, WorkspaceStore Workspaces) Build()
     {
         var windows = new WindowRegistry();
         var outputs = new OutputRegistry();
@@ -110,20 +116,20 @@ public sealed class FocusServiceFocusHistoryTests
         var proposer = new NoopLayoutProposer();
         var stateController = new Lazy<WindowStateController>(() => new WindowStateController(new NoopWindowStateHost(), new ScratchpadRegistry()));
         var layerFocus = new LayerShellFocusState();
+        var workspaces = new WorkspaceStore();
 
         var service = new FocusService(
             windows, outputs, seats, focused, pending, primarySeat,
-            sender, proposer, stateController, layerFocus, new WorkspaceStore());
+            sender, proposer, stateController, layerFocus, workspaces);
 
-        return (service, windows, outputs, focused, pending);
+        return (service, windows, outputs, focused, pending, workspaces);
     }
 
-    private static WindowEntry Window(IntPtr proxy, IntPtr workspace, IntPtr output = default, uint tags = 1) => new()
+    private static WindowEntry Window(IntPtr proxy, IntPtr workspace, IntPtr output = default) => new()
     {
         Proxy = proxy,
         Workspace = workspace,
-        Output = output,
-        Tags = tags
+        Output = output
     };
 
     private sealed class CountingManagerRequestSender : IManagerRequestSender
@@ -152,7 +158,7 @@ public sealed class FocusServiceFocusHistoryTests
         public string? ResolveOutputName(IntPtr output) => null;
         public IntPtr? LayoutFocusNeighbor(
             IntPtr output, string? outputName, IntPtr current, FocusDirection dir,
-            IReadOnlyList<WindowEntryView> snapshot, uint visibleTags) => null;
+            IReadOnlyList<WindowEntryView> snapshot, int workspaceNumber) => null;
     }
 
     private sealed class NoopWindowStateHost : IWindowStateHost

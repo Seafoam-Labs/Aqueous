@@ -185,12 +185,11 @@ move_to_output_right     = "Super+Shift+Period"
 # (move_workspace_up / move_workspace_down — reorder — are accepted verbs but
 #  have no ext-workspace-v1 wire representation and are no-ops.)
 #
-# The following chords are now FREE (the multi-select tag verbs they used to
-# carry have no workspace analogue in the exclusive model). Bind them to
+# The following chords are FREE in the exclusive workspace model. Bind them to
 # anything you like, e.g. under [keybinds.custom]:
-#   Super+0, Super+Shift+0          (were view_tag_all / send_tag_all)
-#   Super+Ctrl+1..9                 (were toggle_view_tag_1..9)
-#   Super+Shift+Ctrl+1..9           (were toggle_window_tag_1..9)
+#   Super+0, Super+Shift+0
+#   Super+Ctrl+1..9
+#   Super+Shift+Ctrl+1..9
 
 # --- Window state ops (Phase B1e) ---
 # Fullscreen / Maximize / Floating / Minimize / Scratchpad. Each toggle

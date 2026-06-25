@@ -95,19 +95,8 @@ internal sealed class WindowEntry
     // (untracked) is treated as visible so a freed workspace can never strand its windows.
     public IntPtr Workspace;
 
-    // Tags / Workspaces. 32-bit tag bitmask. A window is rendered iff (Tags &
-    // Output.VisibleTags) != 0. Default is tag 1 (bit 0). At manage_start a freshly-mapped window is
-    // re-tagged to whatever its assigned output currently views (minus the reserved scratchpad bit).
-    // See TagState for semantics.
-    public uint Tags = Aqueous.Features.Tags.TagState.DefaultTag;
-
-    // Latched "the compositor currently considers this window shown" cache. Only flipped by the
-    // manage_start visibility pass; render_start uses this together with the engine-driven Visible
-    // flag to decide whether to emit show/place_top/borders this frame.
-    public bool TagVisible = true;
-
     // Latch so we only emit hide (opcode 4) once per visibility transition; without this we would
-    // re-send hide every manage cycle for every off-tag window.
+    // re-send hide every manage cycle for every workspace-hidden or off-layout window.
     public bool HideSent;
     // Xdg-shell maximized state-array flag mirror. Updated by
     // IWindowStateHost.SetToplevelMaximizedState on every enter/restore transition driven by

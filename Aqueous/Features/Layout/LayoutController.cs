@@ -17,10 +17,10 @@ public sealed class LayoutController
     private long _epoch;
 
     /// <summary>
-    /// Engine state is partitioned by <c>(output, visibleTags)</c> so that the column / band /
-    /// monocle ordering a user produces with <see cref="MoveFocused"/> on tag 1 survives a switch to
-    /// tag 2 (whose snapshot would otherwise overwrite the single per-output slot during the next
-    /// <see cref="Arrange"/> reconciliation) and is restored intact on the return trip to tag 1.
+    /// Engine state is partitioned by <c>(output, workspace)</c> so that the column / band /
+    /// monocle ordering a user produces with <see cref="MoveFocused"/> on one workspace survives a
+    /// switch to another workspace (whose snapshot would otherwise overwrite the single per-output
+    /// slot during the next <see cref="Arrange"/> reconciliation) and is restored intact on return.
     /// </summary>
     private readonly record struct Scope(IntPtr Output, int WorkspaceNumber);
 
@@ -34,8 +34,8 @@ public sealed class LayoutController
     private readonly Dictionary<Scope, object?> _stateByScope = new();
     /// <summary>
     /// Per-scope id of the currently active layout (so we can detect swaps). Keyed by
-    /// <c>(output, visibleTags)</c> so that each workspace remembers its own layout id: switching
-    /// tags restores that workspace's layout, and <see cref="SetLayoutForWorkspace"/> changes only
+    /// <c>(output, workspace)</c> so that each workspace remembers its own layout id: switching
+    /// workspaces restores that workspace's layout, and <see cref="SetLayoutForWorkspace"/> changes only
     /// the focused workspace. Populated both by explicit per-workspace overrides and lazily by
     /// <see cref="ResolveEngine"/> as the resolved id is cached.
     /// </summary>
@@ -110,9 +110,8 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Force a single workspace — identified by <paramref name="output"/> and its visible-tag
-    /// bitmask <paramref name="tags"/> — to use a specific layout id, without disturbing the
-    /// sibling workspaces on the same output. Falls back to the configured default if the id is not
+    /// Force a single workspace to use a specific layout id, without disturbing the sibling
+    /// workspaces on the same output. Falls back to the configured default if the id is not
     /// registered. This is the entry point for per-workspace <c>set_layout_*</c> keybindings.
     /// </summary>
     public void SetLayoutForWorkspace(WorkspaceId workspaceId, string layoutId)
@@ -140,15 +139,6 @@ public sealed class LayoutController
         _idByScope[scope] = layoutId;
     }
 
-    public void SetLayoutForWorkspace(IntPtr output, uint tags, string layoutId) =>
-        SetLayoutForWorkspace(new WorkspaceId(output, WorkspaceNumberForTags(tags)), layoutId);
-
-    /// <summary>
-    /// <see cref="LayoutId"/>-Typed overload of <see cref="SetLayoutForWorkspace(IntPtr, uint, string)"/>.
-    /// </summary>
-    public void SetLayoutForWorkspace(IntPtr output, uint tags, LayoutId layoutId) =>
-        SetLayoutForWorkspace(output, tags, layoutId.Value);
-
     public void SetLayoutForWorkspace(IntPtr output, int workspaceNumber, string layoutId) =>
         SetLayoutForWorkspace(new WorkspaceId(output, workspaceNumber), layoutId);
 
@@ -173,8 +163,8 @@ public sealed class LayoutController
             layoutId = _config.DefaultLayout;
         }
         // Snapshot the set of outputs we have seen: the union of forced-output ids and the outputs
-        // appearing in any (output, tags) scope (the per-scope map may have multiple entries per
-        // output).
+        // appearing in any (output, workspace) scope (the per-scope map may have multiple entries
+        // per output).
         var outputSet = new HashSet<IntPtr>(_forcedByOutput.Keys);
         foreach (var scope in _idByScope.Keys)
         {
@@ -221,15 +211,12 @@ public sealed class LayoutController
     public void SetLayout(LayoutId layoutId) => SetLayout(layoutId.Value);
 
     /// <summary>
-    /// Resolve which layout a workspace (output + visible-tag bitmask) should be using, considering
+    /// Resolve which layout a workspace should be using, considering
     /// (in order): 1) an explicit per-workspace override / cached resolution
     /// (<see cref="SetLayoutForWorkspace"/>); 2) a per-output forced id (<see cref="SetLayoutForOutput"/>);
     /// 3) per-workspace config (<c>[[workspace]]</c> in wm.toml); 4) per-output config
     /// (<c>[[output]]</c>); 5) the global default.
     /// </summary>
-    public string ResolveLayoutId(IntPtr output, string? outputName, uint tags)
-        => ResolveLayoutId(new WorkspaceId(output, WorkspaceNumberForTags(tags)), outputName);
-
     public string ResolveLayoutId(WorkspaceId workspaceId, string? outputName = null)
     {
         var scope = new Scope(workspaceId.Output, workspaceId.Number);
@@ -261,17 +248,14 @@ public sealed class LayoutController
     public string ResolveLayoutId(IntPtr output, string? outputName, int workspaceNumber)
         => ResolveLayoutId(new WorkspaceId(output, workspaceNumber), outputName);
 
-    public LayoutOptions ResolveLayoutOptions(IntPtr output, string? outputName, uint tags)
-        => _config.OptionsFor(ResolveLayoutId(output, outputName, tags));
-
     public LayoutOptions ResolveLayoutOptions(WorkspaceId workspaceId, string? outputName = null)
         => _config.OptionsFor(ResolveLayoutId(workspaceId, outputName));
 
     /// <summary>
-    /// Output-wide resolution that ignores the visible-tag dimension. Returns an explicit
+    /// Output-wide resolution that ignores the workspace dimension. Returns an explicit
     /// per-workspace override for any tracked workspace on the output if present, then the forced
     /// per-output id, then per-output config, then the global default. Used by callers that only
-    /// have an output handle (e.g. the legacy float-active check).
+    /// have an output handle (e.g. the float-active check).
     /// </summary>
     public string ResolveLayoutId(IntPtr output, string? outputName)
     {
@@ -335,79 +319,10 @@ public sealed class LayoutController
     }
 
     /// <summary>
-    /// Compute placements for a single output. Caller is responsible for tag/floating/fullscreen
+    /// Compute placements for a single output. Caller is responsible for workspace/floating/fullscreen
     /// filtering of <paramref name="visibleWindows"/> and for translating placements into Wayland
     /// requests.
     /// </summary>
-    public IReadOnlyList<WindowPlacement> Arrange(
-        IntPtr output,
-        string? outputName,
-        Rect usableArea,
-        IReadOnlyList<WindowEntryView> visibleWindows,
-        IntPtr focusedWindow,
-        uint visibleTags,
-        Rect outputRect = default)
-        => Arrange(output, outputName, usableArea, visibleWindows, focusedWindow,
-            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)), outputRect);
-
-    /// <summary>
-    /// Engine-aware directional focus: ask the active engine for the neighbor of <paramref
-    /// name="current"/> in <paramref name="dir"/>. Returns <c>null</c> if the engine has no opinion
-    /// (the caller should then fall back to its layout-agnostic cycle).
-    /// </summary>
-    public IntPtr? FocusNeighbor(
-        IntPtr output,
-        string? outputName,
-        IntPtr current,
-        FocusDirection dir,
-        IReadOnlyList<WindowEntryView> windows,
-        uint visibleTags)
-        => FocusNeighbor(output, outputName, current, dir, windows,
-            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
-
-    /// <summary>
-    /// Ask the active engine to move the focused window's slot. Returns true if the engine handled it;
-    /// the caller should schedule a manage cycle so the new ordering is applied.
-    /// </summary>
-    public bool MoveFocused(
-        IntPtr output,
-        string? outputName,
-        IntPtr focused,
-        FocusDirection dir,
-        uint visibleTags)
-        => MoveFocused(output, outputName, focused, dir,
-            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
-
-    /// <summary>
-    /// Pan the active engine's viewport by <paramref name="deltaColumns"/> (positive = right, negative
-    /// = left). No-op for engines without a viewport concept.
-    /// </summary>
-    public void ScrollViewport(
-        IntPtr output,
-        string? outputName,
-        int deltaColumns,
-        uint visibleTags)
-        => ScrollViewport(output, outputName, deltaColumns,
-            new WorkspaceId(output, WorkspaceNumberForTags(visibleTags)));
-
-    private static int WorkspaceNumberForTags(uint tags)
-    {
-        if (tags == 0u)
-        {
-            return 0;
-        }
-
-        for (var i = 0; i < 32; i++)
-        {
-            if ((tags & (1u << i)) != 0u)
-            {
-                return i + 1;
-            }
-        }
-
-        return 0;
-    }
-
     public IReadOnlyList<WindowPlacement> Arrange(
         IntPtr output,
         string? outputName,

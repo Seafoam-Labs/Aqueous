@@ -55,7 +55,6 @@ public sealed class SeatEventHandlerTests
         var service = CreateService(focus, registry, "tile", null);
         var window = registry.Track(new IntPtr(10));
         window.Output = new IntPtr(20);
-        window.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(window.Proxy, new IntPtr(30));
 
@@ -71,7 +70,6 @@ public sealed class SeatEventHandlerTests
         var service = CreateService(focus, registry, "scrolling", null);
         var window = registry.Track(new IntPtr(11));
         window.Output = new IntPtr(21);
-        window.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(window.Proxy, new IntPtr(31));
 
@@ -87,7 +85,6 @@ public sealed class SeatEventHandlerTests
         var service = CreateService(focus, registry, "scrolling", "40");
         var window = registry.Track(new IntPtr(12));
         window.Output = new IntPtr(22);
-        window.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(window.Proxy, new IntPtr(32));
 
@@ -106,7 +103,6 @@ public sealed class SeatEventHandlerTests
         var first = registry.Track(new IntPtr(13));
         var second = registry.Track(new IntPtr(14));
         first.Output = second.Output = new IntPtr(23);
-        first.Tags = second.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(first.Proxy, new IntPtr(33));
         await Task.Delay(20);
@@ -126,7 +122,6 @@ public sealed class SeatEventHandlerTests
         var first = registry.Track(focus.FocusedWindow);
         var second = registry.Track(new IntPtr(16));
         first.Output = second.Output = new IntPtr(24);
-        first.Tags = second.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(34));
 
@@ -143,7 +138,6 @@ public sealed class SeatEventHandlerTests
         var first = registry.Track(focus.FocusedWindow);
         var second = registry.Track(new IntPtr(18));
         first.Output = second.Output = new IntPtr(25);
-        first.Tags = second.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(35));
 
@@ -159,7 +153,6 @@ public sealed class SeatEventHandlerTests
         var service = CreateService(focus, registry, "game-mode", "40", workspaceLayoutId: "scrolling");
         var window = registry.Track(new IntPtr(19));
         window.Output = new IntPtr(26);
-        window.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(window.Proxy, new IntPtr(36));
 
@@ -178,7 +171,6 @@ public sealed class SeatEventHandlerTests
         var first = registry.Track(focus.FocusedWindow);
         var second = registry.Track(new IntPtr(21));
         first.Output = second.Output = new IntPtr(27);
-        first.Tags = second.Tags = 1;
 
         service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(37));
 
@@ -284,7 +276,7 @@ public sealed class SeatEventHandlerTests
                         entry.MaxH,
                         entry.Floating,
                         false,
-                        entry.Tags,
+                        0u,
                         entry.Placement,
                         entry.WidthHint,
                         entry.HeightHint,
@@ -296,7 +288,7 @@ public sealed class SeatEventHandlerTests
             return snapshot;
         }
         public string? ResolveOutputName(IntPtr output) => null;
-        public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot, uint visibleTags) => null;
+        public IntPtr? LayoutFocusNeighbor(IntPtr output, string? outputName, IntPtr current, FocusDirection dir, IReadOnlyList<WindowEntryView> snapshot, int workspaceNumber) => null;
     }
 
     private sealed class NullManagerRequestSender : IManagerRequestSender

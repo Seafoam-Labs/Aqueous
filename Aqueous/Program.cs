@@ -127,11 +127,9 @@ class Program
             Aqueous.Features.Layout.LayoutProposer>();
         services.AddSingleton<Aqueous.Features.Layout.ViewportInteractionService>();
 
-        // - Focus / Tags / Screencopy ------------------------------------
+        // - Focus / Workspaces / Screencopy -------------------------------
         services.AddSingleton<Aqueous.Features.Focus.IFocusService,
             Aqueous.Features.Focus.FocusService>();
-        services.AddSingleton<Aqueous.Features.Tags.ITagService,
-            Aqueous.Features.Tags.TagService>();
         services.AddSingleton<Aqueous.Features.Workspaces.WorkspaceStore>();
         services.AddSingleton<Aqueous.Features.Workspaces.WorkspaceEventService>();
         services.AddSingleton<Aqueous.Features.Workspaces.IWorkspaceService,

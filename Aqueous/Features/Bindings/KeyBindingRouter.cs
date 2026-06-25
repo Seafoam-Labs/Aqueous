@@ -9,7 +9,6 @@ using Aqueous.Features.Input;
 using Aqueous.Features.Layout;
 using Aqueous.Features.Rules;
 using Aqueous.Features.State;
-using Aqueous.Features.Tags;
 using Aqueous.Features.Workspaces;
 
 namespace Aqueous.Features.Bindings;
@@ -26,7 +25,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
 {
     private readonly IFocusService _focusService;
     private readonly LayoutController _layoutController;
-    private readonly ITagService _tagService;
     private readonly IWorkspaceService _workspaceService;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly WindowStateController _windowState;
@@ -38,7 +36,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     public KeyBindingRouter(
         IFocusService focusService,
         LayoutController layoutController,
-        ITagService tagService,
         IWorkspaceService workspaceService,
         IManagerRequestSender managerRequestSender,
         WindowStateController windowState,
@@ -49,7 +46,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         _focusService = focusService ?? throw new ArgumentNullException(nameof(focusService));
         _layoutController = layoutController ?? throw new ArgumentNullException(nameof(layoutController));
-        _tagService = tagService ?? throw new ArgumentNullException(nameof(tagService));
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
@@ -59,9 +55,7 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         _rulesReloader = rulesReloader ?? throw new ArgumentNullException(nameof(rulesReloader));
     }
 
-    // Static dispatch table for built-in (parameterless) key-binding actions. Tag actions (which need
-    // to derive a bit index from the enum value) are routed by Handle below before the table is
-    // consulted, because expanding 36 individual cases here would defeat the point.
+    // Static dispatch table for built-in (parameterless) key-binding actions.
     private static readonly IReadOnlyDictionary<KeyBindingAction, Action<KeyBindingRouter>> ActionTable =
         new Dictionary<KeyBindingAction, Action<KeyBindingRouter>>
         {
@@ -85,9 +79,6 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             [KeyBindingAction.SetLayoutSecondary]   = c => c.SetLayoutByIdOrSlot("secondary"),
             [KeyBindingAction.SetLayoutTertiary]    = c => c.SetLayoutByIdOrSlot("tertiary"),
             [KeyBindingAction.SetLayoutQuaternary]  = c => c.SetLayoutByIdOrSlot("quaternary"),
-            [KeyBindingAction.ViewTagAll]           = c => c._tagService.ViewAll(),
-            [KeyBindingAction.SendTagAll]           = c => c._tagService.SendFocusedToTags(TagState.AllTags),
-            [KeyBindingAction.SwapLastTagset]       = c => c._tagService.SwapLastTagset(),
             [KeyBindingAction.FocusWorkspaceUp]      = c => c._workspaceService.FocusWorkspaceUp(),
             [KeyBindingAction.FocusWorkspaceDown]    = c => c._workspaceService.FocusWorkspaceDown(),
             [KeyBindingAction.FocusPreviousWorkspace] = c => c._workspaceService.FocusPreviousWorkspace(),
@@ -110,33 +101,12 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
         };
 
     /// <summary>
-    /// Dispatch a built-in <see cref="KeyBindingAction"/>. Tag actions
-    /// (ViewTag/SendTag/ToggleViewTag/ToggleWindowTag) are routed first because they derive a bit
-    /// index from the enum value and would otherwise need 36 nearly-identical entries in <see
-    /// cref="ActionTable"/>. Everything else is a single dictionary lookup.
+    /// Dispatch a built-in <see cref="KeyBindingAction"/>. Workspace range actions are routed first
+    /// because they derive an index from the enum value. Everything else is a single dictionary
+    /// lookup.
     /// </summary>
     public void Handle(KeyBindingAction action)
     {
-        if (action >= KeyBindingAction.ViewTag1 && action <= KeyBindingAction.ViewTag9)
-        {
-            _tagService.ViewTags(TagState.Bit(action - KeyBindingAction.ViewTag1));
-            return;
-        }
-        if (action >= KeyBindingAction.SendTag1 && action <= KeyBindingAction.SendTag9)
-        {
-            _tagService.SendFocusedToTags(TagState.Bit(action - KeyBindingAction.SendTag1));
-            return;
-        }
-        if (action >= KeyBindingAction.ToggleViewTag1 && action <= KeyBindingAction.ToggleViewTag9)
-        {
-            _tagService.ToggleViewTag(TagState.Bit(action - KeyBindingAction.ToggleViewTag1));
-            return;
-        }
-        if (action >= KeyBindingAction.ToggleWindowTag1 && action <= KeyBindingAction.ToggleWindowTag9)
-        {
-            _tagService.ToggleWindowTag(TagState.Bit(action - KeyBindingAction.ToggleWindowTag1));
-            return;
-        }
         if (action >= KeyBindingAction.FocusWorkspace1 && action <= KeyBindingAction.FocusWorkspace9)
         {
             _workspaceService.FocusWorkspaceByIndex(action - KeyBindingAction.FocusWorkspace1 + 1);
@@ -195,9 +165,9 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
             id = resolved;
         }
 
-        // Per-workspace: a set_layout_* keybinding changes only the focused workspace (the focused
-        // output's visible-tag set), leaving sibling workspaces and other monitors untouched. The
-        // viewport service owns the focus/output/visible-tag resolution and schedules the manage
+        // Per-workspace: a set_layout_* keybinding changes only the focused workspace, leaving
+        // sibling workspaces and other monitors untouched. The viewport service owns the
+        // focus/output/workspace resolution and schedules the manage
         // cycle so the new engine is applied.
         _viewport.SetLayoutForFocusedWorkspace(id);
     }

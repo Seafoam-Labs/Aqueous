@@ -4,7 +4,7 @@ Aqueous is split across two cooperating components that share a single
 git repository:
 
 1. **`Aqueous` (and friends)** — the .NET 10 / C# 14 window manager.
-   Talks Wayland to the compositor, owns layout/tags/rules, drives the
+   Talks Wayland to the compositor, owns layout/workspaces/rules, drives the
    bar, the input daemon, and the output daemon.
 2. **`compositor/`** — RiverDelta, a Zig-based fork of
    [River](https://codeberg.org/river/river). Produces the `riverdelta`
