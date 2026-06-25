@@ -18,14 +18,16 @@ internal sealed class WorkspaceInfo
     public string? Name { get; set; }
     public bool Active { get; set; }
     public bool Urgent { get; set; }
+    public uint[]? Coordinates { get; set; }
 
     public WorkspaceInfo(IntPtr handle) => Handle = handle;
 }
 
 /// <summary>
 /// A workspace group (one per output, per the RiverDelta server policy) mirrored from
-/// <c>ext_workspace_group_handle_v1</c> events. <see cref="Workspaces"/> preserves the order in
-/// which workspaces entered the group, which is the order index-based keybindings address.
+/// <c>ext_workspace_group_handle_v1</c> events. <see cref="Workspaces"/> is addressed by
+/// index-based keybindings ordered by each workspace's <c>coordinates</c>, with the
+/// <c>workspace_enter</c> arrival order used only as a fallback when coordinates are absent.
 /// </summary>
 internal sealed class WorkspaceGroupInfo
 {
@@ -167,6 +169,22 @@ internal sealed class WorkspaceStore
 
         w.Active = active;
         w.Urgent = urgent;
+    }
+
+    public void SetName(IntPtr workspace, string? name)
+    {
+        if (_workspaces.TryGetValue(workspace, out var w))
+        {
+            w.Name = name;
+        }
+    }
+
+    public void SetCoordinates(IntPtr workspace, uint[] coordinates)
+    {
+        if (_workspaces.TryGetValue(workspace, out var w))
+        {
+            w.Coordinates = coordinates;
+        }
     }
 
     public bool TryGetWorkspace(IntPtr workspace, out WorkspaceInfo info)

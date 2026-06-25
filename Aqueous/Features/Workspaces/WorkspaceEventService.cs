@@ -154,6 +154,10 @@ internal sealed unsafe class WorkspaceEventService
                 }
 
                 break;
+            case RiverProtocolOpcodes.ExtWorkspaceHandle.Coordinates:
+                if (ev.ArgCount < 1) return;
+                _store.SetCoordinates(workspace, WlArgumentDecoder.GetUintArray(ev.ArgsPtr, 0));
+                break;
             case RiverProtocolOpcodes.ExtWorkspaceHandle.State:
                 if (ev.ArgCount < 1) return;
             {
@@ -167,7 +171,6 @@ internal sealed unsafe class WorkspaceEventService
                 _store.RemoveWorkspace(workspace);
                 FinalizeHandle(workspace, RiverProtocolOpcodes.ExtWorkspaceHandle.Destroy);
                 break;
-            // id / coordinates / capabilities are not consumed by the client model.
         }
     }
 }

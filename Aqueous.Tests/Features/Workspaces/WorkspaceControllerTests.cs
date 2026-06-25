@@ -250,4 +250,113 @@ public class WorkspaceControllerTests
         Assert.False(c.MoveWorkspaceUp());
         Assert.False(c.MoveWorkspaceDown());
     }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_OrdersByCoordinatesNotArrival()
+    {
+        var (host, ws) = Seed(3);
+        host.Store.SetCoordinates(ws[0], new uint[] { 2 });
+        host.Store.SetCoordinates(ws[1], new uint[] { 0 });
+        host.Store.SetCoordinates(ws[2], new uint[] { 1 });
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(1));
+        c.FlushPending();
+        Assert.Equal(ws[1], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_CoordinatesAfterEnter_ResolvesCorrectly()
+    {
+        var host = new RecordingHost();
+        IntPtr group = 1000;
+        host.Store.AddGroup(group);
+        var ws = new IntPtr[] { 2000, 2001, 2002 };
+        host.Store.EnterGroup(group, ws[0]);
+        host.Store.EnterGroup(group, ws[1]);
+        host.Store.EnterGroup(group, ws[2]);
+        host.Store.CurrentGroup = group;
+        host.Store.SetState(ws[0], active: true, urgent: false);
+
+        host.Store.SetCoordinates(ws[0], new uint[] { 5 });
+        host.Store.SetCoordinates(ws[1], new uint[] { 1 });
+        host.Store.SetCoordinates(ws[2], new uint[] { 3 });
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(3));
+        c.FlushPending();
+        Assert.Equal(ws[0], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_EmptyCoordinates_FallsBackToArrivalOrder()
+    {
+        var (host, ws) = Seed(3);
+        host.Store.SetCoordinates(ws[0], Array.Empty<uint>());
+        host.Store.SetCoordinates(ws[1], Array.Empty<uint>());
+        host.Store.SetCoordinates(ws[2], Array.Empty<uint>());
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(2));
+        c.FlushPending();
+        Assert.Equal(ws[1], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_MultiDimensionalCoordinates_OrdersLexicographically()
+    {
+        var (host, ws) = Seed(3);
+        host.Store.SetCoordinates(ws[0], new uint[] { 1, 1 });
+        host.Store.SetCoordinates(ws[1], new uint[] { 0, 5 });
+        host.Store.SetCoordinates(ws[2], new uint[] { 1, 0 });
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(1));
+        c.FlushPending();
+        Assert.Equal(ws[1], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_MissingCoordinatesSortAfterPresent()
+    {
+        var (host, ws) = Seed(3);
+        host.Store.SetCoordinates(ws[1], new uint[] { 5 });
+        host.Store.SetCoordinates(ws[2], new uint[] { 2 });
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(1));
+        c.FlushPending();
+        Assert.Equal(ws[2], host.Activated[^1]);
+
+        host.Activated.Clear();
+        c.FlushPending();
+        Assert.True(c.FocusWorkspaceByIndex(3));
+        c.FlushPending();
+        Assert.Equal(ws[0], host.Activated[^1]);
+    }
+
+    [Fact]
+    public void FocusWorkspaceByIndex_NoCoordinates_OrdersByNumericName()
+    {
+        var (host, ws) = Seed(3);
+        host.Store.SetName(ws[0], "3");
+        host.Store.SetName(ws[1], "1");
+        host.Store.SetName(ws[2], "2");
+
+        var c = new WorkspaceController(host);
+
+        Assert.True(c.FocusWorkspaceByIndex(1));
+        c.FlushPending();
+        Assert.Equal(ws[1], host.Activated[^1]);
+
+        host.Activated.Clear();
+        Assert.True(c.FocusWorkspaceByIndex(3));
+        c.FlushPending();
+        Assert.Equal(ws[0], host.Activated[^1]);
+    }
 }

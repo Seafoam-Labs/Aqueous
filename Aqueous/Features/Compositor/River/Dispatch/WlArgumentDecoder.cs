@@ -103,6 +103,33 @@ internal static unsafe class WlArgumentDecoder
         return *(IntPtr*)(Slots(argsPtr) + index);
     }
 
+    public static uint[] GetUintArray(IntPtr argsPtr, int index)
+    {
+        IntPtr arrayPtr = GetArrayPtr(argsPtr, index);
+        if (arrayPtr == IntPtr.Zero)
+        {
+            return Array.Empty<uint>();
+        }
+
+        nint* array = (nint*)arrayPtr;
+        nint sizeBytes = array[0];
+        IntPtr data = *(IntPtr*)(array + 2);
+        if (sizeBytes <= 0 || data == IntPtr.Zero)
+        {
+            return Array.Empty<uint>();
+        }
+
+        int count = (int)(sizeBytes / sizeof(uint));
+        var result = new uint[count];
+        uint* src = (uint*)data;
+        for (int i = 0; i < count; i++)
+        {
+            result[i] = src[i];
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Read the <paramref name="index"/>-th slot as a file descriptor (signature code <c>h</c>). Same
     /// wire form as <see cref="GetInt"/>; this helper exists for call-site readability only.
