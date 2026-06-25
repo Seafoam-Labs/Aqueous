@@ -144,4 +144,27 @@ public class OpacityConfigTests
         Assert.Equal(0.65, ManagerEventService.ResolveWindowOpacity(window, (IntPtr)1, (IntPtr)1, cfg));
         Assert.Equal(0.65, ManagerEventService.ResolveWindowOpacity(window, (IntPtr)1, IntPtr.Zero, cfg));
     }
+
+    [Fact]
+    public void ResolveWindowOpacity_DisabledConfig_IgnoresRuleOverride()
+    {
+        var window = new WindowEntry
+        {
+            Placement = new RulePlacement(new WindowRule(
+                AppId: "foot",
+                Class: null,
+                Title: null,
+                Layout: "tile",
+                Anchor: AnchorKind.Center,
+                Size: SizeSpec.Native.Instance,
+                Scale: 1.0,
+                Tag: null,
+                Fullscreen: false,
+                Opacity: 0.65)),
+        };
+        var cfg = new OpacitySpec(false, 0.85, true, 1.0, 0.75);
+
+        Assert.Equal(1.0, ManagerEventService.ResolveWindowOpacity(window, (IntPtr)1, (IntPtr)1, cfg));
+        Assert.Equal(1.0, ManagerEventService.ResolveWindowOpacity(window, (IntPtr)1, IntPtr.Zero, cfg));
+    }
 }

@@ -63,14 +63,14 @@ internal sealed unsafe class ManagerEventService
 
     internal static double ResolveWindowOpacity(WindowEntry we, IntPtr key, IntPtr focused, OpacitySpec opacityCfg)
     {
-        if (we.Placement?.OpacityOverride is double overrideOpacity)
-        {
-            return Math.Clamp(overrideOpacity, 0.0, 1.0);
-        }
-
         if (!opacityCfg.Enabled)
         {
             return 1.0;
+        }
+
+        if (we.Placement?.OpacityOverride is double overrideOpacity)
+        {
+            return Math.Clamp(overrideOpacity, 0.0, 1.0);
         }
 
         if (opacityCfg.FocusSensitive)
