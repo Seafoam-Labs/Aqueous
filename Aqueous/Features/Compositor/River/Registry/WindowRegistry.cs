@@ -90,6 +90,9 @@ internal sealed class WindowRegistry : IWindowRegistry
         // starts from the "never shown" state and the hide-pass liveness gate in LayoutProposer
         // correctly skips it until we've emitted dimensions(opcode 3) again.
         entry.ShowSent = false;
+        // Same rationale for the per-frame show latch: a re-Track must re-emit show on the first
+        // visible render pass rather than assuming the (now-gone) proxy was still on screen.
+        entry.ShownVisible = false;
         return true;
     }
 

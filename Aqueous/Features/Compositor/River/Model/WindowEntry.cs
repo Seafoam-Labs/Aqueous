@@ -42,6 +42,13 @@ internal sealed class WindowEntry
     public int LastBorderWidth = int.MinValue;
     public bool ShowSent;
 
+    // Current "show (opcode 5) has been emitted and not yet superseded by a hide" latch. Unlike
+    // ShowSent (which is a one-shot liveness proof that the proxy was ever bound), this is flipped
+    // back to false whenever the window is hidden, so render sequences re-emit show only on a real
+    // hidden→visible transition instead of every frame. Re-sending show every pass churns the
+    // wlroots scene graph and contributes to the slide stutter/afterimage.
+    public bool ShownVisible;
+
     // Decoration mode handling. DecorationHint caches the last decoration_hint event
     // (river_window_v1 event opcode 6): only_csd / prefers_csd / prefers_ssd / no_preference.
     // DecorationHintReceived gates the manage-pass apply until at least one hint has arrived.

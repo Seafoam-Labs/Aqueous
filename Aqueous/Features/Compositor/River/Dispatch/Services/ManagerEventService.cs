@@ -51,6 +51,13 @@ internal sealed unsafe class ManagerEventService
     // turned off. -1 forces the first manage cycle to seed the epoch.
     private long _ssdConfigEpoch = -1;
 
+    // Signature of the window stacking order emitted on the previous render pass. place_top
+    // (river_node_v1 opcode 2) is only re-marshalled when this changes, so a steady-state slide
+    // (focus/positions moving but z-order unchanged) does not churn the compositor's
+    // rendering_requested.list and flip its order_hash — the churn that disturbed the animation
+    // clone's z-order and produced the sliding afterimage. 0 forces the first pass to emit.
+    private ulong _lastEmissionOrderHash;
+
     private static uint EncodeOpacity(double opacity) =>
         (uint)Math.Round(Math.Clamp(opacity, 0.0, 1.0) * uint.MaxValue);
 
@@ -483,35 +490,52 @@ internal sealed unsafe class ManagerEventService
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
 
-            void EmitWindow(IntPtr key, WindowEntry we)
+            void EmitWindow(IntPtr key, WindowEntry we, bool emitPlaceTop)
             {
                 if (!we.Visible)
                 {
                     return;
                 }
 
-                WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                // show (opcode 5): only on a real hidden→visible transition. Re-sending it every
+                // render pass needlessly mutates the wlroots scene graph (visibility/damage recalc).
+                if (!we.ShownVisible)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(key, 5, IntPtr.Zero, 0, 0, IntPtr.Zero, IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    we.ShownVisible = true;
+                }
                 {
                     int bWidth = we.LastResolvedBorder.Width;
                     uint bColor = bWidth > 0
                         ? (key == focused ? we.LastResolvedBorder.Focused : we.LastResolvedBorder.Normal)
                         : 0u;
-                    uint edges = bWidth > 0 ? 0xFu : 0u;
-                    SplitArgb8888ToUint32Channels(bColor, out uint r, out uint g, out uint b, out uint a);
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        key, 8, IntPtr.Zero, 0, 0,
-                        (IntPtr)edges, (IntPtr)bWidth,
-                        (IntPtr)r, (IntPtr)g, (IntPtr)b, (IntPtr)a);
-                    we.BordersSent = true;
-                    we.LastBorderColor = bColor;
-                    we.LastBorderWidth = bWidth;
+                    // set_borders (opcode 8): gate on the resolved width/colour so a focus change
+                    // (which flips the active colour) still re-sends, but an unchanged window does not.
+                    if (!we.BordersSent || we.LastBorderColor != bColor || we.LastBorderWidth != bWidth)
+                    {
+                        uint edges = bWidth > 0 ? 0xFu : 0u;
+                        SplitArgb8888ToUint32Channels(bColor, out uint r, out uint g, out uint b, out uint a);
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            key, 8, IntPtr.Zero, 0, 0,
+                            (IntPtr)edges, (IntPtr)bWidth,
+                            (IntPtr)r, (IntPtr)g, (IntPtr)b, (IntPtr)a);
+                        we.BordersSent = true;
+                        we.LastBorderColor = bColor;
+                        we.LastBorderWidth = bWidth;
+                    }
                 }
 
                 if (we.NodeProxy != IntPtr.Zero)
                 {
-                    WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero,
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    // place_top (opcode 2): only when the overall stacking order actually changed
+                    // this pass; otherwise the compositor's order_hash stays stable and the slide
+                    // animation's z-order is left undisturbed.
+                    if (emitPlaceTop)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 2, IntPtr.Zero, 0, 0, IntPtr.Zero,
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    }
                     if (we.LastPosX != we.X || we.LastPosY != we.Y)
                     {
                         WaylandInterop.wl_proxy_marshal_flags(we.NodeProxy, 1, IntPtr.Zero, 0, 0, (IntPtr)we.X,
@@ -534,22 +558,33 @@ internal sealed unsafe class ManagerEventService
 
                 {
                     bool blurEnabled = we.Placement?.BlurOverride ?? blurCfg.Enabled;
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        key, 25, IntPtr.Zero, 0, 0,
-                        (IntPtr)(blurEnabled ? 1u : 0u),
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    we.WindowBlurSent = true;
-                    we.LastWindowBlurEnabled = blurEnabled;
+                    // set_window_blur (opcode 25): gate so we don't re-run the optimized-blur
+                    // backdrop recompute (setTreeBlurExcluded) every frame during a slide.
+                    if (!we.WindowBlurSent || we.LastWindowBlurEnabled != blurEnabled)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            key, 25, IntPtr.Zero, 0, 0,
+                            (IntPtr)(blurEnabled ? 1u : 0u),
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        we.WindowBlurSent = true;
+                        we.LastWindowBlurEnabled = blurEnabled;
+                    }
                 }
 
                 {
                     double opacity = ResolveWindowOpacity(we, key, focused, opacityCfg);
-                    WaylandInterop.wl_proxy_marshal_flags(
-                        key, 26, IntPtr.Zero, 0, 0,
-                        (IntPtr)EncodeOpacity(opacity),
-                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    we.WindowOpacitySent = true;
-                    we.LastWindowOpacity = opacity;
+                    // set_window_opacity (opcode 26): gate on the resolved value. Focus-sensitive
+                    // opacity still re-sends when the focused/unfocused value flips, but a steady
+                    // window no longer spams opacity every frame.
+                    if (!we.WindowOpacitySent || we.LastWindowOpacity != opacity)
+                    {
+                        WaylandInterop.wl_proxy_marshal_flags(
+                            key, 26, IntPtr.Zero, 0, 0,
+                            (IntPtr)EncodeOpacity(opacity),
+                            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                        we.WindowOpacitySent = true;
+                        we.LastWindowOpacity = opacity;
+                    }
                 }
             }
 
@@ -572,7 +607,12 @@ internal sealed unsafe class ManagerEventService
                 && _windowRegistry.Entries.ContainsKey(focused)
                 && focusedState == layer;
 
-            void EmitPass(Func<WindowState, bool> match, WindowState layer)
+            // Collect the visible windows in their final stacking order rather than emitting them
+            // inline. The order is hashed below so place_top is only re-marshalled when the stacking
+            // actually changes (keeping the compositor's order_hash stable during slides).
+            var emissionOrder = new List<IntPtr>();
+
+            void CollectPass(Func<WindowState, bool> match, WindowState layer)
             {
                 bool deferFocused = HasFocusedInLayer(layer);
                 foreach (var kvp in _windowRegistry.Entries)
@@ -580,18 +620,19 @@ internal sealed unsafe class ManagerEventService
                     var s = ClassifyState(kvp.Key);
                     if (!match(s)) continue;
                     if (deferFocused && kvp.Key == focused) continue;
-                    EmitWindow(kvp.Key, kvp.Value);
+                    if (kvp.Value.Visible) emissionOrder.Add(kvp.Key);
                 }
 
                 if (deferFocused
-                    && _windowRegistry.Entries.TryGetValue(focused, out var fw))
+                    && _windowRegistry.Entries.TryGetValue(focused, out var fw)
+                    && fw.Visible)
                 {
-                    EmitWindow(focused, fw);
+                    emissionOrder.Add(focused);
                 }
             }
 
-            EmitPass(s => s == WindowState.Tiled, WindowState.Tiled);
-            EmitPass(s => s == WindowState.Maximized, WindowState.Maximized);
+            CollectPass(s => s == WindowState.Tiled, WindowState.Tiled);
+            CollectPass(s => s == WindowState.Maximized, WindowState.Maximized);
 
             {
                 bool deferFocused = focused != IntPtr.Zero
@@ -603,17 +644,44 @@ internal sealed unsafe class ManagerEventService
                     var s = ClassifyState(kvp.Key);
                     if (s != WindowState.Floating && s != WindowState.Scratchpad) continue;
                     if (deferFocused && kvp.Key == focused) continue;
-                    EmitWindow(kvp.Key, kvp.Value);
+                    if (kvp.Value.Visible) emissionOrder.Add(kvp.Key);
                 }
 
                 if (deferFocused
-                    && _windowRegistry.Entries.TryGetValue(focused, out var fw))
+                    && _windowRegistry.Entries.TryGetValue(focused, out var fw)
+                    && fw.Visible)
                 {
-                    EmitWindow(focused, fw);
+                    emissionOrder.Add(focused);
                 }
             }
 
-            EmitPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
+            CollectPass(s => s == WindowState.Fullscreen, WindowState.Fullscreen);
+
+            // FNV-1a over the emission order; place_top is re-sent for every window only when this
+            // differs from the previous pass. An unchanged order leaves the compositor's
+            // rendering_requested.list (and thus order_hash) untouched, so an in-flight slide's
+            // z-order is not disturbed.
+            ulong orderHash = 1469598103934665603UL;
+            foreach (var key in emissionOrder)
+            {
+                ulong v = (ulong)key.ToInt64();
+                for (int b = 0; b < 8; b++)
+                {
+                    orderHash ^= (v >> (b * 8)) & 0xFF;
+                    orderHash *= 1099511628211UL;
+                }
+            }
+
+            bool emitPlaceTop = orderHash != _lastEmissionOrderHash;
+            _lastEmissionOrderHash = orderHash;
+
+            foreach (var key in emissionOrder)
+            {
+                if (_windowRegistry.Entries.TryGetValue(key, out var we))
+                {
+                    EmitWindow(key, we, emitPlaceTop);
+                }
+            }
 
             _managerRequestSender.SendManagerRequest(4);
             finished = true;

@@ -313,6 +313,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
                 }
                 w.HideSent = true;
+                w.ShownVisible = false;
                 w.LastHintW = 0;
                 w.LastHintH = 0;
                 w.LastPosX = int.MinValue;
@@ -437,6 +438,7 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                         }
 
                         w.HideSent = true;
+                        w.ShownVisible = false;
                         w.LastHintW = 0;
                         w.LastHintH = 0;
                         w.LastPosX = int.MinValue;
