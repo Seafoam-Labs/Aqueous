@@ -109,12 +109,16 @@ internal sealed class KeyBindingRouter : IKeyBindingRouter
     {
         if (action >= KeyBindingAction.FocusWorkspace1 && action <= KeyBindingAction.FocusWorkspace9)
         {
-            _workspaceService.FocusWorkspaceByIndex(action - KeyBindingAction.FocusWorkspace1 + 1);
+            int focusIndex = action - KeyBindingAction.FocusWorkspace1 + 1;
+            RiverLog.Write($"keybind: FocusWorkspaceByIndex({focusIndex}) action={action}");
+            _workspaceService.FocusWorkspaceByIndex(focusIndex);
             return;
         }
         if (action >= KeyBindingAction.MoveToWorkspace1 && action <= KeyBindingAction.MoveToWorkspace9)
         {
-            _workspaceService.MoveFocusedToWorkspaceByIndex(action - KeyBindingAction.MoveToWorkspace1 + 1);
+            int moveIndex = action - KeyBindingAction.MoveToWorkspace1 + 1;
+            RiverLog.Write($"keybind: MoveFocusedToWorkspaceByIndex({moveIndex}) action={action}");
+            _workspaceService.MoveFocusedToWorkspaceByIndex(moveIndex);
             return;
         }
 

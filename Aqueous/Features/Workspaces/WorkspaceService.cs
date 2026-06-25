@@ -57,7 +57,12 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
     // the actual switch is resolved + dispatched on the pump thread (and additionally debounced).
     public bool FocusWorkspaceByIndex(int index)
     {
-        _managerRequestSender.Post(() => _controller.FocusWorkspaceByIndex(index));
+        RiverLog.Write($"ws-service: accept FocusWorkspaceByIndex({index}) thread={Environment.CurrentManagedThreadId}");
+        _managerRequestSender.Post(() =>
+        {
+            RiverLog.Write($"ws-service: pump-run FocusWorkspaceByIndex({index}) thread={Environment.CurrentManagedThreadId}");
+            _controller.FocusWorkspaceByIndex(index);
+        });
         return true;
     }
 
@@ -169,7 +174,7 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
             manager, RiverProtocolOpcodes.ExtWorkspaceManager.Commit, IntPtr.Zero, 0, 0,
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-        RiverLog.Write($"activate workspace 0x{workspace.ToString("x")} + commit");
+        RiverLog.Write($"activate workspace 0x{workspace.ToString("x")} on manager 0x{manager.ToString("x")} + commit");
     }
 
     bool WorkspaceController.IWorkspaceHost.MoveFocusedToWorkspace(IntPtr workspace)

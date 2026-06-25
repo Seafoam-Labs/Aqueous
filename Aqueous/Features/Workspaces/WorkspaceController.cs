@@ -96,10 +96,13 @@ internal sealed class WorkspaceController
         var group = Store.GetCurrentGroup();
         if (group is null || index < 1 || index > group.Workspaces.Count)
         {
+            RiverLog.Write($"resolve: index={index} FAILED group={(group is null ? "null" : group.Workspaces.Count.ToString())}");
             return IntPtr.Zero;
         }
 
-        return OrderedWorkspaces(group)[index - 1];
+        var handle = OrderedWorkspaces(group)[index - 1];
+        RiverLog.Write($"resolve: index={index} -> 0x{handle.ToString("x")} (group count={group.Workspaces.Count})");
+        return handle;
     }
 
     /// <summary>Resolve the workspace handle <paramref name="delta"/> steps from the active one.</summary>
@@ -212,6 +215,7 @@ internal sealed class WorkspaceController
         {
             // The target was reaped by the compositor between resolution and dispatch; never drive a
             // dead handle (it would activate a workspace mid-reap and can crash the compositor).
+            RiverLog.Write($"focus: handle 0x{workspace.ToString("x")} not live; drop");
             return false;
         }
 
@@ -234,6 +238,7 @@ internal sealed class WorkspaceController
         if (_everCommitted && workspace == _lastCommittedFocus)
         {
             // Already on this workspace; nothing to dispatch.
+            RiverLog.Write($"focus: already on 0x{workspace.ToString("x")}; no dispatch");
             return true;
         }
 
