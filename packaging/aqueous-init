@@ -93,6 +93,15 @@ fi
 # flameshot/screencast fail with "could not locate org.freedesktop.portal.Desktop".
 systemctl --user start aqueous-session.target 2>/dev/null || true
 
+# Launch XDG desktop-autostart entries (~/.config/autostart/*.desktop and
+# system-wide $XDG_CONFIG_DIRS/autostart). systemd-xdg-autostart-generator
+# turns those .desktop files into transient units wired into
+# xdg-desktop-autostart.target, but nothing pulls that target in by default.
+# Start it explicitly here — AFTER the Wayland env has been exported into
+# systemd/D-Bus above — so the autostarted apps (Steam, fluxer, etc.) inherit
+# the correct WAYLAND_DISPLAY/XDG_RUNTIME_DIR and can reach the compositor.
+systemctl --user start xdg-desktop-autostart.target 2>/dev/null || true
+
 # Kick the portal in case it already failed earlier in the boot.
 # reset-failed clears the start-limit so the restart actually runs.
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
