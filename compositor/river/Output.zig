@@ -445,6 +445,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     output.frame.link.remove();
     output.present.link.remove();
     output.commit.link.remove();
+    output.bind.link.remove();
 
     wlr_output.data = null;
 
