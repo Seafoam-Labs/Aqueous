@@ -62,6 +62,7 @@ const Handle = struct {
     /// Last state bitfield sent to the client, so only changes are re-emitted.
     sent_state: ext.WorkspaceHandleV1.State = .{},
     sent_coordinate: u32 = std.math.maxInt(u32),
+    sent_id: u32 = std.math.maxInt(u32),
     sent_name: ?[]u8 = null,
     /// The group this handle currently belongs to from the client's view. Drives
     /// workspace_enter/workspace_leave and composes correctly with migration.
@@ -134,6 +135,15 @@ const Manager = struct {
                         .data = &coords,
                     };
                     handle.resource.sendCoordinates(&array);
+                    changed = true;
+                }
+
+                const positional_id: u32 = coordinate + 1;
+                if (handle.sent_id != positional_id) {
+                    handle.sent_id = positional_id;
+                    var id_buf: [16]u8 = undefined;
+                    const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{positional_id}) catch "1";
+                    handle.resource.sendId(id_str.ptr);
                     changed = true;
                 }
 
@@ -232,9 +242,6 @@ const Manager = struct {
 
         resource.setHandler(*Handle, handleHandleRequest, handleHandleDestroy, handle);
         manager.resource.sendWorkspace(resource);
-        var id_buf: [16]u8 = undefined;
-        const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{workspace.id}) catch "0";
-        resource.sendId(id_str.ptr);
         resource.sendCapabilities(workspace_capabilities);
 
         return .{ .handle = handle, .created = true };
