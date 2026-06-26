@@ -1075,8 +1075,26 @@ pub fn renderStart(window: *Window) void {
             window.rendering_scheduled.height = @intCast(toplevel.geometry.height);
         },
         .xwayland => |xwindow| {
-            window.rendering_scheduled.width = xwindow.xsurface.width;
-            window.rendering_scheduled.height = xwindow.xsurface.height;
+            // Drive the rendered size from the surface's actually-committed
+            // buffer rather than the configured `xsurface.width/height`. For
+            // async X11 clients (Electron/Discord) the configured size leads
+            // the committed buffer, so trusting `xsurface.width/height` every
+            // frame makes `drawBorders`/`applySurfaceClip` render the SSD
+            // border and clip at a size the surface has not yet committed —
+            // the resting artifact. Hold the previously-committed size until
+            // the surface actually commits a buffer at the requested size.
+            if (xwindow.xsurface.surface) |surface| {
+                if (surface.mapped and surface.current.width > 0 and surface.current.height > 0) {
+                    window.rendering_scheduled.width = @intCast(surface.current.width);
+                    window.rendering_scheduled.height = @intCast(surface.current.height);
+                } else {
+                    window.rendering_scheduled.width = xwindow.xsurface.width;
+                    window.rendering_scheduled.height = xwindow.xsurface.height;
+                }
+            } else {
+                window.rendering_scheduled.width = xwindow.xsurface.width;
+                window.rendering_scheduled.height = xwindow.xsurface.height;
+            }
         },
         .destroying => {},
     }
