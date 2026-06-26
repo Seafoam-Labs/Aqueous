@@ -195,6 +195,11 @@ scheduled: State,
 sent: State,
 link_sent: wl.list.Link,
 sent_wl_output: bool = false,
+/// The wl_output global for which `river_output_v1.wl_output` was last sent.
+/// Tracked so the event is re-sent if wlroots destroys and recreates the
+/// global (e.g. on hotplug/modeset), which would otherwise leave the wm
+/// client referencing a stale global name.
+sent_wl_output_global: ?*wl.Global = null,
 /// Rendering state requested by the window manager.
 rendering_requested: RenderingState = .init,
 /// State applied to the wlr_output and rendered.
@@ -503,10 +508,30 @@ fn handleCommit(
     }
 }
 
+/// Attempts to send the river_output_v1.wl_output event if it has not yet been
+/// sent and the underlying wl_output global now exists. Wlroots creates the
+/// wl_output global lazily (notably on the DRM backend the global is only
+/// created once the output is added to the layout and a mode is committed), so
+/// this must be retried from every site that learns the global may now exist
+/// (manageStart, post-modeset, and client bind) until it succeeds.
+pub fn trySendWlOutput(output: *Output) void {
+    const wlr_output = output.wlr_output orelse return;
+    const global = wlr_output.global orelse return;
+    const output_v1 = output.object orelse return;
+    // Re-send if we have not sent yet or the global was recreated.
+    if (output.sent_wl_output and output.sent_wl_output_global == global) return;
+    output_v1.sendWlOutput(global.getName(output_v1.getClient()));
+    output.sent_wl_output = true;
+    output.sent_wl_output_global = global;
+}
+
 /// Handles a client binding to an output
 fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.event.Bind) void {
     const output: *Output = @fieldParentPtr("bind", listener);
-    _ = output;
+    // The wl_output.bind event only fires after the wl_output global exists, so
+    // this is a reliable point to (re)send river_output_v1.wl_output when the
+    // global was still null at manageStart/modeset time (e.g. DRM backend).
+    output.trySendWlOutput();
     server.workspace_manager.dirty();
 }
 
@@ -558,8 +583,6 @@ pub fn manageStart(output: *Output) void {
             // We cannot send 0 width/height to the window manager client.
             assert(output.scheduled.mode != .none);
 
-            const wlr_output = output.wlr_output.?;
-
             output.layer_shell.manageStart();
 
             if (server.wm.object) |wm_v1| {
@@ -578,13 +601,9 @@ pub fn manageStart(output: *Output) void {
                 };
                 errdefer comptime unreachable;
 
-                if (!output.sent_wl_output) {
-                    // wl_output globals are created/destroyed by the wlroots output layout.
-                    if (wlr_output.global) |global| {
-                        output_v1.sendWlOutput(global.getName(output_v1.getClient()));
-                        output.sent_wl_output = true;
-                    }
-                }
+                // wl_output globals are created/destroyed by the wlroots output layout.
+                // Retry until it succeeds; handleBind and the post-modeset pass also retry.
+                output.trySendWlOutput();
 
                 const scheduled = &output.scheduled;
                 const sent = &output.sent;
@@ -665,6 +684,7 @@ fn handleRequestInert(
 fn handleObjectDestroy(_: *river.OutputV1, output: *Output) void {
     output.object = null;
     output.sent_wl_output = false;
+    output.sent_wl_output_global = null;
 }
 
 fn handleRequest(

@@ -387,14 +387,10 @@ pub fn commitOutputState(om: *OutputManager) void {
             // Wlroots does not directly notify us when the wl_output global is created.
             // However, we want send the river_output_v1.wl_output event as soon as
             // possible and therefore need to check after committing a mode.
-            if (!output.sent_wl_output) {
-                if (wlr_output.global) |global| {
-                    if (output.object) |output_v1| {
-                        output_v1.sendWlOutput(global.getName(output_v1.getClient()));
-                        output.sent_wl_output = true;
-                    }
-                }
-            }
+            // This is idempotent and retried until it succeeds (also from
+            // Output.handleBind and Output.manageStart) so the DRM backend's
+            // lazily-created global is eventually announced to the wm client.
+            output.trySendWlOutput();
             switch (output.sent.state) {
                 .enabled => {
                     assert(wlr_output.enabled);
