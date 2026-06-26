@@ -250,6 +250,7 @@ public static class LayoutTomlReader
             // Non-layout fields: inherit verbatim from base (wm.toml).
             Blur = baseCfg.Blur,
             Opacity = baseCfg.Opacity,
+            WorkspaceTransition = baseCfg.WorkspaceTransition,
             PerOutput = baseCfg.PerOutput,
             PerOutputSelectors = baseCfg.PerOutputSelectors,
             Keybinds = baseCfg.Keybinds,

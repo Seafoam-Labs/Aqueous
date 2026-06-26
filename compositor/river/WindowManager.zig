@@ -92,6 +92,16 @@ blur: struct {
 /// instead of this default.
 default_opacity: u32 = std.math.maxInt(u32),
 
+/// Workspace-swap slide-transition state driven by
+/// river_window_manager_v1.set_workspace_transition. `enabled` toggles whether
+/// `Output.activateWorkspace` begins a slide (vs. an instant swap); `rate` paces
+/// the slide's exponential smoothing. A non-positive `rate` means "use the
+/// compile-time default" (`fx.workspace_slide_rate`).
+workspace_transition: struct {
+    enabled: bool = true,
+    rate: f64 = fx.workspace_slide_rate,
+} = .{},
+
 dirty_idle: ?*wl.EventSource = null,
 
 timeout: *wl.EventSource,
@@ -102,7 +112,7 @@ pub fn init(wm: *WindowManager) !void {
     errdefer timeout.remove();
 
     wm.* = .{
-        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 8, *WindowManager, wm, bind),
+        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 9, *WindowManager, wm, bind),
         .sent = .{
             .outputs = undefined,
             .seats = undefined,
@@ -240,6 +250,13 @@ fn handleRequest(
         .set_opacity => |args| {
             if (!wm.ensureRendering()) return;
             wm.default_opacity = args.value;
+        },
+        .set_workspace_transition => |args| {
+            if (!wm.ensureRendering()) return;
+            wm.workspace_transition.enabled = args.enabled != 0;
+            // A non-positive rate means "keep the compile-time default pace".
+            const rate = args.rate.toDouble();
+            wm.workspace_transition.rate = if (rate > 0) rate else fx.workspace_slide_rate;
         },
     }
 }

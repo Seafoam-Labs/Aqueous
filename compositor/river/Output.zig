@@ -315,22 +315,24 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     if (prev == workspace) return;
 
     if (comptime fx.anim_enabled) {
-        if (prev) |p| {
-            // Begin a workspace-swap slide. `renderFinish` keeps both the
-            // outgoing (`prev_workspace`) and incoming (`active_workspace`)
-            // workspaces rendered and offset; the transition is finalized in
-            // `stepAnimations` once every participating window has settled.
-            // If a transition is already in flight, retarget it: the workspace
-            // sliding out is whichever one we are leaving now.
-            output.prev_workspace = p;
-            output.transition_dir = output.slideDirection(p, workspace);
-            output.transition_armed = false;
-            // The incoming windows must seed their clones off-screen on the
-            // first transition frame; clear any stale seed flags so they do.
-            var it = p.windows.iterator(.forward);
-            while (it.next()) |w| w.slide_seeded = false;
-            var it2 = workspace.windows.iterator(.forward);
-            while (it2.next()) |w| w.slide_seeded = false;
+        if (server.wm.workspace_transition.enabled) {
+            if (prev) |p| {
+                // Begin a workspace-swap slide. `renderFinish` keeps both the
+                // outgoing (`prev_workspace`) and incoming (`active_workspace`)
+                // workspaces rendered and offset; the transition is finalized in
+                // `stepAnimations` once every participating window has settled.
+                // If a transition is already in flight, retarget it: the workspace
+                // sliding out is whichever one we are leaving now.
+                output.prev_workspace = p;
+                output.transition_dir = output.slideDirection(p, workspace);
+                output.transition_armed = false;
+                // The incoming windows must seed their clones off-screen on the
+                // first transition frame; clear any stale seed flags so they do.
+                var it = p.windows.iterator(.forward);
+                while (it.next()) |w| w.slide_seeded = false;
+                var it2 = workspace.windows.iterator(.forward);
+                while (it2.next()) |w| w.slide_seeded = false;
+            }
         }
     }
 

@@ -992,7 +992,7 @@ internal static unsafe class WlInterfaces
     /// </remarks>
     private static void BuildRiverWindowManagement()
     {
-        RiverWindowManager = AllocEmpty("river_window_manager_v1", 8);
+        RiverWindowManager = AllocEmpty("river_window_manager_v1", 9);
         RiverWindow = AllocEmpty("river_window_v1", 8);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
         RiverShellSurface = AllocEmpty("river_shell_surface_v1", 5);
@@ -1022,6 +1022,8 @@ internal static unsafe class WlInterfaces
                 Msg("set_blur", "7uii", new WaylandInterop.WlInterface*[] { null, null, null }),
                 // Opcode 8 (since v8): default window-content opacity (32-bit unsigned fraction).
                 Msg("set_opacity", "8u", new WaylandInterop.WlInterface*[] { null }),
+                // Opcode 9 (since v9): workspace-swap slide transition. enabled uint, rate fixed.
+                Msg("set_workspace_transition", "9uf", new WaylandInterop.WlInterface*[] { null, null }),
             },
             events: new[]
             {

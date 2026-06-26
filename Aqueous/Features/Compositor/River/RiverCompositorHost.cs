@@ -320,7 +320,7 @@ internal sealed class RiverCompositorHost : IHostedService
 
         if (global.Interface == "river_window_manager_v1" && _bindSiteState.Manager == IntPtr.Zero)
         {
-            var managerVersion = Math.Min(global.Version, 8u);
+            var managerVersion = Math.Min(global.Version, 9u);
             _manageCycleState.ManagerVersion = managerVersion;
             var managerProxy = _registryBinder.Bind(global.Name, WlInterfaces.RiverWindowManager, managerVersion);
             _bindSiteState.Manager = managerProxy;

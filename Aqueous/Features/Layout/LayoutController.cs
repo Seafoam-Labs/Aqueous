@@ -193,6 +193,7 @@ public sealed class LayoutController
                 Border = _config.Border,
                 Blur = _config.Blur,
                 Opacity = _config.Opacity,
+                WorkspaceTransition = _config.WorkspaceTransition,
                 Keybinds = _config.Keybinds,
                 ForceSsd = _config.ForceSsd,
             };

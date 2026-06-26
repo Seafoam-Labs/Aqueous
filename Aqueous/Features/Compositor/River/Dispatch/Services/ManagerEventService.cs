@@ -488,6 +488,16 @@ internal sealed unsafe class ManagerEventService
                     manager, 8, IntPtr.Zero, 0, 0,
                     (IntPtr)EncodeOpacity(globalOpacity),
                     IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+                var wsCfg = _layoutController.Config.WorkspaceTransition;
+                // set_workspace_transition (opcode 9, since v9): enabled uint + rate as wl_fixed
+                // (24.8 fixed-point). A non-positive rate keeps the compositor's built-in default.
+                int wsRateFixed = wsCfg.Rate > 0.0 ? (int)Math.Round(wsCfg.Rate * 256.0) : 0;
+                WaylandInterop.wl_proxy_marshal_flags(
+                    manager, 9, IntPtr.Zero, 0, 0,
+                    (IntPtr)(wsCfg.Enabled ? 1u : 0u),
+                    (IntPtr)wsRateFixed,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
 
             void EmitWindow(IntPtr key, WindowEntry we, bool emitPlaceTop)

@@ -34,7 +34,7 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_window_manager_v1" version="8">
+  <interface name="river_window_manager_v1" version="9">
     <description summary="window manager global interface">
       This global interface should only be advertised to the window manager
       process. Only one window management client may be active at a time. The
@@ -354,6 +354,27 @@
         render sequence, see the river_window_manager_v1 description.
       </description>
       <arg name="value" type="uint" summary="opacity fraction, 0 = transparent, 0xffffffff = opaque"/>
+    </request>
+
+    <request name="set_workspace_transition" since="9">
+      <description summary="configure the workspace-swap slide transition">
+        Enable or disable the workspace-swap slide animation and set its pace.
+        When enabled, switching the active workspace on an output slides the
+        outgoing and incoming workspaces across the output; when disabled the
+        workspace swap is instant.
+
+        The rate is the exponential-smoothing rate that paces the slide,
+        expressed as a fixed-point value; larger is snappier. A value of 0 or
+        less leaves the compositor's built-in default pace in effect.
+
+        This request completely overrides all previous set_workspace_transition
+        requests. Only the most recent request has an effect.
+
+        This request modifies rendering state and may only be made as part of a
+        render sequence, see the river_window_manager_v1 description.
+      </description>
+      <arg name="enabled" type="uint" summary="0 = off (instant swap), non-zero = on"/>
+      <arg name="rate" type="fixed" summary="slide smoothing rate; &lt;= 0 keeps the default"/>
     </request>
   </interface>
 

@@ -103,6 +103,14 @@ public sealed record LayoutConfig
     public OpacitySpec Opacity { get; init; } = OpacitySpec.Default;
 
     /// <summary>
+    /// Workspace-swap slide-transition configuration parsed from the
+    /// <c>[workspace_transition]</c> section of <c>wm.toml</c>. Sent once (and on reload) to
+    /// riverdelta via the manager-level <c>river_window_manager_v1.set_workspace_transition</c>
+    /// request; toggles whether the slide animation runs and how fast it paces.
+    /// </summary>
+    public WorkspaceTransitionSpec WorkspaceTransition { get; init; } = WorkspaceTransitionSpec.Default;
+
+    /// <summary>
     /// Configurable keybind table parsed from <c>[keybinds]</c>.
     /// </summary>
     public KeybindConfig Keybinds { get; init; } = new();

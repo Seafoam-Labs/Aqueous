@@ -1203,7 +1203,7 @@ pub fn renderFinish(window: *Window) void {
             // tree jumps off-screen immediately (it is leaving) but stays
             // invisible behind the clone.
             window.setAnimationTarget(requested.x - transition_dir * output_width, requested.y, true);
-            window.cur_anim_rate = fx.workspace_slide_rate;
+            window.cur_anim_rate = server.wm.workspace_transition.rate;
         } else if (transitioning and is_incoming and !window.slide_seeded) {
             // Incoming window, first transition frame: seed its clone one
             // output-width off-screen, then ease it to its real position.
@@ -1218,7 +1218,7 @@ pub fn renderFinish(window: *Window) void {
             // Incoming window, subsequent frames: keep easing toward the real
             // position so the in-flight slide continues.
             window.setAnimationTarget(requested.x, requested.y, true);
-            window.cur_anim_rate = fx.workspace_slide_rate;
+            window.cur_anim_rate = server.wm.workspace_transition.rate;
         } else {
             // Only animate when the window is actually on-screen; snap otherwise
             // so a hidden/closing window does not visibly "catch up" when it
@@ -1379,7 +1379,7 @@ pub fn beginSlideFrom(
     window.setAnimationTarget(target_x, target_y, true);
     // setAnimationTarget reset the rate to the ordinary default; re-assert the
     // slower workspace-swap pacing for this incoming slide.
-    window.cur_anim_rate = fx.workspace_slide_rate;
+    window.cur_anim_rate = server.wm.workspace_transition.rate;
 }
 
 /// Abort any in-flight slide for this window, tearing down its clone. Used when

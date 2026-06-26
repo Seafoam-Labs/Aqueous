@@ -88,6 +88,20 @@ public readonly record struct OpacitySpec(
 }
 
 /// <summary>
+/// Workspace-swap slide-transition parameters parsed from the <c>[workspace_transition]</c>
+/// section of <c>wm.toml</c>. <see cref="Enabled"/> toggles whether riverdelta performs the
+/// slide animation when switching workspaces at all; when disabled the workspace swap is
+/// instant. <see cref="Rate"/> is the exponential-smoothing rate that paces the slide (higher
+/// is snappier) and maps onto the compositor's <c>workspace_slide_rate</c>. These are
+/// marshalled to riverdelta via <c>river_window_manager_v1.set_workspace_transition</c>.
+/// </summary>
+public readonly record struct WorkspaceTransitionSpec(bool Enabled, double Rate)
+{
+    /// <summary>Transition on by default, with a rate matching the compositor's default pace.</summary>
+    public static readonly WorkspaceTransitionSpec Default = new(true, 7.0);
+}
+
+/// <summary>
 /// What a layout engine returns for a single window: target geometry, stacking order and whether
 /// the controller should actually show the window this frame (off-screen / monocle-hidden windows
 /// return <c>Visible=false</c>).

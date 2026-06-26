@@ -76,6 +76,10 @@ public static class LayoutConfigLoader
         bool opacityFocusSensitive = OpacitySpec.Default.FocusSensitive;
         double opacityFocused = OpacitySpec.Default.Focused;
         double opacityUnfocused = OpacitySpec.Default.Unfocused;
+        // [workspace_transition] section — workspace-swap slide animation driven to riverdelta via
+        // set_workspace_transition. Defaults mirror WorkspaceTransitionSpec.Default.
+        bool wsTransitionEnabled = WorkspaceTransitionSpec.Default.Enabled;
+        double wsTransitionRate = WorkspaceTransitionSpec.Default.Rate;
         // [layout].force_ssd — ask SSD-capable windows to drop client-side decorations.
         bool forceSsd = false;
 
@@ -461,6 +465,14 @@ public static class LayoutConfigLoader
                     }
 
                     break;
+                case "workspace_transition":
+                    switch (key)
+                    {
+                        case "enabled": wsTransitionEnabled = ParseBool(val, wsTransitionEnabled); break;
+                        case "rate": wsTransitionRate = Math.Max(0.0, ParseDouble(val, wsTransitionRate)); break;
+                    }
+
+                    break;
                 case "struts":
                     switch (key)
                     {
@@ -581,6 +593,7 @@ public static class LayoutConfigLoader
             Border = new BorderSpec(borderWidth, borderFocused, borderNormal, borderUrgent),
             Blur = new BlurSpec(blurEnabled, blurRadius, blurPasses),
             Opacity = new OpacitySpec(opacityEnabled, opacityValue, opacityFocusSensitive, opacityFocused, opacityUnfocused),
+            WorkspaceTransition = new WorkspaceTransitionSpec(wsTransitionEnabled, wsTransitionRate),
             Keybinds = keybinds,
             ForceSsd = forceSsd,
             State = stateConfig,
