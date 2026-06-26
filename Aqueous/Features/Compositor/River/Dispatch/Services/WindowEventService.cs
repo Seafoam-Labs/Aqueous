@@ -166,6 +166,14 @@ internal sealed unsafe class WindowEventService
                 w.W = args[0].i;
                 w.H = args[1].i;
                 RiverLog.Write($"window 0x{proxy.ToString("x")} dimensions {w.W}x{w.H}");
+                // The client's reported size is authoritative (per the protocol the window may not
+                // take the exact proposed dimensions, e.g. a terminal rounds to its cell size). We
+                // do NOT try to force the client back to ProposedW/H — re-emitting an identical
+                // propose is de-duplicated by the compositor and never reaches the client. The
+                // correct size is enforced via set_tiled (LayoutProposer), which puts the xdg
+                // toplevel into the tiled state so it honours the configured size instead of
+                // reverting to its own default. Just re-run a layout pass so the clip box and
+                // positions track the actual reported size.
                 _managerRequestSender.ScheduleManage();
                 break;
 

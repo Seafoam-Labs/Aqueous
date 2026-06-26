@@ -469,6 +469,23 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     }
                 }
 
+                // set_tiled (opcode 9, manage-sequence only): tell the window it is part of a tiled
+                // layout on all four edges. Without this the xdg toplevel stays in the non-tiled
+                // state, so well-behaved clients (ghostty and similar terminals) treat the imposed
+                // size as advisory and revert to their own default size — the root cause of "not all
+                // windows render at the correct size". A tiled-state change forces an xdg configure
+                // compositor-side, so the configured size actually reaches the client. Gated on
+                // LastTiledEdges so we only marshal on a real change.
+                if (w.LastTiledEdges != (int)RiverProtocolOpcodes.Window.EdgesAll
+                    && windowRegistry.Entries.ContainsKey(p.Handle))
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        p.Handle, RiverProtocolOpcodes.Window.SetTiled, IntPtr.Zero, 0, 0,
+                        (IntPtr)RiverProtocolOpcodes.Window.EdgesAll,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    w.LastTiledEdges = (int)RiverProtocolOpcodes.Window.EdgesAll;
+                }
+
                 // Propagate node-position updates so same-tag reorders (engine MoveFocused swaps)
                 // actually move surfaces on screen. Mirrors the floating/maximized branches; gated
                 // on LastPosX/Y change so we only marshal when geometry actually shifts.
@@ -548,6 +565,17 @@ internal sealed unsafe class LayoutProposer : ILayoutProposer
                     // hide-pass liveness gate.
                     w.ShowSent = true;
                 }
+            }
+
+            // set_tiled(none): a floating window is explicitly NOT part of a tiled layout, so the
+            // client may draw drop shadows / rounded corners and size itself freely. Gated on
+            // LastTiledEdges so we only marshal on a real change (e.g. a window toggled tiled→float).
+            if (w.LastTiledEdges != 0 && windowRegistry.Entries.ContainsKey(handle))
+            {
+                WaylandInterop.wl_proxy_marshal_flags(
+                    handle, RiverProtocolOpcodes.Window.SetTiled, IntPtr.Zero, 0, 0,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                w.LastTiledEdges = 0;
             }
 
             // Liveness gate — see tiled branch for rationale.

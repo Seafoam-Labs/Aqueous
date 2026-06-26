@@ -5,6 +5,7 @@ using Aqueous.Features.Compositor.River.Dispatch;
 using Aqueous.Features.Compositor.River.Connection;
 using Aqueous.Features.Compositor.River.Registry;
 using Aqueous.Features.State;
+using Aqueous.Features.Layout;
 namespace Aqueous.Features.Compositor.River.Dispatch.EventHandlers;
 /// <summary>
 /// Second <see cref="IEventHandler"/> extracted out of the <c>RiverWindowManagerClient</c> god
@@ -22,6 +23,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
     private readonly WindowStateController _windowState;
     private readonly OutputFullscreenMap _outputFullscreen;
     private readonly ILayerShellTeardownService _layerShellTeardown;
+    private readonly IManagerRequestSender _managerRequestSender;
     private readonly Action<string>? _log;
     public OutputEventHandler(
         IWindowRegistry windows,
@@ -31,6 +33,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         WindowStateController windowState,
         OutputFullscreenMap outputFullscreen,
         ILayerShellTeardownService layerShellTeardown,
+        IManagerRequestSender managerRequestSender,
         Action<string>? log = null)
     {
         _windows = windows ?? throw new ArgumentNullException(nameof(windows));
@@ -40,6 +43,7 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
         _windowState = windowState ?? throw new ArgumentNullException(nameof(windowState));
         _outputFullscreen = outputFullscreen ?? throw new ArgumentNullException(nameof(outputFullscreen));
         _layerShellTeardown = layerShellTeardown ?? throw new ArgumentNullException(nameof(layerShellTeardown));
+        _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _log = log;
     }
     public string InterfaceName => "river_output_v1";
@@ -71,20 +75,60 @@ internal sealed unsafe class OutputEventHandler : IEventHandler
                 if (ev.ArgsPtr == IntPtr.Zero || ev.ArgCount < 2) return;
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
-                    o.X = args[0].i;
-                    o.Y = args[1].i;
+                    int newX = args[0].i;
+                    int newY = args[1].i;
+                    bool changed = o.X != newX || o.Y != newY;
+                    o.X = newX;
+                    o.Y = newY;
                     _log?.Invoke("output 0x" + proxy.ToString("x") + " position=" + o.X + "," + o.Y);
+                    if (changed)
+                    {
+                        InvalidateWindowGeometryCaches(proxy);
+                        _managerRequestSender.ScheduleManage();
+                    }
                 }
                 break;
             case RiverProtocolOpcodes.Output.Dimensions:
                 if (ev.ArgsPtr == IntPtr.Zero || ev.ArgCount < 2) return;
                 {
                     var args = (WlArgument*)ev.ArgsPtr;
-                    o.Width = args[0].i;
-                    o.Height = args[1].i;
+                    int newW = args[0].i;
+                    int newH = args[1].i;
+                    bool changed = o.Width != newW || o.Height != newH;
+                    o.Width = newW;
+                    o.Height = newH;
                     _log?.Invoke("output 0x" + proxy.ToString("x") + " dimensions=" + o.Width + "x" + o.Height);
+                    // Once the real output size is known, re-run a layout pass so any window that was
+                    // mapped/arranged against the stale 1920x1080 guess gets re-arranged. Invalidate
+                    // the per-window geometry caches first, otherwise the propose pass short-circuits
+                    // on unchanged cached numbers and the surface keeps its wrong first-open size.
+                    if (changed)
+                    {
+                        InvalidateWindowGeometryCaches(proxy);
+                        _managerRequestSender.ScheduleManage();
+                    }
                 }
                 break;
+        }
+    }
+    /// <summary>
+    /// Reset the per-window geometry caches (<c>LastHintW/H</c>, <c>LastPosX/Y</c>, <c>LastClipW/H</c>)
+    /// for every window assigned to <paramref name="output"/>. Mirrors the engine-swap invalidation in
+    /// <c>LayoutProposer.ProposeForArea</c> so a re-propose triggered by an output geometry change is
+    /// not short-circuited by stale cached numbers.
+    /// </summary>
+    private void InvalidateWindowGeometryCaches(IntPtr output)
+    {
+        foreach (var kvp in _windows.Entries)
+        {
+            var w = kvp.Value;
+            if (w.Output != output) continue;
+            w.LastHintW = 0;
+            w.LastHintH = 0;
+            w.LastPosX = int.MinValue;
+            w.LastPosY = int.MinValue;
+            w.LastClipW = 0;
+            w.LastClipH = 0;
         }
     }
     private void HandleRemoved(IntPtr proxy)

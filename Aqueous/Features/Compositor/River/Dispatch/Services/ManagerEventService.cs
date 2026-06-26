@@ -271,6 +271,10 @@ internal sealed unsafe class ManagerEventService
         _manageCycle.InsideManageSequence = true;
         _managerRequestSender.InsideManageSequence = true;
         bool finished = false;
+        // Set if an output had to be skipped because its real dimensions were not yet known. A
+        // ScheduleManage() issued here is a no-op (InsideManageSequence is true and short-circuits
+        // it), so we flush a real retry in the finally block AFTER the sequence flag is cleared.
+        bool deferredManage = false;
         try
         {
             RiverLog.Write(
@@ -435,9 +439,20 @@ internal sealed unsafe class ManagerEventService
                 foreach (var outputKvp in _outputRegistry.Entries)
                 {
                     OutputEntry oe = outputKvp.Value;
-                    var aw = oe.Width > 0 ? oe.Width : 1920;
-                    var ah = oe.Height > 0 ? oe.Height : 1080;
-                    var raw = new Rect(oe.X, oe.Y, aw, ah);
+                    // Defensive: if the compositor has not yet reported this output's real
+                    // dimensions (river_output_v1::dimensions still pending), do NOT lay windows
+                    // out against a 1920x1080 guess — that stale geometry would be cached on each
+                    // WindowEntry and the surface would keep its wrong first-open size. Skip the
+                    // output and schedule another manage cycle; OutputEventHandler also schedules
+                    // one once the dimensions arrive, so the retry is bounded.
+                    if (oe.Width <= 0 || oe.Height <= 0)
+                    {
+                        RiverLog.Write(
+                            $"manage: deferring layout for output 0x{outputKvp.Key.ToString("x")} (dimensions not ready)");
+                        deferredManage = true;
+                        continue;
+                    }
+                    var raw = new Rect(oe.X, oe.Y, oe.Width, oe.Height);
                     var usable = StrutsCalculator.Apply(raw, _layoutController.Config?.Struts);
                     usable = ApplyLayerShellUsable(outputKvp.Key, usable);
                     _layoutProposer.ProposeForArea(outputKvp.Key, null, raw, usable);
@@ -461,6 +476,15 @@ internal sealed unsafe class ManagerEventService
 
             _manageCycle.InsideManageSequence = false;
             _managerRequestSender.InsideManageSequence = false;
+
+            // Now that we are no longer inside the manage sequence, a ScheduleManage() will actually
+            // marshal manage_dirty. Retry any output whose dimensions were not yet ready; the
+            // bounded OutputEventHandler path also reschedules once dimensions arrive, so this loop
+            // cannot spin indefinitely.
+            if (deferredManage)
+            {
+                _managerRequestSender.ScheduleManage();
+            }
         }
     }
 

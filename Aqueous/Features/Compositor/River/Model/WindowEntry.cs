@@ -29,6 +29,14 @@ internal sealed class WindowEntry
     public int X, Y;
     public bool Placed;
     public int ProposedW, ProposedH;
+
+    // Last edges bitfield marshalled via river_window_v1.set_tiled (opcode 9). Sentinel -1 means
+    // "never sent". Tiled windows are told edges = 0xF (all four edges), floating windows edges = 0
+    // (none). Without set_tiled the xdg toplevel is left in the non-tiled state, so well-behaved
+    // clients (ghostty and similar terminals) treat the imposed size as advisory and revert to
+    // their own default — the root cause of "not all windows render at the correct size".
+    public int LastTiledEdges = -1;
+
     public int LastHintW, LastHintH;
     public int MinW, MinH, MaxW, MaxH;
     public int LastPosX = int.MinValue, LastPosY = int.MinValue;

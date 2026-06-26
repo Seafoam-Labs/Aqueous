@@ -78,6 +78,23 @@ internal static class RiverProtocolOpcodes
         internal const uint UseSsd = 7;
 
         /// <summary>
+        /// <c>set_tiled</c> request opcode: inform the window it is part of a tiled layout and
+        /// adjacent to other elements on the given <c>edges</c> bitfield. Manage-sequence only.
+        /// Without this request the window is told it is NOT tiled, so well-behaved xdg clients
+        /// (ghostty and similar terminals) treat the imposed size as advisory and revert to their
+        /// own default size. Request order in the protocol: ... use_csd(6), use_ssd(7),
+        /// set_borders(8), set_tiled(9).
+        /// </summary>
+        internal const uint SetTiled = 9;
+
+        /// <summary>
+        /// <c>edges</c> bitfield value with all four edges set (top|bottom|left|right = 1|2|4|8).
+        /// Passed to <see cref="SetTiled"/> for a fully tiled window; <c>0</c> (none) marks a
+        /// floating window as not tiled.
+        /// </summary>
+        internal const uint EdgesAll = 0xF;
+
+        /// <summary>
         /// <c>decoration_hint</c> event values mirroring the protocol enum: the client's
         /// CSD/SSD capability. <see cref="DecorationOnlyCsd"/> is the value that makes
         /// <see cref="UseSsd"/> a no-op, so it must be skipped when forcing SSD.

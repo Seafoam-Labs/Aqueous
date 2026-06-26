@@ -189,6 +189,7 @@ class Program
             sp.GetRequiredService<Aqueous.Features.State.WindowStateController>(),
             sp.GetRequiredService<Aqueous.Features.State.OutputFullscreenMap>(),
             sp.GetRequiredService<Aqueous.Features.Compositor.River.ILayerShellTeardownService>(),
+            sp.GetRequiredService<Aqueous.Features.Layout.IManagerRequestSender>(),
             RiverLog.Write));
         services.AddSingleton<IEventHandler>(sp =>
         {
