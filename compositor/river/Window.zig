@@ -471,6 +471,9 @@ pub fn detachWorkspace(window: *Window) void {
     window.workspace_link.remove();
     window.workspace_link.init();
     window.workspace = null;
+    // Drop any in-flight slide clone so it can't linger, enabled, in the shared
+    // scene layer once the window no longer belongs to a (visible) workspace.
+    window.clearSnapshot();
 }
 
 pub fn setDimensionsHint(window: *Window, hint: DimensionsHint) void {
@@ -1120,6 +1123,13 @@ pub fn renderFinish(window: *Window) void {
     window.tree.node.setEnabled(enabled);
     window.popup_tree.node.setEnabled(enabled);
 
+    // A slide-animation clone lives in the shared scene layer and is enabled
+    // independently of the live tree. If the window's workspace is no longer
+    // active (e.g. the workspace was switched mid-slide), tear the clone down so
+    // it cannot keep compositing — at the window's opacity — over the now-active
+    // workspace's windows.
+    if (!workspace_visible) window.clearSnapshot();
+
     window.box.width = window.rendering_sent.width;
     window.box.height = window.rendering_sent.height;
 
@@ -1128,7 +1138,10 @@ pub fn renderFinish(window: *Window) void {
     if (window.wm_requested.fullscreen) |output| {
         // Fullscreen positions are snapped: we never animate into/out of fullscreen.
         window.setAnimationTarget(output.sent.x, output.sent.y, false);
-        window.fullscreen_background.node.setEnabled(true);
+        // Gate the fullscreen background on workspace visibility too, otherwise a
+        // fullscreen window on an inactive workspace leaks its background into the
+        // active workspace's scene tree.
+        window.fullscreen_background.node.setEnabled(workspace_visible);
         const width, const height = output.sent.dimensions();
         window.fullscreen_background.setSize(width, height);
         clip = .{ .x = 0, .y = 0, .width = width, .height = height };
