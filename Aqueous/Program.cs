@@ -287,6 +287,17 @@ class Program
         });
 
         var host = provider.GetRequiredService<RiverCompositorHost>();
+
+        // Exit the whole process if the compositor connection drops (River died or severed our
+        // socket). Under uwsm this lets the graphical session tear down cleanly and be brought back
+        // up with a fresh WAYLAND_DISPLAY, instead of Aqueous lingering and its supervised Noctalia
+        // child respawning forever against a dead socket.
+        host.CompositorConnectionLost += () =>
+        {
+            log.LogError("Compositor connection lost; shutting down session.");
+            lifetimeCts.Cancel();
+        };
+
         try
         {
             host.StartAsync(lifetimeCts.Token).GetAwaiter().GetResult();

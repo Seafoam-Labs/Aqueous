@@ -58,19 +58,12 @@ LOG="$XDG_RUNTIME_DIR/aqueous-wm.log"
 exec >"$LOG" 2>&1
 echo "[aqueous-wm] $(date -Is) starting uid=$(id -u) greeter=${XDG_GREETER_DATA_DIR:-unknown}"
 
-# Push session env into systemd --user / dbus so xdg-desktop-portal and
-# user units actually see the Wayland environment. SDDM does not do this
-# for us the way greetd's PAM stack tends to.
-if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user import-environment \
-        DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
-        XDG_SESSION_DESKTOP XCURSOR_THEME XCURSOR_SIZE PATH 2>/dev/null || true
-    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-        dbus-update-activation-environment --systemd \
-            DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
-            XDG_SESSION_DESKTOP 2>/dev/null || true
-    fi
-fi
+# NOTE: the Wayland environment (WAYLAND_DISPLAY etc.) is NOT exported into
+# systemd --user / D-Bus here — at this point RiverDelta has not started yet,
+# so WAYLAND_DISPLAY is not valid. That export now happens from
+# /usr/bin/aqueous-init once the compositor is up, via `uwsm finalize` (when
+# launched under uwsm) or a dbus/systemctl fallback otherwise. This avoids
+# pinning a stale/empty WAYLAND_DISPLAY into the user manager.
 
 # Seed user config from the system default if missing. Never overwrite.
 cfg="$HOME/.config/aqueous/wm.toml"

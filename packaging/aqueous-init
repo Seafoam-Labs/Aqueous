@@ -60,47 +60,61 @@ fi
 # single-GPU machines and pins .desktop/systemd-launched apps to the same GPU
 # the compositor renders on, closing the last launch path that could straddle
 # two GPU stacks (the dual-GPU GObject toggle-ref crash).
-if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-    dbus-update-activation-environment --systemd \
+if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DISPLAY:-}" ]; then
+    # uwsm owns the session lifecycle: `uwsm finalize` exports the (now-live)
+    # Wayland env into the systemd --user + D-Bus activation environments AND
+    # signals uwsm that the compositor is up, so it activates the real
+    # graphical-session.target itself (satisfying xdg-desktop-portal's
+    # Requisite=graphical-session.target) and pulls in xdg-desktop-autostart.target.
+    # Crucially it re-exports the CURRENT WAYLAND_DISPLAY on every start, so a
+    # compositor restart never leaves a stale socket pinned in the user manager.
+    # The GPU-pin vars (set by RiverDelta only on multi-GPU systems) are forwarded
+    # in bare KEY form so uwsm silently skips any that are unset on single-GPU.
+    uwsm finalize \
         WAYLAND_DISPLAY \
-        XDG_CURRENT_DESKTOP=Aqueous \
-        XDG_SESSION_TYPE=wayland \
+        XDG_CURRENT_DESKTOP \
+        XDG_SESSION_TYPE \
         XDG_RUNTIME_DIR \
+        XCURSOR_THEME \
+        XCURSOR_SIZE \
         MESA_VK_DEVICE_SELECT \
         __GLX_VENDOR_LIBRARY_NAME \
         DRI_PRIME \
         __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
-elif command -v systemctl >/dev/null 2>&1; then
-    # Only import vars that are actually set, so older systemd versions never
-    # warn on unset names (keeps the single-GPU case clean).
-    gpu_vars=""
-    for v in MESA_VK_DEVICE_SELECT __GLX_VENDOR_LIBRARY_NAME DRI_PRIME __NV_PRIME_RENDER_OFFLOAD; do
-        eval "val=\${$v:-}"
-        [ -n "$val" ] && gpu_vars="$gpu_vars $v"
-    done
-    # shellcheck disable=SC2086
-    systemctl --user import-environment \
-        WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
-        $gpu_vars \
-        2>/dev/null || true
+else
+    # Fallback for sessions launched WITHOUT uwsm (e.g. a display manager that
+    # execs aqueous-wm directly). Push the (now-live) Wayland env into
+    # systemd --user + D-Bus so xdg-desktop-portal-gtk can connect, then bring
+    # the graphical session up via the aqueous-session.target wrapper (static
+    # graphical-session.target has RefuseManualStart).
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd \
+            WAYLAND_DISPLAY \
+            XDG_CURRENT_DESKTOP=Aqueous \
+            XDG_SESSION_TYPE=wayland \
+            XDG_RUNTIME_DIR \
+            MESA_VK_DEVICE_SELECT \
+            __GLX_VENDOR_LIBRARY_NAME \
+            DRI_PRIME \
+            __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
+    elif command -v systemctl >/dev/null 2>&1; then
+        # Only import vars that are actually set, so older systemd versions never
+        # warn on unset names (keeps the single-GPU case clean).
+        gpu_vars=""
+        for v in MESA_VK_DEVICE_SELECT __GLX_VENDOR_LIBRARY_NAME DRI_PRIME __NV_PRIME_RENDER_OFFLOAD; do
+            eval "val=\${$v:-}"
+            [ -n "$val" ] && gpu_vars="$gpu_vars $v"
+        done
+        # shellcheck disable=SC2086
+        systemctl --user import-environment \
+            WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
+            $gpu_vars \
+            2>/dev/null || true
+    fi
+
+    systemctl --user start aqueous-session.target 2>/dev/null || true
+    systemctl --user start xdg-desktop-autostart.target 2>/dev/null || true
 fi
-
-# Bring the graphical session up. xdg-desktop-portal.service has
-# Requisite=graphical-session.target, so the portal cannot start until that
-# target is active. graphical-session.target is static (RefuseManualStart),
-# so we go through the aqueous-session.target wrapper that Requires/BindsTo
-# it. Without this the portal restart below is doomed on a fresh boot and
-# flameshot/screencast fail with "could not locate org.freedesktop.portal.Desktop".
-systemctl --user start aqueous-session.target 2>/dev/null || true
-
-# Launch XDG desktop-autostart entries (~/.config/autostart/*.desktop and
-# system-wide $XDG_CONFIG_DIRS/autostart). systemd-xdg-autostart-generator
-# turns those .desktop files into transient units wired into
-# xdg-desktop-autostart.target, but nothing pulls that target in by default.
-# Start it explicitly here — AFTER the Wayland env has been exported into
-# systemd/D-Bus above — so the autostarted apps (Steam, fluxer, etc.) inherit
-# the correct WAYLAND_DISPLAY/XDG_RUNTIME_DIR and can reach the compositor.
-systemctl --user start xdg-desktop-autostart.target 2>/dev/null || true
 
 # Kick the portal in case it already failed earlier in the boot.
 # reset-failed clears the start-limit so the restart actually runs.

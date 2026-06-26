@@ -1,8 +1,14 @@
 [Desktop Entry]
 Name=Aqueous
 Comment=Aqueous Wayland window manager (River + Noctalia)
-Exec=aqueous-wm
-TryExec=aqueous-wm
+# Launched under uwsm (Universal Wayland Session Manager): uwsm wraps aqueous-wm
+# as a proper systemd user unit, exports/cleans the Wayland environment, activates
+# graphical-session.target, and tears the whole session down cleanly on exit. The
+# compositor itself still finalizes the live env via `uwsm finalize` from
+# /usr/bin/aqueous-init. Falls back to running aqueous-wm directly if uwsm is
+# unavailable (see aqueous-init's non-uwsm branch).
+Exec=uwsm start -- aqueous-wm
+TryExec=uwsm
 Type=Application
 DesktopNames=Aqueous
 Keywords=wm;wayland;river;

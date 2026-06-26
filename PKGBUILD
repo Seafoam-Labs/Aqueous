@@ -13,12 +13,15 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'noctalia-shell' 'libdecor' 'grim' 'slurp' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'swaylock-effects' 'swayidle'
+         # uwsm manages the session lifecycle (env export, graphical-session.target,
+         # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
+         'uwsm'
          # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
          'zlib' 'krb5' 'openssl' 'scenefx')
 makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
              'git' 'wayland-protocols' 'scenefx')
-optdepends=('ly: tuigreeter'
-            'greetd: minimal login manager for tuigreet'
+optdepends=('ly: recommended display manager / login greeter'
+            'greetd: alternative minimal login manager for tuigreet'
             'tabby: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser'
@@ -153,6 +156,13 @@ package() {
     install -Dm755 "$srcdir/aqueous/packaging/aqueous-init" "$pkgdir/usr/bin/aqueous-init"
     install -Dm755 "$srcdir/aqueous/packaging/aqueous-wm.sh" "$pkgdir/usr/bin/aqueous-wm"
     install -Dm644 "$srcdir/aqueous/aqueous.desktop" "$pkgdir/usr/share/wayland-sessions/aqueous.desktop"
+
+    # uwsm environment file. uwsm sources /etc/uwsm/env-aqueous (the -aqueous
+    # suffix matches DesktopNames=Aqueous) before launching the compositor and
+    # exports the static toolkit/backend hints into the systemd --user / D-Bus
+    # environment, so user-unit-launched apps inherit them too.
+    install -Dm644 "$srcdir/aqueous/packaging/uwsm/env-aqueous" \
+        "$pkgdir/etc/uwsm/env-aqueous"
 
     # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
     # wlroots backend (xdg-desktop-portal-wlr) so screen sharing works out of

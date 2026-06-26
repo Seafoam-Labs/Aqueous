@@ -44,6 +44,17 @@ internal sealed class RiverCompositorHost : IHostedService
     private NativeCallbackContext? _callbackContext;
     private CancellationToken _lifetimeToken;
     private bool _started;
+    private bool _stopRequested;
+
+    /// <summary>
+    /// Raised once when the pump thread exits because the Wayland connection to the compositor was
+    /// lost unexpectedly (a libwayland dispatch error or a managed crash in the dispatch cycle) —
+    /// i.e. River died or severed our socket. NOT raised for a requested/cancelled shutdown.
+    /// Program.Main subscribes to this to bring the whole process down so the session manager (uwsm)
+    /// tears the graphical session down cleanly instead of leaving Aqueous (and its supervised
+    /// Noctalia child) chasing a dead socket.
+    /// </summary>
+    public event Action? CompositorConnectionLost;
 
     /// <summary>
     /// <c>wl_registry</c> name advertised for the currently-bound <c>river_window_manager_v1</c>
@@ -142,6 +153,7 @@ internal sealed class RiverCompositorHost : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _log?.LogInformation("RiverCompositorHost stopping...");
+        _stopRequested = true;
         try
         {
             if (_started) DisposeWayland();
@@ -208,7 +220,31 @@ internal sealed class RiverCompositorHost : IHostedService
 
     internal void StartPump(CancellationToken cancellationToken = default)
     {
+        _pump.Stopped += OnPumpStopped;
         _pump.Start(cancellationToken);
+    }
+
+    private void OnPumpStopped(PumpStopReason reason)
+    {
+        // A requested/cancelled stop is normal teardown — let the existing shutdown path run.
+        if (_stopRequested || reason is PumpStopReason.StopRequested or PumpStopReason.Cancelled)
+        {
+            return;
+        }
+
+        // DispatchError / Crashed means the compositor severed our connection (River died or closed
+        // our socket). Surface it so the process can exit and the session manager tears the whole
+        // graphical session down cleanly, rather than respawning the bar against a dead socket.
+        RiverLog.Write($"compositor connection lost (reason={reason}); requesting process exit");
+        _log?.LogError("Wayland connection to compositor lost (reason={Reason}); exiting", reason);
+        try
+        {
+            CompositorConnectionLost?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _log?.LogWarning(ex, "CompositorConnectionLost handler threw");
+        }
     }
 
     internal void DisposeWayland()

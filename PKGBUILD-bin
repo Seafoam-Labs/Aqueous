@@ -12,9 +12,13 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-shell' 'libdecor' 'grim' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
+         # uwsm manages the session lifecycle; the aqueous.desktop session
+         # entry execs `uwsm start`.
+         'uwsm'
          'swaylock-effects' 'swayidle')
-optdepends=('tuigreet: TUI greeter for greetd (recommended login path)'
-            'greetd: minimal login manager for tuigreet'
+optdepends=('ly: recommended display manager / login greeter'
+            'tuigreet: TUI greeter for greetd (alternative login path)'
+            'greetd: alternative minimal login manager for tuigreet'
             'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
