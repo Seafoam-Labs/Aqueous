@@ -10,11 +10,14 @@ After=graphical-session.target
 Before=xdg-desktop-autostart.target
 
 [Service]
-# Noctalia v5 is the native C++/GLES shell. `--daemon` returns only once the
-# shell (and its tray host) has initialised, giving systemd a genuine readiness
-# barrier so Before=xdg-desktop-autostart.target actually holds the autostart
-# target until the watcher is up.
-Type=exec
+# Noctalia v5 is the native C++/GLES shell. `--daemon` forks the shell into the
+# background and the launcher process returns only once the shell (and its tray
+# host) has initialised. Type=forking makes systemd wait for that return before
+# marking the unit active, giving a genuine readiness barrier so
+# Before=xdg-desktop-autostart.target actually holds the autostart target until
+# the watcher is up, and tracks the surviving shell as MainPID (so the unit
+# stays active and tears down cleanly with graphical-session.target).
+Type=forking
 ExecStart=/usr/bin/noctalia --daemon
 Restart=on-failure
 RestartSec=2

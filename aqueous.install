@@ -39,8 +39,9 @@ post_install() {
     The Noctalia bar/shell is started as a systemd user unit
     (noctalia.service), wanted by graphical-session.target and ordered
     Before=xdg-desktop-autostart.target. It runs the Noctalia v5 native shell
-    via 'noctalia --daemon' (--daemon returns only once the shell is up, a real
-    readiness barrier). This makes its system-tray watcher
+    via 'noctalia --daemon', which forks the shell and returns once it is up;
+    Type=forking makes systemd wait for that return before marking the unit
+    active (a real readiness barrier). This makes its system-tray watcher
     (org.kde.StatusNotifierWatcher) come up BEFORE autostarted tray apps
     (nm-applet, blueman-applet, ...), so their icons populate reliably -- the
     old [[exec]] launch raced the autostart target and dropped icons. It is

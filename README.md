@@ -117,7 +117,10 @@ it lose the startup race against autostarted tray apps (`nm-applet`,
 systemd user unit (`packaging/noctalia.service`) that is
 `WantedBy=graphical-session.target` and ordered `Before=xdg-desktop-autostart.target`,
 so the watcher is up before any tray app registers. `ExecStart` runs the v5
-native shell as `noctalia --daemon` (a real readiness barrier).
+native shell as `noctalia --daemon`, which forks the shell and returns once it
+is up; `Type=forking` makes systemd wait for that return before marking the
+unit active (a real readiness barrier) and tracks the surviving shell as the
+unit's main process.
 
 ---
 
