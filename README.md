@@ -17,7 +17,7 @@ compositor live side-by-side. No submodules, no extra clone steps —
 |------------------|-------------------------------------------------------|
 | `Aqueous`        | Wayland/River compositor client (the window manager) |
 | `Aqueous.Tests`  | Unit tests for `Aqueous`                             |
-| Noctalia (external) | Bar / shell (`qs -c noctalia-shell`)              |
+| Noctalia (external) | Bar / shell (`noctalia`; v5 native)               |
 | tuigreet (external) | Login greeter                                     |
 
 ---
@@ -68,7 +68,10 @@ dotnet test Aqueous.Tests/Aqueous.Tests.csproj
 ```
 
 This starts a nested River instance, launches `Aqueous`, and spawns
-Noctalia (`qs -c noctalia-shell`) as the bar. Logs land in `/tmp/`:
+Noctalia (`noctalia`) as the bar. (In a packaged session the bar is started
+as a systemd user unit instead — see Autostart below; the nested dev run has
+no user systemd manager, so `launch_river.sh` launches it directly. Override
+the command with `AQUEOUS_NOCTALIA_CMD`.) Logs land in `/tmp/`:
 
 - `/tmp/river_log.txt` — River compositor + WAYLAND_DEBUG trace
 - `/tmp/aqueous_wm.log` — Aqueous stdout/stderr
@@ -90,12 +93,12 @@ connect). Commands run via `/bin/sh -c` detached with `setsid`.
 
 ```toml
 [[exec]]
-name    = "noctalia"
-command = "qs -c noctalia-shell"
+name    = "swayidle"
+command = "swayidle -w timeout 300 'swaylock -f'"
 when    = "startup"          # "startup" (default) | "reload" | "always"
 once    = true               # don't relaunch on --reload
-restart = false              # respawn (with backoff) on non-zero exit
-log     = "/tmp/noctalia.log"
+restart = true               # respawn (with backoff) on non-zero exit
+log     = "/tmp/swayidle.log"
 env     = { QT_QPA_PLATFORM = "wayland" }
 ```
 
@@ -103,6 +106,16 @@ Backoff for `restart = true` follows 250 ms → 500 → 1 s → 2 s → 4 s →
 8 s → cap 10 s, and resets on a clean (`exit 0`) termination. Setting
 `restart = true` on a `when = "reload"` entry is allowed but rarely
 useful.
+
+**The bar (Noctalia) is intentionally not an `[[exec]]` entry.** It hosts the
+system-tray `org.kde.StatusNotifierWatcher`, and launching it from `[[exec]]`
+(after Aqueous has already started, post `xdg-desktop-autostart.target`) makes
+it lose the startup race against autostarted tray apps (`nm-applet`,
+`blueman-applet`, …) — their icons never populate. Instead it ships as a
+systemd user unit (`packaging/noctalia.service`) that is
+`WantedBy=graphical-session.target` and ordered `Before=xdg-desktop-autostart.target`,
+so the watcher is up before any tray app registers. `ExecStart` runs the v5
+native shell as `noctalia --daemon` (a real readiness barrier).
 
 ---
 
@@ -116,6 +129,9 @@ A reference Arch `PKGBUILD` is included; it builds `Aqueous` AOT and ships:
   its session picker.
 - `/etc/xdg/aqueous/wm.toml` as the system default; `aqueous-wm` seeds
   `~/.config/aqueous/wm.toml` on first login if missing.
+- `noctalia.service` (a `graphical-session.target` user unit, ordered
+  `Before=xdg-desktop-autostart.target`) plus a `graphical-session.target.wants`
+  symlink, so the bar / SNI tray watcher starts before autostarted tray apps.
 
 Libinput configuration (pointer accel, tap-to-click, natural scroll, …)
 is applied by `Aqueous` itself via the `river_libinput_config_v1`

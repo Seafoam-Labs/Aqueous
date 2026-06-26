@@ -71,15 +71,6 @@ focus_sensitive = false  # true = use focused/unfocused below per window focus
 focused         = 1.0    # focused-window opacity when focus_sensitive = true
 unfocused       = 0.9    # unfocused-window opacity when focus_sensitive = true
 
-# -----------------------------------------------------------------------------
-# Workspace-swap slide transition (requires riverdelta built with animations).
-# When enabled, switching the active workspace slides the outgoing/incoming
-# workspaces across the output; disable it for an instant, animation-free swap.
-# -----------------------------------------------------------------------------
-[workspace_transition]
-enabled = true   # set false for an instant workspace switch (no slide)
-rate    = 7.0    # slide pacing; higher = snappier (<= 0 keeps the default)
-
 
 # -----------------------------------------------------------------------------
 # Actions definitions.
@@ -303,13 +294,11 @@ anchor      = "center"
 
 
 
-[[exec]]
-name    = "noctalia"
-command = "qs -c noctalia-shell"
-when    = "startup"          # "startup" (default) | "reload" | "always"
-once    = true               # don't relaunch on --reload
-restart = true              # respawn (with backoff) on non-zero exit
-log     = "/tmp/noctalia.log"
+# NOTE: Noctalia (the bar / SNI tray host) is NOT launched here. It is shipped
+# as a systemd user unit (noctalia.service, WantedBy=graphical-session.target,
+# Before=xdg-desktop-autostart.target) so its StatusNotifierWatcher comes up
+# before any autostart tray app — otherwise tray icons fail to populate. See
+# packaging/noctalia.service.
 
 # Idle → lock only (swaylock-effects). No screen blank, no suspend on idle.
 # Uses the same effects-enabled swaylock command as the lock_screen action.

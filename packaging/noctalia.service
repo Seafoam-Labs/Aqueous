@@ -1,0 +1,24 @@
+[Unit]
+Description=Noctalia shell (bar / SNI tray host)
+PartOf=graphical-session.target
+After=graphical-session.target
+# Win the tray race: own org.kde.StatusNotifierWatcher before any autostart
+# .desktop app (nm-applet, blueman-applet, udiskie, …) tries to
+# RegisterStatusNotifierItem. Without this ordering the tray apps spawned by
+# xdg-desktop-autostart.target register against a watcher that doesn't exist
+# yet and drop their icons.
+Before=xdg-desktop-autostart.target
+
+[Service]
+# Noctalia v5 is the native C++/GLES shell. `--daemon` returns only once the
+# shell (and its tray host) has initialised, giving systemd a genuine readiness
+# barrier so Before=xdg-desktop-autostart.target actually holds the autostart
+# target until the watcher is up.
+Type=exec
+ExecStart=/usr/bin/noctalia --daemon
+Restart=on-failure
+RestartSec=2
+Slice=app-graphical.slice
+
+[Install]
+WantedBy=graphical-session.target

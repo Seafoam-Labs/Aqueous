@@ -38,10 +38,13 @@ fi
 echo "[launch_river] Using compositor: $RIVER_BIN"
 
 WM_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/aqueous"
-# NOTE: the bar (qs -c noctalia-shell) is now launched by Aqueous itself
-# via the [[exec]] section in wm.toml. The pre-kill above stays — Aqueous
-# is not running yet at that point, so a stale Noctalia from a previous
-# crash still needs to be reaped before Aqueous claims ownership.
+# NOTE: in a packaged session Noctalia is launched as a systemd user unit
+# (packaging/noctalia.service, ordered Before=xdg-desktop-autostart.target) so
+# its SNI tray watcher is up before any autostart tray app — it is no longer an
+# [[exec]] block in wm.toml. There is no user systemd manager inside this nested
+# dev run, so we launch the bar here instead. The pre-kill above stays — Aqueous
+# is not running yet at that point, so a stale Noctalia from a previous crash
+# still needs to be reaped before Aqueous claims ownership.
 
 # Detect "nested" run: if a host Wayland/X session is already visible, fall
 # back to Alt for Aqueous bindings so drag-to-move / resize still work
@@ -87,6 +90,10 @@ export AQUEOUS_LOG="${AQUEOUS_LOG:-trace}"
 export DOTNET_DbgEnableMiniDump=1
 export DOTNET_DbgMiniDumpType=4
 export DOTNET_DbgMiniDumpName="/tmp/aqueous_coredump.%d.dmp"
-INNER="exec '$WM_BIN' >'$AQ_SINK' 2>&1"
+# Launch the bar inside the nested compositor (WAYLAND_DISPLAY is only valid
+# in River's -c context). Mirrors packaging/noctalia.service's ExecStart for the
+# dev workflow, where no systemd user manager is available to start the unit.
+NOCTALIA_CMD="${AQUEOUS_NOCTALIA_CMD:-noctalia}"
+INNER="setsid -f sh -c '$NOCTALIA_CMD' >/tmp/noctalia.log 2>&1; exec '$WM_BIN' >'$AQ_SINK' 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
     "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

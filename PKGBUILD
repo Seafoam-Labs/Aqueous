@@ -190,6 +190,21 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
         "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
 
+    # Noctalia shell as a graphical-session.target user unit. This brings the
+    # SNI tray watcher (org.kde.StatusNotifierWatcher) up BEFORE
+    # xdg-desktop-autostart.target, so tray apps autostarted by uwsm register
+    # against a live watcher and their icons populate on first login. The
+    # symlink in graphical-session.target.wants pulls it in on every session
+    # with zero per-user action (mirrors how the rest of the session is wired).
+    # Replaces the old [[exec]] noctalia block in wm.toml (which lost the
+    # startup race because it launched the bar after Aqueous had already
+    # started, post xdg-desktop-autostart.target).
+    install -Dm644 "$srcdir/aqueous/packaging/noctalia.service" \
+        "$pkgdir/usr/lib/systemd/user/noctalia.service"
+    install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
+    ln -s ../noctalia.service \
+        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/noctalia.service"
+
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.
     install -Dm644 "$srcdir/aqueous/packaging/aqueous.tmpfiles" \
