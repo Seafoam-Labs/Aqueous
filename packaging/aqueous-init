@@ -26,16 +26,19 @@ set -u
 LOG="${XDG_RUNTIME_DIR:-/tmp}/aqueous-outputd.log"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
 
-# Seed Noctalia defaults on first launch. Idempotent and non-destructive:
-# only runs when the user has no settings.json yet. Aqueous ships sensible
-# defaults (idle/lock timeouts, blurred lock screen, default wallpapers
-# pointing at /usr/share/aqueous/wallpapers).
+# Seed the Noctalia (v5) default config on first launch. Idempotent and
+# non-destructive: only runs when the user has no config.toml yet. Noctalia v5
+# reads every *.toml in ~/.config/noctalia/ and merges them; we seed the
+# hand-written base layer (config.toml) with Aqueous defaults (idle/lock
+# timeouts, blurred lock screen, default wallpapers pointing at
+# /usr/share/aqueous/wallpapers). GUI changes land in
+# ~/.local/state/noctalia/settings.toml and are never touched here.
 NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
-NOCTALIA_DEFAULTS="/usr/share/aqueous/noctalia/settings.json"
-if [ ! -e "$NOCTALIA_USER_CFG_DIR/settings.json" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
+NOCTALIA_DEFAULTS="/usr/share/aqueous/noctalia/config.toml"
+if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
     mkdir -p "$NOCTALIA_USER_CFG_DIR"
-    cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/settings.json"
-    chmod 600 "$NOCTALIA_USER_CFG_DIR/settings.json"
+    cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/config.toml"
+    chmod 600 "$NOCTALIA_USER_CFG_DIR/config.toml"
 fi
 
 if [ -x /usr/bin/aqueous-outputd ]; then

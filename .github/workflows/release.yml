@@ -144,17 +144,20 @@ jobs:
           cp packaging/aqueous-inputd.service  publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
           cp packaging/aqueous-inputd.socket   publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
           cp packaging/aqueous-outputd.service publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
+          # Noctalia shell unit + its graphical-session.target.wants symlink, so a
+          # tarball/binary install also brings up the SNI tray watcher before the
+          # autostart target (mirrors PKGBUILD package()).
+          cp packaging/noctalia.service publish/aqueous-linux-x64/lib/systemd/user/
+          mkdir -p publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants
+          ln -sf ../noctalia.service \
+             publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
           cp packaging/udev/70-aqueous-uaccess.rules \
              publish/aqueous-linux-x64/lib/udev/rules.d/ 2>/dev/null || true
 
-          # Quickshell / Noctalia integration assets
-          if [ -d packaging/quickshell ]; then
-            mkdir -p publish/aqueous-linux-x64/share/aqueous/quickshell
-            cp packaging/quickshell/*.qml publish/aqueous-linux-x64/share/aqueous/quickshell/ 2>/dev/null || true
-          fi
+          # Noctalia (v5) default config asset
           if [ -d packaging/noctalia ]; then
             mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia
-            cp packaging/noctalia/*.json publish/aqueous-linux-x64/share/aqueous/noctalia/ 2>/dev/null || true
+            cp packaging/noctalia/*.toml publish/aqueous-linux-x64/share/aqueous/noctalia/ 2>/dev/null || true
           fi
           if [ -d packaging/wallpapers ]; then
             mkdir -p publish/aqueous-linux-x64/share/aqueous/wallpapers

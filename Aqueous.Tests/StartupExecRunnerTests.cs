@@ -107,7 +107,7 @@ public class StartupExecRunnerTests
         var entry = new ExecEntry
         {
             Name = "noctalia",
-            Command = "qs -c noctalia-shell",
+            Command = "noctalia --daemon",
             LogPath = "/tmp/noctalia.log",
             Env = new Dictionary<string, string> { ["QT_QPA_PLATFORM"] = "wayland" },
         };
@@ -116,7 +116,7 @@ public class StartupExecRunnerTests
         runner.OnStartup();
 
         var req = Assert.Single(host.Spawns);
-        Assert.Equal("qs -c noctalia-shell", req.Command);
+        Assert.Equal("noctalia --daemon", req.Command);
         Assert.Equal("/tmp/noctalia.log", req.LogPath);
         Assert.NotNull(req.Env);
         Assert.Equal("wayland", req.Env!["QT_QPA_PLATFORM"]);

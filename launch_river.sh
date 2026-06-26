@@ -9,7 +9,7 @@ dotnet build Aqueous/Aqueous.csproj
 
 # Kill any stale instances from a previous session.
 pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous' 2>/dev/null
-#pkill -9 -f 'qs -c noctalia-shell'                    2>/dev/null
+#pkill -9 -f 'noctalia'                                 2>/dev/null
 #pkill -9 -f '^riverdelta '                             2>/dev/null
 sleep 0.3
 

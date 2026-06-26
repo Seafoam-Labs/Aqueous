@@ -77,7 +77,7 @@ unfocused       = 0.9    # unfocused-window opacity when focus_sensitive = true
 # This is where you set actions that are attached to a keybind
 # -----------------------------------------------------------------------------
 [actions]
-toggle_start_menu = "qs -c noctalia-shell ipc call launcher toggle"
+toggle_start_menu = "noctalia msg panel-toggle launcher"
 spawn_terminal = "tabby"
 lock_screen = "swaylock -f --screenshots --clock --indicator --effect-blur 7x5 --effect-vignette 0.5:0.5 --fade-in 0.2 --grace 2 --ring-color bb00cc --key-hover-color ee00ee --line-color 00000000 --inside-color 00000088 --separator-color 00000000"
 

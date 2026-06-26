@@ -16,7 +16,7 @@ public class ExecConfigTests
         var toml = """
             [[exec]]
             name    = "noctalia"
-            command = "qs -c noctalia-shell"
+            command = "noctalia --daemon"
             when    = "startup"
             once    = true
             restart = false
@@ -27,7 +27,7 @@ public class ExecConfigTests
 
         var entry = Assert.Single(cfg.Exec.Entries);
         Assert.Equal("noctalia", entry.Name);
-        Assert.Equal("qs -c noctalia-shell", entry.Command);
+        Assert.Equal("noctalia --daemon", entry.Command);
         Assert.Equal(ExecWhen.Startup, entry.When);
         Assert.True(entry.Once);
         Assert.False(entry.Restart);
@@ -42,7 +42,7 @@ public class ExecConfigTests
         var toml = """
             [[exec]]
             name    = "bar"
-            command = "qs -c noctalia-shell"
+            command = "noctalia --daemon"
             """;
         var cfg = LayoutConfigLoader.Parse(toml);
 
@@ -148,7 +148,7 @@ public class ExecConfigTests
         var toml = """
             [[exec]]
             name    = "bar"
-            command = "qs -c noctalia-shell"
+            command = "noctalia --daemon"
 
             [layout]
             default = "scrolling"

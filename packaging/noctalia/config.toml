@@ -1,0 +1,35 @@
+# Aqueous default Noctalia (v5) config.
+#
+# Seeded to ~/.config/noctalia/config.toml on first launch by aqueous-init when
+# the user has no Noctalia config yet. Never overwritten afterwards.
+#
+# Noctalia v5 reads every *.toml in ~/.config/noctalia/ and merges them; this is
+# the hand-written base layer. Changes made in the Noctalia Settings GUI are
+# written separately to ~/.local/state/noctalia/settings.toml and win over the
+# values here. v5 ships sane defaults, so this seed stays minimal: it only sets
+# the bundled wallpapers and the idle/lock behaviour.
+
+[wallpaper]
+enabled   = true
+fill_mode = "fit"                 # center | crop | fit | stretch | repeat | span
+directory = "/usr/share/aqueous/wallpapers"
+
+[wallpaper.automation]
+enabled          = true
+interval_minutes = 5              # rotate wallpaper every 5 min (v4 randomIntervalSec = 300)
+order            = "random"       # random | alphabetical
+
+[lockscreen]
+enabled         = true
+blurred_desktop = true            # blurred desktop snapshot behind the lock screen (v4 enableBlurBehind)
+
+[idle.behavior.lock]
+timeout = 300                     # lock after 5 min idle (v4 lockTimeout = 300)
+command = "noctalia:session lock"
+enabled = true
+
+[idle.behavior.screen-off]
+timeout        = 600              # DPMS off after 10 min idle (v4 screenOffTimeout = 600)
+command        = "noctalia:dpms-off"
+resume_command = "noctalia:dpms-on"
+enabled        = true

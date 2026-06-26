@@ -10,7 +10,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
-         'noctalia-shell' 'libdecor' 'grim' 'slurp' 'xwayland-satellite'
+         'noctalia-git' 'libdecor' 'grim' 'slurp' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'swaylock-effects' 'swayidle'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -47,7 +47,7 @@ pkgver() {
     local ver
     ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
     if [[ -z "$ver" ]]; then
-        ver="0.1.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
+        ver="0.2.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
     fi
     echo "$ver"
 }
@@ -210,15 +210,10 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous.tmpfiles" \
         "$pkgdir/usr/lib/tmpfiles.d/aqueous.conf"
 
-    # Quickshell/Noctalia bridge for the output daemon. Imported as
-    #   import "file:///usr/share/aqueous/quickshell" as Aqueous
-    install -Dm644 "$srcdir/aqueous/packaging/quickshell/OutputControl.qml" \
-        "$pkgdir/usr/share/aqueous/quickshell/OutputControl.qml"
-
-    # Default Noctalia config (seeded on first launch by aqueous-init when
-    # the user has no ~/.config/noctalia/settings.json yet).
-    install -Dm644 "$srcdir/aqueous/packaging/noctalia/settings.json" \
-        "$pkgdir/usr/share/aqueous/noctalia/settings.json"
+    # Default Noctalia (v5) config (seeded on first launch by aqueous-init when
+    # the user has no ~/.config/noctalia/config.toml yet).
+    install -Dm644 "$srcdir/aqueous/packaging/noctalia/config.toml" \
+        "$pkgdir/usr/share/aqueous/noctalia/config.toml"
 
     # Default wallpapers referenced by the shipped Noctalia config.
     install -d "$pkgdir/usr/share/aqueous/wallpapers"

@@ -2,7 +2,8 @@
 A minimal Wayland window manager built on top of **RiverDelta** — a fork of
 [River](https://codeberg.org/river/river) vendored in-tree at `compositor/` —
 written in C# / .NET 10. The bar/shell is provided by the external
-[Noctalia](https://github.com/noctalia-dev/noctalia-shell) project.
+[Noctalia](https://github.com/noctalia-dev/noctalia) project (v5, the native
+C++/OpenGL ES shell).
 
 Aqueous is a single-repo project: the .NET window manager and the Zig
 compositor live side-by-side. No submodules, no extra clone steps —
@@ -28,7 +29,8 @@ compositor live side-by-side. No submodules, no extra clone steps —
 - [Zig](https://ziglang.org/) ≥ 0.16.0 — needed to build the in-tree
   RiverDelta compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
   currently provides 0.16.x.
-- [Noctalia](https://github.com/noctalia-dev/noctalia-shell) (`qs` / Quickshell)
+- [Noctalia](https://github.com/noctalia-dev/noctalia) v5 — the native
+  C++/OpenGL ES shell, launched as `noctalia` (not the v4 Quickshell `qs` line)
 - [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) — rootless XWayland bridge (River has no built-in XWayland; satellite is launched by Aqueous via `[[exec]]` in `wm.toml`).
 - [tuigreet](https://github.com/apognu/tuigreet) (optional, for login)
 - `wayland`, `wayland-protocols`, `libxkbcommon`, `libinput`, `pixman`,

@@ -62,7 +62,7 @@ public class LegacySnapZonesIgnoredTests
 
             [[exec]]
             name    = "bar"
-            command = "qs -c noctalia-shell"
+            command = "noctalia --daemon"
             """;
 
         var cfg = LayoutConfigLoader.Parse(toml);
