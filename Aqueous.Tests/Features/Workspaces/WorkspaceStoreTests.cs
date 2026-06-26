@@ -77,6 +77,41 @@ public sealed class WorkspaceStoreTests
     }
 
     [Fact]
+    public void ActiveWorkspaceNumber_UsesCoordinateOrder_NotArrival()
+    {
+        var store = new WorkspaceStore();
+        IntPtr group = 1000;
+        IntPtr output = 5000;
+        store.AddGroup(group);
+        store.SetGroupOutput(group, output);
+        store.EnterGroup(group, 2000);
+        store.EnterGroup(group, 2001);
+        store.EnterGroup(group, 2002);
+        store.SetCoordinates(2000, new uint[] { 2 });
+        store.SetCoordinates(2001, new uint[] { 1 });
+        store.SetCoordinates(2002, new uint[] { 0 });
+        store.SetState(2000, active: true, urgent: false);
+
+        Assert.Equal(3, store.ActiveWorkspaceNumber(output));
+    }
+
+    [Fact]
+    public void NotifyChanged_InvokesChangedSubscriber()
+    {
+        var store = new WorkspaceStore();
+        int fired = 0;
+        store.Changed += () => fired++;
+
+        IntPtr group = 1000;
+        store.AddGroup(group);
+        store.EnterGroup(group, 2000);
+        store.SetState(2000, active: true, urgent: false);
+        store.NotifyChanged();
+
+        Assert.True(fired > 0);
+    }
+
+    [Fact]
     public void ActiveWorkspaceNumber_ZeroWhenNoGroupForOutput()
     {
         var store = new WorkspaceStore();

@@ -70,25 +70,7 @@ internal sealed class WorkspaceController
     private WorkspaceStore Store => _host.Store;
 
     private List<IntPtr> OrderedWorkspaces(WorkspaceGroupInfo group)
-    {
-        return group.Workspaces
-            .Select((h, i) => (h, w: Store.TryGetWorkspace(h, out var w) ? w : null, i))
-            .OrderBy(x => x.w?.Coordinates, CoordinateComparer.Instance)
-            .ThenBy(x => NameKey(x.w?.Name))
-            .ThenBy(x => x.i)
-            .Select(x => x.h)
-            .ToList();
-    }
-
-    private static (int Rank, long Number, string Text) NameKey(string? name)
-    {
-        if (name is not null && long.TryParse(name, out var n))
-        {
-            return (0, n, string.Empty);
-        }
-
-        return (1, 0, name ?? string.Empty);
-    }
+        => Store.OrderedWorkspaces(group).ToList();
 
     /// <summary>Resolve the workspace handle at a 1-based index in the current group.</summary>
     private IntPtr ResolveByIndex(int index)
@@ -310,40 +292,4 @@ internal sealed class WorkspaceController
         return false;
     }
 
-    private sealed class CoordinateComparer : IComparer<uint[]?>
-    {
-        public static readonly CoordinateComparer Instance = new();
-
-        public int Compare(uint[]? x, uint[]? y)
-        {
-            bool xEmpty = x is null || x.Length == 0;
-            bool yEmpty = y is null || y.Length == 0;
-            if (xEmpty && yEmpty)
-            {
-                return 0;
-            }
-
-            if (xEmpty)
-            {
-                return 1;
-            }
-
-            if (yEmpty)
-            {
-                return -1;
-            }
-
-            int n = Math.Min(x!.Length, y!.Length);
-            for (int i = 0; i < n; i++)
-            {
-                int c = x[i].CompareTo(y[i]);
-                if (c != 0)
-                {
-                    return c;
-                }
-            }
-
-            return x.Length.CompareTo(y.Length);
-        }
-    }
 }

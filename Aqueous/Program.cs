@@ -256,6 +256,12 @@ class Program
 
         using var provider = services.BuildServiceProvider();
 
+        {
+            var workspaceStore = provider.GetRequiredService<Aqueous.Features.Workspaces.WorkspaceStore>();
+            var requestSender = provider.GetRequiredService<Aqueous.Features.Layout.IManagerRequestSender>();
+            workspaceStore.Changed += () => requestSender.ScheduleManage();
+        }
+
         // Seed the libinput applier with the startup config. Devices appear asynchronously after
         // RiverCompositorHost binds the river_libinput_config_v1 global; the applier will apply this
         // config the first time each device emits its done event. Reload from KeyBindingRouter calls

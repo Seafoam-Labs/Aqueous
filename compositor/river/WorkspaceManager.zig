@@ -138,11 +138,10 @@ const Manager = struct {
                     changed = true;
                 }
 
-                const positional_id: u32 = coordinate + 1;
-                if (handle.sent_id != positional_id) {
-                    handle.sent_id = positional_id;
+                if (handle.sent_id != workspace.id) {
+                    handle.sent_id = workspace.id;
                     var id_buf: [16]u8 = undefined;
-                    const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{positional_id}) catch "1";
+                    const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{workspace.id}) catch "1";
                     handle.resource.sendId(id_str.ptr);
                     changed = true;
                 }
