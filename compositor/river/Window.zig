@@ -1290,7 +1290,17 @@ fn clearSnapshot(window: *Window) void {
 /// snapshot teardown frame. Uses frame-rate-independent exponential smoothing.
 pub fn stepAnimation(window: *Window, dt_s: f64) bool {
     if (comptime !fx.anim_enabled) return false;
-    if (!window.anim_active) return false;
+    if (!window.anim_active) {
+        // Defensive invariant: a clone may only stay armed while a slide is in
+        // flight (`anim_active`). If any path ever clears `anim_active` without
+        // routing through `clearSnapshot()`, tear the orphaned clone down here so
+        // it cannot keep compositing in the shared scene layer.
+        if (window.anim_snapshot) {
+            window.clearSnapshot();
+            return true;
+        }
+        return false;
+    }
 
     const t = 1.0 - @exp(-fx.anim_rate * dt_s);
     window.anim_x += (window.anim_target_x - window.anim_x) * t;
