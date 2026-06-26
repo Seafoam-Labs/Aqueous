@@ -603,6 +603,18 @@ fn renderFinish(wm: *WindowManager) void {
         }
     }
 
+    // Now that every window's renderFinish has run, any pending workspace-swap
+    // slide has been seeded/armed. Mark each transitioning output so that
+    // finalizeTransition is allowed to complete it; doing it here (rather than
+    // in Window.renderFinish) also correctly handles switches with no windows
+    // to animate, which would otherwise leave prev_workspace stuck forever.
+    {
+        var it = server.om.outputs.iterator(.forward);
+        while (it.next()) |output| {
+            if (output.prev_workspace != null) output.transition_armed = true;
+        }
+    }
+
     server.om.commitOutputState();
 
     {

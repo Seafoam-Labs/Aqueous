@@ -28,6 +28,11 @@ pub const anim_enabled: bool = build_options.animations;
 /// Exponential smoothing rate for window position animations.
 pub const anim_rate: f64 = 18.0;
 
+/// Exponential smoothing rate for the workspace-swap slide. Kept separate from
+/// `anim_rate` so the full-width workspace transition can be paced (typically
+/// slower) independently of ordinary window moves. Higher = snappier.
+pub const workspace_slide_rate: f64 = 7.0;
+
 /// Distance (in layout pixels) below which an animation is considered complete
 /// and snapped to its target.
 pub const anim_epsilon: f64 = 0.5;

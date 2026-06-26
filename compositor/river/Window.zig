@@ -310,6 +310,14 @@ anim_active: bool = false,
 anim_initialized: bool = false,
 /// True while `anim_tree` currently holds a cloned snapshot of the surfaces.
 anim_snapshot: bool = false,
+/// Set once a window's clone has been seeded off-screen for the current
+/// workspace-swap slide, so the seeding only happens on the first transition
+/// frame. Reset at the start of each transition in `Output.activateWorkspace`.
+slide_seeded: bool = false,
+/// Smoothing rate to use for the current in-flight animation. Defaults to the
+/// ordinary `fx.anim_rate`; set to `fx.workspace_slide_rate` while a
+/// workspace-swap slide is running so the transition can be paced separately.
+cur_anim_rate: f64 = fx.anim_rate,
 
 foreign_toplevel_handle: ?*wlr.ExtForeignToplevelHandleV1 = null,
 wlr_toplevel_handle: ?*wlr.ForeignToplevelHandleV1 = null,
@@ -1118,7 +1126,25 @@ pub fn renderFinish(window: *Window) void {
     // commits its initial buffer and before the render sequence with the first
     // dimensions event is completed.
     // Keeping the nodes enabled while closing is necessary for frame perfection.
-    const workspace_visible = if (window.workspace) |workspace| workspace.isActive() else true;
+    // A window is visible when its workspace is the active one, OR — during a
+    // workspace-swap slide — when its workspace is the one currently sliding
+    // out. Keeping both the incoming and outgoing workspaces rendered for the
+    // duration of the transition lets the swap be a positional slide (driven by
+    // the same eased `anim_tree` overlay as a normal move) instead of a toggle.
+    var is_incoming = false;
+    var is_outgoing = false;
+    var transition_dir: i32 = 0;
+    var output_width: i32 = 0;
+    if (window.workspace) |workspace| {
+        const ws_output = workspace.output;
+        is_incoming = workspace.isActive();
+        is_outgoing = ws_output.prev_workspace == workspace;
+        transition_dir = ws_output.transition_dir;
+        const dims = ws_output.sent.dimensions();
+        output_width = @intCast(dims[0]);
+    }
+    const workspace_visible = (window.workspace == null) or is_incoming or is_outgoing;
+    const transitioning = (is_incoming or is_outgoing) and transition_dir != 0;
     const enabled = workspace_visible and !requested.hidden and (window.state == .mapped or window.state == .closing);
     window.tree.node.setEnabled(enabled);
     window.popup_tree.node.setEnabled(enabled);
@@ -1153,9 +1179,34 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
-        // Only animate when the window is actually on-screen; snap otherwise so a
-        // hidden/closing window does not visibly "catch up" when it reappears.
-        window.setAnimationTarget(requested.x, requested.y, enabled);
+        if (transitioning and is_outgoing) {
+            // Outgoing window: ease its clone from the real position to one
+            // output-width off-screen in the transition direction; the live
+            // tree jumps off-screen immediately (it is leaving) but stays
+            // invisible behind the clone.
+            window.setAnimationTarget(requested.x - transition_dir * output_width, requested.y, true);
+            window.cur_anim_rate = fx.workspace_slide_rate;
+        } else if (transitioning and is_incoming and !window.slide_seeded) {
+            // Incoming window, first transition frame: seed its clone one
+            // output-width off-screen, then ease it to its real position.
+            window.beginSlideFrom(
+                requested.x + transition_dir * output_width,
+                requested.y,
+                requested.x,
+                requested.y,
+            );
+            window.slide_seeded = true;
+        } else if (transitioning and is_incoming) {
+            // Incoming window, subsequent frames: keep easing toward the real
+            // position so the in-flight slide continues.
+            window.setAnimationTarget(requested.x, requested.y, true);
+            window.cur_anim_rate = fx.workspace_slide_rate;
+        } else {
+            // Only animate when the window is actually on-screen; snap otherwise
+            // so a hidden/closing window does not visibly "catch up" when it
+            // reappears.
+            window.setAnimationTarget(requested.x, requested.y, enabled);
+        }
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
@@ -1223,6 +1274,9 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
         }
         window.armSnapshot();
         window.anim_active = true;
+        // Default to the ordinary move rate; the workspace-swap call sites
+        // re-assert `fx.workspace_slide_rate` after this returns.
+        window.cur_anim_rate = fx.anim_rate;
         // Arming an animation does not move the live node, so explicitly schedule
         // a frame to ensure the per-frame driver in Output.handleFrame runs.
         if (window.workspace) |ws| {
@@ -1284,6 +1338,42 @@ fn clearSnapshot(window: *Window) void {
     window.applyOpacity();
 }
 
+/// Begin a slide whose eased clone starts at (start_x, start_y) and animates to
+/// (target_x, target_y). Used by the workspace-swap transition to make an
+/// incoming window's clone appear off-screen and then slide into place, while
+/// the live surfaces (and input geometry) settle directly at the target.
+pub fn beginSlideFrom(
+    window: *Window,
+    start_x: i32,
+    start_y: i32,
+    target_x: i32,
+    target_y: i32,
+) void {
+    if (comptime !fx.anim_enabled) return;
+    // Seed the clone's origin off-screen and arm it there. Clearing anim_active
+    // first ensures setAnimationTarget does not overwrite the seeded origin with
+    // the live (on-screen) box position.
+    window.anim_x = @floatFromInt(start_x);
+    window.anim_y = @floatFromInt(start_y);
+    window.anim_active = false;
+    window.armSnapshot();
+    window.anim_active = true;
+    window.setAnimationTarget(target_x, target_y, true);
+    // setAnimationTarget reset the rate to the ordinary default; re-assert the
+    // slower workspace-swap pacing for this incoming slide.
+    window.cur_anim_rate = fx.workspace_slide_rate;
+}
+
+/// Abort any in-flight slide for this window, tearing down its clone. Used when
+/// a workspace-swap transition is cancelled (output disconnect/migrate/clear).
+pub fn cancelSlide(window: *Window) void {
+    if (comptime !fx.anim_enabled) return;
+    window.anim_active = false;
+    window.slide_seeded = false;
+    window.cur_anim_rate = fx.anim_rate;
+    window.clearSnapshot();
+}
+
 /// Advance this window's position animation by `dt_s` seconds. Only the cosmetic
 /// `anim_tree` overlay is moved; the live `tree`/`popup_tree` stay pinned at the
 /// target. Returns true when animation changed scene state, including the final
@@ -1302,7 +1392,7 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
         return false;
     }
 
-    const t = 1.0 - @exp(-fx.anim_rate * dt_s);
+    const t = 1.0 - @exp(-window.cur_anim_rate * dt_s);
     window.anim_x += (window.anim_target_x - window.anim_x) * t;
     window.anim_y += (window.anim_target_y - window.anim_y) * t;
 

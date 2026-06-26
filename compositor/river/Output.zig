@@ -176,6 +176,19 @@ workspaces: wl.list.Head(Workspace, .link),
 /// The single workspace currently visible on this output.
 active_workspace: ?*Workspace = null,
 
+/// Workspace currently sliding out during a switch (null when not
+/// transitioning). A non-null value is the single source of truth that a
+/// workspace-swap slide animation is in flight on this output.
+prev_workspace: ?*Workspace = null,
+/// Sign of the slide direction during a transition: +1 means the incoming
+/// workspace enters from the right (outgoing exits left), -1 the reverse.
+transition_dir: i32 = 0,
+/// True once `renderFinish` has actually armed the current workspace-swap
+/// slide. Guards `finalizeTransition` against running before the (async)
+/// windowing transaction has seeded/armed the participating windows, which
+/// would otherwise cancel the transition before it visibly begins.
+transition_armed: bool = false,
+
 /// State to be sent to the wm in the next manage sequence.
 scheduled: State,
 /// State sent to the wm in the latest manage sequence.
@@ -293,13 +306,86 @@ pub fn ensureWorkspaces(output: *Output) void {
 /// Make the given workspace the single active workspace on this output.
 pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     assert(workspace.output == output);
-    if (output.active_workspace == workspace) return;
+    const prev = output.active_workspace;
+    if (prev == workspace) return;
+
+    if (comptime fx.anim_enabled) {
+        if (prev) |p| {
+            // Begin a workspace-swap slide. `renderFinish` keeps both the
+            // outgoing (`prev_workspace`) and incoming (`active_workspace`)
+            // workspaces rendered and offset; the transition is finalized in
+            // `stepAnimations` once every participating window has settled.
+            // If a transition is already in flight, retarget it: the workspace
+            // sliding out is whichever one we are leaving now.
+            output.prev_workspace = p;
+            output.transition_dir = output.slideDirection(p, workspace);
+            output.transition_armed = false;
+            // The incoming windows must seed their clones off-screen on the
+            // first transition frame; clear any stale seed flags so they do.
+            var it = p.windows.iterator(.forward);
+            while (it.next()) |w| w.slide_seeded = false;
+            var it2 = workspace.windows.iterator(.forward);
+            while (it2.next()) |w| w.slide_seeded = false;
+        }
+    }
+
     output.active_workspace = workspace;
     // Reaping is intentionally not performed here: it is deferred to the end of
     // the workspace transaction so an in-flight batch cannot free a workspace
     // it still references. Other call sites (window unmap/move) reap directly.
     server.wm.dirtyWindowing();
     server.workspace_manager.dirty();
+    if (output.wlr_output) |o| o.scheduleFrame();
+}
+
+/// Return the slide direction sign for a transition from `prev` to `next`:
+/// +1 when `next` is ordered after `prev` in `output.workspaces` (new content
+/// enters from the right), -1 otherwise.
+fn slideDirection(output: *Output, prev: *Workspace, next: *Workspace) i32 {
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |w| {
+        if (w == prev) return 1;
+        if (w == next) return -1;
+    }
+    return 1;
+}
+
+/// Abort any in-flight workspace-swap slide, tearing down the participating
+/// windows' clones so they cannot outlive their workspace (e.g. when an output
+/// is disconnected, migrated, or cleared mid-transition).
+pub fn cancelTransition(output: *Output) void {
+    if (comptime !fx.anim_enabled) return;
+    if (output.prev_workspace) |prev| {
+        var it = prev.windows.iterator(.forward);
+        while (it.next()) |w| w.cancelSlide();
+    }
+    if (output.active_workspace) |active| {
+        var it = active.windows.iterator(.forward);
+        while (it.next()) |w| w.cancelSlide();
+    }
+    output.prev_workspace = null;
+    output.transition_dir = 0;
+    output.transition_armed = false;
+}
+
+/// If a workspace-swap slide is in flight and every participating window has
+/// settled, commit the end state: clear the transition so the outgoing
+/// workspace's windows hit the non-visible gate (disabling their live trees) on
+/// the next `renderFinish`, then reap the now-hidden empty workspace.
+fn finalizeTransition(output: *Output) void {
+    if (comptime !fx.anim_enabled) return;
+    const prev = output.prev_workspace orelse return;
+    // Do not finalize before `renderFinish` has armed the slide: an early frame
+    // (scheduled by `activateWorkspace`) can beat the async windowing
+    // transaction, at which point no window is animating yet and finalizing
+    // here would cancel the transition before it visibly begins.
+    if (!output.transition_armed) return;
+    if (output.hasActiveAnimations()) return;
+    output.prev_workspace = null;
+    output.transition_dir = 0;
+    output.transition_armed = false;
+    server.wm.dirtyWindowing();
+    if (!prev.pinned and prev.empty()) output.reapEmpty();
 }
 
 /// Made a noop as static exists but this is safer than removing the functionality entirely
@@ -315,6 +401,11 @@ pub fn reapEmpty(output: *Output) void {
     while (it.next()) |workspace| {
         if (workspace.pinned) continue;
         if (workspace == output.active_workspace) continue;
+        // Never reap a workspace that is still sliding out: its windows' clones
+        // are mid-transition and `Workspace.destroy` asserts the workspace is
+        // inactive and empty. The finalize block clears `prev_workspace` and
+        // calls `reapEmpty` again once the slide completes.
+        if (workspace == output.prev_workspace) continue;
         if (workspace == last) continue;
         if (workspace.empty()) workspace.destroy();
     }
@@ -334,6 +425,7 @@ fn fallbackOutput(output: *Output) ?*Output {
 }
 
 fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
+    output.cancelTransition();
     output.active_workspace = null;
     var it = output.workspaces.safeIterator(.forward);
     while (it.next()) |workspace| {
@@ -366,6 +458,7 @@ fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
 /// done without triggering reaping so it is safe to call while iterating the
 /// workspace list.
 fn clearWorkspaces(output: *Output) void {
+    output.cancelTransition();
     output.active_workspace = null;
     var it = output.workspaces.iterator(.forward);
     while (it.next()) |workspace| {
@@ -630,6 +723,9 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     const animation_changed_scene = output.stepAnimations();
     if (animation_changed_scene) output.scene_output.?.damage_ring.addWhole();
 
+    // Commit the end of a workspace-swap slide once all windows have settled.
+    output.finalizeTransition();
+
     // TODO this should probably be retried on failure
     output.renderAndCommit(animation_changed_scene) catch |err| switch (err) {
         error.CommitFailed => log.err("output commit failed for {s}", .{wlr_output.name}),
@@ -641,7 +737,16 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     // renderAndCommit early-returns when the scene reports no pending changes, so
     // re-arm the frame loop ourselves while any window on this output is still
     // moving; otherwise the animation would stall after the first eased frame.
-    if (output.hasActiveAnimations()) wlr_output.scheduleFrame();
+    if (output.hasActiveAnimations()) {
+        wlr_output.scheduleFrame();
+    } else {
+        // The animation loop is going idle. Clear the delta accumulator so the
+        // next slide's first frame starts fresh (dt == 0) instead of inheriting
+        // the multi-second gap since this slide ended — which would otherwise
+        // produce a single huge first step (clamped to 0.1s) and make every
+        // switch after the first appear to snap most of the way instantly.
+        output.anim_last_ns = 0;
+    }
 }
 
 /// Advance the position animation of every window currently displayed on this
