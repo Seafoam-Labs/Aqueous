@@ -196,16 +196,46 @@ fn setBufferBlurExcluded(buffer: *wlr.SceneBuffer, excluded: bool) void {
     const c = @import("c");
     const scene_buffer: *c.struct_wlr_scene_buffer = @ptrCast(buffer);
     if (excluded) {
-        var region: c.pixman_region32_t = undefined;
+        // Honor the surface's actually-advertised opaque region instead of
+        // stamping the whole buffer rect. Forcing a full-buffer opaque region
+        // tells the renderer it may skip alpha blending over every pixel,
+        // which corrupts translucent clients (e.g. Electron/Discord: rounded
+        // corners and translucent panels composite as stale garbage). Only a
+        // genuinely opaque client (e.g. Steam/games) advertises a region that
+        // covers the buffer, so intersecting that region with the buffer rect
+        // preserves the blur-exclusion optimization for them while leaving
+        // translucent pixels to blend correctly.
+        var rect: c.pixman_region32_t = undefined;
         c.pixman_region32_init_rect(
-            &region,
+            &rect,
             0,
             0,
             @intCast(scene_buffer.dst_width),
             @intCast(scene_buffer.dst_height),
         );
+        defer c.pixman_region32_fini(&rect);
+
+        var region: c.pixman_region32_t = undefined;
+        c.pixman_region32_init(&region);
+        defer c.pixman_region32_fini(&region);
+
+        // Recover the backing wlr_surface (if any) to read its current opaque
+        // region. Border rects and snapshot clones have no backing surface; for
+        // those we leave `region` empty (do not force a full rect) so a clone is
+        // never stamped with a wrong region — `copyBufferFx` already propagates
+        // the correct region from the live buffer.
+        // The raw `c` import exposes `wlr_surface` as an opaque type with no
+        // readable fields, so go through the typed wlroots binding to reach the
+        // committed opaque region (`surface.current.@"opaque"`), then reinterpret
+        // it as the raw pixman type for the intersection below.
+        if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
+            // surface.current.opaque is in surface-local coordinates; clamp it to
+            // the buffer rect so the override never exceeds the buffer.
+            const surface_opaque: *c.pixman_region32_t =
+                @ptrCast(&scene_surface.surface.current.@"opaque");
+            _ = c.pixman_region32_intersect(&region, surface_opaque, &rect);
+        }
         c.wlr_scene_buffer_set_opaque_region(scene_buffer, &region);
-        c.pixman_region32_fini(&region);
     } else {
         // Clearing to an empty region restores the default (client-driven) opacity
         // behaviour so the window participates in blur again.
