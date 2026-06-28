@@ -473,6 +473,41 @@ public sealed class GameModeLayout : ILayoutEngine
     }
 
     /// <summary>
+    /// Swap two explicit non-anchor windows in <see cref="State.NonAnchorOrder"/>. Used by the
+    /// pointer-driven tiling reorder (Super + drag). Refuses to touch the current anchor — its
+    /// position is rule-driven — and returns <c>false</c> if either handle is the anchor or is not
+    /// a tracked non-anchor window.
+    /// </summary>
+    public bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState)
+    {
+        if (perOutputState is not State state || a == b)
+        {
+            return false;
+        }
+
+        // The anchor is positionally fixed; never reorder it via a pointer drag.
+        if (a == state.CurrentAnchor || b == state.CurrentAnchor)
+        {
+            return false;
+        }
+
+        int ia = state.NonAnchorOrder.IndexOf(a);
+        int ib = state.NonAnchorOrder.IndexOf(b);
+        if (ia < 0 || ib < 0)
+        {
+            return false;
+        }
+
+        (state.NonAnchorOrder[ia], state.NonAnchorOrder[ib]) =
+            (state.NonAnchorOrder[ib], state.NonAnchorOrder[ia]);
+        return true;
+    }
+
+    /// <summary>
     /// Move focus across the non-anchor band so <c>focus_*</c> tracks the same geometry as
     /// <see cref="MoveFocused"/>: the no-anchor branch steps by grid math (<c>±1</c> horizontal,
     /// <c>±cols</c> vertical); the anchor branch steps within a side column (<c>±2</c>) or crosses

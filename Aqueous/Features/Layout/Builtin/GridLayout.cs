@@ -159,6 +159,33 @@ public sealed class GridLayout : ILayoutEngine
     }
 
     /// <summary>
+    /// Swap two explicit cells in the positional array. Used by pointer-driven tiling reorder
+    /// (Super + drag). Returns <c>true</c> when both handles are present and were swapped.
+    /// </summary>
+    public bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as GridState;
+        if (state == null || a == b)
+        {
+            return false;
+        }
+
+        int ia = state.Order.IndexOf(a);
+        int ib = state.Order.IndexOf(b);
+        if (ia < 0 || ib < 0)
+        {
+            return false;
+        }
+
+        (state.Order[ia], state.Order[ib]) = (state.Order[ib], state.Order[ia]);
+        return true;
+    }
+
+    /// <summary>
     /// Move focus by grid geometry so <c>focus_*</c> is consistent with <see cref="MoveFocused"/>:
     /// horizontal steps by <c>±1</c>, vertical by <c>±cols</c>. The returned handle is live-checked
     /// against the current snapshot.

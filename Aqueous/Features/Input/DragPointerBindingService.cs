@@ -106,9 +106,14 @@ internal sealed unsafe class DragPointerBindingService
                 // UX as the client-driven pointer_move_requested / pointer_resize_requested paths.
                 // Allow keybind-driven move/resize when the output is on the float engine OR this
                 // specific window is an individually-floating popup/dialog over a tiling layout.
-                if (!(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
+                // For a tiled window, a non-resize (Super+LMB) press instead arms a *tiling reorder*:
+                // we reuse the identical op_start_pointer → op_delta → op_release grab lifecycle but
+                // swap the dragged window's slot in the engine ordering as the cursor crosses tiles.
+                bool floatDrag = _layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating;
+                if (!floatDrag && isResize)
                 {
-                    RiverLog.Write($"super+{(isResize ? "RMB" : "LMB")} drag ignored: float layout not active for window 0x{hovered.ToString("x")}");
+                    // Resize has no meaning in tiling here — keep the old "ignore" behaviour.
+                    RiverLog.Write($"super+RMB drag ignored: float layout not active for window 0x{hovered.ToString("x")}");
                     break;
                 }
 
@@ -132,6 +137,9 @@ internal sealed unsafe class DragPointerBindingService
                 // cycle even if a prior drag's release path didn't clear them.
                 _dragState.DragStarted = false;
                 _dragState.DragFinished = false;
+                // A tiled window's Super+LMB press reorders tiles instead of moving float coords.
+                _dragState.TilingReorder = !floatDrag;
+                _dragState.TilingReorderLastTarget = IntPtr.Zero;
 
                 if (isResize)
                 {

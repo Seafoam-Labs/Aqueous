@@ -144,6 +144,32 @@ public sealed class MonocleLayout : ILayoutEngine
         (s.Order[i], s.Order[j]) = (s.Order[j], s.Order[i]);
         return true;
     }
+
+    /// <summary>
+    /// Swap two explicit windows in the monocle z-stack ordering. Returns <c>true</c> when both
+    /// handles are known to the engine and were swapped.
+    /// </summary>
+    public bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState)
+    {
+        if (perOutputState is not State s || a == b)
+        {
+            return false;
+        }
+
+        int ia = s.Order.IndexOf(a);
+        int ib = s.Order.IndexOf(b);
+        if (ia < 0 || ib < 0)
+        {
+            return false;
+        }
+
+        (s.Order[ia], s.Order[ib]) = (s.Order[ib], s.Order[ia]);
+        return true;
+    }
 }
 
 public sealed class MonocleLayoutFactory : ILayoutFactory

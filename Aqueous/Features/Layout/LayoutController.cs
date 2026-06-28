@@ -424,6 +424,30 @@ public sealed class LayoutController
         return r;
     }
 
+    public bool SwapWindows(
+        IntPtr output,
+        string? outputName,
+        IntPtr a,
+        IntPtr b,
+        int workspaceNumber)
+        => SwapWindows(output, outputName, a, b,
+            new WorkspaceId(output, workspaceNumber));
+
+    public bool SwapWindows(
+        IntPtr output,
+        string? outputName,
+        IntPtr a,
+        IntPtr b,
+        WorkspaceId workspaceId)
+    {
+        var scope = new Scope(workspaceId.Output, workspaceId.Number);
+        var engine = ResolveEngine(scope, outputName);
+        object? state = _stateByScope.TryGetValue(scope, out var s) ? s : null;
+        var r = engine.SwapWindows(output, a, b, ref state);
+        _stateByScope[scope] = state;
+        return r;
+    }
+
     public void ScrollViewport(
         IntPtr output,
         string? outputName,

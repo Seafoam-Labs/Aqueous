@@ -35,6 +35,12 @@ internal sealed class DragStateStore
     public int DragStartPointerY { get; set; }
     public bool DragResizeInformed { get; set; }
 
+    // True while an active drag is reordering a tiled window (vs. moving a float window).
+    public bool TilingReorder { get; set; }
+
+    // Last tile we swapped the dragged window past, to avoid oscillating on the same neighbour.
+    public IntPtr TilingReorderLastTarget { get; set; }
+
     // Seat -> hovered window proxy. Concurrent because pointer-enter/leave events can race with the
     // manage cycle reading this map.
     public ConcurrentDictionary<IntPtr, IntPtr> SeatHoveredWindow { get; } = new();

@@ -550,6 +550,15 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
             return;
         }
 
+        // A tiled window's Super+LMB drag reorders tiles in the engine ordering instead of moving
+        // float coordinates. Branch before the float gate so a tiling drag never falls into the
+        // "abandoned drag" cleanup path below.
+        if (_dragState.TilingReorder)
+        {
+            HandleTilingReorderDelta(adw, dx, dy);
+            return;
+        }
+
         // Drag (move or resize) is only meaningful while the float layout is active; in
         // tile/scrolling/monocle/grid the per- window Floating override is suppressed by LayoutProposer
         // bucketing and any FloatX/Y/W/H written here would be overwritten on the next manage cycle.
@@ -681,9 +690,71 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
         }
     }
 
+    /// <summary>
+    /// Live tiling reorder: synthesize the current pointer position (River does not emit
+    /// <c>pointer_position</c> during a grab, so we add the accumulated delta to the drag-start
+    /// pointer), hit-test it against the tiled neighbours, and swap the dragged window's slot in the
+    /// active engine's ordering whenever the cursor enters a different tile. After a swap the dragged
+    /// window occupies the target's old rect, so the pointer now hovers itself (skipped) — stable,
+    /// no oscillation; moving onto the next tile swaps again.
+    /// </summary>
+    private void HandleTilingReorderDelta(WindowEntry dragged, int dx, int dy)
+    {
+        int px = _dragState.DragStartPointerX + dx;
+        int py = _dragState.DragStartPointerY + dy;
+
+        IntPtr target = HitTestTile(dragged, px, py);
+        if (target == IntPtr.Zero || target == dragged.Proxy
+            || target == _dragState.TilingReorderLastTarget)
+        {
+            return;
+        }
+
+        var outputName = _layoutProposer.ResolveOutputName(dragged.Output);
+        int workspaceNumber = _workspaceStore.ActiveWorkspaceNumber(dragged.Output, _outputRegistry);
+        if (workspaceNumber <= 0)
+        {
+            workspaceNumber = 1;
+        }
+
+        if (_layoutController.SwapWindows(dragged.Output, outputName, dragged.Proxy, target, workspaceNumber))
+        {
+            _dragState.TilingReorderLastTarget = target;
+            _managerRequestSender.ScheduleManage();
+        }
+    }
+
+    /// <summary>
+    /// Return the tiled window whose current rect contains the point (<paramref name="px"/>,
+    /// <paramref name="py"/>), or <see cref="IntPtr.Zero"/> if none. Skips the dragged window
+    /// itself, windows on other outputs/workspaces, hidden windows, and floating windows.
+    /// </summary>
+    private IntPtr HitTestTile(WindowEntry dragged, int px, int py)
+    {
+        foreach (var kvp in _windowRegistry.Entries)
+        {
+            var w = kvp.Value;
+            if (w.Proxy == IntPtr.Zero || w.Proxy == dragged.Proxy
+                || w.Output != dragged.Output || w.Workspace != dragged.Workspace
+                || !w.Visible || w.Floating)
+            {
+                continue;
+            }
+
+            if (px >= w.X && px < w.X + w.W && py >= w.Y && py < w.Y + w.H)
+            {
+                return w.Proxy;
+            }
+        }
+
+        return IntPtr.Zero;
+    }
+
     public void HandleOpRelease(IntPtr seat)
     {
         RiverLog.Write("BRIDGE HandleOpRelease seat=0x" + seat.ToString("x"));
         _dragState.DragFinished = true;
+        _dragState.TilingReorder = false;
+        _dragState.TilingReorderLastTarget = IntPtr.Zero;
     }
 }

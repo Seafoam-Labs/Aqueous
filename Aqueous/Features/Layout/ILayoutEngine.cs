@@ -66,6 +66,17 @@ public interface ILayoutEngine
         int deltaColumns,
         ref object? perOutputState)
     { }
+
+    /// <summary>
+    /// Swap the slots of two windows in the engine's ordering. Returns <c>true</c> if both handles
+    /// were found and swapped. Default: no-op for engines without an explicit order (e.g. floating
+    /// or order-less engines), which simply ignore the request.
+    /// </summary>
+    bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState) => false;
 }
 
 /// <summary>

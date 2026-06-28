@@ -140,6 +140,29 @@ public sealed class TileLayout : ILayoutEngine
         return true;
     }
 
+    public bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as TileState;
+        if (state == null || a == b)
+        {
+            return false;
+        }
+
+        int ia = state.Order.IndexOf(a);
+        int ib = state.Order.IndexOf(b);
+        if (ia < 0 || ib < 0)
+        {
+            return false;
+        }
+
+        (state.Order[ia], state.Order[ib]) = (state.Order[ib], state.Order[ia]);
+        return true;
+    }
+
     public IntPtr? FocusNeighbor(
         IntPtr output,
         IntPtr current,

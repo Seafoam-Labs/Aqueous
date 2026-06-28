@@ -292,6 +292,29 @@ public sealed class ScrollingLayout : ILayoutEngine
         return true;
     }
 
+    public bool SwapWindows(
+        IntPtr output,
+        IntPtr a,
+        IntPtr b,
+        ref object? perOutputState)
+    {
+        var state = perOutputState as ScrollState;
+        if (state == null || a == b)
+        {
+            return false;
+        }
+
+        int ia = state.Columns.IndexOf(a);
+        int ib = state.Columns.IndexOf(b);
+        if (ia < 0 || ib < 0)
+        {
+            return false;
+        }
+
+        (state.Columns[ia], state.Columns[ib]) = (state.Columns[ib], state.Columns[ia]);
+        return true;
+    }
+
     public void ScrollViewport(
         IntPtr output,
         int deltaColumns,

@@ -131,6 +131,8 @@ internal sealed unsafe class WindowEventService
                     _dragState.DragFinished = false;
                     _dragState.DragEdges = 0;
                     _dragState.DragResizeInformed = false;
+                    _dragState.TilingReorder = false;
+                    _dragState.TilingReorderLastTarget = IntPtr.Zero;
                 }
 
                 if (_pendingFocus.Window == proxy)
@@ -244,6 +246,9 @@ internal sealed unsafe class WindowEventService
                 _dragState.DragEdges = 0;
                 _dragState.DragStarted = false;
                 _dragState.DragFinished = false;
+                // Client-driven pointer move is always a float move, never a tiling reorder.
+                _dragState.TilingReorder = false;
+                _dragState.TilingReorderLastTarget = IntPtr.Zero;
                 break;
             }
 
