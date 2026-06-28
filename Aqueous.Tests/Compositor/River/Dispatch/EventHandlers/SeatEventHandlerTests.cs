@@ -106,11 +106,64 @@ public sealed class SeatEventHandlerTests
 
         service.HandlePointerEnterFocusFollow(first.Proxy, new IntPtr(33));
         await Task.Delay(20);
+        // Simulate the cursor physically moving from the first window into the second so the
+        // focus-follow motion gate allows the second enter to take effect.
+        service.CachePointerPosition(new IntPtr(33), 100, 100);
         service.HandlePointerEnterFocusFollow(second.Proxy, new IntPtr(33));
         await Task.Delay(140);
 
         Assert.Equal(second.Proxy, focus.FocusedWindow);
         Assert.Equal(1, focus.FocusCalls);
+    }
+
+    [Fact]
+    public void PointerEnter_DoesNotChangeFocus_WhenWindowSlidesUnderStationaryCursor()
+    {
+        var focus = new RecordingFocusService();
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "tile", null);
+        var seat = new IntPtr(38);
+        var first = registry.Track(new IntPtr(40));
+        var second = registry.Track(new IntPtr(41));
+        first.Output = second.Output = new IntPtr(28);
+
+        // Cursor moves onto the first window -> focus follows.
+        service.CachePointerPosition(seat, 50, 50);
+        service.HandlePointerEnterFocusFollow(first.Proxy, seat);
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+        Assert.Equal(1, focus.FocusCalls);
+
+        // A keyboard-driven window move slides the second window under the (stationary) cursor:
+        // the compositor re-sends pointer_enter but no pointer_position. Focus must stay put.
+        service.HandlePointerEnterFocusFollow(second.Proxy, seat);
+
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+        Assert.Equal(1, focus.FocusCalls);
+    }
+
+    [Fact]
+    public void PointerEnter_ChangesFocus_AfterCursorMovesAgain()
+    {
+        var focus = new RecordingFocusService();
+        var registry = new WindowRegistry();
+        var service = CreateService(focus, registry, "tile", null);
+        var seat = new IntPtr(39);
+        var first = registry.Track(new IntPtr(42));
+        var second = registry.Track(new IntPtr(43));
+        first.Output = second.Output = new IntPtr(29);
+
+        service.CachePointerPosition(seat, 10, 10);
+        service.HandlePointerEnterFocusFollow(first.Proxy, seat);
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+
+        // Stationary enter is suppressed...
+        service.HandlePointerEnterFocusFollow(second.Proxy, seat);
+        Assert.Equal(first.Proxy, focus.FocusedWindow);
+
+        // ...but once the cursor actually moves, the next enter follows focus again.
+        service.CachePointerPosition(seat, 200, 200);
+        service.HandlePointerEnterFocusFollow(second.Proxy, seat);
+        Assert.Equal(second.Proxy, focus.FocusedWindow);
     }
 
     [Fact]

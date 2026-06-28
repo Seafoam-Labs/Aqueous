@@ -45,6 +45,8 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
     private readonly ILayerShellTeardownService _layerShellTeardown;
     private readonly object _pendingMouseFocusLock = new();
     private CancellationTokenSource? _pendingMouseFocus;
+    private readonly Dictionary<IntPtr, long> _pointerMoveCount = new();
+    private readonly Dictionary<IntPtr, long> _pointerMoveCountAtLastEnter = new();
 
     public SeatInteractionService(
         DragStateStore dragState,
@@ -82,6 +84,8 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
     {
         RiverLog.Write("BRIDGE HandleSeatRemoved seat=0x" + seat.ToString("x"));
         CancelPendingMouseFocus();
+        _pointerMoveCount.Remove(seat);
+        _pointerMoveCountAtLastEnter.Remove(seat);
         _layerShellTeardown.TeardownSeat(seat);
     }
 
@@ -89,6 +93,11 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
     {
         // River_window_management_v1::pointer_position declares its args as type="int" in the protocol
         // XML — global logical coordinates already in pixel space, NOT wl_fixed. Cache as-is.
+        if (!_dragState.SeatPointerPos.TryGetValue(seat, out var prev) || prev.X != x || prev.Y != y)
+        {
+            _pointerMoveCount[seat] = (_pointerMoveCount.TryGetValue(seat, out var c) ? c : 0L) + 1;
+        }
+
         _dragState.SeatPointerPos[seat] = (x, y);
     }
 
@@ -176,6 +185,17 @@ internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
         if (hoveredWindow == IntPtr.Zero)
         {
             RiverLog.Write("MOUSE_FOCUS skip reason=zero-window seat=0x" + seat.ToString("x"));
+            return;
+        }
+
+
+        var moveCount = _pointerMoveCount.TryGetValue(seat, out var mc) ? mc : 0L;
+        var hadPriorEnter = _pointerMoveCountAtLastEnter.TryGetValue(seat, out var moveCountAtLastEnter);
+        _pointerMoveCountAtLastEnter[seat] = moveCount;
+        if (hadPriorEnter && moveCount == moveCountAtLastEnter)
+        {
+            RiverLog.Write("MOUSE_FOCUS skip reason=pointer-stationary hovered=0x" + hoveredWindow.ToString("x")
+                + " seat=0x" + seat.ToString("x"));
             return;
         }
 
