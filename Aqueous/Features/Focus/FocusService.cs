@@ -98,6 +98,17 @@ internal sealed class FocusService : IFocusService
 
     public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
     {
+        // Never record focus on a window that has already left the registry. Mirrors the RequestFocus
+        // guard below: a focus apply that races a window-closed (e.g. the focus-follows-mouse delayed
+        // apply vs WindowEventService.Closed) must not resurrect a freed proxy into
+        // _pendingFocus/_focusedWindow, which the manage cycle would then marshal — a fatal protocol
+        // error that aborts river and tears down the entire desktop.
+        if (windowProxy != IntPtr.Zero && !_windowRegistry.Entries.ContainsKey(windowProxy))
+        {
+            RiverLog.Write($"SetFocusedWindow: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
+            return;
+        }
+
         var currentFocused = _focusedWindow.Current;
         var pendingWindow = _pendingFocus.Window;
         var pendingShellSurface = _pendingFocus.ShellSurface;

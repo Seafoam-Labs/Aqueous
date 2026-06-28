@@ -67,11 +67,26 @@ public sealed unsafe class WindowEventServiceFocusTests
         Assert.Equal(IntPtr.Zero, fixture.Focus.LastRequestedFocus);
     }
 
-    private static (WindowEventService Service, WindowRegistry Windows, FocusedWindowTracker Focused, RecordingFocusService Focus) Build()
+    [Fact]
+    public void ClosedWindow_CancelsPendingPointerFocus()
+    {
+        var fixture = Build();
+        var closed = new IntPtr(0x3000);
+        // Unfocused window: cancellation must still fire (it is unconditional), because a pending
+        // delayed focus-follows-mouse focus can target a window that is not currently focused.
+        fixture.Windows.Entries[closed] = new WindowEntry { Proxy = closed, Workspace = Workspace };
+
+        fixture.Service.HandleEvent(closed, RiverProtocolOpcodes.Window.Closed, null);
+
+        Assert.Equal(1, fixture.Canceller.CancelPendingPointerFocusCalls);
+    }
+
+    private static (WindowEventService Service, WindowRegistry Windows, FocusedWindowTracker Focused, RecordingFocusService Focus, RecordingPointerFocusCanceller Canceller) Build()
     {
         var windows = new WindowRegistry();
         var focus = new RecordingFocusService();
         var focused = new FocusedWindowTracker();
+        var canceller = new RecordingPointerFocusCanceller();
         var stateController = new WindowStateController(new NoopWindowStateHost(), new ScratchpadRegistry());
 
         var service = new WindowEventService(
@@ -86,9 +101,10 @@ public sealed unsafe class WindowEventServiceFocusTests
             stateController,
             new NoopLayoutProposer(),
             new NoopManagerRequestSender(),
-            new WindowRuleEngine());
+            new WindowRuleEngine(),
+            canceller);
 
-        return (service, windows, focused, focus);
+        return (service, windows, focused, focus, canceller);
     }
 
     private sealed class RecordingFocusService : IFocusService
@@ -122,6 +138,13 @@ public sealed unsafe class WindowEventServiceFocusTests
         public void ClearFocusedHandle() => ClearFocusedHandleCalls++;
         public void ReassertFocusAfterLayerRelease() { }
         public void RepairFocusAfterTagChange() { }
+    }
+
+    private sealed class RecordingPointerFocusCanceller : IPointerFocusCanceller
+    {
+        public int CancelPendingPointerFocusCalls { get; private set; }
+
+        public void CancelPendingPointerFocus() => CancelPendingPointerFocusCalls++;
     }
 
     private sealed class NoopLayoutProposer : ILayoutProposer

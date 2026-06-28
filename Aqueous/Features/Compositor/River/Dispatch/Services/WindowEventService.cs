@@ -38,6 +38,7 @@ internal sealed unsafe class WindowEventService
     private readonly ILayoutProposer _layoutProposer;
     private readonly IManagerRequestSender _managerRequestSender;
     private readonly IWindowRuleEngine _ruleEngine;
+    private readonly IPointerFocusCanceller _pointerFocusCanceller;
 
     public WindowEventService(
         IWindowRegistry windowRegistry,
@@ -51,7 +52,8 @@ internal sealed unsafe class WindowEventService
         WindowStateController windowStateController,
         ILayoutProposer layoutProposer,
         IManagerRequestSender managerRequestSender,
-        IWindowRuleEngine ruleEngine)
+        IWindowRuleEngine ruleEngine,
+        IPointerFocusCanceller pointerFocusCanceller)
     {
         _windowRegistry = windowRegistry ?? throw new ArgumentNullException(nameof(windowRegistry));
         _windowStates = windowStates ?? throw new ArgumentNullException(nameof(windowStates));
@@ -65,6 +67,7 @@ internal sealed unsafe class WindowEventService
         _layoutProposer = layoutProposer ?? throw new ArgumentNullException(nameof(layoutProposer));
         _managerRequestSender = managerRequestSender ?? throw new ArgumentNullException(nameof(managerRequestSender));
         _ruleEngine = ruleEngine ?? throw new ArgumentNullException(nameof(ruleEngine));
+        _pointerFocusCanceller = pointerFocusCanceller ?? throw new ArgumentNullException(nameof(pointerFocusCanceller));
     }
 
     /// <summary>
@@ -101,6 +104,11 @@ internal sealed unsafe class WindowEventService
                 var workspace = w.Workspace;
 
                 RiverLog.Write($"window 0x{proxy.ToString("x")} closed");
+                // Cancel any in-flight focus-follows-mouse delayed focus: it may target this very
+                // window (or a neighbour torn down with the same client). Done unconditionally —
+                // not only when this window was focused — and before the registry removal/focus
+                // reassignment below, so the delayed apply cannot resurrect a freed proxy.
+                _pointerFocusCanceller.CancelPendingPointerFocus();
                 _windowStateController.OnWindowDestroyed(new WindowProxy(proxy));
                 _windowStates.TryRemove(proxy, out _);
                 foreach (var ofs in _outputFullscreen)

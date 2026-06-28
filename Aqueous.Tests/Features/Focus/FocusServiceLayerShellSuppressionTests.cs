@@ -25,6 +25,8 @@ public sealed class FocusServiceLayerShellSuppressionTests
 {
     private static readonly IntPtr Seat = new(0x5EA7);
     private static readonly IntPtr Window = new(0x301D);
+    // Deliberately never added to the registry, to exercise the stale/unknown-window guard.
+    private static readonly IntPtr StaleWindow = new(0xDEAD);
 
     // Counts ScheduleManage so a suppressed focus change can be distinguished from an applied one.
     private sealed class CountingManagerRequestSender : IManagerRequestSender
@@ -76,6 +78,10 @@ public sealed class FocusServiceLayerShellSuppressionTests
         FocusedWindowTracker focused, LayerShellFocusState layerFocus, WindowRegistry windows) Build()
     {
         var windows = new WindowRegistry();
+        // Register the window so the apply paths pass the SetFocusedWindow registry-liveness guard;
+        // the suppression tests stay meaningful because the lock guard still fires for a registered
+        // window.
+        windows.Entries[Window] = new WindowEntry { Proxy = Window };
         var outputs = new OutputRegistry();
         var seats = new SeatRegistry();
         var focused = new FocusedWindowTracker();
@@ -102,6 +108,20 @@ public sealed class FocusServiceLayerShellSuppressionTests
         layerFocus.SetExclusive(Seat);
 
         svc.SetFocusedWindow(Window, Seat);
+
+        Assert.Equal(0, sender.ScheduleManageCalls);
+        Assert.Equal(IntPtr.Zero, focused.Current);
+    }
+
+    [Fact]
+    public void SetFocusedWindow_ignored_when_window_not_registered()
+    {
+        var (svc, sender, focused, _, _) = Build();
+
+        // A focus apply targeting a window that has already left the registry (e.g. it was just
+        // closed) must be dropped before any pending-focus/focused-window write, so the manage cycle
+        // never marshals on a freed proxy.
+        svc.SetFocusedWindow(StaleWindow, Seat);
 
         Assert.Equal(0, sender.ScheduleManageCalls);
         Assert.Equal(IntPtr.Zero, focused.Current);

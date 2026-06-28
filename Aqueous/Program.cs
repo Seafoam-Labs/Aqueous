@@ -139,6 +139,11 @@ class Program
 
         // - Seat / drag ---------------------------------------------------
         services.AddSingleton<SeatInteractionService>();
+        // Expose the pointer-focus canceller seam against the same SeatInteractionService singleton
+        // so WindowEventService.Closed can cancel an in-flight focus-follows-mouse delayed focus
+        // without depending on the whole seat service (and without a DI cycle).
+        services.AddSingleton<IPointerFocusCanceller>(sp =>
+            sp.GetRequiredService<SeatInteractionService>());
         services.AddSingleton<Aqueous.Features.Input.DragPointerBindingService>();
 
         // - Bindings ------------------------------------------------------

@@ -29,7 +29,7 @@ namespace Aqueous.Features.Compositor.River;
 /// Pump-thread only.
 /// </para>
 /// </summary>
-internal sealed unsafe class SeatInteractionService
+internal sealed unsafe class SeatInteractionService : IPointerFocusCanceller
 {
     private readonly DragStateStore _dragState;
     private readonly IWindowRegistry _windowRegistry;
@@ -413,64 +413,24 @@ internal sealed unsafe class SeatInteractionService
     private Task ApplyDelayedPointerFocus(IntPtr hoveredWindow, IntPtr seat, WorkspaceId workspaceId, string? outputName, int delayMs, CancellationTokenSource cts)
         => Task.Delay(delayMs, cts.Token).ContinueWith(t =>
         {
+            // Snapshot cancellation BEFORE the finally disposes cts: the validation + apply runs
+            // later on the pump thread via Post, so the posted body must never touch cts after it
+            // has been disposed here.
+            var cancelled = t.IsCanceled || cts.IsCancellationRequested;
             try
             {
-                if (t.IsCanceled || cts.IsCancellationRequested)
+                if (cancelled)
                 {
                     RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=cancelled hovered=0x" + hoveredWindow.ToString("x"));
                     return;
                 }
 
-                if (!_layoutController.Config.Input.FocusFollowsMouse)
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=disabled hovered=0x" + hoveredWindow.ToString("x"));
-                    return;
-                }
-
-                if (hoveredWindow == _focusService.FocusedWindow)
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=already-focused hovered=0x" + hoveredWindow.ToString("x"));
-                    return;
-                }
-
-                if (!_windowRegistry.TryGet(hoveredWindow, out var entry))
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=untracked hovered=0x" + hoveredWindow.ToString("x"));
-                    return;
-                }
-
-                var currentWorkspaceId = ResolveWorkspaceId(entry.Output);
-                if (entry.Output != workspaceId.Output || currentWorkspaceId != workspaceId)
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=stale-context hovered=0x" + hoveredWindow.ToString("x")
-                        + " expectedOutput=0x" + workspaceId.Output.ToString("x")
-                        + " actualOutput=0x" + entry.Output.ToString("x")
-                        + " expectedWorkspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
-                        + " actualWorkspaceId=" + currentWorkspaceId.Number.ToString(CultureInfo.InvariantCulture));
-                    return;
-                }
-
-                var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
-                if (layoutId != "scrolling")
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=layout-changed hovered=0x" + hoveredWindow.ToString("x")
-                        + " layoutId=" + layoutId);
-                    return;
-                }
-
-                var opts = _layoutController.ResolveLayoutOptions(workspaceId, outputName);
-                opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
-                if (!MouseFocusScrollWithinLimit(hoveredWindow, workspaceId.Output, opts))
-                {
-                    RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
-                        + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
-                    return;
-                }
-
-                RiverLog.Write("FOCUS request source=mouse-enter-delayed window=0x" + hoveredWindow.ToString("x")
-                    + " seat=0x" + seat.ToString("x")
-                    + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture));
-                _focusService.SetFocusedWindow(hoveredWindow, seat);
+                // FocusService and the focus stores are pump-thread-only. Funnel the entire
+                // validation + apply onto the pump thread so it is serialized with
+                // WindowEventService's window-closed handling and can never resurrect a freed
+                // proxy into pending focus (which the manage cycle would then marshal).
+                _managerRequestSender.Post(() =>
+                    ApplyPointerFocusOnPump(hoveredWindow, seat, workspaceId, outputName, delayMs));
             }
             finally
             {
@@ -486,6 +446,66 @@ internal sealed unsafe class SeatInteractionService
             }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
+    /// <summary>
+    /// Pump-thread only (invoked via <see cref="IManagerRequestSender.Post"/>). Re-validates the
+    /// focus-follows-mouse context and applies the delayed pointer-focus on the pump thread so the
+    /// "Pump-thread only" focus invariant holds and a window torn down concurrently (e.g. by
+    /// <c>WindowEventService.Closed</c>) cannot be marshalled on a freed proxy.
+    /// </summary>
+    private void ApplyPointerFocusOnPump(IntPtr hoveredWindow, IntPtr seat, WorkspaceId workspaceId, string? outputName, int delayMs)
+    {
+        if (!_layoutController.Config.Input.FocusFollowsMouse)
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=disabled hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
+        if (hoveredWindow == _focusService.FocusedWindow)
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=already-focused hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
+        if (!_windowRegistry.TryGet(hoveredWindow, out var entry))
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=untracked hovered=0x" + hoveredWindow.ToString("x"));
+            return;
+        }
+
+        var currentWorkspaceId = ResolveWorkspaceId(entry.Output);
+        if (entry.Output != workspaceId.Output || currentWorkspaceId != workspaceId)
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=stale-context hovered=0x" + hoveredWindow.ToString("x")
+                + " expectedOutput=0x" + workspaceId.Output.ToString("x")
+                + " actualOutput=0x" + entry.Output.ToString("x")
+                + " expectedWorkspaceId=" + workspaceId.Number.ToString(CultureInfo.InvariantCulture)
+                + " actualWorkspaceId=" + currentWorkspaceId.Number.ToString(CultureInfo.InvariantCulture));
+            return;
+        }
+
+        var layoutId = _layoutController.ResolveLayoutId(workspaceId, outputName);
+        if (layoutId != "scrolling")
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=layout-changed hovered=0x" + hoveredWindow.ToString("x")
+                + " layoutId=" + layoutId);
+            return;
+        }
+
+        var opts = _layoutController.ResolveLayoutOptions(workspaceId, outputName);
+        opts.Extra.TryGetValue("focus_follows_mouse_max_scroll_amount", out var maxScrollRaw);
+        if (!MouseFocusScrollWithinLimit(hoveredWindow, workspaceId.Output, opts))
+        {
+            RiverLog.Write("MOUSE_FOCUS delayed-cancel reason=max-scroll hovered=0x" + hoveredWindow.ToString("x")
+                + " maxScroll=" + (maxScrollRaw ?? "<missing>"));
+            return;
+        }
+
+        RiverLog.Write("FOCUS request source=mouse-enter-delayed window=0x" + hoveredWindow.ToString("x")
+            + " seat=0x" + seat.ToString("x")
+            + " delayMs=" + delayMs.ToString(CultureInfo.InvariantCulture));
+        _focusService.SetFocusedWindow(hoveredWindow, seat);
+    }
+
     private void CancelPendingMouseFocus()
     {
         CancellationTokenSource? cts;
@@ -497,6 +517,9 @@ internal sealed unsafe class SeatInteractionService
 
         cts?.Cancel();
     }
+
+    /// <inheritdoc />
+    public void CancelPendingPointerFocus() => CancelPendingMouseFocus();
 
     public void HandleOpDelta(IntPtr seat, int dx, int dy)
     {
