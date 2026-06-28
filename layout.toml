@@ -1,6 +1,6 @@
 
 [layout]
-# Global default layout id. One of: tile | monocle | grid | float | scrolling
+# Global default layout id. One of: tile | monocle | grid | float | scrolling | dwindle
 default       = "game-mode"
 
 # Gaps (px). Outer = around the screen edge; inner = between tiles.
@@ -45,6 +45,11 @@ gaps_inner = 8
 # PaperWM-style knobs consumed by ScrollingLayout via Extra:
 column_fraction = "0.5"     # each column = 50% of output width
 center_focused  = "true"    # auto-pan so focused column is centred
+
+[layout.options.dwindle]
+# Dwindle (spiral / Fibonacci) knobs consumed via Extra:
+split_ratio = "0.5"        # ratio of every split after the first (first uses master_ratio)
+start_axis  = "vertical"   # first split direction: vertical (left/right) | horizontal (top/bottom)
 
 [layout.options.float]
 # Floating engine has no scalar knobs today; reserved for future use.

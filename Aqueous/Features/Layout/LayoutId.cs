@@ -44,11 +44,16 @@ public readonly record struct LayoutId(string Value)
     public static LayoutId Grid => new("grid");
 
     /// <summary>
+    /// Built-in dwindle (spiral / Fibonacci) layout.
+    /// </summary>
+    public static LayoutId Dwindle => new("dwindle");
+
+    /// <summary>
     /// Returns <c>true</c> when <see cref="Value"/> matches one of the shipped built-in layout ids.
     /// Informational only — resolution does not branch on this property.
     /// </summary>
     public bool IsBuiltin =>
-        Value is "tile" or "float" or "monocle" or "grid";
+        Value is "tile" or "float" or "monocle" or "grid" or "dwindle";
 
     /// <summary>
     /// Normalizes <paramref name="raw"/> by trimming surrounding whitespace and lower-casing under the

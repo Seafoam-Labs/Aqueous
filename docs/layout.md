@@ -27,6 +27,23 @@ Program  →  LayoutRegistry  →  ILayoutFactory  →  ILayoutEngine
   `[layout.options.<id>]` survive parsing so plugins can be registered
   after config is loaded.
 
+## Built-in layouts
+
+The following engines ship in the box and are registered automatically:
+
+- `tile` — master / stack.
+- `monocle` — one window fills the area.
+- `grid` — even grid.
+- `float` — free-floating windows.
+- `scrolling` — PaperWM-style horizontal scrolling.
+- `rows` — horizontal rows.
+- `dwindle` — spiral / Fibonacci: each new window recursively subdivides
+  the remaining space along an axis that alternates every split (first
+  split vertical by default). The first split uses `master_ratio`; every
+  subsequent split uses `dwindle.split_ratio` (default `0.5`). The first
+  split direction is set by `dwindle.start_axis` (`vertical` | `horizontal`).
+- `game-mode` — anchor-aware dispatcher over the other engines.
+
 ## Identifiers — `LayoutId`
 
 `LayoutId` is a `readonly record struct` over a normalized lower-case
