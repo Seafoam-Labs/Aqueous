@@ -44,6 +44,7 @@ request_minimize: wl.Listener(*wlr.XwaylandSurface.event.Minimize) = .init(handl
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
 unmap: wl.Listener(void) = .init(handleUnmap),
+commit: wl.Listener(*wlr.Surface) = .init(handleCommit),
 
 pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     log.debug("new xwayland window: title='{?s}', class='{?s}'", .{
@@ -174,12 +175,20 @@ fn handleAssociate(listener: *wl.Listener(void)) void {
 
     xwindow.xsurface.surface.?.events.map.add(&xwindow.map);
     xwindow.xsurface.surface.?.events.unmap.add(&xwindow.unmap);
+    xwindow.xsurface.surface.?.events.commit.add(&xwindow.commit);
 }
 
 fn handleDissociate(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("dissociate", listener);
     xwindow.map.link.remove();
     xwindow.unmap.link.remove();
+    xwindow.commit.link.remove();
+}
+
+fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("commit", listener);
+    const window = xwindow.window;
+    if (window.state == .mapped) window.applyOpacity();
 }
 
 pub fn handleMap(listener: *wl.Listener(void)) void {

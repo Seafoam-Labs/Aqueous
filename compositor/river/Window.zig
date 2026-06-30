@@ -801,6 +801,7 @@ fn handleRequest(
         .set_window_opacity => |args| {
             if (!server.wm.ensureRendering()) return;
             rendering_requested.opacity = args.value;
+            window.applyOpacity();
         },
         inline .get_decoration_above, .get_decoration_below => |args, req| {
             const above = req == .get_decoration_above;
@@ -1237,12 +1238,10 @@ pub fn renderFinish(window: *Window) void {
     fx.setTreeBlurExcluded(window.surfaces.tree, blur_excluded);
     fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
 
+    // While a position animation is running, applyOpacity() updates the visible
+    // animation clone and keeps the live surfaces invisible at the target so
+    // scene hit-testing / input stay correct.
     window.applyOpacity();
-    // While a position animation is running the live surfaces stay pinned at the
-    // target (so scene hit-testing / input is correct) but are kept invisible;
-    // the eased clone in `anim_tree` is what the user sees. The full opacity is
-    // restored by `applyOpacity()` from `clearSnapshot()` once the slide ends.
-    if (window.anim_snapshot) fx.setTreeOpacity(window.surfaces.tree, 0);
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 
@@ -1625,8 +1624,14 @@ pub fn applyOpacity(window: *Window) void {
     const opacity_frac = window.rendering_requested.opacity orelse server.wm.default_opacity;
     const opacity: f32 = @floatCast(@as(f64, @floatFromInt(opacity_frac)) /
         @as(f64, @floatFromInt(std.math.maxInt(u32))));
-    fx.setTreeOpacity(window.surfaces.tree, opacity);
+
     fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
+    if (window.anim_snapshot) {
+        fx.setTreeOpacity(window.anim_tree, opacity);
+        fx.setTreeOpacity(window.surfaces.tree, 0);
+    } else {
+        fx.setTreeOpacity(window.surfaces.tree, opacity);
+    }
 }
 
 /// Called by the impl when the surface is ready to be displayed

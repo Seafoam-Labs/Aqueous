@@ -387,6 +387,11 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
             }
         },
     }
+
+    // A surface commit may create or replace scene buffers, and wlroots initializes
+    // those buffers as fully opaque. Reapply the compositor-cached opacity so a
+    // focus/activation commit cannot momentarily reset the window to 1.0.
+    window.applyOpacity();
 }
 
 fn handleRequestShowWindowMenu(

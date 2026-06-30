@@ -250,6 +250,8 @@ fn handleRequest(
         .set_opacity => |args| {
             if (!wm.ensureRendering()) return;
             wm.default_opacity = args.value;
+            var it = wm.windows.iterator();
+            while (it.next()) |window| window.applyOpacity();
         },
         .set_workspace_transition => |args| {
             if (!wm.ensureRendering()) return;
