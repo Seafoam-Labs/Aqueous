@@ -49,6 +49,7 @@ internal sealed class FocusService : IFocusService
 
     private readonly FocusHistoryStore _focusHistory;
     private readonly WorkspaceStore _workspaceStore;
+    private IntPtr _windowFocusBeforeShellSurface;
 
     public FocusService(
         IWindowRegistry windowRegistry,
@@ -135,6 +136,11 @@ internal sealed class FocusService : IFocusService
 
         _pendingFocus.SetWindow(windowProxy, seatProxy);
         _focusedWindow.Current = windowProxy;
+        if (windowProxy != IntPtr.Zero)
+        {
+            _windowFocusBeforeShellSurface = IntPtr.Zero;
+        }
+
         if (_windowRegistry.Entries.TryGetValue(windowProxy, out WindowEntry? focusedWindow) && focusedWindow.Workspace != IntPtr.Zero)
         {
             _focusHistory.Record(focusedWindow.Workspace, windowProxy);
@@ -174,6 +180,7 @@ internal sealed class FocusService : IFocusService
         if (_stateController.Value.EnsureRestoredForFocus(handle))
         {
             _pendingFocus.SetWindow(windowProxy, seat);
+            _windowFocusBeforeShellSurface = IntPtr.Zero;
             _managerRequestSender.ScheduleManage();
             return;
         }
@@ -187,6 +194,7 @@ internal sealed class FocusService : IFocusService
 
         _pendingFocus.SetWindow(IntPtr.Zero, IntPtr.Zero);
         _focusedWindow.Current = IntPtr.Zero;
+        _windowFocusBeforeShellSurface = IntPtr.Zero;
 
         if (seat != IntPtr.Zero && _seatRegistry.Entries.ContainsKey(seat))
         {
@@ -298,6 +306,15 @@ internal sealed class FocusService : IFocusService
 
     public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy)
     {
+        var focused = _focusedWindow.Current;
+        if (focused != IntPtr.Zero)
+        {
+            _windowFocusBeforeShellSurface = focused;
+        }
+
+        // A shell/layer surface now has focus, so no normal window should resolve as focused for
+        // focus-sensitive visuals such as opacity and borders.
+        _focusedWindow.Current = IntPtr.Zero;
         _pendingFocus.SetShellSurface(shellSurfaceProxy, seatProxy);
         // Parity with SetFocusedWindow / ClearFocus: ensure the pending focus is actually flushed on the
         // next manage cycle. Without this, if a layer-shell surface (e.g. the start menu) grabs focus
@@ -433,6 +450,7 @@ internal sealed class FocusService : IFocusService
     public void ClearFocusedHandle()
     {
         _focusedWindow.Current = IntPtr.Zero;
+        _windowFocusBeforeShellSurface = IntPtr.Zero;
     }
 
     public void ReassertFocusAfterLayerRelease()
@@ -442,7 +460,32 @@ internal sealed class FocusService : IFocusService
         // suppressed (IsFocusLocked). Neither side restores the previously-focused window on its own,
         // so re-issue the focus request for the still-tracked window to hand keyboard focus back.
         var focused = _focusedWindow.Current;
-        if (focused == IntPtr.Zero || !_windowRegistry.Entries.ContainsKey(focused))
+        if (focused != IntPtr.Zero && !_windowRegistry.Entries.ContainsKey(focused))
+        {
+            RiverLog.Write($"ReassertFocusAfterLayerRelease: dropping stale focused window 0x{focused.ToString("x")}");
+            _focusedWindow.Current = IntPtr.Zero;
+            focused = IntPtr.Zero;
+        }
+
+        if (focused == IntPtr.Zero)
+        {
+            var fallback = _windowFocusBeforeShellSurface;
+            if (fallback != IntPtr.Zero)
+            {
+                if (_windowRegistry.Entries.ContainsKey(fallback))
+                {
+                    focused = fallback;
+                }
+                else
+                {
+                    RiverLog.Write(
+                        $"ReassertFocusAfterLayerRelease: dropping stale pre-shell focused window 0x{fallback.ToString("x")}");
+                    _windowFocusBeforeShellSurface = IntPtr.Zero;
+                }
+            }
+        }
+
+        if (focused == IntPtr.Zero)
         {
             return;
         }
