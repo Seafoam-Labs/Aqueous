@@ -58,6 +58,18 @@ internal sealed unsafe class ManagerEventService
     // clone's z-order and produced the sliding afterimage. 0 forces the first pass to emit.
     private ulong _lastEmissionOrderHash;
 
+    // Last manager-level visual effect values marshalled during a render sequence. Re-sending these
+    // unchanged can force compositor-side blur/backdrop recomputation on every frame.
+    private bool _hasSentManagerBlur;
+    private bool _lastManagerBlurEnabled;
+    private int _lastManagerBlurRadius;
+    private int _lastManagerBlurPasses;
+    private bool _hasSentManagerOpacity;
+    private uint _lastManagerOpacityEncoded;
+    private bool _hasSentWorkspaceTransition;
+    private bool _lastWorkspaceTransitionEnabled;
+    private int _lastWorkspaceTransitionRateFixed;
+
     private static uint EncodeOpacity(double opacity) =>
         (uint)Math.Round(Math.Clamp(opacity, 0.0, 1.0) * uint.MaxValue);
 
@@ -84,8 +96,8 @@ internal sealed unsafe class ManagerEventService
     private static void SplitArgb8888ToUint32Channels(uint color, out uint r, out uint g, out uint b, out uint a)
     {
         r = ((color >> 16) & 0xFF) * 0x01010101u;
-        g = ((color >>  8) & 0xFF) * 0x01010101u;
-        b = ( color        & 0xFF) * 0x01010101u;
+        g = ((color >> 8) & 0xFF) * 0x01010101u;
+        b = (color & 0xFF) * 0x01010101u;
         a = ((color >> 24) & 0xFF) * 0x01010101u;
     }
 
@@ -164,38 +176,38 @@ internal sealed unsafe class ManagerEventService
     {
         try
         {
-        switch (opcode)
-        {
-            case RiverProtocolOpcodes.Manager.Unavailable:
-                RiverLog.Write("river_window_manager_v1.unavailable — another WM is active; giving up");
-                _pump.Stop(TimeSpan.Zero);
-                break;
-            case RiverProtocolOpcodes.Manager.Finished:
-                RiverLog.Write("river_window_manager_v1.finished");
-                _pump.Stop(TimeSpan.Zero);
-                break;
-            case RiverProtocolOpcodes.Manager.ManageStart:
-                HandleManageStart();
-                break;
-            case RiverProtocolOpcodes.Manager.RenderStart:
-                HandleRenderStart();
-                break;
-            case RiverProtocolOpcodes.Manager.SessionLocked:
-                RiverLog.Write("session_locked");
-                break;
-            case RiverProtocolOpcodes.Manager.SessionUnlocked:
-                RiverLog.Write("session_unlocked");
-                break;
-            case RiverProtocolOpcodes.Manager.WindowInformation:
-                HandleWindowInformation(args);
-                break;
-            case RiverProtocolOpcodes.Manager.OutputInformation:
-                HandleOutputInformation(args);
-                break;
-            case RiverProtocolOpcodes.Manager.SeatInformation:
-                HandleSeatInformation(args);
-                break;
-        }
+            switch (opcode)
+            {
+                case RiverProtocolOpcodes.Manager.Unavailable:
+                    RiverLog.Write("river_window_manager_v1.unavailable — another WM is active; giving up");
+                    _pump.Stop(TimeSpan.Zero);
+                    break;
+                case RiverProtocolOpcodes.Manager.Finished:
+                    RiverLog.Write("river_window_manager_v1.finished");
+                    _pump.Stop(TimeSpan.Zero);
+                    break;
+                case RiverProtocolOpcodes.Manager.ManageStart:
+                    HandleManageStart();
+                    break;
+                case RiverProtocolOpcodes.Manager.RenderStart:
+                    HandleRenderStart();
+                    break;
+                case RiverProtocolOpcodes.Manager.SessionLocked:
+                    RiverLog.Write("session_locked");
+                    break;
+                case RiverProtocolOpcodes.Manager.SessionUnlocked:
+                    RiverLog.Write("session_unlocked");
+                    break;
+                case RiverProtocolOpcodes.Manager.WindowInformation:
+                    HandleWindowInformation(args);
+                    break;
+                case RiverProtocolOpcodes.Manager.OutputInformation:
+                    HandleOutputInformation(args);
+                    break;
+                case RiverProtocolOpcodes.Manager.SeatInformation:
+                    HandleSeatInformation(args);
+                    break;
+            }
         }
         catch (Exception ex)
         {
@@ -500,28 +512,52 @@ internal sealed unsafe class ManagerEventService
             var manager = _bindSiteState.Manager;
             if (manager != IntPtr.Zero)
             {
-                WaylandInterop.wl_proxy_marshal_flags(
-                    manager, 7, IntPtr.Zero, 0, 0,
-                    (IntPtr)(blurCfg.Enabled ? 1u : 0u),
-                    (IntPtr)blurCfg.Radius,
-                    (IntPtr)blurCfg.Passes,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (!_hasSentManagerBlur
+                    || _lastManagerBlurEnabled != blurCfg.Enabled
+                    || _lastManagerBlurRadius != blurCfg.Radius
+                    || _lastManagerBlurPasses != blurCfg.Passes)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        manager, 7, IntPtr.Zero, 0, 0,
+                        (IntPtr)(blurCfg.Enabled ? 1u : 0u),
+                        (IntPtr)blurCfg.Radius,
+                        (IntPtr)blurCfg.Passes,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    _hasSentManagerBlur = true;
+                    _lastManagerBlurEnabled = blurCfg.Enabled;
+                    _lastManagerBlurRadius = blurCfg.Radius;
+                    _lastManagerBlurPasses = blurCfg.Passes;
+                }
 
                 double globalOpacity = opacityCfg.Enabled ? opacityCfg.Value : 1.0;
-                WaylandInterop.wl_proxy_marshal_flags(
-                    manager, 8, IntPtr.Zero, 0, 0,
-                    (IntPtr)EncodeOpacity(globalOpacity),
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                uint opacityEncoded = EncodeOpacity(globalOpacity);
+                if (!_hasSentManagerOpacity || _lastManagerOpacityEncoded != opacityEncoded)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        manager, 8, IntPtr.Zero, 0, 0,
+                        (IntPtr)opacityEncoded,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    _hasSentManagerOpacity = true;
+                    _lastManagerOpacityEncoded = opacityEncoded;
+                }
 
                 var wsCfg = _layoutController.Config.WorkspaceTransition;
                 // set_workspace_transition (opcode 9, since v9): enabled uint + rate as wl_fixed
                 // (24.8 fixed-point). A non-positive rate keeps the compositor's built-in default.
                 int wsRateFixed = wsCfg.Rate > 0.0 ? (int)Math.Round(wsCfg.Rate * 256.0) : 0;
-                WaylandInterop.wl_proxy_marshal_flags(
-                    manager, 9, IntPtr.Zero, 0, 0,
-                    (IntPtr)(wsCfg.Enabled ? 1u : 0u),
-                    (IntPtr)wsRateFixed,
-                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                if (!_hasSentWorkspaceTransition
+                    || _lastWorkspaceTransitionEnabled != wsCfg.Enabled
+                    || _lastWorkspaceTransitionRateFixed != wsRateFixed)
+                {
+                    WaylandInterop.wl_proxy_marshal_flags(
+                        manager, 9, IntPtr.Zero, 0, 0,
+                        (IntPtr)(wsCfg.Enabled ? 1u : 0u),
+                        (IntPtr)wsRateFixed,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    _hasSentWorkspaceTransition = true;
+                    _lastWorkspaceTransitionEnabled = wsCfg.Enabled;
+                    _lastWorkspaceTransitionRateFixed = wsRateFixed;
+                }
             }
 
             void EmitWindow(IntPtr key, WindowEntry we, bool emitPlaceTop)
@@ -636,10 +672,46 @@ internal sealed unsafe class ManagerEventService
                 ? ClassifyState(focused)
                 : WindowState.Tiled;
 
+            static bool Overlaps(WindowEntry a, WindowEntry b) =>
+                a.W > 0 && a.H > 0 &&
+                b.W > 0 && b.H > 0 &&
+                a.X < b.X + b.W &&
+                a.X + a.W > b.X &&
+                a.Y < b.Y + b.H &&
+                a.Y + a.H > b.Y;
+
+            bool LayerHasVisibleOverlap(WindowState layer)
+            {
+                var visible = new List<WindowEntry>();
+                foreach (var kvp in _windowRegistry.Entries)
+                {
+                    if (!kvp.Value.Visible || ClassifyState(kvp.Key) != layer)
+                    {
+                        continue;
+                    }
+
+                    visible.Add(kvp.Value);
+                }
+
+                for (int i = 0; i < visible.Count; i++)
+                {
+                    for (int j = i + 1; j < visible.Count; j++)
+                    {
+                        if (Overlaps(visible[i], visible[j]))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
             bool HasFocusedInLayer(WindowState layer) =>
                 focused != IntPtr.Zero
                 && _windowRegistry.Entries.ContainsKey(focused)
-                && focusedState == layer;
+                && focusedState == layer
+                && LayerHasVisibleOverlap(layer);
 
             // Collect the visible windows in their final stacking order rather than emitting them
             // inline. The order is hashed below so place_top is only re-marshalled when the stacking
