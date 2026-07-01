@@ -397,19 +397,36 @@ internal sealed unsafe class WindowEventService
                 int fx, fy;
                 if (_windowRegistry.Entries.TryGetValue(parentProxy, out var parentWindow))
                 {
-                    fx = parentWindow.X + (parentWindow.W - fw) / 2;
-                    fy = parentWindow.Y + (parentWindow.H - fh) / 2;
+                    if (parentWindow.Workspace != IntPtr.Zero)
+                    {
+                        w.Workspace = parentWindow.Workspace;
+                    }
+
+                    if (parentWindow.Output != IntPtr.Zero)
+                    {
+                        w.Output = parentWindow.Output;
+                    }
+
+                    int parentW = parentWindow.W > 0 ? parentWindow.W : parentWindow.ProposedW;
+                    int parentH = parentWindow.H > 0 ? parentWindow.H : parentWindow.ProposedH;
+                    fx = parentWindow.X + Math.Max(0, parentW - fw) / 2;
+                    fy = parentWindow.Y + Math.Max(0, parentH - fh) / 2;
                 }
                 else
                 {
-                    fx = w.X;fy = w.Y;
+                    fx = w.X;
+                    fy = w.Y;
                 }
 
                 _windowStateController.SetFloating(new WindowProxy(proxy), new Rect(fx, fy, fw, fh));
                 w.Floating = true;
                 w.HasFloatRect = true;
-                w.FloatX = fx; w.FloatY = fy; w.FloatW = fw; w.FloatH = fh;
+                w.FloatX = fx;
+                w.FloatY = fy;
+                w.FloatW = fw;
+                w.FloatH = fh;
 
+                _focusService.RequestFocus(proxy);
                 _managerRequestSender.ScheduleManage();
                 break;
 

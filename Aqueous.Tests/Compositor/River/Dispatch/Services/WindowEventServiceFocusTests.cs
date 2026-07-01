@@ -68,6 +68,44 @@ public sealed unsafe class WindowEventServiceFocusTests
     }
 
     [Fact]
+    public void ParentEvent_FocusesTransientChild()
+    {
+        var fixture = Build();
+        var parent = new IntPtr(0x2000);
+        var child = new IntPtr(0x3000);
+        fixture.Windows.Entries[parent] = new WindowEntry { Proxy = parent, Workspace = Workspace, X = 100, Y = 100, W = 1000, H = 800 };
+        fixture.Windows.Entries[child] = new WindowEntry { Proxy = child, Workspace = Workspace };
+
+        WlArgument* args = stackalloc WlArgument[1];
+        args[0].o = parent;
+        fixture.Service.HandleEvent(child, RiverProtocolOpcodes.Window.Parent, args);
+
+        Assert.Equal(parent, fixture.Windows.Entries[child].ParentProxy);
+        Assert.True(fixture.Windows.Entries[child].Floating);
+        Assert.True(fixture.Windows.Entries[child].HasFloatRect);
+        Assert.Equal(child, fixture.Focus.LastRequestedFocus);
+    }
+
+    [Fact]
+    public void ParentEvent_InheritsParentWorkspaceAndOutput()
+    {
+        var fixture = Build();
+        var parent = new IntPtr(0x2000);
+        var child = new IntPtr(0x3000);
+        var output = new IntPtr(0x4000);
+        fixture.Windows.Entries[parent] = new WindowEntry { Proxy = parent, Workspace = Workspace, Output = output, X = 100, Y = 100, W = 1000, H = 800 };
+        fixture.Windows.Entries[child] = new WindowEntry { Proxy = child };
+
+        WlArgument* args = stackalloc WlArgument[1];
+        args[0].o = parent;
+        fixture.Service.HandleEvent(child, RiverProtocolOpcodes.Window.Parent, args);
+
+        Assert.Equal(Workspace, fixture.Windows.Entries[child].Workspace);
+        Assert.Equal(output, fixture.Windows.Entries[child].Output);
+        Assert.Equal(child, fixture.Focus.LastRequestedFocus);
+    }
+
+    [Fact]
     public void ClosedWindow_CancelsPendingPointerFocus()
     {
         var fixture = Build();
