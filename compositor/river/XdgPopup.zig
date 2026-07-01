@@ -12,6 +12,7 @@ const util = @import("util.zig");
 
 const Output = @import("Output.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
+const Seat = @import("Seat.zig");
 
 const log = std.log.scoped(.xdg_popup);
 
@@ -20,6 +21,8 @@ tree: *wlr.SceneTree,
 capture_tree: ?*wlr.SceneTree = null,
 
 destroy: wl.Listener(void) = .init(handleDestroy),
+map: wl.Listener(void) = .init(handleMap),
+unmap: wl.Listener(void) = .init(handleUnmap),
 commit: wl.Listener(*wlr.Surface) = .init(handleCommit),
 new_popup: wl.Listener(*wlr.XdgPopup) = .init(handleNewPopup),
 reposition: wl.Listener(void) = .init(handleReposition),
@@ -43,12 +46,19 @@ pub fn create(
 
     wlr_popup.events.destroy.add(&xdg_popup.destroy);
     wlr_popup.base.surface.events.commit.add(&xdg_popup.commit);
+    wlr_popup.base.surface.events.map.add(&xdg_popup.map);
+    wlr_popup.base.surface.events.unmap.add(&xdg_popup.unmap);
     wlr_popup.base.events.new_popup.add(&xdg_popup.new_popup);
     wlr_popup.events.reposition.add(&xdg_popup.reposition);
 }
 
 fn handleDestroy(listener: *wl.Listener(void)) void {
     const xdg_popup: *XdgPopup = @fieldParentPtr("destroy", listener);
+
+    xdg_popup.restoreFocus();
+
+    xdg_popup.map.link.remove();
+    xdg_popup.unmap.link.remove();
 
     xdg_popup.destroy.link.remove();
     xdg_popup.commit.link.remove();
@@ -99,4 +109,34 @@ fn handleReposition(listener: *wl.Listener(void)) void {
 
     wlr_popup.scheduled.rules.unconstrainBox(&constraint, &wlr_popup.scheduled.geometry);
     _ = wlr_popup.base.scheduleConfigure();
+}
+
+fn handleMap(listener: *wl.Listener(void)) void {
+    const xdg_popup: *XdgPopup = @fieldParentPtr("map", listener);
+    const wlr_popup = xdg_popup.wlr_popup;
+
+    if (wlr_popup.seat) |wlr_seat| {
+        const seat: *Seat = @ptrCast(@alignCast(wlr_seat.data));
+        seat.keyboardEnterOrLeave(wlr_popup.base.surface);
+    }
+}
+
+fn handleUnmap(listener: *wl.Listener(void)) void {
+    const xdg_popup: *XdgPopup = @fieldParentPtr("unmap", listener);
+
+    xdg_popup.restoreFocus();
+}
+
+fn restoreFocus(xdg_popup: *XdgPopup) void {
+    const wlr_popup = xdg_popup.wlr_popup;
+    const popup_surface = wlr_popup.base.surface;
+
+    var seat_it = server.input_manager.seats.iterator(.forward);
+    while (seat_it.next()) |seat| {
+        if (seat.wlr_seat.keyboard_state.focused_surface) |focused_surface| {
+            if (focused_surface == popup_surface) {
+                seat.keyboardEnterOrLeave(wlr_popup.parent orelse seat.focused.surface());
+            }
+        }
+    }
 }

@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: © 2020 The River Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 const XwaylandOverrideRedirect = @This();
@@ -126,9 +127,8 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
 pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (server.lock_manager.state != .unlocked) return;
 
-    if (override_redirect.xsurface.overrideRedirectWantsFocus() and
-        override_redirect.xsurface.icccmInputModel() != .none)
-    {
+    // Removing override_redirect.xsurface.overrideRedirectWantsFocus() put back if it causes issues
+    if (override_redirect.xsurface.icccmInputModel() != .none) {
         const seat = server.input_manager.defaultSeat();
         // Keep the parent top-level Xwayland window of any override redirect surface
         // activated while that override redirect surface is focused. This ensures
