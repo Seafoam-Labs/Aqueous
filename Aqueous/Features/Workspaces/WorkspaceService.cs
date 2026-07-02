@@ -218,6 +218,7 @@ internal sealed unsafe class WorkspaceService : IWorkspaceService, WorkspaceCont
 
     void WorkspaceController.IWorkspaceHost.AfterChange()
     {
+        _focusService.RepairFocusAfterWorkspaceChange();
         _managerRequestSender.ScheduleManage();
         WorkspacesChanged?.Invoke();
     }

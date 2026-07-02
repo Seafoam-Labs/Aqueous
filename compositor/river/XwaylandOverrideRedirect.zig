@@ -28,6 +28,9 @@ destroy: wl.Listener(void) = .init(handleDestroy),
 set_override_redirect: wl.Listener(void) = .init(handleSetOverrideRedirect),
 associate: wl.Listener(void) = .init(handleAssociate),
 dissociate: wl.Listener(void) = .init(handleDissociate),
+set_hints: wl.Listener(void) = .init(handleSetHints),
+set_window_type: wl.Listener(void) = .init(handleSetWindowType),
+set_role: wl.Listener(void) = .init(handleSetRole),
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -53,6 +56,9 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
 
     xsurface.events.associate.add(&override_redirect.associate);
     xsurface.events.dissociate.add(&override_redirect.dissociate);
+    xsurface.events.set_role.add(&override_redirect.set_role);
+    xsurface.events.set_window_type.add(&override_redirect.set_window_type);
+    xsurface.events.set_hints.add(&override_redirect.set_hints);
 
     if (xsurface.surface) |surface| {
         handleAssociate(&override_redirect.associate);
@@ -77,6 +83,9 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     override_redirect.associate.link.remove();
     override_redirect.dissociate.link.remove();
     override_redirect.set_override_redirect.link.remove();
+    override_redirect.set_window_type.link.remove();
+    override_redirect.set_hints.link.remove();
+    override_redirect.set_role.link.remove();
 
     util.gpa.destroy(override_redirect);
 }
@@ -124,11 +133,19 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
     override_redirect.focusIfDesired();
 }
 
+fn refocusIfMapped(override_redirect: *XwaylandOverrideRedirect) void {
+    const surface = override_redirect.xsurface.surface orelse return;
+    if (!surface.mapped) return;
+    if (override_redirect.surface_tree == null) return;
+    override_redirect.focusIfDesired();
+}
+
 pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (server.lock_manager.state != .unlocked) return;
 
     // Removing override_redirect.xsurface.overrideRedirectWantsFocus() put back if it causes issues
     if (override_redirect.xsurface.icccmInputModel() != .none) {
+        const surface = override_redirect.xsurface.surface orelse return;
         const seat = server.input_manager.defaultSeat();
         // Keep the parent top-level Xwayland window of any override redirect surface
         // activated while that override redirect surface is focused. This ensures
@@ -139,10 +156,26 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
             seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
         {
             seat.keyboardEnterOrLeave(override_redirect.xsurface.surface);
+            seat.keyboardEnterOrLeave(surface);
         } else {
             seat.focus(.{ .override_redirect = override_redirect });
         }
     }
+}
+
+fn handleSetHints(listener: *wl.Listener(void)) void {
+    const override: *XwaylandOverrideRedirect = @fieldParentPtr("set_hints", listener);
+    override.refocusIfMapped();
+}
+
+fn handleSetWindowType(listener: *wl.Listener(void)) void {
+    const override: *XwaylandOverrideRedirect = @fieldParentPtr("set_window_type", listener);
+    override.refocusIfMapped();
+}
+
+fn handleSetRole(listener: *wl.Listener(void)) void {
+    const override: *XwaylandOverrideRedirect = @fieldParentPtr("set_role", listener);
+    override.refocusIfMapped();
 }
 
 fn handleUnmap(listener: *wl.Listener(void)) void {

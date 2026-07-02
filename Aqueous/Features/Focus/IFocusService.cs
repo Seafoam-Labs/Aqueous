@@ -36,13 +36,13 @@ public interface IFocusService
     /// and schedule a manage cycle to flush the focus request. Idempotent: no-ops when the same focus
     /// is already applied or pending.
     /// </summary>
-    void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy);
+    void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplication = false);
 
     /// <summary>
     /// Request focus on <paramref name="windowProxy"/> via the primary seat (or the first available
     /// seat). No-op for an unknown or zero window proxy.
     /// </summary>
-    void RequestFocus(IntPtr windowProxy);
+    void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false);
 
     /// <summary>
     /// Clear focus on the primary seat (river_seat_v1::clear_focus).
@@ -86,11 +86,11 @@ public interface IFocusService
     void InvalidateShellSurface(IntPtr shellSurfaceProxy);
 
     /// <summary>
-    /// Self-heal focus when the previously-focused window has just become invisible because of a tag
+    /// Self-heal focus when the previously-focused window has just become invisible because of a workspace
     /// change. Picks the first visible window on the focused output, else any visible window, else
     /// clears focus.
     /// </summary>
-    void RepairFocusAfterTagChange();
+    void RepairFocusAfterWorkspaceChange();
 
     /// <summary>
     /// Forcibly clear the <c>FocusedWindow</c> handle without generating a Wayland clear_focus

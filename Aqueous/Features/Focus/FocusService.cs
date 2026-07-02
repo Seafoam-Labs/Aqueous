@@ -97,7 +97,7 @@ internal sealed class FocusService : IFocusService
         return true;
     }
 
-    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy)
+    public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplipcation = false)
     {
         // Never record focus on a window that has already left the registry. Mirrors the RequestFocus
         // guard below: a focus apply that races a window-closed (e.g. the focus-follows-mouse delayed
@@ -123,7 +123,7 @@ internal sealed class FocusService : IFocusService
         }
 
         if (windowProxy == currentFocused && pendingWindow == IntPtr.Zero &&
-            pendingShellSurface == IntPtr.Zero)
+            pendingShellSurface == IntPtr.Zero && !bypassDeduplipcation)
         {
             return; // already focused and applied
         }
@@ -149,7 +149,7 @@ internal sealed class FocusService : IFocusService
         _managerRequestSender.ScheduleManage();
     }
 
-    public void RequestFocus(IntPtr windowProxy)
+    public void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false)
     {
         // Guard: never schedule focus on a window proxy that isn't tracked. Between the WindowInformation
         // event that originally queued the focus and the manage cycle that drains it, a transient window
@@ -185,7 +185,7 @@ internal sealed class FocusService : IFocusService
             return;
         }
 
-        SetFocusedWindow(windowProxy, seat);
+        SetFocusedWindow(windowProxy, seat, bypassDeduplication);
     }
 
     public void ClearFocus()
@@ -339,7 +339,7 @@ internal sealed class FocusService : IFocusService
         }
     }
 
-    public void RepairFocusAfterTagChange()
+    public void RepairFocusAfterWorkspaceChange()
     {
         var focused = _focusedWindow.Current;
         if (focused != IntPtr.Zero &&
@@ -491,7 +491,8 @@ internal sealed class FocusService : IFocusService
         }
 
         RiverLog.Write($"ReassertFocusAfterLayerRelease: re-focusing window 0x{focused.ToString("x")}");
-        RequestFocus(focused);
+        //Added bypass for deduplications to force assertion while keeping everything within
+        RequestFocus(focused, true);
     }
 
     private IntPtr ResolveSeat()
