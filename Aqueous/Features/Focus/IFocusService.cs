@@ -109,4 +109,6 @@ public interface IFocusService
     /// live tracked window.
     /// </summary>
     void ReassertFocusAfterLayerRelease();
+
+    bool IsInsideDebounce();
 }

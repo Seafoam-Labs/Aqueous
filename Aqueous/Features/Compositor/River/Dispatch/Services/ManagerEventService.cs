@@ -296,6 +296,7 @@ internal sealed unsafe class ManagerEventService
             if (_focusedWindowTracker.Current == IntPtr.Zero
                 && _pendingFocus.Window == IntPtr.Zero
                 && !_shellSurfaceRegistry.IsLive(_pendingFocus.ShellSurface)
+                && !_focusService.IsInsideDebounce()
                 && _windowRegistry.Entries.Count > 0)
             {
                 _focusService.FocusAnyOtherWindow(IntPtr.Zero);

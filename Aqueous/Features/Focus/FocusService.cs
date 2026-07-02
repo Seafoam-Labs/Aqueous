@@ -23,6 +23,9 @@ namespace Aqueous.Features.Focus;
 /// </summary>
 internal sealed class FocusService : IFocusService
 {
+    //Adding a debounce tracker to prevent short cooldown focus bouncing
+    private long _lastShellSurfaceInteractionTicks = 0;
+
     private readonly IWindowRegistry _windowRegistry;
     private readonly IOutputRegistry _outputRegistry;
 
@@ -312,6 +315,7 @@ internal sealed class FocusService : IFocusService
             _windowFocusBeforeShellSurface = focused;
         }
 
+        _lastShellSurfaceInteractionTicks = DateTime.Now.Ticks;
         // A shell/layer surface now has focus, so no normal window should resolve as focused for
         // focus-sensitive visuals such as opacity and borders.
         _focusedWindow.Current = IntPtr.Zero;
@@ -495,6 +499,9 @@ internal sealed class FocusService : IFocusService
         RequestFocus(focused, true);
     }
 
+    // Check if the current interaction is inside the debounce period
+    public bool IsInsideDebounce() => (DateTime.Now.Ticks - _lastShellSurfaceInteractionTicks) < TimeSpan.FromMilliseconds(250).Ticks;
+
     private IntPtr ResolveSeat()
     {
         IntPtr seat = _primarySeat.Current;
@@ -562,4 +569,6 @@ internal sealed class FocusService : IFocusService
     {
         return workspace != IntPtr.Zero && entry.Workspace == workspace;
     }
+
+
 }
