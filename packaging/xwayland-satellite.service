@@ -1,4 +1,3 @@
-# ~/.config/systemd/user/xwayland-satellite.service
 [Unit]
 Description=xwayland-satellite (rootless XWayland bridge)
 PartOf=graphical-session.target
