@@ -113,8 +113,9 @@ public sealed class LayerShellSeatEventHandlerTests
 
         public IntPtr FocusedWindow => IntPtr.Zero;
         public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = IntPtr.Zero; return false; }
-        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) { }
-        public void RequestFocus(IntPtr windowProxy) { }
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplication = false) { }
+        public void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false) { }
+        public void RequestActivation(IntPtr windowProxy) { }
         public void ClearFocus() { }
         public void FocusAnyOtherWindow(IntPtr avoid) { }
         public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace) { }
@@ -122,9 +123,10 @@ public sealed class LayerShellSeatEventHandlerTests
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
-        public void RepairFocusAfterTagChange() { }
+        public void RepairFocusAfterWorkspaceChange() { }
         public void ClearFocusedHandle() { }
         public void ReassertFocusAfterLayerRelease() => ReassertCount++;
+        public bool IsInsideDebounce() => false;
     }
 
     [Fact]

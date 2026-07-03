@@ -191,6 +191,31 @@ internal sealed class FocusService : IFocusService
         SetFocusedWindow(windowProxy, seat, bypassDeduplication);
     }
 
+    public void RequestActivation(IntPtr windowProxy)
+    {
+        // Focus-stealing prevention. A client (e.g. Discord / Fluxer when a message arrives) can
+        // request activation via xdg-activation-v1, which river surfaces as
+        // river_window_v1.activate_requested. Honouring it unconditionally for a window on an
+        // inactive workspace moves keyboard focus to an off-screen window, so the visible window
+        // silently loses focus (the "focus is randomly lost" symptom). Only grant focus when the
+        // target is actually visible on its group's active workspace; otherwise drop the request.
+        // (Urgency signalling for hidden windows rides on ext-workspace state, handled separately.)
+        if (windowProxy == IntPtr.Zero || !_windowRegistry.Entries.TryGetValue(windowProxy, out var entry))
+        {
+            RiverLog.Write($"RequestActivation: ignoring stale/unknown window 0x{windowProxy.ToString("x")}");
+            return;
+        }
+
+        if (_workspaceStore.IsHiddenByWorkspace(entry.Workspace))
+        {
+            RiverLog.Write(
+                $"RequestActivation: suppressed focus steal for window 0x{windowProxy.ToString("x")} on inactive workspace 0x{entry.Workspace.ToString("x")}");
+            return;
+        }
+
+        RequestFocus(windowProxy);
+    }
+
     public void ClearFocus()
     {
         IntPtr seat = ResolveSeat();

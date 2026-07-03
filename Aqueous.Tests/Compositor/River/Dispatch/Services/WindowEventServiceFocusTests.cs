@@ -159,8 +159,9 @@ public sealed unsafe class WindowEventServiceFocusTests
             proxy = IntPtr.Zero;
             return false;
         }
-        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) { }
-        public void RequestFocus(IntPtr windowProxy) => LastRequestedFocus = windowProxy;
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplication = false) { }
+        public void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false) => LastRequestedFocus = windowProxy;
+        public void RequestActivation(IntPtr windowProxy) => RequestFocus(windowProxy);
         public void ClearFocus() { }
         public void FocusAnyOtherWindow(IntPtr avoid) => LastAvoidedWindow = avoid;
         public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace)
@@ -175,7 +176,8 @@ public sealed unsafe class WindowEventServiceFocusTests
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
         public void ClearFocusedHandle() => ClearFocusedHandleCalls++;
         public void ReassertFocusAfterLayerRelease() { }
-        public void RepairFocusAfterTagChange() { }
+        public void RepairFocusAfterWorkspaceChange() { }
+        public bool IsInsideDebounce() => false;
     }
 
     private sealed class RecordingPointerFocusCanceller : IPointerFocusCanceller

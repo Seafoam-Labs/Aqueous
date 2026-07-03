@@ -77,7 +77,7 @@ public sealed class FocusServiceFocusHistoryTests
     }
 
     [Fact]
-    public void RepairFocusAfterTagChange_UsesMruVisibleWindowInActiveWorkspace()
+    public void RepairFocusAfterWorkspaceChange_UsesMruVisibleWindowInActiveWorkspace()
     {
         var fixture = Build();
         var output = new IntPtr(0x7000);
@@ -98,10 +98,46 @@ public sealed class FocusServiceFocusHistoryTests
         fixture.Service.SetFocusedWindow(mruVisible, Seat);
         fixture.Service.SetFocusedWindow(nowHidden, Seat);
 
-        fixture.Service.RepairFocusAfterTagChange();
+        fixture.Service.RepairFocusAfterWorkspaceChange();
 
         Assert.Equal(mruVisible, fixture.Focused.Current);
         Assert.Equal(mruVisible, fixture.Pending.Window);
+    }
+
+    [Fact]
+    public void RequestActivation_FocusesWindowOnActiveWorkspace()
+    {
+        var fixture = Build();
+        var window = new IntPtr(0x3000);
+        fixture.Workspaces.EnterGroup(Group, Workspace);
+        fixture.Workspaces.SetState(Workspace, active: true, urgent: false);
+        fixture.Windows.Entries[window] = Window(window, Workspace);
+
+        fixture.Service.RequestActivation(window);
+
+        Assert.Equal(window, fixture.Focused.Current);
+        Assert.Equal(window, fixture.Pending.Window);
+    }
+
+    [Fact]
+    public void RequestActivation_DoesNotStealFocusFromInactiveWorkspace()
+    {
+        var fixture = Build();
+        var visible = new IntPtr(0x3000);
+        var hidden = new IntPtr(0x4000);
+        fixture.Workspaces.EnterGroup(Group, Workspace);
+        fixture.Workspaces.EnterGroup(Group, OtherWorkspace);
+        fixture.Workspaces.SetState(Workspace, active: true, urgent: false);
+        fixture.Workspaces.SetState(OtherWorkspace, active: false, urgent: false);
+        fixture.Windows.Entries[visible] = Window(visible, Workspace);
+        fixture.Windows.Entries[hidden] = Window(hidden, OtherWorkspace);
+
+        fixture.Service.SetFocusedWindow(visible, Seat);
+
+        fixture.Service.RequestActivation(hidden);
+
+        Assert.Equal(visible, fixture.Focused.Current);
+        Assert.Equal(visible, fixture.Pending.Window);
     }
 
     private static (FocusService Service, WindowRegistry Windows, OutputRegistry Outputs, FocusedWindowTracker Focused, PendingFocusStore Pending, WorkspaceStore Workspaces) Build()

@@ -45,6 +45,15 @@ public interface IFocusService
     void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false);
 
     /// <summary>
+    /// Handle a client-driven activation request (river_window_v1.activate_requested, typically an
+    /// xdg-activation-v1 token — e.g. a chat client raising itself on a new message). Applies
+    /// focus-stealing prevention: focus is granted only when the target window is currently visible
+    /// on its group's active workspace. Requests for windows on inactive workspaces are dropped so
+    /// they cannot pull keyboard focus off the visible window.
+    /// </summary>
+    void RequestActivation(IntPtr windowProxy);
+
+    /// <summary>
     /// Clear focus on the primary seat (river_seat_v1::clear_focus).
     /// </summary>
     void ClearFocus();

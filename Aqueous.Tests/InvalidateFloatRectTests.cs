@@ -53,8 +53,9 @@ public class InvalidateFloatRectTests
     {
         public IntPtr FocusedWindow => IntPtr.Zero;
         public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = IntPtr.Zero; return false; }
-        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) { }
-        public void RequestFocus(IntPtr windowProxy) { }
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplication = false) { }
+        public void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false) { }
+        public void RequestActivation(IntPtr windowProxy) { }
         public void ClearFocus() { }
         public void FocusAnyOtherWindow(IntPtr avoid) { }
         public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace) { }
@@ -62,9 +63,10 @@ public class InvalidateFloatRectTests
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
-        public void RepairFocusAfterTagChange() { }
+        public void RepairFocusAfterWorkspaceChange() { }
         public void ClearFocusedHandle() { }
         public void ReassertFocusAfterLayerRelease() { }
+        public bool IsInsideDebounce() => false;
     }
 
     // Minimal IManagerRequestSender stub: the host hooks under test do not marshal manager requests,
@@ -163,13 +165,19 @@ public class InvalidateFloatRectTests
         var bystander = new IntPtr(0xBB);
         h.Windows[target] = new WindowEntry
         {
-            HasFloatRect = true, LastPosX = 1, LastPosY = 2,
-            LastHintW = 3, LastHintH = 4,
+            HasFloatRect = true,
+            LastPosX = 1,
+            LastPosY = 2,
+            LastHintW = 3,
+            LastHintH = 4,
         };
         var keep = new WindowEntry
         {
-            HasFloatRect = true, LastPosX = 11, LastPosY = 22,
-            LastHintW = 33, LastHintH = 44,
+            HasFloatRect = true,
+            LastPosX = 11,
+            LastPosY = 22,
+            LastHintW = 33,
+            LastHintH = 44,
         };
         h.Windows[bystander] = keep;
 

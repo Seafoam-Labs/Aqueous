@@ -218,94 +218,94 @@ internal sealed unsafe class WindowEventService
                 break;
 
             case RiverProtocolOpcodes.Window.PointerMoveRequested:
-            {
-                IntPtr seatProxy = args[0].o;
-                RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
-                // Allow the client-driven move when the output is on the float engine OR this
-                // specific window is an individually-floating popup/dialog over a tiling layout.
-                if (!(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
                 {
+                    IntPtr seatProxy = args[0].o;
+                    RiverLog.Write($"window 0x{proxy.ToString("x")} requested pointer move on seat 0x{seatProxy.ToString("x")}");
+                    // Allow the client-driven move when the output is on the float engine OR this
+                    // specific window is an individually-floating popup/dialog over a tiling layout.
+                    if (!(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
+                    {
+                        break;
+                    }
+
+                    _dragState.ActiveDragWindow = w;
+                    _dragState.ActiveDragSeat = seatProxy;
+                    _dragState.DragStartX = w.X;
+                    _dragState.DragStartY = w.Y;
+                    if (_dragState.SeatPointerPos.TryGetValue(seatProxy, out var pmrP0))
+                    {
+                        _dragState.DragStartPointerX = pmrP0.X;
+                        _dragState.DragStartPointerY = pmrP0.Y;
+                    }
+                    else
+                    {
+                        _dragState.DragStartPointerX = w.X;
+                        _dragState.DragStartPointerY = w.Y;
+                    }
+
+                    _dragState.DragEdges = 0;
+                    _dragState.DragStarted = false;
+                    _dragState.DragFinished = false;
+                    // Client-driven pointer move is always a float move, never a tiling reorder.
+                    _dragState.TilingReorder = false;
+                    _dragState.TilingReorderLastTarget = IntPtr.Zero;
                     break;
                 }
-
-                _dragState.ActiveDragWindow = w;
-                _dragState.ActiveDragSeat = seatProxy;
-                _dragState.DragStartX = w.X;
-                _dragState.DragStartY = w.Y;
-                if (_dragState.SeatPointerPos.TryGetValue(seatProxy, out var pmrP0))
-                {
-                    _dragState.DragStartPointerX = pmrP0.X;
-                    _dragState.DragStartPointerY = pmrP0.Y;
-                }
-                else
-                {
-                    _dragState.DragStartPointerX = w.X;
-                    _dragState.DragStartPointerY = w.Y;
-                }
-
-                _dragState.DragEdges = 0;
-                _dragState.DragStarted = false;
-                _dragState.DragFinished = false;
-                // Client-driven pointer move is always a float move, never a tiling reorder.
-                _dragState.TilingReorder = false;
-                _dragState.TilingReorderLastTarget = IntPtr.Zero;
-                break;
-            }
 
             case RiverProtocolOpcodes.Window.PointerResizeRequested:
-            {
-                IntPtr resizeSeatProxy = args[0].o;
-                uint edges = args[1].u;
-                RiverLog.Write(
-                    $"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
-                // Anchor windows are sized by the client-requested buffer (xdg_toplevel.configure),
-                // not by pointer resize. Client-driven changes still flow through
-                // Dimensions/DimensionsHint and re-arrange via the dirty path.
-                if (w.Placement is { IsAnchor: true })
                 {
-                    RiverLog.Write($"pointer_resize_requested ignored: anchor window owns its size");
+                    IntPtr resizeSeatProxy = args[0].o;
+                    uint edges = args[1].u;
+                    RiverLog.Write(
+                        $"window 0x{proxy.ToString("x")} requested pointer resize on seat 0x{resizeSeatProxy.ToString("x")} edges={edges}");
+                    // Anchor windows are sized by the client-requested buffer (xdg_toplevel.configure),
+                    // not by pointer resize. Client-driven changes still flow through
+                    // Dimensions/DimensionsHint and re-arrange via the dirty path.
+                    if (w.Placement is { IsAnchor: true })
+                    {
+                        RiverLog.Write($"pointer_resize_requested ignored: anchor window owns its size");
+                        break;
+                    }
+
+                    if (edges == 0 || w.Output == IntPtr.Zero
+                        || !(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
+                    {
+                        RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");
+                        break;
+                    }
+
+                    if (!_dragState.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
+                    {
+                        // No cached pointer pos => we cannot compute deltas, so do NOT start a drag.
+                        RiverLog.Write("pointer_resize_requested ignored: no cached seat pointer pos");
+                        break;
+                    }
+
+                    _dragState.ActiveDragWindow = w;
+                    _dragState.ActiveDragSeat = resizeSeatProxy;
+                    _dragState.DragStartX = w.X;
+                    _dragState.DragStartY = w.Y;
+                    _dragState.DragStartPointerX = prrP0.X;
+                    _dragState.DragStartPointerY = prrP0.Y;
+
+                    int startW = w.W > 0 ? w.W
+                        : w.FloatW > 0 ? w.FloatW
+                        : w.LastHintW > 0 ? w.LastHintW
+                        : w.ProposedW > 0 ? w.ProposedW
+                        : 800;
+                    int startH = w.H > 0 ? w.H
+                        : w.FloatH > 0 ? w.FloatH
+                        : w.LastHintH > 0 ? w.LastHintH
+                        : w.ProposedH > 0 ? w.ProposedH
+                        : 600;
+                    _dragState.DragStartW = startW;
+                    _dragState.DragStartH = startH;
+                    _dragState.DragEdges = edges;
+                    _dragState.DragStarted = false;
+                    _dragState.DragFinished = false;
+                    _dragState.DragResizeInformed = false;
                     break;
                 }
-
-                if (edges == 0 || w.Output == IntPtr.Zero
-                    || !(_layoutProposer.IsFloatLayoutActive(w.Output) || w.Floating))
-                {
-                    RiverLog.Write($"pointer_resize_requested ignored (edges={edges}, output=0x{w.Output.ToString("x")})");
-                    break;
-                }
-
-                if (!_dragState.SeatPointerPos.TryGetValue(resizeSeatProxy, out var prrP0))
-                {
-                    // No cached pointer pos => we cannot compute deltas, so do NOT start a drag.
-                    RiverLog.Write("pointer_resize_requested ignored: no cached seat pointer pos");
-                    break;
-                }
-
-                _dragState.ActiveDragWindow = w;
-                _dragState.ActiveDragSeat = resizeSeatProxy;
-                _dragState.DragStartX = w.X;
-                _dragState.DragStartY = w.Y;
-                _dragState.DragStartPointerX = prrP0.X;
-                _dragState.DragStartPointerY = prrP0.Y;
-
-                int startW = w.W > 0 ? w.W
-                    : w.FloatW > 0 ? w.FloatW
-                    : w.LastHintW > 0 ? w.LastHintW
-                    : w.ProposedW > 0 ? w.ProposedW
-                    : 800;
-                int startH = w.H > 0 ? w.H
-                    : w.FloatH > 0 ? w.FloatH
-                    : w.LastHintH > 0 ? w.LastHintH
-                    : w.ProposedH > 0 ? w.ProposedH
-                    : 600;
-                _dragState.DragStartW = startW;
-                _dragState.DragStartH = startH;
-                _dragState.DragEdges = edges;
-                _dragState.DragStarted = false;
-                _dragState.DragFinished = false;
-                _dragState.DragResizeInformed = false;
-                break;
-            }
 
             case RiverProtocolOpcodes.Window.MaximizeRequested:
                 if (!_windowStates.TryGetValue(proxy, out WindowStateData? sMax)
@@ -328,13 +328,13 @@ internal sealed unsafe class WindowEventService
                 break;
 
             case RiverProtocolOpcodes.Window.FullscreenRequested:
-            {
-                var outputProxy = args[0].o;
-                _windowStateController.OnClientRequestedFullscreen(new WindowProxy(proxy),
-                    outputProxy == IntPtr.Zero ? null : new OutputProxy(outputProxy));
-                _managerRequestSender.ScheduleManage();
-                break;
-            }
+                {
+                    var outputProxy = args[0].o;
+                    _windowStateController.OnClientRequestedFullscreen(new WindowProxy(proxy),
+                        outputProxy == IntPtr.Zero ? null : new OutputProxy(outputProxy));
+                    _managerRequestSender.ScheduleManage();
+                    break;
+                }
 
             case RiverProtocolOpcodes.Window.ExitFullscreenRequested:
                 _windowStateController.OnClientRequestedUnfullscreen(new WindowProxy(proxy));
@@ -361,7 +361,7 @@ internal sealed unsafe class WindowEventService
                     _windowStateController.ToggleMinimize(new WindowProxy(proxy));
                 }
 
-                _focusService.RequestFocus(proxy);
+                _focusService.RequestActivation(proxy);
                 _managerRequestSender.ScheduleManage();
                 break;
 

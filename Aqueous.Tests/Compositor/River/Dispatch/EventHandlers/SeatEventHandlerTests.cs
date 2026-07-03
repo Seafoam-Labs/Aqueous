@@ -294,8 +294,9 @@ public sealed class SeatEventHandlerTests
         public IntPtr FocusedWindow { get; private set; }
         public int FocusCalls { get; private set; }
         public bool TryGetFocusedAlive(out IntPtr proxy) { proxy = FocusedWindow; return proxy != IntPtr.Zero; }
-        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy) { FocusedWindow = windowProxy; FocusCalls++; }
-        public void RequestFocus(IntPtr windowProxy) => SetFocusedWindow(windowProxy, IntPtr.Zero);
+        public void SetFocusedWindow(IntPtr windowProxy, IntPtr seatProxy, bool bypassDeduplication = false) { FocusedWindow = windowProxy; FocusCalls++; }
+        public void RequestFocus(IntPtr windowProxy, bool bypassDeduplication = false) => SetFocusedWindow(windowProxy, IntPtr.Zero);
+        public void RequestActivation(IntPtr windowProxy) => RequestFocus(windowProxy);
         public void ClearFocus() => FocusedWindow = IntPtr.Zero;
         public void FocusAnyOtherWindow(IntPtr avoid) { }
         public void FocusAnyOtherWindow(IntPtr avoid, IntPtr workspace) { }
@@ -303,9 +304,10 @@ public sealed class SeatEventHandlerTests
         public void HandleDirectionalFocus(FocusDirection dir) { }
         public void SetFocusedShellSurface(IntPtr shellSurfaceProxy, IntPtr seatProxy) { }
         public void InvalidateShellSurface(IntPtr shellSurfaceProxy) { }
-        public void RepairFocusAfterTagChange() { }
+        public void RepairFocusAfterWorkspaceChange() { }
         public void ClearFocusedHandle() => FocusedWindow = IntPtr.Zero;
         public void ReassertFocusAfterLayerRelease() { }
+        public bool IsInsideDebounce() => false;
     }
 
     private sealed class RegistryLayoutProposer(WindowRegistry registry) : ILayoutProposer
