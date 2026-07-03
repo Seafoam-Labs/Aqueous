@@ -12,12 +12,12 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev' 'wlr-randr'
          'noctalia-git' 'libdecor' 'grim' 'slurp' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
-         'xdg-desktop-portal-gtk' 'libnotify' 'swaylock-effects' 'swayidle'
+         'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
          # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
-         'zlib' 'krb5' 'openssl' 'scenefx')
+         'zlib' 'krb5' 'openssl' 'scenefx-git')
 makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
              'git' 'wayland-protocols' 'scenefx')
 optdepends=('ly: recommended display manager / login greeter'
