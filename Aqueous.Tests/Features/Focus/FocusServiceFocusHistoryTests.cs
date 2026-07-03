@@ -140,6 +140,28 @@ public sealed class FocusServiceFocusHistoryTests
         Assert.Equal(visible, fixture.Pending.Window);
     }
 
+    [Fact]
+    public void RequestActivation_SuppressedForNonFocusableWindow()
+    {
+        var fixture = Build();
+        var visible = new IntPtr(0x3000);
+        var nonFocusable = new IntPtr(0x4000);
+        fixture.Workspaces.EnterGroup(Group, Workspace);
+        fixture.Workspaces.SetState(Workspace, active: true, urgent: false);
+        var visibleEntry = Window(visible, Workspace);
+        var nfEntry = Window(nonFocusable, Workspace);
+        nfEntry.AcceptsFocus = false;
+        fixture.Windows.Entries[visible] = visibleEntry;
+        fixture.Windows.Entries[nonFocusable] = nfEntry;
+
+        fixture.Service.SetFocusedWindow(visible, Seat);
+
+        fixture.Service.RequestActivation(nonFocusable);
+
+        Assert.Equal(visible, fixture.Focused.Current);
+        Assert.Equal(visible, fixture.Pending.Window);
+    }
+
     private static (FocusService Service, WindowRegistry Windows, OutputRegistry Outputs, FocusedWindowTracker Focused, PendingFocusStore Pending, WorkspaceStore Workspaces) Build()
     {
         var windows = new WindowRegistry();

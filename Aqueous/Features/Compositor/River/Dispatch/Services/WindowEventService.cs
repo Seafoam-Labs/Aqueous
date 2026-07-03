@@ -365,6 +365,18 @@ internal sealed unsafe class WindowEventService
                 _managerRequestSender.ScheduleManage();
                 break;
 
+            case RiverProtocolOpcodes.Window.FocusHint:
+                {
+                    bool acceptsFocus = args[0].u != 0;
+                    if (w.AcceptsFocus != acceptsFocus)
+                    {
+                        w.AcceptsFocus = acceptsFocus;
+                        RiverLog.Write($"window 0x{proxy.ToString("x")} focus_hint accepts_focus={acceptsFocus}");
+                    }
+
+                    break;
+                }
+
             case RiverProtocolOpcodes.Window.UnminimizeRequested:
                 RiverLog.Write($"window 0x{proxy.ToString("x")} unminimize_requested");
                 // if (_windowStates.TryGetValue(proxy, out WindowStateData? unminState)

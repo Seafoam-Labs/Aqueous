@@ -366,6 +366,30 @@ internal sealed unsafe class ManagerEventService
                 }
             }
 
+            // Deferred initial focus for freshly-mapped windows. Runs here (not at the window event)
+            // so app_id/title and the X11 focus_hint have already arrived: windows that do not accept
+            // keyboard focus (AcceptsFocus == false, e.g. XWayland notification toasts) are skipped so
+            // they cannot steal focus on map. RequestFocus queues into _pendingFocus, which the drain
+            // below flushes in this same manage cycle.
+            foreach (var initialFocusKvp in _windowRegistry.Entries)
+            {
+                var initialFocusEntry = initialFocusKvp.Value;
+                if (!initialFocusEntry.WantsInitialFocus)
+                {
+                    continue;
+                }
+
+                initialFocusEntry.WantsInitialFocus = false;
+                if (!initialFocusEntry.AcceptsFocus)
+                {
+                    RiverLog.Write(
+                        $"initial-focus: suppressed for non-focusable window 0x{initialFocusKvp.Key.ToString("x")}");
+                    continue;
+                }
+
+                _focusService.RequestFocus(initialFocusKvp.Key);
+            }
+
             // Drain pending focus BEFORE the propose pass. IsWindowLayoutReady no longer gates on
             // entry.Output (which is only populated by ProposeForArea below), so the pre-propose
             // bucket state (Visible && !HideSent) is the authoritative readiness signal. Running
@@ -824,6 +848,11 @@ internal sealed unsafe class ManagerEventService
         if (!_windowRegistry.Entries.TryGetValue(proxy, out var entry))
         {
             entry = new WindowEntry { Proxy = proxy };
+            // Defer the initial focus decision to manage_start: the focus_hint (and app_id/title)
+            // events arrive after this `window` event but before manage_start, so at manage_start we
+            // know whether the window accepts focus and can skip auto-focusing non-focusable X11
+            // popups (Steam toasts, etc.).
+            entry.WantsInitialFocus = true;
 
             // Assign the freshly-mapped window to its group's active workspace so the layout
             // proposer's workspace filter can hide it once the user switches away. Without this the
@@ -844,15 +873,8 @@ internal sealed unsafe class ManagerEventService
             _bindSiteState.TrackProxyInterface(entry.NodeProxy, "river_node_v1");
         }
 
-        if (_primarySeat.Current != IntPtr.Zero && _windowRegistry.Entries.ContainsKey(proxy))
-        {
-            _focusService.RequestFocus(proxy);
-        }
-        else
-        {
-            RiverLog.Write(
-                $"deferring focus on new window 0x{proxy.ToString("x")} (primarySeat={_primarySeat.Current != IntPtr.Zero}, tracked={_windowRegistry.Entries.ContainsKey(proxy)})");
-        }
+        // Initial focus for a freshly-mapped window is handled by the deferred initial-focus pass in
+        // HandleManageStart (which runs after focus_hint/app_id have arrived), not here.
 
         WaylandInterop.wl_proxy_add_dispatcher(
             proxy,

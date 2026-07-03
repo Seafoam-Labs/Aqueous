@@ -37,6 +37,7 @@ set_title: wl.Listener(void) = .init(handleSetTitle),
 set_class: wl.Listener(void) = .init(handleSetClass),
 set_parent: wl.Listener(void) = .init(handleSetParent),
 set_decorations: wl.Listener(void) = .init(handleSetDecorations),
+set_hints: wl.Listener(void) = .init(handleSetHints),
 request_maximize: wl.Listener(void) = .init(handleRequestMaximize),
 request_fullscreen: wl.Listener(void) = .init(handleRequestFullscreen),
 request_minimize: wl.Listener(*wlr.XwaylandSurface.event.Minimize) = .init(handleRequestMinimize),
@@ -74,6 +75,7 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.set_class.add(&xwindow.set_class);
     xsurface.events.set_parent.add(&xwindow.set_parent);
     xsurface.events.set_decorations.add(&xwindow.set_decorations);
+    xsurface.events.set_hints.add(&xwindow.set_hints);
     xsurface.events.request_maximize.add(&xwindow.request_maximize);
     xsurface.events.request_fullscreen.add(&xwindow.request_fullscreen);
     xsurface.events.request_minimize.add(&xwindow.request_minimize);
@@ -160,6 +162,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.set_class.link.remove();
     xwindow.set_parent.link.remove();
     xwindow.set_decorations.link.remove();
+    xwindow.set_hints.link.remove();
     xwindow.request_maximize.link.remove();
     xwindow.request_fullscreen.link.remove();
     xwindow.request_minimize.link.remove();
@@ -212,6 +215,8 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
     if (xwindow.xsurface.fullscreen) {
         window.wm_scheduled.fullscreen_requested = .{ .fullscreen = null };
     }
+
+    xwindow.updateFocusHint();
 
     window.state = .initialized;
     window.map() catch {
@@ -308,6 +313,19 @@ fn handleSetClass(listener: *wl.Listener(void)) void {
 
 fn handleSetParent(_: *wl.Listener(void)) void {
     server.wm.dirtyWindowing();
+}
+
+/// Recompute whether this X11 window accepts keyboard focus from its ICCCM input model
+/// (WM_HINTS `input` flag + WM_TAKE_FOCUS). An input model of `none` (notification toasts,
+/// docks, some splash windows) means the window does not want focus; forward that to the wm
+/// via river_window_v1.focus_hint so it can avoid focus-stealing popups.
+fn updateFocusHint(xwindow: *XwaylandWindow) void {
+    xwindow.window.setAcceptsFocus(xwindow.xsurface.icccmInputModel() != .none);
+}
+
+fn handleSetHints(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("set_hints", listener);
+    xwindow.updateFocusHint();
 }
 
 fn handleSetDecorations(listener: *wl.Listener(void)) void {

@@ -58,6 +58,7 @@ internal static class RiverProtocolOpcodes
         internal const uint Identifier = 17;
         internal const uint ActivateRequested = 18;
         internal const uint UnminimizeRequested = 19;
+        internal const uint FocusHint = 20;
 
         /// <summary>
         /// <c>set_workspace</c> request opcode (since v6). Added as the last request so existing
@@ -303,11 +304,11 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class LibinputDeviceRequest
     {
-        internal const uint Destroy           = 0;
-        internal const uint SetTap            = 2;
-        internal const uint SetAccelProfile   = 8;
-        internal const uint SetAccelSpeed     = 9;
-        internal const uint SetNaturalScroll  = 11;
+        internal const uint Destroy = 0;
+        internal const uint SetTap = 2;
+        internal const uint SetAccelProfile = 8;
+        internal const uint SetAccelSpeed = 9;
+        internal const uint SetNaturalScroll = 11;
     }
 
     /// <summary>
@@ -317,9 +318,9 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class LibinputDeviceEvent
     {
-        internal const uint Removed     = 0;
-        internal const uint TapSupport  = 5;
-        internal const uint Done        = 55;
+        internal const uint Removed = 0;
+        internal const uint TapSupport = 5;
+        internal const uint Done = 55;
     }
 
     /// <summary>
@@ -327,10 +328,10 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class LibinputAccelProfile
     {
-        internal const uint None     = 0;
-        internal const uint Flat     = 1;
+        internal const uint None = 0;
+        internal const uint Flat = 1;
         internal const uint Adaptive = 2;
-        internal const uint Custom   = 4;
+        internal const uint Custom = 4;
     }
 
     /// <summary>
@@ -338,8 +339,8 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class XkbConfigRequest
     {
-        internal const uint Stop         = 0;
-        internal const uint Destroy      = 1;
+        internal const uint Stop = 0;
+        internal const uint Destroy = 1;
         internal const uint CreateKeymap = 2;
     }
 
@@ -348,7 +349,7 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class XkbConfig
     {
-        internal const uint Finished    = 0;
+        internal const uint Finished = 0;
         internal const uint XkbKeyboard = 1;
     }
 
@@ -375,7 +376,7 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class XkbKeyboardRequest
     {
-        internal const uint Destroy   = 0;
+        internal const uint Destroy = 0;
         internal const uint SetKeymap = 1;
     }
 
@@ -384,10 +385,10 @@ internal static class RiverProtocolOpcodes
     /// </summary>
     internal static class XkbKeyboard
     {
-        internal const uint Removed     = 0;
+        internal const uint Removed = 0;
         internal const uint InputDevice = 1;
-        internal const uint Layout      = 2;
-        internal const uint Done        = 7;
+        internal const uint Layout = 2;
+        internal const uint Done = 7;
     }
 
     /// <summary>

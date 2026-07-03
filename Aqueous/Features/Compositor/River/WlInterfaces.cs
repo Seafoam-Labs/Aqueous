@@ -993,7 +993,7 @@ internal static unsafe class WlInterfaces
     private static void BuildRiverWindowManagement()
     {
         RiverWindowManager = AllocEmpty("river_window_manager_v1", 9);
-        RiverWindow = AllocEmpty("river_window_v1", 8);
+        RiverWindow = AllocEmpty("river_window_v1", 9);
         RiverDecoration = AllocEmpty("river_decoration_v1", 4);
         RiverShellSurface = AllocEmpty("river_shell_surface_v1", 5);
         RiverNode = AllocEmpty("river_node_v1", 4);
@@ -1094,6 +1094,10 @@ internal static unsafe class WlInterfaces
                 Msg("identifier", "4s", new WaylandInterop.WlInterface*[] { null }),
                 Msg("activate_requested", "5", NoTypes),
                 Msg("unminimize_requested", "5", NoTypes),
+                // Opcode 20 (since v9): X11 focus hint. accepts_focus == 0 means the window
+                // declares (via the ICCCM input model) that it does not want keyboard focus —
+                // used to stop XWayland popups (Steam toasts, etc.) from stealing focus.
+                Msg("focus_hint", "9u", new WaylandInterop.WlInterface*[] { null }),
             });
 
         // River_decoration_v1

@@ -213,6 +213,13 @@ internal sealed class FocusService : IFocusService
             return;
         }
 
+        if (!entry.AcceptsFocus)
+        {
+            RiverLog.Write(
+                $"RequestActivation: suppressed focus steal for non-focusable window 0x{windowProxy.ToString("x")}");
+            return;
+        }
+
         RequestFocus(windowProxy);
     }
 

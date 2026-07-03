@@ -378,7 +378,7 @@
     </request>
   </interface>
 
-  <interface name="river_window_v1" version="8">
+  <interface name="river_window_v1" version="9">
     <description summary="a logical window">
       This represents a logical window. For example, a window may correspond to
       an xdg_toplevel or Xwayland window.
@@ -1256,6 +1256,22 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
+    </event>
+
+    <event name="focus_hint" since="9">
+      <description summary="whether the window accepts keyboard focus">
+        Informs the window manager whether this window wants keyboard focus.
+
+        For XWayland windows this reflects the ICCCM input model: a window whose
+        input model is "none" (e.g. notification toasts, docks, some splash
+        windows) does not want keyboard focus. Wayland-native windows always
+        accept focus.
+
+        The window manager should use this to avoid auto-focusing or activating
+        windows that do not want focus. The event is (re)sent whenever the value
+        changes and is followed by a manage_start event.
+      </description>
+      <arg name="accepts_focus" type="uint" summary="non-zero if the window accepts keyboard focus"/>
     </event>
   </interface>
 

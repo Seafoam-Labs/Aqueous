@@ -132,4 +132,20 @@ internal sealed class WindowEntry
     /// Toplevel proxy representing the parent of this window.
     /// </summary>
     public IntPtr ParentProxy;
+
+    /// <summary>
+    /// Whether the window accepts keyboard focus. Mirrors <c>river_window_v1.focus_hint</c>
+    /// (accepts_focus). Defaults to <see langword="true"/>; set to <see langword="false"/> for
+    /// XWayland windows whose ICCCM input model is <c>none</c> (notification toasts, docks, etc.)
+    /// so the focus policy never auto-focuses or activation-steals to them.
+    /// </summary>
+    public bool AcceptsFocus = true;
+
+    /// <summary>
+    /// Set when the window is first seen (river_window_v1 <c>window</c> event) and cleared at the
+    /// next manage_start once its identity and focus hint are known. Gates the deferred
+    /// initial-focus pass in <c>ManagerEventService</c>: a freshly-mapped window is auto-focused at
+    /// manage_start unless <see cref="AcceptsFocus"/> is <see langword="false"/>.
+    /// </summary>
+    public bool WantsInitialFocus;
 }

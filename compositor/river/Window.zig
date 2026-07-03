@@ -239,6 +239,10 @@ capture_source: ?*wlr.ExtImageCaptureSourceV1 = null,
 wm_scheduled: struct {
     dimensions_hint: DimensionsHint = .{},
     decoration_hint: river.WindowV1.DecorationHint = .only_supports_csd,
+    /// Whether the window accepts keyboard focus. Wayland-native windows always do;
+    /// XWayland windows reflect their ICCCM input model (`none` ⇒ false). Forwarded to
+    /// the wm via river_window_v1.focus_hint so it can avoid focus-stealing popups.
+    accepts_focus: bool = true,
     show_window_menu_requested: ?struct { x: i32, y: i32 } = null,
     /// Set back to no_request at the end of each update sequence
     fullscreen_requested: FullscreenRequest = .no_request,
@@ -263,6 +267,7 @@ wm_scheduled: struct {
 wm_sent: struct {
     dimensions_hint: DimensionsHint = .{},
     decoration_hint: river.WindowV1.DecorationHint = .only_supports_csd,
+    accepts_focus: bool = true,
     parent: ?Window.Ref = null,
 } = .{},
 
@@ -510,6 +515,13 @@ pub fn setDecorationHint(window: *Window, hint: river.WindowV1.DecorationHint) v
     }
 }
 
+pub fn setAcceptsFocus(window: *Window, accepts_focus: bool) void {
+    window.wm_scheduled.accepts_focus = accepts_focus;
+    if (accepts_focus != window.wm_sent.accepts_focus) {
+        server.wm.dirtyWindowing();
+    }
+}
+
 /// Send dirty state as part of a manage sequence.
 pub fn manageStart(window: *Window) void {
     switch (window.state) {
@@ -604,6 +616,13 @@ pub fn manageStart(window: *Window) void {
             if (new or scheduled.decoration_hint != sent.decoration_hint) {
                 window_v1.sendDecorationHint(window.wm_scheduled.decoration_hint);
                 sent.decoration_hint = scheduled.decoration_hint;
+            }
+            if (new or scheduled.accepts_focus != sent.accepts_focus) {
+                // focus_hint (river-window-management-v1 >= 9). Older wm clients won't see it.
+                if (window_v1.getVersion() >= 9) {
+                    window_v1.sendFocusHint(@as(u32, @intFromBool(scheduled.accepts_focus)));
+                }
+                sent.accepts_focus = scheduled.accepts_focus;
             }
 
             if (scheduled.show_window_menu_requested) |offset| {
