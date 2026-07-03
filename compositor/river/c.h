@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: © 2020 The River Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <linux/input-event-codes.h>
