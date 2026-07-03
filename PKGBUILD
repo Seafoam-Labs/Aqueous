@@ -17,7 +17,7 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
          # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
-         'zlib' 'krb5' 'openssl' 'scenefx-git')
+         'zlib' 'krb5' 'openssl' 'scenefx')
 makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
              'git' 'wayland-protocols' 'scenefx')
 optdepends=('ly: recommended display manager / login greeter'
