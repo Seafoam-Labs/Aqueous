@@ -292,36 +292,13 @@ anchor      = "center"
 # term  = "ghostty --class=aqueous-scratch-term"
 # notes = "obsidian"
 
-
-
-# NOTE: Noctalia (the bar / SNI tray host) is NOT launched here. It is shipped
-# as a systemd user unit (noctalia.service, WantedBy=graphical-session.target,
-# Before=xdg-desktop-autostart.target) so its StatusNotifierWatcher comes up
-# before any autostart tray app — otherwise tray icons fail to populate. See
-# packaging/noctalia.service.
-
-# Idle → lock only (swaylock-effects). No screen blank, no suspend on idle.
-# Uses the same effects-enabled swaylock command as the lock_screen action.
-[[exec]]
-name    = "swayidle"
-command = "swayidle -w timeout 300 'swaylock -f --screenshots --clock --indicator --effect-blur 7x5 --effect-vignette 0.5:0.5 --fade-in 0.2 --ring-color bb00cc --key-hover-color ee00ee --line-color 00000000 --inside-color 00000088 --separator-color 00000000'"
-when    = "startup"
-once    = true               # don't relaunch on --reload → avoids duplicate daemons
-restart = true               # respawn (with backoff) if it dies
-log     = "/tmp/swayidle.log"
-
 #[[exec]]
 #name    = "xwayland-satellite"
 #command = "xwayland-satellite :0"
 #when    = "startup"
 #restart = true
 #log     = "/tmp/xwayland-satellite.log"
-#env     = { DISPLAY = ":0" }
 
-#[[exec]]
-#name    = "ghostty"
-#command = "ghostty"
-#when    = "startup"
 
 
 [rules]

@@ -54,6 +54,10 @@ package() {
     fi
 
     # systemd user units
+    # xwayland-satellite.service is included in the release tarball under
+    # lib/systemd/user/ and gets installed by the cp above. A symlink into
+    # graphical-session.target.wants must be created by the user (or a
+    # separate package) since the tarball ships the unit file only.
     if [ -d "$srcdir/lib/systemd/user" ]; then
         install -d "$pkgdir/usr/lib/systemd/user"
         cp -dr --no-preserve=ownership "$srcdir/lib/systemd/user/." \

@@ -201,9 +201,16 @@ package() {
     # started, post xdg-desktop-autostart.target).
     install -Dm644 "$srcdir/aqueous/packaging/noctalia.service" \
         "$pkgdir/usr/lib/systemd/user/noctalia.service"
+    # xwayland-satellite (rootless XWayland bridge) user unit.
+    # Installed alongside noctalia in graphical-session.target.wants so
+    # the XWayland bridge starts with the session and is torn down on logout.
+    install -Dm644 "$srcdir/aqueous/packaging/xwayland-satellite.service" \
+        "$pkgdir/usr/lib/systemd/user/xwayland-satellite.service"
     install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
     ln -s ../noctalia.service \
         "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/noctalia.service"
+    ln -s ../xwayland-satellite.service \
+        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/xwayland-satellite.service"
 
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.

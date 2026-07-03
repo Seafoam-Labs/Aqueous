@@ -1,0 +1,14 @@
+# ~/.config/systemd/user/xwayland-satellite.service
+[Unit]
+Description=xwayland-satellite (rootless XWayland bridge)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/xwayland-satellite :0
+Restart=on-failure
+RestartSec=2
+Slice=app-graphical.slice
+
+[Install]
+WantedBy=graphical-session.target
