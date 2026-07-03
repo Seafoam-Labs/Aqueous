@@ -4,7 +4,7 @@ PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/bin/xwayland-satellite :0
+ExecStart=/usr/bin/xwayland-satellite
 Restart=on-failure
 RestartSec=2
 Slice=app-graphical.slice
