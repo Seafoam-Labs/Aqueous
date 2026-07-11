@@ -18,6 +18,11 @@ pub const WindowHandle = struct {
     ref: Window.Ref,
 };
 
+pub const WorkspaceContext = struct {
+    output: *Output,
+    workspace_number: u32,
+};
+
 pub fn windowHandle(_: CompositorApi, window: *Window) WindowHandle {
     return .{ .ref = window.ref };
 }
@@ -92,6 +97,36 @@ pub fn focusedContext(_: CompositorApi) ?struct { window: *Window, output: *Outp
             return .{ .window = window, .output = workspace.output, .workspace_number = workspace.policyNumber() };
         },
         else => {},
+    };
+    return null;
+}
+
+/// Resolve the output/workspace targeted by output-level actions even when the
+/// active workspace contains no focused window. Prefer the focused window's
+/// output, then the output under the pointer, then the first enabled output.
+pub fn workspaceContext(api: CompositorApi) ?WorkspaceContext {
+    if (api.focusedContext()) |context| return .{
+        .output = context.output,
+        .workspace_number = context.workspace_number,
+    };
+
+    var seats = server.input_manager.seats.iterator(.forward);
+    if (seats.next()) |seat| {
+        if (server.om.outputAt(seat.cursor.wlr_cursor.x, seat.cursor.wlr_cursor.y)) |wlr_output| {
+            if (wlr_output.data) |data| {
+                const output: *Output = @ptrCast(@alignCast(data));
+                if (output.active_workspace != null) return .{
+                    .output = output,
+                    .workspace_number = output.policyActiveWorkspaceNumber(),
+                };
+            }
+        }
+    }
+
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| if (output.active_workspace != null) return .{
+        .output = output,
+        .workspace_number = output.policyActiveWorkspaceNumber(),
     };
     return null;
 }

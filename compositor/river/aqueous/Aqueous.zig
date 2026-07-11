@@ -434,7 +434,7 @@ fn parseIndexed(action: []const u8, prefix: []const u8) ?u32 {
 }
 
 fn focusWorkspace(aqueous: *Aqueous, number: u32) void {
-    const context = aqueous.api.focusedContext() orelse return;
+    const context = aqueous.api.workspaceContext() orelse return;
     if (number == context.workspace_number) return;
     aqueous.previous_workspaces.put(util.gpa, context.output.policyId(), context.workspace_number) catch return;
     _ = aqueous.api.activateWorkspace(context.output.policyId(), number);
@@ -447,20 +447,24 @@ fn moveToWorkspace(aqueous: *Aqueous, number: u32) void {
 }
 
 fn relativeWorkspace(aqueous: *Aqueous, delta: i32, move: bool) void {
-    const context = aqueous.api.focusedContext() orelse return;
+    const context: CompositorApi.WorkspaceContext = if (move) blk: {
+        const focused = aqueous.api.focusedContext() orelse return;
+        break :blk .{ .output = focused.output, .workspace_number = focused.workspace_number };
+    } else aqueous.api.workspaceContext() orelse return;
     const target_i = @as(i32, @intCast(context.workspace_number)) + delta;
     if (target_i < 1 or target_i > 9) return;
     if (move) aqueous.moveToWorkspace(@intCast(target_i)) else aqueous.focusWorkspace(@intCast(target_i));
 }
 
 fn focusPreviousWorkspace(aqueous: *Aqueous) void {
-    const context = aqueous.api.focusedContext() orelse return;
+    const context = aqueous.api.workspaceContext() orelse return;
     const previous = aqueous.previous_workspaces.get(context.output.policyId()) orelse return;
     aqueous.focusWorkspace(previous);
 }
 
 fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
-    const context = aqueous.api.focusedContext() orelse return;
+    const context = aqueous.api.workspaceContext() orelse return;
+    const moving_window = if (move) aqueous.api.focusedContext() orelse return else null;
     var snapshot = aqueous.api.policySnapshot(util.gpa) catch return;
     defer snapshot.deinit(util.gpa);
     var current: ?usize = null;
@@ -473,7 +477,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     if (target_i < 0 or target_i >= snapshot.outputs.len) return;
     const target = snapshot.outputs[@intCast(target_i)];
     if (move) {
-        _ = aqueous.api.moveWindowToWorkspace(@bitCast(context.window.ref), target.id, target.workspace_number);
+        _ = aqueous.api.moveWindowToWorkspace(@bitCast(moving_window.?.window.ref), target.id, target.workspace_number);
     } else if (target.windows.len > 0) {
         aqueous.api.requestFocus(target.windows[0].handle);
     }
