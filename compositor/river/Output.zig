@@ -639,6 +639,8 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     output.current.mode = .none;
     output.scheduled.state = .destroying;
 
+    server.aqueous.output_service.outputsChanged(true);
+
     server.wm.dirtyWindowing();
 }
 

@@ -87,6 +87,11 @@ the command with `AQUEOUS_NOCTALIA_CMD`.) Logs land in `/tmp/`:
 
 `wm.toml` (place at `~/.config/aqueous/wm.toml`) configures layouts, gaps,
 keybindings, outputs, etc. See the file in this repo for an annotated example.
+Output modes, scale, transforms, positions, adaptive sync, profiles, persistence,
+and hotplug are applied directly by the compositor. Display-panel integrations
+can use the compatible JSON socket at
+`$XDG_RUNTIME_DIR/aqueous/outputd.sock`; `wlr-randr` and a separate output
+daemon are no longer required.
 
 ### Autostart
 

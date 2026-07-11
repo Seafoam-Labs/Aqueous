@@ -9,7 +9,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
-         'pixman' 'libdrm' 'libevdev' 'wlr-randr'
+         'pixman' 'libdrm' 'libevdev'
          'noctalia-git' 'libdecor' 'grim' 'slurp' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
@@ -173,13 +173,6 @@ package() {
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
-
-    # systemd user unit for the output daemon. Input config no longer
-    # needs a sidecar: the Aqueous WM applies [input.*] from wm.toml
-    # directly to the compositor via the river_libinput_config_v1
-    # protocol.
-    install -Dm644 "$srcdir/aqueous/packaging/aqueous-outputd.service" \
-        "$pkgdir/usr/lib/systemd/user/aqueous-outputd.service"
 
     # Session wrapper target. graphical-session.target is static
     # (RefuseManualStart) and xdg-desktop-portal.service has

@@ -18,6 +18,7 @@ const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const StateStore = @import("state/store.zig");
+const OutputService = @import("output/Service.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
 const util = @import("../util.zig");
@@ -42,6 +43,7 @@ globals_applied: bool = false,
 focus_history: FocusHistory,
 pending_focus: PendingFocus,
 window_states: StateStore,
+output_service: OutputService,
 started: bool = false,
 drag: ?Drag = null,
 untrap_keysym: ?u32 = null,
@@ -62,7 +64,9 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
         .focus_history = FocusHistory.init(util.gpa),
         .pending_focus = PendingFocus.init(util.gpa),
         .window_states = StateStore.init(util.gpa),
+        .output_service = undefined,
     };
+    aqueous.output_service.init();
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     const event_loop = @import("../main.zig").server.wl_server.getEventLoop();
     aqueous.reload_timer = event_loop.addTimer(*Aqueous, handleReloadTimer, aqueous) catch |err| blk: {
@@ -74,6 +78,7 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
 }
 
 pub fn deinit(aqueous: *Aqueous) void {
+    aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
     while (states.next()) |state| state.deinit(util.gpa);
@@ -90,8 +95,10 @@ pub fn deinit(aqueous: *Aqueous) void {
 
 /// Called once the compositor globals, input manager and configuration objects exist.
 pub fn start(aqueous: *Aqueous) void {
-    if (!aqueous.mode.runsInternal() or aqueous.started) return;
+    if (aqueous.started) return;
     aqueous.started = true;
+    aqueous.output_service.start();
+    if (!aqueous.mode.runsInternal()) return;
     aqueous.applyInputConfig();
     aqueous.runExec(.startup);
 }
@@ -106,6 +113,7 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     aqueous.applyInputConfig();
+    aqueous.output_service.reload(true);
     aqueous.runExec(.reload);
     aqueous.notify("Aqueous configuration reloaded", null, false);
     log.info("configuration reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});
@@ -677,16 +685,19 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
     const config_changed = replacement.fingerprint != aqueous.config.fingerprint;
     const rules_fingerprint = rules_config.discoveredFingerprint(util.gpa, replacement.wm.rules_path.slice());
     const rules_changed = rules_fingerprint != aqueous.rules.source_fingerprint;
-    if (!config_changed and !rules_changed) return 0;
+    const output_changed = aqueous.output_service.pollReload();
+    if (!config_changed and !rules_changed and !output_changed) return 0;
 
     if (config_changed) aqueous.config = replacement;
     if (config_changed or rules_changed) rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     log.info("configuration hot-reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});
-    aqueous.applyInputConfig();
-    aqueous.runExec(.reload);
-    aqueous.notify("Aqueous configuration reloaded", null, false);
+    if (config_changed or rules_changed) {
+        aqueous.applyInputConfig();
+        aqueous.runExec(.reload);
+        aqueous.notify("Aqueous configuration reloaded", null, false);
+    }
     return 0;
 }
 

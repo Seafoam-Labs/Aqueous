@@ -9,7 +9,7 @@ arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
-         'pixman' 'libdrm' 'libevdev' 'wlr-randr'
+         'pixman' 'libdrm' 'libevdev'
          'noctalia-git' 'libdecor' 'grim' 'xwayland-satellite'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          # uwsm manages the session lifecycle; the aqueous.desktop session

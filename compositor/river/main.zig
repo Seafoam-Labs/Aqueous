@@ -363,6 +363,7 @@ const LogScope = enum {
     lock,
     wm,
     aqueous,
+    output_service,
     workspace,
     xdg,
     xwayland,

@@ -34,10 +34,10 @@ Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 
 | Check | Proves | Requires |
 |---|---|---|
-| `commit affects layout (scale=true …)` after `wlr-randr --scale 2` | P3 relayout | wlr-randr |
-| no `failed to load xcursor` after scale change | P5 cursor reload | wlr-randr |
-| reverse `--scale 1` relayouts | symmetry | wlr-randr |
-| re-applying current scale → no relayout | no-op guard (P2 predicate idles) | wlr-randr |
+| `commit affects layout (scale=true …)` after output socket `set` | P3 relayout | native output service |
+| no `failed to load xcursor` after scale change | P5 cursor reload | native output service |
+| reverse `scale=1` relayouts | symmetry | native output service |
+| re-applying current scale → no relayout | no-op guard (P2 predicate idles) | native output service |
 | client receives `wl_output.scale(2)` + `done` | P2 fan-out | foot |
 | `wp_fractional_scale_manager_v1` / `wp_viewporter` / `wl_compositor` v6 | P4 globals | wayland-info |
 
@@ -52,7 +52,7 @@ pixel-size must be checked by hand on a real session.
 |---|---|
 | Toolkits | `foot`, GTK3, GTK4 (`gtk4-demo`), Qt5, Qt6, Electron, `mpv`, Firefox, an SDL2 game (v5 / non-fractional regression) |
 | Scales | 1.0, 1.25, 1.5, 1.75, 2.0, 3.0 |
-| Scenarios | single output; dual output mixed scales; hot-plug at non-1 scale; fullscreen across scale change; layer-shell bar (waybar) across change; live `wlr-randr` change with running clients; Aqueous Display Settings end-to-end |
+| Scenarios | single output; dual output mixed scales; hot-plug at non-1 scale; fullscreen across scale change; layer-shell bar (waybar) across change; live output-socket change with running clients; Aqueous Display Settings end-to-end |
 | Cursor (P5) | 24px@1×, 36px@1.5×, 48px@2×; live resize without pointer move; correct size per output across a mixed-scale boundary |
 
 Per cell: ✅ crisp + correct size / ⚠️ soft (expected only for Xwayland) /
@@ -60,9 +60,9 @@ Per cell: ✅ crisp + correct size / ⚠️ soft (expected only for Xwayland) /
 
 ### Aqueous end-to-end loop
 
-An `aqueous-outputd` socket client (`op: set` / `apply_profile`) →
-`OutputDaemon.Validator` (`[0.5, 3.0]`) → `WlrRandr.Apply --scale` (`rc=0` in
-`journalctl --user -u aqueous-outputd`) → compositor log `commit affects layout` →
+An outputd-compatible socket client (`op: set` / `apply_profile`) →
+the compositor's native validator (`[0.5, 3.0]`) → `OutputManager.zig`'s
+atomic wlroots transaction → compositor log `commit affects layout` →
 client redraw. (The former Noctalia v4 Quickshell `OutputControl.qml` consumer
 has been retired; the daemon's socket protocol is unchanged.)
 

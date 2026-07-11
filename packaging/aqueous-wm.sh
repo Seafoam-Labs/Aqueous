@@ -79,19 +79,19 @@ fi
 # Wayland protocol; the formerly-required `aqueous-inputd` sidecar has
 # been retired.
 
-# Aqueous runs the compositor; aqueous-init is its `-c` child. The init
-# wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
-# inability to set the render size before the session starts) and
-# spawns the long-running daemon, before exec'ing `aqueous-wm-client`.
+# Aqueous runs the compositor and applies output configuration natively;
+# aqueous-init is its `-c` child and execs `aqueous-wm-client` after exporting
+# the live session environment.
 #
 # Run (not exec) so the EXIT trap fires and we can clean up the input
 # daemon. Use absolute path because SDDM session PATH is minimal.
+systemctl --user stop aqueous-outputd.service 2>/dev/null || true
 /usr/bin/aqueous -c /usr/bin/aqueous-init
 status=$?
 echo "[aqueous-wm] $(date -Is) aqueous exited status=$status"
 
 # Tear down the graphical session wrapper so everything PartOf/BindsTo
-# graphical-session.target (aqueous-outputd, the portals) stops cleanly.
+# graphical-session.target (including the portals) stops cleanly.
 # BindsTo should already do this, but stop it explicitly for robustness.
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user stop aqueous-session.target 2>/dev/null || true

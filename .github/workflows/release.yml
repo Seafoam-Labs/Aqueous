@@ -143,7 +143,6 @@ jobs:
           cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
           cp packaging/aqueous-inputd.service  publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
           cp packaging/aqueous-inputd.socket   publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
-          cp packaging/aqueous-outputd.service publish/aqueous-linux-x64/lib/systemd/user/ 2>/dev/null || true
           # Noctalia shell unit + its graphical-session.target.wants symlink, so a
           # tarball/binary install also brings up the SNI tray watcher before the
           # autostart target (mirrors PKGBUILD package()).

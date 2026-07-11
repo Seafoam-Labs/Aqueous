@@ -5,7 +5,7 @@ git repository:
 
 1. **`Aqueous` (and friends)** — the transitional .NET 10 / C# 14 policy client.
    Talks Wayland to the compositor, owns layout/workspaces/rules, drives the
-   bar, the input daemon, and the output daemon.
+   the remaining external window-management policy during migration.
 2. **`compositor/`** — Aqueous, based on the Zig
    [River](https://codeberg.org/river/river) compositor. Produces the `aqueous`
    binary that the transitional `aqueous-wm-client` connects to.
@@ -28,7 +28,7 @@ git repository:
 ```
 Aqueous/                       # repo root
 ├── Aqueous/                   # transitional policy client (.NET, AOT-published)
-├── Aqueous.OutputDaemon/      # output config sidecar
+├── Aqueous.OutputDaemon/      # retired output sidecar, retained until final cutover
 ├── Aqueous.Tests/
 ├── Aqueous.OutputDaemon.Tests/
 ├── compositor/                # Aqueous compositor (Zig) — see ORIGIN.md

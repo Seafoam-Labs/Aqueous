@@ -21,6 +21,7 @@ const Output = @import("Output.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
+const OutputConfig = @import("aqueous/output/config.zig");
 
 const log = std.log.scoped(.output);
 
@@ -91,6 +92,7 @@ fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
         wlr_output.destroy();
         return;
     };
+    server.aqueous.output_service.outputsChanged(true);
 }
 
 /// Returns null if there are no outputs in the output layout
@@ -99,6 +101,175 @@ pub fn outputAt(om: *OutputManager, lx: f64, ly: f64) ?*wlr.Output {
     var output_ly: f64 = undefined;
     om.output_layout.closestPoint(null, lx, ly, &output_lx, &output_ly);
     return om.output_layout.outputAt(output_lx, output_ly);
+}
+
+pub const ApplyError = error{
+    MissingMatcher,
+    UnknownOutput,
+    WildcardPosition,
+    ModeNotAdvertised,
+    InvalidCoordinates,
+    TooManyOutputs,
+};
+
+/// Validate and stage a native output transaction. Later specs override fields
+/// from earlier specs, which preserves outputd's wildcard-then-specific behavior.
+/// The existing WindowManager transaction performs the atomic backend commit and
+/// restores `current` if wlroots rejects the modeset.
+pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!usize {
+    const Pending = struct { output: *Output, state: Output.State };
+    var pending: [OutputConfig.max_outputs]Pending = undefined;
+    var pending_count: usize = 0;
+
+    for (specs) |*spec| {
+        if (spec.name.empty() and spec.edid.empty()) return error.MissingMatcher;
+        const wildcard = spec.edid.empty() and hasGlob(spec.name.slice());
+        if (wildcard and spec.x != null) return error.WildcardPosition;
+        var matched: usize = 0;
+        var valid: usize = 0;
+        var it = om.outputs.iterator(.forward);
+        while (it.next()) |output| {
+            const wlr_output = output.wlr_output orelse continue;
+            if (!matchesSpec(spec, wlr_output)) continue;
+            matched += 1;
+            var index: ?usize = null;
+            var created = false;
+            for (pending[0..pending_count], 0..) |entry, i| if (entry.output == output) {
+                index = i;
+                break;
+            };
+            if (index == null) {
+                if (pending_count == pending.len) return error.TooManyOutputs;
+                pending[pending_count] = .{ .output = output, .state = output.scheduled };
+                index = pending_count;
+                pending_count += 1;
+                created = true;
+            }
+            var proposed = pending[index.?].state;
+            applySpecToState(spec, wlr_output, &proposed) catch |err| {
+                if (wildcard and err == error.ModeNotAdvertised) {
+                    if (created) pending_count -= 1;
+                    continue;
+                }
+                return err;
+            };
+            pending[index.?].state = proposed;
+            valid += 1;
+        }
+        if (matched == 0 or valid == 0) return error.UnknownOutput;
+    }
+
+    if (build_options.xwayland and server.xwayland != null) for (pending[0..pending_count]) |entry| {
+        if (entry.state.state != .enabled) continue;
+        const width, const height = entry.state.dimensions();
+        if (entry.state.x < 0 or entry.state.y < 0 or entry.state.x + width > math.maxInt(i16) or entry.state.y + height > math.maxInt(i16)) return error.InvalidCoordinates;
+    };
+    for (pending[0..pending_count]) |entry| entry.output.scheduled = entry.state;
+    if (pending_count != 0) server.wm.dirtyWindowing();
+    return pending_count;
+}
+
+fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, state: *Output.State) ApplyError!void {
+    if (spec.enabled) |enabled| state.state = if (enabled) .enabled else .disabled_hard;
+    if (spec.mode) |requested| {
+        var selected: ?*wlr.Output.Mode = null;
+        var modes = wlr_output.modes.iterator(.forward);
+        while (modes.next()) |mode| {
+            if (mode.width != requested.width or mode.height != requested.height) continue;
+            if (requested.refresh_mhz == null or @abs(mode.refresh - requested.refresh_mhz.?) < 500) {
+                selected = mode;
+                break;
+            }
+        }
+        if (selected) |mode| state.mode = .{ .standard = mode } else if (wlr_output.modes.first() == null) {
+            state.mode = .{ .custom = .{ .width = requested.width, .height = requested.height, .refresh = requested.refresh_mhz orelse 0 } };
+        } else return error.ModeNotAdvertised;
+    }
+    if (spec.scale) |scale| state.scale = scale;
+    if (spec.transform) |transform| state.transform = transformToWl(transform);
+    if (spec.x) |x| {
+        state.x = x;
+        state.y = spec.y.?;
+        state.auto_layout = false;
+    }
+    if (spec.adaptive_sync) |adaptive_sync| state.adaptive_sync = adaptive_sync;
+}
+
+fn matchesSpec(spec: *const OutputConfig.Spec, output: *wlr.Output) bool {
+    if (!spec.edid.empty()) {
+        var buffer: [7 + 64]u8 = undefined;
+        const hash = outputIdentityHash(output, &buffer) orelse return false;
+        return std.ascii.eqlIgnoreCase(spec.edid.slice(), hash);
+    }
+    return globMatch(spec.name.slice(), std.mem.span(output.name));
+}
+
+fn outputIdentityHash(output: *wlr.Output, buffer: *[71]u8) ?[]const u8 {
+    if (output.make == null and output.model == null and output.serial == null) return null;
+    var identity: [768]u8 = undefined;
+    const source = std.fmt.bufPrint(&identity, "{s}|{s}|{s}", .{
+        if (output.make) |value| std.mem.span(value) else "",
+        if (output.model) |value| std.mem.span(value) else "",
+        if (output.serial) |value| std.mem.span(value) else "",
+    }) catch return null;
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(source, &digest, .{});
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    return std.fmt.bufPrint(buffer, "sha256:{s}", .{hex}) catch null;
+}
+
+fn hasGlob(pattern: []const u8) bool {
+    return std.mem.indexOfAny(u8, pattern, "*?") != null;
+}
+
+fn globMatch(pattern: []const u8, value: []const u8) bool {
+    var p: usize = 0;
+    var v: usize = 0;
+    var star: ?usize = null;
+    var retry: usize = 0;
+    while (v < value.len) {
+        if (p < pattern.len and (pattern[p] == '?' or pattern[p] == value[v])) {
+            p += 1;
+            v += 1;
+        } else if (p < pattern.len and pattern[p] == '*') {
+            star = p;
+            p += 1;
+            retry = v;
+        } else if (star) |index| {
+            p = index + 1;
+            retry += 1;
+            v = retry;
+        } else return false;
+    }
+    while (p < pattern.len and pattern[p] == '*') p += 1;
+    return p == pattern.len;
+}
+
+fn transformToWl(transform: OutputConfig.Transform) wl.Output.Transform {
+    return switch (transform) {
+        .normal => .normal,
+        .rotate_90 => .@"90",
+        .rotate_180 => .@"180",
+        .rotate_270 => .@"270",
+        .flipped => .flipped,
+        .flipped_90 => .flipped_90,
+        .flipped_180 => .flipped_180,
+        .flipped_270 => .flipped_270,
+    };
+}
+
+pub fn transformName(transform: wl.Output.Transform) []const u8 {
+    return switch (transform) {
+        .normal => "normal",
+        .@"90" => "90",
+        .@"180" => "180",
+        .@"270" => "270",
+        .flipped => "flipped",
+        .flipped_90 => "flipped-90",
+        .flipped_180 => "flipped-180",
+        .flipped_270 => "flipped-270",
+        else => "normal",
+    };
 }
 
 fn handleManagerTest(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.OutputConfigurationV1) void {
@@ -413,6 +584,7 @@ pub fn commitOutputState(om: *OutputManager) void {
     om.sendConfig() catch {
         log.err("out of memory", .{});
     };
+    server.aqueous.output_service.outputsChanged(false);
 }
 
 fn modesetFailed(om: *OutputManager) void {
