@@ -21,10 +21,22 @@ pub const Placement = struct {
     y: i32 = 0,
 };
 
+pub const Layout = enum {
+    tile,
+    monocle,
+    grid,
+    rows,
+    dwindle,
+    scrolling,
+    floating,
+    game_mode,
+};
+
 pub const Rule = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
+    layout: ?Layout = null,
     placement: Placement = .{},
 };
 

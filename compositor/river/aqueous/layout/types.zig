@@ -22,6 +22,8 @@ pub const Rect = struct {
 
 pub const Window = struct {
     handle: Handle,
+    app_id: ?[]u8 = null,
+    title: ?[]u8 = null,
     min_width: i32 = 0,
     min_height: i32 = 0,
     max_width: i32 = 0,

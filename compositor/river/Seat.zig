@@ -161,6 +161,18 @@ pub const Focus = union(enum) {
     }
 };
 
+pub fn policyFocusedHandle(seat: *const Seat) ?u64 {
+    return switch (seat.focused) {
+        .window => |window| @bitCast(window.ref),
+        else => null,
+    };
+}
+
+pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get() != null) seat.wm_requested.focus = .{ .window = ref };
+}
+
 wlr_seat: *wlr.Seat,
 
 link: wl.list.Link,

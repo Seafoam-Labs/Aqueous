@@ -51,7 +51,6 @@ urgent: bool = false,
 
 pinned: bool = false,
 
-
 pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
     const workspace = try util.gpa.create(Workspace);
     errdefer util.gpa.destroy(workspace);
@@ -99,6 +98,10 @@ pub fn destroy(workspace: *Workspace) void {
 
 pub fn isActive(workspace: *const Workspace) bool {
     return workspace.output.active_workspace == workspace;
+}
+
+pub fn policyId(workspace: *const Workspace) u32 {
+    return workspace.id;
 }
 
 pub fn empty(workspace: *const Workspace) bool {

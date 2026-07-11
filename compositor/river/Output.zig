@@ -218,6 +218,32 @@ present: wl.Listener(*wlr.Output.event.Present) = .init(handlePresent),
 commit: wl.Listener(*wlr.Output.event.Commit) = .init(handleCommit),
 bind: wl.Listener(*wlr.Output.event.Bind) = .init(handleBind),
 
+/// Stable identity used by the in-process policy. This is deliberately derived from the
+/// output object's address only for the lifetime of the output; policy state is discarded
+/// when the output no longer appears in a manage-cycle snapshot.
+pub fn policyId(output: *const Output) u64 {
+    return @intFromPtr(output);
+}
+
+/// Geometry and active-workspace membership exposed to the in-process policy without
+/// leaking mutable compositor state across the policy boundary.
+pub fn policyBox(output: *const Output) wlr.Box {
+    const usable = output.layer_shell.scheduled.non_exclusive_area;
+    if (usable.width > 0 and usable.height > 0) return usable;
+    return output.scheduled.box();
+}
+
+pub fn policyWorkspaceActive(output: *const Output, workspace: ?*const Workspace) bool {
+    return workspace == null or workspace == output.active_workspace;
+}
+
+pub fn policyTrace(output: *const Output, hasher: *std.hash.Wyhash) void {
+    const name = if (output.wlr_output) |wlr_output| std.mem.span(wlr_output.name) else "";
+    hasher.update(name);
+    const workspace_id: u32 = if (output.active_workspace) |workspace| workspace.policyId() else 0;
+    hasher.update(std.mem.asBytes(&workspace_id));
+}
+
 pub fn create(wlr_output: *wlr.Output) !void {
     const output = try util.gpa.create(Output);
     errdefer util.gpa.destroy(output);

@@ -411,6 +411,9 @@ fn manageStart(wm: *WindowManager) void {
         wm_v1.sendManageStart();
         wm.startTimeoutTimer(3000);
     } else {
+        server.aqueous.applyManageCycle() catch |err| {
+            log.err("internal policy manage cycle failed: {}", .{err});
+        };
         wm.manageFinish();
     }
 }

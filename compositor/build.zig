@@ -349,6 +349,17 @@ pub fn build(b: *Build) !void {
         });
         const run_trace_test = b.addRunArtifact(trace_test);
 
+        const config_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/config_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_config_test = b.addRunArtifact(config_test);
+
         const layout_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("river/aqueous/layout/tests.zig"),
@@ -399,6 +410,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_aqueous_test.step);
         test_step.dependOn(&run_trace_test.step);
+        test_step.dependOn(&run_config_test.step);
         test_step.dependOn(&run_layout_test.step);
         test_step.dependOn(&run_rules_test.step);
         test_step.dependOn(&run_focus_test.step);

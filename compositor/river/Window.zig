@@ -167,6 +167,17 @@ pub const Ref = packed struct {
     }
 };
 
+pub const PolicySnapshot = struct {
+    handle: u64,
+    output_id: ?u64,
+    active: bool,
+    app_id: ?[*:0]const u8,
+    title: ?[*:0]const u8,
+    fullscreen: bool,
+    min_width: i32,
+    min_height: i32,
+};
+
 ref: Ref,
 
 /// The workspace this window currently belongs to, or null if unassigned.
@@ -353,6 +364,69 @@ ftm_request_fullscreen: wl.Listener(*wlr.ForeignToplevelHandleV1.event.Fullscree
     .init(handleFtmRequestFullscreen),
 ftm_request_close: wl.Listener(*wlr.ForeignToplevelHandleV1) =
     .init(handleFtmRequestClose),
+
+pub fn policySnapshot(window: *const Window) PolicySnapshot {
+    const output = if (window.workspace) |workspace| workspace.output else null;
+    return .{
+        .handle = @bitCast(window.ref),
+        .output_id = if (output) |value| value.policyId() else null,
+        .active = window.state != .init and window.state != .closing and
+            (output == null or output.?.policyWorkspaceActive(window.workspace)),
+        .app_id = window.getAppId(),
+        .title = window.getTitle(),
+        .fullscreen = window.wm_requested.fullscreen != null,
+        .min_width = @intCast(window.wm_scheduled.dimensions_hint.min_width),
+        .min_height = @intCast(window.wm_scheduled.dimensions_hint.min_height),
+    };
+}
+
+pub fn policyApplyPlacement(
+    window: *Window,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    visible: bool,
+    border_width: u31,
+    border_color: u32,
+) void {
+    if (width > 0 and height > 0) {
+        window.wm_requested.dimensions = .{ .width = @intCast(width), .height = @intCast(height) };
+    } else if (visible) {
+        return;
+    }
+    window.rendering_requested.x = x;
+    window.rendering_requested.y = y;
+    window.rendering_requested.hidden = !visible;
+    const expand: u32 = 0x01010101;
+    window.rendering_requested.border = .{
+        .edges = if (border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},
+        .width = border_width,
+        .r = ((border_color >> 16) & 0xff) * expand,
+        .g = ((border_color >> 8) & 0xff) * expand,
+        .b = (border_color & 0xff) * expand,
+        .a = ((border_color >> 24) & 0xff) * expand,
+    };
+    window.node.link.remove();
+    server.wm.rendering_requested.list.append(&window.node);
+}
+
+pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {
+    const handle: u64 = @bitCast(window.ref);
+    hasher.update(std.mem.asBytes(&handle));
+    const has_dimensions = window.wm_requested.dimensions != null;
+    hasher.update(std.mem.asBytes(&has_dimensions));
+    const dimensions = window.wm_requested.dimensions orelse Dimensions{ .width = 0, .height = 0 };
+    hasher.update(std.mem.asBytes(&dimensions.width));
+    hasher.update(std.mem.asBytes(&dimensions.height));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.x));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.y));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.hidden));
+    const fullscreen = window.wm_requested.fullscreen != null;
+    hasher.update(std.mem.asBytes(&fullscreen));
+    const workspace_id: u32 = if (window.workspace) |workspace| workspace.policyId() else 0;
+    hasher.update(std.mem.asBytes(&workspace_id));
+}
 
 pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     assert(impl != .destroying);
