@@ -22,6 +22,7 @@ const log = std.log.scoped(.input);
 const KeyConsumer = union(enum) {
     /// Builtin compositor binding, e.g. VT switching
     builtin,
+    policy: xkb.Keysym,
     /// A null value indicates that the xkb_binding_v1 was destroyed or that
     /// a press event was already sent due to a press on a different keyboard.
     binding: ?*XkbBinding,
@@ -247,6 +248,9 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
                 break :blk .builtin;
             }
         }
+        for (xkb_state.keyGetSyms(xkb_keycode)) |sym| {
+            if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
+        }
         if (group.seat.matchXkbBinding(xkb_keycode, modifiers, xkb_state)) |binding| {
             log.debug("matched xkb binding", .{});
             group.seat.xkb_bindings_seat.ensure_next_key_eaten = false;
@@ -285,6 +289,9 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
 
     switch (consumer) {
         .builtin => {},
+        .policy => |sym| if (event.state == .released) {
+            _ = server.aqueous.handleKey(@intFromEnum(sym), @bitCast(group.state.getModifiers()), false);
+        },
         .binding => |b| if (b) |binding| {
             if (event.state == .pressed) {
                 binding.pressed();

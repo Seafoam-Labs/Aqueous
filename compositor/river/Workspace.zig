@@ -104,6 +104,13 @@ pub fn policyId(workspace: *const Workspace) u32 {
     return workspace.id;
 }
 
+pub fn policyNumber(workspace: *const Workspace) u32 {
+    var number: u32 = 1;
+    var it = workspace.output.workspaces.iterator(.forward);
+    while (it.next()) |candidate| : (number += 1) if (candidate == workspace) return number;
+    return 0;
+}
+
 pub fn empty(workspace: *const Workspace) bool {
     return workspace.windows.empty();
 }

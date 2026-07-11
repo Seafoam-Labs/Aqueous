@@ -196,8 +196,8 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "maximize_full_output")) snapshot.maximize_full_output = parseBool(value) orelse snapshot.maximize_full_output;
             },
             .scratchpad => {
-                if (std.mem.eql(u8, key, "width_fraction")) snapshot.scratchpad_width_fraction = parseFraction(value) orelse snapshot.scratchpad_width_fraction;
-                if (std.mem.eql(u8, key, "height_fraction")) snapshot.scratchpad_height_fraction = parseFraction(value) orelse snapshot.scratchpad_height_fraction;
+                if (std.mem.eql(u8, key, "width_fraction") or std.mem.eql(u8, key, "width_frac")) snapshot.scratchpad_width_fraction = parseFraction(value) orelse snapshot.scratchpad_width_fraction;
+                if (std.mem.eql(u8, key, "height_fraction") or std.mem.eql(u8, key, "height_frac")) snapshot.scratchpad_height_fraction = parseFraction(value) orelse snapshot.scratchpad_height_fraction;
             },
             .blur => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.blur_enabled = parseBool(value) orelse snapshot.blur_enabled;

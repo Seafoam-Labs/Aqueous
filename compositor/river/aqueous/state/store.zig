@@ -81,6 +81,37 @@ pub fn setFloating(store: *Store, handle: types.Handle, geometry: types.Rect) !v
     if (geometry.width > 0 and geometry.height > 0) entry.floating_geometry = geometry;
 }
 
+pub fn toggleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) !bool {
+    const entry = (try store.entries.getOrPutValue(store.allocator, handle, .{})).value_ptr;
+    if (entry.kind == .floating) {
+        entry.kind = entry.previous;
+        return false;
+    }
+    entry.previous = entry.kind;
+    entry.kind = .floating;
+    if (geometry.width > 0 and geometry.height > 0) entry.floating_geometry = geometry;
+    return true;
+}
+
+pub fn toggleMaximized(store: *Store, handle: types.Handle) !bool {
+    const entry = (try store.entries.getOrPutValue(store.allocator, handle, .{})).value_ptr;
+    if (entry.kind == .maximized) {
+        entry.kind = entry.previous;
+        return false;
+    }
+    entry.previous = entry.kind;
+    entry.kind = .maximized;
+    return true;
+}
+
+pub fn restore(store: *Store, handle: types.Handle) bool {
+    const entry = store.entries.getPtr(handle) orelse return false;
+    if (entry.kind != .minimized) return false;
+    entry.kind = entry.previous;
+    removeFromList(&store.minimized_mru, handle);
+    return true;
+}
+
 pub fn minimize(store: *Store, handle: types.Handle) !bool {
     const entry = store.entries.getPtr(handle) orelse return false;
     if (entry.kind == .minimized) return false;

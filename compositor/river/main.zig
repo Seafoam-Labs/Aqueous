@@ -41,6 +41,12 @@ const full_version = std.fmt.comptimePrint("aqueous {s} {c}xwayland", .{
 });
 
 pub var server: Server = undefined;
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+fn inheritAssignment(name: [*:0]const u8, assignment: [:0]const u8) void {
+    const equal = mem.indexOfScalar(u8, assignment, '=') orelse return;
+    _ = setenv(name, assignment.ptr + equal + 1, 1);
+}
 
 pub fn main(init: std.process.Init.Minimal) anyerror!void {
     var arena_alloc = std.heap.ArenaAllocator.init(util.gpa);
@@ -167,6 +173,17 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     var buf: [11]u8 = undefined;
     const socket = try server.wl_server.addSocketAuto(&buf);
     try server.backend.start();
+    // Native [[exec]] and keybinding children inherit the compositor socket.
+    // This is intentionally delayed until addSocketAuto() has produced it.
+    if (setenv("WAYLAND_DISPLAY", socket.ptr, 1) != 0) return error.SetEnvironmentFailed;
+    if (build_options.xwayland) {
+        if (server.xwayland) |xwayland| _ = setenv("DISPLAY", xwayland.display_name, 1);
+    }
+    if (server.gpu_pin.vk_select) |value| inheritAssignment("MESA_VK_DEVICE_SELECT", value);
+    if (server.gpu_pin.gl_vendor) |value| inheritAssignment("__GLX_VENDOR_LIBRARY_NAME", value);
+    if (server.gpu_pin.dri_prime) |value| inheritAssignment("DRI_PRIME", value);
+    if (server.gpu_pin.nv_offload) |value| inheritAssignment("__NV_PRIME_RENDER_OFFLOAD", value);
+    server.aqueous.start();
 
     // Run the child in a new process group so that we can send SIGTERM to all
     // descendants on exit.

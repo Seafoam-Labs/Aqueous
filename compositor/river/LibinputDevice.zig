@@ -18,6 +18,8 @@ const InputDevice = @import("InputDevice.zig");
 const LibinputAccelConfig = @import("LibinputAccelConfig.zig");
 
 const log = std.log.scoped(.input);
+const PolicyInput = @import("aqueous/config/wm.zig").Input;
+const PolicyDevice = @import("aqueous/config/wm.zig").Device;
 
 libinput: *c.libinput_device,
 objects: wl.list.Head(river.LibinputDeviceV1, null),
@@ -33,9 +35,32 @@ pub fn init(device: *LibinputDevice, handle: *c.libinput_device) void {
     };
     device.objects.init();
     server.libinput_config.devices.append(device);
+    if (server.aqueous.mode.runsInternal()) device.policyApply(server.aqueous.config.wm.input);
     {
         var it = server.libinput_config.objects.iterator(.forward);
         while (it.next()) |config_v1| device.createObject(config_v1);
+    }
+}
+
+pub fn policyApply(device: *LibinputDevice, input: PolicyInput) void {
+    const touchpad = c.libinput_device_config_tap_get_finger_count(device.libinput) > 0;
+    const policy: PolicyDevice = if (touchpad) input.touchpad else input.mouse;
+    const profile: @TypeOf(policy.accel_profile) = if (policy.accel_profile != .unset) policy.accel_profile else if (!touchpad) (if (input.pointer_acceleration) .adaptive else .flat) else .unset;
+    if (profile != .unset) _ = c.libinput_device_config_accel_set_profile(device.libinput, if (profile == .flat) c.LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT else c.LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE);
+    if (policy.accel_speed orelse if (!touchpad) input.pointer_acceleration_factor else null) |speed| _ = c.libinput_device_config_accel_set_speed(device.libinput, std.math.clamp(speed, -1, 1));
+    if (policy.natural_scroll) |value| _ = c.libinput_device_config_scroll_set_natural_scroll_enabled(device.libinput, @intFromBool(value));
+    if (policy.left_handed) |value| _ = c.libinput_device_config_left_handed_set(device.libinput, @intFromBool(value));
+    if (policy.middle_emulation) |value| _ = c.libinput_device_config_middle_emulation_set_enabled(device.libinput, if (value) c.LIBINPUT_CONFIG_MIDDLE_EMULATION_ENABLED else c.LIBINPUT_CONFIG_MIDDLE_EMULATION_DISABLED);
+    if (policy.dwt) |value| _ = c.libinput_device_config_dwt_set_enabled(device.libinput, if (value) c.LIBINPUT_CONFIG_DWT_ENABLED else c.LIBINPUT_CONFIG_DWT_DISABLED);
+    if (touchpad) {
+        if (policy.tap) |value| _ = c.libinput_device_config_tap_set_enabled(device.libinput, if (value) c.LIBINPUT_CONFIG_TAP_ENABLED else c.LIBINPUT_CONFIG_TAP_DISABLED);
+        if (policy.click_method != .unset) _ = c.libinput_device_config_click_set_method(device.libinput, if (policy.click_method == .clickfinger) c.LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER else c.LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS);
+        if (policy.scroll_method != .unset) _ = c.libinput_device_config_scroll_set_method(device.libinput, switch (policy.scroll_method) {
+            .two_finger => c.LIBINPUT_CONFIG_SCROLL_2FG,
+            .edge => c.LIBINPUT_CONFIG_SCROLL_EDGE,
+            .no_scroll => c.LIBINPUT_CONFIG_SCROLL_NO_SCROLL,
+            .unset => unreachable,
+        });
     }
 }
 

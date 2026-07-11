@@ -4,6 +4,7 @@
 const std = @import("std");
 const layout = @import("layout.zig");
 const wm = @import("wm.zig");
+const actions = @import("actions.zig");
 
 const log = std.log.scoped(.aqueous);
 const max_config_bytes = 1024 * 1024;
@@ -11,6 +12,7 @@ const max_config_bytes = 1024 * 1024;
 pub const Snapshot = struct {
     layout: layout.Snapshot = .{},
     wm: wm.Snapshot = .{},
+    actions: actions.Snapshot = .{},
     fingerprint: u64 = 0,
 };
 
@@ -18,6 +20,7 @@ pub const Snapshot = struct {
 /// function returns, so a manage cycle never observes a half-applied reload.
 pub fn load(allocator: std.mem.Allocator) Snapshot {
     var snapshot: Snapshot = .{};
+    actions.initDefaults(&snapshot.actions);
     var wm_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const env = Environment.read();
     const wm_path = resolveWmPath(&wm_path_buffer, env) orelse return snapshot;
@@ -25,6 +28,7 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
         defer allocator.free(wm_source);
         snapshot.fingerprint = hashSource(snapshot.fingerprint, wm_source);
         wm.apply(&snapshot.wm, &snapshot.layout, wm_source);
+        applyActions(&snapshot.actions, wm_source);
     }
 
     var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
@@ -35,6 +39,133 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
         applyInputFile(allocator, &snapshot, path);
     }
     return snapshot;
+}
+
+fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
+    const Section = enum { none, action, keybinds, custom, scratchpad, scratchpad_spawn, exec };
+    var section: Section = .none;
+    var pending: ?actions.Exec = null;
+    var lines = std.mem.splitScalar(u8, source, '\n');
+    while (lines.next()) |raw| {
+        const line = wm.cleanLine(raw);
+        if (line.len == 0) continue;
+        if (line[0] == '[') {
+            if (pending) |entry| {
+                if (!entry.name.empty() and !entry.command.empty() and snapshot.exec_count < actions.max_exec) {
+                    snapshot.exec[snapshot.exec_count] = entry;
+                    snapshot.exec_count += 1;
+                }
+                pending = null;
+            }
+            if (std.mem.eql(u8, line, "[[exec]]")) {
+                section = .exec;
+                pending = .{};
+            } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else if (std.mem.eql(u8, line, "[scratchpad]")) section = .scratchpad else if (std.mem.eql(u8, line, "[scratchpad.spawn]")) section = .scratchpad_spawn else section = .none;
+            continue;
+        }
+        const equal = wm.indexUnquoted(line, '=') orelse continue;
+        const raw_key = std.mem.trim(u8, line[0..equal], " \t");
+        const key = wm.unquote(raw_key);
+        const raw_value = std.mem.trim(u8, line[equal + 1 ..], " \t");
+        const value = wm.unquote(raw_value);
+        switch (section) {
+            .action => {
+                if (std.mem.eql(u8, key, "toggle_start_menu")) _ = snapshot.toggle_start_menu.set(value);
+                if (std.mem.eql(u8, key, "spawn_terminal")) _ = snapshot.spawn_terminal.set(value);
+                if (std.mem.eql(u8, key, "lock_screen")) _ = snapshot.lock_screen.set(value);
+            },
+            .keybinds => actions.addBuiltinList(snapshot, key, raw_value),
+            .custom => {
+                var decoded: [256]u8 = undefined;
+                actions.addBinding(snapshot, key, decodeBasic(value, &decoded) orelse value);
+            },
+            .scratchpad => {
+                if (std.mem.eql(u8, key, "on_empty")) snapshot.scratchpad_on_empty_spawn = std.mem.eql(u8, value, "spawn");
+                if (std.mem.eql(u8, key, "anchor")) snapshot.scratchpad_anchor = if (std.mem.eql(u8, value, "top")) .top else if (std.mem.eql(u8, value, "bottom")) .bottom else .center;
+            },
+            .scratchpad_spawn => {
+                if (snapshot.scratchpad_count < actions.max_scratchpads) {
+                    var entry: actions.Scratchpad = .{};
+                    if (entry.name.set(key) and entry.command.set(value)) {
+                        snapshot.scratchpads[snapshot.scratchpad_count] = entry;
+                        snapshot.scratchpad_count += 1;
+                    }
+                }
+            },
+            .exec => if (pending) |*entry| {
+                if (std.mem.eql(u8, key, "name")) _ = entry.name.set(value);
+                if (std.mem.eql(u8, key, "command")) _ = entry.command.set(value);
+                if (std.mem.eql(u8, key, "when")) entry.when = if (std.mem.eql(u8, value, "reload")) .reload else if (std.mem.eql(u8, value, "always")) .always else .startup;
+                if (std.mem.eql(u8, key, "once")) entry.once = parseBool(value) orelse entry.once;
+                if (std.mem.eql(u8, key, "restart")) entry.restart = parseBool(value) orelse entry.restart;
+                if (std.mem.eql(u8, key, "log")) _ = entry.log_path.set(value);
+                if (std.mem.eql(u8, key, "env")) _ = entry.env.set(raw_value);
+            },
+            .none => {},
+        }
+    }
+    if (pending) |entry| if (!entry.name.empty() and !entry.command.empty() and snapshot.exec_count < actions.max_exec) {
+        snapshot.exec[snapshot.exec_count] = entry;
+        snapshot.exec_count += 1;
+    };
+}
+
+fn decodeBasic(value: []const u8, buffer: []u8) ?[]const u8 {
+    var read: usize = 0;
+    var write: usize = 0;
+    while (read < value.len) : (read += 1) {
+        if (write == buffer.len) return null;
+        if (value[read] == '\\' and read + 1 < value.len) {
+            read += 1;
+            buffer[write] = switch (value[read]) {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                else => value[read],
+            };
+        } else buffer[write] = value[read];
+        write += 1;
+    }
+    return buffer[0..write];
+}
+
+fn parseBool(value: []const u8) ?bool {
+    if (std.mem.eql(u8, value, "true")) return true;
+    if (std.mem.eql(u8, value, "false")) return false;
+    return null;
+}
+
+test "actions custom bindings scratchpads and exec are immutable snapshot data" {
+    var snapshot: actions.Snapshot = .{};
+    actions.initDefaults(&snapshot);
+    applyActions(&snapshot,
+        \\[actions]
+        \\spawn_terminal = "foot"
+        \\[keybinds]
+        \\cycle_focus = []
+        \\[keybinds.custom]
+        \\"Super+E" = "spawn:nemo"
+        \\[scratchpad]
+        \\on_empty = "spawn"
+        \\[scratchpad.spawn]
+        \\term = "foot --app-id scratch"
+        \\[[exec]]
+        \\name = "agent"
+        \\command = "agent --daemon"
+        \\when = "always"
+        \\restart = true
+        \\log = "/tmp/agent.log"
+        \\env = { MODE = "native" }
+    );
+    try std.testing.expectEqualStrings("foot", snapshot.spawn_terminal.slice());
+    try std.testing.expectEqualStrings("spawn:nemo", snapshot.find('e', 64).?);
+    try std.testing.expect(snapshot.scratchpad_on_empty_spawn);
+    try std.testing.expectEqualStrings("foot --app-id scratch", snapshot.scratchpadCommand("term").?);
+    try std.testing.expectEqual(@as(u8, 1), snapshot.exec_count);
+    try std.testing.expectEqual(actions.ExecWhen.always, snapshot.exec[0].when);
+    try std.testing.expect(snapshot.exec[0].restart);
+    try std.testing.expectEqualStrings("/tmp/agent.log", snapshot.exec[0].log_path.slice());
+    try std.testing.expectEqualStrings("{ MODE = \"native\" }", snapshot.exec[0].env.slice());
 }
 
 pub const Environment = struct {

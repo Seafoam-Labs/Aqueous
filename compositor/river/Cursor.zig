@@ -285,15 +285,15 @@ pub fn setTheme(cursor: *Cursor, theme: ?[*:0]const u8, _size: ?u32) !void {
     }
 }
 
-pub fn setConstraintsSuppressed(cursor: *Cursor, value: bool) void{
-    if(cursor.constraints_suppressed == value)return;
+pub fn setConstraintsSuppressed(cursor: *Cursor, value: bool) void {
+    if (cursor.constraints_suppressed == value) return;
     cursor.constraints_suppressed = value;
-    if(value){
-        if(cursor.constraint) |c|{
-            if(c.state == .active) c.deactivate();
+    if (value) {
+        if (cursor.constraint) |c| {
+            if (c.state == .active) c.deactivate();
         }
-    }else{
-        if(cursor.constraint) |c| c.maybeActivate();
+    } else {
+        if (cursor.constraint) |c| c.maybeActivate();
     }
 }
 
@@ -549,6 +549,7 @@ fn processMotionRelativeInternal(
     switch (cursor.mode) {
         .passthrough, .drag, .ignore, .down => {
             cursor.move(&event.mapping, dx, dy);
+            server.aqueous.handlePointerMotion(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
 
             switch (cursor.mode) {
                 .passthrough, .drag => {
@@ -579,6 +580,7 @@ fn processMotionRelativeInternal(
             data.delta_y = dy - @trunc(dy);
 
             cursor.move(&event.mapping, dx, dy);
+            server.aqueous.handlePointerMotion(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
             cursor.seat.opUpdate(@intFromFloat(cursor.wlr_cursor.x), @intFromFloat(cursor.wlr_cursor.y));
         },
     }
@@ -629,6 +631,7 @@ fn updateHovered(cursor: *Cursor) void {
     }
 
     if (cursor.seat.wm_scheduled.hovered != old) {
+        server.aqueous.handleHover(if (cursor.seat.wm_scheduled.hovered) |ref| @bitCast(ref) else null);
         server.wm.dirtyWindowing();
     }
 }
@@ -663,6 +666,14 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
         };
         if (result.found_existing) {
             log.err("ignoring duplicate pointer button {d} press", .{event.button});
+            return;
+        }
+
+        const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
+        if (server.aqueous.handlePointerButton(event.button, modifiers, true, cursor.wlr_cursor.x, cursor.wlr_cursor.y)) {
+            result.value_ptr.* = null;
+            cursor.mode = .ignore;
+            cursor.clearFocus();
             return;
         }
 
@@ -728,6 +739,8 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
         }
     } else {
         assert(event.state == .released);
+        const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
+        _ = server.aqueous.handlePointerButton(event.button, modifiers, false, cursor.wlr_cursor.x, cursor.wlr_cursor.y);
         const result = cursor.pressed.fetchRemove(event.button);
         if (result) |kv| {
             if (kv.value) |binding| {
