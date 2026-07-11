@@ -144,6 +144,14 @@ fn selectedOutput(_: CompositorApi) ?*Output {
             }
         }
 
+        // A configured primary is the deterministic initial/fallback output.
+        // Explicit output selection and focused windows above still win, so a
+        // config reload never steals an established user focus target.
+        if (server.aqueous.output_service.primaryOutput()) |output| {
+            seat.policySelectOutput(output);
+            return output;
+        }
+
         if (server.om.outputAt(seat.cursor.wlr_cursor.x, seat.cursor.wlr_cursor.y)) |wlr_output| {
             if (wlr_output.data) |data| {
                 const output: *Output = @ptrCast(@alignCast(data));

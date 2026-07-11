@@ -31,6 +31,7 @@ output_fingerprint: u64 = 0,
 wm_fingerprint: u64 = 0,
 persisted_fingerprint: u64 = 0,
 started: bool = false,
+primary_ambiguity_logged: bool = false,
 
 const Client = struct {
     service: *Service,
@@ -77,7 +78,56 @@ pub fn reload(service: *Service, apply: bool) void {
     service.persisted = loadOutputsConfig();
     service.wm_fingerprint = configFingerprint(true);
     service.persisted_fingerprint = configFingerprint(false);
+    service.primary_ambiguity_logged = false;
     if (apply and service.config.apply_on_reload) service.applyConfigured();
+}
+
+/// Return the configured primary output when it is currently usable. Specs are
+/// folded in declaration order, matching applySpecs' wildcard-then-specific
+/// override behavior. The active profile takes precedence; otherwise wm.toml
+/// takes precedence over persisted outputs.toml when it declares a primary.
+pub fn primaryOutput(service: *Service) ?*Output {
+    const specs = service.primarySpecs();
+    if (specs.len == 0) return null;
+
+    var primary: ?*Output = null;
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const wlr_output = output.wlr_output orelse continue;
+        var preferred = false;
+        for (specs) |*spec| {
+            if (!OutputManager.matchesSpec(spec, wlr_output)) continue;
+            if (spec.primary) |value| preferred = value;
+        }
+        if (!preferred) continue;
+        const box = output.policyFullBox();
+        if (output.active_workspace == null or box.width <= 0 or box.height <= 0) continue;
+        if (primary != null) {
+            if (!service.primary_ambiguity_logged) {
+                log.warn("multiple usable outputs are configured primary; using {s}", .{primary.?.wlr_output.?.name});
+                service.primary_ambiguity_logged = true;
+            }
+            continue;
+        }
+        primary = output;
+    }
+    return primary;
+}
+
+fn primarySpecs(service: *const Service) []const Config.Spec {
+    if (!service.active_profile.empty()) {
+        if (service.config.profile(service.active_profile.slice()) orelse service.persisted.profile(service.active_profile.slice())) |profile| {
+            if (hasPrimary(profile.outputs[0..profile.output_count])) return profile.outputs[0..profile.output_count];
+        }
+    }
+    if (hasPrimary(service.config.outputs[0..service.config.output_count])) return service.config.outputs[0..service.config.output_count];
+    if (hasPrimary(service.persisted.outputs[0..service.persisted.output_count])) return service.persisted.outputs[0..service.persisted.output_count];
+    return &.{};
+}
+
+fn hasPrimary(specs: []const Config.Spec) bool {
+    for (specs) |spec| if (spec.primary != null) return true;
+    return false;
 }
 
 pub fn pollReload(service: *Service) bool {

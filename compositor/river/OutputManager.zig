@@ -195,7 +195,10 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
     if (spec.adaptive_sync) |adaptive_sync| state.adaptive_sync = adaptive_sync;
 }
 
-fn matchesSpec(spec: *const OutputConfig.Spec, output: *wlr.Output) bool {
+/// Shared with the in-process output service when resolving the configured
+/// primary output. Keeping this matcher in one place ensures name globs and
+/// EDID identities have identical semantics for modesetting and selection.
+pub fn matchesSpec(spec: *const OutputConfig.Spec, output: *wlr.Output) bool {
     if (!spec.edid.empty()) {
         var buffer: [7 + 64]u8 = undefined;
         const hash = outputIdentityHash(output, &buffer) orelse return false;

@@ -22,7 +22,10 @@ pub const Spec = struct {
     x: ?i32 = null,
     y: ?i32 = null,
     adaptive_sync: ?bool = null,
-    primary: bool = false,
+    /// Preferred output for compositor actions which do not yet have an
+    /// explicitly selected output. Optional so later matching specs can clear
+    /// a wildcard/default declaration with `primary = false`.
+    primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
         return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null;
@@ -234,6 +237,7 @@ test "output config parses display specs and profiles" {
         \\scale = 1.25
         \\transform = "flipped-90"
         \\adaptive_sync = true
+        \\primary = true
         \\[[display.profile]]
         \\name = "safe"
         \\[[display.profile.output]]
@@ -243,9 +247,24 @@ test "output config parses display specs and profiles" {
     try std.testing.expectEqual(@as(u8, 1), snapshot.output_count);
     try std.testing.expectEqual(@as(i32, 143999), snapshot.outputs[0].mode.?.refresh_mhz.?);
     try std.testing.expectEqual(Transform.flipped_90, snapshot.outputs[0].transform.?);
+    try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profile_count);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profiles[0].output_count);
     try std.testing.expectEqual(@as(i32, 0), snapshot.profiles[0].outputs[0].x.?);
+}
+
+test "primary preserves an explicit false override" {
+    const snapshot = parse(
+        \\[[output]]
+        \\name = "*"
+        \\primary = true
+        \\[[output]]
+        \\name = "HDMI-A-1"
+        \\primary = false
+    );
+    try std.testing.expectEqual(@as(u8, 2), snapshot.output_count);
+    try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
+    try std.testing.expectEqual(false, snapshot.outputs[1].primary.?);
 }
 
 test "mode scale and transform validation matches outputd contract" {
