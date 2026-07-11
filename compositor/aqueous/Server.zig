@@ -36,8 +36,8 @@ const XdgDecoration = @import("XdgDecoration.zig");
 const XdgToplevel = @import("XdgToplevel.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
-const Aqueous = @import("aqueous/Aqueous.zig");
-const PolicyMode = @import("aqueous/Mode.zig").Mode;
+const Aqueous = @import("wm/Aqueous.zig");
+const PolicyMode = @import("wm/Mode.zig").Mode;
 
 const log = std.log;
 const linux = std.os.linux;

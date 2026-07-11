@@ -194,7 +194,7 @@ pub fn build(b: *Build) !void {
 
     const translate_c: Translator = .init(b.dependency("translate_c", .{}), .{
         .name = "c",
-        .c_source_file = b.path("river/c.h"),
+        .c_source_file = b.path("aqueous/c.h"),
         .target = target,
         .optimize = optimize,
     });
@@ -215,7 +215,7 @@ pub fn build(b: *Build) !void {
         const river = b.addExecutable(.{
             .name = "aqueous",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/main.zig"),
+                .root_source_file = b.path("aqueous/main.zig"),
                 .target = target,
                 .optimize = optimize,
                 .strip = strip,
@@ -252,7 +252,7 @@ pub fn build(b: *Build) !void {
         river.root_module.addImport("c", translate_c.mod);
 
         river.root_module.addCSourceFile(.{
-            .file = b.path("river/wlroots_log_wrapper.c"),
+            .file = b.path("aqueous/wlroots_log_wrapper.c"),
             .flags = &.{ "-std=c99", "-O2" },
         });
 
@@ -314,7 +314,7 @@ pub fn build(b: *Build) !void {
 
         const scaling_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/scaling.zig"),
+                .root_source_file = b.path("aqueous/scaling.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -325,7 +325,7 @@ pub fn build(b: *Build) !void {
 
         const cursor_lock_restore_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/cursor_lock_restore.zig"),
+                .root_source_file = b.path("aqueous/cursor_lock_restore.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -336,7 +336,7 @@ pub fn build(b: *Build) !void {
 
         const aqueous_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/Mode.zig"),
+                .root_source_file = b.path("aqueous/wm/Mode.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -347,7 +347,7 @@ pub fn build(b: *Build) !void {
 
         const trace_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/Trace.zig"),
+                .root_source_file = b.path("aqueous/wm/Trace.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -358,7 +358,7 @@ pub fn build(b: *Build) !void {
 
         const config_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/config_tests.zig"),
+                .root_source_file = b.path("aqueous/wm/config_tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -369,7 +369,7 @@ pub fn build(b: *Build) !void {
 
         const layout_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/layout/tests.zig"),
+                .root_source_file = b.path("aqueous/wm/layout/tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -380,7 +380,7 @@ pub fn build(b: *Build) !void {
 
         const rules_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/rules/tests.zig"),
+                .root_source_file = b.path("aqueous/wm/rules/tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -391,7 +391,7 @@ pub fn build(b: *Build) !void {
 
         const focus_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/focus/tests.zig"),
+                .root_source_file = b.path("aqueous/wm/focus/tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -402,7 +402,7 @@ pub fn build(b: *Build) !void {
 
         const output_navigation_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/output/navigation.zig"),
+                .root_source_file = b.path("aqueous/wm/output/navigation.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -413,7 +413,7 @@ pub fn build(b: *Build) !void {
 
         const input_drag_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/input_tests.zig"),
+                .root_source_file = b.path("aqueous/wm/input_tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -424,7 +424,7 @@ pub fn build(b: *Build) !void {
 
         const workspaces_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/aqueous/workspaces/coalescer.zig"),
+                .root_source_file = b.path("aqueous/wm/workspaces/coalescer.zig"),
                 .target = target,
                 .optimize = optimize,
             }),

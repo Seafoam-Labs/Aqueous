@@ -63,7 +63,8 @@ applied directly through wlroots. Display-panel integrations can use the
 compatible JSON socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock`; this is an
 in-process service despite the legacy socket name.
 
-See [layout documentation](docs/layout.md), [rules documentation](docs/rules.md),
+See the [compositor interaction guide](docs/compositor-interactions.md),
+[layout documentation](docs/layout.md), [rules documentation](docs/rules.md),
 and the annotated `*.toml.example` files for details.
 
 ## Test

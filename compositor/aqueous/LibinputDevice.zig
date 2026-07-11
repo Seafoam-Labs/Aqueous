@@ -18,8 +18,8 @@ const InputDevice = @import("InputDevice.zig");
 const LibinputAccelConfig = @import("LibinputAccelConfig.zig");
 
 const log = std.log.scoped(.input);
-const PolicyInput = @import("aqueous/config/wm.zig").Input;
-const PolicyDevice = @import("aqueous/config/wm.zig").Device;
+const PolicyInput = @import("wm/config/wm.zig").Input;
+const PolicyDevice = @import("wm/config/wm.zig").Device;
 
 libinput: *c.libinput_device,
 objects: wl.list.Head(river.LibinputDeviceV1, null),

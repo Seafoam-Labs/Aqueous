@@ -1,9 +1,13 @@
 # Aqueous architecture
 
-Aqueous is a single Zig process. `compositor/river/Server.zig` owns wlroots and
-Wayland lifecycle; `compositor/river/aqueous/Aqueous.zig` owns integrated
+Aqueous is a single Zig process. `compositor/aqueous/Server.zig` owns wlroots and
+Wayland lifecycle; `compositor/aqueous/wm/Aqueous.zig` owns integrated
 window-management policy and talks to the compositor through explicit native
 hooks in `CompositorApi.zig` and `WindowManager.zig`.
+
+For the detailed event, window, focus, layout, workspace, layer-shell, output,
+and render flows, see the
+[compositor interaction guide](compositor-interactions.md).
 
 ```text
 aqueous
@@ -20,8 +24,8 @@ aqueous
 ```text
 compositor/
 ├── build.zig                 # canonical build and Zig tests
-├── river/                    # compositor integration
-│   └── aqueous/              # policy, config, layouts, rules, input, outputs
+├── aqueous/                  # compositor integration
+│   └── wm/                   # policy, config, layouts, rules, input, outputs
 ├── protocol/                 # Wayland protocol definitions
 └── scripts/                  # headless integration checks
 scripts/build-compositor.sh   # stages bin/aqueous

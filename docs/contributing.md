@@ -1,7 +1,7 @@
 # Contributing to Aqueous
 
 Aqueous is implemented in Zig. Format changed Zig files with `zig fmt`, keep
-policy code under `compositor/river/aqueous/`, and keep wlroots/Wayland
+policy code under `compositor/aqueous/wm/`, and keep wlroots/Wayland
 integration behind the native compositor API where practical.
 
 Before submitting a change, run:

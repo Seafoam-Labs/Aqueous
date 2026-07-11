@@ -21,7 +21,7 @@ const Output = @import("Output.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
-const OutputConfig = @import("aqueous/output/config.zig");
+const OutputConfig = @import("wm/output/config.zig");
 
 const log = std.log.scoped(.output);
 

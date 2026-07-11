@@ -46,7 +46,7 @@ pub const DimensionsHint = struct {
 /// Window-manager metadata that has the exact same lifetime as this Window.
 /// Compositor-owned state such as fullscreen, workspace, output, and current
 /// geometry deliberately does not live here.
-pub const PolicyState = @import("aqueous/state/PolicyState.zig");
+pub const PolicyState = @import("wm/state/PolicyState.zig");
 
 const Impl = union(enum) {
     toplevel: XdgToplevel,

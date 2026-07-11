@@ -19,7 +19,7 @@ const util = @import("util.zig");
 const process = @import("process.zig");
 
 const Server = @import("Server.zig");
-const PolicyMode = @import("aqueous/Mode.zig").Mode;
+const PolicyMode = @import("wm/Mode.zig").Mode;
 
 const io = Io.Threaded.global_single_threaded.io();
 
