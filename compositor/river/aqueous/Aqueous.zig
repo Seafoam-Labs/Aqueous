@@ -64,7 +64,7 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
         .rules = Rules.init(util.gpa),
         .focus_history = FocusHistory.init(util.gpa),
         .pending_focus = PendingFocus.init(util.gpa),
-        .window_states = StateStore.init(util.gpa),
+        .window_states = StateStore.init(util.gpa, CompositorApi.policyState),
         .output_service = undefined,
     };
     aqueous.output_service.init();
@@ -166,11 +166,12 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         try requested.ensureTotalCapacity(util.gpa, output.windows.len);
         try focusable.ensureTotalCapacity(util.gpa, output.windows.len);
         var game_anchor: ?struct { handle: layout_types.Handle, rule: Rules.Rule } = null;
+        var fullscreen_owner: ?layout_types.Handle = null;
         for (output.windows) |window| {
-            const prior_fullscreen = if (window.fullscreen) aqueous.window_states.fullscreenOwner(output.id) else null;
-            const state = try aqueous.window_states.observe(window.handle, output.id, output.workspace_number, window.fullscreen);
-            if (prior_fullscreen) |prior| {
-                if (prior != window.handle) aqueous.api.clearFullscreen(prior);
+            const state = aqueous.window_states.get(window.handle) orelse continue;
+            if (window.fullscreen) {
+                if (fullscreen_owner) |prior| aqueous.api.clearFullscreen(prior);
+                fullscreen_owner = window.handle;
             }
             if (state.kind == .minimized or (state.kind == .scratchpad and !state.scratchpad_visible)) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
@@ -211,7 +212,8 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (rule) |matched| {
                 if (matched.layout) |id| output_layout.default = ruleLayout(id);
                 if (matched.fullscreen) {
-                    if (try aqueous.window_states.enterFullscreen(window.handle, output.id)) |prior| aqueous.api.clearFullscreen(prior);
+                    if (fullscreen_owner) |prior| if (prior != window.handle) aqueous.api.clearFullscreen(prior);
+                    fullscreen_owner = window.handle;
                     requested.appendAssumeCapacity(.{
                         .handle = window.handle,
                         .geometry = output.area,
@@ -228,7 +230,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (matched.placement.floating) {
                     const float_area = if (matched.ignore_struts) output.area else usable_area;
                     const float_placement = floatingRulePlacement(float_area, window, matched, output_layout.layoutOptions(.floating).border);
-                    try aqueous.window_states.setFloating(window.handle, float_placement.geometry);
+                    _ = aqueous.window_states.setFloating(window.handle, float_placement.geometry);
                     requested.appendAssumeCapacity(float_placement);
                     if (matched.placement.tag == 0 or matched.placement.tag == output.workspace_number) focusable.appendAssumeCapacity(window);
                     continue;
@@ -341,7 +343,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     }
     const target = aqueous.api.windowAt(x, y) orelse return false;
     aqueous.drag = .{ .handle = target.handle, .start = target.geometry, .pointer_x = x, .pointer_y = y, .resize = button == 0x111 };
-    _ = aqueous.window_states.setFloating(target.handle, target.geometry) catch {};
+    _ = aqueous.window_states.setFloating(target.handle, target.geometry);
     aqueous.api.requestFocus(target.handle);
     return true;
 }
@@ -366,7 +368,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         .width = drag.start.width,
         .height = drag.start.height,
     };
-    aqueous.window_states.setFloating(drag.handle, geometry) catch return;
+    if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
     aqueous.api.requestManageCycle();
 }
 
@@ -550,8 +552,10 @@ fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
 fn toggleFullscreen(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
-    if (aqueous.window_states.leaveFullscreen(handle)) aqueous.api.clearFullscreen(handle) else {
-        if (aqueous.window_states.enterFullscreen(handle, context.output.policyId()) catch null) |prior| aqueous.api.clearFullscreen(prior);
+    if (context.window.policySnapshot().fullscreen) {
+        aqueous.api.clearFullscreen(handle);
+    } else {
+        aqueous.api.clearOtherFullscreen(context.output.policyId(), handle);
         aqueous.api.applyRule(handle, context.output.policyId(), 0, true, null, null, aqueous.config.wm.force_ssd);
     }
     aqueous.api.requestManageCycle();
@@ -559,20 +563,23 @@ fn toggleFullscreen(aqueous: *Aqueous) void {
 
 fn toggleMaximize(aqueous: *Aqueous) void {
     const handle = aqueous.api.focusedWindow() orelse return;
-    _ = aqueous.window_states.toggleMaximized(handle) catch return;
+    _ = aqueous.window_states.toggleMaximized(handle) orelse return;
     aqueous.api.requestManageCycle();
 }
 
 fn toggleFloating(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
     const box = context.window.box;
-    _ = aqueous.window_states.toggleFloating(@bitCast(context.window.ref), .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height }) catch return;
+    _ = aqueous.window_states.toggleFloating(@bitCast(context.window.ref), .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height }) orelse return;
     aqueous.api.requestManageCycle();
 }
 
 fn toggleMinimize(aqueous: *Aqueous) void {
     const handle = aqueous.api.focusedWindow() orelse return;
-    if (!aqueous.window_states.restore(handle)) _ = aqueous.window_states.minimize(handle) catch return;
+    if (!aqueous.window_states.restore(handle)) {
+        aqueous.api.clearFullscreen(handle);
+        _ = aqueous.window_states.minimize(handle) catch return;
+    }
     aqueous.api.requestManageCycle();
 }
 
@@ -584,13 +591,13 @@ fn toggleScratchpad(aqueous: *Aqueous, name: []const u8) void {
         }
         return;
     }
-    if (aqueous.window_states.entries.get(handle).?.scratchpad_visible) aqueous.api.requestFocus(handle);
+    if (aqueous.window_states.get(handle)) |state| if (state.scratchpad_visible) aqueous.api.requestFocus(handle);
     aqueous.api.requestManageCycle();
 }
 
 fn sendToScratchpad(aqueous: *Aqueous, name: []const u8) void {
     const handle = aqueous.api.focusedWindow() orelse return;
-    aqueous.window_states.sendToScratchpad(handle, name) catch return;
+    if (!(aqueous.window_states.sendToScratchpad(handle, name) catch return)) return;
     aqueous.api.requestManageCycle();
 }
 

@@ -31,6 +31,12 @@ pub fn resolveWindow(_: CompositorApi, handle: WindowHandle) ?*Window {
     return handle.ref.get();
 }
 
+pub fn policyState(handle: layout.Handle) ?*Window.PolicyState {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return null;
+    return &window.policy_state;
+}
+
 pub fn snapshot(_: CompositorApi) Trace.Snapshot {
     var geometry = std.hash.Wyhash.init(0);
     var window_it = server.wm.windows.iterator();
@@ -371,6 +377,15 @@ pub fn applyRule(_: CompositorApi, handle: layout.Handle, output_id: u64, worksp
 pub fn clearFullscreen(_: CompositorApi, handle: layout.Handle) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.policyClearFullscreen();
+}
+
+pub fn clearOtherFullscreen(_: CompositorApi, output_id: u64, except: layout.Handle) void {
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        const state = window.policySnapshot();
+        if (state.handle == except or !state.fullscreen or state.output_id != output_id) continue;
+        window.policyClearFullscreen();
+    }
 }
 
 fn freeWindowStrings(allocator: std.mem.Allocator, windows: []const layout.Window) void {

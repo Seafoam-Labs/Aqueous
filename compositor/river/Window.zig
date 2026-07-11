@@ -43,6 +43,11 @@ pub const DimensionsHint = struct {
     max_height: u31 = 0,
 };
 
+/// Window-manager metadata that has the exact same lifetime as this Window.
+/// Compositor-owned state such as fullscreen, workspace, output, and current
+/// geometry deliberately does not live here.
+pub const PolicyState = @import("aqueous/state/PolicyState.zig");
+
 const Impl = union(enum) {
     toplevel: XdgToplevel,
     xwayland: if (build_options.xwayland) XwaylandWindow else noreturn,
@@ -286,6 +291,10 @@ wm_sent: struct {
 
 /// Windowing state requested by the wm.
 wm_requested: WmRequested = .init,
+
+/// Integrated-policy metadata owned by the window rather than mirrored in a
+/// handle-keyed side table.
+policy_state: PolicyState = .{},
 
 /// State to be sent to the window in the next configure.
 configure_scheduled: Configure = .init,
