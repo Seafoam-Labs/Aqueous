@@ -90,6 +90,16 @@ pub fn clearFocus(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+pub fn selectOutput(_: CompositorApi, output_id: u64) bool {
+    const output = outputById(output_id) orelse return false;
+    const box = output.policyFullBox();
+    if (output.active_workspace == null or box.width <= 0 or box.height <= 0) return false;
+    var seats = server.input_manager.seats.iterator(.forward);
+    const seat = seats.next() orelse return false;
+    seat.policySelectOutput(output);
+    return true;
+}
+
 pub fn closeWindow(_: CompositorApi, handle: layout.Handle) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.close();
@@ -107,34 +117,70 @@ pub fn focusedContext(_: CompositorApi) ?struct { window: *Window, output: *Outp
     return null;
 }
 
-/// Resolve the output/workspace targeted by output-level actions even when the
-/// active workspace contains no focused window. Prefer the focused window's
-/// output, then the output under the pointer, then the first enabled output.
-pub fn workspaceContext(api: CompositorApi) ?WorkspaceContext {
-    if (api.focusedContext()) |context| return .{
-        .output = context.output,
-        .workspace_number = context.workspace_number,
-    };
-
+/// Resolve the output selected for output/workspace actions. Explicit seat
+/// selection takes precedence over surface focus so selecting an empty output
+/// is effective before the requested keyboard-focus clear is committed.
+fn selectedOutput(_: CompositorApi) ?*Output {
     var seats = server.input_manager.seats.iterator(.forward);
     if (seats.next()) |seat| {
+        if (seat.selected_output) |selected| {
+            var outputs = server.om.outputs.iterator(.forward);
+            while (outputs.next()) |output| {
+                if (output != selected) continue;
+                const box = output.policyFullBox();
+                if (output.active_workspace != null and box.width > 0 and box.height > 0) return output;
+                break;
+            }
+            // The selected output was disabled or disappeared. Destruction
+            // normally clears this eagerly; validation here also covers soft
+            // disable and layout removal.
+            seat.selected_output = null;
+        }
+
+        if (seat.focused == .window) {
+            if (seat.focused.window.workspace) |workspace| {
+                seat.policySelectOutput(workspace.output);
+                return workspace.output;
+            }
+        }
+
         if (server.om.outputAt(seat.cursor.wlr_cursor.x, seat.cursor.wlr_cursor.y)) |wlr_output| {
             if (wlr_output.data) |data| {
                 const output: *Output = @ptrCast(@alignCast(data));
-                if (output.active_workspace != null) return .{
-                    .output = output,
-                    .workspace_number = output.policyActiveWorkspaceNumber(),
-                };
+                if (output.active_workspace != null) {
+                    seat.policySelectOutput(output);
+                    return output;
+                }
             }
         }
     }
 
     var outputs = server.om.outputs.iterator(.forward);
-    while (outputs.next()) |output| if (output.active_workspace != null) return .{
+    while (outputs.next()) |output| if (output.active_workspace != null) {
+        var fallback_seats = server.input_manager.seats.iterator(.forward);
+        if (fallback_seats.next()) |seat| seat.policySelectOutput(output);
+        return output;
+    };
+    return null;
+}
+
+pub fn selectedOutputId(api: CompositorApi) ?u64 {
+    return (api.selectedOutput() orelse return null).policyId();
+}
+
+pub fn workspaceContext(api: CompositorApi) ?WorkspaceContext {
+    const output = api.selectedOutput() orelse return null;
+    return .{
         .output = output,
         .workspace_number = output.policyActiveWorkspaceNumber(),
     };
-    return null;
+}
+
+pub fn windowOnWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32) bool {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return false;
+    const workspace = window.workspace orelse return false;
+    return workspace.output.policyId() == output_id and workspace.policyNumber() == workspace_number;
 }
 
 pub fn directionalNeighbor(_: CompositorApi, handle: layout.Handle, dx: i32, dy: i32) ?layout.Handle {

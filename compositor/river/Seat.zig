@@ -170,11 +170,22 @@ pub fn policyFocusedHandle(seat: *const Seat) ?u64 {
 
 pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
     const ref: Window.Ref = @bitCast(handle);
-    if (ref.get() != null) seat.wm_requested.focus = .{ .window = ref };
+    if (ref.get()) |window| {
+        if (window.workspace) |workspace| seat.selected_output = workspace.output;
+        seat.wm_requested.focus = .{ .window = ref };
+    }
 }
 
 pub fn policyClearFocus(seat: *Seat) void {
     seat.wm_requested.focus = .clear;
+}
+
+pub fn policySelectOutput(seat: *Seat, output: *Output) void {
+    seat.selected_output = output;
+}
+
+pub fn policyForgetOutput(seat: *Seat, output: *Output) void {
+    if (seat.selected_output == output) seat.selected_output = null;
 }
 
 wlr_seat: *wlr.Seat,
@@ -182,6 +193,10 @@ wlr_seat: *wlr.Seat,
 link: wl.list.Link,
 
 destroying: bool = false,
+
+/// Output targeted by keyboard-driven output/workspace actions. This remains
+/// set when keyboard surface focus is cleared on an empty output.
+selected_output: ?*Output = null,
 
 object: ?*river.SeatV1 = null,
 layer_shell: LayerShellSeat = .{},
@@ -746,6 +761,9 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
         .override_redirect, .none => {},
     }
     seat.focused = new_focus;
+    if (new_focus == .window) {
+        if (new_focus.window.workspace) |workspace| seat.selected_output = workspace.output;
+    }
 
     if (seat.cursor.constraint) |constraint| {
         if (constraint.wlr_constraint.surface != target_surface) {

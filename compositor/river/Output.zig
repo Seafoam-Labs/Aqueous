@@ -609,6 +609,9 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
 
     log.debug("wlr_output '{s}' destroyed", .{wlr_output.name});
 
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| seat.policyForgetOutput(output);
+
     {
         var it = server.layer_shell.surfaces.iterator();
         while (it.next()) |surface| {

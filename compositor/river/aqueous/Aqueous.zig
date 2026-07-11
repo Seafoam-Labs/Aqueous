@@ -20,6 +20,7 @@ const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const StateStore = @import("state/store.zig");
 const OutputService = @import("output/Service.zig");
+const output_navigation = @import("output/navigation.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
 const util = @import("../util.zig");
@@ -142,6 +143,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     var snapshot = try aqueous.api.policySnapshot(util.gpa);
     defer snapshot.deinit(util.gpa);
     const focused = aqueous.api.focusedWindow();
+    const selected_output_id = aqueous.api.selectedOutputId();
     var focused_is_focusable = focused == null;
     if (focused != null and focused == aqueous.pending_focus.window) aqueous.pending_focus.clear();
 
@@ -153,7 +155,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         // docks) and the user's static struts. Taking the intersection avoids
         // double-counting when both reserve the same edge.
         const usable_area = intersectRects(output.usable_area, aqueous.config.wm.struts.apply(output.area));
-        const workspace_key = output.id ^ (@as(u64, output.workspace_number) *% 0x9e3779b97f4a7c15);
+        const workspace_key = workspaceKey(output.id, output.workspace_number);
         const layout_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
         if (aqueous.layout_overrides.get(layout_key)) |override| output_layout.default = override;
         var managed: std.ArrayListUnmanaged(layout_types.Window) = .empty;
@@ -247,7 +249,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         const focus_valid = if (focused) |handle| containsWindow(focusable.items, handle) else false;
-        if (!focus_valid) {
+        if (!focus_valid and selected_output_id == output.id) {
             var target = aqueous.focus_history.pick(workspace_key, focusable.items, focusCandidateValid);
             if (target == 0 and managed.items.len > 0) target = managed.items[0].handle;
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
@@ -473,20 +475,41 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     const moving_window = if (move) aqueous.api.focusedContext() orelse return else null;
     var snapshot = aqueous.api.policySnapshot(util.gpa) catch return;
     defer snapshot.deinit(util.gpa);
-    var current: ?usize = null;
-    for (snapshot.outputs, 0..) |output, index| if (output.id == context.output.policyId()) {
-        current = index;
-        break;
-    };
-    const index = current orelse return;
-    const target_i = @as(isize, @intCast(index)) + delta;
-    if (target_i < 0 or target_i >= snapshot.outputs.len) return;
-    const target = snapshot.outputs[@intCast(target_i)];
+    const direction: output_navigation.Direction = if (delta < 0) .left else .right;
+    const target_index = output_navigation.neighbor(snapshot.outputs, context.output.policyId(), direction) orelse return;
+    const target = snapshot.outputs[target_index];
+    if (!aqueous.api.selectOutput(target.id)) return;
     if (move) {
         moving_window.?.window.policy_state.overrideWorkspace();
-        _ = aqueous.api.moveWindowToWorkspace(@bitCast(moving_window.?.window.ref), target.id, target.workspace_number);
-    } else if (target.windows.len > 0) {
-        aqueous.api.requestFocus(target.windows[0].handle);
+        const handle: layout_types.Handle = @bitCast(moving_window.?.window.ref);
+        if (aqueous.api.moveWindowToWorkspace(handle, target.id, target.workspace_number)) aqueous.api.requestFocus(handle);
+    } else {
+        const candidate_context: OutputFocusContext = .{
+            .aqueous = aqueous,
+            .windows = target.windows,
+            .output_id = target.id,
+            .workspace_number = target.workspace_number,
+        };
+        var target_handle = aqueous.focus_history.pick(
+            workspaceKey(target.id, target.workspace_number),
+            candidate_context,
+            outputFocusCandidateValid,
+        );
+        if (target_handle == 0) {
+            for (target.windows) |window| {
+                if (outputFocusCandidateValid(candidate_context, window.handle)) {
+                    target_handle = window.handle;
+                    break;
+                }
+            }
+        }
+        if (target_handle != 0) {
+            aqueous.api.requestFocus(target_handle);
+        } else {
+            // Surface focus and output selection are deliberately independent:
+            // an empty output remains selected after keyboard focus is cleared.
+            aqueous.api.clearFocus();
+        }
     }
     aqueous.api.requestManageCycle();
 }
@@ -671,6 +694,24 @@ fn notify(aqueous: *Aqueous, summary: []const u8, body: ?[]const u8, is_error: b
 
 fn focusCandidateValid(windows: []const layout_types.Window, handle: layout_types.Handle) bool {
     return containsWindow(windows, handle);
+}
+
+const OutputFocusContext = struct {
+    aqueous: *Aqueous,
+    windows: []const layout_types.Window,
+    output_id: u64,
+    workspace_number: u32,
+};
+
+fn outputFocusCandidateValid(context: OutputFocusContext, handle: layout_types.Handle) bool {
+    if (!containsWindow(context.windows, handle)) return false;
+    if (!context.aqueous.api.windowOnWorkspace(handle, context.output_id, context.workspace_number)) return false;
+    const state = context.aqueous.window_states.get(handle) orelse return false;
+    return state.kind != .minimized;
+}
+
+fn workspaceKey(output_id: u64, workspace_number: u32) u64 {
+    return output_id ^ (@as(u64, workspace_number) *% 0x9e3779b97f4a7c15);
 }
 
 fn containsWindow(windows: []const layout_types.Window, handle: layout_types.Handle) bool {
