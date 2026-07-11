@@ -78,10 +78,12 @@ scripts/test-policy-parity.sh
 scripts/test-scaling.sh
 ```
 
-The policy test verifies that implicit/default and explicit internal mode
-produce matching traces and that production builds reject external mode. The
-scaling test exercises the embedded output protocol and headless output commit
-pipeline.
+The policy test maps real Ghostty windows and drives virtual keyboard/pointer
+input through rules, layouts, focus, repeated workspace switches, fullscreen,
+and keybindings. It compares implicit/default and explicit internal checkpoints
+and verifies that production builds reject external mode. The scaling test uses
+Ghostty to exercise client-side `wl_output` events as well as the embedded
+output protocol and headless output commit pipeline.
 
 ## Packaging
 

@@ -33,5 +33,8 @@ scripts/test-policy-parity.sh
 scripts/test-scaling.sh
 ```
 
+The policy harness requires Ghostty and `wlrctl`; it maps real windows and
+injects virtual keyboard/pointer input instead of testing an idle compositor.
+
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.

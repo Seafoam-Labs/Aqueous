@@ -38,7 +38,7 @@ Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 | no `failed to load xcursor` after scale change | P5 cursor reload | native output service |
 | reverse `scale=1` relayouts | symmetry | native output service |
 | re-applying current scale → no relayout | no-op guard (P2 predicate idles) | native output service |
-| client receives `wl_output.scale(2)` + `done` | P2 fan-out | foot |
+| client receives `wl_output.scale(2)` + `done` | P2 fan-out | Ghostty |
 | `wp_fractional_scale_manager_v1` / `wp_viewporter` / `wl_compositor` v6 | P4 globals | wayland-info |
 
 Checks whose tools are missing degrade to `SKIP` rather than failing.

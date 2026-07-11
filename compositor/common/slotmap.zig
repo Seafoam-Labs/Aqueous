@@ -55,13 +55,16 @@ pub fn SlotMap(comptime T: type) type {
                 };
             }
             try map.slots.append(gpa, .{
-                .generation = 0,
+                // Generation zero combined with index zero bitcasts to the
+                // all-zero key. Aqueous policy handles reserve zero for
+                // "no window", so no live slot-map key may use it.
+                .generation = 1,
                 .data = .{ .value = value },
             });
             map.count += 1;
             map.first_free += 1;
             return .{
-                .generation = 0,
+                .generation = 1,
                 .index = @intCast(map.slots.items.len - 1),
             };
         }
@@ -76,8 +79,9 @@ pub fn SlotMap(comptime T: type) type {
         pub fn remove(map: *Map, key: Key) void {
             if (map.getSlot(key)) |slot| {
                 assert(slot.data == .value);
+                const incremented = slot.generation +% 1;
                 slot.* = .{
-                    .generation = slot.generation +% 1,
+                    .generation = if (incremented == 0) 1 else incremented,
                     .data = .{ .next_free = map.first_free },
                 };
                 map.count -= 1;
@@ -128,6 +132,7 @@ test "basic" {
     defer map.deinit(testing.allocator);
 
     const five = try map.put(testing.allocator, 5);
+    try testing.expect(@as(u64, @bitCast(five)) != 0);
     try testing.expectEqual(5, map.get(five));
     try testing.expectEqual(5, map.get(five));
 
@@ -138,6 +143,7 @@ test "basic" {
     try testing.expectEqual(null, map.get(five));
 
     const six = try map.put(testing.allocator, 6);
+    try testing.expect(@as(u64, @bitCast(six)) != 0);
     try testing.expectEqual(6, map.get(six));
     try testing.expectEqual(null, map.get(five));
     try testing.expectEqual(6, map.get(six));

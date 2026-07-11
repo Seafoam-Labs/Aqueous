@@ -12,7 +12,7 @@ set -euo pipefail
 #   - P5: river reloads the xcursor theme without errors.
 #
 # Requirements: a built ./zig-out/bin/aqueous, plus nc, jq, and
-# wayland-info / foot for the client-side assertions. Missing optional tools
+# wayland-info / Ghostty for the client-side assertions. Missing optional tools
 # downgrade the corresponding checks to SKIP rather than failing the run.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -89,11 +89,25 @@ echo "$invalid" | jq -e '.ok == false' >/dev/null \
     || err "output socket: invalid scale was accepted"
 
 start_client() {
-    if have foot; then
-        WAYLAND_DEBUG=1 foot -e sh -c 'echo ready; sleep 60' >"$CLIENT_LOG" 2>&1 &
+    if have ghostty; then
+        WAYLAND_DEBUG=1 GDK_BACKEND=wayland ghostty \
+            --config-file=/dev/null \
+            --config-default-files=false \
+            --initial-window=false \
+            --gtk-single-instance=false \
+            --window-decoration=false \
+            --class=aq-scaling-client,aq-scaling-client \
+            --title=aq-scaling-client \
+            -e sh -c 'echo ready; sleep 60' >"$CLIENT_LOG" 2>&1 &
         CLIENT_PID=$!
-        sleep 0.6
-        return 0
+        n=0
+        while [ "$n" -lt 60 ]; do
+            kill -0 "$CLIENT_PID" 2>/dev/null || return 1
+            grep -Eq 'wl_output[@#][0-9]+' "$CLIENT_LOG" && return 0
+            sleep 0.1
+            n=$((n + 1))
+        done
+        return 1
     fi
     return 1
 }
@@ -121,15 +135,19 @@ fi
 
 # P2: bound client receives a new wl_output.scale + done.
 if start_client; then
+    # P3 left the output at scale 2. Establish a real 2 -> 1 transition after
+    # Ghostty has bound wl_output, then isolate the asserted 1 -> 2 transition.
+    run 1
     : >"$CLIENT_LOG"
     run 2
-    if grep -Eq "wl_output@[0-9]+\.scale\(2\)" "$CLIENT_LOG" && grep -Eq "wl_output@[0-9]+\.done" "$CLIENT_LOG"; then
+    if grep -Eq 'wl_output[@#][0-9]+\.scale\(2\)' "$CLIENT_LOG" && grep -Eq 'wl_output[@#][0-9]+\.done' "$CLIENT_LOG"; then
         pass "P2: client received wl_output.scale(2) + done"
     else
+        tail -80 "$CLIENT_LOG" >&2
         err "P2: client did not receive a fresh wl_output.scale/done"
     fi
 else
-    skip "P2: foot not installed; cannot capture client wl_output events"
+    skip "P2: Ghostty not installed or failed to map; cannot capture client wl_output events"
 fi
 
 # P4: required globals advertised.
