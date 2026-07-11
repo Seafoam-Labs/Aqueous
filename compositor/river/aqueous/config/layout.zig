@@ -17,7 +17,13 @@ pub const LayoutId = enum {
 
 pub const Snapshot = struct {
     default: LayoutId = .tile,
-    options: [8]types.Options = [_]types.Options{.{}} ** 8,
+    slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
+    options: [8]types.Options = [_]types.Options{.{ .border = .{
+        .width = 2,
+        .focused = 0xFF88C0D0,
+        .normal = 0xFF3B4252,
+        .urgent = 0xFFBF616A,
+    } }} ** 8,
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
@@ -36,6 +42,7 @@ pub const Snapshot = struct {
 const Section = union(enum) {
     none,
     layout,
+    slots,
     options: LayoutId,
 };
 
@@ -58,6 +65,7 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
         switch (section) {
             .none => {},
             .layout => applyLayout(snapshot, key, value),
+            .slots => applySlot(snapshot, key, value),
             .options => |id| applyOptions(snapshot, id, key, value),
         }
     }
@@ -65,11 +73,20 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
 
 fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "layout")) return .layout;
+    if (std.mem.eql(u8, name, "layout.slots")) return .slots;
     const prefix = "layout.options.";
     if (std.mem.startsWith(u8, name, prefix)) {
         if (parseLayoutId(name[prefix.len..])) |id| return .{ .options = id };
     }
     return .none;
+}
+
+fn applySlot(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
+    const id = parseLayoutId(unquote(value)) orelse return;
+    if (std.mem.eql(u8, key, "primary")) snapshot.slots[0] = id;
+    if (std.mem.eql(u8, key, "secondary")) snapshot.slots[1] = id;
+    if (std.mem.eql(u8, key, "tertiary")) snapshot.slots[2] = id;
+    if (std.mem.eql(u8, key, "quaternary")) snapshot.slots[3] = id;
 }
 
 fn applyLayout(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
@@ -170,6 +187,8 @@ test "layout config parses defaults, aliases, extras, and colors" {
         \\gaps_outer = 12
         \\master_ratio = 0.6
         \\border_normal = 0xFF112233u
+        \\[layout.slots]
+        \\secondary = "scrolling"
         \\[layout.options.scrolling]
         \\column_fraction = "0.4"
         \\center_focused = "false"
@@ -180,6 +199,7 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expectEqual(@as(i32, 12), snapshot.layoutOptions(.tile).gaps_outer);
     try std.testing.expectEqual(@as(f64, 0.6), snapshot.layoutOptions(.grid).master_ratio);
     try std.testing.expectEqual(@as(u32, 0xFF112233), snapshot.layoutOptions(.tile).border.normal);
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.slots[1]);
     try std.testing.expectEqual(@as(f64, 0.4), snapshot.scrolling_column_fraction);
     try std.testing.expect(!snapshot.scrolling_center_focused);
     try std.testing.expect(!snapshot.dwindle_start_vertical);

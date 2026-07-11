@@ -52,6 +52,10 @@ pub fn requestManageCycle(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+pub fn applyGlobals(_: CompositorApi, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
+    server.wm.policyApplyGlobals(blur_enabled, blur_radius, blur_passes, opacity, transition_enabled, transition_rate);
+}
+
 pub fn focusedWindow(_: CompositorApi) ?layout.Handle {
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| {
@@ -67,6 +71,11 @@ pub fn requestFocus(_: CompositorApi, handle: layout.Handle) void {
 
 pub const PolicyOutput = struct {
     id: u64,
+    name: []const u8,
+    make: ?[]const u8,
+    model: ?[]const u8,
+    serial: ?[]const u8,
+    workspace_number: u32,
     area: layout.Rect,
     windows: []const layout.Window,
     window_start: usize,
@@ -126,10 +135,18 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
                 .fullscreen = window_snapshot.fullscreen,
                 .min_width = window_snapshot.min_width,
                 .min_height = window_snapshot.min_height,
+                .max_width = window_snapshot.max_width,
+                .max_height = window_snapshot.max_height,
             });
         }
+        const identity = output.policyIdentity();
         outputs[output_index] = .{
             .id = output.policyId(),
+            .name = identity.name,
+            .make = identity.make,
+            .model = identity.model,
+            .serial = identity.serial,
+            .workspace_number = output.policyActiveWorkspaceNumber(),
             .area = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
             .windows = undefined,
             .window_start = start,
@@ -146,6 +163,28 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
         output.windows = owned_windows[output.window_start..end];
     }
     return .{ .outputs = outputs, .windows = owned_windows };
+}
+
+pub fn applyRule(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32, fullscreen: bool, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return;
+    var target_output: ?*@import("../Output.zig") = null;
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| if (output.policyId() == output_id) {
+        target_output = output;
+        break;
+    };
+    if (target_output) |output| {
+        if (workspace_number > 0) if (output.policyWorkspaceAt(workspace_number)) |workspace| {
+            if (window.workspace != workspace) window.setWorkspace(workspace);
+        };
+    }
+    window.policyApplyRule(target_output, fullscreen, blur, opacity, force_ssd);
+}
+
+pub fn clearFullscreen(_: CompositorApi, handle: layout.Handle) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| window.policyClearFullscreen();
 }
 
 fn freeWindowStrings(allocator: std.mem.Allocator, windows: []const layout.Window) void {

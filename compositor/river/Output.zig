@@ -233,6 +233,43 @@ pub fn policyBox(output: *const Output) wlr.Box {
     return output.scheduled.box();
 }
 
+pub fn policyName(output: *const Output) []const u8 {
+    return if (output.wlr_output) |wlr_output| std.mem.span(wlr_output.name) else "";
+}
+
+pub const PolicyIdentity = struct {
+    name: []const u8,
+    make: ?[]const u8,
+    model: ?[]const u8,
+    serial: ?[]const u8,
+};
+
+pub fn policyIdentity(output: *const Output) PolicyIdentity {
+    const wlr_output = output.wlr_output orelse return .{ .name = "", .make = null, .model = null, .serial = null };
+    return .{
+        .name = std.mem.span(wlr_output.name),
+        .make = if (wlr_output.make) |value| std.mem.span(value) else null,
+        .model = if (wlr_output.model) |value| std.mem.span(value) else null,
+        .serial = if (wlr_output.serial) |value| std.mem.span(value) else null,
+    };
+}
+
+pub fn policyActiveWorkspaceNumber(output: *Output) u32 {
+    const active = output.active_workspace orelse return 0;
+    var number: u32 = 1;
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |workspace| : (number += 1) if (workspace == active) return number;
+    return 0;
+}
+
+pub fn policyWorkspaceAt(output: *Output, requested: u32) ?*Workspace {
+    if (requested == 0) return null;
+    var number: u32 = 1;
+    var it = output.workspaces.iterator(.forward);
+    while (it.next()) |workspace| : (number += 1) if (number == requested) return workspace;
+    return null;
+}
+
 pub fn policyWorkspaceActive(output: *const Output, workspace: ?*const Workspace) bool {
     return workspace == null or workspace == output.active_workspace;
 }

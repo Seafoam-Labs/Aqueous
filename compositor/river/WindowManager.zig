@@ -278,6 +278,19 @@ fn applyBlur(wm: *WindowManager) void {
     }
 }
 
+pub fn policyApplyGlobals(wm: *WindowManager, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
+    wm.blur.enabled = blur_enabled;
+    wm.blur.radius = @max(0, blur_radius);
+    wm.blur.passes = @max(0, blur_passes);
+    wm.applyBlur();
+    const clamped_opacity = std.math.clamp(opacity, 0, 1);
+    wm.default_opacity = @intFromFloat(clamped_opacity * @as(f64, @floatFromInt(std.math.maxInt(u32))));
+    var windows = wm.windows.iterator();
+    while (windows.next()) |window| window.applyOpacity();
+    wm.workspace_transition.enabled = transition_enabled;
+    wm.workspace_transition.rate = if (transition_rate > 0) transition_rate else fx.workspace_slide_rate;
+}
+
 pub fn ensureWindowing(wm: *WindowManager) bool {
     switch (wm.state) {
         .manage => return true,

@@ -3,20 +3,70 @@
 
 const std = @import("std");
 const layout = @import("layout.zig");
+const wm = @import("wm.zig");
 
 const log = std.log.scoped(.aqueous);
 const max_config_bytes = 1024 * 1024;
 
-pub fn load(allocator: std.mem.Allocator) layout.Snapshot {
-    var snapshot: layout.Snapshot = .{};
-    var buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const xdg = if (std.c.getenv("XDG_CONFIG_HOME")) |value| std.mem.span(value) else null;
-    const home = if (std.c.getenv("HOME")) |value| std.mem.span(value) else null;
-    if (resolvePath(&buffer, xdg, home, "wm.toml")) |path| applyFile(allocator, &snapshot, path);
-    if (resolvePath(&buffer, xdg, home, "layout.toml")) |path| applyFile(allocator, &snapshot, path);
+pub const Snapshot = struct {
+    layout: layout.Snapshot = .{},
+    wm: wm.Snapshot = .{},
+    fingerprint: u64 = 0,
+};
+
+/// Build a complete replacement snapshot. Callers publish it only after this
+/// function returns, so a manage cycle never observes a half-applied reload.
+pub fn load(allocator: std.mem.Allocator) Snapshot {
+    var snapshot: Snapshot = .{};
+    var wm_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const env = Environment.read();
+    const wm_path = resolveWmPath(&wm_path_buffer, env) orelse return snapshot;
+    if (readFile(allocator, wm_path)) |wm_source| {
+        defer allocator.free(wm_source);
+        snapshot.fingerprint = hashSource(snapshot.fingerprint, wm_source);
+        wm.apply(&snapshot.wm, &snapshot.layout, wm_source);
+    }
+
+    var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    if (resolveLayoutPath(&path_buffer, env, snapshot.wm.layout_path.slice(), dirname(wm_path))) |path| {
+        applyLayoutFile(allocator, &snapshot, path);
+    }
+    if (resolveInputPath(&path_buffer, env, snapshot.wm.input_path.slice())) |path| {
+        applyInputFile(allocator, &snapshot, path);
+    }
     return snapshot;
 }
 
+pub const Environment = struct {
+    xdg: ?[]const u8,
+    home: ?[]const u8,
+    wm_override: ?[]const u8,
+    layout_override: ?[]const u8,
+    input_override: ?[]const u8,
+
+    fn read() Environment {
+        return .{
+            .xdg = getenv("XDG_CONFIG_HOME"),
+            .home = getenv("HOME"),
+            .wm_override = getenv("AQUEOUS_CONFIG"),
+            .layout_override = getenv("AQUEOUS_LAYOUT"),
+            .input_override = getenv("AQUEOUS_INPUT"),
+        };
+    }
+};
+
+fn getenv(name: [*:0]const u8) ?[]const u8 {
+    const value = std.c.getenv(name) orelse return null;
+    const result = std.mem.span(value);
+    return if (result.len == 0) null else result;
+}
+
+pub fn resolveWmPath(buffer: []u8, env: Environment) ?[]const u8 {
+    if (env.wm_override) |path| return expandHome(buffer, path, env.home);
+    return resolvePath(buffer, env.xdg, env.home, "wm.toml");
+}
+
+/// Kept as the stable pure helper used by existing tests and downstream code.
 pub fn resolvePath(buffer: []u8, xdg_config_home: ?[]const u8, home: ?[]const u8, filename: []const u8) ?[]const u8 {
     if (xdg_config_home) |base| {
         if (base.len == 0) return null;
@@ -27,17 +77,118 @@ pub fn resolvePath(buffer: []u8, xdg_config_home: ?[]const u8, home: ?[]const u8
     return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/{s}", .{ base, filename }) catch null;
 }
 
-fn applyFile(allocator: std.mem.Allocator, snapshot: *layout.Snapshot, path: []const u8) void {
+pub fn resolveLayoutPath(buffer: []u8, env: Environment, configured: []const u8, wm_dir: []const u8) ?[]const u8 {
+    // Preserve the C# reader's unusual compatibility order: the traditional
+    // HOME location wins before explicit sidecar overrides when it exists.
+    if (env.home) |home| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/layout.toml", .{home}) catch return null;
+        if (exists(candidate)) return candidate;
+    }
+    if (env.layout_override) |path| return expandHome(buffer, path, env.home);
+    if (configured.len > 0) {
+        if (std.fs.path.isAbsolute(configured)) return expandHome(buffer, configured, env.home);
+        return std.fmt.bufPrint(buffer, "{s}/{s}", .{ wm_dir, configured }) catch null;
+    }
+    if (env.xdg) |xdg| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/layout.toml", .{xdg}) catch return null;
+        if (exists(candidate)) return candidate;
+    }
+    if (exists("/etc/xdg/aqueous/layout.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/layout.toml", .{}) catch null;
+    return null;
+}
+
+pub fn resolveInputPath(buffer: []u8, env: Environment, configured: []const u8) ?[]const u8 {
+    if (env.input_override) |path| return expandHome(buffer, path, env.home);
+    if (configured.len > 0) return expandHome(buffer, configured, env.home);
+    if (env.xdg) |xdg| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/input.toml", .{xdg}) catch return null;
+        if (exists(candidate)) return candidate;
+    }
+    if (env.home) |home| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/input.toml", .{home}) catch return null;
+        if (exists(candidate)) return candidate;
+    }
+    if (exists("/etc/xdg/aqueous/input.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/input.toml", .{}) catch null;
+    return null;
+}
+
+fn applyLayoutFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []const u8) void {
+    const source = readFile(allocator, path) orelse return;
+    defer allocator.free(source);
+    snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
+    layout.apply(&snapshot.layout, source);
+}
+
+fn applyInputFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []const u8) void {
+    const source = readFile(allocator, path) orelse return;
+    defer allocator.free(source);
+    snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
+    // Parse into a temporary default and merge only fields actually represented
+    // by the input sidecar's sections. The parser ignores all unrelated tables.
+    var overlay_wm: wm.Snapshot = .{};
+    var ignored_layout: layout.Snapshot = .{};
+    wm.apply(&overlay_wm, &ignored_layout, source);
+    mergeInput(&snapshot.wm.input, overlay_wm.input);
+}
+
+fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
+    const defaults: wm.Input = .{};
+    if (overlay.focus_follows_mouse != defaults.focus_follows_mouse) base.focus_follows_mouse = overlay.focus_follows_mouse;
+    if (overlay.pointer_acceleration != defaults.pointer_acceleration) base.pointer_acceleration = overlay.pointer_acceleration;
+    if (overlay.pointer_acceleration_factor != defaults.pointer_acceleration_factor) base.pointer_acceleration_factor = overlay.pointer_acceleration_factor;
+    mergeDevice(&base.mouse, overlay.mouse);
+    mergeDevice(&base.touchpad, overlay.touchpad);
+    mergeDevice(&base.trackpoint, overlay.trackpoint);
+    if (!overlay.xkb_layout.empty()) base.xkb_layout = overlay.xkb_layout;
+    if (!overlay.xkb_variant.empty()) base.xkb_variant = overlay.xkb_variant;
+    if (!overlay.xkb_options.empty()) base.xkb_options = overlay.xkb_options;
+}
+
+fn mergeDevice(base: *wm.Device, overlay: wm.Device) void {
+    if (overlay.accel_profile != .unset) base.accel_profile = overlay.accel_profile;
+    if (overlay.accel_speed != null) base.accel_speed = overlay.accel_speed;
+    if (overlay.natural_scroll != null) base.natural_scroll = overlay.natural_scroll;
+    if (overlay.tap != null) base.tap = overlay.tap;
+    if (overlay.dwt != null) base.dwt = overlay.dwt;
+    if (overlay.left_handed != null) base.left_handed = overlay.left_handed;
+    if (overlay.click_method != .unset) base.click_method = overlay.click_method;
+    if (overlay.scroll_method != .unset) base.scroll_method = overlay.scroll_method;
+    if (overlay.middle_emulation != null) base.middle_emulation = overlay.middle_emulation;
+}
+
+fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
     const io = std.Io.Threaded.global_single_threaded.io();
-    const source = std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, allocator, .limited(max_config_bytes)) catch |err| switch (err) {
-        error.FileNotFound => return,
+    return std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, allocator, .limited(max_config_bytes)) catch |err| switch (err) {
+        error.FileNotFound => null,
         else => {
             log.warn("unable to read {s}: {}", .{ path, err });
-            return;
+            return null;
         },
     };
-    defer allocator.free(source);
-    layout.apply(snapshot, source);
+}
+
+fn exists(path: []const u8) bool {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    return true;
+}
+
+fn expandHome(buffer: []u8, path: []const u8, home: ?[]const u8) ?[]const u8 {
+    if (path.len > 0 and path[0] == '~') {
+        const base = home orelse return null;
+        return std.fmt.bufPrint(buffer, "{s}{s}", .{ base, path[1..] }) catch null;
+    }
+    return std.fmt.bufPrint(buffer, "{s}", .{path}) catch null;
+}
+
+fn dirname(path: []const u8) []const u8 {
+    return std.fs.path.dirname(path) orelse ".";
+}
+
+fn hashSource(seed: u64, source: []const u8) u64 {
+    var hash = std.hash.Wyhash.init(seed);
+    hash.update(source);
+    return hash.final();
 }
 
 test "config paths prefer XDG and fall back to HOME" {
@@ -45,4 +196,10 @@ test "config paths prefer XDG and fall back to HOME" {
     try std.testing.expectEqualStrings("/xdg/aqueous/wm.toml", resolvePath(&buffer, "/xdg", "/home/test", "wm.toml").?);
     try std.testing.expectEqualStrings("/home/test/.config/aqueous/layout.toml", resolvePath(&buffer, null, "/home/test", "layout.toml").?);
     try std.testing.expectEqual(@as(?[]const u8, null), resolvePath(&buffer, null, null, "wm.toml"));
+}
+
+test "explicit config path expands home" {
+    var buffer: [256]u8 = undefined;
+    const env: Environment = .{ .xdg = null, .home = "/home/test", .wm_override = "~/wm.toml", .layout_override = null, .input_override = null };
+    try std.testing.expectEqualStrings("/home/test/wm.toml", resolveWmPath(&buffer, env).?);
 }

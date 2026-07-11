@@ -176,6 +176,8 @@ pub const PolicySnapshot = struct {
     fullscreen: bool,
     min_width: i32,
     min_height: i32,
+    max_width: i32,
+    max_height: i32,
 };
 
 ref: Ref,
@@ -377,6 +379,8 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         .fullscreen = window.wm_requested.fullscreen != null,
         .min_width = @intCast(window.wm_scheduled.dimensions_hint.min_width),
         .min_height = @intCast(window.wm_scheduled.dimensions_hint.min_height),
+        .max_width = @intCast(window.wm_scheduled.dimensions_hint.max_width),
+        .max_height = @intCast(window.wm_scheduled.dimensions_hint.max_height),
     };
 }
 
@@ -409,6 +413,24 @@ pub fn policyApplyPlacement(
     };
     window.node.link.remove();
     server.wm.rendering_requested.list.append(&window.node);
+}
+
+pub fn policyApplyRule(window: *Window, output: ?*Output, fullscreen: bool, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+    if (fullscreen) {
+        window.wm_requested.fullscreen = output;
+        window.wm_requested.inform_fullscreen = true;
+    }
+    window.rendering_requested.blur_enabled = blur orelse true;
+    if (opacity) |fraction| {
+        const clamped = std.math.clamp(fraction, 0, 1);
+        window.rendering_requested.opacity = @intFromFloat(clamped * @as(f64, @floatFromInt(std.math.maxInt(u32))));
+    } else window.rendering_requested.opacity = null;
+    if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
+}
+
+pub fn policyClearFullscreen(window: *Window) void {
+    window.wm_requested.fullscreen = null;
+    window.wm_requested.inform_fullscreen = false;
 }
 
 pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {

@@ -21,6 +21,14 @@ pub const Placement = struct {
     y: i32 = 0,
 };
 
+pub const Anchor = enum { center, top, bottom, left, right };
+
+pub const Size = union(enum) {
+    native,
+    pixels: struct { width: i32, height: i32 },
+    fraction: struct { width: f64, height: f64 },
+};
+
 pub const Layout = enum {
     tile,
     monocle,
@@ -36,12 +44,27 @@ pub const Rule = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
-    layout: ?Layout = null,
+    layout: ?Layout = .game_mode,
     placement: Placement = .{},
+    anchor: Anchor = .center,
+    size: Size = .native,
+    scale: f64 = 1,
+    fullscreen: bool = false,
+    ignore_struts: bool = false,
+    blur: ?bool = null,
+    opacity: ?f64 = null,
+};
+
+pub const GameMode = struct {
+    remainder_layout: Layout = .grid,
+    gaps_inner: i32 = 8,
+    fallback_layout: Layout = .grid,
 };
 
 allocator: std.mem.Allocator,
 rules: []Rule = &.{},
+game_mode: GameMode = .{},
+source_fingerprint: u64 = 0,
 
 pub fn init(allocator: std.mem.Allocator) Engine {
     return .{ .allocator = allocator };
@@ -55,6 +78,13 @@ pub fn reload(engine: *Engine, rules: []const Rule) !void {
     const replacement = try cloneRules(engine.allocator, rules);
     engine.clear();
     engine.rules = replacement;
+}
+
+pub fn reloadSnapshot(engine: *Engine, rules: []const Rule, game_mode: GameMode) !void {
+    const replacement = try cloneRules(engine.allocator, rules);
+    engine.clear();
+    engine.rules = replacement;
+    engine.game_mode = game_mode;
 }
 
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
