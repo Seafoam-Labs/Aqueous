@@ -59,11 +59,14 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "move_to_workspace_5", "Super+Shift+5" },            .{ "move_to_workspace_6", "Super+Shift+6" },
     .{ "move_to_workspace_7", "Super+Shift+7" },            .{ "move_to_workspace_8", "Super+Shift+8" },
     .{ "move_to_workspace_9", "Super+Shift+9" },            .{ "focus_workspace_up", "Super+Bracketleft" },
-    .{ "focus_workspace_down", "Super+Bracketright" },      .{ "focus_previous_workspace", "Super+grave" },
+    .{ "focus_workspace_down", "Super+Bracketright" },      .{ "focus_previous_workspace", "Super+BackSpace" },
     .{ "move_to_workspace_up", "Super+Shift+Bracketleft" }, .{ "move_to_workspace_down", "Super+Shift+Bracketright" },
+    .{ "focus_output_left", "Super+Ctrl+Comma" },           .{ "focus_output_right", "Super+Ctrl+Period" },
+    .{ "move_to_output_left", "Super+Shift+Comma" },        .{ "move_to_output_right", "Super+Shift+Period" },
     .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
     .{ "toggle_floating", "Super+Shift+Space" },            .{ "toggle_minimize", "Super+N" },
     .{ "unminimize_last", "Super+Shift+N" },                .{ "lock_screen", "Super+Ctrl+L" },
+    .{ "untrap_pointer", "Super+grave" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {
@@ -180,4 +183,23 @@ test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = 'h' }, parseChord("Super+Shift+H").?);
     try std.testing.expectEqual(@as(u32, 0x1008ff13), parseChord("XF86AudioRaiseVolume").?.keysym);
     try std.testing.expect(parseChord("Super+Shift") == null);
+}
+
+test "shipped defaults keep scrolling output navigation and pointer actions reachable" {
+    var snapshot: Snapshot = .{};
+    initDefaults(&snapshot);
+
+    const scroll_left = parseChord("Super+Comma").?;
+    const scroll_right = parseChord("Super+Period").?;
+    const output_left = parseChord("Super+Ctrl+Comma").?;
+    const output_right = parseChord("Super+Ctrl+Period").?;
+    const previous_workspace = parseChord("Super+BackSpace").?;
+    const untrap_pointer = parseChord("Super+grave").?;
+
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_left", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_right", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:focus_output_left", snapshot.find(output_left.keysym, output_left.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:focus_output_right", snapshot.find(output_right.keysym, output_right.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:focus_previous_workspace", snapshot.find(previous_workspace.keysym, previous_workspace.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:untrap_pointer", snapshot.find(untrap_pointer.keysym, untrap_pointer.modifiers).?);
 }

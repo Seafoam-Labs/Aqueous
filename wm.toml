@@ -172,13 +172,13 @@ move_to_workspace_9      = "Super+Shift+9"
 # Directional switching / moving + back-and-forth.
 focus_workspace_up       = "Super+Bracketleft"        # previous workspace in the list
 focus_workspace_down     = "Super+Bracketright"       # next workspace in the list
-focus_previous_workspace = "Super+grave"                   # back-and-forth (the ` key)
+focus_previous_workspace = "Super+BackSpace"               # back-and-forth
 move_to_workspace_up     = "Super+Shift+Bracketleft"
 move_to_workspace_down   = "Super+Shift+Bracketright"
 
 # Per-output focus / move (relative to the focused output, no wrap).
-focus_output_left        = "Super+Comma"
-focus_output_right       = "Super+Period"
+focus_output_left        = "Super+Ctrl+Comma"
+focus_output_right       = "Super+Ctrl+Period"
 move_to_output_left      = "Super+Shift+Comma"
 move_to_output_right     = "Super+Shift+Period"
 #
@@ -205,7 +205,7 @@ unminimize_last       = "Super+Shift+N"        # default — restore most-recent
 # --- Pointer ---
 # Hold-to-untrap: while this chord is held down any active pointer constraint
 # (mouse "trap" from games etc.) is released; on release the trap re-engages.
-untrap_pointer        = "Super+grave"          # no compiled-in default
+untrap_pointer        = "Super+grave"          # default; reserved for pointer untrap
 
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
