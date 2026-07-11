@@ -53,6 +53,66 @@ pub const Rule = struct {
     ignore_struts: bool = false,
     blur: ?bool = null,
     opacity: ?f64 = null,
+
+    /// Stable semantic identity used by per-window lifecycle reconciliation.
+    /// It deliberately excludes source addresses and struct padding.
+    pub fn fingerprint(rule: Rule) u64 {
+        var hash = std.hash.Wyhash.init(0);
+        hashOptionalString(&hash, rule.app_id);
+        hashOptionalString(&hash, rule.class);
+        hashOptionalString(&hash, rule.title);
+        hashOptionalEnum(&hash, rule.layout);
+        hash.update(std.mem.asBytes(&rule.placement.floating));
+        hash.update(std.mem.asBytes(&rule.placement.tag));
+        hash.update(std.mem.asBytes(&rule.placement.width));
+        hash.update(std.mem.asBytes(&rule.placement.height));
+        hash.update(std.mem.asBytes(&rule.placement.x));
+        hash.update(std.mem.asBytes(&rule.placement.y));
+        hash.update(std.mem.asBytes(&rule.anchor));
+        switch (rule.size) {
+            .native => hash.update(&.{0}),
+            .pixels => |size| {
+                hash.update(&.{1});
+                hash.update(std.mem.asBytes(&size.width));
+                hash.update(std.mem.asBytes(&size.height));
+            },
+            .fraction => |size| {
+                hash.update(&.{2});
+                hash.update(std.mem.asBytes(&size.width));
+                hash.update(std.mem.asBytes(&size.height));
+            },
+        }
+        hash.update(std.mem.asBytes(&rule.scale));
+        hash.update(std.mem.asBytes(&rule.fullscreen));
+        hash.update(std.mem.asBytes(&rule.ignore_struts));
+        hashOptionalBool(&hash, rule.blur);
+        hashOptionalFloat(&hash, rule.opacity);
+        const value = hash.final();
+        return if (value == 0) 1 else value;
+    }
+
+    /// Identity of the matching clause only. Placement and visual edits do not
+    /// create a new match and therefore cannot discard user overrides.
+    pub fn matcherFingerprint(rule: Rule) u64 {
+        var hash = std.hash.Wyhash.init(0);
+        hashOptionalString(&hash, rule.app_id);
+        hashOptionalString(&hash, rule.class);
+        hashOptionalString(&hash, rule.title);
+        const value = hash.final();
+        return if (value == 0) 1 else value;
+    }
+
+    pub fn floatingFingerprint(rule: Rule) u64 {
+        var placement_only = rule;
+        placement_only.app_id = null;
+        placement_only.class = null;
+        placement_only.title = null;
+        placement_only.layout = null;
+        placement_only.fullscreen = false;
+        placement_only.blur = null;
+        placement_only.opacity = null;
+        return placement_only.fingerprint();
+    }
 };
 
 pub const GameMode = struct {
@@ -136,6 +196,30 @@ fn cloneRule(allocator: std.mem.Allocator, source: Rule) !Rule {
     return result;
 }
 
+fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
+    if (value) |text| {
+        hash.update(&.{1});
+        hash.update(text);
+    } else hash.update(&.{0});
+}
+
+fn hashOptionalEnum(hash: *std.hash.Wyhash, value: ?Layout) void {
+    const encoded: u8 = if (value) |item| @as(u8, @intFromEnum(item)) + 1 else 0;
+    hash.update(std.mem.asBytes(&encoded));
+}
+
+fn hashOptionalBool(hash: *std.hash.Wyhash, value: ?bool) void {
+    const encoded: u8 = if (value) |item| if (item) 2 else 1 else 0;
+    hash.update(std.mem.asBytes(&encoded));
+}
+
+fn hashOptionalFloat(hash: *std.hash.Wyhash, value: ?f64) void {
+    if (value) |item| {
+        hash.update(&.{1});
+        hash.update(std.mem.asBytes(&item));
+    } else hash.update(&.{0});
+}
+
 test "rules are first-match-wins and require every present matcher" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
@@ -149,4 +233,29 @@ test "rules are first-match-wins and require every present matcher" {
     try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.tag);
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.tag);
     try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
+}
+
+test "rule fingerprints are semantic and detect behavior changes" {
+    const first: Rule = .{ .app_id = "term*", .placement = .{ .floating = true } };
+    const same: Rule = .{ .app_id = "term*", .placement = .{ .floating = true } };
+    const changed: Rule = .{ .app_id = "term*", .fullscreen = true };
+    try std.testing.expectEqual(first.fingerprint(), same.fingerprint());
+    try std.testing.expect(first.fingerprint() != changed.fingerprint());
+    try std.testing.expect(first.fingerprint() != 0);
+}
+
+test "matcher fingerprints ignore unrelated property edits" {
+    const first: Rule = .{ .app_id = "term*", .fullscreen = true };
+    const visual_edit: Rule = .{ .app_id = "term*", .fullscreen = true, .opacity = 0.8 };
+    const different_match: Rule = .{ .app_id = "term*", .title = "Preferences" };
+    try std.testing.expectEqual(first.matcherFingerprint(), visual_edit.matcherFingerprint());
+    try std.testing.expect(first.matcherFingerprint() != different_match.matcherFingerprint());
+}
+
+test "floating fingerprints ignore visual edits but detect geometry edits" {
+    const first: Rule = .{ .placement = .{ .floating = true, .width = 500 }, .opacity = 0.8 };
+    const visual_edit: Rule = .{ .placement = .{ .floating = true, .width = 500 }, .opacity = 0.5 };
+    const geometry_edit: Rule = .{ .placement = .{ .floating = true, .width = 700 }, .opacity = 0.5 };
+    try std.testing.expectEqual(first.floatingFingerprint(), visual_edit.floatingFingerprint());
+    try std.testing.expect(first.floatingFingerprint() != geometry_edit.floatingFingerprint());
 }

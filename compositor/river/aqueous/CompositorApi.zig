@@ -302,7 +302,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
             // Window.map(), so requiring an output here creates a deadlock for
             // the integrated policy: the window cannot be arranged/configured
             // until it maps, and cannot map until it is configured. Admit an
-            // unassigned window on the first usable output; applyRule() below
+            // unassigned window on the first usable output; ensureWorkspace()
             // assigns it to that output's active workspace during this cycle.
             if (window_snapshot.output_id) |id| {
                 if (id != output.policyId()) continue;
@@ -353,25 +353,43 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
     return .{ .outputs = outputs, .windows = owned_windows };
 }
 
-pub fn applyRule(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32, fullscreen: bool, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+fn outputById(output_id: u64) ?*Output {
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| if (output.policyId() == output_id) return output;
+    return null;
+}
+
+/// Assign a newly admitted window to the active workspace without disturbing
+/// an existing user or rule assignment.
+pub fn ensureWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64) void {
     const ref: Window.Ref = @bitCast(handle);
     const window = ref.get() orelse return;
-    var target_output: ?*@import("../Output.zig") = null;
-    var outputs = server.om.outputs.iterator(.forward);
-    while (outputs.next()) |output| if (output.policyId() == output_id) {
-        target_output = output;
-        break;
-    };
-    if (target_output) |output| {
-        const workspace = if (workspace_number > 0)
-            output.policyWorkspaceAt(workspace_number)
-        else
-            output.active_workspace;
-        if (workspace) |target| {
-            if (window.workspace != target) window.setWorkspace(target);
-        }
-    }
-    window.policyApplyRule(target_output, fullscreen, blur, opacity, force_ssd);
+    if (window.workspace != null) return;
+    const output = outputById(output_id) orelse return;
+    if (output.active_workspace) |workspace| window.setWorkspace(workspace);
+}
+
+pub fn applyRuleWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32) bool {
+    if (workspace_number == 0) return false;
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return false;
+    const output = outputById(output_id) orelse return false;
+    const workspace = output.policyWorkspaceAt(workspace_number) orelse return false;
+    if (window.workspace != workspace) window.setWorkspace(workspace);
+    return true;
+}
+
+pub fn applyRuleVisual(_: CompositorApi, handle: layout.Handle, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| window.policyApplyVisualRule(blur, opacity, force_ssd);
+}
+
+pub fn setFullscreen(_: CompositorApi, handle: layout.Handle, output_id: u64) bool {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return false;
+    const output = outputById(output_id) orelse return false;
+    window.policySetFullscreen(output);
+    return true;
 }
 
 pub fn clearFullscreen(_: CompositorApi, handle: layout.Handle) void {
@@ -384,6 +402,7 @@ pub fn clearOtherFullscreen(_: CompositorApi, output_id: u64, except: layout.Han
     while (windows.next()) |window| {
         const state = window.policySnapshot();
         if (state.handle == except or !state.fullscreen or state.output_id != output_id) continue;
+        window.policy_state.overrideFullscreen();
         window.policyClearFullscreen();
     }
 }

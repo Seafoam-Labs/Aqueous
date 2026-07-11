@@ -45,12 +45,32 @@ pub fn remove(store: *Store, handle: types.Handle) void {
 
 pub fn setFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
     const entry = store.resolver(handle) orelse return false;
+    entry.overrideFloating();
     setFloatingEntry(entry, geometry);
+    return true;
+}
+
+/// Apply floating as a rule-owned transition. Unlike setFloating(), this does
+/// not mark the action as a user override.
+pub fn setRuleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (!entry.rule_floating_owned) entry.rule_floating_previous = entry.kind;
+    setFloatingEntry(entry, geometry);
+    entry.rule_floating_owned = true;
+    return true;
+}
+
+pub fn restoreRuleFloating(store: *Store, handle: types.Handle) bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (!entry.rule_floating_owned) return false;
+    if (entry.kind == .floating) entry.kind = entry.rule_floating_previous;
+    entry.rule_floating_owned = false;
     return true;
 }
 
 pub fn toggleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) ?bool {
     const entry = store.resolver(handle) orelse return null;
+    entry.overrideFloating();
     if (entry.kind == .floating) {
         entry.kind = entry.previous;
         return false;
@@ -61,6 +81,7 @@ pub fn toggleFloating(store: *Store, handle: types.Handle, geometry: types.Rect)
 
 pub fn toggleMaximized(store: *Store, handle: types.Handle) ?bool {
     const entry = store.resolver(handle) orelse return null;
+    entry.overrideFloating();
     if (entry.kind == .maximized) {
         entry.kind = entry.previous;
         return false;
@@ -81,6 +102,7 @@ pub fn restore(store: *Store, handle: types.Handle) bool {
 pub fn minimize(store: *Store, handle: types.Handle) !bool {
     const entry = store.resolver(handle) orelse return false;
     if (entry.kind == .minimized) return false;
+    entry.overrideFloating();
     entry.previous = entry.kind;
     entry.kind = .minimized;
     removeFromList(&store.minimized_mru, handle);
@@ -101,6 +123,7 @@ pub fn restoreLastMinimized(store: *Store) types.Handle {
 
 pub fn sendToScratchpad(store: *Store, handle: types.Handle, name: []const u8) !bool {
     const entry = store.resolver(handle) orelse return false;
+    entry.overrideFloating();
     const key = nameHash(name);
     if (entry.scratchpad != 0 and entry.scratchpad != key and store.scratchpads.get(entry.scratchpad) == handle) {
         _ = store.scratchpads.remove(entry.scratchpad);
@@ -155,6 +178,23 @@ test "embedded policy state preserves the prior mode around floating" {
     try std.testing.expectEqual(Kind.floating, entry.kind);
     try std.testing.expectEqual(Kind.maximized, entry.previous);
     try std.testing.expectEqual(types.Rect{ .x = 10, .y = 20, .width = 300, .height = 200 }, entry.floating_geometry);
+}
+
+test "rule floating rolls back unless manually overridden" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    TestResolver.entries[0].kind = .maximized;
+    try std.testing.expect(store.setRuleFloating(1, .{ .x = 0, .y = 0, .width = 300, .height = 200 }));
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
+    try std.testing.expect(store.restoreRuleFloating(1));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+
+    try std.testing.expect(store.setRuleFloating(1, .{ .x = 0, .y = 0, .width = 300, .height = 200 }));
+    _ = store.toggleFloating(1, .empty) orelse unreachable;
+    try std.testing.expect(!store.restoreRuleFloating(1));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
 }
 
 const TestResolver = struct {

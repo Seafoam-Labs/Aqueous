@@ -169,27 +169,6 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         var fullscreen_owner: ?layout_types.Handle = null;
         for (output.windows) |window| {
             const state = aqueous.window_states.get(window.handle) orelse continue;
-            if (window.fullscreen) {
-                if (fullscreen_owner) |prior| aqueous.api.clearFullscreen(prior);
-                fullscreen_owner = window.handle;
-            }
-            if (state.kind == .minimized or (state.kind == .scratchpad and !state.scratchpad_visible)) {
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
-                continue;
-            }
-            if (state.kind == .maximized) {
-                const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = max_area, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
-                focusable.appendAssumeCapacity(window);
-                continue;
-            }
-            if (state.kind == .floating or (state.kind == .scratchpad and state.scratchpad_visible)) {
-                var geometry = state.floating_geometry;
-                if (state.kind == .scratchpad or geometry.width <= 0 or geometry.height <= 0) geometry = aqueous.scratchpadRect(usable_area);
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
-                focusable.appendAssumeCapacity(window);
-                continue;
-            }
             const rule = aqueous.rules.resolve(.{
                 .app_id = window.app_id,
                 .class = window.app_id,
@@ -199,45 +178,59 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 (if (focused == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)
             else
                 null;
-            if (rule) |matched| {
-                aqueous.api.applyRule(window.handle, output.id, matched.placement.tag, matched.fullscreen, matched.blur, matched.opacity orelse focus_opacity, aqueous.config.wm.force_ssd);
-            } else {
-                aqueous.api.applyRule(window.handle, output.id, 0, false, null, focus_opacity, aqueous.config.wm.force_ssd);
+            aqueous.api.ensureWorkspace(window.handle, output.id);
+            const effect = aqueous.reconcileWindowRule(
+                window,
+                output.id,
+                output.workspace_number,
+                output.area,
+                usable_area,
+                output_layout.layoutOptions(.floating).border,
+                rule,
+            );
+            aqueous.api.applyRuleVisual(
+                window.handle,
+                if (rule) |matched| matched.blur else null,
+                if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
+                aqueous.config.wm.force_ssd,
+            );
+            if (effect.fullscreen) {
+                if (fullscreen_owner) |prior| if (prior != window.handle) {
+                    if (aqueous.window_states.get(prior)) |prior_state| prior_state.overrideFullscreen();
+                    aqueous.api.clearFullscreen(prior);
+                };
+                fullscreen_owner = window.handle;
             }
-            if (window.fullscreen) {
+            if (state.kind == .minimized or (state.kind == .scratchpad and !state.scratchpad_visible)) {
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
+                continue;
+            }
+            if (state.kind == .maximized) {
+                const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = max_area, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
+                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                continue;
+            }
+            if (state.kind == .floating or (state.kind == .scratchpad and state.scratchpad_visible)) {
+                var geometry = state.floating_geometry;
+                if (state.kind == .scratchpad or geometry.width <= 0 or geometry.height <= 0) geometry = aqueous.scratchpadRect(usable_area);
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
+                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                continue;
+            }
+            if (effect.fullscreen) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = output.area, .z_order = 2, .visible = true, .border = .none });
-                focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (rule) |matched| {
                 if (matched.layout) |id| output_layout.default = ruleLayout(id);
-                if (matched.fullscreen) {
-                    if (fullscreen_owner) |prior| if (prior != window.handle) aqueous.api.clearFullscreen(prior);
-                    fullscreen_owner = window.handle;
-                    requested.appendAssumeCapacity(.{
-                        .handle = window.handle,
-                        .geometry = output.area,
-                        .z_order = 2,
-                        .visible = true,
-                        .border = .none,
-                    });
-                    if (matched.placement.tag == 0 or matched.placement.tag == output.workspace_number) focusable.appendAssumeCapacity(window);
-                    continue;
-                }
                 if (matched.layout == .game_mode and (game_anchor == null or focused == window.handle)) {
                     game_anchor = .{ .handle = window.handle, .rule = matched };
                 }
-                if (matched.placement.floating) {
-                    const float_area = if (matched.ignore_struts) output.area else usable_area;
-                    const float_placement = floatingRulePlacement(float_area, window, matched, output_layout.layoutOptions(.floating).border);
-                    _ = aqueous.window_states.setFloating(window.handle, float_placement.geometry);
-                    requested.appendAssumeCapacity(float_placement);
-                    if (matched.placement.tag == 0 or matched.placement.tag == output.workspace_number) focusable.appendAssumeCapacity(window);
-                    continue;
-                }
             }
             managed.appendAssumeCapacity(window);
-            if (rule == null or rule.?.placement.tag == 0 or rule.?.placement.tag == output.workspace_number) focusable.appendAssumeCapacity(window);
+            if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
             if (rule != null and rule.?.layout == .game_mode and managed.items.len > 1) {
                 std.mem.swap(layout_types.Window, &managed.items[0], &managed.items[managed.items.len - 1]);
             }
@@ -457,6 +450,7 @@ fn focusWorkspace(aqueous: *Aqueous, number: u32) void {
 
 fn moveToWorkspace(aqueous: *Aqueous, number: u32) void {
     const context = aqueous.api.focusedContext() orelse return;
+    context.window.policy_state.overrideWorkspace();
     _ = aqueous.api.moveWindowToWorkspace(@bitCast(context.window.ref), context.output.policyId(), number);
     aqueous.api.requestManageCycle();
 }
@@ -492,6 +486,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     if (target_i < 0 or target_i >= snapshot.outputs.len) return;
     const target = snapshot.outputs[@intCast(target_i)];
     if (move) {
+        moving_window.?.window.policy_state.overrideWorkspace();
         _ = aqueous.api.moveWindowToWorkspace(@bitCast(moving_window.?.window.ref), target.id, target.workspace_number);
     } else if (target.windows.len > 0) {
         aqueous.api.requestFocus(target.windows[0].handle);
@@ -552,11 +547,12 @@ fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
 fn toggleFullscreen(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
+    context.window.policy_state.overrideFullscreen();
     if (context.window.policySnapshot().fullscreen) {
         aqueous.api.clearFullscreen(handle);
     } else {
         aqueous.api.clearOtherFullscreen(context.output.policyId(), handle);
-        aqueous.api.applyRule(handle, context.output.policyId(), 0, true, null, null, aqueous.config.wm.force_ssd);
+        _ = aqueous.api.setFullscreen(handle, context.output.policyId());
     }
     aqueous.api.requestManageCycle();
 }
@@ -577,6 +573,7 @@ fn toggleFloating(aqueous: *Aqueous) void {
 fn toggleMinimize(aqueous: *Aqueous) void {
     const handle = aqueous.api.focusedWindow() orelse return;
     if (!aqueous.window_states.restore(handle)) {
+        if (aqueous.window_states.get(handle)) |state| state.overrideFullscreen();
         aqueous.api.clearFullscreen(handle);
         _ = aqueous.window_states.minimize(handle) catch return;
     }
@@ -711,6 +708,107 @@ fn focusCandidateValid(windows: []const layout_types.Window, handle: layout_type
 fn containsWindow(windows: []const layout_types.Window, handle: layout_types.Handle) bool {
     for (windows) |window| if (window.handle == handle) return true;
     return false;
+}
+
+const RuleEffect = struct {
+    fullscreen: bool,
+    workspace_visible: bool = true,
+};
+
+/// Reconcile stateful rule properties only when the semantic match changes.
+/// Visual properties are intentionally handled separately on every cycle.
+fn reconcileWindowRule(
+    aqueous: *Aqueous,
+    window: layout_types.Window,
+    output_id: u64,
+    active_workspace: u32,
+    output_area: layout_types.Rect,
+    usable_area: layout_types.Rect,
+    border: layout_types.Border,
+    rule: ?Rules.Rule,
+) RuleEffect {
+    const state = aqueous.window_states.get(window.handle) orelse return .{ .fullscreen = window.fullscreen };
+    const match = if (rule) |matched| matched.matcherFingerprint() else 0;
+    var effect: RuleEffect = .{ .fullscreen = window.fullscreen };
+    const match_changed = state.ruleChanged(match);
+
+    if (match_changed) {
+        // Undo only properties which are still owned by the old match. Manual
+        // overrides survive until the matcher itself changes.
+        if (state.rule_fullscreen_owned) {
+            if (state.rule_fullscreen_previous) {
+                if (!effect.fullscreen) {
+                    aqueous.api.clearOtherFullscreen(output_id, window.handle);
+                    effect.fullscreen = aqueous.api.setFullscreen(window.handle, output_id);
+                }
+            } else {
+                aqueous.api.clearFullscreen(window.handle);
+                effect.fullscreen = false;
+            }
+        }
+        _ = aqueous.window_states.restoreRuleFloating(window.handle);
+        state.acceptRuleMatch(match);
+    }
+
+    const matched = rule orelse return effect;
+    const requested_workspace = matched.placement.tag;
+    if (requested_workspace != state.rule_workspace_requested) {
+        if (requested_workspace == 0) {
+            state.rule_workspace_owned = false;
+            state.rule_workspace_overridden = false;
+        } else if (!state.rule_workspace_overridden and aqueous.api.applyRuleWorkspace(window.handle, output_id, requested_workspace)) {
+            state.rule_workspace_owned = true;
+            effect.workspace_visible = requested_workspace == active_workspace;
+        }
+        state.rule_workspace_requested = requested_workspace;
+    }
+
+    if (matched.fullscreen != state.rule_fullscreen_requested) {
+        if (matched.fullscreen) {
+            if (!state.rule_fullscreen_overridden) {
+                state.rule_fullscreen_previous = effect.fullscreen;
+                aqueous.api.clearOtherFullscreen(output_id, window.handle);
+                if (aqueous.api.setFullscreen(window.handle, output_id)) {
+                    state.rule_fullscreen_owned = true;
+                    effect.fullscreen = true;
+                }
+            }
+        } else {
+            if (state.rule_fullscreen_owned) {
+                if (state.rule_fullscreen_previous) {
+                    if (!effect.fullscreen) {
+                        aqueous.api.clearOtherFullscreen(output_id, window.handle);
+                        effect.fullscreen = aqueous.api.setFullscreen(window.handle, output_id);
+                    }
+                } else {
+                    aqueous.api.clearFullscreen(window.handle);
+                    effect.fullscreen = false;
+                }
+            }
+            state.rule_fullscreen_owned = false;
+            state.rule_fullscreen_overridden = false;
+        }
+        state.rule_fullscreen_requested = matched.fullscreen;
+    }
+
+    const floating_signature = matched.floatingFingerprint();
+    if (matched.placement.floating != state.rule_floating_requested or
+        (matched.placement.floating and floating_signature != state.rule_floating_signature))
+    {
+        if (matched.placement.floating) {
+            if (!state.rule_floating_overridden) {
+                const area = if (matched.ignore_struts) output_area else usable_area;
+                const geometry = floatingRulePlacement(area, window, matched, border).geometry;
+                _ = aqueous.window_states.setRuleFloating(window.handle, geometry);
+            }
+        } else {
+            _ = aqueous.window_states.restoreRuleFloating(window.handle);
+            state.rule_floating_overridden = false;
+        }
+        state.rule_floating_requested = matched.placement.floating;
+        state.rule_floating_signature = floating_signature;
+    }
+    return effect;
 }
 
 fn handleReloadTimer(aqueous: *Aqueous) c_int {

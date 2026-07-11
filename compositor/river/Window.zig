@@ -429,17 +429,18 @@ pub fn policyApplyPlacement(
     server.wm.rendering_requested.list.append(&window.node);
 }
 
-pub fn policyApplyRule(window: *Window, output: ?*Output, fullscreen: bool, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
-    if (fullscreen) {
-        window.wm_requested.fullscreen = output;
-        window.wm_requested.inform_fullscreen = true;
-    }
+pub fn policyApplyVisualRule(window: *Window, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
     window.rendering_requested.blur_enabled = blur orelse true;
     if (opacity) |fraction| {
         const clamped = std.math.clamp(fraction, 0, 1);
         window.rendering_requested.opacity = @intFromFloat(clamped * @as(f64, @floatFromInt(std.math.maxInt(u32))));
     } else window.rendering_requested.opacity = null;
     if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
+}
+
+pub fn policySetFullscreen(window: *Window, output: ?*Output) void {
+    window.wm_requested.fullscreen = output;
+    window.wm_requested.inform_fullscreen = true;
 }
 
 pub fn policyClearFullscreen(window: *Window) void {
