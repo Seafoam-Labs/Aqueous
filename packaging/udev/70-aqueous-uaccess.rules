@@ -1,5 +1,5 @@
 # Grant the active local session ACL access to input devices so
-# aqueous-inputd can open /dev/input/event* without requiring the
+# Aqueous can open /dev/input/event* without requiring the
 # user to be in the 'input' group.
 #
 # TAG+="uaccess" tells systemd-logind to add an ACL for the user

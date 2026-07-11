@@ -1,6 +1,6 @@
 post_install() {
     cat <<'EOF'
-==> Aqueous installed (NativeAOT build -- no .NET runtime required).
+==> Aqueous installed (single-process Zig build).
 
     Select 'Aqueous' from your display manager's session list. 'ly' is the
     recommended greeter (enable it with 'systemctl enable ly.service'); sddm
@@ -13,8 +13,7 @@ post_install() {
     environment on every start, activates graphical-session.target, and tears
     the whole session down cleanly on exit. This fixes the stale-WAYLAND_DISPLAY
     reconnect loop that could leave the bar chasing a dead socket across a
-    compositor restart. Aqueous now also exits when its compositor connection
-    drops, so uwsm brings the session down (and back up) cleanly. Static
+    compositor restart. Static
     toolkit/backend hints live in /etc/uwsm/env-aqueous.
 
     Output modes, scale, transform, position, adaptive sync, profiles,

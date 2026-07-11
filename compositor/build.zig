@@ -91,10 +91,17 @@ pub fn build(b: *Build) !void {
         "Enable compositor-side window position animations (smooth scrolling). Defaults to true.",
     ) orelse true;
 
+    const external_policy = b.option(
+        bool,
+        "external-policy",
+        "Enable the legacy river_window_manager_v1 external/compare policy modes. Defaults to false.",
+    ) orelse false;
+
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "scenefx", scenefx);
     options.addOption(bool, "animations", animations);
+    options.addOption(bool, "external_policy", external_policy);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});
@@ -257,17 +264,17 @@ pub fn build(b: *Build) !void {
 
     {
         const wf = Build.Step.WriteFile.create(b);
-        const pc_file = wf.add("riverdelta-protocols.pc", b.fmt(
+        const pc_file = wf.add("aqueous-protocols.pc", b.fmt(
             \\prefix={s}
             \\datarootdir=${{prefix}}/share
-            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/riverdelta-protocols
+            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/aqueous-protocols
             \\
-            \\Name: riverdelta-protocols
-            \\URL: https://isaacfreund.com/software/river
-            \\Description: Protocol files for riverdelta, a non-monolithic Wayland compositor
+            \\Name: aqueous-protocols
+            \\URL: https://github.com/Seafoam-Labs/Aqueous
+            \\Description: Wayland protocol files provided by Aqueous
             \\Version: {s}
         , .{ b.install_prefix, full_version }));
-        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/riverdelta-protocols.pc").step);
+        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-protocols.pc").step);
         inline for (&.{
             "river-window-management-v1.xml",
             "river-xkb-bindings-v1.xml",
@@ -276,7 +283,7 @@ pub fn build(b: *Build) !void {
             "river-libinput-config-v1.xml",
             "river-xkb-config-v1.xml",
         }) |protocol| {
-            b.installFile("protocol/" ++ protocol, "share/riverdelta-protocols/stable/" ++ protocol);
+            b.installFile("protocol/" ++ protocol, "share/aqueous-protocols/stable/" ++ protocol);
         }
     }
 

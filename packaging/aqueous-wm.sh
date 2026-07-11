@@ -35,10 +35,6 @@ export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 
-# Required by the transitional client to attach to Aqueous as the window manager. Without
-# this the compositor refuses to attach (see RiverWindowManagerClient)
-# and the session ends up as a black screen under sddm/greetd.
-export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0
 
 # Ensure XDG_RUNTIME_DIR exists (greetd/sddm normally provide this via
@@ -74,17 +70,17 @@ if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" 2>/dev/null || true
 fi
 
-# Input configuration (pointer accel, tap-to-click, natural scroll, …)
-# is now applied by Aqueous itself over the river_libinput_config_v1
-# Wayland protocol; the formerly-required `aqueous-inputd` sidecar has
-# been retired.
+# Input configuration (pointer acceleration, tap-to-click, natural scroll,
+# and XKB policy) is applied directly by Aqueous.
 
-# Aqueous runs the compositor and applies output configuration natively;
-# aqueous-init is its `-c` child and execs `aqueous-wm-client` after exporting
-# the live session environment.
-#
-# Run (not exec) so the EXIT trap fires and we can clean up the input
-# daemon. Use absolute path because SDDM session PATH is minimal.
+# Aqueous runs the compositor, window-management policy, input, and output
+# configuration in one process. aqueous-init is its short-lived `-c` child and
+# exports the live session environment.
+# Run (not exec) so the wrapper can tear down the graphical session target
+# after the compositor exits. Use an absolute path because display-manager
+# session PATH values are often minimal.
+# Stop a daemon left running across an upgrade from a pre-cutover package so it
+# cannot retain the output socket. Current packages do not ship or start it.
 systemctl --user stop aqueous-outputd.service 2>/dev/null || true
 /usr/bin/aqueous -c /usr/bin/aqueous-init
 status=$?

@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Launch Nested River" type="ShConfigurationType">
+  <configuration default="false" name="Launch Nested Aqueous" type="ShConfigurationType">
     <option name="SCRIPT_TEXT" value="" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="$PROJECT_DIR$/launch_river.sh" />
@@ -11,9 +11,6 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="EXECUTE_IN_TERMINAL" value="true" />
     <option name="EXECUTE_SCRIPT_FILE" value="true" />
-    <envs>
-      <env name="AQUEOUS_LOG" value="debug" />
-    </envs>
     <method v="2" />
   </configuration>
 </component>

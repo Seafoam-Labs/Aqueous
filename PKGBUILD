@@ -4,7 +4,7 @@ pkgname=aqueous-git
 pkgbase=aqueous
 pkgver=0.2.0 # Will be updated by pkgver()
 pkgrel=1
-pkgdesc="Aqueous Wayland compositor with a transitional external policy client"
+pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
@@ -16,9 +16,8 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
-         # NativeAOT runtime link targets (BCL dlopens/dynlinks against these).
-         'zlib' 'krb5' 'openssl' 'scenefx')
-makedepends=('dotnet-sdk-10.0' 'clang' 'lld' 'llvm' 'zlib' 'krb5' 'openssl'
+         'scenefx')
+makedepends=('clang' 'lld' 'llvm'
              'git' 'wayland-protocols' 'scenefx')
 optdepends=('ly: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
@@ -33,14 +32,6 @@ source=(
     "aqueous::git+${url}.git"
 )
 sha256sums=('SKIP')
-
-_rid_map() {
-    case "$CARCH" in
-        x86_64)  echo "linux-x64" ;;
-        aarch64) echo "linux-arm64" ;;
-        *) return 1 ;;
-    esac
-}
 
 pkgver() {
     cd "$srcdir/aqueous"
@@ -72,64 +63,9 @@ build() {
     fi
     msg2 "Using zig $zig_ver"
 
-    # Build Aqueous components (NativeAOT).
-    #
-    # Notes on the publish flags:
-    #   * PublishAot=true is also set in each csproj; we pass it on the
-    #     command line so an accidental csproj edit can't silently fall
-    #     back to JIT in CI.
-    #   * --self-contained true is redundant under AOT (AOT is implicitly
-    #     self-contained) but harmless; kept to make the publish profile
-    #     explicit.
-    #   * PublishSingleFile is deliberately NOT passed -- it is
-    #     incompatible with PublishAot.
-    #   * StripSymbols + DebugType=none keep the shipped ELF small;
-    #     pacman's check-strip hook is happy.
-    #   * Per-binary IlcOptimizationPreference: WM = Speed (latency in
-    #     the input/render path), OutputDaemon = Size (cold-start
-    #     sidecar).
-    local rid; rid=$(_rid_map)
     cd "$srcdir/aqueous"
 
-    local common_args=(
-        -c Release
-        -r "$rid"
-        --self-contained true
-        -p:PublishAot=true
-        -p:InvariantGlobalization=true
-        -p:StripSymbols=true
-        -p:DebugType=none
-        -p:DebugSymbols=false
-        --nologo
-    )
-
-    msg2 "AOT-publishing Aqueous WM"
-    dotnet publish Aqueous/Aqueous.csproj \
-        "${common_args[@]}" \
-        -p:IlcOptimizationPreference=Speed \
-        -o "$srcdir/publish/Aqueous"
-
-    msg2 "AOT-publishing Aqueous OutputDaemon"
-    dotnet publish Aqueous.OutputDaemon/Aqueous.OutputDaemon.csproj \
-        "${common_args[@]}" \
-        -p:IlcOptimizationPreference=Size \
-        -o "$srcdir/publish/Aqueous.OutputDaemon"
-
-    # Post-publish guard: fail fast if AOT silently fell back to a
-    # managed launcher (which would produce a tiny ELF stub that loads
-    # libcoreclr.so instead of a real native binary).
-    local bin
-    for bin in "$srcdir/publish/Aqueous/aqueous-wm-client" \
-               "$srcdir/publish/Aqueous.OutputDaemon/aqueous-outputd"; do
-        [[ -x "$bin" ]] || { error "Missing AOT output: $bin"; return 1; }
-        if ! file "$bin" | grep -q 'ELF .* executable'; then
-            error "Not a native AOT binary: $bin"
-            file "$bin"
-            return 1
-        fi
-    done
-
-    # Build the Aqueous compositor (in-tree at compositor/)
+    # Build the single Aqueous compositor/policy executable.
     msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
@@ -139,11 +75,7 @@ build() {
 }
 
 package() {
-    # Install the transitional external policy client and output daemon.
-    install -Dm755 "$srcdir/publish/Aqueous/aqueous-wm-client" "$pkgdir/usr/bin/aqueous-wm-client"
-    install -Dm755 "$srcdir/publish/Aqueous.OutputDaemon/aqueous-outputd" "$pkgdir/usr/bin/aqueous-outputd"
-
-    # Install the Aqueous compositor.
+    # Install the single compositor/window-manager executable.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
 
     # Install compositor share data (man pages and protocol ABI metadata).
@@ -210,6 +142,9 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous.tmpfiles" \
         "$pkgdir/usr/lib/tmpfiles.d/aqueous.conf"
 
+    install -Dm644 "$srcdir/aqueous/packaging/udev/70-aqueous-uaccess.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/70-aqueous-uaccess.rules"
+
     # Default Noctalia (v5) config (seeded on first launch by aqueous-init when
     # the user has no ~/.config/noctalia/config.toml yet).
     install -Dm644 "$srcdir/aqueous/packaging/noctalia/config.toml" \
@@ -241,7 +176,4 @@ package() {
             "$pkgdir/usr/share/licenses/$pkgname/compositor/"
     fi
 
-    # Defense-in-depth: drop any stray AOT debug artefacts that
-    # StripSymbols may have left next to the binaries.
-    find "$pkgdir/usr/bin" -maxdepth 1 \( -name '*.dbg' -o -name '*.pdb' \) -delete 2>/dev/null || true
 }

@@ -13,13 +13,9 @@ aqueous - Aqueous Wayland compositor
 
 # DESCRIPTION
 
-Aqueous is a Wayland compositor focused on ultrawide displays. During the
-in-process policy migration it uses the transitional *aqueous-wm-client*(1)
-through the river-window-management-v1 protocol.
-
-This migration build is not useful without a compatible window manager. A list
-of compatible implementations can be found on the river wiki:
-https://codeberg.org/river/wiki/src/branch/main/pages/wm-list.md
+Aqueous is a single-process Wayland compositor and window manager focused on
+ultrawide displays. Layout, focus, workspace, input, and output policy run
+inside the compositor.
 
 # OPTIONS
 
@@ -40,10 +36,9 @@ https://codeberg.org/river/wiki/src/branch/main/pages/wm-list.md
 	verbose debug messages.
 
 *-policy* [*external*|*internal*|*compare*]
-	Select the migration-time window-management policy mode. *external* uses
-	the transitional Wayland client and is the default. *internal* runs only
-	the in-process policy. *compare* runs internal observation alongside the
-	external client and emits comparable state traces.
+	Select the window-management policy mode. *internal* is the default.
+	*external* and *compare* are available only in builds compiled with
+	*-Dexternal-policy=true* for legacy protocol compatibility testing.
 
 *-no-xwayland*
 	Disable Xwayland at runtime even if aqueous has been built with support.
@@ -55,8 +50,7 @@ The following keybindings are always active:
 *Ctrl+Alt+F1* - *Ctrl+Alt+F12*
 	Switch to VT 1-12
 
-Window managers may add additional keybindings but cannot override these builtin
-keybindings.
+Configured bindings are read from Aqueous's TOML configuration.
 
 # CONFIGURATION
 
@@ -68,9 +62,9 @@ The executable init file will be run as a process group leader after aqueous's
 Wayland server is initialized but before entering the main loop. On exit,
 aqueous will send SIGTERM to this process group.
 
-Usually this executable is a shell script which starts the user's window manager
-and any other long-running programs. For example, *kanshi*(1) could be started
-to manage output configuration.
+Usually this executable is a shell script that exports the live Wayland
+environment or starts session services. A separate window manager or output
+manager is not required.
 
 # AUTHORS
 

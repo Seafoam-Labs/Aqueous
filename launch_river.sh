@@ -1,18 +1,9 @@
 #!/bin/bash
-# Launches a nested Aqueous session with the transitional external policy client
-# and Noctalia as the bar.
+# Launches a nested single-process Aqueous session with Noctalia as the bar.
 #
 # Logs:
-#   /tmp/river_log.txt   – Aqueous compositor + WAYLAND_DEBUG trace
-#   /tmp/aqueous_wm.log  – Aqueous stdout/stderr
+#   /tmp/aqueous.log     – Aqueous compositor/policy log
 #   /tmp/noctalia.log    – Noctalia bar stdout/stderr
-dotnet build Aqueous/Aqueous.csproj
-
-# Kill any stale instances from a previous session.
-pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous-wm-client' 2>/dev/null
-#pkill -9 -f 'noctalia'                                 2>/dev/null
-#pkill -9 -f '^aqueous '                                2>/dev/null
-sleep 0.3
 
 # Ensure Aqueous is available. Prefer an explicit override, then the
 # locally-built ./bin/aqueous (built from compositor/ in this repo).
@@ -38,7 +29,6 @@ else
 fi
 echo "[launch_river] Using compositor: $COMPOSITOR_BIN"
 
-WM_BIN="$HERE/Aqueous/bin/Debug/net10.0/aqueous-wm-client"
 # NOTE: in a packaged session Noctalia is launched as a systemd user unit
 # (packaging/noctalia.service, ordered Before=xdg-desktop-autostart.target) so
 # its SNI tray watcher is up before any autostart tray app — it is no longer an
@@ -73,28 +63,17 @@ export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
 export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
 export _JAVA_AWT_WM_NONREPARENTING=1
-# Decide where Aqueous logs go. The file sink is forced so a run always
-# produces /tmp/aqueous_wm.log (the WM-side log needed to diagnose the pump
-# stall) regardless of how the script was launched. AQUEOUS_LOG_SINK still
-# overrides if a caller explicitly wants a different destination.
+# Decide where Aqueous logs go.
 if [ -n "${AQUEOUS_LOG_SINK:-}" ]; then
     AQ_SINK="$AQUEOUS_LOG_SINK"
 else
-    AQ_SINK="/tmp/aqueous_wm.log"
+    AQ_SINK="/tmp/aqueous.log"
 fi
 echo "[launch_river] Aqueous logs -> $AQ_SINK"
-# Surface snap-zone + dispatcher diagnostics by default during smoke runs.
-export AQUEOUS_LOG="${AQUEOUS_LOG:-trace}"
-# Capture a full managed (CoreCLR) minidump on crash so the off-pump
-# wl_proxy_marshal_flags caller can be resolved with `dotnet-dump analyze`
-# (clrstack/clrthreads). MiniDumpType=4 = "Full".
-export DOTNET_DbgEnableMiniDump=1
-export DOTNET_DbgMiniDumpType=4
-export DOTNET_DbgMiniDumpName="/tmp/aqueous_coredump.%d.dmp"
 # Launch the bar inside the nested compositor (WAYLAND_DISPLAY is only valid
 # in River's -c context). Mirrors packaging/noctalia.service's ExecStart for the
 # dev workflow, where no systemd user manager is available to start the unit.
 NOCTALIA_CMD="${AQUEOUS_NOCTALIA_CMD:-noctalia}"
-INNER="setsid -f sh -c '$NOCTALIA_CMD' >/tmp/noctalia.log 2>&1; exec '$WM_BIN' >'$AQ_SINK' 2>&1"
-AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
-    "$COMPOSITOR_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt
+INNER="'$NOCTALIA_CMD' >/tmp/noctalia.log 2>&1 & wait"
+AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" \
+    "$COMPOSITOR_BIN" -log-level debug -c "sh -c \"$INNER\"" >"$AQ_SINK" 2>&1

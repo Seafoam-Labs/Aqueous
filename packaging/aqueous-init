@@ -8,7 +8,8 @@
 # Aqueous now applies display configuration directly through wlroots before
 # this child is launched and owns the outputd-compatible Unix socket itself.
 # This wrapper seeds shell configuration, exports the live session environment,
-# starts the graphical-session targets, and execs the transitional policy client.
+# starts the graphical-session targets, then exits. Window-management policy
+# runs inside the compositor.
 set -u
 
 # Seed the Noctalia (v5) default config on first launch. Idempotent and
@@ -98,4 +99,4 @@ fi
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
 systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-wlr.service 2>/dev/null || true
 
-exec /usr/bin/aqueous-wm-client
+exit 0

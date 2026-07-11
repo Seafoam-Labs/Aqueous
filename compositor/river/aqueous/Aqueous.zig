@@ -3,6 +3,7 @@
 
 const Aqueous = @This();
 
+const build_options = @import("build_options");
 const std = @import("std");
 const wl = @import("wayland").server.wl;
 
@@ -104,7 +105,7 @@ pub fn start(aqueous: *Aqueous) void {
 }
 
 pub fn allowsExternal(aqueous: *const Aqueous) bool {
-    return aqueous.mode.allowsExternal();
+    return build_options.external_policy and aqueous.mode.allowsExternal();
 }
 
 pub fn reloadConfig(aqueous: *Aqueous) void {

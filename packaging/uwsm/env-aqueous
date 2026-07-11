@@ -32,6 +32,4 @@ export _JAVA_AWT_WM_NONREPARENTING=1
 export XCURSOR_THEME="${XCURSOR_THEME:-Adwaita}"
 export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
-# Required by the transitional client to attach to Aqueous as the window manager.
-export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0

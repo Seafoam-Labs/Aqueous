@@ -1,238 +1,89 @@
 # Aqueous
-A Wayland compositor based on [River](https://codeberg.org/river/river), with
-the River-derived Zig source vendored in-tree at `compositor/`. During the
-in-process policy migration, the window-management policy remains a
-transitional C# / .NET 10 client named `aqueous-wm-client`. The bar/shell is provided by the external
-[Noctalia](https://github.com/noctalia-dev/noctalia) project (v5, the native
-C++/OpenGL ES shell).
 
-Aqueous is a single-repo project: the transitional .NET policy client and the
-Zig compositor live side-by-side. No submodules, no extra clone steps —
-`git clone` is enough. See `compositor/ORIGIN.md` and
-`docs/architecture.md` for the why.
+Aqueous is a single-process Wayland compositor and window manager based on
+[River](https://codeberg.org/river/river). The compositor, layouts, rules,
+focus/workspace policy, input handling, screencopy, and output management are
+implemented in Zig under `compositor/`. No .NET runtime or policy sidecar is
+required. [Noctalia](https://github.com/noctalia-dev/noctalia) provides the
+external desktop shell.
 
----
+## Build
 
-### Components
+Requirements include Zig 0.16 or newer, wlroots 0.20, Wayland and
+wayland-protocols, libxkbcommon, libinput, libevdev, pixman, and pkg-config.
+SceneFX and Xwayland support are selected by build options.
 
-| Component        | Description                                           |
-|------------------|-------------------------------------------------------|
-| `compositor`     | Aqueous Wayland compositor (`aqueous`)              |
-| `Aqueous`        | Transitional external policy client (`aqueous-wm-client`) |
-| `Aqueous.Tests`  | Unit tests for `Aqueous`                             |
-| Noctalia (external) | Bar / shell (`noctalia`; v5 native)               |
-| tuigreet (external) | Login greeter                                     |
-
----
-
-### Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/)
-- [Zig](https://ziglang.org/) ≥ 0.16.0 — needed to build the in-tree
-  Aqueous compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
-  currently provides 0.16.x.
-- [Noctalia](https://github.com/noctalia-dev/noctalia) v5 — the native
-  C++/OpenGL ES shell, launched as `noctalia` (not the v4 Quickshell `qs` line)
-- [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) — rootless XWayland bridge (River has no built-in XWayland; satellite is launched by Aqueous via `[[exec]]` in `wm.toml`).
-- [tuigreet](https://github.com/apognu/tuigreet) (optional, for login)
-- `wayland`, `wayland-protocols`, `libxkbcommon`, `libinput`, `pixman`,
-  `libdrm`, `libevdev` (full list mirrors `compositor/PACKAGING.md`).
-
----
-
-### Build
-
-```bash
-# Transitional policy client (.NET)
-dotnet build Aqueous.slnx
-
-# Compositor (Zig). Produces ./bin/aqueous.
+```sh
 scripts/build-compositor.sh
 ```
 
-`launch_river.sh` rebuilds the compositor on demand if `./bin/aqueous`
-is missing or older than the sources under `compositor/`, so for normal
-dev iteration you can just `./launch_river.sh`. For compositor-only
-iteration: `cd compositor && zig build`.
+The script builds `compositor/` and stages the only required WM/compositor
+executable at `bin/aqueous`. For direct development:
 
-To skip the in-tree compositor and use a system one (or a prebuilt
-path), set `AQUEOUS_COMPOSITOR_BIN=/path/to/aqueous` before running
-`launch_river.sh`.
-
-### Test
-
-```bash
-dotnet test Aqueous.Tests/Aqueous.Tests.csproj
+```sh
+cd compositor
+zig build test
+zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
 ```
 
-### Run (nested Aqueous session)
+Normal builds contain only the integrated policy. The retired
+`river_window_manager_v1` external-policy path can be enabled for protocol
+compatibility testing with `-Dexternal-policy=true`; it is disabled in shipped
+builds and has no bundled client.
 
-```bash
+## Run
+
+```sh
 ./launch_river.sh
 ```
 
-This starts a nested Aqueous compositor, launches `aqueous-wm-client`, and spawns
-Noctalia (`noctalia`) as the bar. (In a packaged session the bar is started
-as a systemd user unit instead — see Autostart below; the nested dev run has
-no user systemd manager, so `launch_river.sh` launches it directly. Override
-the command with `AQUEOUS_NOCTALIA_CMD`.) Logs land in `/tmp/`:
+This starts a nested Aqueous session and Noctalia. Set
+`AQUEOUS_COMPOSITOR_BIN=/path/to/aqueous` to use a prebuilt compositor or
+`AQUEOUS_NOCTALIA_CMD` to override the shell command. Logs are written to
+`/tmp/aqueous.log` and `/tmp/noctalia.log`.
 
-- `/tmp/river_log.txt` — Aqueous compositor + WAYLAND_DEBUG trace
-- `/tmp/aqueous_wm.log` — transitional policy client stdout/stderr
-- `/tmp/noctalia.log` — Noctalia stdout/stderr
+Packaged sessions use `/usr/bin/aqueous-wm`, which launches
+`/usr/bin/aqueous`. `/usr/bin/aqueous-init` only exports the live Wayland
+environment and starts graphical-session services; it does not launch another
+window manager.
 
----
+## Configuration
 
-### Configuration
+Aqueous discovers compatible TOML files in `~/.config/aqueous/`:
 
-`wm.toml` (place at `~/.config/aqueous/wm.toml`) configures layouts, gaps,
-keybindings, outputs, etc. See the file in this repo for an annotated example.
-Output modes, scale, transforms, positions, adaptive sync, profiles, persistence,
-and hotplug are applied directly by the compositor. Display-panel integrations
-can use the compatible JSON socket at
-`$XDG_RUNTIME_DIR/aqueous/outputd.sock`; `wlr-randr` and a separate output
-daemon are no longer required.
+- `wm.toml` — actions, key/pointer bindings, workspaces, struts, outputs, and
+  global policy.
+- `layout.toml` — all eight built-in layouts and their options.
+- `input.toml` — XKB and libinput policy.
+- `rules.toml` — window matching, placement, state, and per-app behavior.
 
-### Autostart
+Configuration is hot-reloaded by the compositor. Output modes, scale,
+transform, position, adaptive sync, profiles, persistence, and hotplug are
+applied directly through wlroots. Display-panel integrations can use the
+compatible JSON socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock`; this is an
+in-process service despite the legacy socket name.
 
-Aqueous launches supervised commands itself via `[[exec]]` blocks in
-`wm.toml`. Each entry fires once after Aqueous advertises all its globals
-(so layer-shell clients like the bar attach successfully on first
-connect). Commands run via `/bin/sh -c` detached with `setsid`.
+See [layout documentation](docs/layout.md), [rules documentation](docs/rules.md),
+and the annotated `*.toml.example` files for details.
 
-```toml
-[[exec]]
-name    = "swayidle"
-command = "swayidle -w timeout 300 'swaylock -f'"
-when    = "startup"          # "startup" (default) | "reload" | "always"
-once    = true               # don't relaunch on --reload
-restart = true               # respawn (with backoff) on non-zero exit
-log     = "/tmp/swayidle.log"
-env     = { QT_QPA_PLATFORM = "wayland" }
+## Test
+
+```sh
+cd compositor
+zig build test
+scripts/test-policy-parity.sh
+scripts/test-scaling.sh
 ```
 
-Backoff for `restart = true` follows 250 ms → 500 → 1 s → 2 s → 4 s →
-8 s → cap 10 s, and resets on a clean (`exit 0`) termination. Setting
-`restart = true` on a `when = "reload"` entry is allowed but rarely
-useful.
+The policy test verifies that implicit/default and explicit internal mode
+produce matching traces and that production builds reject external mode. The
+scaling test exercises the embedded output protocol and headless output commit
+pipeline.
 
-**The bar (Noctalia) is intentionally not an `[[exec]]` entry.** It hosts the
-system-tray `org.kde.StatusNotifierWatcher`, and launching it from `[[exec]]`
-(after Aqueous has already started, post `xdg-desktop-autostart.target`) makes
-it lose the startup race against autostarted tray apps (`nm-applet`,
-`blueman-applet`, …) — their icons never populate. Instead it ships as a
-systemd user unit (`packaging/noctalia.service`) that is
-`WantedBy=graphical-session.target` and ordered `Before=xdg-desktop-autostart.target`,
-so the watcher is up before any tray app registers. `ExecStart` runs the v5
-native shell as `noctalia --daemon`, which forks the shell and returns once it
-is up; `Type=forking` makes systemd wait for that return before marking the
-unit active (a real readiness barrier) and tracks the surviving shell as the
-unit's main process.
+## Packaging
 
----
-
-### Packaging
-
-A reference Arch `PKGBUILD` is included; it builds the compositor and transitional client and ships:
-
-- `/usr/bin/aqueous` (compositor), `/usr/bin/aqueous-wm-client` (transitional
-  policy client), and `/usr/bin/aqueous-wm` (session launcher).
-- `/usr/share/wayland-sessions/aqueous.desktop` so any Wayland-capable
-  display manager (greetd/tuigreet, GDM, SDDM, …) lists **Aqueous** in
-  its session picker.
-- `/etc/xdg/aqueous/wm.toml` as the system default; `aqueous-wm` seeds
-  `~/.config/aqueous/wm.toml` on first login if missing.
-- `noctalia.service` (a `graphical-session.target` user unit, ordered
-  `Before=xdg-desktop-autostart.target`) plus a `graphical-session.target.wants`
-  symlink, so the bar / SNI tray watcher starts before autostarted tray apps.
-
-Libinput configuration (pointer accel, tap-to-click, natural scroll, …)
-is applied by `Aqueous` itself via the `river_libinput_config_v1`
-Wayland protocol — no separate input daemon is involved.
-
-For a turn-key login experience see
-`packaging/greetd/config.toml.example` (greetd + tuigreet, with an
-optional autologin snippet).
-
----
-
-### TODO
-
-#### Known bugs
-
-- [x] Monocle layout crashes the WM — `LayoutProposer` drops `Visible=false`
-      placements with `Rect.Empty` on the floor (zero-dimension guard fires
-      before the visibility check). See
-      `scratches/monocole_currently_causes_wm_crash.md`.
-- [x] Fullscreen demote path is fragile; there is no dedicated
-      `exit_fullscreen` action — only the `toggle_fullscreen` chord
-      (`Super+Shift+F`) can leave fullscreen. See
-      `scratches/currently_fullscreening_a_window_cannot.md` and
-      `scratches/keycombo_to_unfullscreen.md`.
-- [ ] The scrolling layout is broken – it stacks windows on top of each other
-      instead of scrolling them.
-
-#### Compositor / shell integration
-
-- [x] Reserved space for the bar (currently hardcoded to 24px) — implement
-      proper `wlr-layer-shell` exclusive-zone negotiation so bars of any
-      height and on any edge work.
-- [ ] Support for multiple outputs (technically works but a bit hacky) —
-      per-output tag state, hot-plug add/remove, per-output
-      layout/scale/transform persistence, "move window/workspace to next
-      output" semantics.
-- [ ] `[[output]]` config block: mode, scale, position, transform, VRR /
-      adaptive-sync, DPMS / power management.
-- [x] Fractional-scale (`wp-fractional-scale-v1`) and `viewporter` story for
-      mixed-DPI setups — Aqueous advertises `wp_fractional_scale_manager_v1`,
-      `wp_viewporter`, and `wl_compositor` v6; `wlr_scene` notifies each surface
-      of its per-output preferred (fractional) and `preferred_buffer_scale`
-      based on the output(s) it intersects, recomputed on every scale commit.
-- [ ] `gamma-control` / night-light support.
-- [ ] Cursor theme and size configuration.
-
-#### IPC / control surface
-
-- [ ] `aqueousctl` IPC socket: query focused tag/window/title, dispatch any
-      `KeyBindingAction`, trigger config reload, drive status bars and
-      scripts (`swaymsg`-style).
-- [ ] On-the-fly config reload from a keybind / external tool, with error
-      reporting when `wm.toml` is malformed.
-- [ ] Man page, shell completions, log rotation (logs currently land in
-      `/tmp/*.log` from `launch_river.sh`).
-
-#### Window management features
-
-- [ ] Window rules (`[[rule]]` matching `app_id` / `class` / `title` →
-      float / tile / tag / size / position / sticky). Required for things
-      like "always float `pavucontrol`" or "send `firefox` to tag 2".
-- [x] XWayland transport (rule-free): `xwayland-satellite` launched via
-      `[[exec]]` in `wm.toml`; session launcher exports `DISPLAY=:0`,
-      `QT_QPA_PLATFORM=wayland;xcb`, `GDK_BACKEND=wayland,x11`,
-      `SDL_VIDEODRIVER=wayland,x11`, `MOZ_ENABLE_WAYLAND=1`,
-      `_JAVA_AWT_WM_NONREPARENTING=1`, and `XCURSOR_*`.
-- [ ] XWayland policy / rules engine (Steam, JetBrains splash, Zoom, …) —
-      `xwayland_shell_v1` binding, `RuleMatch.XWayland`, auto-float
-      heuristics for `_NET_WM_WINDOW_TYPE` (`DIALOG`, `UTILITY`, `SPLASH`,
-      …) and non-null `WM_TRANSIENT_FOR`.
-- [ ] Floating-window keybinds: toggle-float on focused tile, move/resize
-      by keys, center-on-spawn, remembered geometry.
-- [ ] Dedicated `exit_fullscreen` action (separate from
-      `toggle_fullscreen`) and audit of all state-transition bindings.
-- [ ] Scratchpad / iconify-equivalent semantics.
-- [ ] `xdg-activation-v1` "demand attention" → tag urgency highlight for
-      bars.
-
-#### Session services
-
-- [x] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
-      `lock_command` config key. Watching video should inhibit blanking.
-- [x] Screencopy: `wlr-screencopy-unstable-v1` (v3) is exposed by
-      Aqueous and bound in-process by `WlrScreencopyClient`
-      (`wl_shm` + `memfd_create` path). `xdg-desktop-portal-wlr` rides
-      on the same global, so browser / Discord / OBS screen sharing
-      works out of the box once the portal package is installed.
-- [ ] Clipboard-persistence daemon (or document `wl-clip-persist`) and
-      primary-selection guarantees beyond what River provides.
-- [ ] Per-seat keyboard layout switching exposed as a `KeyBindingAction`
-      (today only the input daemon applies static config).
+The reference `PKGBUILD` and release workflow build and ship one required
+binary: `/usr/bin/aqueous`. The package also installs the session launcher,
+environment hook, default TOML configuration, desktop entry, systemd user
+units, and shell assets. It has no .NET, `aqueous-wm-client`,
+`aqueous-outputd`, or `wlr-randr` dependency.

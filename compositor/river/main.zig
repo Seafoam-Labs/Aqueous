@@ -30,7 +30,7 @@ const usage: []const u8 =
     \\  -version           Print the version number and exit.
     \\  -c <command>       Run `sh -c <command>` on startup instead of the default init executable.
     \\  -log-level <level> Set the log level to error, warning, info, or debug.
-    \\  -policy <mode>      Select external, internal, or compare policy mode.
+    \\  -policy <mode>      Select internal policy (or external/compare when built with compatibility support).
     \\  -no-xwayland       Disable xwayland even if built with support.
     \\
 ;
@@ -134,7 +134,10 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     const policy_mode = if (result.flags.policy) |value|
         PolicyMode.parse(value) orelse fatal("invalid policy mode '{s}'", .{value})
     else
-        PolicyMode.external;
+        PolicyMode.internal;
+    if (!build_options.external_policy and policy_mode != .internal) {
+        fatal("policy mode '{s}' requires a build with -Dexternal-policy=true", .{@tagName(policy_mode)});
+    }
     const startup_command = blk: {
         if (result.flags.c) |command| {
             break :blk try util.gpa.dupeZ(u8, command);
@@ -323,9 +326,8 @@ fn detectClassic(startup_command: ?[:0]const u8) !void {
             \\This Aqueous version ({[version]s}) does not support riverctl, you may
             \\wish to install river-classic instead.
             \\
-            \\Aqueous {[version]s} currently requires an external policy client and
-            \\requires a compatible window manager to be useful.
-            \\See https://isaacfreund.com/software/river for more information.
+            \\Aqueous {[version]s} uses its integrated window-management policy;
+            \\riverctl configuration is not supported.
             \\
         , .{
             .path = path,
