@@ -33,5 +33,5 @@ scripts/test-policy-parity.sh
 scripts/test-scaling.sh
 ```
 
-See `PACKAGING.md`, `ORIGIN.md`, and the repository-level README for packaging,
-source provenance, and session integration.
+See `ORIGIN.md` and the repository-level README for source provenance,
+packaging, and session integration.
