@@ -193,8 +193,21 @@ fn getenv(name: [*:0]const u8) ?[]const u8 {
 }
 
 pub fn resolveWmPath(buffer: []u8, env: Environment) ?[]const u8 {
+    return resolveWmPathWithExists(buffer, env, exists);
+}
+
+fn resolveWmPathWithExists(buffer: []u8, env: Environment, path_exists: *const fn ([]const u8) bool) ?[]const u8 {
     if (env.wm_override) |path| return expandHome(buffer, path, env.home);
-    return resolvePath(buffer, env.xdg, env.home, "wm.toml");
+    if (env.xdg) |xdg| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/wm.toml", .{xdg}) catch return null;
+        if (path_exists(candidate)) return candidate;
+    }
+    if (env.home) |home| {
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/wm.toml", .{home}) catch return null;
+        if (path_exists(candidate)) return candidate;
+    }
+    if (path_exists("/etc/xdg/aqueous/wm.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/wm.toml", .{}) catch null;
+    return null;
 }
 
 /// Kept as the stable pure helper used by existing tests and downstream code.
@@ -333,4 +346,25 @@ test "explicit config path expands home" {
     var buffer: [256]u8 = undefined;
     const env: Environment = .{ .xdg = null, .home = "/home/test", .wm_override = "~/wm.toml", .layout_override = null, .input_override = null };
     try std.testing.expectEqualStrings("/home/test/wm.toml", resolveWmPath(&buffer, env).?);
+}
+
+fn xdgAndHomeWmExist(path: []const u8) bool {
+    return std.mem.eql(u8, path, "/xdg/aqueous/wm.toml") or
+        std.mem.eql(u8, path, "/home/test/.config/aqueous/wm.toml");
+}
+
+fn homeWmExists(path: []const u8) bool {
+    return std.mem.eql(u8, path, "/home/test/.config/aqueous/wm.toml");
+}
+
+fn systemWmExists(path: []const u8) bool {
+    return std.mem.eql(u8, path, "/etc/xdg/aqueous/wm.toml");
+}
+
+test "wm config discovery checks XDG HOME and system fallback in order" {
+    const env: Environment = .{ .xdg = "/xdg", .home = "/home/test", .wm_override = null, .layout_override = null, .input_override = null };
+    var buffer: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, xdgAndHomeWmExist).?);
+    try std.testing.expectEqualStrings("/home/test/.config/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, homeWmExists).?);
+    try std.testing.expectEqualStrings("/etc/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, systemWmExists).?);
 }
