@@ -262,15 +262,6 @@ fullscreen_hides_bar = true
 # false → cover usable_area only (the conventional behaviour).
 maximize_full_output = false
 
-#[[exec]]
-#name    = "xwayland-satellite"
-#command = "xwayland-satellite :0"
-#when    = "startup"
-#restart = true
-#log     = "/tmp/xwayland-satellite.log"
-
-
-
 [rules]
 # Optional. Absolute path or ~-prefixed. Overrides the XDG search above.
 path = "~/.config/aqueous/rules.toml"

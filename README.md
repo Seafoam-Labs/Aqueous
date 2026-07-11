@@ -11,7 +11,9 @@ external desktop shell.
 
 Requirements include Zig 0.16 or newer, wlroots 0.20, Wayland and
 wayland-protocols, libxkbcommon, libinput, libevdev, pixman, and pkg-config.
-SceneFX and Xwayland support are selected by build options.
+Builds using `-Dxwayland` also require the `Xwayland` server executable
+(`xorg-xwayland` on Arch); Aqueous manages it directly through wlroots.
+SceneFX and XWayland support are selected by build options.
 
 ```sh
 scripts/build-compositor.sh

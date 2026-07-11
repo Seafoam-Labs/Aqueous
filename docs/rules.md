@@ -59,7 +59,7 @@ matters.
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `app_id` | string (glob) | one of `app_id` / `class` / `title` must be set | Match `xdg_toplevel.app_id`. |
-| `class` | string (glob) | " | Match X11 `WM_CLASS` (via `xwayland-satellite`). |
+| `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
 | `layout` | string | no | Select a built-in layout; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
@@ -123,8 +123,8 @@ Two-release deprecation window - after which the warning becomes an error.
 
 - **Rule didn't apply.** Confirm the window's actual `app_id` via the River
   log (Aqueous writes `window 0x... app_id=<name>` on every change). Wayland
-  app ids are case-sensitive; X11 clients route their `WM_CLASS` through
-  `xwayland-satellite`.
+  app ids are case-sensitive; native XWayland clients expose their `WM_CLASS`
+  through the same managed-window path.
 - **Anchor doesn't update when I edit `rules.toml`.** Check the compositor log
   for a parse warning, or press `Super+R` to request an immediate reload.
 - **Game mode disappears when I close the game.** Expected - with no

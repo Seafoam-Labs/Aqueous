@@ -11,21 +11,19 @@ export XDG_CURRENT_DESKTOP=Aqueous
 export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=Aqueous
 
-# Toolkit backend hints. Apps prefer Wayland and only fall back to X11 (via
-# xwayland-satellite, which Aqueous spawns from wm.toml's [[exec]] block) when
-# the native Wayland path is unavailable.
+# Toolkit backend hints. Apps prefer Wayland and fall back to the XWayland
+# server managed directly by Aqueous when the native Wayland path is unavailable.
 export QT_QPA_PLATFORM="wayland;xcb"
 export GDK_BACKEND="wayland,x11"
 export SDL_VIDEODRIVER="wayland,x11"
 export CLUTTER_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
 # Fixes the grey-blob / non-reparenting Java/Swing/JetBrains bug under any
-# non-reparenting WM (Aqueous + xwayland-satellite included).
+# non-reparenting WM, including Aqueous's native XWayland integration.
 export _JAVA_AWT_WM_NONREPARENTING=1
 
-# DO NOT set DISPLAY here — xwayland-satellite owns it and will export the
-# correct value once the bridge is up. Setting DISPLAY=:0 collides with
-# SDDM's greeter X server and breaks X11 client auth.
+# Do not inherit the display manager's X server. Aqueous creates XWayland and
+# exports the correct DISPLAY to its session init command after startup.
 unset DISPLAY
 
 # XWayland reads cursor settings only at server startup — set them here so

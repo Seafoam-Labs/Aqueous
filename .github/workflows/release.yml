@@ -121,12 +121,9 @@ jobs:
           # tarball/binary install also brings up the SNI tray watcher before the
           # autostart target (mirrors PKGBUILD package()).
           cp packaging/noctalia.service publish/aqueous-linux-x64/lib/systemd/user/
-          cp packaging/xwayland-satellite.service publish/aqueous-linux-x64/lib/systemd/user/
           mkdir -p publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants
           ln -sf ../noctalia.service \
              publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
-          ln -sf ../xwayland-satellite.service \
-             publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/xwayland-satellite.service
           cp packaging/udev/70-aqueous-uaccess.rules \
              publish/aqueous-linux-x64/lib/udev/rules.d/ 2>/dev/null || true
 
