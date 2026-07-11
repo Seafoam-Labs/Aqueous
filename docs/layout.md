@@ -35,8 +35,8 @@ layout = "monocle"
 Resolution order is: a runtime layout-slot action, an output/workspace
 override, a workspace-only override, an output default, then the global
 default. Geometry is calculated from the output's strut-adjusted usable area,
-then gaps, borders, size constraints, fullscreen, floating, scratchpad, and
-rule placement are applied by the native manage cycle.
+then gaps, borders, size constraints, fullscreen, floating, and rule placement
+are applied by the native manage cycle.
 
 The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured

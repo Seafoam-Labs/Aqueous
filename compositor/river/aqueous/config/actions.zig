@@ -6,7 +6,6 @@ const wm = @import("wm.zig");
 
 pub const max_bindings = 160;
 pub const max_exec = 32;
-pub const max_scratchpads = 16;
 
 pub const Binding = struct {
     modifiers: u32 = 0,
@@ -24,8 +23,6 @@ pub const Exec = struct {
     log_path: wm.Text = .{},
     env: wm.Text = .{},
 };
-pub const Scratchpad = struct { name: wm.Text = .{}, command: wm.Text = .{} };
-
 pub const Snapshot = struct {
     bindings: [max_bindings]Binding = undefined,
     binding_count: u16 = 0,
@@ -34,21 +31,12 @@ pub const Snapshot = struct {
     toggle_start_menu: wm.Text = .{},
     spawn_terminal: wm.Text = .{},
     lock_screen: wm.Text = .{},
-    scratchpad_on_empty_spawn: bool = false,
-    scratchpad_anchor: enum { center, top, bottom } = .center,
-    scratchpads: [max_scratchpads]Scratchpad = undefined,
-    scratchpad_count: u8 = 0,
     primary_modifier: u32 = 64,
 
     pub fn find(snapshot: *const Snapshot, keysym: u32, modifiers: u32) ?[]const u8 {
         for (snapshot.bindings[0..snapshot.binding_count]) |*binding| {
             if (binding.keysym == keysym and binding.modifiers == modifiers) return binding.verb.slice();
         }
-        return null;
-    }
-
-    pub fn scratchpadCommand(snapshot: *const Snapshot, name: []const u8) ?[]const u8 {
-        for (snapshot.scratchpads[0..snapshot.scratchpad_count]) |*entry| if (std.mem.eql(u8, entry.name.slice(), name)) return entry.command.slice();
         return null;
     }
 };
@@ -75,8 +63,7 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "move_to_workspace_up", "Super+Shift+Bracketleft" }, .{ "move_to_workspace_down", "Super+Shift+Bracketright" },
     .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
     .{ "toggle_floating", "Super+Shift+Space" },            .{ "toggle_minimize", "Super+N" },
-    .{ "unminimize_last", "Super+Shift+N" },                .{ "toggle_scratchpad", "Super+Backslash" },
-    .{ "send_to_scratchpad", "Super+Shift+Backslash" },     .{ "lock_screen", "Super+Ctrl+L" },
+    .{ "unminimize_last", "Super+Shift+N" },                .{ "lock_screen", "Super+Ctrl+L" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {

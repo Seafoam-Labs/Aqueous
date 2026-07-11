@@ -114,8 +114,6 @@ pub const Snapshot = struct {
     force_ssd: bool = false,
     fullscreen_hides_bar: bool = true,
     maximize_full_output: bool = false,
-    scratchpad_width_fraction: f64 = 0.6,
-    scratchpad_height_fraction: f64 = 0.6,
     blur_enabled: bool = false,
     blur_radius: i32 = 5,
     blur_passes: i32 = 3,
@@ -148,7 +146,7 @@ pub const Snapshot = struct {
     }
 };
 
-const Section = union(enum) { none, layout, rules, struts, state, scratchpad, blur, opacity, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
+const Section = union(enum) { none, layout, rules, struts, state, blur, opacity, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
     var section: Section = .none;
@@ -195,10 +193,6 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "fullscreen_hides_bar")) snapshot.fullscreen_hides_bar = parseBool(value) orelse snapshot.fullscreen_hides_bar;
                 if (std.mem.eql(u8, key, "maximize_full_output")) snapshot.maximize_full_output = parseBool(value) orelse snapshot.maximize_full_output;
             },
-            .scratchpad => {
-                if (std.mem.eql(u8, key, "width_fraction") or std.mem.eql(u8, key, "width_frac")) snapshot.scratchpad_width_fraction = parseFraction(value) orelse snapshot.scratchpad_width_fraction;
-                if (std.mem.eql(u8, key, "height_fraction") or std.mem.eql(u8, key, "height_frac")) snapshot.scratchpad_height_fraction = parseFraction(value) orelse snapshot.scratchpad_height_fraction;
-            },
             .blur => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.blur_enabled = parseBool(value) orelse snapshot.blur_enabled;
                 if (std.mem.eql(u8, key, "radius")) snapshot.blur_radius = parseNonNegative(value) orelse snapshot.blur_radius;
@@ -233,7 +227,6 @@ fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "rules")) return .rules;
     if (std.mem.eql(u8, name, "struts")) return .struts;
     if (std.mem.eql(u8, name, "state")) return .state;
-    if (std.mem.eql(u8, name, "scratchpad")) return .scratchpad;
     if (std.mem.eql(u8, name, "blur")) return .blur;
     if (std.mem.eql(u8, name, "opacity")) return .opacity;
     if (std.mem.eql(u8, name, "workspace_transition")) return .workspace_transition;
@@ -387,10 +380,6 @@ fn parseNonNegative(value: []const u8) ?i32 {
 fn parseNonNegativeFloat(value: []const u8) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;
     return if (std.math.isFinite(result) and result >= 0) result else null;
-}
-fn parseFraction(value: []const u8) ?f64 {
-    const result = std.fmt.parseFloat(f64, value) catch return null;
-    return if (std.math.isFinite(result) and result > 0 and result <= 1) result else null;
 }
 fn parseUnit(value: []const u8) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;

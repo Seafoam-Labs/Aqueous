@@ -42,7 +42,7 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
 }
 
 fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
-    const Section = enum { none, action, keybinds, custom, scratchpad, scratchpad_spawn, exec };
+    const Section = enum { none, action, keybinds, custom, exec };
     var section: Section = .none;
     var pending: ?actions.Exec = null;
     var lines = std.mem.splitScalar(u8, source, '\n');
@@ -60,7 +60,7 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
             if (std.mem.eql(u8, line, "[[exec]]")) {
                 section = .exec;
                 pending = .{};
-            } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else if (std.mem.eql(u8, line, "[scratchpad]")) section = .scratchpad else if (std.mem.eql(u8, line, "[scratchpad.spawn]")) section = .scratchpad_spawn else section = .none;
+            } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else section = .none;
             continue;
         }
         const equal = wm.indexUnquoted(line, '=') orelse continue;
@@ -78,19 +78,6 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
             .custom => {
                 var decoded: [256]u8 = undefined;
                 actions.addBinding(snapshot, key, decodeBasic(value, &decoded) orelse value);
-            },
-            .scratchpad => {
-                if (std.mem.eql(u8, key, "on_empty")) snapshot.scratchpad_on_empty_spawn = std.mem.eql(u8, value, "spawn");
-                if (std.mem.eql(u8, key, "anchor")) snapshot.scratchpad_anchor = if (std.mem.eql(u8, value, "top")) .top else if (std.mem.eql(u8, value, "bottom")) .bottom else .center;
-            },
-            .scratchpad_spawn => {
-                if (snapshot.scratchpad_count < actions.max_scratchpads) {
-                    var entry: actions.Scratchpad = .{};
-                    if (entry.name.set(key) and entry.command.set(value)) {
-                        snapshot.scratchpads[snapshot.scratchpad_count] = entry;
-                        snapshot.scratchpad_count += 1;
-                    }
-                }
             },
             .exec => if (pending) |*entry| {
                 if (std.mem.eql(u8, key, "name")) _ = entry.name.set(value);
@@ -135,7 +122,7 @@ fn parseBool(value: []const u8) ?bool {
     return null;
 }
 
-test "actions custom bindings scratchpads and exec are immutable snapshot data" {
+test "actions custom bindings and exec are immutable snapshot data" {
     var snapshot: actions.Snapshot = .{};
     actions.initDefaults(&snapshot);
     applyActions(&snapshot,
@@ -145,10 +132,6 @@ test "actions custom bindings scratchpads and exec are immutable snapshot data" 
         \\cycle_focus = []
         \\[keybinds.custom]
         \\"Super+E" = "spawn:nemo"
-        \\[scratchpad]
-        \\on_empty = "spawn"
-        \\[scratchpad.spawn]
-        \\term = "foot --app-id scratch"
         \\[[exec]]
         \\name = "agent"
         \\command = "agent --daemon"
@@ -159,8 +142,6 @@ test "actions custom bindings scratchpads and exec are immutable snapshot data" 
     );
     try std.testing.expectEqualStrings("foot", snapshot.spawn_terminal.slice());
     try std.testing.expectEqualStrings("spawn:nemo", snapshot.find('e', 64).?);
-    try std.testing.expect(snapshot.scratchpad_on_empty_spawn);
-    try std.testing.expectEqualStrings("foot --app-id scratch", snapshot.scratchpadCommand("term").?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.exec_count);
     try std.testing.expectEqual(actions.ExecWhen.always, snapshot.exec[0].when);
     try std.testing.expect(snapshot.exec[0].restart);

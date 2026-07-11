@@ -4,13 +4,11 @@
 const types = @import("../layout/types.zig");
 const PolicyState = @This();
 
-pub const Kind = enum { tiled, floating, maximized, minimized, scratchpad };
+pub const Kind = enum { tiled, floating, maximized, minimized };
 
 kind: Kind = .tiled,
 previous: Kind = .tiled,
 floating_geometry: types.Rect = .empty,
-scratchpad: u64 = 0,
-scratchpad_visible: bool = false,
 
 /// Semantic identity of the rule last reconciled for this window. A zero hash
 /// represents no match. `rule_initialized` distinguishes that from a window

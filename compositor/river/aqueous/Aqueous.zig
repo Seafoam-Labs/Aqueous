@@ -201,7 +201,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 };
                 fullscreen_owner = window.handle;
             }
-            if (state.kind == .minimized or (state.kind == .scratchpad and !state.scratchpad_visible)) {
+            if (state.kind == .minimized) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
                 continue;
             }
@@ -211,9 +211,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
-            if (state.kind == .floating or (state.kind == .scratchpad and state.scratchpad_visible)) {
+            if (state.kind == .floating) {
                 var geometry = state.floating_geometry;
-                if (state.kind == .scratchpad or geometry.width <= 0 or geometry.height <= 0) geometry = aqueous.scratchpadRect(usable_area);
+                if (geometry.width <= 0 or geometry.height <= 0) geometry = floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
@@ -270,9 +270,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         for (requested.items) |placement| aqueous.api.applyPlacement(placement);
     }
 
-    // A closing, minimized, hidden scratchpad, or workspace-removed window may
-    // still be the wl_seat focus target. If no active output considers it
-    // focusable, explicitly send keyboard leave before it is destroyed.
+    // A closing, minimized, or workspace-removed window may still be the
+    // wl_seat focus target. If no active output considers it focusable,
+    // explicitly send keyboard leave before it is destroyed.
     if (!focused_is_focusable) aqueous.api.clearFocus();
 
     var stale: std.ArrayListUnmanaged(LayoutStateKey) = .empty;
@@ -381,7 +381,6 @@ fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
 fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     const colon = std.mem.indexOfScalar(u8, value, ':');
     const action = if (colon) |index| value[0..index] else value;
-    const argument = if (colon) |index| value[index + 1 ..] else "default";
     if (std.mem.eql(u8, action, "toggle_start_menu")) return aqueous.spawn(aqueous.config.actions.toggle_start_menu.slice());
     if (std.mem.eql(u8, action, "spawn_terminal")) return aqueous.spawn(aqueous.config.actions.spawn_terminal.slice());
     if (std.mem.eql(u8, action, "lock_screen")) return aqueous.spawn(aqueous.config.actions.lock_screen.slice());
@@ -430,8 +429,6 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
         aqueous.api.requestManageCycle();
         return;
     }
-    if (std.mem.eql(u8, action, "toggle_scratchpad") or std.mem.eql(u8, action, "toggle_scratchpad_named")) return aqueous.toggleScratchpad(argument);
-    if (std.mem.eql(u8, action, "send_to_scratchpad") or std.mem.eql(u8, action, "send_to_scratchpad_named")) return aqueous.sendToScratchpad(argument);
     log.warn("unknown builtin action '{s}'", .{action});
 }
 
@@ -580,24 +577,6 @@ fn toggleMinimize(aqueous: *Aqueous) void {
     aqueous.api.requestManageCycle();
 }
 
-fn toggleScratchpad(aqueous: *Aqueous, name: []const u8) void {
-    const handle = aqueous.window_states.toggleScratchpad(name);
-    if (handle == 0) {
-        if (aqueous.config.actions.scratchpad_on_empty_spawn) {
-            if (aqueous.config.actions.scratchpadCommand(name)) |command| aqueous.spawn(command) else log.warn("scratchpad '{s}' is empty and has no spawn command", .{name});
-        }
-        return;
-    }
-    if (aqueous.window_states.get(handle)) |state| if (state.scratchpad_visible) aqueous.api.requestFocus(handle);
-    aqueous.api.requestManageCycle();
-}
-
-fn sendToScratchpad(aqueous: *Aqueous, name: []const u8) void {
-    const handle = aqueous.api.focusedWindow() orelse return;
-    if (!(aqueous.window_states.sendToScratchpad(handle, name) catch return)) return;
-    aqueous.api.requestManageCycle();
-}
-
 fn setLayout(aqueous: *Aqueous, name: []const u8) void {
     const id = std.meta.stringToEnum(layout_config.LayoutId, if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else name) orelse {
         if (std.mem.eql(u8, name, "primary")) return aqueous.setLayoutId(aqueous.config.layout.slots[0]);
@@ -613,17 +592,6 @@ fn setLayoutId(aqueous: *Aqueous, id: layout_config.LayoutId) void {
     const context = aqueous.api.focusedContext() orelse return;
     aqueous.layout_overrides.put(util.gpa, .{ .output = context.output.policyId(), .workspace = context.workspace_number }, id) catch return;
     aqueous.api.requestManageCycle();
-}
-
-fn scratchpadRect(aqueous: *const Aqueous, area: layout_types.Rect) layout_types.Rect {
-    const width: i32 = @intFromFloat(@as(f64, @floatFromInt(area.width)) * aqueous.config.wm.scratchpad_width_fraction);
-    const height: i32 = @intFromFloat(@as(f64, @floatFromInt(area.height)) * aqueous.config.wm.scratchpad_height_fraction);
-    const y = switch (aqueous.config.actions.scratchpad_anchor) {
-        .top => area.y,
-        .bottom => area.y + area.height - height,
-        .center => area.y + @divTrunc(area.height - height, 2),
-    };
-    return .{ .x = area.x + @divTrunc(area.width - width, 2), .y = y, .width = width, .height = height };
 }
 
 fn applyInputConfig(aqueous: *Aqueous) void {

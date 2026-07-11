@@ -4,7 +4,7 @@
 #
 # Optional standalone file that overlays the layout-only sections of wm.toml.
 # Only [layout], [layout.slots], [layout.options.*] and [[workspace]] are read
-# here; every other section (keybinds, input, output, exec, scratchpad, state,
+# here; every other section (keybinds, input, output, exec, state,
 # rules, …) stays in wm.toml and is ignored if present here.
 #
 # Discovery order (first hit wins):

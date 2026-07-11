@@ -4,8 +4,7 @@
 //! Global indexes for policy-only window state.
 //!
 //! Per-window data is embedded in Window.PolicyState. This object only owns
-//! collections whose meaning spans multiple windows: minimized MRU order and
-//! named scratchpad lookup.
+//! the minimized-window MRU order, whose meaning spans multiple windows.
 
 const Store = @This();
 const std = @import("std");
@@ -19,7 +18,6 @@ pub const Resolver = *const fn (types.Handle) ?*Entry;
 allocator: std.mem.Allocator,
 resolver: Resolver,
 minimized_mru: std.ArrayListUnmanaged(types.Handle) = .empty,
-scratchpads: std.AutoHashMapUnmanaged(u64, types.Handle) = .empty,
 
 pub fn init(allocator: std.mem.Allocator, resolver: Resolver) Store {
     return .{ .allocator = allocator, .resolver = resolver };
@@ -27,7 +25,6 @@ pub fn init(allocator: std.mem.Allocator, resolver: Resolver) Store {
 
 pub fn deinit(store: *Store) void {
     store.minimized_mru.deinit(store.allocator);
-    store.scratchpads.deinit(store.allocator);
 }
 
 pub fn get(store: *Store, handle: types.Handle) ?*Entry {
@@ -35,11 +32,6 @@ pub fn get(store: *Store, handle: types.Handle) ?*Entry {
 }
 
 pub fn remove(store: *Store, handle: types.Handle) void {
-    if (store.resolver(handle)) |entry| {
-        if (entry.scratchpad != 0 and store.scratchpads.get(entry.scratchpad) == handle) {
-            _ = store.scratchpads.remove(entry.scratchpad);
-        }
-    }
     removeFromList(&store.minimized_mru, handle);
 }
 
@@ -121,51 +113,10 @@ pub fn restoreLastMinimized(store: *Store) types.Handle {
     return 0;
 }
 
-pub fn sendToScratchpad(store: *Store, handle: types.Handle, name: []const u8) !bool {
-    const entry = store.resolver(handle) orelse return false;
-    entry.overrideFloating();
-    const key = nameHash(name);
-    if (entry.scratchpad != 0 and entry.scratchpad != key and store.scratchpads.get(entry.scratchpad) == handle) {
-        _ = store.scratchpads.remove(entry.scratchpad);
-    }
-    if (store.scratchpads.get(key)) |prior| if (prior != handle) {
-        if (store.resolver(prior)) |old| {
-            old.kind = old.previous;
-            old.scratchpad = 0;
-            old.scratchpad_visible = false;
-        }
-    };
-    entry.previous = entry.kind;
-    entry.kind = .scratchpad;
-    entry.scratchpad = key;
-    entry.scratchpad_visible = false;
-    try store.scratchpads.put(store.allocator, key, handle);
-    return true;
-}
-
-/// Toggle a named scratchpad and return its window, or zero when the pad is empty.
-pub fn toggleScratchpad(store: *Store, name: []const u8) types.Handle {
-    const key = nameHash(name);
-    const handle = store.scratchpads.get(key) orelse return 0;
-    const entry = store.resolver(handle) orelse {
-        _ = store.scratchpads.remove(key);
-        return 0;
-    };
-    entry.scratchpad_visible = !entry.scratchpad_visible;
-    entry.kind = if (entry.scratchpad_visible) .floating else .scratchpad;
-    return handle;
-}
-
 fn setFloatingEntry(entry: *Entry, geometry: types.Rect) void {
     if (entry.kind != .floating) entry.previous = entry.kind;
     entry.kind = .floating;
     if (geometry.width > 0 and geometry.height > 0) entry.floating_geometry = geometry;
-}
-
-fn nameHash(name: []const u8) u64 {
-    var hash = std.hash.Wyhash.init(0);
-    hash.update(name);
-    return hash.final();
 }
 
 fn removeFromList(list: *std.ArrayListUnmanaged(types.Handle), handle: types.Handle) void {
@@ -210,7 +161,7 @@ const TestResolver = struct {
     }
 };
 
-test "global indexes follow embedded state and prune destroyed handles" {
+test "minimized index follows embedded state and prunes destroyed handles" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
@@ -220,10 +171,7 @@ test "global indexes follow embedded state and prune destroyed handles" {
     try std.testing.expectEqual(@as(types.Handle, 1), store.restoreLastMinimized());
     try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
 
-    try std.testing.expect(try store.sendToScratchpad(2, "term"));
-    try std.testing.expectEqual(@as(types.Handle, 2), store.toggleScratchpad("term"));
-    try std.testing.expect(TestResolver.entries[1].scratchpad_visible);
-
+    try std.testing.expect(try store.minimize(2));
     store.remove(2);
-    try std.testing.expectEqual(@as(types.Handle, 0), store.toggleScratchpad("term"));
+    try std.testing.expectEqual(@as(types.Handle, 0), store.restoreLastMinimized());
 }
