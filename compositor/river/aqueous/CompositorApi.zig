@@ -245,7 +245,17 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
         var window_it = server.wm.windows.iterator();
         while (window_it.next()) |window| {
             const window_snapshot = window.policySnapshot();
-            if (!window_snapshot.active or window_snapshot.output_id != output.policyId()) continue;
+            if (!window_snapshot.active) continue;
+            // A newly created xdg_toplevel has to receive its initial configure
+            // before it can map. Workspace assignment historically happened in
+            // Window.map(), so requiring an output here creates a deadlock for
+            // the integrated policy: the window cannot be arranged/configured
+            // until it maps, and cannot map until it is configured. Admit an
+            // unassigned window on the first usable output; applyRule() below
+            // assigns it to that output's active workspace during this cycle.
+            if (window_snapshot.output_id) |id| {
+                if (id != output.policyId()) continue;
+            } else if (output_index != 0) continue;
             const app_id = if (window_snapshot.app_id) |value| try allocator.dupe(u8, std.mem.span(value)) else null;
             const title = if (window_snapshot.title) |value|
                 allocator.dupe(u8, std.mem.span(value)) catch |err| {
@@ -301,9 +311,13 @@ pub fn applyRule(_: CompositorApi, handle: layout.Handle, output_id: u64, worksp
         break;
     };
     if (target_output) |output| {
-        if (workspace_number > 0) if (output.policyWorkspaceAt(workspace_number)) |workspace| {
-            if (window.workspace != workspace) window.setWorkspace(workspace);
-        };
+        const workspace = if (workspace_number > 0)
+            output.policyWorkspaceAt(workspace_number)
+        else
+            output.active_workspace;
+        if (workspace) |target| {
+            if (window.workspace != target) window.setWorkspace(target);
+        }
     }
     window.policyApplyRule(target_output, fullscreen, blur, opacity, force_ssd);
 }

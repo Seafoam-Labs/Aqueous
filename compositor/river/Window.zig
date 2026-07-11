@@ -369,13 +369,18 @@ ftm_request_close: wl.Listener(*wlr.ForeignToplevelHandleV1) =
 
 pub fn policySnapshot(window: *const Window) PolicySnapshot {
     const output = if (window.workspace) |workspace| workspace.output else null;
+    const active = window.state != .init and window.state != .closing and
+        (output == null or output.?.policyWorkspaceActive(window.workspace));
     return .{
         .handle = @bitCast(window.ref),
         .output_id = if (output) |value| value.policyId() else null,
-        .active = window.state != .init and window.state != .closing and
-            (output == null or output.?.policyWorkspaceActive(window.workspace)),
-        .app_id = window.getAppId(),
-        .title = window.getTitle(),
+        .active = active,
+        // The protocol implementation has already been destroyed by the time a
+        // closing window reaches the integrated policy snapshot. Its metadata
+        // accessors deliberately reject that state, and inactive windows are
+        // filtered by the caller anyway.
+        .app_id = if (active) window.getAppId() else null,
+        .title = if (active) window.getTitle() else null,
         .fullscreen = window.wm_requested.fullscreen != null,
         .min_width = @intCast(window.wm_scheduled.dimensions_hint.min_width),
         .min_height = @intCast(window.wm_scheduled.dimensions_hint.min_height),
