@@ -24,7 +24,7 @@ internal sealed class WorkspaceInfo
 }
 
 /// <summary>
-/// A workspace group (one per output, per the RiverDelta server policy) mirrored from
+/// A workspace group (one per output, per the Aqueous compositor policy) mirrored from
 /// <c>ext_workspace_group_handle_v1</c> events. <see cref="Workspaces"/> is addressed by
 /// index-based keybindings ordered by each workspace's <c>coordinates</c>, with the
 /// <c>workspace_enter</c> arrival order used only as a fallback when coordinates are absent.

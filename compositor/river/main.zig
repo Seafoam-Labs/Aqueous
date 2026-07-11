@@ -19,21 +19,23 @@ const util = @import("util.zig");
 const process = @import("process.zig");
 
 const Server = @import("Server.zig");
+const PolicyMode = @import("aqueous/Mode.zig").Mode;
 
 const io = Io.Threaded.global_single_threaded.io();
 
 const usage: []const u8 =
-    \\usage: riverdelta [options]
+    \\usage: aqueous [options]
     \\
     \\  -h                 Print this help message and exit.
     \\  -version           Print the version number and exit.
     \\  -c <command>       Run `sh -c <command>` on startup instead of the default init executable.
     \\  -log-level <level> Set the log level to error, warning, info, or debug.
+    \\  -policy <mode>      Select external, internal, or compare policy mode.
     \\  -no-xwayland       Disable xwayland even if built with support.
     \\
 ;
 
-const full_version = std.fmt.comptimePrint("{s} {c}xwayland", .{
+const full_version = std.fmt.comptimePrint("aqueous {s} {c}xwayland", .{
     build_options.version,
     if (build_options.xwayland) '+' else '-',
 });
@@ -60,6 +62,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .{ .name = "version", .kind = .boolean },
         .{ .name = "c", .kind = .arg },
         .{ .name = "log-level", .kind = .arg },
+        .{ .name = "policy", .kind = .arg },
         .{ .name = "log-scopes", .kind = .arg },
         .{ .name = "no-xwayland", .kind = .boolean },
     }).parse(args[1..]) catch {
@@ -122,6 +125,10 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         }
     }
     const runtime_xwayland = !result.flags.@"no-xwayland";
+    const policy_mode = if (result.flags.policy) |value|
+        PolicyMode.parse(value) orelse fatal("invalid policy mode '{s}'", .{value})
+    else
+        PolicyMode.external;
     const startup_command = blk: {
         if (result.flags.c) |command| {
             break :blk try util.gpa.dupeZ(u8, command);
@@ -133,7 +140,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
 
     try detectClassic(startup_command);
 
-    log.info("initializing river version {s}", .{full_version});
+    log.info("initializing Aqueous version {s}", .{full_version});
     if (build_options.xwayland and !runtime_xwayland) {
         log.info("Xwayland disabled at runtime with -no-xwayland", .{});
     }
@@ -144,7 +151,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .warn, .err => .err,
     });
 
-    try server.init(runtime_xwayland);
+    try server.init(runtime_xwayland, policy_mode);
     defer server.deinit();
 
     // wlroots starts the Xwayland process from an idle event source, the reasoning being that
@@ -170,7 +177,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         // original NUL-terminated KEY=VALUE strings unchanged. This avoids
         // round-tripping through EnvMap, which can mis-handle values containing
         // whitespace or other characters on certain stdlib code paths and
-        // crash riverdelta on startup. Spaces in values are perfectly valid
+        // crash Aqueous on startup. Spaces in values are perfectly valid
         // POSIX, so passing the kernel-supplied entries through verbatim is
         // both correct and robust.
         const wayland_display = try std.fmt.allocPrintSentinel(
@@ -263,9 +270,9 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
 fn defaultInitPath(environ: std.process.Environ) !?[:0]const u8 {
     const path = blk: {
         if (environ.getPosix("XDG_CONFIG_HOME")) |xdg_config_home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ xdg_config_home, "riverdelta/init" });
+            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ xdg_config_home, "aqueous/init" });
         } else if (environ.getPosix("HOME")) |home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config/riverdelta/init" });
+            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config/aqueous/init" });
         } else {
             return null;
         }
@@ -296,10 +303,10 @@ fn detectClassic(startup_command: ?[:0]const u8) !void {
     if (classic) {
         fatal(
             \\The init file {[path]s} contains the string "riverctl".
-            \\This river version ({[version]s}) does not support riverctl, you may
+            \\This Aqueous version ({[version]s}) does not support riverctl, you may
             \\wish to install river-classic instead.
             \\
-            \\River {[version]s} is a non-monolithic Wayland compositor and
+            \\Aqueous {[version]s} currently requires an external policy client and
             \\requires a compatible window manager to be useful.
             \\See https://isaacfreund.com/software/river for more information.
             \\
@@ -338,6 +345,7 @@ const LogScope = enum {
     input,
     lock,
     wm,
+    aqueous,
     workspace,
     xdg,
     xwayland,

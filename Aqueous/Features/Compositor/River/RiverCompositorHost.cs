@@ -111,7 +111,7 @@ internal sealed class RiverCompositorHost : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _log?.LogInformation("RiverCompositorHost starting...");
+        _log?.LogInformation("Aqueous external-policy connection starting...");
 
         if (!RiverEnvironmentGuard.IsEnabled())
         {
@@ -137,7 +137,7 @@ internal sealed class RiverCompositorHost : IHostedService
 
             StartPump(cancellationToken);
             _log?.LogInformation(
-                "RiverCompositorHost started; attached as window manager (v{ManagerVersion}).",
+                "Aqueous external-policy connection started; attached as window manager (v{ManagerVersion}).",
                 _manageCycleState.ManagerVersion);
         }
         catch (DllNotFoundException ex)
@@ -212,7 +212,7 @@ internal sealed class RiverCompositorHost : IHostedService
         if (_bindSiteState.Manager == IntPtr.Zero)
         {
             return Result.Fail(
-                "river_window_manager_v1 global was not advertised — is RiverDelta running with WM support?");
+                "river_window_manager_v1 global was not advertised — is the Aqueous compositor running with external WM support?");
         }
 
         return Result.Ok;

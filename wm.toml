@@ -54,7 +54,7 @@ left   = 0
 right  = 0
 
 # -----------------------------------------------------------------------------
-# Backdrop blur (requires riverdelta built with SceneFX). Applied behind window
+# Backdrop blur (requires Aqueous built with SceneFX). Applied behind window
 # content. Per-window exclusions (e.g. games) live in rules.toml as `blur = false`.
 # -----------------------------------------------------------------------------
 [blur]
@@ -62,7 +62,7 @@ enabled = false  # set true to enable compositor backdrop blur
 radius  = 5      # blur radius in pixels
 passes  = 3      # number of blur passes (higher = blurrier, costlier)
 
-# Default window-content opacity (requires riverdelta with opacity support).
+# Default window-content opacity (requires Aqueous with opacity support).
 # Per-window overrides live in rules.toml as `opacity = 0.85`.
 [opacity]
 enabled         = false  # set true to apply opacity to window content
@@ -142,7 +142,7 @@ set_layout_quaternary = "Super+G"          # → grid
 
 # --- Workspaces (niri-style, ext-workspace-v1) ---
 # Workspaces are exclusive: a window lives on exactly one workspace and exactly
-# one workspace is active per output. These verbs drive RiverDelta's native
+# one workspace is active per output. These verbs drive Aqueous's native
 # ext-workspace-v1 implementation (focus = activate+commit; "send to workspace"
 # = river_window_v1.set_workspace, with no hide/show emulation). Indices are
 # 1-based positions in the per-output ordered workspace list.

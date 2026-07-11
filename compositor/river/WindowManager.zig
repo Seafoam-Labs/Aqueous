@@ -143,7 +143,7 @@ fn bind(client: *wl.Client, wm: *WindowManager, version: u32, id: u32) void {
         return;
     };
 
-    if (wm.object != null) {
+    if (!server.aqueous.allowsExternal() or wm.object != null) {
         object.sendUnavailable();
         object.setHandler(?*anyopaque, handleRequestInert, null, null);
         return;
@@ -405,6 +405,8 @@ fn manageStart(wm: *WindowManager) void {
         while (it.next()) |seat| seat.manageStart();
     }
 
+    server.aqueous.traceCycle(.manage_start, wm.object != null);
+
     if (wm.object) |wm_v1| {
         wm_v1.sendManageStart();
         wm.startTimeoutTimer(3000);
@@ -418,6 +420,7 @@ pub fn manageFinish(wm: *WindowManager) void {
     wm.cancelTimeoutTimer();
 
     log.debug("manage sequence finish", .{});
+    server.aqueous.traceCycle(.manage_finish, wm.object != null);
 
     {
         // Order is important here, Seat.manageFinish() must be called
@@ -498,6 +501,7 @@ fn renderStart(wm: *WindowManager) void {
     wm.cleanRendering();
 
     log.debug("render sequence start", .{});
+    server.aqueous.traceCycle(.render_start, wm.object != null);
 
     {
         var it = wm.rendering_requested.list.iterator(.forward);
@@ -526,6 +530,7 @@ fn renderFinish(wm: *WindowManager) void {
     wm.cancelTimeoutTimer();
 
     log.debug("render sequence finish", .{});
+    server.aqueous.traceCycle(.render_finish, wm.object != null);
 
     {
         var it = wm.windows.iterator();

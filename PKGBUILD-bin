@@ -4,7 +4,7 @@ pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
 pkgrel=2
-pkgdesc="Aqueous Wayland window manager bundled with RiverDelta (prebuilt binary release)"
+pkgdesc="Aqueous Wayland compositor with a transitional external policy client (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
@@ -23,8 +23,8 @@ optdepends=('ly: recommended display manager / login greeter'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser')
-provides=('aqueous' 'riverdelta')
-conflicts=('aqueous' 'aqueous-git' 'riverdelta')
+provides=('aqueous')
+conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
 source_x86_64=(
     "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
@@ -40,14 +40,14 @@ package() {
 
     # Binaries
     install -d "$pkgdir/usr/bin"
-    install -Dm755 "$srcdir/bin/aqueous"          "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/bin/aqueous"           "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/bin/aqueous-wm-client" "$pkgdir/usr/bin/aqueous-wm-client"
     install -Dm755 "$srcdir/bin/aqueous-inputd"   "$pkgdir/usr/bin/aqueous-inputd"
     install -Dm755 "$srcdir/bin/aqueous-outputd"  "$pkgdir/usr/bin/aqueous-outputd"
-    install -Dm755 "$srcdir/bin/riverdelta"       "$pkgdir/usr/bin/riverdelta"
     install -Dm755 "$srcdir/bin/aqueous-init"     "$pkgdir/usr/bin/aqueous-init"
     install -Dm755 "$srcdir/bin/aqueous-wm"       "$pkgdir/usr/bin/aqueous-wm"
 
-    # Shared data (wayland-sessions, aqueous config tree, RiverDelta man pages, etc.)
+    # Shared data (wayland-sessions, Aqueous config tree and man pages, etc.)
     if [ -d "$srcdir/share" ]; then
         install -d "$pkgdir/usr/share"
         cp -dr --no-preserve=ownership "$srcdir/share/." "$pkgdir/usr/share/"

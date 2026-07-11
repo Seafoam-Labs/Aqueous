@@ -30,7 +30,7 @@ This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
 
 ### Headless integration (`bash scripts/test-scaling.sh`)
 
-Launches `riverdelta` under `WLR_BACKENDS=headless` and asserts:
+Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 
 | Check | Proves | Requires |
 |---|---|---|
@@ -62,7 +62,7 @@ Per cell: ✅ crisp + correct size / ⚠️ soft (expected only for Xwayland) /
 
 An `aqueous-outputd` socket client (`op: set` / `apply_profile`) →
 `OutputDaemon.Validator` (`[0.5, 3.0]`) → `WlrRandr.Apply --scale` (`rc=0` in
-`journalctl --user -u aqueous-outputd`) → river log `commit affects layout` →
+`journalctl --user -u aqueous-outputd`) → compositor log `commit affects layout` →
 client redraw. (The former Noctalia v4 Quickshell `OutputControl.qml` consumer
 has been retired; the daemon's socket protocol is unchanged.)
 

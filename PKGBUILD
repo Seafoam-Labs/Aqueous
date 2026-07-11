@@ -4,7 +4,7 @@ pkgname=aqueous-git
 pkgbase=aqueous
 pkgver=0.2.0 # Will be updated by pkgver()
 pkgrel=1
-pkgdesc="Aqueous Wayland window manager bundled with RiverDelta"
+pkgdesc="Aqueous Wayland compositor with a transitional external policy client"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
@@ -26,8 +26,8 @@ optdepends=('ly: recommended display manager / login greeter'
             'nemo: recommended file manager'
             'firefox: web browser'
             'wireplumber: volume/media key bindings (wpctl)')
-provides=('aqueous' 'riverdelta')
-conflicts=('aqueous' 'riverdelta')
+provides=('aqueous')
+conflicts=('aqueous')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git"
@@ -53,7 +53,7 @@ pkgver() {
 }
 
 build() {
-    # Verify zig is new enough (RiverDelta requires >= 0.16.0).
+    # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
     # We enforce this here instead of via a pacman version constraint because
     # the repo `zig` package is currently 0.15.x and Zig 0.16 is only available
     # via `zig-master-bin` (AUR), which provides unversioned `zig`.
@@ -119,7 +119,7 @@ build() {
     # managed launcher (which would produce a tiny ELF stub that loads
     # libcoreclr.so instead of a real native binary).
     local bin
-    for bin in "$srcdir/publish/Aqueous/aqueous" \
+    for bin in "$srcdir/publish/Aqueous/aqueous-wm-client" \
                "$srcdir/publish/Aqueous.OutputDaemon/aqueous-outputd"; do
         [[ -x "$bin" ]] || { error "Missing AOT output: $bin"; return 1; }
         if ! file "$bin" | grep -q 'ELF .* executable'; then
@@ -129,27 +129,27 @@ build() {
         fi
     done
 
-    # Build RiverDelta (in-tree at compositor/)
-    msg2 "Building RiverDelta..."
+    # Build the Aqueous compositor (in-tree at compositor/)
+    msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
     # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
     zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dscenefx=true \
-        --prefix "$srcdir/river-dist" install
+        --prefix "$srcdir/aqueous-dist" install
 }
 
 package() {
-    # Install Aqueous binaries
-    install -Dm755 "$srcdir/publish/Aqueous/aqueous" "$pkgdir/usr/bin/aqueous"
+    # Install the transitional external policy client and output daemon.
+    install -Dm755 "$srcdir/publish/Aqueous/aqueous-wm-client" "$pkgdir/usr/bin/aqueous-wm-client"
     install -Dm755 "$srcdir/publish/Aqueous.OutputDaemon/aqueous-outputd" "$pkgdir/usr/bin/aqueous-outputd"
 
-    # Install RiverDelta binary as 'riverdelta' instead of 'river'
-    install -Dm755 "$srcdir/river-dist/bin/riverdelta" "$pkgdir/usr/bin/riverdelta"
+    # Install the Aqueous compositor.
+    install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
 
-    # Install RiverDelta share data (man pages, etc.)
-    if [ -d "$srcdir/river-dist/share" ]; then
+    # Install compositor share data (man pages and protocol ABI metadata).
+    if [ -d "$srcdir/aqueous-dist/share" ]; then
         install -d "$pkgdir/usr/share"
-        cp -dr --no-preserve=ownership "$srcdir/river-dist/share/"* "$pkgdir/usr/share/"
+        cp -dr --no-preserve=ownership "$srcdir/aqueous-dist/share/"* "$pkgdir/usr/share/"
     fi
 
     # Install Aqueous packaging scripts and config
@@ -239,13 +239,13 @@ package() {
             "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     fi
 
-    # In-tree compositor licenses (RiverDelta is multi-licensed; ship the
+    # In-tree compositor licenses (the River-derived source is multi-licensed; ship the
     # license texts alongside Aqueous's own license for attribution).
     if [[ -d "$srcdir/aqueous/compositor/LICENSES" ]]; then
-        install -d "$pkgdir/usr/share/licenses/$pkgname/riverdelta"
+        install -d "$pkgdir/usr/share/licenses/$pkgname/compositor"
         cp -dr --no-preserve=ownership \
             "$srcdir/aqueous/compositor/LICENSES/." \
-            "$pkgdir/usr/share/licenses/$pkgname/riverdelta/"
+            "$pkgdir/usr/share/licenses/$pkgname/compositor/"
     fi
 
     # Defense-in-depth: drop any stray AOT debug artefacts that

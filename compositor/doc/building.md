@@ -1,4 +1,4 @@
-# Building riverdelta
+# Building Aqueous
 
 ## Quick start
 
@@ -7,7 +7,7 @@ cd compositor
 zig build -Dllvm=true
 ```
 
-The resulting binary is `zig-out/bin/riverdelta`.
+The resulting binary is `zig-out/bin/aqueous`.
 
 ## Why `-Dllvm=true` is required
 
@@ -22,7 +22,7 @@ error: fatal linker error: unhandled relocation type R_X86_64_PC64 at offset 0x1
     note: in /usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/../../../../lib/crt1.o:.sframe
 ```
 
-This is a toolchain/linker limitation, not a riverdelta source issue: all Zig
+This is a toolchain/linker limitation, not an Aqueous source issue: all Zig
 sources compile cleanly (35/38 build steps) and only the final link fails.
 
 The `-Dllvm=true` flag forces the LLVM backend together with the `lld` linker
@@ -47,7 +47,7 @@ tests in `river/scaling.zig` (clamp, 1/120 round, preferred-buffer-scale ceil).
 ## Scaling integration harness
 
 A headless end-to-end harness for the output-scaling pipeline lives at
-`scripts/test-scaling.sh`. It launches `riverdelta` under the wlroots headless
+`scripts/test-scaling.sh`. It launches `aqueous` under the wlroots headless
 backend and asserts the scale-change behavior. See `doc/scaling-test-matrix.md`
 for what it covers and the manual matrix it complements.
 

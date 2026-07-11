@@ -25,13 +25,13 @@ export CLUTTER_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
 
 # Fixes the grey-blob / non-reparenting Java/Swing/JetBrains bug under any
-# non-reparenting WM (RiverDelta + xwayland-satellite included).
+# non-reparenting WM (Aqueous + xwayland-satellite included).
 export _JAVA_AWT_WM_NONREPARENTING=1
 
 # XWayland reads cursor settings only at server startup.
 export XCURSOR_THEME="${XCURSOR_THEME:-Adwaita}"
 export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
-# Required by Aqueous to attach to RiverDelta as the window manager.
+# Required by the transitional client to attach to Aqueous as the window manager.
 export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0

@@ -57,7 +57,7 @@ public readonly record struct BorderSpec(int Width, uint Focused, uint Normal, u
 
 /// <summary>
 /// Global backdrop-blur parameters parsed from the <c>[blur]</c> section of <c>wm.toml</c>.
-/// <see cref="Enabled"/> toggles whether riverdelta creates the SceneFX optimized-blur node at
+/// <see cref="Enabled"/> toggles whether Aqueous creates the SceneFX optimized-blur node at
 /// all; <see cref="Radius"/> and <see cref="Passes"/> map directly onto
 /// <c>wlr_scene_set_blur_data</c>.
 /// </summary>
@@ -73,7 +73,7 @@ public readonly record struct BlurSpec(bool Enabled, int Radius, int Passes)
 /// <see cref="Value"/> is the focus-independent opacity fraction (0 = fully transparent,
 /// 1 = fully opaque). When <see cref="FocusSensitive"/> is enabled, <see cref="Focused"/> and
 /// <see cref="Unfocused"/> are used for per-window opacity instead. Values are marshalled to
-/// riverdelta as 32-bit unsigned fractions via <c>river_window_manager_v1.set_opacity</c> /
+/// Aqueous as 32-bit unsigned fractions via <c>river_window_manager_v1.set_opacity</c> /
 /// <c>river_window_v1.set_window_opacity</c>.
 /// </summary>
 public readonly record struct OpacitySpec(
@@ -89,11 +89,11 @@ public readonly record struct OpacitySpec(
 
 /// <summary>
 /// Workspace-swap slide-transition parameters parsed from the <c>[workspace_transition]</c>
-/// section of <c>wm.toml</c>. <see cref="Enabled"/> toggles whether riverdelta performs the
+/// section of <c>wm.toml</c>. <see cref="Enabled"/> toggles whether Aqueous performs the
 /// slide animation when switching workspaces at all; when disabled the workspace swap is
 /// instant. <see cref="Rate"/> is the exponential-smoothing rate that paces the slide (higher
 /// is snappier) and maps onto the compositor's <c>workspace_slide_rate</c>. These are
-/// marshalled to riverdelta via <c>river_window_manager_v1.set_workspace_transition</c>.
+/// marshalled to Aqueous via <c>river_window_manager_v1.set_workspace_transition</c>.
 /// </summary>
 public readonly record struct WorkspaceTransitionSpec(bool Enabled, double Rate)
 {

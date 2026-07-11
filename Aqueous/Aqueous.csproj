@@ -24,12 +24,12 @@
 
   <PropertyGroup>
     <Version>0.0.1</Version>
-    <AssemblyName>aqueous</AssemblyName>
+    <AssemblyName>aqueous-wm-client</AssemblyName>
     <AssemblyVersion>0.0.1</AssemblyVersion>
-    <AssemblyTitle>aqueous</AssemblyTitle>
+    <AssemblyTitle>Aqueous transitional window-manager client</AssemblyTitle>
     <Description>A Window Manager with a focus on ultrawide (32:9) monitors</Description>
     <Company>Seafoam Labs</Company>
-    <Product>Aqueoues Window Manager</Product>
+    <Product>Aqueous Window Manager Client</Product>
     <Copyright>2026 Seafoam Labs</Copyright>
   </PropertyGroup>
 

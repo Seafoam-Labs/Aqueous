@@ -1,14 +1,14 @@
 #!/bin/sh
 # Aqueous init wrapper.
 #
-# Installed as /usr/bin/aqueous-init and run by RiverDelta as its `-c` child:
+# Installed as /usr/bin/aqueous-init and run by Aqueous as its `-c` child:
 #
-#     exec riverdelta -c '/usr/bin/aqueous-init'
+#     exec aqueous -c '/usr/bin/aqueous-init'
 #
 # Why this wrapper exists:
 #
-#   1. RiverDelta's `-c` only accepts ONE command. We need to call multiple
-#      programs inside RiverDelta's control context (the only place where
+#   1. Aqueous's `-c` only accepts ONE command. We need to call multiple
+#      programs inside Aqueous's control context (the only place where
 #      WAYLAND_DISPLAY is set and `wlr-randr` actually work).
 #
 #   2. greetd performs no DRM mode setup of its own — it simply exec's
@@ -21,7 +21,7 @@
 # Phase 1 — apply once, blocking, before Aqueous starts.
 # Phase 2 — fork the long-running daemon for live changes from Aqueous
 #           and Noctalia.
-# Phase 3 — exec Aqueous.
+# Phase 3 — exec the transitional external window-manager client.
 set -u
 LOG="${XDG_RUNTIME_DIR:-/tmp}/aqueous-outputd.log"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
@@ -55,9 +55,9 @@ fi
 # Push the (now-live) Wayland env into systemd --user + D-Bus so
 # xdg-desktop-portal-gtk can actually connect to the compositor.
 # Must run here, NOT in aqueous-wm.sh, because WAYLAND_DISPLAY only
-# becomes valid once RiverDelta has exec'd us.
+# becomes valid once Aqueous has exec'd us.
 # The GPU-pin vars (MESA_VK_DEVICE_SELECT/__GLX_VENDOR_LIBRARY_NAME/DRI_PRIME/
-# __NV_PRIME_RENDER_OFFLOAD) are set by RiverDelta on this process's environment
+# __NV_PRIME_RENDER_OFFLOAD) are set by Aqueous on this process's environment
 # only on multi-GPU systems (empty on single-GPU). Forwarding them in the bare
 # KEY form means the tools silently skip any that are unset, so this is inert on
 # single-GPU machines and pins .desktop/systemd-launched apps to the same GPU
@@ -71,7 +71,7 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
     # Requisite=graphical-session.target) and pulls in xdg-desktop-autostart.target.
     # Crucially it re-exports the CURRENT WAYLAND_DISPLAY on every start, so a
     # compositor restart never leaves a stale socket pinned in the user manager.
-    # The GPU-pin vars (set by RiverDelta only on multi-GPU systems) are forwarded
+    # The GPU-pin vars (set by Aqueous only on multi-GPU systems) are forwarded
     # in bare KEY form so uwsm silently skips any that are unset on single-GPU.
     uwsm finalize \
         WAYLAND_DISPLAY \
@@ -124,4 +124,4 @@ fi
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
 systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-wlr.service 2>/dev/null || true
 
-exec /usr/bin/aqueous
+exec /usr/bin/aqueous-wm-client

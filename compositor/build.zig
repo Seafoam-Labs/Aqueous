@@ -60,7 +60,7 @@ pub fn build(b: *Build) !void {
     };
 
     const full_version = blk: {
-        if (b.option([]const u8, "version-string", "Override `riverdelta -version` output.")) |version_override| {
+        if (b.option([]const u8, "version-string", "Override `aqueous -version` output.")) |version_override| {
             break :blk version_override;
         } else if (mem.endsWith(u8, version, "-dev")) {
             var ret: u8 = undefined;
@@ -206,7 +206,7 @@ pub fn build(b: *Build) !void {
 
     {
         const river = b.addExecutable(.{
-            .name = "riverdelta",
+            .name = "aqueous",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("river/main.zig"),
                 .target = target,
@@ -281,7 +281,7 @@ pub fn build(b: *Build) !void {
     }
 
     if (man_pages) {
-        inline for (.{"riverdelta"}) |page| {
+        inline for (.{"aqueous"}) |page| {
             // Workaround for https://github.com/ziglang/zig/issues/16369
             // Even passing a buffer to std.Build.Step.Run appears to be racy and occasionally deadlocks.
             const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "scdoc < doc/" ++ page ++ ".1.scd" });
@@ -327,9 +327,81 @@ pub fn build(b: *Build) !void {
         });
         const run_cursor_lock_restore_test = b.addRunArtifact(cursor_lock_restore_test);
 
+        const aqueous_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/Mode.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_aqueous_test = b.addRunArtifact(aqueous_test);
+
+        const trace_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/Trace.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_trace_test = b.addRunArtifact(trace_test);
+
+        const layout_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/layout/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_layout_test = b.addRunArtifact(layout_test);
+
+        const rules_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/rules/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_rules_test = b.addRunArtifact(rules_test);
+
+        const focus_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/focus/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_focus_test = b.addRunArtifact(focus_test);
+
+        const workspaces_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/workspaces/coalescer.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_workspaces_test = b.addRunArtifact(workspaces_test);
+
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
+        test_step.dependOn(&run_aqueous_test.step);
+        test_step.dependOn(&run_trace_test.step);
+        test_step.dependOn(&run_layout_test.step);
+        test_step.dependOn(&run_rules_test.step);
+        test_step.dependOn(&run_focus_test.step);
+        test_step.dependOn(&run_workspaces_test.step);
     }
 }

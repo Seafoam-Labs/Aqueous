@@ -66,17 +66,17 @@ public static class LayoutConfigLoader
         int strutTop = 0, strutBottom = 0, strutLeft = 0, strutRight = 0;
         double masterRatio = 0.55;
         uint borderFocused = 0xFF88C0D0u, borderNormal = 0xFF3B4252u, borderUrgent = 0xFFBF616Au;
-        // [blur] section — global backdrop blur driven to riverdelta via set_blur. Defaults mirror BlurSpec.Default.
+        // [blur] section — global backdrop blur driven to Aqueous via set_blur. Defaults mirror BlurSpec.Default.
         bool blurEnabled = BlurSpec.Default.Enabled;
         int blurRadius = BlurSpec.Default.Radius;
         int blurPasses = BlurSpec.Default.Passes;
-        // [opacity] section — global window opacity driven to riverdelta via set_opacity. Defaults mirror OpacitySpec.Default.
+        // [opacity] section — global window opacity driven to Aqueous via set_opacity. Defaults mirror OpacitySpec.Default.
         bool opacityEnabled = OpacitySpec.Default.Enabled;
         double opacityValue = OpacitySpec.Default.Value;
         bool opacityFocusSensitive = OpacitySpec.Default.FocusSensitive;
         double opacityFocused = OpacitySpec.Default.Focused;
         double opacityUnfocused = OpacitySpec.Default.Unfocused;
-        // [workspace_transition] section — workspace-swap slide animation driven to riverdelta via
+        // [workspace_transition] section — workspace-swap slide animation driven to Aqueous via
         // set_workspace_transition. Defaults mirror WorkspaceTransitionSpec.Default.
         bool wsTransitionEnabled = WorkspaceTransitionSpec.Default.Enabled;
         double wsTransitionRate = WorkspaceTransitionSpec.Default.Rate;

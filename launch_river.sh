@@ -1,43 +1,44 @@
 #!/bin/bash
-# Launches a nested River session running Aqueous with Noctalia as the bar.
+# Launches a nested Aqueous session with the transitional external policy client
+# and Noctalia as the bar.
 #
 # Logs:
-#   /tmp/river_log.txt   – River compositor + WAYLAND_DEBUG trace
+#   /tmp/river_log.txt   – Aqueous compositor + WAYLAND_DEBUG trace
 #   /tmp/aqueous_wm.log  – Aqueous stdout/stderr
 #   /tmp/noctalia.log    – Noctalia bar stdout/stderr
 dotnet build Aqueous/Aqueous.csproj
 
 # Kill any stale instances from a previous session.
-pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous' 2>/dev/null
+pkill -9 -f 'Aqueous/bin/Debug/net10.0/aqueous-wm-client' 2>/dev/null
 #pkill -9 -f 'noctalia'                                 2>/dev/null
-#pkill -9 -f '^riverdelta '                             2>/dev/null
+#pkill -9 -f '^aqueous '                                2>/dev/null
 sleep 0.3
 
-# Ensure RiverDelta is available. Prefer an explicit override, then the
-# locally-built ./bin/riverdelta (built from compositor/ in this repo).
+# Ensure Aqueous is available. Prefer an explicit override, then the
+# locally-built ./bin/aqueous (built from compositor/ in this repo).
 HERE="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_RIVER="$HERE/bin/riverdelta"
-if [ -n "${AQUEOUS_RIVER_BIN:-}" ] && [ -x "$AQUEOUS_RIVER_BIN" ]; then
-    RIVER_BIN="$AQUEOUS_RIVER_BIN"
+LOCAL_COMPOSITOR="$HERE/bin/aqueous"
+if [ -n "${AQUEOUS_COMPOSITOR_BIN:-}" ] && [ -x "$AQUEOUS_COMPOSITOR_BIN" ]; then
+    COMPOSITOR_BIN="$AQUEOUS_COMPOSITOR_BIN"
 else
     needs_build=0
-    if [ ! -x "$LOCAL_RIVER" ]; then
+    if [ ! -x "$LOCAL_COMPOSITOR" ]; then
         needs_build=1
     else
         # Rebuild if any compositor source is newer than the staged binary.
-        if [ -n "$(find "$HERE/compositor" \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$LOCAL_RIVER" -print -quit 2>/dev/null)" ]; then
+        if [ -n "$(find "$HERE/compositor" \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$LOCAL_COMPOSITOR" -print -quit 2>/dev/null)" ]; then
             needs_build=1
         fi
     fi
     if [ "$needs_build" = "1" ]; then
-        echo "[launch_river] Building in-tree RiverDelta from compositor/..."
-        RIVERDELTA_OPTIMIZE="${RIVERDELTA_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
+        echo "[launch_river] Building in-tree Aqueous from compositor/..."
+        AQUEOUS_OPTIMIZE="${AQUEOUS_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
     fi
-    RIVER_BIN="$LOCAL_RIVER"
+    COMPOSITOR_BIN="$LOCAL_COMPOSITOR"
 fi
-echo "[launch_river] Using compositor: $RIVER_BIN"
+echo "[launch_river] Using compositor: $COMPOSITOR_BIN"
 
-WM_BIN="$(pwd)/Aqueous/bin/Debug/net10.0/aqueous"
+WM_BIN="$HERE/Aqueous/bin/Debug/net10.0/aqueous-wm-client"
 # NOTE: in a packaged session Noctalia is launched as a systemd user unit
 # (packaging/noctalia.service, ordered Before=xdg-desktop-autostart.target) so
 # its SNI tray watcher is up before any autostart tray app — it is no longer an
@@ -96,4 +97,4 @@ export DOTNET_DbgMiniDumpName="/tmp/aqueous_coredump.%d.dmp"
 NOCTALIA_CMD="${AQUEOUS_NOCTALIA_CMD:-noctalia}"
 INNER="setsid -f sh -c '$NOCTALIA_CMD' >/tmp/noctalia.log 2>&1; exec '$WM_BIN' >'$AQ_SINK' 2>&1"
 AQUEOUS_RIVER_WM=1 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" WAYLAND_DEBUG=1 \
-    "$RIVER_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt
+    "$COMPOSITOR_BIN" -c "sh -c \"$INNER\"" &>/tmp/river_log.txt

@@ -131,7 +131,7 @@ environment variable. For example
 ```bash
 DESTDIR="/foo/bar" zig build --prefix /usr install
 ```
-will install river to `/foo/bar/usr/bin/river`.
+will install Aqueous to `/foo/bar/usr/bin/aqueous`.
 
 The Zig build system only has a single install step, there is no way to build
 artifacts for a given prefix and then install those artifacts to that prefix

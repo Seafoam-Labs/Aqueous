@@ -36,6 +36,8 @@ const XdgDecoration = @import("XdgDecoration.zig");
 const XdgToplevel = @import("XdgToplevel.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
+const Aqueous = @import("aqueous/Aqueous.zig");
+const PolicyMode = @import("aqueous/Mode.zig").Mode;
 
 const log = std.log;
 const linux = std.os.linux;
@@ -120,6 +122,7 @@ om: OutputManager,
 idle_inhibit_manager: IdleInhibitManager,
 lock_manager: LockManager,
 wm: WindowManager,
+aqueous: Aqueous,
 workspace_manager: WorkspaceManager,
 xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
@@ -337,7 +340,7 @@ fn resolveGpuPin(drm_fd: c_int) GpuPin {
     return pin;
 }
 
-pub fn init(server: *Server, runtime_xwayland: bool) !void {
+pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !void {
     // We intentionally don't try to prevent memory leaks on error in this function
     // since river will exit during initialization anyway if there is an error.
     // This keeps the code simpler and more readable.
@@ -423,6 +426,7 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
         .idle_inhibit_manager = undefined,
         .lock_manager = undefined,
         .wm = undefined,
+        .aqueous = undefined,
         .workspace_manager = undefined,
         .xkb_bindings = undefined,
         .layer_shell = undefined,
@@ -467,6 +471,7 @@ pub fn init(server: *Server, runtime_xwayland: bool) !void {
     }
 
     try server.wm.init();
+    server.aqueous.init(policy_mode);
     try server.workspace_manager.init();
     try server.xkb_bindings.init();
     try server.layer_shell.init();
@@ -511,6 +516,7 @@ pub fn deinit(server: *Server) void {
     }
 
     server.wl_server.destroyClients();
+    server.aqueous.deinit();
 
     server.backend.destroy();
 

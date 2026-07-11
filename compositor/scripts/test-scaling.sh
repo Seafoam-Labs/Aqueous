@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Headless integration harness for the output-scaling pipeline (Phases 1-5).
 #
-# Drives a real riverdelta instance under the wlroots headless backend and
+# Drives a real Aqueous instance under the wlroots headless backend and
 # asserts the wire-level events that prove scale propagation works:
 #   - P2: bound clients receive a fresh wl_output.scale + done after a change.
 #   - P3: river logs "commit affects layout" + dirtyWindowing on scale change.
@@ -11,12 +11,12 @@ set -euo pipefail
 #         and fractional-aware clients receive preferred_scale.
 #   - P5: river reloads the xcursor theme without errors.
 #
-# Requirements: a built ./zig-out/bin/riverdelta, plus wlr-randr, jq, and
+# Requirements: a built ./zig-out/bin/aqueous, plus wlr-randr, jq, and
 # wayland-info / foot for the client-side assertions. Missing optional tools
 # downgrade the corresponding checks to SKIP rather than failing the run.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-RIVER_BIN=${RIVER_BIN:-"$here/zig-out/bin/riverdelta"}
+AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 
 fail=0
 pass() { echo "PASS: $*"; }
@@ -25,7 +25,7 @@ err()  { echo "FAIL: $*"; fail=1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-[ -x "$RIVER_BIN" ] || { echo "riverdelta binary not found at $RIVER_BIN (build with: zig build -Dllvm=true)"; exit 2; }
+[ -x "$AQUEOUS_COMPOSITOR_BIN" ] || { echo "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN (build with: zig build -Dllvm=true)"; exit 2; }
 have wlr-randr || { echo "wlr-randr is required"; exit 2; }
 
 export WLR_BACKENDS=headless
@@ -34,25 +34,25 @@ unset WAYLAND_DISPLAY
 RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 sockets_before=$(ls "$RUNTIME_DIR" 2>/dev/null | grep -E '^wayland-[0-9]+$' || true)
 
-RIVER_LOG=$(mktemp)
+COMPOSITOR_LOG=$(mktemp)
 CLIENT_LOG=$(mktemp)
 cleanup() {
-    [ -n "${RIVER_PID:-}" ] && kill "$RIVER_PID" 2>/dev/null || true
+    [ -n "${COMPOSITOR_PID:-}" ] && kill "$COMPOSITOR_PID" 2>/dev/null || true
     [ -n "${CLIENT_PID:-}" ] && kill "$CLIENT_PID" 2>/dev/null || true
-    rm -f "$RIVER_LOG" "$CLIENT_LOG"
+    rm -f "$COMPOSITOR_LOG" "$CLIENT_LOG"
 }
 trap cleanup EXIT
 
-"$RIVER_BIN" -log-level debug >"$RIVER_LOG" 2>&1 &
-RIVER_PID=$!
+"$AQUEOUS_COMPOSITOR_BIN" -log-level debug >"$COMPOSITOR_LOG" 2>&1 &
+COMPOSITOR_PID=$!
 
-grep_log() { grep -q "$1" "$RIVER_LOG" 2>/dev/null; }
+grep_log() { grep -q "$1" "$COMPOSITOR_LOG" 2>/dev/null; }
 
 n=0
 while [ "$n" -lt 150 ]; do
-    if ! kill -0 "$RIVER_PID" 2>/dev/null; then
-        echo "--- river log ---"; tail -20 "$RIVER_LOG"
-        err "riverdelta exited during startup"; exit 1
+    if ! kill -0 "$COMPOSITOR_PID" 2>/dev/null; then
+        echo "--- compositor log ---"; tail -20 "$COMPOSITOR_LOG"
+        err "aqueous exited during startup"; exit 1
     fi
     new=$(ls "$RUNTIME_DIR" 2>/dev/null | grep -E '^wayland-[0-9]+$' | grep -vxF "$sockets_before" || true)
     if [ -n "$new" ]; then
@@ -61,8 +61,8 @@ while [ "$n" -lt 150 ]; do
     fi
     sleep 0.2; n=$((n + 1))
 done
-[ -n "${WAYLAND_DISPLAY:-}" ] || { echo "--- river log ---"; tail -20 "$RIVER_LOG"; err "riverdelta never created a wayland socket"; exit 1; }
-echo "river socket: $WAYLAND_DISPLAY"
+[ -n "${WAYLAND_DISPLAY:-}" ] || { echo "--- compositor log ---"; tail -20 "$COMPOSITOR_LOG"; err "aqueous never created a wayland socket"; exit 1; }
+echo "aqueous socket: $WAYLAND_DISPLAY"
 
 NAME=""
 n=0
@@ -72,7 +72,7 @@ while [ "$n" -lt 100 ]; do
     NAME=""
     sleep 0.2; n=$((n + 1))
 done
-[ -n "$NAME" ] || { echo "--- river log ---"; tail -20 "$RIVER_LOG"; err "no output reported by wlr-randr after startup"; exit 1; }
+[ -n "$NAME" ] || { echo "--- compositor log ---"; tail -20 "$COMPOSITOR_LOG"; err "no output reported by wlr-randr after startup"; exit 1; }
 echo "using output: $NAME"
 
 start_client() {
@@ -88,16 +88,16 @@ start_client() {
 run() { wlr-randr --output "$NAME" --scale "$1" >/dev/null 2>&1; sleep 0.4; }
 
 # P3: river-side relayout fires on scale change.
-: >"$RIVER_LOG"
+: >"$COMPOSITOR_LOG"
 run 2
-if grep -q "commit affects layout (scale=true" "$RIVER_LOG"; then
+if grep -q "commit affects layout (scale=true" "$COMPOSITOR_LOG"; then
     pass "P3: scale commit triggers relayout"
 else
-    err "P3: no 'commit affects layout (scale=true' in river log"
+    err "P3: no 'commit affects layout (scale=true' in compositor log"
 fi
 
 # P5: cursor theme reload without errors.
-if grep -q "failed to load xcursor" "$RIVER_LOG"; then
+if grep -q "failed to load xcursor" "$COMPOSITOR_LOG"; then
     err "P5: xcursor theme failed to load at new scale"
 else
     pass "P5: xcursor theme reload reported no errors"
@@ -127,14 +127,14 @@ else
 fi
 
 # Reverse direction restores scale 1.
-: >"$RIVER_LOG"
+: >"$COMPOSITOR_LOG"
 run 1
-grep -q "commit affects layout (scale=true" "$RIVER_LOG" && pass "reverse: scale 1 relayout fired" || err "reverse: scale 1 did not relayout"
+grep -q "commit affects layout (scale=true" "$COMPOSITOR_LOG" && pass "reverse: scale 1 relayout fired" || err "reverse: scale 1 did not relayout"
 
 # No-op guard: re-applying the current scale must not relayout.
-: >"$RIVER_LOG"
+: >"$COMPOSITOR_LOG"
 run 1
-if grep -q "commit affects layout (scale=true" "$RIVER_LOG"; then
+if grep -q "commit affects layout (scale=true" "$COMPOSITOR_LOG"; then
     err "no-op: re-applying same scale triggered a relayout"
 else
     pass "no-op: re-applying same scale produced no relayout"

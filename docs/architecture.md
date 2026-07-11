@@ -3,12 +3,12 @@
 Aqueous is split across two cooperating components that share a single
 git repository:
 
-1. **`Aqueous` (and friends)** — the .NET 10 / C# 14 window manager.
+1. **`Aqueous` (and friends)** — the transitional .NET 10 / C# 14 policy client.
    Talks Wayland to the compositor, owns layout/workspaces/rules, drives the
    bar, the input daemon, and the output daemon.
-2. **`compositor/`** — RiverDelta, a Zig-based fork of
-   [River](https://codeberg.org/river/river). Produces the `riverdelta`
-   binary that the WM connects to.
+2. **`compositor/`** — Aqueous, based on the Zig
+   [River](https://codeberg.org/river/river) compositor. Produces the `aqueous`
+   binary that the transitional `aqueous-wm-client` connects to.
 
 ### Why monorepo
 
@@ -27,11 +27,11 @@ git repository:
 
 ```
 Aqueous/                       # repo root
-├── Aqueous/                   # WM (.NET, AOT-published)
+├── Aqueous/                   # transitional policy client (.NET, AOT-published)
 ├── Aqueous.OutputDaemon/      # output config sidecar
 ├── Aqueous.Tests/
 ├── Aqueous.OutputDaemon.Tests/
-├── compositor/                # RiverDelta (Zig) — see ORIGIN.md
+├── compositor/                # Aqueous compositor (Zig) — see ORIGIN.md
 │   ├── build.zig
 │   ├── river/
 │   ├── protocol/
@@ -39,7 +39,7 @@ Aqueous/                       # repo root
 ├── scripts/
 │   └── build-compositor.sh    # canonical Zig builder
 ├── bin/                       # build outputs (gitignored)
-│   └── riverdelta
+│   └── aqueous
 ├── launch_river.sh            # dev launcher; calls build-compositor on demand
 ├── PKGBUILD                   # Arch package; builds WM + compositor
 └── docs/
@@ -52,10 +52,10 @@ Aqueous/                       # repo root
   for that command to succeed.
 - `scripts/build-compositor.sh` is the canonical builder for the
   compositor. It runs `zig build` inside `compositor/` and stages the
-  resulting `river` binary as `./bin/riverdelta`.
+  resulting compositor binary as `./bin/aqueous`.
 - `launch_river.sh` is the dev-time orchestrator: it triggers a
-  `dotnet build`, calls `scripts/build-compositor.sh` if `bin/riverdelta`
-  is stale/missing, then launches the WM under the compositor.
+  `dotnet build`, calls `scripts/build-compositor.sh` if `bin/aqueous`
+  is stale/missing, then launches the transitional policy client under the compositor.
 - `PKGBUILD` mirrors the same two-step flow: `dotnet publish` for the
   WM, then `zig build --prefix …` for the compositor, and installs both
   binaries into one Arch package.
@@ -73,7 +73,7 @@ preserved verbatim.
 
 | Env / property         | Effect                                                         |
 |------------------------|----------------------------------------------------------------|
-| `AQUEOUS_RIVER_BIN`    | Path to a prebuilt compositor; bypasses the in-tree build.     |
-| `RIVERDELTA_OPTIMIZE`  | Zig optimize mode (`Debug`, `ReleaseSafe`, …). Default: `Debug`. |
+| `AQUEOUS_COMPOSITOR_BIN` | Path to a prebuilt compositor; bypasses the in-tree build.     |
+| `AQUEOUS_OPTIMIZE`     | Zig optimize mode (`Debug`, `ReleaseSafe`, …). Default: `Debug`. |
 | `AQUEOUS_MOD`          | Modifier key for WM bindings (`Super` / `Alt`).                |
 | `AQUEOUS_NESTED`       | Set to `1` when running inside a host Wayland session.         |

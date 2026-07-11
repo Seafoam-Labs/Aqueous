@@ -1,12 +1,13 @@
 # Aqueous
-A minimal Wayland window manager built on top of **RiverDelta** — a fork of
-[River](https://codeberg.org/river/river) vendored in-tree at `compositor/` —
-written in C# / .NET 10. The bar/shell is provided by the external
+A Wayland compositor based on [River](https://codeberg.org/river/river), with
+the River-derived Zig source vendored in-tree at `compositor/`. During the
+in-process policy migration, the window-management policy remains a
+transitional C# / .NET 10 client named `aqueous-wm-client`. The bar/shell is provided by the external
 [Noctalia](https://github.com/noctalia-dev/noctalia) project (v5, the native
 C++/OpenGL ES shell).
 
-Aqueous is a single-repo project: the .NET window manager and the Zig
-compositor live side-by-side. No submodules, no extra clone steps —
+Aqueous is a single-repo project: the transitional .NET policy client and the
+Zig compositor live side-by-side. No submodules, no extra clone steps —
 `git clone` is enough. See `compositor/ORIGIN.md` and
 `docs/architecture.md` for the why.
 
@@ -16,7 +17,8 @@ compositor live side-by-side. No submodules, no extra clone steps —
 
 | Component        | Description                                           |
 |------------------|-------------------------------------------------------|
-| `Aqueous`        | Wayland/River compositor client (the window manager) |
+| `compositor`     | Aqueous Wayland compositor (`aqueous`)              |
+| `Aqueous`        | Transitional external policy client (`aqueous-wm-client`) |
 | `Aqueous.Tests`  | Unit tests for `Aqueous`                             |
 | Noctalia (external) | Bar / shell (`noctalia`; v5 native)               |
 | tuigreet (external) | Login greeter                                     |
@@ -27,7 +29,7 @@ compositor live side-by-side. No submodules, no extra clone steps —
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
 - [Zig](https://ziglang.org/) ≥ 0.16.0 — needed to build the in-tree
-  RiverDelta compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
+  Aqueous compositor at `compositor/`. On Arch, `zig-master-bin` (AUR)
   currently provides 0.16.x.
 - [Noctalia](https://github.com/noctalia-dev/noctalia) v5 — the native
   C++/OpenGL ES shell, launched as `noctalia` (not the v4 Quickshell `qs` line)
@@ -41,20 +43,20 @@ compositor live side-by-side. No submodules, no extra clone steps —
 ### Build
 
 ```bash
-# Window manager (.NET)
+# Transitional policy client (.NET)
 dotnet build Aqueous.slnx
 
-# Compositor (Zig). Produces ./bin/riverdelta.
+# Compositor (Zig). Produces ./bin/aqueous.
 scripts/build-compositor.sh
 ```
 
-`launch_river.sh` rebuilds the compositor on demand if `./bin/riverdelta`
+`launch_river.sh` rebuilds the compositor on demand if `./bin/aqueous`
 is missing or older than the sources under `compositor/`, so for normal
 dev iteration you can just `./launch_river.sh`. For compositor-only
 iteration: `cd compositor && zig build`.
 
 To skip the in-tree compositor and use a system one (or a prebuilt
-path), set `AQUEOUS_RIVER_BIN=/path/to/riverdelta` before running
+path), set `AQUEOUS_COMPOSITOR_BIN=/path/to/aqueous` before running
 `launch_river.sh`.
 
 ### Test
@@ -63,20 +65,20 @@ path), set `AQUEOUS_RIVER_BIN=/path/to/riverdelta` before running
 dotnet test Aqueous.Tests/Aqueous.Tests.csproj
 ```
 
-### Run (nested River session)
+### Run (nested Aqueous session)
 
 ```bash
 ./launch_river.sh
 ```
 
-This starts a nested River instance, launches `Aqueous`, and spawns
+This starts a nested Aqueous compositor, launches `aqueous-wm-client`, and spawns
 Noctalia (`noctalia`) as the bar. (In a packaged session the bar is started
 as a systemd user unit instead — see Autostart below; the nested dev run has
 no user systemd manager, so `launch_river.sh` launches it directly. Override
 the command with `AQUEOUS_NOCTALIA_CMD`.) Logs land in `/tmp/`:
 
-- `/tmp/river_log.txt` — River compositor + WAYLAND_DEBUG trace
-- `/tmp/aqueous_wm.log` — Aqueous stdout/stderr
+- `/tmp/river_log.txt` — Aqueous compositor + WAYLAND_DEBUG trace
+- `/tmp/aqueous_wm.log` — transitional policy client stdout/stderr
 - `/tmp/noctalia.log` — Noctalia stdout/stderr
 
 ---
@@ -89,7 +91,7 @@ keybindings, outputs, etc. See the file in this repo for an annotated example.
 ### Autostart
 
 Aqueous launches supervised commands itself via `[[exec]]` blocks in
-`wm.toml`. Each entry fires once after River advertises all its globals
+`wm.toml`. Each entry fires once after Aqueous advertises all its globals
 (so layer-shell clients like the bar attach successfully on first
 connect). Commands run via `/bin/sh -c` detached with `setsid`.
 
@@ -126,9 +128,10 @@ unit's main process.
 
 ### Packaging
 
-A reference Arch `PKGBUILD` is included; it builds `Aqueous` AOT and ships:
+A reference Arch `PKGBUILD` is included; it builds the compositor and transitional client and ships:
 
-- `/usr/bin/aqueous`, `/usr/bin/aqueous-wm` (session launcher).
+- `/usr/bin/aqueous` (compositor), `/usr/bin/aqueous-wm-client` (transitional
+  policy client), and `/usr/bin/aqueous-wm` (session launcher).
 - `/usr/share/wayland-sessions/aqueous.desktop` so any Wayland-capable
   display manager (greetd/tuigreet, GDM, SDDM, …) lists **Aqueous** in
   its session picker.
@@ -176,7 +179,7 @@ optional autologin snippet).
 - [ ] `[[output]]` config block: mode, scale, position, transform, VRR /
       adaptive-sync, DPMS / power management.
 - [x] Fractional-scale (`wp-fractional-scale-v1`) and `viewporter` story for
-      mixed-DPI setups — RiverDelta advertises `wp_fractional_scale_manager_v1`,
+      mixed-DPI setups — Aqueous advertises `wp_fractional_scale_manager_v1`,
       `wp_viewporter`, and `wl_compositor` v6; `wlr_scene` notifies each surface
       of its per-output preferred (fractional) and `preferred_buffer_scale`
       based on the output(s) it intersects, recomputed on every scale commit.
@@ -220,7 +223,7 @@ optional autologin snippet).
 - [x] Idle / lock / DPMS: `ext-idle-notify-v1`, `idle-inhibit-v1`,
       `lock_command` config key. Watching video should inhibit blanking.
 - [x] Screencopy: `wlr-screencopy-unstable-v1` (v3) is exposed by
-      RiverDelta and bound in-process by `WlrScreencopyClient`
+      Aqueous and bound in-process by `WlrScreencopyClient`
       (`wl_shm` + `memfd_create` path). `xdg-desktop-portal-wlr` rides
       on the same global, so browser / Discord / OBS screen sharing
       works out of the box once the portal package is installed.

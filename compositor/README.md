@@ -9,14 +9,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 ## Overview
 
-Riverdelta is a non-monolithic Wayland compositor. It is a fork of
-[river](https://codeberg.org/river/river), aimed at providing a distinct
-executable name to avoid conflicts while maintaining compatibility with the
-original ecosystem.
+Aqueous is a Wayland compositor based on
+[river](https://codeberg.org/river/river), retaining compatibility with the
+River protocol ecosystem while integrating Aqueous-specific policy.
 
-Unlike other Wayland compositors, riverdelta does not combine the compositor
-and window manager into one program. Instead, users can choose any window
-manager implementing the [river-window-management-v1] protocol.
+During the in-process policy migration, Aqueous continues to support a separate
+window manager implementing the [river-window-management-v1] protocol. The
+shipped transitional implementation is `aqueous-wm-client`.
 
 Read my blog post, [Separating the Wayland Compositor and Window Manager](https://isaacfreund.com/blog/river-window-management/),
 for an in-depth explanation.
@@ -39,12 +38,12 @@ on our [wiki](https://codeberg.org/river/wiki).
 
 ## Features
 
-Riverdelta defers all window management policy to a separate window manager
+Aqueous currently defers window management policy to a separate window manager
 implementing the [river-window-management-v1] protocol. This includes window
 position/size, pointer/keyboard bindings, focus management, window decorations,
 desktop shell graphics, and more.
 
-Riverdelta itself provides frame perfect rendering, good performance, support for
+Aqueous itself provides frame perfect rendering, good performance, support for
 many Wayland protocol extensions, robust Xwayland support, the ability to
 hot-swap window managers, and more.
 
@@ -64,9 +63,9 @@ Why split the window manager to a separate process?
 
 ## Building
 
-Note: If you are packaging riverdelta for distribution, see [PACKAGING.md](PACKAGING.md).
+Note: If you are packaging Aqueous for distribution, see [PACKAGING.md](PACKAGING.md).
 
-To compile riverdelta first ensure that you have the following dependencies
+To compile Aqueous first ensure that you have the following dependencies
 installed. The "development" versions are required if applicable to your
 distribution.
 
@@ -82,7 +81,7 @@ distribution.
 
 Then run, for example:
 ```
-zig build -Doptimize=ReleaseSafe -Dxwayland--prefix ~/.local install
+zig build -Doptimize=ReleaseSafe -Dxwayland --prefix ~/.local install
 ```
 
 To enable Xwayland support pass the `-Dxwayland` option as well.
@@ -90,17 +89,27 @@ Run `zig build -h` to see a list of all options.
 
 ## Usage
 
-Riverdelta can either be run nested in an X11/Wayland session or directly
-from a tty using KMS/DRM. Simply run the `riverdelta` command.
+Aqueous can either be run nested in an X11/Wayland session or directly
+from a tty using KMS/DRM. Simply run the `aqueous` command.
 
-On startup riverdelta will run an executable file at `$XDG_CONFIG_HOME/riverdelta/init`
+During migration, `-policy external` (the default) uses the transitional
+`aqueous-wm-client`, `-policy internal` runs only the in-process policy, and
+`-policy compare` emits internal/external state traces for parity testing.
+
+On startup Aqueous will run an executable file at `$XDG_CONFIG_HOME/aqueous/init`
 if such an executable exists. If `$XDG_CONFIG_HOME` is not set,
-`~/.config/riverdelta/init` will be used instead.
+`~/.config/aqueous/init` will be used instead.
 
 Usually this executable is a shell script which starts the user's window manager
 and any other long-running programs.
 
-For complete documentation see the `riverdelta(1)` man page.
+For complete documentation see the `aqueous(1)` man page.
+
+The headless migration harness can be run after building both binaries:
+
+```sh
+scripts/test-policy-parity.sh
+```
 
 
 
@@ -115,9 +124,9 @@ all files have SPDX copyright and license information.
 
 In overview:
 
-- Riverdelta's source code is released under the GPL-3.0-only license.
-- Riverdelta's Wayland protocols are released under the MIT license.
-- Riverdelta's logo and documentation are released under the CC-BY-SA-4.0 license.
+- Aqueous's source code is released under the GPL-3.0-only license.
+- Aqueous's River-derived Wayland protocols are released under the MIT license.
+- Aqueous's logo and documentation are released under the CC-BY-SA-4.0 license.
 
 [river-window-management-v1]: https://isaacfreund.com/docs/wayland/river-window-management-v1
 [liberapay]: https://liberapay.com/ifreund

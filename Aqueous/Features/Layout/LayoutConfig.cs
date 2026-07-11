@@ -89,14 +89,14 @@ public sealed record LayoutConfig
 
     /// <summary>
     /// Global backdrop-blur configuration parsed from the <c>[blur]</c> section of
-    /// <c>wm.toml</c>. Sent once (and on reload) to riverdelta via the manager-level
+    /// <c>wm.toml</c>. Sent once (and on reload) to Aqueous via the manager-level
     /// <c>river_window_manager_v1.set_blur</c> request; drawn by SceneFX optimized blur.
     /// </summary>
     public BlurSpec Blur { get; init; } = BlurSpec.Default;
 
     /// <summary>
     /// Global window-opacity configuration parsed from the <c>[opacity]</c> section of
-    /// <c>wm.toml</c>. Sent once (and on reload) to riverdelta via the manager-level
+    /// <c>wm.toml</c>. Sent once (and on reload) to Aqueous via the manager-level
     /// <c>river_window_manager_v1.set_opacity</c> request; per-window overrides come
     /// from <c>rules.toml</c> via <c>river_window_v1.set_window_opacity</c>.
     /// </summary>
@@ -105,7 +105,7 @@ public sealed record LayoutConfig
     /// <summary>
     /// Workspace-swap slide-transition configuration parsed from the
     /// <c>[workspace_transition]</c> section of <c>wm.toml</c>. Sent once (and on reload) to
-    /// riverdelta via the manager-level <c>river_window_manager_v1.set_workspace_transition</c>
+    /// Aqueous via the manager-level <c>river_window_manager_v1.set_workspace_transition</c>
     /// request; toggles whether the slide animation runs and how fast it paces.
     /// </summary>
     public WorkspaceTransitionSpec WorkspaceTransition { get; init; } = WorkspaceTransitionSpec.Default;

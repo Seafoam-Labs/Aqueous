@@ -23,7 +23,7 @@ class Program
         Logging.ConfigureFromEnvironment();
         var log = Logging.For<Program>();
 
-        log.LogInformation("Starting standalone River Window Manager client...");
+        log.LogInformation("Starting transitional Aqueous window-manager client...");
         log.LogInformation(
             "primary modifier = {Name} (mask=0x{Mask:x}, keysym=0x{Sym:x}, AQUEOUS_MOD={Env})",
             Mods.PrimaryName, Mods.PrimaryMask, Mods.PrimaryKeysym,
