@@ -73,6 +73,12 @@ pub fn requestFocus(_: CompositorApi, handle: layout.Handle) void {
     server.wm.dirtyWindowing();
 }
 
+pub fn clearFocus(_: CompositorApi) void {
+    var seats = server.input_manager.seats.iterator(.forward);
+    if (seats.next()) |seat| seat.policyClearFocus();
+    server.wm.dirtyWindowing();
+}
+
 pub fn closeWindow(_: CompositorApi, handle: layout.Handle) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.close();

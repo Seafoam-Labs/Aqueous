@@ -141,6 +141,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     var snapshot = try aqueous.api.policySnapshot(util.gpa);
     defer snapshot.deinit(util.gpa);
     const focused = aqueous.api.focusedWindow();
+    var focused_is_focusable = focused == null;
     if (focused != null and focused == aqueous.pending_focus.window) aqueous.pending_focus.clear();
 
     for (snapshot.outputs) |output| {
@@ -240,7 +241,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
         if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area);
         if (focused) |handle| {
-            if (containsWindow(focusable.items, handle)) try aqueous.focus_history.record(workspace_key, handle);
+            if (containsWindow(focusable.items, handle)) {
+                focused_is_focusable = true;
+                try aqueous.focus_history.record(workspace_key, handle);
+            }
         }
         const focus_valid = if (focused) |handle| containsWindow(focusable.items, handle) else false;
         if (!focus_valid) {
@@ -265,6 +269,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         std.mem.sort(layout_types.Placement, requested.items, {}, placementLessThan);
         for (requested.items) |placement| aqueous.api.applyPlacement(placement);
     }
+
+    // A closing, minimized, hidden scratchpad, or workspace-removed window may
+    // still be the wl_seat focus target. If no active output considers it
+    // focusable, explicitly send keyboard leave before it is destroyed.
+    if (!focused_is_focusable) aqueous.api.clearFocus();
 
     var stale: std.ArrayListUnmanaged(LayoutStateKey) = .empty;
     defer stale.deinit(util.gpa);

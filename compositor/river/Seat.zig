@@ -173,6 +173,10 @@ pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
     if (ref.get() != null) seat.wm_requested.focus = .{ .window = ref };
 }
 
+pub fn policyClearFocus(seat: *Seat) void {
+    seat.wm_requested.focus = .clear;
+}
+
 wlr_seat: *wlr.Seat,
 
 link: wl.list.Link,

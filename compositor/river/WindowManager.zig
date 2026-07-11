@@ -438,10 +438,16 @@ pub fn manageFinish(wm: *WindowManager) void {
     log.debug("manage sequence finish", .{});
     server.aqueous.traceCycle(.manage_finish, wm.object != null);
 
-    {
-        // Order is important here, Seat.manageFinish() must be called
-        // before Window.manageFinish().
+    // Order is important here, Seat.manageFinish() must be called before
+    // Window.manageFinish(). External policy finalizes only seats advertised to
+    // its protocol object. Integrated policy has no such objects/list, so it
+    // must finalize the compositor's seats directly or scheduled focus never
+    // reaches wl_seat (and clients receive no keyboard enter event).
+    if (wm.object != null) {
         var it = wm.sent.seats.iterator(.forward);
+        while (it.next()) |seat| seat.manageFinish();
+    } else {
+        var it = server.input_manager.seats.safeIterator(.forward);
         while (it.next()) |seat| seat.manageFinish();
     }
 
