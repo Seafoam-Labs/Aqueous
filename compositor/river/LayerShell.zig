@@ -103,6 +103,11 @@ fn handleRequest(
 }
 
 fn supported(layer_shell: *LayerShell) bool {
+    // Integrated policy owns layer-shell arrangement and focus directly. The
+    // river_layer_shell_v1 companion object is only required by the optional
+    // external-policy compatibility path.
+    if (server.aqueous.mode.runsInternal()) return true;
+
     const wm_v1 = server.wm.object orelse return false;
     var it = layer_shell.objects.iterator(.forward);
     while (it.next()) |object| {
@@ -143,7 +148,7 @@ fn handleNewSurface(_: *wl.Listener(*wlr.LayerSurfaceV1), wlr_layer_surface: *wl
             }
         } else {
             if (server.om.outputs.first()) |output| {
-                log.info("window manager did not set default layer surface output, choosing arbitrary output", .{});
+                log.info("layer surface has no requested output, choosing the first output", .{});
                 wlr_layer_surface.output = output.wlr_output;
             } else {
                 log.err("no output available for layer surface '{s}'", .{wlr_layer_surface.namespace});
