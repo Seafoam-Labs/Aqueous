@@ -37,18 +37,48 @@ pub fn deinit(store: *Store) void {
 pub fn observe(store: *Store, handle: types.Handle, output: u64, workspace: u32, fullscreen: bool) !*Entry {
     const result = try store.entries.getOrPut(store.allocator, handle);
     if (!result.found_existing) result.value_ptr.* = .{};
-    result.value_ptr.output = output;
-    result.value_ptr.workspace = workspace;
-    _ = fullscreen;
-    return result.value_ptr;
+    const entry = result.value_ptr;
+    const previous_output = entry.output;
+
+    // Fullscreen can change outside the native keybinding path (for example via
+    // an xdg_toplevel request or foreign-toplevel controller), so the compositor
+    // snapshot is authoritative. Keep the ownership index and the entry kind in
+    // sync in both directions.
+    if (!fullscreen or previous_output != output) {
+        if (store.fullscreen_by_output.get(previous_output) == handle) {
+            _ = store.fullscreen_by_output.remove(previous_output);
+        }
+        if (entry.kind == .fullscreen) entry.kind = entry.previous;
+    }
+
+    entry.output = output;
+    entry.workspace = workspace;
+
+    if (fullscreen) {
+        const ownership = try store.fullscreen_by_output.getOrPut(store.allocator, output);
+        if (ownership.found_existing and ownership.value_ptr.* != handle) {
+            if (store.entries.getPtr(ownership.value_ptr.*)) |prior| {
+                if (prior.kind == .fullscreen) prior.kind = prior.previous;
+            }
+        }
+        ownership.value_ptr.* = handle;
+        if (entry.kind != .fullscreen) entry.previous = entry.kind;
+        entry.kind = .fullscreen;
+    }
+
+    return entry;
 }
 
 pub fn remove(store: *Store, handle: types.Handle) void {
     if (store.entries.fetchRemove(handle)) |removed| {
-        if (removed.value.kind == .fullscreen and store.fullscreen_by_output.get(removed.value.output) == handle) _ = store.fullscreen_by_output.remove(removed.value.output);
+        if (store.fullscreen_by_output.get(removed.value.output) == handle) _ = store.fullscreen_by_output.remove(removed.value.output);
         if (removed.value.scratchpad != 0 and store.scratchpads.get(removed.value.scratchpad) == handle) _ = store.scratchpads.remove(removed.value.scratchpad);
     }
     removeFromList(&store.minimized_mru, handle);
+}
+
+pub fn fullscreenOwner(store: *const Store, output: u64) ?types.Handle {
+    return store.fullscreen_by_output.get(output);
 }
 
 /// Enter fullscreen and return the prior owner that must be restored by the
@@ -183,4 +213,50 @@ test "fullscreen ownership, minimize MRU, and scratchpads round-trip" {
     try store.sendToScratchpad(1, "term");
     try std.testing.expectEqual(@as(types.Handle, 1), store.toggleScratchpad("term"));
     try std.testing.expect(store.entries.get(1).?.scratchpad_visible);
+}
+
+test "observation synchronizes native fullscreen state in both directions" {
+    var store = Store.init(std.testing.allocator);
+    defer store.deinit();
+
+    _ = try store.observe(1, 10, 1, false);
+    try store.setFloating(1, .{ .x = 10, .y = 20, .width = 300, .height = 200 });
+
+    const fullscreen = try store.observe(1, 10, 1, true);
+    try std.testing.expectEqual(Kind.fullscreen, fullscreen.kind);
+    try std.testing.expectEqual(@as(?types.Handle, 1), store.fullscreen_by_output.get(10));
+
+    const restored = try store.observe(1, 10, 1, false);
+    try std.testing.expectEqual(Kind.floating, restored.kind);
+    try std.testing.expectEqual(@as(?types.Handle, null), store.fullscreen_by_output.get(10));
+}
+
+test "observed fullscreen ownership replaces and restores the prior owner" {
+    var store = Store.init(std.testing.allocator);
+    defer store.deinit();
+
+    _ = try store.observe(1, 10, 1, true);
+    _ = try store.observe(2, 10, 1, true);
+
+    try std.testing.expectEqual(Kind.tiled, store.entries.get(1).?.kind);
+    try std.testing.expectEqual(Kind.fullscreen, store.entries.get(2).?.kind);
+    try std.testing.expectEqual(@as(?types.Handle, 2), store.fullscreen_by_output.get(10));
+}
+
+test "removing a window clears every state index" {
+    var store = Store.init(std.testing.allocator);
+    defer store.deinit();
+
+    _ = try store.observe(1, 10, 1, true);
+    try store.minimized_mru.append(store.allocator, 1);
+    _ = try store.observe(2, 10, 1, false);
+    try store.sendToScratchpad(2, "term");
+    store.remove(1);
+    store.remove(2);
+
+    try std.testing.expect(!store.entries.contains(1));
+    try std.testing.expect(!store.entries.contains(2));
+    try std.testing.expectEqual(@as(?types.Handle, null), store.fullscreenOwner(10));
+    try std.testing.expectEqual(@as(usize, 0), store.minimized_mru.items.len);
+    try std.testing.expectEqual(@as(types.Handle, 0), store.toggleScratchpad("term"));
 }

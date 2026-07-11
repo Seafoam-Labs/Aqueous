@@ -79,6 +79,7 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
 }
 
 pub fn deinit(aqueous: *Aqueous) void {
+    aqueous.started = false;
     aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
@@ -148,7 +149,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         var output_layout = aqueous.config.layout;
         if (aqueous.config.wm.resolveOutput(.{ .name = output.name, .make = output.make, .model = output.model, .serial = output.serial })) |configured| output_layout.default = configured;
         if (aqueous.config.wm.resolveWorkspace(output.name, output.workspace_number)) |configured| output_layout.default = configured;
-        const usable_area = aqueous.config.wm.struts.apply(output.area);
+        // Respect both dynamic layer-shell reservations (Noctalia, panels,
+        // docks) and the user's static struts. Taking the intersection avoids
+        // double-counting when both reserve the same edge.
+        const usable_area = intersectRects(output.usable_area, aqueous.config.wm.struts.apply(output.area));
         const workspace_key = output.id ^ (@as(u64, output.workspace_number) *% 0x9e3779b97f4a7c15);
         const layout_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
         if (aqueous.layout_overrides.get(layout_key)) |override| output_layout.default = override;
@@ -163,9 +167,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         try focusable.ensureTotalCapacity(util.gpa, output.windows.len);
         var game_anchor: ?struct { handle: layout_types.Handle, rule: Rules.Rule } = null;
         for (output.windows) |window| {
+            const prior_fullscreen = if (window.fullscreen) aqueous.window_states.fullscreenOwner(output.id) else null;
             const state = try aqueous.window_states.observe(window.handle, output.id, output.workspace_number, window.fullscreen);
-            if (window.fullscreen and state.kind != .fullscreen) {
-                if (try aqueous.window_states.enterFullscreen(window.handle, output.id)) |prior| aqueous.api.clearFullscreen(prior);
+            if (prior_fullscreen) |prior| {
+                if (prior != window.handle) aqueous.api.clearFullscreen(prior);
             }
             if (state.kind == .minimized or (state.kind == .scratchpad and !state.scratchpad_visible)) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
@@ -294,6 +299,14 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             state.deinit(util.gpa);
         }
     }
+}
+
+/// Drop policy state before the compositor invalidates a stable window handle.
+pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (!aqueous.started) return;
+    aqueous.window_states.remove(handle);
+    if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
+    if (aqueous.drag != null and aqueous.drag.?.handle == handle) aqueous.drag = null;
 }
 
 /// Direct compositor key path. Returning true eats the event before it reaches a client.
@@ -733,6 +746,19 @@ fn placementLessThan(_: void, left: layout_types.Placement, right: layout_types.
     return left.handle < right.handle;
 }
 
+fn intersectRects(a: layout_types.Rect, b: layout_types.Rect) layout_types.Rect {
+    const left = @max(a.x, b.x);
+    const top = @max(a.y, b.y);
+    const right = @min(a.right(), b.right());
+    const bottom = @min(a.bottom(), b.bottom());
+    return .{
+        .x = left,
+        .y = top,
+        .width = @max(1, right - left),
+        .height = @max(1, bottom - top),
+    };
+}
+
 fn ruleLayout(id: Rules.Layout) layout_config.LayoutId {
     return switch (id) {
         .tile => .tile,
@@ -810,4 +836,16 @@ fn ruleRemainder(id: Rules.Layout) game_mode.Remainder {
         .scrolling => .scrolling,
         .floating => .floating,
     };
+}
+
+test "usable area combines layer-shell zones and static struts without double counting" {
+    const live: layout_types.Rect = .{ .x = 0, .y = 32, .width = 1920, .height = 1048 };
+    const configured: layout_types.Rect = .{ .x = 0, .y = 32, .width = 1920, .height = 1048 };
+    try std.testing.expectEqual(configured, intersectRects(live, configured));
+
+    const dock: layout_types.Rect = .{ .x = 48, .y = 0, .width = 1872, .height = 1080 };
+    try std.testing.expectEqual(
+        layout_types.Rect{ .x = 48, .y = 32, .width = 1872, .height = 1048 },
+        intersectRects(dock, configured),
+    );
 }

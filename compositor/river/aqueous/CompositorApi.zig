@@ -243,7 +243,10 @@ pub const PolicyOutput = struct {
     model: ?[]const u8,
     serial: ?[]const u8,
     workspace_number: u32,
+    /// Complete output rectangle, used by fullscreen and ignore-struts rules.
     area: layout.Rect,
+    /// Rectangle remaining after live layer-shell exclusive zones.
+    usable_area: layout.Rect,
     windows: []const layout.Window,
     window_start: usize,
 };
@@ -264,7 +267,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
     var output_count: usize = 0;
     var output_it = server.om.outputs.iterator(.forward);
     while (output_it.next()) |output| {
-        const box = output.policyBox();
+        const box = output.policyFullBox();
         if (box.width > 0 and box.height > 0) output_count += 1;
     }
 
@@ -280,8 +283,9 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
     output_it = server.om.outputs.iterator(.forward);
     var output_index: usize = 0;
     while (output_it.next()) |output| {
-        const box = output.policyBox();
+        const box = output.policyFullBox();
         if (box.width <= 0 or box.height <= 0) continue;
+        const usable_box = output.policyUsableBox();
         const start = windows.items.len;
         var window_it = server.wm.windows.iterator();
         while (window_it.next()) |window| {
@@ -325,6 +329,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
             .serial = identity.serial,
             .workspace_number = output.policyActiveWorkspaceNumber(),
             .area = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
+            .usable_area = .{ .x = usable_box.x, .y = usable_box.y, .width = usable_box.width, .height = usable_box.height },
             .windows = undefined,
             .window_start = start,
         };

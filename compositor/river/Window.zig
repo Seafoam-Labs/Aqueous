@@ -551,6 +551,7 @@ pub fn destroy(window: *Window) void {
 
     window.node.deinit();
 
+    server.aqueous.forgetWindow(@bitCast(window.ref));
     server.wm.windows.remove(window.ref.key);
 
     util.gpa.destroy(window);

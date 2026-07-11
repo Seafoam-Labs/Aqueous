@@ -225,12 +225,16 @@ pub fn policyId(output: *const Output) u64 {
     return @intFromPtr(output);
 }
 
-/// Geometry and active-workspace membership exposed to the in-process policy without
-/// leaking mutable compositor state across the policy boundary.
-pub fn policyBox(output: *const Output) wlr.Box {
+/// Full output geometry exposed to the in-process policy.
+pub fn policyFullBox(output: *const Output) wlr.Box {
+    return output.scheduled.box();
+}
+
+/// Output geometry remaining after layer-shell exclusive zones are reserved.
+pub fn policyUsableBox(output: *const Output) wlr.Box {
     const usable = output.layer_shell.scheduled.non_exclusive_area;
     if (usable.width > 0 and usable.height > 0) return usable;
-    return output.scheduled.box();
+    return output.policyFullBox();
 }
 
 pub fn policyName(output: *const Output) []const u8 {
