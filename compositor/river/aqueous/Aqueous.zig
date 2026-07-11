@@ -18,6 +18,7 @@ const game_mode = @import("layout/game_mode.zig");
 const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
+const pointer_drag = @import("input/drag.zig");
 const StateStore = @import("state/store.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
@@ -55,7 +56,9 @@ const Drag = struct {
     start: layout_types.Rect,
     pointer_x: f64,
     pointer_y: f64,
-    resize: bool,
+    action: pointer_drag.Action,
+    layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
+    awaiting_layout: ?layout_types.Handle = null,
 };
 
 pub fn init(aqueous: *Aqueous, mode: Mode) void {
@@ -337,8 +340,30 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         return true;
     }
     const target = aqueous.api.windowAt(x, y) orelse return false;
-    aqueous.drag = .{ .handle = target.handle, .start = target.geometry, .pointer_x = x, .pointer_y = y, .resize = button == 0x111 };
-    _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+    const state = aqueous.window_states.get(target.handle) orelse return false;
+    const workspace = aqueous.api.windowWorkspace(target.handle) orelse return false;
+    const layout_key: LayoutStateKey = .{ .output = workspace.output_id, .workspace = workspace.workspace_number };
+    const active_layout = if (aqueous.layout_states.get(layout_key)) |layout_state| layout_state.active_layout else aqueous.config.layout.default;
+    const drag_action = pointer_drag.action(button, state.kind, active_layout);
+    if (drag_action == .swap_tiled) {
+        aqueous.drag = .{
+            .handle = target.handle,
+            .start = target.geometry,
+            .pointer_x = x,
+            .pointer_y = y,
+            .action = drag_action,
+            .layout_key = layout_key,
+        };
+    } else {
+        aqueous.drag = .{
+            .handle = target.handle,
+            .start = target.geometry,
+            .pointer_x = x,
+            .pointer_y = y,
+            .action = drag_action,
+        };
+        _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+    }
     aqueous.api.requestFocus(target.handle);
     return true;
 }
@@ -349,10 +374,29 @@ pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
 }
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
-    const drag = aqueous.drag orelse return;
+    const drag = &(aqueous.drag orelse return);
+    if (drag.action == .swap_tiled) {
+        const target = aqueous.api.windowAt(x, y) orelse return;
+        if (drag.awaiting_layout != null) {
+            // Do not swap back while the scene still exposes the old geometry.
+            // Re-arm once a manage cycle has moved the dragged window beneath
+            // the pointer.
+            if (target.handle == drag.handle) drag.awaiting_layout = null;
+            return;
+        }
+        if (target.handle == drag.handle) return;
+        const target_state = aqueous.window_states.get(target.handle) orelse return;
+        if (target_state.kind != .tiled) return;
+        if (!aqueous.api.windowOnWorkspace(target.handle, drag.layout_key.output, drag.layout_key.workspace)) return;
+        const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
+        if (!layout_engine.swap(layout_state, drag.handle, target.handle)) return;
+        drag.awaiting_layout = target.handle;
+        aqueous.api.requestManageCycle();
+        return;
+    }
     const dx: i32 = @intFromFloat(x - drag.pointer_x);
     const dy: i32 = @intFromFloat(y - drag.pointer_y);
-    const geometry: layout_types.Rect = if (drag.resize) .{
+    const geometry: layout_types.Rect = if (drag.action == .resize_floating) .{
         .x = drag.start.x,
         .y = drag.start.y,
         .width = @max(1, drag.start.width + dx),

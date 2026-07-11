@@ -183,6 +183,16 @@ pub fn windowOnWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64
     return workspace.output.policyId() == output_id and workspace.policyNumber() == workspace_number;
 }
 
+pub fn windowWorkspace(_: CompositorApi, handle: layout.Handle) ?struct { output_id: u64, workspace_number: u32 } {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return null;
+    const workspace = window.workspace orelse return null;
+    return .{
+        .output_id = workspace.output.policyId(),
+        .workspace_number = workspace.policyNumber(),
+    };
+}
+
 pub fn directionalNeighbor(_: CompositorApi, handle: layout.Handle, dx: i32, dy: i32) ?layout.Handle {
     const ref: Window.Ref = @bitCast(handle);
     const origin = ref.get() orelse return null;

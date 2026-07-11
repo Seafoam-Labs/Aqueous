@@ -15,6 +15,7 @@ const types = @import("types.zig");
 
 pub const State = struct {
     grid: grid.State = .{},
+    rows: rows.State = .{},
     tile: tile.State = .{},
     monocle: monocle.State = .{},
     dwindle: dwindle.State = .{},
@@ -26,6 +27,7 @@ pub const State = struct {
 
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
         state.grid.deinit(allocator);
+        state.rows.deinit(allocator);
         state.tile.deinit(allocator);
         state.monocle.deinit(allocator);
         state.dwindle.deinit(allocator);
@@ -86,7 +88,7 @@ fn arrangeRemainder(allocator: std.mem.Allocator, state: *State, kind: Remainder
         .tile => tile.arrange(allocator, &state.tile, area, windows, options),
         .monocle => monocle.arrange(allocator, &state.monocle, area, windows, focused, options, .{}),
         .grid => grid.arrange(allocator, &state.grid, area, windows, options),
-        .rows => rows.arrange(allocator, area, windows, options),
+        .rows => rows.arrange(allocator, &state.rows, area, windows, options),
         .dwindle => dwindle.arrange(allocator, &state.dwindle, area, windows, options, .{}),
         .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{}),
         .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),

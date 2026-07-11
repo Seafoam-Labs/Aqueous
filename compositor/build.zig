@@ -411,6 +411,17 @@ pub fn build(b: *Build) !void {
         });
         const run_output_navigation_test = b.addRunArtifact(output_navigation_test);
 
+        const input_drag_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("river/aqueous/input_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_input_drag_test = b.addRunArtifact(input_drag_test);
+
         const workspaces_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("river/aqueous/workspaces/coalescer.zig"),
@@ -433,6 +444,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_rules_test.step);
         test_step.dependOn(&run_focus_test.step);
         test_step.dependOn(&run_output_navigation_test.step);
+        test_step.dependOn(&run_input_drag_test.step);
         test_step.dependOn(&run_workspaces_test.step);
     }
 }
