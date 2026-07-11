@@ -1,0 +1,14 @@
+[[window]]
+app_id = "aq-parity-rule"
+layout = "float"
+floating = true
+tag = 2
+width = 420
+height = 260
+x = 96
+y = 72
+
+[[window]]
+app_id = "aq-parity-fullscreen"
+layout = "tile"
+fullscreen = true
