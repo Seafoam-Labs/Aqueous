@@ -206,8 +206,13 @@ fn refocusIfMapped(override_redirect: *XwaylandOverrideRedirect) void {
 pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (server.lock_manager.state != .unlocked) return;
 
-    // Removing override_redirect.xsurface.overrideRedirectWantsFocus() put back if it causes issues
-    if (override_redirect.xsurface.icccmInputModel() != .none) {
+    // Most override-redirect surfaces are transient menus or tooltips. Moving
+    // X11 keyboard focus to those surfaces sends FocusOut to their owner and
+    // causes clients such as Steam to immediately dismiss the menu. Only move
+    // keyboard focus when the X11 role/hints explicitly request it.
+    if (override_redirect.xsurface.overrideRedirectWantsFocus() and
+        override_redirect.xsurface.icccmInputModel() != .none)
+    {
         const surface = override_redirect.xsurface.surface orelse return;
         const seat = server.input_manager.defaultSeat();
         // Keep the parent top-level Xwayland window of any override redirect surface
@@ -218,7 +223,6 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
             seat.focused.window.impl == .xwayland and
             seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
         {
-            seat.keyboardEnterOrLeave(override_redirect.xsurface.surface);
             seat.keyboardEnterOrLeave(surface);
         } else {
             seat.focus(.{ .override_redirect = override_redirect });
@@ -250,19 +254,39 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
     override_redirect.xsurface.surface.?.data = null;
     override_redirect.surface_tree.?.node.destroy();
     override_redirect.surface_tree = null;
-    override_redirect.owner = null;
 
-    // If the unmapped surface is currently focused, pass keyboard focus
-    // to the most appropriate surface.
+    // If the unmapped surface owns X11 keyboard focus, restore its owner when
+    // possible. A focused override-redirect without an owner must explicitly
+    // clear focus so the seat never retains a destroyed surface.
     var seat_it = server.input_manager.seats.iterator(.forward);
     while (seat_it.next()) |seat| {
-        if (seat.focused == .window and seat.focused.window.impl == .xwayland and
-            seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid and
-            seat.wlr_seat.keyboard_state.focused_surface == override_redirect.xsurface.surface)
-        {
-            seat.keyboardEnterOrLeave(seat.focused.window.rootSurface());
+        if (seat.wlr_seat.keyboard_state.focused_surface != override_redirect.xsurface.surface) continue;
+
+        switch (seat.focused) {
+            .window => |window| {
+                if (window.impl == .xwayland and
+                    window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
+                {
+                    seat.keyboardEnterOrLeave(window.rootSurface());
+                } else {
+                    seat.keyboardEnterOrLeave(null);
+                }
+            },
+            .override_redirect => |focused_override| {
+                if (focused_override == override_redirect) {
+                    if (override_redirect.owner) |owner| {
+                        if (owner.get()) |window| {
+                            seat.focus(.{ .window = window });
+                            continue;
+                        }
+                    }
+                    seat.focus(.none);
+                }
+            },
+            else => seat.keyboardEnterOrLeave(null),
         }
     }
+    override_redirect.owner = null;
 
     server.wm.dirtyWindowing();
 }
