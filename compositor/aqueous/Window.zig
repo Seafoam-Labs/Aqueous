@@ -240,6 +240,7 @@ surfaces: Scene.SaveableSurfaces,
 /// Empty and disabled for every existing layout.
 canvas_tree: *wlr.SceneTree,
 canvas_presentation_active: bool = false,
+canvas_live_scale: f64 = 1,
 
 border: struct {
     left: *wlr.SceneRect,
@@ -1468,35 +1469,30 @@ fn scaledDimension(value: u31, scale: f64) i32 {
 
 fn updateCanvasPresentation(window: *Window, permitted: bool) void {
     const active = permitted and window.rendering_requested.scale != 1 and window.state == .mapped;
-    // Preserve the historical scene path exactly for windows that have never
-    // entered scaled canvas presentation.
-    if (!active and !window.canvas_presentation_active) return;
+    const next_scale = if (active) window.rendering_requested.scale else 1;
+    if (next_scale == window.canvas_live_scale) {
+        window.refreshCanvasPresentationBuffers();
+        return;
+    }
 
-    // Sources must be traversable while clones are rebuilt. They are disabled
-    // again before this synchronous render transaction is committed.
-    window.popup_tree.node.setEnabled(true);
-    window.decorations_below_tree.node.setEnabled(true);
-    window.decorations_above_tree.node.setEnabled(true);
-    var it = window.canvas_tree.children.safeIterator(.forward);
-    while (it.next()) |node| node.destroy();
-    var popup_it = window.canvas_popup_tree.children.safeIterator(.forward);
-    while (popup_it.next()) |node| node.destroy();
-
-    window.canvas_tree.node.setEnabled(active);
-    window.canvas_popup_tree.node.setEnabled(active);
+    inline for (.{
+        window.decorations_below_tree,
+        window.surfaces.tree,
+        window.decorations_above_tree,
+        window.popup_tree,
+    }) |tree| Scene.scaleLiveSurfaceTree(tree, window.canvas_live_scale, next_scale);
+    window.canvas_live_scale = next_scale;
     window.canvas_presentation_active = active;
-    if (!active) return;
+}
 
-    Scene.cloneNodeScaledInto(&window.decorations_below_tree.node, window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
-    window.surfaces.cloneScaledInto(window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
-    Scene.cloneNodeScaledInto(&window.decorations_above_tree.node, window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
-    Scene.cloneNodeScaledInto(&window.popup_tree.node, window.canvas_popup_tree, window.rendering_requested.scale, .{ .window = window });
-    // applySurfaceClip()/applyOpacity() may have enabled the live tree earlier
-    // in this render pass. The scaled clone is authoritative while active.
-    window.surfaces.tree.node.setEnabled(false);
-    window.popup_tree.node.setEnabled(false);
-    window.decorations_below_tree.node.setEnabled(false);
-    window.decorations_above_tree.node.setEnabled(false);
+pub fn refreshCanvasPresentationBuffers(window: *Window) void {
+    if (window.canvas_live_scale == 1) return;
+    inline for (.{
+        window.decorations_below_tree,
+        window.surfaces.tree,
+        window.decorations_above_tree,
+        window.popup_tree,
+    }) |tree| Scene.refreshLiveSurfaceTree(tree, window.canvas_live_scale);
 }
 
 /// Feed a new target position into the animator.

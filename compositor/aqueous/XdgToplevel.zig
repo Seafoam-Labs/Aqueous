@@ -393,6 +393,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     // those buffers as fully opaque. Reapply the compositor-cached opacity so a
     // focus/activation commit cannot momentarily reset the window to 1.0.
     window.applyOpacity();
+    window.refreshCanvasPresentationBuffers();
 }
 
 fn handleRequestShowWindowMenu(

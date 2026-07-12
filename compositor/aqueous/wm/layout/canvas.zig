@@ -96,13 +96,13 @@ pub fn arrange(
         const visual = project(world, usable_area, state.camera);
         placement.* = .{
             .handle = window.handle,
-            // Use the ordinary live-surface configure/render path for projected
-            // dimensions. Generic scene-buffer clones don't reliably follow
-            // subsequent SceneSurface commits and can freeze animated clients.
-            .geometry = visual,
+            // Keep client dimensions in world units. Window scales the live
+            // SceneSurface destination geometry without changing configure size.
+            .geometry = .{ .x = visual.x, .y = visual.y, .width = world.width, .height = world.height },
             .z_order = @intCast(index),
             .visible = intersects(visual, usable_area),
             .border = options.border,
+            .scale = state.camera.zoom,
         };
     }
     return placements;
@@ -213,6 +213,23 @@ test "window dragging updates retained world coordinates" {
     try std.testing.expect(state.moveWindowFrom(7, start, 25, -10));
     try std.testing.expectApproxEqAbs(@as(f64, 150), state.rects.get(7).?.x, 0.001);
     try std.testing.expectApproxEqAbs(@as(f64, 180), state.rects.get(7).?.y, 0.001);
+}
+
+test "arrange keeps logical client dimensions while projecting presentation scale" {
+    var state: State = .{ .camera = .{ .zoom = 0.5 } };
+    defer state.deinit(std.testing.allocator);
+    try state.rects.put(std.testing.allocator, 9, .{ .x = 100, .y = 200, .width = 600, .height = 400 });
+    const placements = try arrange(
+        std.testing.allocator,
+        &state,
+        .{ .x = 0, .y = 0, .width = 1000, .height = 800 },
+        &.{.{ .handle = 9 }},
+        .{},
+    );
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(@as(i32, 600), placements[0].geometry.width);
+    try std.testing.expectEqual(@as(i32, 400), placements[0].geometry.height);
+    try std.testing.expectEqual(@as(f64, 0.5), placements[0].scale);
 }
 
 test "canvas state forgets closed windows" {

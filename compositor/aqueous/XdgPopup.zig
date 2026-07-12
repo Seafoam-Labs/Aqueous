@@ -79,7 +79,10 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     if (xdg_popup.wlr_popup.base.initial_commit) {
         handleReposition(&xdg_popup.reposition);
     }
-    if (xdg_popup.owner) |owner| if (owner.get()) |window| window.applyOpacity();
+    if (xdg_popup.owner) |owner| if (owner.get()) |window| {
+        window.applyOpacity();
+        window.refreshCanvasPresentationBuffers();
+    };
 }
 
 fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_popup: *wlr.XdgPopup) void {
@@ -124,7 +127,10 @@ fn handleMap(listener: *wl.Listener(void)) void {
 
     // Cover clients which map using a buffer committed before the ordinary
     // popup commit listener observed the complete scene subtree.
-    if (xdg_popup.owner) |owner| if (owner.get()) |window| window.applyOpacity();
+    if (xdg_popup.owner) |owner| if (owner.get()) |window| {
+        window.applyOpacity();
+        window.refreshCanvasPresentationBuffers();
+    };
 
     if (wlr_popup.seat) |wlr_seat| {
         const seat: *Seat = @ptrCast(@alignCast(wlr_seat.data));

@@ -242,6 +242,52 @@ fn scaleInt(value: c_int, scale: f64) c_int {
     return @intFromFloat(@round(@as(f64, @floatFromInt(value)) * scale));
 }
 
+/// Scale the authoritative scene subtree in place. SceneSurface remains in
+/// charge of buffers, damage, frame callbacks, and input-coordinate mapping;
+/// only scene destination geometry is transformed.
+pub fn scaleLiveSurfaceTree(root: *wlr.SceneTree, old_scale: f64, new_scale: f64) void {
+    scaleLiveChildren(root, old_scale, new_scale);
+}
+
+fn scaleLiveChildren(tree: *wlr.SceneTree, old_scale: f64, new_scale: f64) void {
+    var it = tree.children.iterator(.forward);
+    while (it.next()) |node| {
+        const base_x = @as(f64, @floatFromInt(node.x)) / old_scale;
+        const base_y = @as(f64, @floatFromInt(node.y)) / old_scale;
+        node.setPosition(scaleFloat(base_x, new_scale), scaleFloat(base_y, new_scale));
+        switch (node.type) {
+            .tree => scaleLiveChildren(wlr.SceneTree.fromNode(node), old_scale, new_scale),
+            .buffer => refreshLiveBuffer(wlr.SceneBuffer.fromNode(node), new_scale),
+            .rect => {},
+        }
+    }
+}
+
+pub fn refreshLiveSurfaceTree(root: *wlr.SceneTree, scale: f64) void {
+    var it = root.children.iterator(.forward);
+    while (it.next()) |node| switch (node.type) {
+        .tree => refreshLiveSurfaceTree(wlr.SceneTree.fromNode(node), scale),
+        .buffer => refreshLiveBuffer(wlr.SceneBuffer.fromNode(node), scale),
+        .rect => {},
+    };
+}
+
+fn refreshLiveBuffer(buffer: *wlr.SceneBuffer, scale: f64) void {
+    if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
+        const width = scene_surface.surface.current.width;
+        const height = scene_surface.surface.current.height;
+        if (width > 0 and height > 0) {
+            buffer.setDestSize(@max(1, scaleInt(width, scale)), @max(1, scaleInt(height, scale)));
+            return;
+        }
+    }
+}
+
+fn scaleFloat(value: f64, scale: f64) c_int {
+    const result = @round(value * scale);
+    return @intFromFloat(std.math.clamp(result, @as(f64, @floatFromInt(std.math.minInt(c_int))), @as(f64, @floatFromInt(std.math.maxInt(c_int)))));
+}
+
 pub fn layerSurfaceTree(scene: *Scene, layer: zwlr.LayerShellV1.Layer) *wlr.SceneTree {
     return switch (layer) {
         .background => scene.layers.background,
