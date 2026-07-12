@@ -1001,10 +1001,7 @@ pub fn attachDevice(seat: *Seat, device: *InputDevice) void {
             const keyboard: *Keyboard = @fieldParentPtr("device", device);
             keyboard.setGroup();
             if (keyboard.group) |group| {
-                seat.wlr_seat.setKeyboard(&group.state);
-                if (seat.wlr_seat.keyboard_state.focused_surface) |wlr_surface| {
-                    seat.keyboardNotifyEnter(wlr_surface);
-                }
+                seat.activateKeyboardGroup(group);
             }
         },
         // River implements pointer mappings without help from wlroots
@@ -1015,6 +1012,16 @@ pub fn attachDevice(seat: *Seat, device: *InputDevice) void {
             seat.cursor.wlr_cursor.mapInputToRegion(device.wlr_device, &device.config.map_to_rectangle);
         },
         .@"switch", .tablet_pad => unreachable, // unsupported
+    }
+}
+
+/// Select a keyboard group and refresh the current surface's enter state. The
+/// latter is required when a configuration reload replaces the active group's
+/// keymap/repeat state while keyboard focus itself remains unchanged.
+pub fn activateKeyboardGroup(seat: *Seat, group: *KeyboardGroup) void {
+    seat.wlr_seat.setKeyboard(&group.state);
+    if (seat.wlr_seat.keyboard_state.focused_surface) |wlr_surface| {
+        seat.keyboardNotifyEnter(wlr_surface);
     }
 }
 

@@ -88,6 +88,19 @@ pub fn focusedWindow(_: CompositorApi) ?layout.Handle {
     return null;
 }
 
+/// Whether keyboard focus is intentionally owned by a non-window surface such
+/// as a layer-shell launcher, lock surface, or Xwayland override-redirect menu.
+/// Automatic window-focus restoration must wait for that surface to release
+/// focus instead of recording a request that Seat.manageFinish() cannot apply.
+pub fn hasNonWindowKeyboardFocus(_: CompositorApi) bool {
+    var seats = server.input_manager.seats.iterator(.forward);
+    const seat = seats.next() orelse return false;
+    return switch (seat.focused) {
+        .none, .window => false,
+        .shell_surface, .override_redirect, .lock_surface, .layer_surface => true,
+    };
+}
+
 pub fn requestFocus(_: CompositorApi, handle: layout.Handle) void {
     var seats = server.input_manager.seats.iterator(.forward);
     if (seats.next()) |seat| seat.policyRequestFocus(handle);

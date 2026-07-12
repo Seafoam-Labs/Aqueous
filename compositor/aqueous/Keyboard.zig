@@ -141,25 +141,43 @@ pub fn setRepeatInfo(keyboard: *Keyboard, rate: u31, delay: u31) void {
     if (keyboard.config.repeat_rate == rate and keyboard.config.repeat_delay == delay and keyboard.group != null) return;
     keyboard.config.repeat_rate = rate;
     keyboard.config.repeat_delay = delay;
-    if (keyboard.group) |group| {
-        group.unref(keyboard.pressed.keys());
-        keyboard.group = null;
-    }
-    keyboard.setGroup();
+    keyboard.rebuildGroup();
 }
 
 pub fn setKeymap(keyboard: *Keyboard, keymap: *xkb.Keymap) void {
     assert(!keyboard.device.virtual);
     if (shouldSetKeymap()) {
-        _ = keyboard.device.wlr_device.toKeyboard().setKeymap(keyboard.config.keymap);
+        _ = keyboard.device.wlr_device.toKeyboard().setKeymap(keymap);
     }
     if (keyboard.config.keymap) |old| old.unref();
     keyboard.config.keymap = keymap.ref();
-    if (keyboard.group) |group| {
-        group.unref(keyboard.pressed.keys());
-        keyboard.group = null;
-    }
+    keyboard.rebuildGroup();
+}
+
+/// Recreate group state after a repeat-info or keymap change without leaving
+/// wlr_seat pointing at the group that was just finished and freed. This is
+/// especially important for the common single-keyboard case, where unref()
+/// has no other group available to select before the replacement exists.
+fn rebuildGroup(keyboard: *Keyboard) void {
+    const seat = keyboard.device.seat;
+    const old_group = keyboard.group;
+    const was_active = if (old_group) |group| seat.wlr_seat.getKeyboard() == &group.state else false;
+
+    // Keep the old reference alive until its replacement exists. If creating
+    // the new group fails, restoring this pointer leaves the seat and keyboard
+    // on the last usable state instead of retaining a freed active keyboard.
+    keyboard.group = null;
     keyboard.setGroup();
+    if (keyboard.group == null) {
+        keyboard.group = old_group;
+        return;
+    }
+
+    if (old_group) |group| group.unref(keyboard.pressed.keys());
+
+    if (was_active) {
+        if (keyboard.group) |group| seat.activateKeyboardGroup(group);
+    }
 }
 
 pub fn deviceDestroy(keyboard: *Keyboard) void {

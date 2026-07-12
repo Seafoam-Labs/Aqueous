@@ -146,9 +146,15 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     var snapshot = try aqueous.api.policySnapshot(util.gpa);
     defer snapshot.deinit(util.gpa);
     const focused = aqueous.api.focusedWindow();
+    const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
     const selected_output_id = aqueous.api.selectedOutputId();
     var focused_is_focusable = focused == null;
-    if (focused != null and focused == aqueous.pending_focus.window) aqueous.pending_focus.clear();
+    var replacement_focus_requested = false;
+    if ((focused != null and focused == aqueous.pending_focus.window) or
+        (non_window_keyboard_focus and aqueous.pending_focus.window != 0))
+    {
+        aqueous.pending_focus.clear();
+    }
 
     for (snapshot.outputs) |output| {
         var output_layout = aqueous.config.layout;
@@ -253,13 +259,14 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         const focus_valid = if (focused) |handle| containsWindow(focusable.items, handle) else false;
-        if (!focus_valid and selected_output_id == output.id) {
+        if (!focus_valid and !non_window_keyboard_focus and selected_output_id == output.id) {
             var target = aqueous.focus_history.pick(workspace_key, focusable.items, focusCandidateValid);
             if (target == 0 and managed.items.len > 0) target = managed.items[0].handle;
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
             if (target != 0 and target != aqueous.pending_focus.window) {
                 aqueous.pending_focus.setWindow(target, 1);
                 aqueous.api.requestFocus(target);
+                replacement_focus_requested = true;
             }
         }
         const placements = try layout_engine.arrange(
@@ -280,7 +287,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     // A closing, minimized, or workspace-removed window may still be the
     // wl_seat focus target. If no active output considers it focusable,
     // explicitly send keyboard leave before it is destroyed.
-    if (!focused_is_focusable) aqueous.api.clearFocus();
+    if (!focused_is_focusable and !replacement_focus_requested) aqueous.api.clearFocus();
 
     var stale: std.ArrayListUnmanaged(LayoutStateKey) = .empty;
     defer stale.deinit(util.gpa);
