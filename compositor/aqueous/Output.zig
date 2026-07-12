@@ -889,6 +889,13 @@ fn hasActiveAnimations(output: *Output) bool {
 }
 
 fn renderAndCommit(output: *Output, force: bool) !void {
+    // Native clients such as Firefox/Zen use desynchronized GPU subsurfaces
+    // which can replace their scene buffers without committing the XDG
+    // top-level. Surface commits still schedule an output frame, so use the
+    // frame boundary as the final visual-state barrier before SceneFX computes
+    // damage, opaque-region occlusion, and blending.
+    output.syncWindowVisualState();
+
     if (!force and !output.scene_output.?.needsFrame()) return;
 
     const wlr_output = output.wlr_output.?;
@@ -949,6 +956,15 @@ fn renderAndCommit(output: *Output, force: bool) !void {
                 }
             }
         },
+    }
+}
+
+fn syncWindowVisualState(output: *Output) void {
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output) continue;
+        window.applyOpacity();
     }
 }
 
