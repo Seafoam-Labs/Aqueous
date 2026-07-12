@@ -597,15 +597,20 @@ fn move(cursor: *const Cursor, mapping: *const wlr.Box, dx: f64, dy: f64) void {
 
 fn updateHovered(cursor: *Cursor) void {
     const old = cursor.seat.wm_scheduled.hovered;
-    if (cursor.hasActiveLockedPointerConstraint()) {
-        cursor.seat.wm_scheduled.hovered = null;
-    } else if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |result| {
-        switch (result.data) {
-            .window => |window| {
+    // Start from no hovered window. Scene nodes without a client surface are
+    // compositor decorations (most notably SSD borders), and must not become
+    // focus-follows-mouse targets. Adjacent outward-drawn borders can overlap
+    // inside a gap; treating them as windows makes tiny pointer movements flip
+    // focus, border state, and stacking repeatedly.
+    cursor.seat.wm_scheduled.hovered = null;
+    if (!cursor.hasActiveLockedPointerConstraint()) {
+        if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |result| switch (result.data) {
+            .window => |window| window_hit: {
+                const surface = result.surface orelse break :window_hit;
                 switch (window.impl) {
                     .toplevel => |toplevel| {
                         // Exclude input regions of the toplevel that extend beyond the window
-                        if (result.surface != null and result.surface.?.getRootSurface() == toplevel.wlr_toplevel.base.surface) {
+                        if (surface.getRootSurface() == toplevel.wlr_toplevel.base.surface) {
                             if (window.box.containsPoint(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) {
                                 cursor.seat.wm_scheduled.hovered = window.ref;
                             }
@@ -617,17 +622,12 @@ fn updateHovered(cursor: *Cursor) void {
                     .destroying => {},
                 }
             },
-            .shell_surface, .lock_surface, .layer_surface => {
-                cursor.seat.wm_scheduled.hovered = null;
-            },
+            .shell_surface, .lock_surface, .layer_surface => {},
             .override_redirect => {
                 assert(build_options.xwayland);
                 assert(server.xwayland != null);
-                cursor.seat.wm_scheduled.hovered = null;
             },
-        }
-    } else {
-        cursor.seat.wm_scheduled.hovered = null;
+        };
     }
 
     if (cursor.seat.wm_scheduled.hovered != old) {
