@@ -493,5 +493,7 @@ pub fn applyPlacement(_: CompositorApi, placement: layout.Placement) void {
         placement.visible,
         @intCast(@max(0, placement.border.width)),
         border_color,
+        placement.tiled,
+        placement.maximized,
     );
 }

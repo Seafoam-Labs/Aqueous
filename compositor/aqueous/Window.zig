@@ -407,6 +407,8 @@ pub fn policyApplyPlacement(
     visible: bool,
     border_width: u31,
     border_color: u32,
+    tiled: bool,
+    maximized: bool,
 ) void {
     if (width > 0 and height > 0) {
         window.wm_requested.dimensions = .{ .width = @intCast(width), .height = @intCast(height) };
@@ -416,6 +418,8 @@ pub fn policyApplyPlacement(
     window.rendering_requested.x = x;
     window.rendering_requested.y = y;
     window.rendering_requested.hidden = !visible;
+    window.wm_requested.tiled = if (tiled) .{ .top = true, .bottom = true, .left = true, .right = true } else .{};
+    window.wm_requested.maximized = maximized;
     const expand: u32 = 0x01010101;
     window.rendering_requested.border = .{
         .edges = if (border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},

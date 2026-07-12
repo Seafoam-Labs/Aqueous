@@ -20,7 +20,7 @@ enabled = false
 focus_follows_mouse = true
 
 [actions]
-spawn_terminal = "ghostty --config-file=/dev/null --config-default-files=false --initial-window=false --gtk-single-instance=false --window-decoration=false --class=aq-parity-spawned,aq-parity-spawned --title=aq-parity-spawned -e sleep 60"
+spawn_terminal = "ghostty --config-file=compositor/scripts/fixtures/ghostty.conf --config-default-files=false --gtk-single-instance=false --window-decoration=false --class=aq-parity-spawned,aq-parity-spawned --title=aq-parity-spawned -e sleep 60"
 
 [keybinds]
 spawn_terminal = "Super+Return"

@@ -207,24 +207,24 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 fullscreen_owner = window.handle;
             }
             if (state.kind == .minimized) {
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none });
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiled = false });
                 continue;
             }
             if (state.kind == .maximized) {
                 const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = max_area, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = max_area, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border, .tiled = false, .maximized = true });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (state.kind == .floating) {
                 var geometry = state.floating_geometry;
                 if (geometry.width <= 0 or geometry.height <= 0) geometry = floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border });
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border, .tiled = false });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (effect.fullscreen) {
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = output.area, .z_order = 2, .visible = true, .border = .none });
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = output.area, .z_order = 2, .visible = true, .border = .none, .tiled = false });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
@@ -938,6 +938,7 @@ fn floatingPlacement(area: layout_types.Rect, handle: layout_types.Handle, place
         .z_order = 1,
         .visible = true,
         .border = border,
+        .tiled = false,
     };
 }
 

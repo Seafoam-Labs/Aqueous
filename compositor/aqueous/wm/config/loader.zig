@@ -241,7 +241,16 @@ fn applyLayoutFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []co
     const source = readFile(allocator, path) orelse return;
     defer allocator.free(source);
     snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
-    layout.apply(&snapshot.layout, source);
+    applyLayoutSource(snapshot, source);
+}
+
+fn applyLayoutSource(snapshot: *Snapshot, source: []const u8) void {
+    // The sidecar contains more than engine options: existing configurations
+    // also place [[output]] and [[workspace]] layout mappings here. Route it
+    // through the combined parser so those mappings and [layout] flags such as
+    // force_ssd are retained; wm.apply delegates the layout-specific tables to
+    // layout.apply at the end.
+    wm.apply(&snapshot.wm, &snapshot.layout, source);
 }
 
 fn applyInputFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []const u8) void {
@@ -279,6 +288,29 @@ fn mergeDevice(base: *wm.Device, overlay: wm.Device) void {
     if (overlay.click_method != .unset) base.click_method = overlay.click_method;
     if (overlay.scroll_method != .unset) base.scroll_method = overlay.scroll_method;
     if (overlay.middle_emulation != null) base.middle_emulation = overlay.middle_emulation;
+}
+
+test "layout sidecar applies workspace mappings as well as layout engines" {
+    var snapshot: Snapshot = .{};
+    applyLayoutSource(&snapshot,
+        \\[layout]
+        \\default = "game-mode"
+        \\force_ssd = true
+        \\[layout.slots]
+        \\primary = "tile"
+        \\[[workspace]]
+        \\workspace = 2
+        \\layout = "dwindle"
+        \\[[workspace]]
+        \\workspace = 3
+        \\layout = "tile"
+    );
+
+    try std.testing.expectEqual(layout.LayoutId.game_mode, snapshot.layout.default);
+    try std.testing.expectEqual(layout.LayoutId.tile, snapshot.layout.slots[0]);
+    try std.testing.expect(snapshot.wm.force_ssd);
+    try std.testing.expectEqual(layout.LayoutId.dwindle, snapshot.wm.resolveWorkspace(null, 2).?);
+    try std.testing.expectEqual(layout.LayoutId.tile, snapshot.wm.resolveWorkspace(null, 3).?);
 }
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {

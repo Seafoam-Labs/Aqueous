@@ -33,6 +33,7 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
             .z_order = if (focused != null and focused.? == window.handle) 1 else 0,
             .visible = true,
             .border = options.border,
+            .tiled = false,
         };
     }
     var stale: std.ArrayListUnmanaged(types.Handle) = .empty;

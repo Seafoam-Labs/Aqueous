@@ -56,6 +56,8 @@ pub const Placement = struct {
     z_order: i32,
     visible: bool,
     border: Border,
+    tiled: bool = true,
+    maximized: bool = false,
 };
 
 pub const Direction = enum {

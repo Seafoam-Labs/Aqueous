@@ -100,9 +100,8 @@ press() {
 launch_ghostty() {
     local identity=$1
     ghostty \
-        --config-file=/dev/null \
+        --config-file="$FIXTURES/ghostty.conf" \
         --config-default-files=false \
-        --initial-window=false \
         --gtk-single-instance=false \
         --window-decoration=false \
         --class="$identity,$identity" \
