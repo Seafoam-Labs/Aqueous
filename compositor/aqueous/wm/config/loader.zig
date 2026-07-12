@@ -270,6 +270,14 @@ fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
     if (overlay.focus_follows_mouse != defaults.focus_follows_mouse) base.focus_follows_mouse = overlay.focus_follows_mouse;
     if (overlay.pointer_acceleration != defaults.pointer_acceleration) base.pointer_acceleration = overlay.pointer_acceleration;
     if (overlay.pointer_acceleration_factor != defaults.pointer_acceleration_factor) base.pointer_acceleration_factor = overlay.pointer_acceleration_factor;
+    if (overlay.repeat_rate_set) {
+        base.repeat_rate = overlay.repeat_rate;
+        base.repeat_rate_set = true;
+    }
+    if (overlay.repeat_delay_set) {
+        base.repeat_delay = overlay.repeat_delay;
+        base.repeat_delay_set = true;
+    }
     mergeDevice(&base.mouse, overlay.mouse);
     mergeDevice(&base.touchpad, overlay.touchpad);
     mergeDevice(&base.trackpoint, overlay.trackpoint);
@@ -288,6 +296,26 @@ fn mergeDevice(base: *wm.Device, overlay: wm.Device) void {
     if (overlay.click_method != .unset) base.click_method = overlay.click_method;
     if (overlay.scroll_method != .unset) base.scroll_method = overlay.scroll_method;
     if (overlay.middle_emulation != null) base.middle_emulation = overlay.middle_emulation;
+}
+
+test "input sidecar repeat settings override inherited values including defaults" {
+    var base: wm.Input = .{
+        .repeat_rate = 75,
+        .repeat_rate_set = true,
+        .repeat_delay = 150,
+        .repeat_delay_set = true,
+    };
+    var overlay_wm: wm.Snapshot = .{};
+    var ignored_layout: layout.Snapshot = .{};
+    wm.apply(&overlay_wm, &ignored_layout,
+        \\[input]
+        \\repeat_rate = 40
+        \\repeat_delay = 400
+    );
+    mergeInput(&base, overlay_wm.input);
+
+    try std.testing.expectEqual(@as(u31, 40), base.repeat_rate);
+    try std.testing.expectEqual(@as(u31, 400), base.repeat_delay);
 }
 
 test "layout sidecar applies workspace mappings as well as layout engines" {

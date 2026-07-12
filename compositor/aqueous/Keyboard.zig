@@ -65,6 +65,12 @@ pub fn create(seat: *Seat, wlr_device: *wlr.InputDevice, virtual: bool) !*Keyboa
         },
         .device = undefined,
     };
+    // Backend keyboards may arrive after policy startup (for example USB
+    // hotplug), so seed their group configuration from the current snapshot.
+    if (!virtual and server.aqueous.mode.runsInternal()) {
+        keyboard.config.repeat_rate = server.aqueous.config.wm.input.repeat_rate;
+        keyboard.config.repeat_delay = server.aqueous.config.wm.input.repeat_delay;
+    }
     errdefer if (keyboard.config.keymap) |keymap| keymap.unref();
 
     try keyboard.pressed.ensureTotalCapacity(util.gpa, KeyboardGroup.pressed_count_max);
@@ -132,6 +138,7 @@ pub fn setGroup(keyboard: *Keyboard) void {
 
 pub fn setRepeatInfo(keyboard: *Keyboard, rate: u31, delay: u31) void {
     assert(!keyboard.device.virtual);
+    if (keyboard.config.repeat_rate == rate and keyboard.config.repeat_delay == delay and keyboard.group != null) return;
     keyboard.config.repeat_rate = rate;
     keyboard.config.repeat_delay = delay;
     if (keyboard.group) |group| {

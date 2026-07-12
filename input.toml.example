@@ -12,10 +12,10 @@
 #
 # This file overlays [input] settings from wm.toml and is hot-reloaded. Device
 # options are nullable overrides: omit a key to retain the libinput default.
-# The three top-level scalar defaults are false, false, and 0.0. Because the
-# current sidecar merge detects these fields by comparing against defaults, a
-# default-valued scalar here cannot clear a non-default value set in wm.toml;
-# define those three fields in only one file.
+# The legacy pointer scalar settings below are best defined in only one file:
+# their default values cannot clear non-default values inherited from wm.toml.
+# Keyboard repeat fields track explicit presence and can override any wm.toml
+# value, including by restoring the documented defaults.
 
 [input]
 # Focus a window when the pointer enters it.
@@ -31,6 +31,11 @@ pointer_acceleration_factor = 0.0 # libinput speed, -1.0 through 1.0
 xkb_layout = "us"       # comma-separated layouts are accepted, e.g. "us,de"
 xkb_variant = ""        # e.g. "dvorak"
 xkb_options = ""        # e.g. "caps:escape,grp:alt_shift_toggle"
+
+# Keyboard repeat. A rate of 0 disables repeat; delay is milliseconds before
+# repeating begins. Changes apply to connected and subsequently added keyboards.
+repeat_rate = 40
+repeat_delay = 400
 
 # Optional when selecting this sidecar from wm.toml:
 # path = "~/.config/aqueous/input.toml"

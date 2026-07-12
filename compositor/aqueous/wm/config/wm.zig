@@ -58,6 +58,12 @@ pub const Input = struct {
     focus_follows_mouse: bool = false,
     pointer_acceleration: bool = false,
     pointer_acceleration_factor: f64 = 0,
+    /// Keyboard repeat rate in characters per second. Zero disables repeat.
+    repeat_rate: u31 = 40,
+    repeat_rate_set: bool = false,
+    /// Delay before keyboard repeat begins, in milliseconds.
+    repeat_delay: u31 = 400,
+    repeat_delay_set: bool = false,
     mouse: Device = .{},
     touchpad: Device = .{},
     trackpoint: Device = .{},
@@ -257,6 +263,14 @@ fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "focus_follows_mouse")) input.focus_follows_mouse = parseBool(value) orelse input.focus_follows_mouse;
     if (std.mem.eql(u8, key, "pointer_acceleration")) input.pointer_acceleration = parseBool(value) orelse input.pointer_acceleration;
     if (std.mem.eql(u8, key, "pointer_acceleration_factor")) input.pointer_acceleration_factor = parseSpeed(value) orelse input.pointer_acceleration_factor;
+    if (std.mem.eql(u8, key, "repeat_rate") or std.mem.eql(u8, key, "repeat-rate")) if (parseU31(value)) |parsed| {
+        input.repeat_rate = parsed;
+        input.repeat_rate_set = true;
+    };
+    if (std.mem.eql(u8, key, "repeat_delay") or std.mem.eql(u8, key, "repeat-delay")) if (parseU31(value)) |parsed| {
+        input.repeat_delay = parsed;
+        input.repeat_delay_set = true;
+    };
     if (std.mem.eql(u8, key, "xkb_layout")) _ = input.xkb_layout.set(value);
     if (std.mem.eql(u8, key, "xkb_variant")) _ = input.xkb_variant.set(value);
     if (std.mem.eql(u8, key, "xkb_options")) _ = input.xkb_options.set(value);
@@ -381,6 +395,9 @@ fn parseNonNegativeFloat(value: []const u8) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;
     return if (std.math.isFinite(result) and result >= 0) result else null;
 }
+fn parseU31(value: []const u8) ?u31 {
+    return std.fmt.parseInt(u31, value, 10) catch null;
+}
 fn parseUnit(value: []const u8) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;
     return if (std.math.isFinite(result) and result >= 0 and result <= 1) result else null;
@@ -402,6 +419,8 @@ test "wm and input config validates mappings, struts, and device settings" {
         \\left = -2
         \\[input]
         \\focus_follows_mouse = true
+        \\repeat_rate = 30
+        \\repeat_delay = 275
         \\xkb_layout = "us,de"
         \\[input.touchpad]
         \\accel-speed = 0.5
@@ -417,6 +436,8 @@ test "wm and input config validates mappings, struts, and device settings" {
     try std.testing.expectEqual(@as(i32, 32), wm_snapshot.struts.top);
     try std.testing.expectEqual(@as(i32, 0), wm_snapshot.struts.left);
     try std.testing.expect(wm_snapshot.input.focus_follows_mouse);
+    try std.testing.expectEqual(@as(u31, 30), wm_snapshot.input.repeat_rate);
+    try std.testing.expectEqual(@as(u31, 275), wm_snapshot.input.repeat_delay);
     try std.testing.expectEqualStrings("us,de", wm_snapshot.input.xkb_layout.slice());
     try std.testing.expectEqual(@as(?f64, 0.5), wm_snapshot.input.touchpad.accel_speed);
     try std.testing.expectEqual(layout.LayoutId.grid, wm_snapshot.resolveOutput(.{ .name = "DP-1" }).?);

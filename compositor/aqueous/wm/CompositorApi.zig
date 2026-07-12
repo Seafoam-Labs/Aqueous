@@ -270,6 +270,16 @@ pub fn applyInputConfig(_: CompositorApi, input: wm_config.Input) void {
     var devices = server.libinput_config.devices.iterator(.forward);
     while (devices.next()) |device| device.policyApply(input);
 
+    // Repeat is a keyboard protocol setting, not a libinput option. Apply it
+    // independently of XKB so repeat-only configurations and hot reloads work.
+    var keyboard_devices = server.input_manager.devices.iterator(.forward);
+    while (keyboard_devices.next()) |device| {
+        if (!device.virtual and device.wlr_device.type == .keyboard) {
+            const keyboard: *@import("../Keyboard.zig") = @ptrCast(@alignCast(device.wlr_device.toKeyboard().data orelse continue));
+            keyboard.setRepeatInfo(input.repeat_rate, input.repeat_delay);
+        }
+    }
+
     if (input.xkb_layout.empty() and input.xkb_variant.empty() and input.xkb_options.empty()) return;
     var layout_buf: [257]u8 = undefined;
     var variant_buf: [257]u8 = undefined;
