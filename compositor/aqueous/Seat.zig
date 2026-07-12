@@ -390,6 +390,31 @@ pub fn queueEvent(seat: *Seat, event: Event) !void {
     }
 }
 
+/// Consume the currently queued burst of pointer motion as one interactive WM
+/// update. Each event still reaches wl_pointer/relative-pointer in order, but
+/// the integrated policy's floating geometry is left at the newest cursor
+/// position before the pending manage transaction begins. Pointer buttons and
+/// axes are never crossed, preserving press/release ordering.
+fn processInteractiveMotionBatch(seat: *Seat, first: Event) void {
+    var event = first;
+    while (true) {
+        switch (event) {
+            .pointer_motion_relative => |ev| seat.cursor.processMotionRelative(&ev),
+            .pointer_motion_absolute => |ev| seat.cursor.processMotionAbsolute(&ev),
+            .pointer_frame => seat.wlr_seat.pointerNotifyFrame(),
+            else => unreachable,
+        }
+
+        const queued = seat.event_queue.front() orelse return;
+        switch (queued) {
+            .pointer_motion_relative, .pointer_motion_absolute, .pointer_frame => {
+                event = seat.event_queue.popFront().?;
+            },
+            else => return,
+        }
+    }
+}
+
 pub fn processEvents(seat: *Seat) void {
     assert(server.wm.state == .idle);
 
@@ -400,6 +425,14 @@ pub fn processEvents(seat: *Seat) void {
         assert(server.wm.state == .idle);
 
         const event = seat.event_queue.popFront() orelse break;
+
+        if (server.aqueous.interactiveDragActive()) switch (event) {
+            .pointer_motion_relative, .pointer_motion_absolute => {
+                seat.processInteractiveMotionBatch(event);
+                continue;
+            },
+            else => {},
+        };
 
         const pg = server.input_manager.pointer_gestures;
         switch (event) {

@@ -311,6 +311,20 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (aqueous.drag != null and aqueous.drag.?.handle == handle) aqueous.drag = null;
 }
 
+/// Input events may be coalesced while an integrated-policy pointer operation
+/// is active. Tiled swapping is intentionally excluded because every crossed
+/// window is semantically meaningful there.
+pub fn interactiveDragActive(aqueous: *const Aqueous) bool {
+    const drag = aqueous.drag orelse return false;
+    return drag.action != .swap_tiled;
+}
+
+fn finishInteractiveDrag(aqueous: *Aqueous) void {
+    const drag = aqueous.drag orelse return;
+    if (drag.action != .swap_tiled) aqueous.api.endInteractive(drag.handle);
+    aqueous.drag = null;
+}
+
 /// Direct compositor key path. Returning true eats the event before it reaches a client.
 pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) bool {
     if (!aqueous.mode.runsInternal()) return false;
@@ -332,7 +346,7 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64) bool {
     if (!aqueous.mode.runsInternal()) return false;
     if (!pressed and aqueous.drag != null) {
-        aqueous.drag = null;
+        aqueous.finishInteractiveDrag();
         return true;
     }
     if (modifiers & (1 | 4 | 8 | 64) != aqueous.config.actions.primary_modifier) return false;
@@ -365,6 +379,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
         };
         _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+        aqueous.api.beginInteractive(target.handle, drag_action == .resize_floating);
     }
     aqueous.api.requestFocus(target.handle);
     return true;

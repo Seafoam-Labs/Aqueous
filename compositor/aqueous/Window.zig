@@ -324,6 +324,12 @@ rendering_requested: RenderingRequested = .init,
 /// The currently rendered position/dimensions of the window in the scene graph
 box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 
+/// Pointer-driven operation owned by the integrated policy. Interactive motion
+/// must remain attached to the cursor, so ordinary position easing is bypassed
+/// while this is set. The resize variant is also forwarded to xdg_toplevel so
+/// clients can use their interactive-resize rendering path.
+interactive: enum { none, move, resize } = .none,
+
 /// Position animation state. `anim_target_{x,y}` is the destination requested by
 /// the window manager; `anim_{x,y}` is the eased value actually written to the
 /// scene node each frame. `renderFinish` feeds the target in and snaps on the
@@ -432,6 +438,33 @@ pub fn policyApplyPlacement(
     };
     window.node.link.remove();
     server.wm.rendering_requested.list.append(&window.node);
+}
+
+pub fn policyBeginInteractive(window: *Window, resize: bool) void {
+    const next: @TypeOf(window.interactive) = if (resize) .resize else .move;
+    if (window.interactive == next) return;
+
+    // Do not leave a cosmetic clone chasing the pointer. The authoritative live
+    // tree is already at window.box, so dropping the clone is visually seamless.
+    window.anim_active = false;
+    window.clearSnapshot();
+    window.interactive = next;
+
+    const resizing = next == .resize;
+    if (window.wm_requested.resizing != resizing) {
+        window.wm_requested.resizing = resizing;
+        server.wm.dirtyWindowing();
+    }
+}
+
+pub fn policyEndInteractive(window: *Window) void {
+    if (window.interactive == .none) return;
+    const was_resizing = window.interactive == .resize;
+    window.interactive = .none;
+    if (was_resizing and window.wm_requested.resizing) {
+        window.wm_requested.resizing = false;
+        server.wm.dirtyWindowing();
+    }
 }
 
 pub fn policyApplyVisualRule(window: *Window, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
@@ -1334,7 +1367,12 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
-        if (transitioning and is_outgoing) {
+        if (window.interactive != .none) {
+            // Pointer-driven move/resize must track the latest policy geometry
+            // exactly. Retargetable easing here makes the visible clone trail
+            // behind the cursor and can keep stale resize contents on screen.
+            window.setAnimationTarget(requested.x, requested.y, false);
+        } else if (transitioning and is_outgoing) {
             // Outgoing window: ease its clone from the real position to one
             // output-width off-screen in the transition direction; the live
             // tree jumps off-screen immediately (it is leaving) but stays

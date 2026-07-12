@@ -66,6 +66,16 @@ pub fn requestManageCycle(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+pub fn beginInteractive(_: CompositorApi, handle: layout.Handle, resize: bool) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| window.policyBeginInteractive(resize);
+}
+
+pub fn endInteractive(_: CompositorApi, handle: layout.Handle) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| window.policyEndInteractive();
+}
+
 pub fn applyGlobals(_: CompositorApi, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
     server.wm.policyApplyGlobals(blur_enabled, blur_radius, blur_passes, opacity, transition_enabled, transition_rate);
 }
