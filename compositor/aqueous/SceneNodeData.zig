@@ -43,8 +43,12 @@ pub fn attach(node: *wlr.SceneNode, data: Data) error{OutOfMemory}!void {
 pub fn fromNode(node: *wlr.SceneNode) ?*SceneNodeData {
     var n = node;
     while (true) {
-        if (@as(?*SceneNodeData, @ptrCast(@alignCast(n.data)))) |scene_node_data| {
-            return scene_node_data;
+        // SceneNodeData is attached only to owning trees. Buffer data may be
+        // used by canvas presentation clones for inverse-transformed input.
+        if (n.type == .tree) {
+            if (@as(?*SceneNodeData, @ptrCast(@alignCast(n.data)))) |scene_node_data| {
+                return scene_node_data;
+            }
         }
         if (n.parent) |parent_tree| {
             n = &parent_tree.node;

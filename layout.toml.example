@@ -29,7 +29,7 @@
 [layout]
 # Layout used when there is no runtime, output, or workspace override.
 # Accepted: tile | monocle | grid | rows | dwindle | scrolling | float |
-#           floating | game-mode | game_mode
+#           floating | game-mode | game_mode | canvas
 default = "tile"
 
 # Common geometry applied to every layout. Layout-specific sections below can

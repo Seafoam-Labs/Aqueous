@@ -57,6 +57,9 @@ pub const Placement = struct {
     border: Border,
     tiled: bool = true,
     maximized: bool = false,
+    /// Compositor-side presentation scale. Existing layouts leave this at one,
+    /// preserving the historical configure and scene paths.
+    scale: f64 = 1,
 };
 
 pub const Direction = enum {

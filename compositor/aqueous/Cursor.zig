@@ -774,6 +774,14 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
 }
 
 pub fn processAxis(cursor: *Cursor, event: *const Seat.Event.PointerAxis) void {
+    const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
+    if (server.aqueous.handlePointerAxis(
+        event.orientation == .vertical_scroll,
+        event.delta,
+        modifiers,
+        cursor.wlr_cursor.x,
+        cursor.wlr_cursor.y,
+    )) return;
     cursor.seat.wlr_seat.pointerNotifyAxis(
         event.time_msec,
         event.orientation,

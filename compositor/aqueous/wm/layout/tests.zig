@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 test {
+    _ = @import("canvas.zig");
     _ = @import("dwindle.zig");
     _ = @import("floating.zig");
     _ = @import("game_geometry.zig");

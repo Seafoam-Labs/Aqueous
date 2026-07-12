@@ -49,7 +49,8 @@ model; they do not replace it.
   making the layout engine or clients produce intermediate geometry.
 - **Eight in-process layouts.** Choose from master/stack `tile`, `monocle`,
   `grid`, `rows`, recursive `dwindle`, column-based `scrolling`, `floating`, and
-  `game-mode`. Layout selection can vary by output and workspace.
+  `game-mode`, and an opt-in pannable/zoomable `canvas`. Layout selection can
+  vary by output and workspace.
 - **Game Mode that understands the rest of the desktop.** Anchor a game at a
   requested size and position while arranging companion windows with any of the
   standard tiling engines.

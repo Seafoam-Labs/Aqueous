@@ -152,6 +152,9 @@ const RenderingRequested = struct {
     /// river_window_manager_v1.set_opacity. Driven by
     /// river_window_v1.set_window_opacity.
     opacity: ?u32 = null,
+    /// Neutral for every existing layout. Canvas uses this to render a scaled
+    /// clone without changing the client's configured logical dimensions.
+    scale: f64 = 1,
 
     pub const init: RenderingRequested = .{
         .x = 0,
@@ -162,6 +165,7 @@ const RenderingRequested = struct {
         .content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
         .blur_enabled = true,
         .opacity = null,
+        .scale = 1,
     };
 };
 
@@ -232,6 +236,11 @@ decorations_below_tree: *wlr.SceneTree,
 
 surfaces: Scene.SaveableSurfaces,
 
+/// Scaled, interactive presentation of `surfaces` used only by canvas mode.
+/// Empty and disabled for every existing layout.
+canvas_tree: *wlr.SceneTree,
+canvas_presentation_active: bool = false,
+
 border: struct {
     left: *wlr.SceneRect,
     right: *wlr.SceneRect,
@@ -242,7 +251,12 @@ border: struct {
 decorations_above: wl.list.Head(Decoration, .link),
 decorations_above_tree: *wlr.SceneTree,
 
+/// Root kept in the global popup layer and positioned with the window.
+popup_root: *wlr.SceneTree,
+/// Authoritative live popup surfaces. Callers add XDG/input-method popups here.
 popup_tree: *wlr.SceneTree,
+/// Scaled popup presentation used only while canvas zoom is active.
+canvas_popup_tree: *wlr.SceneTree,
 
 /// Cosmetic overlay tree used to render the position animation. It holds a
 /// frozen clone of the window's surfaces and is the only node moved while a
@@ -416,6 +430,7 @@ pub fn policyApplyPlacement(
     border_color: u32,
     tiled: bool,
     maximized: bool,
+    scale: f64,
 ) void {
     if (width > 0 and height > 0) {
         window.wm_requested.dimensions = .{ .width = @intCast(width), .height = @intCast(height) };
@@ -427,6 +442,12 @@ pub fn policyApplyPlacement(
     window.rendering_requested.hidden = !visible;
     window.wm_requested.tiled = if (tiled) .{ .top = true, .bottom = true, .left = true, .right = true } else .{};
     window.wm_requested.maximized = maximized;
+    window.rendering_requested.scale = switch (window.impl) {
+        // XWayland configures from window.box during renderFinish; keep its
+        // historical output-coordinate path until that coupling is separated.
+        .toplevel => if (std.math.isFinite(scale) and scale > 0) scale else 1,
+        .xwayland, .destroying => 1,
+    };
     const expand: u32 = 0x01010101;
     window.rendering_requested.border = .{
         .edges = if (border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},
@@ -515,8 +536,10 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const tree = try server.scene.hidden_tree.createSceneTree();
     errdefer tree.node.destroy();
 
-    const popup_tree = try server.scene.layers.popups.createSceneTree();
-    errdefer popup_tree.node.destroy();
+    const popup_root = try server.scene.layers.popups.createSceneTree();
+    errdefer popup_root.node.destroy();
+    const popup_tree = try popup_root.createSceneTree();
+    const canvas_popup_tree = try popup_root.createSceneTree();
 
     const anim_tree = try server.scene.hidden_tree.createSceneTree();
     errdefer anim_tree.node.destroy();
@@ -530,6 +553,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_below = undefined,
         .decorations_below_tree = try tree.createSceneTree(),
         .surfaces = try Scene.SaveableSurfaces.init(tree),
+        .canvas_tree = try tree.createSceneTree(),
         .border = .{
             .left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
@@ -538,7 +562,9 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         },
         .decorations_above = undefined,
         .decorations_above_tree = try tree.createSceneTree(),
+        .popup_root = popup_root,
         .popup_tree = popup_tree,
+        .canvas_popup_tree = canvas_popup_tree,
         .anim_tree = anim_tree,
         .capture_scene = try wlr.Scene.create(),
         .workspace_link = undefined,
@@ -551,14 +577,16 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.decorations_above.init();
 
     window.tree.node.setEnabled(false);
-    window.popup_tree.node.setEnabled(false);
+    window.popup_root.node.setEnabled(false);
+    window.canvas_popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
+    window.canvas_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
 
     window.capture_scene.restack_xwayland_surfaces = false;
 
     try SceneNodeData.attach(&window.tree.node, .{ .window = window });
-    try SceneNodeData.attach(&window.popup_tree.node, .{ .window = window });
+    try SceneNodeData.attach(&window.popup_root.node, .{ .window = window });
 
     return window;
 }
@@ -593,7 +621,7 @@ pub fn destroy(window: *Window) void {
     }
 
     window.tree.node.destroy();
-    window.popup_tree.node.destroy();
+    window.popup_root.node.destroy();
     window.anim_tree.node.destroy();
     window.capture_scene.tree.node.destroy();
 
@@ -1335,7 +1363,7 @@ pub fn renderFinish(window: *Window) void {
     const transitioning = (is_incoming or is_outgoing) and transition_dir != 0;
     const enabled = workspace_visible and !requested.hidden and (window.state == .mapped or window.state == .closing);
     window.tree.node.setEnabled(enabled);
-    window.popup_tree.node.setEnabled(enabled);
+    window.popup_root.node.setEnabled(enabled);
 
     // A slide-animation clone lives in the shared scene layer and is enabled
     // independently of the live tree. If the window's workspace is no longer
@@ -1344,8 +1372,8 @@ pub fn renderFinish(window: *Window) void {
     // workspace's windows.
     if (!workspace_visible) window.clearSnapshot();
 
-    window.box.width = window.rendering_sent.width;
-    window.box.height = window.rendering_sent.height;
+    window.box.width = scaledDimension(window.rendering_sent.width, requested.scale);
+    window.box.height = scaledDimension(window.rendering_sent.height, requested.scale);
 
     var clip: wlr.Box = requested.clip;
     var content_clip: wlr.Box = requested.content_clip;
@@ -1367,7 +1395,12 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
-        if (window.interactive != .none) {
+        if (requested.scale != 1) {
+            // Canvas camera motion is authoritative and must not produce an
+            // unscaled cosmetic animation clone.
+            window.clearSnapshot();
+            window.setAnimationTarget(requested.x, requested.y, false);
+        } else if (window.interactive != .none) {
             // Pointer-driven move/resize must track the latest policy geometry
             // exactly. Retargetable easing here makes the visible clone trail
             // behind the cursor and can keep stale resize contents on screen.
@@ -1411,7 +1444,7 @@ pub fn renderFinish(window: *Window) void {
     // scene hit-testing / input stay correct.
     window.applyOpacity();
     window.tree.node.setPosition(window.box.x, window.box.y);
-    window.popup_tree.node.setPosition(window.box.x, window.box.y);
+    window.popup_root.node.setPosition(window.box.x, window.box.y);
 
     switch (window.impl) {
         .xwayland => |*xwindow| _ = xwindow.configure(),
@@ -1425,6 +1458,45 @@ pub fn renderFinish(window: *Window) void {
             decoration.renderFinish(&clip);
         }
     }
+    window.updateCanvasPresentation(enabled and window.wm_requested.fullscreen == null);
+}
+
+fn scaledDimension(value: u31, scale: f64) i32 {
+    const scaled = @round(@as(f64, @floatFromInt(value)) * scale);
+    return @max(1, @as(i32, @intFromFloat(std.math.clamp(scaled, 1, @as(f64, @floatFromInt(std.math.maxInt(i32)))))));
+}
+
+fn updateCanvasPresentation(window: *Window, permitted: bool) void {
+    const active = permitted and window.rendering_requested.scale != 1 and window.state == .mapped;
+    // Preserve the historical scene path exactly for windows that have never
+    // entered scaled canvas presentation.
+    if (!active and !window.canvas_presentation_active) return;
+
+    // Sources must be traversable while clones are rebuilt. They are disabled
+    // again before this synchronous render transaction is committed.
+    window.popup_tree.node.setEnabled(true);
+    window.decorations_below_tree.node.setEnabled(true);
+    window.decorations_above_tree.node.setEnabled(true);
+    var it = window.canvas_tree.children.safeIterator(.forward);
+    while (it.next()) |node| node.destroy();
+    var popup_it = window.canvas_popup_tree.children.safeIterator(.forward);
+    while (popup_it.next()) |node| node.destroy();
+
+    window.canvas_tree.node.setEnabled(active);
+    window.canvas_popup_tree.node.setEnabled(active);
+    window.canvas_presentation_active = active;
+    if (!active) return;
+
+    Scene.cloneNodeScaledInto(&window.decorations_below_tree.node, window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
+    window.surfaces.cloneScaledInto(window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
+    Scene.cloneNodeScaledInto(&window.decorations_above_tree.node, window.canvas_tree, window.rendering_requested.scale, .{ .window = window });
+    Scene.cloneNodeScaledInto(&window.popup_tree.node, window.canvas_popup_tree, window.rendering_requested.scale, .{ .window = window });
+    // applySurfaceClip()/applyOpacity() may have enabled the live tree earlier
+    // in this render pass. The scaled clone is authoritative while active.
+    window.surfaces.tree.node.setEnabled(false);
+    window.popup_tree.node.setEnabled(false);
+    window.decorations_below_tree.node.setEnabled(false);
+    window.decorations_above_tree.node.setEnabled(false);
 }
 
 /// Feed a new target position into the animator.
@@ -1792,7 +1864,7 @@ pub fn applyOpacity(window: *Window) void {
     const opacity = window.effectiveOpacity();
 
     fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
-    fx.setTreeOpacity(window.popup_tree, opacity);
+    fx.setTreeOpacity(window.popup_root, opacity);
     if (window.anim_snapshot) {
         fx.setTreeOpacity(window.anim_tree, opacity);
         fx.setTreeOpacity(window.surfaces.tree, 0);

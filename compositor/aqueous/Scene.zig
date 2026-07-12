@@ -7,12 +7,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const wlr = @import("wlroots");
+const wl = @import("wayland").server.wl;
 const zwlr = @import("wayland").server.zwlr;
 
 const server = &@import("main.zig").server;
 
 const SceneNodeData = @import("SceneNodeData.zig");
 const fx = @import("fx.zig");
+const util = @import("util.zig");
 
 wlr_scene: *wlr.Scene,
 /// All windows, status bars, drowdown menus, etc. that can recieve pointer events and similar.
@@ -104,6 +106,15 @@ pub fn at(scene: *const Scene, lx: f64, ly: f64) ?AtResult {
     const surface: ?*wlr.Surface = blk: {
         if (node.type == .buffer) {
             const scene_buffer = wlr.SceneBuffer.fromNode(node);
+            if (CanvasBufferData.fromBuffer(scene_buffer)) |canvas| {
+                return .{
+                    .node = node,
+                    .surface = canvas.surface,
+                    .sx = sx,
+                    .sy = sy,
+                    .data = canvas.data,
+                };
+            }
             if (wlr.SceneSurface.tryFromBuffer(scene_buffer)) |scene_surface| {
                 break :blk scene_surface.surface;
             }
@@ -122,6 +133,113 @@ pub fn at(scene: *const Scene, lx: f64, ly: f64) ?AtResult {
     } else {
         return null;
     }
+}
+
+/// Input and frame-callback bridge attached to a scaled presentation buffer.
+/// The clone renders an existing scene buffer while pointer coordinates and
+/// frame events continue to target the original wl_surface.
+pub const CanvasBufferData = struct {
+    buffer: *wlr.SceneBuffer,
+    source: *wlr.SceneBuffer,
+    surface: *wlr.Surface,
+    scale: f64,
+    data: SceneNodeData.Data,
+    destroy: wl.Listener(void) = .init(handleDestroy),
+    outputs_update: wl.Listener(*wlr.SceneBuffer.event.OutputsUpdate) = .init(handleOutputsUpdate),
+    output_sample: wl.Listener(*wlr.SceneBuffer.event.OutputSample) = .init(handleOutputSample),
+    frame_done: wl.Listener(*wlr.SceneBuffer.event.FrameDone) = .init(handleFrameDone),
+
+    pub fn attach(buffer: *wlr.SceneBuffer, source: *wlr.SceneBuffer, surface: *wlr.Surface, scale: f64, data: SceneNodeData.Data) !void {
+        const mapping = try util.gpa.create(CanvasBufferData);
+        mapping.* = .{
+            .buffer = buffer,
+            .source = source,
+            .surface = surface,
+            .scale = scale,
+            .data = data,
+        };
+        buffer.node.data = mapping;
+        buffer.point_accepts_input = pointAcceptsInput;
+        buffer.node.events.destroy.add(&mapping.destroy);
+        buffer.events.outputs_update.add(&mapping.outputs_update);
+        buffer.events.output_sample.add(&mapping.output_sample);
+        buffer.events.frame_done.add(&mapping.frame_done);
+    }
+
+    pub fn fromBuffer(buffer: *wlr.SceneBuffer) ?*CanvasBufferData {
+        return @ptrCast(@alignCast(buffer.node.data));
+    }
+
+    fn pointAcceptsInput(buffer: *wlr.SceneBuffer, sx: *f64, sy: *f64) callconv(.c) bool {
+        const mapping = fromBuffer(buffer) orelse return false;
+        var source_x = sx.* / mapping.scale;
+        var source_y = sy.* / mapping.scale;
+        const accepts = if (mapping.source.point_accepts_input) |callback|
+            callback(mapping.source, &source_x, &source_y)
+        else
+            mapping.surface.pointAcceptsInput(source_x, source_y);
+        sx.* = source_x;
+        sy.* = source_y;
+        return accepts;
+    }
+
+    fn handleFrameDone(listener: *wl.Listener(*wlr.SceneBuffer.event.FrameDone), event: *wlr.SceneBuffer.event.FrameDone) void {
+        const mapping: *CanvasBufferData = @fieldParentPtr("frame_done", listener);
+        if (wlr.SceneSurface.tryFromBuffer(mapping.source)) |scene_surface| scene_surface.sendFrameDone(&event.when);
+    }
+
+    fn handleOutputsUpdate(listener: *wl.Listener(*wlr.SceneBuffer.event.OutputsUpdate), event: *wlr.SceneBuffer.event.OutputsUpdate) void {
+        const mapping: *CanvasBufferData = @fieldParentPtr("outputs_update", listener);
+        mapping.source.events.outputs_update.emit(event);
+    }
+
+    fn handleOutputSample(listener: *wl.Listener(*wlr.SceneBuffer.event.OutputSample), event: *wlr.SceneBuffer.event.OutputSample) void {
+        const mapping: *CanvasBufferData = @fieldParentPtr("output_sample", listener);
+        mapping.source.events.output_sample.emit(event);
+    }
+
+    fn handleDestroy(listener: *wl.Listener(void)) void {
+        const mapping: *CanvasBufferData = @fieldParentPtr("destroy", listener);
+        mapping.destroy.link.remove();
+        mapping.outputs_update.link.remove();
+        mapping.output_sample.link.remove();
+        mapping.frame_done.link.remove();
+        mapping.buffer.node.data = null;
+        util.gpa.destroy(mapping);
+    }
+};
+
+const CanvasCloneContext = struct {
+    target: *wlr.SceneTree,
+    scale: f64,
+    data: SceneNodeData.Data,
+};
+
+pub fn cloneNodeScaledInto(source: *wlr.SceneNode, target: *wlr.SceneTree, scale: f64, data: SceneNodeData.Data) void {
+    var context: CanvasCloneContext = .{ .target = target, .scale = scale, .data = data };
+    source.forEachBuffer(*CanvasCloneContext, cloneScaledSurfaceIter, &context);
+}
+
+fn cloneScaledSurfaceIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, context: *CanvasCloneContext) void {
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+    const clone = context.target.createSceneBuffer(buffer.buffer) catch {
+        std.log.err("out of memory creating canvas presentation buffer", .{});
+        return;
+    };
+    clone.node.setPosition(scaleInt(sx, context.scale), scaleInt(sy, context.scale));
+    clone.setDestSize(@max(1, scaleInt(buffer.dst_width, context.scale)), @max(1, scaleInt(buffer.dst_height, context.scale)));
+    clone.setSourceBox(&buffer.src_box);
+    clone.setTransform(buffer.transform);
+    clone.setOpacity(buffer.opacity);
+    clone.setFilterMode(.bilinear);
+    fx.copyBufferFx(clone, buffer);
+    CanvasBufferData.attach(clone, buffer, scene_surface.surface, context.scale, context.data) catch {
+        clone.node.destroy();
+    };
+}
+
+fn scaleInt(value: c_int, scale: f64) c_int {
+    return @intFromFloat(@round(@as(f64, @floatFromInt(value)) * scale));
 }
 
 pub fn layerSurfaceTree(scene: *Scene, layer: zwlr.LayerShellV1.Layer) *wlr.SceneTree {
@@ -197,6 +315,10 @@ pub const SaveableSurfaces = struct {
     /// the cosmetic position-animation overlay).
     pub fn cloneInto(surfaces: *const SaveableSurfaces, target: *wlr.SceneTree) void {
         surfaces.tree.node.forEachBuffer(*wlr.SceneTree, saveSurfaceTreeIter, target);
+    }
+
+    pub fn cloneScaledInto(surfaces: *const SaveableSurfaces, target: *wlr.SceneTree, scale: f64, data: SceneNodeData.Data) void {
+        cloneNodeScaledInto(&surfaces.tree.node, target, scale, data);
     }
 
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {

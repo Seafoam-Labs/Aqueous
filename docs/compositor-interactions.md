@@ -57,7 +57,7 @@ transaction coordinator will configure and render.
 | `Output.zig` / `Workspace.zig` | Own output geometry, nine per-output workspaces, active workspace state, and workspace transitions. |
 | `Seat.zig` / `KeyboardGroup.zig` / `Cursor.zig` | Queue input, resolve bindings, schedule focus, deliver unconsumed events to clients, and manage pointer interactions. |
 | `LayerShellOutput.zig` | Arranges panels and docks and calculates the output area left after exclusive zones. |
-| `wm/layout/engine.zig` | Dispatches to the eight layout engines and retains per-output, per-workspace layout order. |
+| `wm/layout/engine.zig` | Dispatches to the nine layout engines and retains per-output, per-workspace layout/camera state. |
 | `wm/rules/engine.zig` | Resolves the first matching app ID, class, and title rule. |
 | `wm/output/Service.zig` | Loads native output policy, applies it through `OutputManager`, and hosts the compatibility JSON socket. |
 
@@ -249,7 +249,7 @@ the global default. A matching rule can select the active layout for its
 output during the current manage pass.
 
 The dispatcher supports `tile`, `monocle`, `grid`, `rows`, `dwindle`,
-`scrolling`, `floating`, and `game_mode`. Each engine receives:
+`scrolling`, `floating`, `game_mode`, and `canvas`. Each engine receives:
 
 - The final usable rectangle.
 - Only windows participating in that layout.

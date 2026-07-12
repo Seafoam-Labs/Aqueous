@@ -23,6 +23,11 @@ pub const WorkspaceContext = struct {
     workspace_number: u32,
 };
 
+pub const PointerWorkspaceContext = struct {
+    output_id: u64,
+    workspace_number: u32,
+};
+
 pub fn windowHandle(_: CompositorApi, window: *Window) WindowHandle {
     return .{ .ref = window.ref };
 }
@@ -203,6 +208,19 @@ pub fn workspaceContext(api: CompositorApi) ?WorkspaceContext {
     const output = api.selectedOutput() orelse return null;
     return .{
         .output = output,
+        .workspace_number = output.policyActiveWorkspaceNumber(),
+    };
+}
+
+/// Resolve the active output/workspace beneath a layout-coordinate point
+/// without changing seat selection or focus.
+pub fn workspaceAt(_: CompositorApi, x: f64, y: f64) ?PointerWorkspaceContext {
+    const wlr_output = server.om.outputAt(x, y) orelse return null;
+    const data = wlr_output.data orelse return null;
+    const output: *Output = @ptrCast(@alignCast(data));
+    if (output.active_workspace == null) return null;
+    return .{
+        .output_id = output.policyId(),
         .workspace_number = output.policyActiveWorkspaceNumber(),
     };
 }
@@ -528,5 +546,6 @@ pub fn applyPlacement(_: CompositorApi, placement: layout.Placement) void {
         border_color,
         placement.tiled,
         placement.maximized,
+        placement.scale,
     );
 }

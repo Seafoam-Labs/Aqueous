@@ -1,6 +1,6 @@
 # Layouts
 
-Aqueous ships eight in-process layout engines:
+Aqueous ships nine in-process layout engines:
 
 - `tile` — master/stack tiling.
 - `monocle` — one window fills the usable area.
@@ -10,6 +10,7 @@ Aqueous ships eight in-process layout engines:
 - `scrolling` — horizontally scrolling columns.
 - `float` — free placement using remembered/native geometry.
 - `game-mode` — an anchor window with remaining windows arranged beside it.
+- `canvas` — free placement in a pannable, zoomable per-workspace world.
 
 The global default and shared options can be placed in `wm.toml` or the
 optional `layout.toml` overlay. `layout.toml.example` documents discovery,
@@ -41,3 +42,27 @@ are applied by the native manage cycle.
 The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
+
+## Canvas interaction
+
+Canvas is opt-in and does not replace any existing layout or binding:
+
+```toml
+[layout]
+default = "canvas"
+```
+
+- Right-drag empty canvas space to pan. Right-clicks over application surfaces
+  continue to be delivered to the application.
+- Hold the primary modifier and left-drag a canvas window to move it in world
+  space without converting it to a floating window.
+- Hold the configured primary modifier (Super by default) and use the vertical
+  mouse wheel to zoom about the pointer.
+- Keyboard bindings may invoke `builtin:canvas_zoom_in`,
+  `builtin:canvas_zoom_out`, or `builtin:canvas_zoom_reset`.
+
+Camera and window-world state are retained independently for every
+output/workspace pair. Wayland clients remain configured at their logical
+canvas size while the compositor scales their presentation. Fullscreen,
+maximized, floating, layer-shell, and XWayland surfaces retain their existing
+output-coordinate behavior.

@@ -379,6 +379,7 @@ fn parseLayout(value: []const u8) ?layout.LayoutId {
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
+    if (std.mem.eql(u8, value, "canvas")) return .canvas;
     return null;
 }
 

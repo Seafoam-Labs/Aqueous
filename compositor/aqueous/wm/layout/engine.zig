@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
+const canvas = @import("canvas.zig");
 const config = @import("../config/layout.zig");
 const dwindle = @import("dwindle.zig");
 const floating = @import("floating.zig");
@@ -23,6 +24,7 @@ pub const State = struct {
     scrolling: scrolling.State = .{},
     floating: floating.State = .{},
     game_mode: game_mode.State = .{},
+    canvas: canvas.State = .{},
 
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
         state.tile.deinit(allocator);
@@ -33,6 +35,7 @@ pub const State = struct {
         state.scrolling.deinit(allocator);
         state.floating.deinit(allocator);
         state.game_mode.deinit(allocator);
+        state.canvas.deinit(allocator);
     }
 };
 
@@ -61,6 +64,7 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const con
         }),
         .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),
         .game_mode => game_mode.arrange(allocator, &state.game_mode, area, windows, focused, options, game_options),
+        .canvas => canvas.arrange(allocator, &state.canvas, area, windows, options),
     };
 }
 
@@ -113,6 +117,26 @@ test "pointer reorder swaps rows without changing window state" {
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.rows.order.items.items);
 }
 
+test "canvas dispatch is isolated from existing layout state" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .canvas;
+    const placements = try arrange(
+        std.testing.allocator,
+        &state,
+        &snapshot,
+        .{ .x = 0, .y = 0, .width = 1000, .height = 800 },
+        &.{.{ .handle = 1 }},
+        1,
+        .{},
+    );
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(config.LayoutId.canvas, state.active_layout);
+    try std.testing.expectEqual(@as(f64, 1), placements[0].scale);
+    try std.testing.expectEqual(@as(usize, 0), state.tile.order.items.items.len);
+}
+
 test "all managed layouts advertise tiled placements while floating does not" {
     inline for (.{
         config.LayoutId.tile,
@@ -122,6 +146,7 @@ test "all managed layouts advertise tiled placements while floating does not" {
         config.LayoutId.dwindle,
         config.LayoutId.scrolling,
         config.LayoutId.game_mode,
+        config.LayoutId.canvas,
     }) |id| {
         var state: State = .{};
         defer state.deinit(std.testing.allocator);

@@ -1,0 +1,15 @@
+[layout]
+default = "canvas"
+gaps_outer = 8
+gaps_inner = 8
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = true
+
+[keybinds]
+canvas_zoom_in = "Super+I"
+canvas_zoom_out = "Super+O"
+canvas_zoom_reset = "Super+P"

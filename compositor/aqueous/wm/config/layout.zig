@@ -13,17 +13,18 @@ pub const LayoutId = enum {
     scrolling,
     floating,
     game_mode,
+    canvas,
 };
 
 pub const Snapshot = struct {
     default: LayoutId = .tile,
     slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
-    options: [8]types.Options = [_]types.Options{.{ .border = .{
+    options: [9]types.Options = [_]types.Options{.{ .border = .{
         .width = 2,
         .focused = 0xFF88C0D0,
         .normal = 0xFF3B4252,
         .urgent = 0xFFBF616A,
-    } }} ** 8,
+    } }} ** 9,
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
@@ -146,6 +147,7 @@ fn parseLayoutId(value: []const u8) ?LayoutId {
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
+    if (std.mem.eql(u8, value, "canvas")) return .canvas;
     return null;
 }
 
@@ -203,6 +205,19 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expectEqual(@as(f64, 0.4), snapshot.scrolling_column_fraction);
     try std.testing.expect(!snapshot.scrolling_center_focused);
     try std.testing.expect(!snapshot.dwindle_start_vertical);
+}
+
+test "canvas is opt in and has an independent options slot" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout]
+        \\default = "canvas"
+        \\[layout.options.canvas]
+        \\gaps_outer = 24
+    );
+    try std.testing.expectEqual(LayoutId.canvas, snapshot.default);
+    try std.testing.expectEqual(@as(i32, 24), snapshot.layoutOptions(.canvas).gaps_outer);
+    try std.testing.expectEqual(@as(i32, 8), snapshot.layoutOptions(.tile).gaps_outer);
 }
 
 test "layout sidecar overlay wins and malformed values retain validated base" {

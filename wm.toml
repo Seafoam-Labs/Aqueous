@@ -292,7 +292,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child
 #   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
-#                             dwindle, scrolling, float/floating, game-mode;
+#                             dwindle, scrolling, float/floating, game-mode, canvas;
 #                             slots are primary..quaternary
 #   builtin:<action_name>   — invoke any canonical [keybinds] action name
 # -----------------------------------------------------------------------------

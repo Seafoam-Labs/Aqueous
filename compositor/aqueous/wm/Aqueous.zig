@@ -14,6 +14,7 @@ const layout_config = @import("config/layout.zig");
 const config_loader = @import("config/loader.zig");
 const action_config = @import("config/actions.zig");
 const layout_engine = @import("layout/engine.zig");
+const canvas = @import("layout/canvas.zig");
 const game_mode = @import("layout/game_mode.zig");
 const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
@@ -49,6 +50,7 @@ window_states: StateStore,
 output_service: OutputService,
 started: bool = false,
 drag: ?Drag = null,
+canvas_pan: ?CanvasPan = null,
 untrap_keysym: ?u32 = null,
 
 const Drag = struct {
@@ -59,6 +61,14 @@ const Drag = struct {
     action: pointer_drag.Action,
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
+    canvas_start: ?canvas.WorldRect = null,
+};
+
+const CanvasPan = struct {
+    layout_key: LayoutStateKey,
+    start_camera: canvas.Camera,
+    pointer_x: f64,
+    pointer_y: f64,
 };
 
 pub fn init(aqueous: *Aqueous, mode: Mode) void {
@@ -322,13 +332,14 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
 /// is active. Tiled swapping is intentionally excluded because every crossed
 /// window is semantically meaningful there.
 pub fn interactiveDragActive(aqueous: *const Aqueous) bool {
+    if (aqueous.canvas_pan != null) return true;
     const drag = aqueous.drag orelse return false;
     return drag.action != .swap_tiled;
 }
 
 fn finishInteractiveDrag(aqueous: *Aqueous) void {
     const drag = aqueous.drag orelse return;
-    if (drag.action != .swap_tiled) aqueous.api.endInteractive(drag.handle);
+    if (drag.action == .move_floating or drag.action == .resize_floating or drag.action == .move_canvas) aqueous.api.endInteractive(drag.handle);
     aqueous.drag = null;
 }
 
@@ -352,9 +363,27 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
 
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64) bool {
     if (!aqueous.mode.runsInternal()) return false;
+    if (!pressed and aqueous.canvas_pan != null) {
+        aqueous.canvas_pan = null;
+        return true;
+    }
     if (!pressed and aqueous.drag != null) {
         aqueous.finishInteractiveDrag();
         return true;
+    }
+    // An unmodified right drag on canvas background pans the camera. Window
+    // surfaces keep ordinary right-click delivery, and modified presses remain
+    // available to the existing pointer binding/resize paths.
+    if (pressed and button == 0x111 and modifiers & (1 | 4 | 8 | 64) == 0 and aqueous.api.windowAt(x, y) == null) {
+        if (aqueous.canvasStateAt(x, y)) |context| {
+            aqueous.canvas_pan = .{
+                .layout_key = context.key,
+                .start_camera = context.state.canvas.camera,
+                .pointer_x = x,
+                .pointer_y = y,
+            };
+            return true;
+        }
     }
     if (modifiers & (1 | 4 | 8 | 64) != aqueous.config.actions.primary_modifier) return false;
     if (button != 0x110 and button != 0x111) return false; // BTN_LEFT / BTN_RIGHT
@@ -377,6 +406,19 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
         };
+    } else if (drag_action == .move_canvas) {
+        const layout_state = aqueous.layout_states.getPtr(layout_key) orelse return false;
+        const world = layout_state.canvas.rects.get(target.handle) orelse return false;
+        aqueous.drag = .{
+            .handle = target.handle,
+            .start = target.geometry,
+            .pointer_x = x,
+            .pointer_y = y,
+            .action = drag_action,
+            .layout_key = layout_key,
+            .canvas_start = world,
+        };
+        aqueous.api.beginInteractive(target.handle, false);
     } else {
         aqueous.drag = .{
             .handle = target.handle,
@@ -410,7 +452,26 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
 }
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
+    if (aqueous.canvas_pan) |pan| {
+        const state = aqueous.layout_states.getPtr(pan.layout_key) orelse {
+            aqueous.canvas_pan = null;
+            return;
+        };
+        if (state.active_layout != .canvas) {
+            aqueous.canvas_pan = null;
+            return;
+        }
+        if (state.canvas.panFrom(pan.start_camera, x - pan.pointer_x, y - pan.pointer_y)) aqueous.api.requestManageCycle();
+        return;
+    }
     const drag = &(aqueous.drag orelse return);
+    if (drag.action == .move_canvas) {
+        const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
+        if (layout_state.active_layout != .canvas) return;
+        const world_start = drag.canvas_start orelse return;
+        if (layout_state.canvas.moveWindowFrom(drag.handle, world_start, x - drag.pointer_x, y - drag.pointer_y)) aqueous.api.requestManageCycle();
+        return;
+    }
     if (drag.action == .swap_tiled) {
         const target = aqueous.api.windowAt(x, y) orelse return;
         if (drag.awaiting_layout != null) {
@@ -445,6 +506,30 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     };
     if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
     aqueous.api.requestManageCycle();
+}
+
+/// Direct compositor axis path. Returning true eats the event before it reaches
+/// a client. Only primary-modifier vertical scrolling in canvas mode matches.
+pub fn handlePointerAxis(aqueous: *Aqueous, vertical: bool, delta: f64, modifiers: u32, x: f64, y: f64) bool {
+    if (!aqueous.mode.runsInternal() or !vertical or delta == 0) return false;
+    if (modifiers & (1 | 4 | 8 | 64) != aqueous.config.actions.primary_modifier) return false;
+    const context = aqueous.canvasStateAt(x, y) orelse return false;
+    const factor = std.math.exp(-delta * 0.01);
+    if (context.state.canvas.zoomAt(x, y, factor)) aqueous.api.requestManageCycle();
+    return true;
+}
+
+const CanvasContext = struct {
+    key: LayoutStateKey,
+    state: *layout_engine.State,
+};
+
+fn canvasStateAt(aqueous: *Aqueous, x: f64, y: f64) ?CanvasContext {
+    const workspace = aqueous.api.workspaceAt(x, y) orelse return null;
+    const key: LayoutStateKey = .{ .output = workspace.output_id, .workspace = workspace.workspace_number };
+    const state = aqueous.layout_states.getPtr(key) orelse return null;
+    if (state.active_layout != .canvas) return null;
+    return .{ .key = key, .state = state };
 }
 
 fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
@@ -505,6 +590,9 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
     if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1);
     if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1);
+    if (std.mem.eql(u8, action, "canvas_zoom_in")) return aqueous.zoomCanvas(1.2);
+    if (std.mem.eql(u8, action, "canvas_zoom_out")) return aqueous.zoomCanvas(1.0 / 1.2);
+    if (std.mem.eql(u8, action, "canvas_zoom_reset")) return aqueous.resetCanvasZoom();
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
     if (std.mem.eql(u8, action, "toggle_floating")) return aqueous.toggleFloating();
@@ -635,6 +723,32 @@ fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
     if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), delta)) aqueous.api.requestManageCycle();
+}
+
+fn focusedCanvasState(aqueous: *Aqueous) ?*canvas.State {
+    const context = aqueous.api.workspaceContext() orelse return null;
+    const state = aqueous.layout_states.getPtr(.{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    }) orelse return null;
+    if (state.active_layout != .canvas) return null;
+    return &state.canvas;
+}
+
+fn zoomCanvas(aqueous: *Aqueous, factor: f64) void {
+    const state = aqueous.focusedCanvasState() orelse return;
+    const area = state.last_area;
+    const x = @as(f64, @floatFromInt(area.x)) + @as(f64, @floatFromInt(area.width)) / 2;
+    const y = @as(f64, @floatFromInt(area.y)) + @as(f64, @floatFromInt(area.height)) / 2;
+    if (state.zoomAt(x, y, factor)) aqueous.api.requestManageCycle();
+}
+
+fn resetCanvasZoom(aqueous: *Aqueous) void {
+    const state = aqueous.focusedCanvasState() orelse return;
+    const area = state.last_area;
+    const x = @as(f64, @floatFromInt(area.x)) + @as(f64, @floatFromInt(area.width)) / 2;
+    const y = @as(f64, @floatFromInt(area.y)) + @as(f64, @floatFromInt(area.height)) / 2;
+    if (state.resetZoom(x, y)) aqueous.api.requestManageCycle();
 }
 
 fn toggleFullscreen(aqueous: *Aqueous) void {
