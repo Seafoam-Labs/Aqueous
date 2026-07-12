@@ -153,7 +153,7 @@ start_session() {
 }
 
 exercise_session() {
-    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom
+    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom fallback_geom tile_after_fallback
 
     baseline=$(trace_line)
     focus0=$(trace_field "$baseline" focus)
@@ -251,7 +251,26 @@ exercise_session() {
     echo "CHECK: close keybinding"
     press q SUPER
     wait_windows 3
+    closed_geom=$(trace_field "$(trace_line)" geometry)
     checkpoint close_keybinding
+
+    echo "CHECK: game-mode Rows remainder with a real anchor"
+    launch_ghostty aq-parity-game
+    wait_windows 4
+    wait_field_ne geometry "$closed_geom"
+    checkpoint game_mode_rows_remainder
+
+    echo "CHECK: game-mode Tile fallback after the anchor closes"
+    press g SUPER
+    press q SUPER
+    wait_windows 3
+    fallback_geom=$(trace_field "$(trace_line)" geometry)
+    checkpoint game_mode_tile_fallback
+    press t SUPER
+    sleep 0.15
+    tile_after_fallback=$(trace_field "$(trace_line)" geometry)
+    [ "$fallback_geom" = "$tile_after_fallback" ] || die "game-mode fallback_layout=tile does not match the Tile engine"
+    checkpoint tile_matches_game_mode_fallback
 }
 
 run_case() {
@@ -283,4 +302,4 @@ case "$external_output" in
     *) printf '%s\n' "$external_output" >&2; die "external policy gate returned the wrong error" ;;
 esac
 
-echo "policy integration passed: Ghostty windows, rules, geometry, focus, repeated workspaces, fullscreen overrides, and keybindings"
+echo "policy integration passed: Ghostty windows, rules, geometry, focus, repeated workspaces, game-mode Rows and Tile fallback, fullscreen overrides, and keybindings"

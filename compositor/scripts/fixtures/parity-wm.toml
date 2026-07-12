@@ -3,6 +3,9 @@ default = "tile"
 gaps_outer = 8
 gaps_inner = 8
 
+[layout.slots]
+secondary = "game-mode"
+
 [struts]
 top = 0
 bottom = 0
@@ -23,6 +26,7 @@ spawn_terminal = "Super+Return"
 focus_right = "Super+L"
 cycle_focus = "Super+C"
 set_layout_primary = "Super+T"
+set_layout_secondary = "Super+G"
 set_layout_tertiary = "Super+M"
 focus_workspace_1 = "Super+1"
 focus_workspace_2 = "Super+2"

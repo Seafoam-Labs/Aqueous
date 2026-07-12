@@ -36,25 +36,6 @@ pub fn resolveAnchor(usable_area: types.Rect, requested_width: i32, requested_he
     };
 }
 
-pub fn resolveRemainder(usable_area: types.Rect, anchor: types.Rect) types.Rect {
-    const candidates = [_]types.Rect{
-        .{ .x = usable_area.x, .y = usable_area.y, .width = usable_area.width, .height = anchor.y - usable_area.y },
-        .{ .x = usable_area.x, .y = anchor.bottom(), .width = usable_area.width, .height = usable_area.bottom() - anchor.bottom() },
-        .{ .x = usable_area.x, .y = usable_area.y, .width = anchor.x - usable_area.x, .height = usable_area.height },
-        .{ .x = anchor.right(), .y = usable_area.y, .width = usable_area.right() - anchor.right(), .height = usable_area.height },
-    };
-    var best: types.Rect = .empty;
-    var best_area: i64 = 0;
-    for (candidates) |candidate| {
-        const area = @as(i64, candidate.width) * candidate.height;
-        if (area > 0 and area > best_area) {
-            best = candidate;
-            best_area = area;
-        }
-    }
-    return best;
-}
-
 pub const SideColumns = struct { left: types.Rect, right: types.Rect };
 
 pub fn resolveSideColumns(usable_area: types.Rect, anchor: types.Rect) SideColumns {
@@ -80,9 +61,17 @@ test "game anchor clamps and supports edge anchors" {
     try std.testing.expectEqual(types.Rect{ .x = 70, .y = 45, .width = 40, .height = 30 }, resolveAnchor(area, 40, 30, .native, .right, 1));
 }
 
-test "game remainder excludes zero bands and preserves tie priority" {
-    const area = types.Rect{ .x = 0, .y = 0, .width = 2560, .height = 1440 };
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 2560, .height = 180 }, resolveRemainder(area, .{ .x = 320, .y = 180, .width = 1920, .height = 1080 }));
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 640, .height = 2160 }, resolveRemainder(.{ .x = 0, .y = 0, .width = 3840, .height = 2160 }, .{ .x = 640, .y = 0, .width = 2560, .height = 2160 }));
-    try std.testing.expectEqual(types.Rect.empty, resolveRemainder(area, area));
+test "game side columns preserve both sides and support edge anchors" {
+    const area = types.Rect{ .x = 0, .y = 0, .width = 7680, .height = 2160 };
+    try std.testing.expectEqual(
+        SideColumns{
+            .left = .{ .x = 0, .y = 0, .width = 1920, .height = 2160 },
+            .right = .{ .x = 5760, .y = 0, .width = 1920, .height = 2160 },
+        },
+        resolveSideColumns(area, .{ .x = 1920, .y = 0, .width = 3840, .height = 2160 }),
+    );
+    try std.testing.expectEqual(
+        SideColumns{ .left = .empty, .right = .{ .x = 100, .y = 0, .width = 200, .height = 100 } },
+        resolveSideColumns(.{ .x = 0, .y = 0, .width = 300, .height = 100 }, .{ .x = 0, .y = 0, .width = 100, .height = 100 }),
+    );
 }

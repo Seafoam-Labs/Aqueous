@@ -240,7 +240,6 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 std.mem.swap(layout_types.Window, &managed.items[0], &managed.items[managed.items.len - 1]);
             }
         }
-        if (output_layout.default == .game_mode and game_anchor == null) output_layout.default = ruleLayout(aqueous.rules.game_mode.fallback_layout);
         const entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
         entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
@@ -268,6 +267,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             usable_area,
             managed.items,
             focused,
+            gameConfigOptions(aqueous.rules.game_mode),
         );
         defer util.gpa.free(placements);
         try requested.appendSlice(util.gpa, placements);
@@ -585,14 +585,17 @@ fn moveFocused(aqueous: *Aqueous, delta: i32) void {
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
     const id = aqueous.layout_overrides.get(key) orelse aqueous.config.wm.resolveWorkspace(context.output.policyName(), context.workspace_number) orelse aqueous.config.layout.default;
+    if (id == .game_mode) {
+        if (game_mode.moveAdjacent(&state.game_mode, handle, delta)) aqueous.api.requestManageCycle();
+        return;
+    }
     const order = switch (id) {
         .tile => &state.tile.order,
         .monocle => &state.monocle.order,
         .grid => &state.grid.order,
         .dwindle => &state.dwindle.order,
         .scrolling => &state.scrolling.order,
-        .game_mode => &state.game_mode.grid.order,
-        .rows, .floating => return,
+        .game_mode, .rows, .floating => return,
     };
     const index = std.mem.indexOfScalar(layout_types.Handle, order.items.items, handle) orelse return;
     const target_i = @as(isize, @intCast(index)) + delta;
@@ -979,8 +982,17 @@ fn gameOptions(rule: Rules.Rule, config: Rules.GameMode, output_area: layout_typ
         },
         .scale = rule.scale,
         .remainder = ruleRemainder(config.remainder_layout),
+        .fallback = ruleRemainder(config.fallback_layout),
         .gaps_inner = config.gaps_inner,
         .anchor_area = if (rule.ignore_struts) output_area else null,
+    };
+}
+
+fn gameConfigOptions(config: Rules.GameMode) game_mode.Options {
+    return .{
+        .remainder = ruleRemainder(config.remainder_layout),
+        .fallback = ruleRemainder(config.fallback_layout),
+        .gaps_inner = config.gaps_inner,
     };
 }
 

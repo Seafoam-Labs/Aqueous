@@ -3,34 +3,76 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'noctalia-git' 'libdecor' 'grim' 'xorg-xwayland'
+         'noctalia-git' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
+         'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle; the aqueous.desktop session
          # entry execs `uwsm start`.
          'uwsm'
-         'swaylock-effects' 'swayidle')
+         'scenefx')
 optdepends=('ly: recommended display manager / login greeter'
-            'tuigreet: TUI greeter for greetd (alternative login path)'
             'greetd: alternative minimal login manager for tuigreet'
-            'aqueous-greetd-config: opinionated greetd+tuigreet preset for Aqueous'
-            'ghostty: recommended terminal emulator'
+            'tabby: recommended terminal emulator'
             'nemo: recommended file manager'
-            'firefox: web browser')
+            'firefox: web browser'
+            'wireplumber: volume/media key bindings (wpctl)')
 provides=('aqueous')
 conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
+backup=('etc/xdg/aqueous/wm.toml'
+        'etc/uwsm/env-aqueous')
 source_x86_64=(
     "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
 )
 # Update this checksum when bumping pkgver to match the published release.
 sha256sums_x86_64=('SKIP')
+
+check() {
+    # Refuse release archives that are incomplete or still contain executables
+    # and user units retired by the single-process cutover.
+    local required=(
+        bin/aqueous
+        bin/aqueous-init
+        bin/aqueous-wm
+        share/wayland-sessions/aqueous.desktop
+        share/xdg-desktop-portal/aqueous-portals.conf
+        etc/xdg/aqueous/wm.toml
+        etc/uwsm/env-aqueous
+        lib/systemd/user/aqueous-session.target
+        lib/systemd/user/noctalia.service
+        lib/tmpfiles.d/aqueous.conf
+        lib/udev/rules.d/70-aqueous-uaccess.rules
+    )
+    local path
+    for path in "${required[@]}"; do
+        if [[ ! -e "$srcdir/$path" ]]; then
+            error "release archive is missing required file: $path"
+            return 1
+        fi
+    done
+
+    local retired=(
+        bin/aqueous-outputd
+        bin/aqueous-wm-client
+        bin/riverdelta
+        lib/systemd/user/aqueous-outputd.service
+        lib/systemd/user/xwayland-satellite.service
+        lib/systemd/user/graphical-session.target.wants/xwayland-satellite.service
+    )
+    for path in "${retired[@]}"; do
+        if [[ -e "$srcdir/$path" || -L "$srcdir/$path" ]]; then
+            error "release archive contains retired file: $path"
+            return 1
+        fi
+    done
+}
 
 package() {
     # The release tarball is staged with a /bin, /share, /lib, /etc layout
@@ -50,18 +92,10 @@ package() {
         cp -dr --no-preserve=ownership "$srcdir/share/." "$pkgdir/usr/share/"
     fi
 
-    # systemd user units
-    if [ -d "$srcdir/lib/systemd/user" ]; then
-        install -d "$pkgdir/usr/lib/systemd/user"
-        cp -dr --no-preserve=ownership "$srcdir/lib/systemd/user/." \
-            "$pkgdir/usr/lib/systemd/user/"
-    fi
-
-    # udev rules
-    if [ -d "$srcdir/lib/udev/rules.d" ]; then
-        install -d "$pkgdir/usr/lib/udev/rules.d"
-        cp -dr --no-preserve=ownership "$srcdir/lib/udev/rules.d/." \
-            "$pkgdir/usr/lib/udev/rules.d/"
+    # systemd user units, tmpfiles configuration, and udev rules
+    if [ -d "$srcdir/lib" ]; then
+        install -d "$pkgdir/usr/lib"
+        cp -dr --no-preserve=ownership "$srcdir/lib/." "$pkgdir/usr/lib/"
     fi
 
     # Default system-wide config

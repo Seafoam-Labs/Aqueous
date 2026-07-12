@@ -1,3 +1,8 @@
+[game_mode]
+remainder_layout = "rows"
+gaps_inner = 0
+fallback_layout = "tile"
+
 [[window]]
 app_id = "aq-parity-rule"
 layout = "float"
@@ -12,3 +17,9 @@ y = 72
 app_id = "aq-parity-fullscreen"
 layout = "tile"
 fullscreen = true
+
+[[window]]
+app_id = "aq-parity-game"
+layout = "game-mode"
+anchor = "center"
+size = "480x720"

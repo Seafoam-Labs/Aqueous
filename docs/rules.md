@@ -47,9 +47,9 @@ Options for the `game-mode` layout engine. Only consulted when at least one
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `remainder_layout` | string | `"grid"` | Layout used to tile non-anchor windows. Invoked once per non-empty side column with its own fresh instance. One of `tile`, `grid`, `monocle`, `scrolling`, `float`. |
+| `remainder_layout` | string | `"grid"` | Layout used to tile non-anchor windows. Invoked once per non-empty side column with its own state. One of `tile`, `monocle`, `grid`, `rows`, `dwindle`, `scrolling`, or `float`. |
 | `gaps_inner` | int | `8` | Pixel gap between tiles inside each side column. |
-| `fallback_layout` | string | `"grid"` | Layout used on outputs that have no anchor window. |
+| `fallback_layout` | string | `"grid"` | Layout used on outputs that have no anchor window. Accepts the same non-game-mode layouts as `remainder_layout`. |
 
 ### `[[window]]`
 
