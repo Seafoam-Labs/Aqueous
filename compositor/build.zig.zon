@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 .{
     .name = .aqueous,
-    // While a river release is in development, this string should contain
+    // While an aqueous release is in development, this string should contain
     // the version in development with the "-dev" suffix.
     // When a release is tagged, the "-dev" suffix should be removed for the
     // commit that gets tagged.
     // Directly after the tagged commit, the version should be bumped and the
     // "-dev" suffix added.
-    .version = "0.5.0-dev",
+    .version = "0.3.0-dev",
     .paths = .{""},
     .dependencies = .{
         .pixman = .{

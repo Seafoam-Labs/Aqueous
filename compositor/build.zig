@@ -224,6 +224,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        river.build_id = .sha1;
         river.root_module.addOptions("build_options", options);
 
         river.root_module.linkSystemLibrary("libevdev", .{});
