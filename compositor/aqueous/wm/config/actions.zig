@@ -181,6 +181,7 @@ fn unquote(value: []const u8) []const u8 {
 
 test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = 'h' }, parseChord("Super+Shift+H").?);
+    try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = '2' }, parseChord("Super+Shift+2").?);
     try std.testing.expectEqual(@as(u32, 0x1008ff13), parseChord("XF86AudioRaiseVolume").?.keysym);
     try std.testing.expect(parseChord("Super+Shift") == null);
 }
