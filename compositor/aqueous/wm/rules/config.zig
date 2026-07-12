@@ -137,7 +137,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "class")) rule.class = value;
     if (std.mem.eql(u8, key, "title")) rule.title = value;
     if (std.mem.eql(u8, key, "floating")) rule.placement.floating = parseBool(value) orelse rule.placement.floating;
-    if (std.mem.eql(u8, key, "tag")) rule.placement.tag = std.fmt.parseInt(u32, value, 10) catch rule.placement.tag;
+    if (std.mem.eql(u8, key, "workspace")) rule.placement.workspace = std.fmt.parseInt(u32, value, 10) catch rule.placement.workspace;
     if (std.mem.eql(u8, key, "width")) rule.placement.width = parsePositive(value) orelse rule.placement.width;
     if (std.mem.eql(u8, key, "height")) rule.placement.height = parsePositive(value) orelse rule.placement.height;
     if (std.mem.eql(u8, key, "x")) rule.placement.x = std.fmt.parseInt(i32, value, 10) catch rule.placement.x;
@@ -233,7 +233,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\anchor = "left"
         \\size = "0.7x0.5"
         \\scale = 1.2
-        \\tag = 9
+        \\workspace = 9
         \\fullscreen = true
         \\ignore_struts = true
         \\opacity = 0.8
@@ -246,6 +246,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(@as(usize, 2), engine.rules.len);
     const game = engine.resolve(.{ .app_id = "game-one" }).?;
     try std.testing.expectEqual(Engine.Layout.game_mode, game.layout.?);
+    try std.testing.expectEqual(@as(u32, 9), game.placement.workspace);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);

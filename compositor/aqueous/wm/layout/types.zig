@@ -30,7 +30,6 @@ pub const Window = struct {
     max_height: i32 = 0,
     floating: bool = false,
     fullscreen: bool = false,
-    tags: u32 = 0,
 };
 
 pub const Border = struct {

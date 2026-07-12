@@ -14,7 +14,7 @@ pub const Identity = struct {
 
 pub const Placement = struct {
     floating: bool = false,
-    tag: u32 = 0,
+    workspace: u32 = 0,
     width: i32 = 0,
     height: i32 = 0,
     x: i32 = 0,
@@ -63,7 +63,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.title);
         hashOptionalEnum(&hash, rule.layout);
         hash.update(std.mem.asBytes(&rule.placement.floating));
-        hash.update(std.mem.asBytes(&rule.placement.tag));
+        hash.update(std.mem.asBytes(&rule.placement.workspace));
         hash.update(std.mem.asBytes(&rule.placement.width));
         hash.update(std.mem.asBytes(&rule.placement.height));
         hash.update(std.mem.asBytes(&rule.placement.x));
@@ -224,14 +224,14 @@ test "rules are first-match-wins and require every present matcher" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     var source = [_]Rule{
-        .{ .app_id = "game*", .title = "Menu", .placement = .{ .tag = 1 } },
-        .{ .app_id = "game*", .placement = .{ .tag = 2 } },
-        .{ .placement = .{ .tag = 3 } },
+        .{ .app_id = "game*", .title = "Menu", .placement = .{ .workspace = 1 } },
+        .{ .app_id = "game*", .placement = .{ .workspace = 2 } },
+        .{ .placement = .{ .workspace = 3 } },
     };
     try engine.reload(&source);
-    source[0].placement.tag = 99;
-    try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.tag);
-    try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.tag);
+    source[0].placement.workspace = 99;
+    try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.workspace);
+    try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.workspace);
     try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
 }
 

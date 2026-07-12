@@ -44,7 +44,7 @@ gaps_inner = 8             # integer >= 0
 # Layout/state:
 #   layout          tile | monocle | grid | rows | dwindle | scrolling |
 #                   float | floating | game-mode | game_mode
-#   tag             1-based workspace number
+#   workspace       1-based workspace number
 #   floating        true/false; enables floating placement independently of
 #                   layout (layout="float" also sets floating=true)
 #   fullscreen      true/false
@@ -76,7 +76,7 @@ gaps_inner = 8             # integer >= 0
 # app_id = "steam_app_*"
 # title = "*"
 # layout = "game-mode"
-# tag = 9
+# workspace = 9
 # anchor = "center"
 # size = "0.70x0.80"
 # scale = 1.0
@@ -94,7 +94,7 @@ gaps_inner = 8             # integer >= 0
 # title = "Preferences*"
 # layout = "float"
 # floating = true
-# tag = 2
+# workspace = 2
 # width = 900
 # height = 640
 # x = 120

@@ -1960,7 +1960,7 @@ fn handleFtmRequestActivate(
     if (window.state != .mapped and window.state != .initialized) return;
     // Forward to the wm client via the dedicated activate_requested event
     // (river-window-management-v1 >= 5). The wm client decides focus policy
-    // (tag switching, output following, etc.); the compositor never makes
+    // (workspace switching, output following, etc.); the compositor never makes
     // focus decisions on its own.
     const window_v1 = window.object orelse return;
     if (window_v1.getVersion() >= 5) {

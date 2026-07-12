@@ -102,7 +102,7 @@ rollback_seconds = 0
 # block without `output` applies to that workspace on every monitor. Precedence
 # at resolution time: a per-keybinding set_layout_* override (per workspace) >
 # an output+workspace block > a workspace-only block > [[output]] > [layout].default.
-# For a multi-tag view the lowest matching workspace number wins.
+# If multiple mappings could apply, the most specifically scoped workspace mapping wins.
 # -----------------------------------------------------------------------------
 #[[workspace]]
 #workspace = 1

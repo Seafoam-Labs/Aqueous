@@ -801,7 +801,7 @@ fn reconcileWindowRule(
     }
 
     const matched = rule orelse return effect;
-    const requested_workspace = matched.placement.tag;
+    const requested_workspace = matched.placement.workspace;
     if (requested_workspace != state.rule_workspace_requested) {
         if (requested_workspace == 0) {
             state.rule_workspace_owned = false;

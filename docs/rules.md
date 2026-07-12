@@ -63,7 +63,7 @@ matters.
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
 | `layout` | string | no | Select a built-in layout; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
-| `tag` | integer | no | Move the window to the numbered workspace. |
+| `workspace` | integer | no | Move the window to the numbered workspace. Workspace numbers are 1-based. |
 | `width`, `height` | integer | no | Floating placement dimensions. |
 | `x`, `y` | integer | no | Floating placement coordinates. |
 | `anchor` | string | no (default `center`) | `center` / `top` / `bottom` / `left` / `right`. |
