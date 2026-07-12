@@ -788,6 +788,7 @@ fn interact(cursor: Cursor, result: Scene.AtResult) void {
     switch (result.data) {
         .window => |window| {
             cursor.seat.wm_scheduled.interaction = .{ .window = window.ref };
+            server.aqueous.handleWindowInteraction(@bitCast(window.ref));
             server.wm.dirtyWindowing();
         },
         .shell_surface => |shell_surface| {

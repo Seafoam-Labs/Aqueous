@@ -390,6 +390,18 @@ pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
     if (handle) |target| if (aqueous.api.focusedWindow() != target) aqueous.api.requestFocus(target);
 }
 
+/// Focus a window after an explicit, unmodified pointer interaction. The
+/// compositor historically forwarded this only through river_seat_v1, so the
+/// integrated policy silently discarded click-to-focus when focus-follows-mouse
+/// was disabled. Xwayland games can then receive pointer input while keyboard
+/// events continue going to the previously focused client.
+pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (!aqueous.mode.runsInternal()) return;
+    const state = aqueous.window_states.get(handle) orelse return;
+    if (state.kind == .minimized) return;
+    if (aqueous.api.focusedWindow() != handle) aqueous.api.requestFocus(handle);
+}
+
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     const drag = &(aqueous.drag orelse return);
     if (drag.action == .swap_tiled) {
