@@ -62,7 +62,8 @@ default = "canvas"
   `builtin:canvas_zoom_out`, or `builtin:canvas_zoom_reset`.
 
 Camera and window-world state are retained independently for every
-output/workspace pair. Wayland clients remain configured at their logical
-canvas size while the compositor scales their presentation. Fullscreen,
-maximized, floating, layer-shell, and XWayland surfaces retain their existing
-output-coordinate behavior.
+output/workspace pair. Zoom projects canvas rectangles through the normal live
+surface path, so clients reflow at their zoomed dimensions and retain ordinary
+damage and frame-callback behavior. Fullscreen, maximized, floating,
+layer-shell, and XWayland surfaces retain their existing output-coordinate
+behavior.

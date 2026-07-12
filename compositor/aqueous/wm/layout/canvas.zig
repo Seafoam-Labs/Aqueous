@@ -96,13 +96,13 @@ pub fn arrange(
         const visual = project(world, usable_area, state.camera);
         placement.* = .{
             .handle = window.handle,
-            // Client dimensions remain in world units. Only the origin is
-            // projected here; Window applies scale to its presentation clone.
-            .geometry = .{ .x = visual.x, .y = visual.y, .width = world.width, .height = world.height },
+            // Use the ordinary live-surface configure/render path for projected
+            // dimensions. Generic scene-buffer clones don't reliably follow
+            // subsequent SceneSurface commits and can freeze animated clients.
+            .geometry = visual,
             .z_order = @intCast(index),
             .visible = intersects(visual, usable_area),
             .border = options.border,
-            .scale = state.camera.zoom,
         };
     }
     return placements;

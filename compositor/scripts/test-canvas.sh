@@ -13,7 +13,7 @@ die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
-for tool in ghostty wlrctl; do have "$tool" || die "$tool is required for the canvas integration test"; done
+for tool in ghostty grim wlrctl; do have "$tool" || die "$tool is required for the canvas integration test"; done
 
 TEST_ROOT=$(mktemp -d /tmp/aqueous-canvas.XXXXXX)
 RUNTIME="$TEST_ROOT/runtime"
@@ -103,19 +103,39 @@ for identity in aq-canvas-one aq-canvas-two; do
         --window-decoration=false \
         --class="$identity,$identity" \
         --title="$identity" \
-        -e sleep 30 >/dev/null 2>&1 &
+        -e sh -c 'i=0; while :; do printf "\rframe %d" "$i"; i=$((i + 1)); sleep 0.1; done' >/dev/null 2>&1 &
     CLIENT_PIDS+=("$!")
 done
 wait_windows 2
 
 baseline=$(stable_geometry)
+grim "$TEST_ROOT/pre-0.png"
+sleep 0.4
+grim "$TEST_ROOT/pre-1.png"
+cmp -s "$TEST_ROOT/pre-0.png" "$TEST_ROOT/pre-1.png" && die "animated test clients did not repaint before zoom"
 wlrctl keyboard type o modifiers SUPER
 wait_geometry ne "$baseline"
 kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited after canvas zoom"
 
 wlrctl pointer move 500 350
-sleep 0.1
 kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited during scaled hit testing"
+
+# The test terminals print a changing frame counter. A surface that stops
+# receiving frame callbacks produces identical captures indefinitely.
+grim "$TEST_ROOT/frame-0.png"
+repainted=false
+for frame in $(seq 1 12); do
+    sleep 0.2
+    grim "$TEST_ROOT/frame-$frame.png"
+    if ! cmp -s "$TEST_ROOT/frame-0.png" "$TEST_ROOT/frame-$frame.png"; then
+        repainted=true
+        break
+    fi
+done
+if [ "$repainted" != true ]; then
+    tail -80 "$LOG" >&2
+    die "scaled clients stopped repainting after zoom"
+fi
 
 wlrctl keyboard type p modifiers SUPER
 wait_geometry eq "$baseline"
