@@ -5,6 +5,7 @@ gaps_inner = 8
 
 [layout.slots]
 secondary = "game-mode"
+quaternary = "dwindle"
 
 [struts]
 top = 0
@@ -28,6 +29,7 @@ cycle_focus = "Super+C"
 set_layout_primary = "Super+T"
 set_layout_secondary = "Super+G"
 set_layout_tertiary = "Super+M"
+set_layout_quaternary = "Super+D"
 focus_workspace_1 = "Super+1"
 focus_workspace_2 = "Super+2"
 move_to_workspace_2 = "Super+Shift+2"

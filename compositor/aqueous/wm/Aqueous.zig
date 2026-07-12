@@ -242,6 +242,8 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         }
         const entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
+        if (game_anchor != null) entry.value_ptr.game_mode.rule_layout_owned = true;
+        if (entry.value_ptr.game_mode.rule_layout_owned) output_layout.default = .game_mode;
         entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
         if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area);
         if (focused) |handle| {
@@ -660,7 +662,9 @@ fn setLayout(aqueous: *Aqueous, name: []const u8) void {
 
 fn setLayoutId(aqueous: *Aqueous, id: layout_config.LayoutId) void {
     const context = aqueous.api.focusedContext() orelse return;
-    aqueous.layout_overrides.put(util.gpa, .{ .output = context.output.policyId(), .workspace = context.workspace_number }, id) catch return;
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    if (aqueous.layout_states.getPtr(key)) |state| state.game_mode.rule_layout_owned = false;
+    aqueous.layout_overrides.put(util.gpa, key, id) catch return;
     aqueous.api.requestManageCycle();
 }
 

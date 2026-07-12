@@ -49,6 +49,10 @@ pub const State = struct {
     fallback: RemainderState = .{},
     left: RemainderState = .{},
     right: RemainderState = .{},
+    /// A matched game rule claimed this workspace's layout. The claim remains
+    /// after its anchor closes so fallback_layout is actually reachable, and
+    /// is released only by an explicit user layout selection.
+    rule_layout_owned: bool = false,
     anchor: ?types.Handle = null,
     rule_anchor: ?types.Handle = null,
     rule_options: Options = .{},

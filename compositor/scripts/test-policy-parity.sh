@@ -153,7 +153,7 @@ start_session() {
 }
 
 exercise_session() {
-    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom fallback_geom tile_after_fallback
+    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom game_pid fallback_geom dwindle_after_fallback tile_after_fallback
 
     baseline=$(trace_line)
     focus0=$(trace_field "$baseline" focus)
@@ -255,22 +255,32 @@ exercise_session() {
     checkpoint close_keybinding
 
     echo "CHECK: game-mode Rows remainder with a real anchor"
+    launch_ghostty aq-parity-extra-one
+    launch_ghostty aq-parity-extra-two
+    launch_ghostty aq-parity-extra-three
+    wait_windows 6
     launch_ghostty aq-parity-game
-    wait_windows 4
+    game_pid=${CLIENT_PIDS[${#CLIENT_PIDS[@]}-1]}
+    wait_windows 7
     wait_field_ne geometry "$closed_geom"
     checkpoint game_mode_rows_remainder
 
-    echo "CHECK: game-mode Tile fallback after the anchor closes"
+    echo "CHECK: game-mode Dwindle fallback after the anchor closes"
     press g SUPER
-    press q SUPER
-    wait_windows 3
+    kill "$game_pid"
+    wait_windows 6
     fallback_geom=$(trace_field "$(trace_line)" geometry)
-    checkpoint game_mode_tile_fallback
+    checkpoint game_mode_dwindle_fallback
+    press d SUPER
+    sleep 0.15
+    dwindle_after_fallback=$(trace_field "$(trace_line)" geometry)
+    [ "$fallback_geom" = "$dwindle_after_fallback" ] || die "game-mode fallback_layout=dwindle does not match the Dwindle engine"
+    checkpoint dwindle_matches_game_mode_fallback
     press t SUPER
     sleep 0.15
     tile_after_fallback=$(trace_field "$(trace_line)" geometry)
-    [ "$fallback_geom" = "$tile_after_fallback" ] || die "game-mode fallback_layout=tile does not match the Tile engine"
-    checkpoint tile_matches_game_mode_fallback
+    [ "$fallback_geom" != "$tile_after_fallback" ] || die "Dwindle fallback unexpectedly matches Tile with four tiled windows"
+    checkpoint tile_differs_from_game_mode_fallback
 }
 
 run_case() {
@@ -302,4 +312,4 @@ case "$external_output" in
     *) printf '%s\n' "$external_output" >&2; die "external policy gate returned the wrong error" ;;
 esac
 
-echo "policy integration passed: Ghostty windows, rules, geometry, focus, repeated workspaces, game-mode Rows and Tile fallback, fullscreen overrides, and keybindings"
+echo "policy integration passed: Ghostty windows, rules, geometry, focus, repeated workspaces, game-mode Rows and Dwindle fallback ownership, fullscreen overrides, and keybindings"
