@@ -1,33 +1,98 @@
 # =============================================================================
 # Aqueous WM
 # Path: ~/.config/aqueous/wm.toml
-# Parser is a tiny TOML subset: [section], [[output]], key = value, # comments.
-# Unknown keys are ignored; a malformed file falls back to defaults silently.
+# Aqueous reads a small TOML-compatible subset: sections, repeated tables,
+# key/value assignments, arrays used by bindings/positions, and # comments.
+# Unknown keys and malformed values are ignored individually; valid recognized
+# values elsewhere in the same file still apply.
 # =============================================================================
 
-
 # -----------------------------------------------------------------------------
-# Per-output overrides. Repeat the [[output]] block once per monitor.
-# `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
+# Output management
 # -----------------------------------------------------------------------------
-#[[output]]
-#name     = "DP-1"
-#mode     = "2560x1440@144"
-#scale    = 1.0
-#position = [0, 0]
-#enabled  = true
-
 [display]
+# Apply [[output]] display fields when Aqueous starts and when this file reloads.
 apply_on_start  = true
 apply_on_reload = true
+
+# If a normal output transaction is rejected, try this named profile. Empty
+# means no fallback. Profile blocks are demonstrated below.
+fallback_profile = ""
+
+# Compatibility fields retained from the former output daemon. They parse but
+# currently do not affect matching or rollback behavior; EDID/name matching is
+# selected directly by each [[output]] block.
+identify_by = "edid"
+rollback_seconds = 0
+
+# Repeat [[output]] for each monitor. `name` accepts connector-name globs.
+# `edid` may be used instead of name and has the form `sha256:<hex digest>` of
+# the output's make/model/serial identity, as reported by the output service.
+# scale is validated in the 0.5..3.0 range.
+# transform: normal | 90 | 180 | 270 | flipped | flipped-90 | flipped-180 |
+#            flipped-270
+# Position is in logical output-layout coordinates. Omit it to let Aqueous
+# arrange unconfigured monitors in a non-overlapping horizontal row.
+# `primary` selects the initial/fallback target for actions on empty outputs.
 #
-#[[output]]
-#name   = "HDMI-A-1"
-#layout = "tile"
+# [[output]]
+# name = "DP-1"
+# edid = "optional-edid-identifier"
+# enabled = true
+# mode = "2560x1440@144"
+# scale = 1.0
+# transform = "normal"
+# position = [0, 0]
+# adaptive_sync = true
+# primary = true
+# layout = "scrolling" # optional default WM layout for this output
+
+# Layout-only output matching additionally accepts make/model/serial metadata.
+# These metadata fields do not configure the physical display mode.
 #
-#[[output]]
-#name   = "eDP-1"
-#layout = "monocle"
+# [[output]]
+# make = "Example Vendor"
+# model = "Example Display"
+# serial = "1234"
+# layout = "grid"
+
+# Named output profiles contain the same display fields accepted by [[output]].
+# Profiles can be activated through the embedded output-service JSON API and
+# may be referenced by fallback_profile above.
+#
+# [[display.profile]]
+# name = "docked"
+#
+# [[display.profile.output]]
+# name = "eDP-1"
+# enabled = false
+# primary = false
+#
+# [[display.profile.output]]
+# name = "DP-1"
+# enabled = true
+# mode = "2560x1440@144"
+# scale = 1.0
+# transform = "normal"
+# position = [0, 0]
+# adaptive_sync = true
+# primary = true
+
+# Optional sidecar selectors. Leave these commented to use normal XDG
+# discovery. Relative layout paths resolve next to wm.toml; ~ is expanded.
+#
+# [layout]
+# path = "~/.config/aqueous/layout.toml"
+# force_ssd = false
+#
+# [input]
+# path = "~/.config/aqueous/input.toml"
+# focus_follows_mouse = false
+# pointer_acceleration = false
+# pointer_acceleration_factor = 0.0
+# xkb_layout = "us"
+# xkb_variant = ""
+# xkb_options = ""
 
 # -----------------------------------------------------------------------------
 # Per-workspace layout overrides. Each [[workspace]] block forces one workspace
@@ -47,6 +112,8 @@ apply_on_reload = true
 #output    = "DP-1"
 #workspace = 2
 #layout    = "monocle"
+
+# Reserve additional fixed space after layer-shell exclusive zones are applied.
 [struts]
 top    = 32   # Noctalia bar height; adjust to match your bar
 bottom = 0
@@ -71,6 +138,13 @@ value           = 0.9    # stable opacity when focus_sensitive = false
 focus_sensitive = false  # true = use focused/unfocused below per window focus
 focused         = 1.0    # focused-window opacity when focus_sensitive = true
 unfocused       = 0.9    # unfocused-window opacity when focus_sensitive = true
+
+# Workspace slide animation. `rate = 0` selects the compiled default rate;
+# larger positive values settle more quickly. Animations can also be compiled
+# out entirely with -Danimations=false.
+[workspace_transition]
+enabled = true
+rate = 0.0
 
 
 # -----------------------------------------------------------------------------
@@ -103,7 +177,8 @@ lock_screen = "swaylock -f --screenshots --clock --indicator --effect-blur 7x5 -
 toggle_start_menu     = "Super+Space"      # default
 spawn_terminal        = "Super+Return"     # default
 close_focused         = "Super+Q"          # default
-#cycle_focus           = "Super+Tab"        # default
+cycle_focus           = "Super+Tab"        # default
+lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
 
 # --- Directional focus (works in tile/grid; scrolling = prev/next column) ---
 focus_left            = "Super+H"          # default
@@ -120,8 +195,8 @@ move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 
 # --- Opt-in actions (no default chord) ---
-reload_config         = "Super+R"          # re-read this file (layout opts hot-swap;
-# chord changes still need WM restart)
+reload_config         = "Super+R"          # immediately reload all TOML snapshots
+# reload_rules        = "Super+Shift+R"    # reload only rules.toml
 
 
 # Per-engine semantics:
@@ -143,12 +218,10 @@ set_layout_secondary  = "Super+F"          # → scrolling
 set_layout_tertiary   = "Super+M"          # → monocle
 set_layout_quaternary = "Super+G"          # → grid
 
-# --- Workspaces (niri-style, ext-workspace-v1) ---
+# --- Workspaces (ext-workspace-v1) ---
 # Workspaces are exclusive: a window lives on exactly one workspace and exactly
-# one workspace is active per output. These verbs drive Aqueous's native
-# ext-workspace-v1 implementation (focus = activate+commit; "send to workspace"
-# = river_window_v1.set_workspace, with no hide/show emulation). Indices are
-# 1-based positions in the per-output ordered workspace list.
+# one workspace is active per output. Indices are 1-based positions in the
+# per-output ordered workspace list.
 #
 # Focus / switch the active workspace.
 focus_workspace_1        = "Super+1"
@@ -161,7 +234,7 @@ focus_workspace_7        = "Super+7"
 focus_workspace_8        = "Super+8"
 focus_workspace_9        = "Super+9"
 
-# Send the focused window to a workspace (niri move-window-to-workspace).
+# Send the focused window to a workspace.
 move_to_workspace_1      = "Super+Shift+1"
 move_to_workspace_2      = "Super+Shift+2"
 move_to_workspace_3      = "Super+Shift+3"
@@ -184,10 +257,6 @@ focus_output_left        = "Super+Ctrl+Comma"
 focus_output_right       = "Super+Ctrl+Period"
 move_to_output_left      = "Super+Shift+Comma"
 move_to_output_right     = "Super+Shift+Period"
-#
-# (move_workspace_up / move_workspace_down — reorder — are accepted verbs but
-#  have no ext-workspace-v1 wire representation and are no-ops.)
-#
 # The following chords are FREE in the exclusive workspace model. Bind them to
 # anything you like, e.g. under [keybinds.custom]:
 #   Super+0, Super+Shift+0
@@ -219,10 +288,11 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # Free-form custom chords. Key = chord string, value = action verb.
 #
 # Action verbs:
-#   spawn:<argv>            — fork/exec via /bin/sh -c (detached)
-#   set_layout:<id-or-slot> — switch active layout; <id> ∈ tile|monocle|grid|
-#                             float|scrolling, or a [layout.slots] name
-#   builtin:<action_name>   — invoke a built-in by canonical name
+#   spawn:<command>         — run through /bin/sh -c as a detached child
+#   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
+#                             dwindle, scrolling, float/floating, game-mode;
+#                             slots are primary..quaternary
+#   builtin:<action_name>   — invoke any canonical [keybinds] action name
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
@@ -247,18 +317,39 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # "Super+Alt+M"        = "set_layout:monocle"
 # "Super+Alt+G"        = "set_layout:grid"
 # "Super+Alt+F"        = "set_layout:float"
+# "Super+Alt+R"        = "set_layout:rows"
+# "Super+Alt+D"        = "set_layout:dwindle"
+# "Super+Alt+V"        = "set_layout:game-mode"
 
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"
 
 # -----------------------------------------------------------------------------
-# Window-state behaviour (Phase B1e). Controls fullscreen / maximize / float /
-# minimize semantics. All keys are optional — defaults shown.
+# Managed startup/reload commands
+# -----------------------------------------------------------------------------
+# Repeat [[exec]] for commands Aqueous should supervise. Both name and command
+# are required. `when` accepts startup, reload, or always (unknown values become
+# startup). `once` prevents duplicate starts, `restart` retries a child after a
+# nonzero exit until it succeeds, `log` appends stdout/stderr to a file, and
+# `env` exports an inline string map before running the command.
+#
+# [[exec]]
+# name = "wallpaper"
+# command = "swaybg -i ~/.config/aqueous/wallpaper.png -m fill"
+# when = "startup" # startup | reload | always
+# once = true
+# restart = false
+# log = "/tmp/aqueous-wallpaper.log"
+# env = { XDG_CURRENT_DESKTOP = "Aqueous" }
+
+# -----------------------------------------------------------------------------
+# Window-state behavior
+# Controls fullscreen, maximize, floating, and minimize semantics.
 # -----------------------------------------------------------------------------
 [state]
 # When toggling fullscreen, also hide layer-shell layers above 'bottom'
-# (the bar / notifications). NOTE: the layer-shell hide path is wired in
-# Phase B1f; until then this flag is parsed but has no effect.
+# (the bar / notifications). This compatibility flag is parsed, but the
+# layer-shell hide path is not currently implemented.
 fullscreen_hides_bar = true
 
 # Maximize ignores layer-shell exclusive zones (i.e. covers the bar).
@@ -266,5 +357,5 @@ fullscreen_hides_bar = true
 maximize_full_output = false
 
 [rules]
-# Optional. Absolute path or ~-prefixed. Overrides the XDG search above.
+# Optional. Absolute or ~-prefixed path. $AQUEOUS_RULES still has precedence.
 path = "~/.config/aqueous/rules.toml"

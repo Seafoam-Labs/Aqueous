@@ -1,90 +1,126 @@
 # =============================================================================
-# Aqueous WM - window rules (example)
+# Aqueous window-rules configuration reference
+# Copy to: ~/.config/aqueous/rules.toml
+# =============================================================================
 #
-# Copy to ~/.config/aqueous/rules.toml to enable per-application placement
-# (including game-mode). Missing file is fine - rules are simply disabled.
-#
-# Discovery order (first hit wins):
-#   1. $AQUEOUS_RULES                        (env var, absolute path)
-#   2. [rules].path in wm.toml               (override)
+# Discovery order (first path wins):
+#   1. $AQUEOUS_RULES (~ is expanded)
+#   2. [rules].path from wm.toml
 #   3. $XDG_CONFIG_HOME/aqueous/rules.toml
 #   4. ~/.config/aqueous/rules.toml
 #
-# Reloaded by Super+R together with wm.toml. Bind `reload_rules` for rules-only
-# reload (default unbound).
-# =============================================================================
+# Rules are hot-reloaded with the rest of the configuration. The unbound
+# builtin action `reload_rules` can also reload only this file.
 
 # -----------------------------------------------------------------------------
-# Game-mode layout options. Only relevant when at least one [[window]] rule
-# below targets layout = "game-mode". These keys USED TO live in wm.toml under
-# [layout.options.game-mode]; that location is deprecated and Aqueous warns
-# once on load. Two-release deprecation window.
+# Game Mode policy
 # -----------------------------------------------------------------------------
 [game_mode]
-remainder_layout = "grid"    # tile | monocle | grid | rows | dwindle | scrolling | float
-gaps_inner       = 8
-fallback_layout  = "grid"    # same choices; used on outputs with no anchor
+# Layout used for non-anchor companion windows. Each surviving side column gets
+# an independent instance of this layout.
+remainder_layout = "grid" # tile | monocle | grid | rows | dwindle | scrolling | float
+# Layout used on an output/workspace where Game Mode has no matching anchor.
+fallback_layout = "grid"  # same accepted values as remainder_layout
+# Gap between the anchor and companion columns.
+gaps_inner = 8             # integer >= 0
+
+# [layout.options.game-mode] is not a substitute for this section: only common
+# layout geometry/border keys are accepted there.
 
 # -----------------------------------------------------------------------------
-# Window rules. First match wins; rules are evaluated on manage_start and on
-# every app_id / title change. At least one matcher (app_id / class / title)
-# is required - matcher-less rules are dropped with a warning.
+# Rule fields
+# -----------------------------------------------------------------------------
+# Rules use first-match-wins order. At least one matcher is required; a block
+# without app_id, class, or title is silently discarded. Every matcher present
+# in a block must match. app_id is used by native Wayland clients, class is
+# useful for XWayland clients, and title matches the current window title.
+# Matchers support `*` and `?` globs.
 #
-# Globs (`*`, `?`) are supported in matchers.
+# Accepted fields inside [[window]]:
+#
+# Matchers:
+#   app_id, class, title
+#
+# Layout/state:
+#   layout          tile | monocle | grid | rows | dwindle | scrolling |
+#                   float | floating | game-mode | game_mode
+#   tag             1-based workspace number
+#   floating        true/false; enables floating placement independently of
+#                   layout (layout="float" also sets floating=true)
+#   fullscreen      true/false
+#   ignore_struts   true/false; use the full output instead of panel struts
+#
+# Floating placement:
+#   width, height   positive pixel sizes; 0/invalid means automatic
+#   x, y            offsets from the usable area's origin; 0 means centered
+#
+# Game Mode placement:
+#   anchor          center | top | bottom | left | right
+#   size            native, pixels ("2560x1080"), or output fractions
+#                   ("0.7x0.8", each component > 0 and <= 1)
+#   scale           positive multiplier applied to the resolved anchor size
+#
+# Visuals:
+#   blur            true/false per-window preference. Selective masking remains
+#                   limited by SceneFX; false is useful for games/video.
+#   opacity         0.0 through 1.0
+#
+# Stateful rule properties have lifecycle ownership. A manual workspace move,
+# fullscreen toggle, or floating toggle overrides that property until a new
+# matcher becomes active; the rule is not blindly enforced every manage cycle.
+
 # -----------------------------------------------------------------------------
-
-# Example: Dota 2 anchors centered at its requested resolution, with every
-# other visible window tiled into one of the two full-height side columns
-# flanking the anchor (round-robin: even index -> left, odd -> right).
+# Complete Game Mode example
+# -----------------------------------------------------------------------------
 # [[window]]
-# app_id     = "dota2"
-# layout     = "game-mode"
-# anchor     = "center"        # center | top | bottom | left | right
-# size       = "native"        # "native" | "WxH" | "FxF"
-# scale      = 1.0
-# tag        = 9               # optional - also move to this tag
+# app_id = "steam_app_*"
+# title = "*"
+# layout = "game-mode"
+# tag = 9
+# anchor = "center"
+# size = "0.70x0.80"
+# scale = 1.0
 # fullscreen = false
-# ignore_struts = false        # if true, geometry ignores [struts] in wm.toml
+# ignore_struts = false
+# blur = false
+# opacity = 1.0
 
-# Example: force a specific size regardless of what the client asks for.
+# -----------------------------------------------------------------------------
+# Complete floating placement example
+# -----------------------------------------------------------------------------
+# [[window]]
+# app_id = "org.example.Dialog"
+# class = "ExampleDialog"
+# title = "Preferences*"
+# layout = "float"
+# floating = true
+# tag = 2
+# width = 900
+# height = 640
+# x = 120
+# y = 80
+# fullscreen = false
+# ignore_struts = false
+# blur = true
+# opacity = 0.95
+
+# -----------------------------------------------------------------------------
+# Other valid size forms
+# -----------------------------------------------------------------------------
 # [[window]]
 # app_id = "cs2"
 # layout = "game-mode"
-# size   = "2560x1080"
-
-# Example: exclude a window from backdrop blur (see [blur] in wm.toml). Useful
-# for games / fullscreen video so they neither look blurred nor pay the blur
-# cost. `blur` is tri-state: omit = inherit the global [blur].enabled default,
-# false = force-exclude, true = force-include.
+# anchor = "left"
+# size = "2560x1080"
+# scale = 1.0
+#
 # [[window]]
-# app_id = "steam_app_*"
-# blur   = false
+# app_id = "dota2"
+# layout = "game-mode"
+# anchor = "center"
+# size = "native"
+# scale = 1.0
 
-# Example: override the window-content opacity (see [opacity] in wm.toml).
-# `opacity` is a 0.0..1.0 fraction (0 = fully transparent, 1 = fully opaque);
-# omit it to inherit the global [opacity] default.
-# [[window]]
-# app_id  = "Alacritty"
-# opacity = 0.85
-
-# Example: let a window extend all the way to the edge of the output, ignoring
-# the exclusion zone reserved for bars / panels by `[struts]` in wm.toml. When
-# `ignore_struts = true`, the matched window's geometry is resolved against the
-# raw output rect instead of the strut-shrunk usable area. Honoured by the
-# fullscreen, maximized, game-mode anchor, and default-float
-# code paths. Other tiles on the same output continue to respect the struts.
-# [[window]]
-# app_id        = "obs"
-# layout        = "game-mode"
-# anchor        = "top"
-# size          = "1920x1080"
-# ignore_struts = true
-
-# v1.5 NOTE: the space around the anchor is exposed as two full-height side
-# columns (left of the anchor and right of the anchor). Non-anchor windows are
-# partitioned round-robin across the two columns (even index -> left, odd ->
-# right) and `remainder_layout` is invoked once per non-empty column with its
-# own fresh instance. Top/bottom strips above and below the anchor are
-# intentionally unused; column count is fixed at 2 (not configurable). If the
-# anchor is flush against an edge, all non-anchor windows fall into the
-# surviving column. File an issue if you need top/bottom strips or N > 2.
+# Note: the current rule snapshot defaults an omitted layout to game-mode.
+# Specify layout explicitly in every rule so visual-only or placement-only
+# rules cannot unexpectedly select Game Mode for their output/workspace.

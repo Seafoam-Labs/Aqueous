@@ -1,37 +1,84 @@
 # =============================================================================
-# Aqueous WM - input configuration (example)
+# Aqueous input configuration reference
+# Copy to: ~/.config/aqueous/input.toml
+# =============================================================================
 #
-# Copy to ~/.config/aqueous/input.toml to keep the whole [input] block in its
-# own file. Missing file is fine - the [input] block in wm.toml is used instead.
-#
-# Discovery order (first hit wins):
-#   1. $AQUEOUS_INPUT                        (env var, absolute path)
-#   2. [input].path in wm.toml               (override)
+# Discovery order (first path wins):
+#   1. $AQUEOUS_INPUT (~ is expanded)
+#   2. [input].path from wm.toml
 #   3. $XDG_CONFIG_HOME/aqueous/input.toml
 #   4. ~/.config/aqueous/input.toml
 #   5. /etc/xdg/aqueous/input.toml
 #
-# Reloaded by Super+R together with wm.toml. When both wm.toml and input.toml
-# set the same field, input.toml wins (per field it actually sets).
-# =============================================================================
+# This file overlays [input] settings from wm.toml and is hot-reloaded. Device
+# options are nullable overrides: omit a key to retain the libinput default.
+# The three top-level scalar defaults are false, false, and 0.0. Because the
+# current sidecar merge detects these fields by comparing against defaults, a
+# default-valued scalar here cannot clear a non-default value set in wm.toml;
+# define those three fields in only one file.
 
 [input]
-# Hover-to-focus (sloppy focus).
-focus_follows_mouse = true
+# Focus a window when the pointer enters it.
+focus_follows_mouse = false
 
-# --- XKB keyboard layout -----------------------------------------------------
-# Pushed to the compositor via river_xkb_config_v1. Null/unset -> compositor
-# default (xkbcommon honours XKB_DEFAULT_* environment variables).
-xkb_layout  = "us"
-# xkb_variant = "dvorak"
-# Remap Caps Lock to Escape (standard xkb option string).
-xkb_options = "caps:escape"
+# Legacy global mouse acceleration controls. Per-device accel_profile and
+# accel_speed below take precedence. pointer_acceleration=true selects the
+# adaptive profile for non-touchpad pointer devices; false selects flat.
+pointer_acceleration = false
+pointer_acceleration_factor = 0.0 # libinput speed, -1.0 through 1.0
 
-# --- Per-device libinput knobs ----------------------------------------------
+# XKB rule names. Empty/omitted values use xkbcommon/XKB_DEFAULT_* defaults.
+xkb_layout = "us"       # comma-separated layouts are accepted, e.g. "us,de"
+xkb_variant = ""        # e.g. "dvorak"
+xkb_options = ""        # e.g. "caps:escape,grp:alt_shift_toggle"
+
+# Optional when selecting this sidecar from wm.toml:
+# path = "~/.config/aqueous/input.toml"
+
+# -----------------------------------------------------------------------------
+# Mouse / other non-touchpad pointer devices
+# -----------------------------------------------------------------------------
+[input.mouse]
+accel_profile = "flat"  # flat | adaptive
+accel_speed = 0.0        # -1.0 through 1.0
+natural_scroll = false
+left_handed = false
+middle_emulation = false
+dwt = false              # disable-while-typing, when supported by the device
+
+# tap, click_method, and scroll_method are accepted by the parser in every
+# device section but are only applied to devices detected as touchpads.
+# tap = false
+# click_method = "button-areas" # clickfinger | button-areas
+# scroll_method = "no-scroll"   # two-finger | edge | no-scroll
+
+# -----------------------------------------------------------------------------
+# Touchpads
+# -----------------------------------------------------------------------------
 [input.touchpad]
+accel_profile = "adaptive" # flat | adaptive
+accel_speed = 0.0           # -1.0 through 1.0
 natural_scroll = true
 tap = true
+dwt = true
+left_handed = false
+middle_emulation = false
+click_method = "clickfinger" # clickfinger | button-areas
+scroll_method = "two-finger" # two-finger | edge | no-scroll
 
-# [input.mouse]
-# accel_profile = "flat"
-# accel_speed = 0.0
+# -----------------------------------------------------------------------------
+# Trackpoints
+# -----------------------------------------------------------------------------
+# These keys are accepted and retained by the configuration parser. The current
+# libinput application path classifies every non-touchpad device as mouse, so
+# [input.mouse] is presently the effective policy for trackpoints as well.
+[input.trackpoint]
+accel_profile = "adaptive"
+accel_speed = 0.0
+natural_scroll = false
+tap = false
+dwt = false
+left_handed = false
+middle_emulation = false
+click_method = "button-areas"
+scroll_method = "no-scroll"

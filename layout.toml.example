@@ -1,146 +1,169 @@
 # =============================================================================
-# Aqueous WM — example layout.toml (sidecar)
-# Path: ~/.config/aqueous/layout.toml
+# Aqueous layout configuration reference
+# Copy to: ~/.config/aqueous/layout.toml
+# =============================================================================
 #
-# Optional standalone file that overlays the layout-only sections of wm.toml.
-# Only [layout], [layout.slots], [layout.options.*] and [[workspace]] are read
-# here; every other section (keybinds, input, output, exec, state,
-# rules, …) stays in wm.toml and is ignored if present here.
+# This optional sidecar keeps layout selection and geometry separate from
+# wm.toml. Aqueous uses a small TOML-compatible parser: unknown sections, keys,
+# and malformed values are ignored while recognized valid values are applied.
 #
-# Discovery order (first hit wins):
-#   1. $AQUEOUS_LAYOUT environment variable (verbatim, ~ expanded)
-#   2. [layout].path in wm.toml (relative paths resolve next to wm.toml)
-#   3. $XDG_CONFIG_HOME/aqueous/layout.toml
-#   4. ~/.config/aqueous/layout.toml
+# Actual discovery order (first usable path wins):
+#   1. ~/.config/aqueous/layout.toml, when $HOME is set and the file exists
+#   2. $AQUEOUS_LAYOUT (~ is expanded)
+#   3. [layout].path from wm.toml (relative to wm.toml)
+#   4. $XDG_CONFIG_HOME/aqueous/layout.toml
 #   5. /etc/xdg/aqueous/layout.toml
 #
-# Merge semantics:
-#   • Scalar fields ([layout].default, gaps_*, master_*, border_*, force_ssd) —
-#     sidecar wins wholesale when present.
-#   • [layout.slots] — merged per key; sidecar overrides on conflict, base
-#     keys missing from the sidecar are preserved.
-#   • [layout.options.<id>] — merged per layout id; the entire block from the
-#     sidecar replaces the same id from wm.toml (no deep-merge of Extra).
-#   • [[workspace]] — merged per workspace key; sidecar overrides on conflict,
-#     base entries missing from the sidecar are preserved.
+# The sidecar is applied after wm.toml. Recognized scalar and per-layout fields
+# are merged one key at a time, so omitted values retain their wm.toml/default
+# value. [[output]] and [[workspace]] layout mappings are also accepted here,
+# but matching mappings already loaded from wm.toml are resolved first. Define
+# each mapping in only one file to avoid ambiguous duplicates.
 #
-# A missing or malformed sidecar is non-fatal: Aqueous falls back to the
-# [layout]* sections of wm.toml and logs a single line.
-#
-# Hot reload: Super+R re-reads both wm.toml and this file.
-# =============================================================================
+# Configuration is polled and hot-reloaded on the Wayland event loop. Super+R
+# requests the same reload immediately.
 
-
-# ------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Global layout defaults
-# ------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 [layout]
-# Global default layout id. One of: tile | monocle | grid | float | scrolling | dwindle
-default       = "game-mode"
+# Layout used when there is no runtime, output, or workspace override.
+# Accepted: tile | monocle | grid | rows | dwindle | scrolling | float |
+#           floating | game-mode | game_mode
+default = "tile"
 
-# Gaps (px). Outer = around the screen edge; inner = between tiles.
-gaps_outer    = 8
-gaps_inner    = 4
+# Common geometry applied to every layout. Layout-specific sections below can
+# override any common field for one engine.
+gaps_outer  = 8       # pixels around the usable output rectangle; >= 0
+gaps_inner  = 4       # pixels between placements; >= 0
+master_ratio = 0.55   # master share used by tile/dwindle; strictly 0 < value < 1
+master_count = 1      # number of windows in tile's master area; >= 1
 
-# Master/stack split for the `tile` engine.
-master_ratio  = 0.55     # 0.0–1.0
-master_count  = 1        # windows in the master area
-
-# Borders (ARGB hex, 0xAARRGGBB).
+# Border colors use 0xAARRGGBB.
 border_width   = 2
-border_focused = 0xFF88C0D0   # Nord frost
-border_normal  = 0xFF3B4252   # Nord polar night
-border_urgent  = 0xFFBF616A   # Nord aurora red
+border_focused = 0xFF88C0D0
+border_normal  = 0xFF3B4252
+border_urgent  = 0xFFBF616A
 
-# Force server-side decoration: hides the client-drawn titlebar / minimize /
-# maximize / close buttons on SSD-capable apps (most Qt/KDE, libdecor-aware,
-# correctly-flagged Electron). CSD-only apps (most GTK/GNOME) are unaffected —
-# a Wayland protocol limitation, not an Aqueous one. Default: false.
-force_ssd      = false
+# Ask SSD-capable clients to use compositor-side decoration. CSD-only clients
+# may continue to draw their own title bars.
+force_ssd = false
 
+# Optional when these settings live in wm.toml instead of this sidecar:
+# path = "~/.config/aqueous/layout.toml"
 
-# ------------------------------------------------------------------------------
-# Layout slots — symbolic names bindable from [keybinds] in wm.toml.
-# ------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Runtime layout slots
+# -----------------------------------------------------------------------------
+# The set_layout_primary/secondary/tertiary/quaternary actions resolve through
+# these four slots. Every slot accepts any layout ID listed above.
 [layout.slots]
 primary    = "tile"
 secondary  = "scrolling"
 tertiary   = "monocle"
 quaternary = "grid"
 
+# -----------------------------------------------------------------------------
+# Per-layout options
+# -----------------------------------------------------------------------------
+# Every [layout.options.<id>] section accepts the eight common geometry/border
+# keys from [layout]: gaps_outer, gaps_inner, master_ratio, master_count,
+# border_width, border_focused, border_normal, and border_urgent.
+# Unknown options are ignored; there is no generic Extra option map.
 
-# ------------------------------------------------------------------------------
-# Per-layout option overrides. Section pattern: [layout.options.<id>]
-# Recognised scalar keys: gaps_outer, gaps_inner, master_ratio, master_count.
-# Any other key lands in LayoutOptions.Extra (string→string) for the engine.
-# ------------------------------------------------------------------------------
 [layout.options.tile]
-gaps_outer   = 12
-gaps_inner   = 6
-master_ratio = 0.6
-
-[layout.options.grid]
-gaps_inner = 8
-
-[layout.options.scrolling]
-# PaperWM-style knobs consumed by ScrollingLayout via Extra:
-column_fraction = "0.5"     # each column = 50% of output width
-center_focused  = "true"    # auto-pan so the focused column is centred
-
-[layout.options.dwindle]
-# Dwindle (spiral / Fibonacci) knobs consumed via Extra:
-split_ratio = "0.5"        # ratio of every split after the first (first uses master_ratio)
-start_axis  = "vertical"   # first split direction: vertical (left/right) | horizontal (top/bottom)
+# Master/stack layout: the first master_count windows occupy master_ratio of
+# the width; remaining windows form the stack.
+master_ratio = 0.55
+master_count = 1
 
 [layout.options.monocle]
-# Monocle has no scalar knobs today; reserved for future use.
+# Show only the focused/current window when true. false leaves every monocle
+# participant visible in its full-output stack.
+hide_others = true
+# Draw the configured border around the visible window.
+show_borders = false
+
+[layout.options.grid]
+# Grid has no engine-only keys; common gaps and borders control it.
+gaps_inner = 4
+
+[layout.options.rows]
+# Rows has no engine-only keys; common gaps and borders control it.
+gaps_inner = 4
+
+[layout.options.dwindle]
+# Fraction assigned to each recursive split, strictly between 0 and 1.
+split_ratio = 0.5
+# First split: vertical = left/right; horizontal = top/bottom.
+start_axis = "vertical" # vertical | horizontal
+
+[layout.options.scrolling]
+# Width of each scrolling column as a fraction of the usable output.
+column_fraction = 0.5
+# Automatically pan to keep the focused column centered.
+center_focused = true
+# Pan to a newly managed window when it extends the column order.
+follow_new_windows = true
+# Quantize manual viewport movement to whole column steps.
+snap_to_columns = false
+# Permit the first/last column to move beyond the centered viewport bound.
+allow_overscroll = true
 
 [layout.options.float]
-# Floating engine has no scalar knobs today; reserved for future use.
+# Floating has no engine-only keys. Common borders apply; each window otherwise
+# uses remembered, native, or rule-provided geometry.
+border_width = 2
 
+[layout.options.game-mode]
+# Only common geometry/border keys are accepted here. Game Mode's
+# remainder_layout, fallback_layout, and gaps_inner policy lives in the
+# [game_mode] section of rules.toml.
+gaps_inner = 4
 
-# ------------------------------------------------------------------------------
-# Per-workspace layout overrides. Each [[workspace]] block forces one workspace
-# to a given layout id, independently of the others on the same monitor.
-# Identify the workspace by its 1-based number:
-#   workspace = 1   # workspace 1, 2, 3, …
-# An optional `output` connector name scopes the override to one monitor.
-# Resolution precedence: a per-keybinding set_layout_* override (per workspace)
-# > output+workspace block > workspace-only block > [[output]] > [layout].default.
-# For a multi-tag view the lowest matching workspace number wins.
-# ------------------------------------------------------------------------------
-# Workspace 1 on every monitor → classic master/stack tiling.
+# -----------------------------------------------------------------------------
+# Output layout selection
+# -----------------------------------------------------------------------------
+# Optional. These blocks select a default layout for matching outputs; display
+# mode/scale/position fields belong in wm.toml. Matching priority is connector
+# name, then EDID, then make/model/serial metadata.
+#
+# [[output]]
+# name   = "DP-1"
+# layout = "scrolling"
+#
+# [[output]]
+# edid   = "edid-identifier"
+# make   = "Example Vendor"
+# model  = "Example Display"
+# serial = "1234"
+# layout = "grid"
+
+# -----------------------------------------------------------------------------
+# Workspace layout selection
+# -----------------------------------------------------------------------------
+# workspace is 1-based. Omit output for a global workspace override, or set an
+# output connector name for a more specific output/workspace mapping.
+# Resolution order is runtime selection, output+workspace, workspace-only,
+# output default, then [layout].default.
+
 [[workspace]]
 workspace = 1
-layout    = "tile"
+layout = "tile"
 
-# Workspace 2 on every monitor → single full-screen window at a time.
 [[workspace]]
 workspace = 2
-layout    = "monocle"
+layout = "monocle"
 
-# Workspace 3 on every monitor → PaperWM-style horizontal scrolling.
 [[workspace]]
 workspace = 3
-layout    = "scrolling"
+layout = "scrolling"
 
-# Workspace 4 → free-floating windows (good for graphics / dialog-heavy apps).
 [[workspace]]
 workspace = 4
-layout    = "float"
+layout = "float"
 
-# Output-scoped override: workspace 5 only on the DP-1 monitor uses grid;
-# on any other monitor workspace 5 falls back to [layout].default.
-[[workspace]]
-output    = "DP-1"
-workspace = 5
-layout    = "grid"
-
-# Output-scoped override: workspace 1 on the secondary HDMI monitor is
-# game-mode. An output+workspace block outranks the workspace-only block
-# above, so HDMI-A-1's workspace 1 is game-mode while every other monitor's
-# workspace 1 stays "tile".
-[[workspace]]
-output    = "HDMI-A-1"
-workspace = 1
-layout    = "game-mode"
+# [[workspace]]
+# output = "DP-1"
+# workspace = 5
+# layout = "grid"
