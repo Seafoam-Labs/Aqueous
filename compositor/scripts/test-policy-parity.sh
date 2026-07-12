@@ -153,7 +153,7 @@ start_session() {
 }
 
 exercise_session() {
-    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom game_pid fallback_geom dwindle_after_fallback tile_after_fallback
+    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_moved geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom game_pid fallback_geom dwindle_after_fallback tile_after_fallback
 
     baseline=$(trace_line)
     focus0=$(trace_field "$baseline" focus)
@@ -189,6 +189,14 @@ exercise_session() {
     wait_field_eq geometry "$geom2"
     checkpoint tile_geometry_restored
     [ "$geom_mono" != "$geom2" ] || die "monocle and tile geometry traces are identical"
+
+    echo "CHECK: shifted-arrow spatial window swap"
+    press Left SHIFT,SUPER
+    wait_field_ne geometry "$geom2"
+    geom_moved=$(trace_field "$(trace_line)" geometry)
+    checkpoint shifted_arrow_window_swap
+    [ "$geom_moved" != "$geom2" ] || die "Super+Shift+Left did not move the focused tiled window"
+    geom2=$geom_moved
 
     echo "CHECK: repeated workspace switching"
     press 2 SUPER

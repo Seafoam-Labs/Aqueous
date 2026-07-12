@@ -463,9 +463,12 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "focus_right")) return aqueous.directionalFocus(1, 0);
     if (std.mem.eql(u8, action, "focus_up")) return aqueous.directionalFocus(0, -1);
     if (std.mem.eql(u8, action, "focus_down")) return aqueous.directionalFocus(0, 1);
-    if (std.mem.startsWith(u8, action, "move_window_")) return aqueous.moveFocused(if (std.mem.eql(u8, action, "move_window_left") or std.mem.eql(u8, action, "move_window_up")) -1 else 1);
-    if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocused(-1);
-    if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1);
+    if (std.mem.eql(u8, action, "move_window_left")) return aqueous.moveFocused(-1, 0);
+    if (std.mem.eql(u8, action, "move_window_right")) return aqueous.moveFocused(1, 0);
+    if (std.mem.eql(u8, action, "move_window_up")) return aqueous.moveFocused(0, -1);
+    if (std.mem.eql(u8, action, "move_window_down")) return aqueous.moveFocused(0, 1);
+    if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocused(-1, 0);
+    if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
     if (std.mem.eql(u8, action, "scroll_viewport_left") or std.mem.eql(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(if (std.mem.endsWith(u8, action, "left")) -1 else 1);
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
@@ -581,29 +584,16 @@ fn directionalFocus(aqueous: *Aqueous, dx: i32, dy: i32) void {
     if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| aqueous.api.requestFocus(target);
 }
 
-fn moveFocused(aqueous: *Aqueous, delta: i32) void {
+fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
-    const id = aqueous.layout_overrides.get(key) orelse aqueous.config.wm.resolveWorkspace(context.output.policyName(), context.workspace_number) orelse aqueous.config.layout.default;
-    if (id == .game_mode) {
-        if (game_mode.moveAdjacent(&state.game_mode, handle, delta)) aqueous.api.requestManageCycle();
-        return;
-    }
-    const order = switch (id) {
-        .tile => &state.tile.order,
-        .monocle => &state.monocle.order,
-        .grid => &state.grid.order,
-        .dwindle => &state.dwindle.order,
-        .scrolling => &state.scrolling.order,
-        .game_mode, .rows, .floating => return,
-    };
-    const index = std.mem.indexOfScalar(layout_types.Handle, order.items.items, handle) orelse return;
-    const target_i = @as(isize, @intCast(index)) + delta;
-    if (target_i < 0 or target_i >= order.items.items.len) return;
-    std.mem.swap(layout_types.Handle, &order.items.items[index], &order.items.items[@intCast(target_i)]);
-    aqueous.api.requestManageCycle();
+    const target = aqueous.api.directionalNeighbor(handle, dx, dy) orelse return;
+    const target_state = aqueous.window_states.get(target) orelse return;
+    if (target_state.kind != .tiled) return;
+    if (layout_engine.swap(state, handle, target)) aqueous.api.requestManageCycle();
 }
 
 fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
