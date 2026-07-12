@@ -787,6 +787,13 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
                 seat.cursor.constraint = @ptrCast(@alignCast(wlr_constraint.data));
                 assert(seat.cursor.constraint != null);
             }
+
+            // A client may create its constraint before receiving keyboard focus.
+            // In that case PointerConstraint.create() cannot activate it, and merely
+            // attaching it to the cursor here would leave the constraint dormant
+            // until an unrelated cursor-state update. Xwayland games commonly use
+            // this ordering when translating an X11 pointer grab.
+            seat.cursor.constraint.?.maybeActivate();
         }
     }
 }
