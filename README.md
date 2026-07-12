@@ -4,7 +4,7 @@
 
 Aqueous combines a native tiling window manager, fluid compositor-side motion,
 and optional SceneFX effects in one Zig process. It is designed for desktops
-that should look deliberate—rounded windows, backdrop blur, focus-aware
+that want rounded windows, backdrop blur, focus-aware
 opacity, animated placement, and sliding workspaces—without turning routine
 window management into a chain of scripts, subprocesses, or IPC round trips.
 
