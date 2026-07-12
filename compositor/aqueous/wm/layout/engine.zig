@@ -78,6 +78,14 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     return changed;
 }
 
+pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.scrollViewport(&state.scrolling, delta),
+        .game_mode => game_mode.scrollViewport(&state.game_mode, focused, delta),
+        else => false,
+    };
+}
+
 test "dispatcher selects the configured engine" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);

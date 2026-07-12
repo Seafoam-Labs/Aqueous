@@ -187,6 +187,16 @@ pub fn moveAdjacent(state: *State, focused: types.Handle, delta: i32) bool {
     return false;
 }
 
+pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
+    if (state.active_remainder != .scrolling) return false;
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (std.mem.indexOfScalar(types.Handle, side.scrolling.order.items.items, focused) != null) {
+            return scrolling.scrollViewport(&side.scrolling, delta);
+        }
+    }
+    return false;
+}
+
 fn contains(windows: []const types.Window, handle: types.Handle) bool {
     return find(windows, handle) != null;
 }
@@ -227,6 +237,18 @@ test "game mode delegates a no-anchor output to the configured tile fallback" {
     try std.testing.expectEqual(types.Rect{ .x = 54, .y = 42, .width = 46, .height = 38 }, findPlacement(placements, 3).geometry);
     try std.testing.expectEqualSlices(types.Handle, &.{ 1, 2, 3 }, state.fallback.tile.order.items.items);
     try std.testing.expectEqual(@as(usize, 0), state.fallback.grid.order.items.items.len);
+}
+
+test "game mode routes viewport movement to a scrolling fallback" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &.{
+        .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 },
+    }, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{ .fallback = .scrolling });
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(scrollViewport(&state, 1, 1));
+    try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_index);
 }
 
 test "game mode applies rows independently to both side columns" {

@@ -1,11 +1,11 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
-pkgname=aqueous-git
-pkgbase=aqueous
+pkgname=aqueous-git-intel
+pkgbase=aqueous-intel
 pkgver=0.3.0 # Will be updated by pkgver()
 pkgrel=1
-pkgdesc="Aqueous single-process Wayland compositor"
-arch=('x86_64' 'aarch64')
+pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 build)"
+arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
@@ -25,8 +25,8 @@ optdepends=('ly: recommended display manager / login greeter'
             'nemo: recommended file manager'
             'firefox: web browser'
             'wireplumber: volume/media key bindings (wpctl)')
-provides=('aqueous')
-conflicts=('aqueous')
+provides=('aqueous' 'aqueous-git')
+conflicts=('aqueous' 'aqueous-git' 'aqueous-bin')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git"
@@ -68,9 +68,16 @@ build() {
     # Build the single Aqueous compositor/policy executable.
     msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
+    # This package is distributed to Intel and AMD machines, so never inherit
+    # the build agent's native CPU features. In particular, AMD SSE4a instructions
+    # such as insertq are illegal on Intel CPUs. The package's x86_64 architecture
+    # plus -Dcpu=baseline keeps the artifact portable without turning this native
+    # package build into a cross-compilation that would require a separate sysroot.
+    #
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
     # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
-    zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dscenefx=true \
+    zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
+        -Dxwayland -Dllvm -Dscenefx=true \
         --prefix "$srcdir/aqueous-dist" install
 }
 

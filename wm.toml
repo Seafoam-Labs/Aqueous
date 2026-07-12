@@ -112,8 +112,10 @@ focus_up              = "Super+K"          # default
 focus_down            = "Super+J"          # default
 
 # --- Scrolling-layout viewport pan + column move ---
-scroll_viewport_left  = "Super+Comma"      # default
-scroll_viewport_right = "Super+Period"     # default
+scroll_viewport_left        = "Super+Comma"   # legacy alias
+scroll_viewport_right       = "Super+Period"  # legacy alias
+scroll_viewport_left_arrow  = "Super+Left"    # default
+scroll_viewport_right_arrow = "Super+Right"   # default
 move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 

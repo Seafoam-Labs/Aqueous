@@ -469,7 +469,8 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_window_down")) return aqueous.moveFocused(0, 1);
     if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocused(-1, 0);
     if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
-    if (std.mem.eql(u8, action, "scroll_viewport_left") or std.mem.eql(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(if (std.mem.endsWith(u8, action, "left")) -1 else 1);
+    if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1);
+    if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1);
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
     if (std.mem.eql(u8, action, "toggle_floating")) return aqueous.toggleFloating();
@@ -599,8 +600,7 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
 fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
-    state.scrolling.viewport_x += delta * 120;
-    aqueous.api.requestManageCycle();
+    if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), delta)) aqueous.api.requestManageCycle();
 }
 
 fn toggleFullscreen(aqueous: *Aqueous) void {

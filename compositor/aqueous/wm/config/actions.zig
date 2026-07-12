@@ -47,6 +47,7 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "focus_left", "Super+H" },                           .{ "focus_right", "Super+L" },
     .{ "focus_up", "Super+K" },                             .{ "focus_down", "Super+J" },
     .{ "scroll_viewport_left", "Super+Comma" },             .{ "scroll_viewport_right", "Super+Period" },
+    .{ "scroll_viewport_left_arrow", "Super+Left" },        .{ "scroll_viewport_right_arrow", "Super+Right" },
     .{ "move_window_left", "Super+Shift+Left" },            .{ "move_window_right", "Super+Shift+Right" },
     .{ "move_window_up", "Super+Shift+Up" },                .{ "move_window_down", "Super+Shift+Down" },
     .{ "reload_config", "Super+R" },                        .{ "focus_workspace_1", "Super+1" },
@@ -190,15 +191,19 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     var snapshot: Snapshot = .{};
     initDefaults(&snapshot);
 
-    const scroll_left = parseChord("Super+Comma").?;
-    const scroll_right = parseChord("Super+Period").?;
+    const scroll_left = parseChord("Super+Left").?;
+    const scroll_right = parseChord("Super+Right").?;
+    const scroll_left_legacy = parseChord("Super+Comma").?;
+    const scroll_right_legacy = parseChord("Super+Period").?;
     const output_left = parseChord("Super+Ctrl+Comma").?;
     const output_right = parseChord("Super+Ctrl+Period").?;
     const previous_workspace = parseChord("Super+BackSpace").?;
     const untrap_pointer = parseChord("Super+grave").?;
 
-    try std.testing.expectEqualStrings("builtin:scroll_viewport_left", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
-    try std.testing.expectEqualStrings("builtin:scroll_viewport_right", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_right_arrow", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_left", snapshot.find(scroll_left_legacy.keysym, scroll_left_legacy.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_right", snapshot.find(scroll_right_legacy.keysym, scroll_right_legacy.modifiers).?);
     try std.testing.expectEqualStrings("builtin:focus_output_left", snapshot.find(output_left.keysym, output_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:focus_output_right", snapshot.find(output_right.keysym, output_right.modifiers).?);
     try std.testing.expectEqualStrings("builtin:focus_previous_workspace", snapshot.find(previous_workspace.keysym, previous_workspace.modifiers).?);
