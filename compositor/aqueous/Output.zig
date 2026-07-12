@@ -30,6 +30,12 @@ const Workspace = @import("Workspace.zig");
 const log = std.log.scoped(.output);
 
 pub const State = struct {
+    pub const PositionSource = enum {
+        automatic,
+        configuration,
+        output_management,
+    };
+
     state: enum {
         /// Powered on and exposed to the window manager
         enabled,
@@ -59,7 +65,7 @@ pub const State = struct {
     scale: f32,
     transform: wl.Output.Transform,
     adaptive_sync: bool,
-    auto_layout: bool,
+    position_source: PositionSource,
 
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
         assert(state.enabled);
@@ -89,7 +95,7 @@ pub const State = struct {
             .scale = scaling.roundScale(clamped_scale),
             .transform = state.transform,
             .adaptive_sync = state.adaptive_sync_enabled,
-            .auto_layout = false,
+            .position_source = .output_management,
         };
     }
 
@@ -313,7 +319,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .scale = 1,
         .transform = .normal,
         .adaptive_sync = wlr_output.adaptive_sync_status == .enabled,
-        .auto_layout = true,
+        .position_source = .automatic,
     };
     output.* = .{
         .wlr_output = wlr_output,

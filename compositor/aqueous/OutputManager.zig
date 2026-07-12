@@ -22,6 +22,7 @@ const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const OutputConfig = @import("wm/output/config.zig");
+const autolayout = @import("wm/output/autolayout.zig");
 
 const log = std.log.scoped(.output);
 
@@ -190,7 +191,7 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
     if (spec.x) |x| {
         state.x = x;
         state.y = spec.y.?;
-        state.auto_layout = false;
+        state.position_source = .configuration;
     }
     if (spec.adaptive_sync) |adaptive_sync| state.adaptive_sync = adaptive_sync;
 }
@@ -309,6 +310,11 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
         return;
     }
 
+    const repair_initial_overlap = shouldRepairInitialOverlap(&server.om, config);
+    if (repair_initial_overlap) {
+        log.warn("initial output-management transaction overlaps unconfigured outputs; retaining automatic positions", .{});
+    }
+
     var it = config.heads.iterator(.forward);
     while (it.next()) |head| {
         const output: *Output = @ptrCast(@alignCast(head.state.output.data));
@@ -320,7 +326,9 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
                 head.state.adaptive_sync_enabled,
             });
             const previous = output.scheduled.state;
-            output.scheduled = .fromHeadState(&head.state);
+            var proposed: Output.State = .fromHeadState(&head.state);
+            if (repair_initial_overlap) proposed.position_source = .automatic;
+            output.scheduled = proposed;
             // Maintain power management state set with wlr-output-power-management-v1
             if (previous == .disabled_soft) {
                 output.scheduled.state = .disabled_soft;
@@ -340,6 +348,34 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
     server.wm.scheduled.output_config = config;
 
     server.wm.dirtyWindowing();
+}
+
+/// Repair the uninitialized transaction emitted by output-management clients
+/// which advertise every new head at (0, 0). Once any enabled output has an
+/// explicitly owned position, overlap is treated as an intentional layout.
+fn shouldRepairInitialOverlap(om: *OutputManager, config: *wlr.OutputConfigurationV1) bool {
+    var outputs = om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (output.scheduled.state == .enabled and output.scheduled.position_source != .automatic) return false;
+    }
+
+    var boxes: [OutputConfig.max_outputs]autolayout.Rect = undefined;
+    var count: usize = 0;
+    var heads = config.heads.iterator(.forward);
+    while (heads.next()) |head| {
+        if (!head.state.enabled) continue;
+        if (count == boxes.len) return false;
+        const proposed: Output.State = .fromHeadState(&head.state);
+        const width, const height = proposed.dimensions();
+        boxes[count] = .{
+            .x = proposed.x,
+            .y = proposed.y,
+            .width = @intCast(width),
+            .height = @intCast(height),
+        };
+        count += 1;
+    }
+    return autolayout.hasOverlap(boxes[0..count]);
 }
 
 fn validateConfigCoordinates(config: *wlr.OutputConfigurationV1) bool {
@@ -405,7 +441,7 @@ pub fn autoLayout(om: *OutputManager) void {
     {
         var it = om.outputs.iterator(.forward);
         while (it.next()) |output| {
-            if (output.scheduled.auto_layout) continue;
+            if (output.scheduled.state != .enabled or output.scheduled.position_source == .automatic) continue;
 
             const x = output.scheduled.x + output.scheduled.dimensions()[0];
             if (x > rightmost_edge) {
@@ -418,7 +454,7 @@ pub fn autoLayout(om: *OutputManager) void {
     {
         var it = om.outputs.iterator(.forward);
         while (it.next()) |output| {
-            if (!output.scheduled.auto_layout) continue;
+            if (output.scheduled.state != .enabled or output.scheduled.position_source != .automatic) continue;
 
             output.scheduled.x = rightmost_edge;
             output.scheduled.y = row_y;

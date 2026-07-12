@@ -384,6 +384,15 @@ policy, updates the output protocol, and broadcasts compatibility events.
 Output policy IDs are valid only for the life of their `Output`; stale
 per-output layout state is pruned from policy snapshots.
 
+Output positions retain their source: automatic fallback, TOML/persisted
+configuration, or an output-management client. Unconfigured outputs are laid
+out in a non-overlapping horizontal row. Some output-management clients submit
+all newly advertised heads at `(0, 0)` before the user has arranged them; when
+every enabled output is still automatic, Aqueous treats that first overlapping
+transaction as uninitialized, retains its mode/scale changes, and recomputes
+the positions. Once configuration or a valid client arrangement owns a
+position, overlapping coordinates are preserved as intentional.
+
 The configured `primary` flag is used only as a deterministic focus/action
 fallback. It does not override an explicitly selected output or steal focus
 from a window. If several usable outputs resolve primary, the first is used and

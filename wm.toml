@@ -10,12 +10,12 @@
 # Per-output overrides. Repeat the [[output]] block once per monitor.
 # `name` matches river_output_v1.name (e.g. "DP-1", "HDMI-A-1", "eDP-1").
 # -----------------------------------------------------------------------------
-[[output]]
-name   = "DP-4"
-mode   = "7680x2160@240.000000"
-scale  = 1.0
-position = [0,0]
-enabled = true
+#[[output]]
+#name     = "DP-1"
+#mode     = "2560x1440@144"
+#scale    = 1.0
+#position = [0, 0]
+#enabled  = true
 
 [display]
 apply_on_start  = true

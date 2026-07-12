@@ -7,6 +7,7 @@ test {
     _ = @import("config/loader.zig");
     _ = @import("config/wm.zig");
     _ = @import("output/config.zig");
+    _ = @import("output/autolayout.zig");
     _ = @import("layout/engine.zig");
     _ = @import("rules/config.zig");
     _ = @import("state/store.zig");
