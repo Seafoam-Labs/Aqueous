@@ -21,9 +21,9 @@
 # once on load. Two-release deprecation window.
 # -----------------------------------------------------------------------------
 [game_mode]
-remainder_layout = "grid"    # tile | grid | monocle | scrolling | float
+remainder_layout = "grid"    # tile | monocle | grid | rows | dwindle | scrolling | float
 gaps_inner       = 8
-fallback_layout  = "grid"    # used on outputs with no anchor
+fallback_layout  = "grid"    # same choices; used on outputs with no anchor
 
 # -----------------------------------------------------------------------------
 # Window rules. First match wins; rules are evaluated on manage_start and on

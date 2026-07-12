@@ -36,7 +36,7 @@ pub const State = struct {
     }
 };
 
-pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const config.Snapshot, area: types.Rect, windows: []const types.Window, focused: ?types.Handle) ![]types.Placement {
+pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const config.Snapshot, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, game_options: game_mode.Options) ![]types.Placement {
     const id = snapshot.default;
     state.active_layout = id;
     const options = snapshot.layoutOptions(id);
@@ -60,7 +60,7 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const con
             .allow_overscroll = snapshot.scrolling_overscroll,
         }),
         .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),
-        .game_mode => game_mode.arrange(allocator, &state.game_mode, area, windows, focused, options, .{}),
+        .game_mode => game_mode.arrange(allocator, &state.game_mode, area, windows, focused, options, game_options),
     };
 }
 
@@ -74,12 +74,7 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (state.rows.order.swap(a, b)) changed = true;
     if (state.dwindle.order.swap(a, b)) changed = true;
     if (state.scrolling.order.swap(a, b)) changed = true;
-    if (state.game_mode.tile.order.swap(a, b)) changed = true;
-    if (state.game_mode.monocle.order.swap(a, b)) changed = true;
-    if (state.game_mode.grid.order.swap(a, b)) changed = true;
-    if (state.game_mode.rows.order.swap(a, b)) changed = true;
-    if (state.game_mode.dwindle.order.swap(a, b)) changed = true;
-    if (state.game_mode.scrolling.order.swap(a, b)) changed = true;
+    if (game_mode.swap(&state.game_mode, a, b)) changed = true;
     return changed;
 }
 
@@ -92,7 +87,7 @@ test "dispatcher selects the configured engine" {
     snapshot.options[@intFromEnum(config.LayoutId.rows)].gaps_inner = 0;
     const placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &.{
         .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 },
-    }, null);
+    }, null, .{});
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(types.Rect{ .x = 0, .y = 40, .width = 100, .height = 40 }, placements[2].geometry);
 }
@@ -103,7 +98,7 @@ test "pointer reorder swaps rows without changing window state" {
     var snapshot: config.Snapshot = .{};
     snapshot.default = .rows;
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
-    const initial = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, null);
+    const initial = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, null, .{});
     std.testing.allocator.free(initial);
 
     try std.testing.expect(swap(&state, 1, 2));

@@ -248,6 +248,16 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
                 break :blk .builtin;
             }
         }
+        // Policy chords are written in terms of the base key on the active
+        // layout. For example, `Super+Shift+1` names the 1 key, not the `!`
+        // keysym produced after applying Shift. Match level zero first, just
+        // like river_xkb_binding_v1's no-translate path, then retain the
+        // translated lookup below for explicitly shifted/layout symbols.
+        const keymap = xkb_state.getKeymap();
+        const layout = xkb_state.keyGetLayout(xkb_keycode);
+        for (keymap.keyGetSymsByLevel(xkb_keycode, layout, 0)) |sym| {
+            if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
+        }
         for (xkb_state.keyGetSyms(xkb_keycode)) |sym| {
             if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
         }

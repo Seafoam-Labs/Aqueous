@@ -223,6 +223,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try parseAndReload(std.testing.allocator, &engine,
         \\[game_mode]
         \\remainder_layout = "rows"
+        \\fallback_layout = "tile"
         \\gaps_inner = 3
         \\[[window]]
         \\layout = "grid"
@@ -247,6 +248,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(Engine.Layout.game_mode, game.layout.?);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
+    try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);
     try std.testing.expectEqual(@as(i32, 3), engine.game_mode.gaps_inner);
     const dialog = engine.resolve(.{ .title = "Dialog #1" }).?;
     try std.testing.expect(dialog.placement.floating);
