@@ -78,6 +78,20 @@ pub const State = struct {
         state.rects.putAssumeCapacity(handle, next);
         return true;
     }
+
+    pub fn resizeWindowFrom(state: *State, handle: types.Handle, start: WorldRect, dx: f64, dy: f64) bool {
+        if (!std.math.isFinite(dx) or !std.math.isFinite(dy)) return false;
+        const next: WorldRect = .{
+            .x = start.x,
+            .y = start.y,
+            .width = @max(1, start.width + roundI32(dx / state.camera.zoom)),
+            .height = @max(1, start.height + roundI32(dy / state.camera.zoom)),
+        };
+        const current = state.rects.get(handle) orelse return false;
+        if (current.width == next.width and current.height == next.height) return false;
+        state.rects.putAssumeCapacity(handle, next);
+        return true;
+    }
 };
 
 pub fn arrange(
@@ -127,7 +141,11 @@ fn syncRects(
     const default_height = @max(1, @divTrunc(inset_height * 3, 5));
     var new_index: usize = state.rects.count();
     for (windows) |window| {
-        if (state.rects.contains(window.handle)) continue;
+        if (state.rects.getPtr(window.handle)) |world| {
+            world.width = constrain(world.width, window.min_width, window.max_width);
+            world.height = constrain(world.height, window.min_height, window.max_height);
+            continue;
+        }
         const cascade: i32 = @intCast((new_index % 8) * 32);
         const viewport_world_width = @as(f64, @floatFromInt(area.width)) / state.camera.zoom;
         const viewport_world_height = @as(f64, @floatFromInt(area.height)) / state.camera.zoom;
@@ -213,6 +231,16 @@ test "window dragging updates retained world coordinates" {
     try std.testing.expect(state.moveWindowFrom(7, start, 25, -10));
     try std.testing.expectApproxEqAbs(@as(f64, 150), state.rects.get(7).?.x, 0.001);
     try std.testing.expectApproxEqAbs(@as(f64, 180), state.rects.get(7).?.y, 0.001);
+}
+
+test "window resizing uses world deltas at every zoom" {
+    var state: State = .{ .camera = .{ .zoom = 0.5 } };
+    defer state.deinit(std.testing.allocator);
+    try state.rects.put(std.testing.allocator, 8, .{ .x = 100, .y = 200, .width = 600, .height = 400 });
+    const start = state.rects.get(8).?;
+    try std.testing.expect(state.resizeWindowFrom(8, start, 25, -10));
+    try std.testing.expectEqual(@as(i32, 650), state.rects.get(8).?.width);
+    try std.testing.expectEqual(@as(i32, 380), state.rects.get(8).?.height);
 }
 
 test "arrange keeps logical client dimensions while projecting presentation scale" {

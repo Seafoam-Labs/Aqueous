@@ -56,6 +56,8 @@ default = "canvas"
   continue to be delivered to the application.
 - Hold the primary modifier and left-drag a canvas window to move it in world
   space without converting it to a floating window.
+- Hold the primary modifier and right-drag a canvas window to resize its world
+  rectangle without leaving the canvas layout.
 - Hold the configured primary modifier (Super by default) and use the vertical
   mouse wheel to zoom about the pointer.
 - Keyboard bindings may invoke `builtin:canvas_zoom_in`,

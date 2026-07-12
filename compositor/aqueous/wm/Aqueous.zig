@@ -339,7 +339,7 @@ pub fn interactiveDragActive(aqueous: *const Aqueous) bool {
 
 fn finishInteractiveDrag(aqueous: *Aqueous) void {
     const drag = aqueous.drag orelse return;
-    if (drag.action == .move_floating or drag.action == .resize_floating or drag.action == .move_canvas) aqueous.api.endInteractive(drag.handle);
+    if (drag.action == .move_floating or drag.action == .resize_floating or drag.action == .move_canvas or drag.action == .resize_canvas) aqueous.api.endInteractive(drag.handle);
     aqueous.drag = null;
 }
 
@@ -406,7 +406,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
         };
-    } else if (drag_action == .move_canvas) {
+    } else if (drag_action == .move_canvas or drag_action == .resize_canvas) {
         const layout_state = aqueous.layout_states.getPtr(layout_key) orelse return false;
         const world = layout_state.canvas.rects.get(target.handle) orelse return false;
         aqueous.drag = .{
@@ -418,7 +418,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .layout_key = layout_key,
             .canvas_start = world,
         };
-        aqueous.api.beginInteractive(target.handle, false);
+        aqueous.api.beginInteractive(target.handle, drag_action == .resize_canvas);
     } else {
         aqueous.drag = .{
             .handle = target.handle,
@@ -465,11 +465,15 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         return;
     }
     const drag = &(aqueous.drag orelse return);
-    if (drag.action == .move_canvas) {
+    if (drag.action == .move_canvas or drag.action == .resize_canvas) {
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
         if (layout_state.active_layout != .canvas) return;
         const world_start = drag.canvas_start orelse return;
-        if (layout_state.canvas.moveWindowFrom(drag.handle, world_start, x - drag.pointer_x, y - drag.pointer_y)) aqueous.api.requestManageCycle();
+        const changed = if (drag.action == .resize_canvas)
+            layout_state.canvas.resizeWindowFrom(drag.handle, world_start, x - drag.pointer_x, y - drag.pointer_y)
+        else
+            layout_state.canvas.moveWindowFrom(drag.handle, world_start, x - drag.pointer_x, y - drag.pointer_y);
+        if (changed) aqueous.api.requestManageCycle();
         return;
     }
     if (drag.action == .swap_tiled) {
