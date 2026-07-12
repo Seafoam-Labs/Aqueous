@@ -60,7 +60,7 @@ pub fn build(b: *Build) !void {
     };
 
     const full_version = blk: {
-        if (b.option([]const u8, "version-string", "Override `riverdelta -version` output.")) |version_override| {
+        if (b.option([]const u8, "version-string", "Override `aqueous -version` output.")) |version_override| {
             break :blk version_override;
         } else if (mem.endsWith(u8, version, "-dev")) {
             var ret: u8 = undefined;
@@ -91,10 +91,17 @@ pub fn build(b: *Build) !void {
         "Enable compositor-side window position animations (smooth scrolling). Defaults to true.",
     ) orelse true;
 
+    const external_policy = b.option(
+        bool,
+        "external-policy",
+        "Enable the legacy river_window_manager_v1 external/compare policy modes. Defaults to false.",
+    ) orelse false;
+
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "scenefx", scenefx);
     options.addOption(bool, "animations", animations);
+    options.addOption(bool, "external_policy", external_policy);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});
@@ -187,7 +194,7 @@ pub fn build(b: *Build) !void {
 
     const translate_c: Translator = .init(b.dependency("translate_c", .{}), .{
         .name = "c",
-        .c_source_file = b.path("river/c.h"),
+        .c_source_file = b.path("aqueous/c.h"),
         .target = target,
         .optimize = optimize,
     });
@@ -206,9 +213,9 @@ pub fn build(b: *Build) !void {
 
     {
         const river = b.addExecutable(.{
-            .name = "riverdelta",
+            .name = "aqueous",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/main.zig"),
+                .root_source_file = b.path("aqueous/main.zig"),
                 .target = target,
                 .optimize = optimize,
                 .strip = strip,
@@ -245,7 +252,7 @@ pub fn build(b: *Build) !void {
         river.root_module.addImport("c", translate_c.mod);
 
         river.root_module.addCSourceFile(.{
-            .file = b.path("river/wlroots_log_wrapper.c"),
+            .file = b.path("aqueous/wlroots_log_wrapper.c"),
             .flags = &.{ "-std=c99", "-O2" },
         });
 
@@ -257,17 +264,17 @@ pub fn build(b: *Build) !void {
 
     {
         const wf = Build.Step.WriteFile.create(b);
-        const pc_file = wf.add("riverdelta-protocols.pc", b.fmt(
+        const pc_file = wf.add("aqueous-protocols.pc", b.fmt(
             \\prefix={s}
             \\datarootdir=${{prefix}}/share
-            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/riverdelta-protocols
+            \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/aqueous-protocols
             \\
-            \\Name: riverdelta-protocols
-            \\URL: https://isaacfreund.com/software/river
-            \\Description: Protocol files for riverdelta, a non-monolithic Wayland compositor
+            \\Name: aqueous-protocols
+            \\URL: https://github.com/Seafoam-Labs/Aqueous
+            \\Description: Wayland protocol files provided by Aqueous
             \\Version: {s}
         , .{ b.install_prefix, full_version }));
-        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/riverdelta-protocols.pc").step);
+        b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-protocols.pc").step);
         inline for (&.{
             "river-window-management-v1.xml",
             "river-xkb-bindings-v1.xml",
@@ -276,12 +283,12 @@ pub fn build(b: *Build) !void {
             "river-libinput-config-v1.xml",
             "river-xkb-config-v1.xml",
         }) |protocol| {
-            b.installFile("protocol/" ++ protocol, "share/riverdelta-protocols/stable/" ++ protocol);
+            b.installFile("protocol/" ++ protocol, "share/aqueous-protocols/stable/" ++ protocol);
         }
     }
 
     if (man_pages) {
-        inline for (.{"riverdelta"}) |page| {
+        inline for (.{"aqueous"}) |page| {
             // Workaround for https://github.com/ziglang/zig/issues/16369
             // Even passing a buffer to std.Build.Step.Run appears to be racy and occasionally deadlocks.
             const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "scdoc < doc/" ++ page ++ ".1.scd" });
@@ -307,7 +314,7 @@ pub fn build(b: *Build) !void {
 
         const scaling_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/scaling.zig"),
+                .root_source_file = b.path("aqueous/scaling.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -318,7 +325,7 @@ pub fn build(b: *Build) !void {
 
         const cursor_lock_restore_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("river/cursor_lock_restore.zig"),
+                .root_source_file = b.path("aqueous/cursor_lock_restore.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -327,9 +334,117 @@ pub fn build(b: *Build) !void {
         });
         const run_cursor_lock_restore_test = b.addRunArtifact(cursor_lock_restore_test);
 
+        const aqueous_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/Mode.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_aqueous_test = b.addRunArtifact(aqueous_test);
+
+        const trace_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/Trace.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_trace_test = b.addRunArtifact(trace_test);
+
+        const config_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/config_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_config_test = b.addRunArtifact(config_test);
+
+        const layout_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/layout/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_layout_test = b.addRunArtifact(layout_test);
+
+        const rules_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/rules/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_rules_test = b.addRunArtifact(rules_test);
+
+        const focus_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/focus/tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_focus_test = b.addRunArtifact(focus_test);
+
+        const output_navigation_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/output/navigation.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_output_navigation_test = b.addRunArtifact(output_navigation_test);
+
+        const input_drag_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/input_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_input_drag_test = b.addRunArtifact(input_drag_test);
+
+        const workspaces_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/workspaces/coalescer.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_workspaces_test = b.addRunArtifact(workspaces_test);
+
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
+        test_step.dependOn(&run_aqueous_test.step);
+        test_step.dependOn(&run_trace_test.step);
+        test_step.dependOn(&run_config_test.step);
+        test_step.dependOn(&run_layout_test.step);
+        test_step.dependOn(&run_rules_test.step);
+        test_step.dependOn(&run_focus_test.step);
+        test_step.dependOn(&run_output_navigation_test.step);
+        test_step.dependOn(&run_input_drag_test.step);
+        test_step.dependOn(&run_workspaces_test.step);
     }
 }

@@ -71,7 +71,7 @@ fallback_layout  = "grid"    # used on outputs with no anchor
 # the exclusion zone reserved for bars / panels by `[struts]` in wm.toml. When
 # `ignore_struts = true`, the matched window's geometry is resolved against the
 # raw output rect instead of the strut-shrunk usable area. Honoured by the
-# fullscreen, maximized, game-mode anchor, scratchpad-summon, and default-float
+# fullscreen, maximized, game-mode anchor, and default-float
 # code paths. Other tiles on the same output continue to respect the struts.
 # [[window]]
 # app_id        = "obs"

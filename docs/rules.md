@@ -22,10 +22,11 @@ and 4 are only returned when the file is present on disk.
 
 ## Reload semantics
 
-- `Super+R` (the existing `reload_config` builtin) reloads both `wm.toml` and
-  `rules.toml`. Every managed window is re-evaluated against the new rule
-  list, and any window whose placement actually changed triggers one batched
-  layout pass.
+- Aqueous monitors `rules.toml` on the Wayland event loop. A changed file is
+  parsed into a replacement snapshot and every managed window is re-evaluated
+  in one batched layout pass.
+- `Super+R` (the existing `reload_config` builtin) requests the same reload
+  immediately for `wm.toml`, `layout.toml`, `input.toml`, and `rules.toml`.
 - `reload_rules` is a standalone builtin verb that reloads **only** rules.toml.
   Default: unbound. Bind via:
 
@@ -58,9 +59,13 @@ matters.
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `app_id` | string (glob) | one of `app_id` / `class` / `title` must be set | Match `xdg_toplevel.app_id`. |
-| `class` | string (glob) | " | Match X11 `WM_CLASS` (via `xwayland-satellite`). |
+| `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
-| `layout` | string | yes | Currently only `"game-mode"` is honored. |
+| `layout` | string | no | Select a built-in layout; `"float"` also marks the window floating. |
+| `floating` | bool | no | Force floating placement. |
+| `tag` | integer | no | Move the window to the numbered workspace. |
+| `width`, `height` | integer | no | Floating placement dimensions. |
+| `x`, `y` | integer | no | Floating placement coordinates. |
 | `anchor` | string | no (default `center`) | `center` / `top` / `bottom` / `left` / `right`. |
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
@@ -118,10 +123,10 @@ Two-release deprecation window - after which the warning becomes an error.
 
 - **Rule didn't apply.** Confirm the window's actual `app_id` via the River
   log (Aqueous writes `window 0x... app_id=<name>` on every change). Wayland
-  app ids are case-sensitive; X11 clients route their `WM_CLASS` through
-  `xwayland-satellite`.
-- **Anchor doesn't update when I edit `rules.toml`.** Press `Super+R` (or
-  bind `reload_rules`). Aqueous does not watch the file automatically.
+  app ids are case-sensitive; native XWayland clients expose their `WM_CLASS`
+  through the same managed-window path.
+- **Anchor doesn't update when I edit `rules.toml`.** Check the compositor log
+  for a parse warning, or press `Super+R` to request an immediate reload.
 - **Game mode disappears when I close the game.** Expected - with no
   matching window on the output, `game-mode` falls through to
   `fallback_layout`.

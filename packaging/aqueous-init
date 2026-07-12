@@ -1,30 +1,16 @@
 #!/bin/sh
 # Aqueous init wrapper.
 #
-# Installed as /usr/bin/aqueous-init and run by RiverDelta as its `-c` child:
+# Installed as /usr/bin/aqueous-init and run by Aqueous as its `-c` child:
 #
-#     exec riverdelta -c '/usr/bin/aqueous-init'
+#     exec aqueous -c '/usr/bin/aqueous-init'
 #
-# Why this wrapper exists:
-#
-#   1. RiverDelta's `-c` only accepts ONE command. We need to call multiple
-#      programs inside RiverDelta's control context (the only place where
-#      WAYLAND_DISPLAY is set and `wlr-randr` actually work).
-#
-#   2. greetd performs no DRM mode setup of its own — it simply exec's
-#      this session script. Under SDDM the kernel/DRM had a sane mode
-#      pre-picked; under greetd we have to apply the persisted output
-#      configuration *before* Aqueous draws its first frame, otherwise
-#      the screen comes up at the connector's preferred mode and there
-#      is no opportunity to renegotiate it from a Wayland client.
-#
-# Phase 1 — apply once, blocking, before Aqueous starts.
-# Phase 2 — fork the long-running daemon for live changes from Aqueous
-#           and Noctalia.
-# Phase 3 — exec Aqueous.
+# Aqueous now applies display configuration directly through wlroots before
+# this child is launched and owns the outputd-compatible Unix socket itself.
+# This wrapper seeds shell configuration, exports the live session environment,
+# starts the graphical-session targets, then exits. Window-management policy
+# runs inside the compositor.
 set -u
-LOG="${XDG_RUNTIME_DIR:-/tmp}/aqueous-outputd.log"
-CFG="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
 
 # Seed the Noctalia (v5) default config on first launch. Idempotent and
 # non-destructive: only runs when the user has no config.toml yet. Noctalia v5
@@ -41,40 +27,35 @@ if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ];
     chmod 600 "$NOCTALIA_USER_CFG_DIR/config.toml"
 fi
 
-if [ -x /usr/bin/aqueous-outputd ]; then
-    # apply-once is fire-and-forget. Never fatal: a bad output config
-    # must not black out the session — fall through to Aqueous either way.
-    /usr/bin/aqueous-outputd --apply-once --config "$CFG" >>"$LOG" 2>&1 || true
-
-    # Skip the inline fork if a systemd user unit is already managing it.
-    if ! systemctl --user is-active --quiet aqueous-outputd.service 2>/dev/null; then
-        /usr/bin/aqueous-outputd --serve >>"$LOG" 2>&1 &
-    fi
-fi
-
-# Push the (now-live) Wayland env into systemd --user + D-Bus so
-# xdg-desktop-portal-gtk can actually connect to the compositor.
-# Must run here, NOT in aqueous-wm.sh, because WAYLAND_DISPLAY only
-# becomes valid once RiverDelta has exec'd us.
+# Push the live Wayland and native XWayland environment into systemd --user
+# and D-Bus so services and desktop-launched applications connect to this
+# compositor. This must run here, not in aqueous-wm.sh, because
+# WAYLAND_DISPLAY and DISPLAY are allocated only after Aqueous starts.
 # The GPU-pin vars (MESA_VK_DEVICE_SELECT/__GLX_VENDOR_LIBRARY_NAME/DRI_PRIME/
-# __NV_PRIME_RENDER_OFFLOAD) are set by RiverDelta on this process's environment
+# __NV_PRIME_RENDER_OFFLOAD) are set by Aqueous on this process's environment
 # only on multi-GPU systems (empty on single-GPU). Forwarding them in the bare
 # KEY form means the tools silently skip any that are unset, so this is inert on
 # single-GPU machines and pins .desktop/systemd-launched apps to the same GPU
 # the compositor renders on, closing the last launch path that could straddle
 # two GPU stacks (the dual-GPU GObject toggle-ref crash).
+display_var=""
+[ -n "${DISPLAY:-}" ] && display_var="DISPLAY"
+
 if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DISPLAY:-}" ]; then
     # uwsm owns the session lifecycle: `uwsm finalize` exports the (now-live)
     # Wayland env into the systemd --user + D-Bus activation environments AND
     # signals uwsm that the compositor is up, so it activates the real
     # graphical-session.target itself (satisfying xdg-desktop-portal's
     # Requisite=graphical-session.target) and pulls in xdg-desktop-autostart.target.
-    # Crucially it re-exports the CURRENT WAYLAND_DISPLAY on every start, so a
-    # compositor restart never leaves a stale socket pinned in the user manager.
-    # The GPU-pin vars (set by RiverDelta only on multi-GPU systems) are forwarded
+    # Crucially it re-exports the current WAYLAND_DISPLAY and native XWayland
+    # DISPLAY on every start, so a compositor restart leaves no stale endpoint
+    # pinned in the user manager.
+    # The GPU-pin vars (set by Aqueous only on multi-GPU systems) are forwarded
     # in bare KEY form so uwsm silently skips any that are unset on single-GPU.
+    # shellcheck disable=SC2086
     uwsm finalize \
         WAYLAND_DISPLAY \
+        $display_var \
         XDG_CURRENT_DESKTOP \
         XDG_SESSION_TYPE \
         XDG_RUNTIME_DIR \
@@ -86,13 +67,15 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
         __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
 else
     # Fallback for sessions launched WITHOUT uwsm (e.g. a display manager that
-    # execs aqueous-wm directly). Push the (now-live) Wayland env into
-    # systemd --user + D-Bus so xdg-desktop-portal-gtk can connect, then bring
-    # the graphical session up via the aqueous-session.target wrapper (static
+    # execs aqueous-wm directly). Push the live session display environment
+    # into systemd --user and D-Bus, then bring the graphical session up via
+    # the aqueous-session.target wrapper (static
     # graphical-session.target has RefuseManualStart).
     if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
         dbus-update-activation-environment --systemd \
             WAYLAND_DISPLAY \
+            $display_var \
             XDG_CURRENT_DESKTOP=Aqueous \
             XDG_SESSION_TYPE=wayland \
             XDG_RUNTIME_DIR \
@@ -111,7 +94,7 @@ else
         # shellcheck disable=SC2086
         systemctl --user import-environment \
             WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
-            $gpu_vars \
+            $display_var $gpu_vars \
             2>/dev/null || true
     fi
 
@@ -124,4 +107,4 @@ fi
 systemctl --user reset-failed xdg-desktop-portal-gtk.service 2>/dev/null || true
 systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-wlr.service 2>/dev/null || true
 
-exec /usr/bin/aqueous
+exit 0

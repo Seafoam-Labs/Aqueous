@@ -54,7 +54,7 @@ left   = 0
 right  = 0
 
 # -----------------------------------------------------------------------------
-# Backdrop blur (requires riverdelta built with SceneFX). Applied behind window
+# Backdrop blur (requires Aqueous built with SceneFX). Applied behind window
 # content. Per-window exclusions (e.g. games) live in rules.toml as `blur = false`.
 # -----------------------------------------------------------------------------
 [blur]
@@ -62,7 +62,7 @@ enabled = false  # set true to enable compositor backdrop blur
 radius  = 5      # blur radius in pixels
 passes  = 3      # number of blur passes (higher = blurrier, costlier)
 
-# Default window-content opacity (requires riverdelta with opacity support).
+# Default window-content opacity (requires Aqueous with opacity support).
 # Per-window overrides live in rules.toml as `opacity = 0.85`.
 [opacity]
 enabled         = false  # set true to apply opacity to window content
@@ -142,7 +142,7 @@ set_layout_quaternary = "Super+G"          # → grid
 
 # --- Workspaces (niri-style, ext-workspace-v1) ---
 # Workspaces are exclusive: a window lives on exactly one workspace and exactly
-# one workspace is active per output. These verbs drive RiverDelta's native
+# one workspace is active per output. These verbs drive Aqueous's native
 # ext-workspace-v1 implementation (focus = activate+commit; "send to workspace"
 # = river_window_v1.set_workspace, with no hide/show emulation). Indices are
 # 1-based positions in the per-output ordered workspace list.
@@ -172,13 +172,13 @@ move_to_workspace_9      = "Super+Shift+9"
 # Directional switching / moving + back-and-forth.
 focus_workspace_up       = "Super+Bracketleft"        # previous workspace in the list
 focus_workspace_down     = "Super+Bracketright"       # next workspace in the list
-focus_previous_workspace = "Super+grave"                   # back-and-forth (the ` key)
+focus_previous_workspace = "Super+BackSpace"               # back-and-forth
 move_to_workspace_up     = "Super+Shift+Bracketleft"
 move_to_workspace_down   = "Super+Shift+Bracketright"
 
 # Per-output focus / move (relative to the focused output, no wrap).
-focus_output_left        = "Super+Comma"
-focus_output_right       = "Super+Period"
+focus_output_left        = "Super+Ctrl+Comma"
+focus_output_right       = "Super+Ctrl+Period"
 move_to_output_left      = "Super+Shift+Comma"
 move_to_output_right     = "Super+Shift+Period"
 #
@@ -192,8 +192,8 @@ move_to_output_right     = "Super+Shift+Period"
 #   Super+Shift+Ctrl+1..9
 
 # --- Window state ops (Phase B1e) ---
-# Fullscreen / Maximize / Floating / Minimize / Scratchpad. Each toggle
-# remembers the prior state so a second press round-trips. Only ONE
+# Fullscreen / Maximize / Floating / Minimize. Each toggle remembers the prior
+# state so a second press round-trips. Only ONE
 # fullscreen window per output is allowed (toggling another auto-restores
 # the prior). Minimized windows are excluded from layout + focus cycle.
 toggle_fullscreen     = "Super+Shift+F"        # default
@@ -201,13 +201,11 @@ toggle_maximize       = "Super+Shift+M"        # default
 toggle_floating       = "Super+Shift+Space"    # default
 toggle_minimize       = "Super+N"              # default — hide from layout
 unminimize_last       = "Super+Shift+N"        # default — restore most-recent minimized
-toggle_scratchpad     = "Super+Backslash"      # default — summon/dismiss "default" pad
-send_to_scratchpad    = "Super+Shift+Backslash" # default — park focused in "default" pad
 
 # --- Pointer ---
 # Hold-to-untrap: while this chord is held down any active pointer constraint
 # (mouse "trap" from games etc.) is released; on release the trap re-engages.
-untrap_pointer        = "Super+grave"          # no compiled-in default
+untrap_pointer        = "Super+grave"          # default; reserved for pointer untrap
 
 # Examples of the array form and explicit unbind:
 #   cycle_focus = ["Super+Tab", "Alt+Tab"]
@@ -250,15 +248,9 @@ untrap_pointer        = "Super+grave"          # no compiled-in default
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"
 
-# Named scratchpads use a "verb:arg" suffix on the builtin: form. The
-# pad name is created on first use; multiple pads can coexist.
-# "Super+grave"        = "builtin:toggle_scratchpad_named:term"
-# "Super+Shift+grave"  = "builtin:send_to_scratchpad_named:term"
-
-
 # -----------------------------------------------------------------------------
 # Window-state behaviour (Phase B1e). Controls fullscreen / maximize / float /
-# minimize / scratchpad semantics. All keys are optional — defaults shown.
+# minimize semantics. All keys are optional — defaults shown.
 # -----------------------------------------------------------------------------
 [state]
 # When toggling fullscreen, also hide layer-shell layers above 'bottom'
@@ -269,37 +261,6 @@ fullscreen_hides_bar = true
 # Maximize ignores layer-shell exclusive zones (i.e. covers the bar).
 # false → cover usable_area only (the conventional behaviour).
 maximize_full_output = false
-
-
-# -----------------------------------------------------------------------------
-# Scratchpad geometry + spawn-on-empty policy.
-# -----------------------------------------------------------------------------
-[scratchpad]
-# Behaviour when toggle_scratchpad fires on an empty pad:
-#   "manual" — no-op; the pad is filled only via send_to_scratchpad
-#   "spawn"  — run the configured [scratchpad.spawn.<name>] command and
-#              claim its first window on manage_start
-on_empty    = "manual"
-
-# Geometry of a summoned scratchpad window, as fractions of the output's
-# usable area. Anchor is one of: "center", "top", "bottom".
-width_frac  = 0.6
-height_frac = 0.5
-anchor      = "center"
-
-# pad-name → shell command. Run when on_empty = "spawn" and the pad is empty.
-[scratchpad.spawn]
-# term  = "ghostty --class=aqueous-scratch-term"
-# notes = "obsidian"
-
-#[[exec]]
-#name    = "xwayland-satellite"
-#command = "xwayland-satellite :0"
-#when    = "startup"
-#restart = true
-#log     = "/tmp/xwayland-satellite.log"
-
-
 
 [rules]
 # Optional. Absolute path or ~-prefixed. Overrides the XDG search above.

@@ -5,7 +5,7 @@ Description=Aqueous Wayland session
 # the one Aqueous starts manually (from packaging/aqueous-init); pulling in
 # graphical-session.target satisfies the Requisite=graphical-session.target
 # on xdg-desktop-portal.service. BindsTo ensures the session — and everything
-# PartOf=graphical-session.target (aqueous-outputd.service, the portals) —
+# PartOf=graphical-session.target (including the portals) —
 # tears down cleanly on logout.
 Requires=graphical-session.target
 BindsTo=graphical-session.target

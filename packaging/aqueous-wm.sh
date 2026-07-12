@@ -11,21 +11,19 @@ export XDG_CURRENT_DESKTOP=Aqueous
 export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=Aqueous
 
-# Toolkit backend hints. Apps prefer Wayland and only fall back to X11 (via
-# xwayland-satellite, which Aqueous spawns from wm.toml's [[exec]] block) when
-# the native Wayland path is unavailable.
+# Toolkit backend hints. Apps prefer Wayland and fall back to the XWayland
+# server managed directly by Aqueous when the native Wayland path is unavailable.
 export QT_QPA_PLATFORM="wayland;xcb"
 export GDK_BACKEND="wayland,x11"
 export SDL_VIDEODRIVER="wayland,x11"
 export CLUTTER_BACKEND=wayland
 export MOZ_ENABLE_WAYLAND=1
 # Fixes the grey-blob / non-reparenting Java/Swing/JetBrains bug under any
-# non-reparenting WM (RiverDelta + xwayland-satellite included).
+# non-reparenting WM, including Aqueous's native XWayland integration.
 export _JAVA_AWT_WM_NONREPARENTING=1
 
-# DO NOT set DISPLAY here — xwayland-satellite owns it and will export the
-# correct value once the bridge is up. Setting DISPLAY=:0 collides with
-# SDDM's greeter X server and breaks X11 client auth.
+# Do not inherit the display manager's X server. Aqueous creates XWayland and
+# exports the correct DISPLAY to its session init command after startup.
 unset DISPLAY
 
 # XWayland reads cursor settings only at server startup — set them here so
@@ -35,10 +33,6 @@ export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 
-# Required by Aqueous to attach to RiverDelta as the window manager. Without
-# this the compositor refuses to attach (see RiverWindowManagerClient)
-# and the session ends up as a black screen under sddm/greetd.
-export AQUEOUS_RIVER_WM=1
 export AQUEOUS_NESTED=0
 
 # Ensure XDG_RUNTIME_DIR exists (greetd/sddm normally provide this via
@@ -59,7 +53,7 @@ exec >"$LOG" 2>&1
 echo "[aqueous-wm] $(date -Is) starting uid=$(id -u) greeter=${XDG_GREETER_DATA_DIR:-unknown}"
 
 # NOTE: the Wayland environment (WAYLAND_DISPLAY etc.) is NOT exported into
-# systemd --user / D-Bus here — at this point RiverDelta has not started yet,
+# systemd --user / D-Bus here — at this point Aqueous has not started yet,
 # so WAYLAND_DISPLAY is not valid. That export now happens from
 # /usr/bin/aqueous-init once the compositor is up, via `uwsm finalize` (when
 # launched under uwsm) or a dbus/systemctl fallback otherwise. This avoids
@@ -74,24 +68,24 @@ if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" 2>/dev/null || true
 fi
 
-# Input configuration (pointer accel, tap-to-click, natural scroll, …)
-# is now applied by Aqueous itself over the river_libinput_config_v1
-# Wayland protocol; the formerly-required `aqueous-inputd` sidecar has
-# been retired.
+# Input configuration (pointer acceleration, tap-to-click, natural scroll,
+# and XKB policy) is applied directly by Aqueous.
 
-# RiverDelta runs the compositor; aqueous-init is its `-c` child. The init
-# wrapper then runs `aqueous-outputd --apply-once` (fixes greetd's
-# inability to set the render size before the session starts) and
-# spawns the long-running daemon, before exec'ing Aqueous itself.
-#
-# Run (not exec) so the EXIT trap fires and we can clean up the input
-# daemon. Use absolute path because SDDM session PATH is minimal.
-/usr/bin/riverdelta -c /usr/bin/aqueous-init
+# Aqueous runs the compositor, window-management policy, input, and output
+# configuration in one process. aqueous-init is its short-lived `-c` child and
+# exports the live session environment.
+# Run (not exec) so the wrapper can tear down the graphical session target
+# after the compositor exits. Use an absolute path because display-manager
+# session PATH values are often minimal.
+# Stop a daemon left running across an upgrade from a pre-cutover package so it
+# cannot retain the output socket. Current packages do not ship or start it.
+systemctl --user stop aqueous-outputd.service 2>/dev/null || true
+/usr/bin/aqueous -c /usr/bin/aqueous-init
 status=$?
-echo "[aqueous-wm] $(date -Is) riverdelta exited status=$status"
+echo "[aqueous-wm] $(date -Is) aqueous exited status=$status"
 
 # Tear down the graphical session wrapper so everything PartOf/BindsTo
-# graphical-session.target (aqueous-outputd, the portals) stops cleanly.
+# graphical-session.target (including the portals) stops cleanly.
 # BindsTo should already do this, but stop it explicitly for robustness.
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user stop aqueous-session.target 2>/dev/null || true

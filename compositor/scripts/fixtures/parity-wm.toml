@@ -1,0 +1,32 @@
+[layout]
+default = "tile"
+gaps_outer = 8
+gaps_inner = 8
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = true
+
+[actions]
+spawn_terminal = "ghostty --config-file=/dev/null --config-default-files=false --initial-window=false --gtk-single-instance=false --window-decoration=false --class=aq-parity-spawned,aq-parity-spawned --title=aq-parity-spawned -e sleep 60"
+
+[keybinds]
+spawn_terminal = "Super+Return"
+focus_right = "Super+L"
+cycle_focus = "Super+C"
+set_layout_primary = "Super+T"
+set_layout_tertiary = "Super+M"
+focus_workspace_1 = "Super+1"
+focus_workspace_2 = "Super+2"
+move_to_workspace_2 = "Super+Shift+2"
+toggle_fullscreen = "Super+Shift+F"
+reload_config = "Super+R"
+close_focused = "Super+Q"
