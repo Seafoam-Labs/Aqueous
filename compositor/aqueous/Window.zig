@@ -20,6 +20,7 @@ const util = @import("util.zig");
 const Decoration = @import("Decoration.zig");
 const Output = @import("Output.zig");
 const fx = @import("fx.zig");
+const visual_state = @import("visual_state.zig");
 const Scene = @import("Scene.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
@@ -142,9 +143,9 @@ const RenderingRequested = struct {
     border: Border,
     clip: wlr.Box,
     content_clip: wlr.Box,
-    /// Whether backdrop blur applies to this window. Driven by
-    /// river_window_v1.set_window_blur; defaults to true so windows inherit the
-    /// global blur state until the wm says otherwise (false excludes e.g. games).
+    /// Per-window blur preference retained for policy/protocol compatibility.
+    /// It must never be implemented by falsifying scene-buffer opaque regions;
+    /// selective translucent blur requires a real SceneFX mask.
     blur_enabled: bool = true,
     /// Window-content opacity as a 32-bit unsigned fraction (0 = transparent,
     /// 0xffffffff = opaque); null inherits the global default driven by
@@ -1367,12 +1368,6 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
     }
 
-    // Per-window blur exclusion: when blur is disabled for this window, mark its
-    // buffers opaque so the global optimized-blur pass clips them out (games etc.).
-    const blur_excluded = !requested.blur_enabled;
-    fx.setTreeBlurExcluded(window.surfaces.tree, blur_excluded);
-    fx.setTreeBlurExcluded(window.surfaces.saved_tree, blur_excluded);
-
     // While a position animation is running, applyOpacity() updates the visible
     // animation clone and keeps the live surfaces invisible at the target so
     // scene hit-testing / input stay correct.
@@ -1756,17 +1751,22 @@ pub fn getAppId(window: Window) ?[*:0]const u8 {
 /// created scene buffers default to opacity 1.0, so this must be reapplied whenever
 /// buffers may have been (re)created, not only at render-finish.
 pub fn applyOpacity(window: *Window) void {
-    const opacity_frac = window.rendering_requested.opacity orelse server.wm.default_opacity;
-    const opacity: f32 = @floatCast(@as(f64, @floatFromInt(opacity_frac)) /
-        @as(f64, @floatFromInt(std.math.maxInt(u32))));
+    const opacity = window.effectiveOpacity();
 
     fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
+    fx.setTreeOpacity(window.popup_tree, opacity);
     if (window.anim_snapshot) {
         fx.setTreeOpacity(window.anim_tree, opacity);
         fx.setTreeOpacity(window.surfaces.tree, 0);
     } else {
         fx.setTreeOpacity(window.surfaces.tree, opacity);
     }
+}
+
+/// Effective compositor opacity shared by a top-level and its popup surfaces.
+pub fn effectiveOpacity(window: *const Window) f32 {
+    const opacity_frac = window.rendering_requested.opacity orelse server.wm.default_opacity;
+    return visual_state.fractionToOpacity(opacity_frac);
 }
 
 /// Called by the impl when the surface is ready to be displayed

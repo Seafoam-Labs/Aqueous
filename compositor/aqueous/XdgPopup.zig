@@ -14,12 +14,14 @@ const util = @import("util.zig");
 const Output = @import("Output.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
+const Window = @import("Window.zig");
 
 const log = std.log.scoped(.xdg_popup);
 
 wlr_popup: *wlr.XdgPopup,
 tree: *wlr.SceneTree,
 capture_tree: ?*wlr.SceneTree = null,
+owner: ?Window.Ref,
 
 destroy: wl.Listener(void) = .init(handleDestroy),
 map: wl.Listener(void) = .init(handleMap),
@@ -33,6 +35,7 @@ pub fn create(
     wlr_popup: *wlr.XdgPopup,
     parent: *wlr.SceneTree,
     capture_parent: ?*wlr.SceneTree,
+    owner: ?Window.Ref,
 ) error{OutOfMemory}!void {
     const xdg_popup = try util.gpa.create(XdgPopup);
     errdefer util.gpa.destroy(xdg_popup);
@@ -40,6 +43,7 @@ pub fn create(
     xdg_popup.* = .{
         .wlr_popup = wlr_popup,
         .tree = try parent.createSceneXdgSurface(wlr_popup.base),
+        .owner = owner,
     };
     if (capture_parent) |p| {
         xdg_popup.capture_tree = try p.createSceneXdgSurface(wlr_popup.base);
@@ -75,6 +79,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     if (xdg_popup.wlr_popup.base.initial_commit) {
         handleReposition(&xdg_popup.reposition);
     }
+    if (xdg_popup.owner) |owner| if (owner.get()) |window| window.applyOpacity();
 }
 
 fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_popup: *wlr.XdgPopup) void {
@@ -84,6 +89,7 @@ fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_popup: *wlr.XdgPopu
         wlr_popup,
         xdg_popup.tree,
         xdg_popup.capture_tree,
+        xdg_popup.owner,
     ) catch {
         wlr_popup.resource.postNoMemory();
         return;
@@ -115,6 +121,10 @@ fn handleReposition(listener: *wl.Listener(void)) void {
 fn handleMap(listener: *wl.Listener(void)) void {
     const xdg_popup: *XdgPopup = @fieldParentPtr("map", listener);
     const wlr_popup = xdg_popup.wlr_popup;
+
+    // Cover clients which map using a buffer committed before the ordinary
+    // popup commit listener observed the complete scene subtree.
+    if (xdg_popup.owner) |owner| if (owner.get()) |window| window.applyOpacity();
 
     if (wlr_popup.seat) |wlr_seat| {
         const seat: *Seat = @ptrCast(@alignCast(wlr_seat.data));

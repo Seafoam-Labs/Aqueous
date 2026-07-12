@@ -10,7 +10,9 @@
 //! square corners and no reference to any SceneFX symbol.
 
 const build_options = @import("build_options");
+const pixman = @import("pixman");
 const wlr = @import("wlroots");
+const visual_state = @import("visual_state.zig");
 
 /// Corner radius (in layout pixels) applied to window content and borders.
 /// When SceneFX is unavailable this is always 0, i.e. square corners.
@@ -86,8 +88,8 @@ fn setBufferRadiusIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, radius: *
 // ----------------------------------------------------------------------------
 // Backdrop blur (SceneFX optimized blur), all comptime-gated like the corner
 // radius helpers above. Global blur parameters arrive from Aqueous via
-// river_window_manager_v1.set_blur; per-window exclusion via
-// river_window_v1.set_window_blur.
+// river_window_manager_v1.set_blur. Per-window exclusion is deliberately not
+// emulated with opaque-region overrides because that corrupts translucent output.
 // ----------------------------------------------------------------------------
 
 /// Whether blur is available in this build. Mirrors the corner_radius gate so
@@ -133,19 +135,18 @@ pub fn ensureOptimizedBlur(tree: *wlr.SceneTree, existing: ?*anyopaque) ?*anyopa
     return @ptrCast(node);
 }
 
-/// Per-window content opacity. Driven by river_window_v1.set_window_opacity with the
-/// global default from river_window_manager_v1.set_opacity. This uses the core
-/// wlroots scene-buffer opacity, so it is available with or without SceneFX.
-/// Note: wlroots' forEachBuffer skips disabled nodes, but river toggles the
-/// live/saved trees disabled around transactions, so a manual recursion that
-/// ignores the enabled flag is required for the value to stick in every state.
+/// Synchronize compositor-owned visual state for every buffer in a tree.
+/// Opacity below 1 invalidates the client's opaque-region hint because the
+/// resulting pixels still need blending. At opacity 1, restore the backing
+/// surface's authoritative hint. Recurse manually so disabled transaction trees
+/// are updated too.
 pub fn setTreeOpacity(tree: *wlr.SceneTree, opacity: f32) void {
     setNodeOpacity(&tree.node, opacity);
 }
 
 fn setNodeOpacity(node: *wlr.SceneNode, opacity: f32) void {
     switch (node.type) {
-        .buffer => wlr.SceneBuffer.fromNode(node).setOpacity(opacity),
+        .buffer => syncBufferVisualState(wlr.SceneBuffer.fromNode(node), opacity),
         .tree => {
             const tree: *wlr.SceneTree = @fieldParentPtr("node", node);
             var it = tree.children.iterator(.forward);
@@ -155,33 +156,24 @@ fn setNodeOpacity(node: *wlr.SceneNode, opacity: f32) void {
     }
 }
 
-/// Per-window blur exclusion. When `excluded` is true, the window's buffers are
-/// marked fully opaque so the optimized-blur pass clips them out (no per-frame
-/// backdrop blur cost behind e.g. games); when false the opaque region override is
-/// cleared so the client's own opacity hints apply again.
-/// Like setTreeOpacity, this recurses manually so disabled (saved/hidden)
-/// trees are still updated.
-pub fn setTreeBlurExcluded(tree: *wlr.SceneTree, excluded: bool) void {
-    if (comptime !build_options.scenefx) return;
-    setNodeBlurExcluded(&tree.node, excluded);
-}
+fn syncBufferVisualState(buffer: *wlr.SceneBuffer, opacity: f32) void {
+    buffer.setOpacity(opacity);
 
-fn setNodeBlurExcluded(node: *wlr.SceneNode, excluded: bool) void {
-    switch (node.type) {
-        .buffer => setBufferBlurExcluded(wlr.SceneBuffer.fromNode(node), excluded),
-        .tree => {
-            const tree: *wlr.SceneTree = @fieldParentPtr("node", node);
-            var it = tree.children.iterator(.forward);
-            while (it.next()) |child| setNodeBlurExcluded(child, excluded);
+    switch (visual_state.opaqueRegionPolicy(opacity)) {
+        .empty => {
+            var empty: pixman.Region32 = undefined;
+            empty.init();
+            defer empty.deinit();
+            buffer.setOpaqueRegion(&empty);
         },
-        else => {},
+        .client => if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
+            buffer.setOpaqueRegion(&scene_surface.surface.current.@"opaque");
+        },
     }
 }
 
-/// Copy the SceneFX-specific attributes (corner radii and the opaque-region
-/// blur-exclusion override) from one scene buffer to another. Used when cloning
-/// buffers into a transaction snapshot tree, where freshly created buffers would
-/// otherwise reset to square corners / default blur participation.
+/// Copy SceneFX-specific attributes into a transaction snapshot. Fresh clone
+/// buffers would otherwise reset their corners and effective opaque-region hint.
 pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
     if (comptime !build_options.scenefx) return;
     const c = @import("c");
@@ -189,59 +181,4 @@ pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
     const d: *c.struct_wlr_scene_buffer = @ptrCast(dst);
     c.wlr_scene_buffer_set_corner_radii(d, s.corners);
     c.wlr_scene_buffer_set_opaque_region(d, &s.opaque_region);
-}
-
-fn setBufferBlurExcluded(buffer: *wlr.SceneBuffer, excluded: bool) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    const scene_buffer: *c.struct_wlr_scene_buffer = @ptrCast(buffer);
-    if (excluded) {
-        // Honor the surface's actually-advertised opaque region instead of
-        // stamping the whole buffer rect. Forcing a full-buffer opaque region
-        // tells the renderer it may skip alpha blending over every pixel,
-        // which corrupts translucent clients (e.g. Electron/Discord: rounded
-        // corners and translucent panels composite as stale garbage). Only a
-        // genuinely opaque client (e.g. Steam/games) advertises a region that
-        // covers the buffer, so intersecting that region with the buffer rect
-        // preserves the blur-exclusion optimization for them while leaving
-        // translucent pixels to blend correctly.
-        var rect: c.pixman_region32_t = undefined;
-        c.pixman_region32_init_rect(
-            &rect,
-            0,
-            0,
-            @intCast(scene_buffer.dst_width),
-            @intCast(scene_buffer.dst_height),
-        );
-        defer c.pixman_region32_fini(&rect);
-
-        var region: c.pixman_region32_t = undefined;
-        c.pixman_region32_init(&region);
-        defer c.pixman_region32_fini(&region);
-
-        // Recover the backing wlr_surface (if any) to read its current opaque
-        // region. Border rects and snapshot clones have no backing surface; for
-        // those we leave `region` empty (do not force a full rect) so a clone is
-        // never stamped with a wrong region — `copyBufferFx` already propagates
-        // the correct region from the live buffer.
-        // The raw `c` import exposes `wlr_surface` as an opaque type with no
-        // readable fields, so go through the typed wlroots binding to reach the
-        // committed opaque region (`surface.current.@"opaque"`), then reinterpret
-        // it as the raw pixman type for the intersection below.
-        if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
-            // surface.current.opaque is in surface-local coordinates; clamp it to
-            // the buffer rect so the override never exceeds the buffer.
-            const surface_opaque: *c.pixman_region32_t =
-                @ptrCast(&scene_surface.surface.current.@"opaque");
-            _ = c.pixman_region32_intersect(&region, surface_opaque, &rect);
-        }
-        c.wlr_scene_buffer_set_opaque_region(scene_buffer, &region);
-    } else {
-        // Clearing to an empty region restores the default (client-driven) opacity
-        // behaviour so the window participates in blur again.
-        var region: c.pixman_region32_t = undefined;
-        c.pixman_region32_init(&region);
-        c.wlr_scene_buffer_set_opaque_region(scene_buffer, &region);
-        c.pixman_region32_fini(&region);
-    }
 }

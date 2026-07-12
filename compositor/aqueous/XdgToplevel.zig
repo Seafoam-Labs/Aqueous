@@ -294,6 +294,7 @@ fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_xdg_popup: *wlr.Xdg
         wlr_xdg_popup,
         toplevel.window.popup_tree,
         &toplevel.window.capture_scene.tree,
+        toplevel.window.ref,
     ) catch {
         wlr_xdg_popup.resource.postNoMemory();
         return;

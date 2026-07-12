@@ -11,7 +11,9 @@ const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 
 const server = &@import("main.zig").server;
+const fx = @import("fx.zig");
 const util = @import("util.zig");
+const visual_state = @import("visual_state.zig");
 
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
@@ -21,6 +23,7 @@ const log = std.log.scoped(.xwayland);
 
 xsurface: *wlr.XwaylandSurface,
 surface_tree: ?*wlr.SceneTree = null,
+owner: ?Window.Ref = null,
 
 // Active over entire lifetime
 request_configure: wl.Listener(*wlr.XwaylandSurface.event.Configure) = .init(handleRequestConfigure),
@@ -37,6 +40,7 @@ map: wl.Listener(void) = .init(handleMap),
 unmap: wl.Listener(void) = .init(handleUnmap),
 
 // Active while mapped
+commit: wl.Listener(*wlr.Surface) = .init(handleCommit),
 set_geometry: wl.Listener(void) = .init(handleSetGeometry),
 
 pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
@@ -129,8 +133,67 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
     );
 
     override_redirect.xsurface.events.set_geometry.add(&override_redirect.set_geometry);
+    // As with managed XWayland windows, run after the scene helper's commit
+    // listener so newly replaced buffers receive the final effective opacity.
+    surface.events.commit.add(&override_redirect.commit);
+
+    if (override_redirect.resolveOwner()) |owner| override_redirect.owner = owner.ref;
+    override_redirect.applyOpacity();
 
     override_redirect.focusIfDesired();
+}
+
+fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
+    const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("commit", listener);
+    override_redirect.applyOpacity();
+}
+
+fn applyOpacity(override_redirect: *XwaylandOverrideRedirect) void {
+    const tree = override_redirect.surface_tree orelse return;
+    const opacity = if (override_redirect.owner) |owner|
+        if (owner.get()) |window| window.effectiveOpacity() else override_redirect.defaultOpacity()
+    else if (override_redirect.resolveOwner()) |window| blk: {
+        override_redirect.owner = window.ref;
+        break :blk window.effectiveOpacity();
+    } else override_redirect.defaultOpacity();
+    fx.setTreeOpacity(tree, opacity);
+}
+
+fn defaultOpacity(_: *const XwaylandOverrideRedirect) f32 {
+    return visual_state.fractionToOpacity(server.wm.default_opacity);
+}
+
+/// Prefer the explicit X11 transient-parent chain. Some legacy toolkits omit it,
+/// so fall back to the currently focused top-level from the same process, then to
+/// an unambiguous same-PID top-level.
+fn resolveOwner(override_redirect: *XwaylandOverrideRedirect) ?*Window {
+    var parent = override_redirect.xsurface.parent;
+    while (parent) |xsurface| : (parent = xsurface.parent) {
+        if (xsurface.override_redirect) continue;
+        const data = xsurface.data orelse continue;
+        const xwindow: *XwaylandWindow = @ptrCast(@alignCast(data));
+        return xwindow.window;
+    }
+
+    const seat = server.input_manager.defaultSeat();
+    if (seat.focused == .window and seat.focused.window.impl == .xwayland and
+        seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
+    {
+        return seat.focused.window;
+    }
+
+    var candidate: ?*Window = null;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (window.impl != .xwayland or
+            window.impl.xwayland.xsurface.pid != override_redirect.xsurface.pid)
+        {
+            continue;
+        }
+        if (candidate != null) return null;
+        candidate = window;
+    }
+    return candidate;
 }
 
 fn refocusIfMapped(override_redirect: *XwaylandOverrideRedirect) void {
@@ -181,11 +244,13 @@ fn handleSetRole(listener: *wl.Listener(void)) void {
 fn handleUnmap(listener: *wl.Listener(void)) void {
     const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("unmap", listener);
 
+    override_redirect.commit.link.remove();
     override_redirect.set_geometry.link.remove();
 
     override_redirect.xsurface.surface.?.data = null;
     override_redirect.surface_tree.?.node.destroy();
     override_redirect.surface_tree = null;
+    override_redirect.owner = null;
 
     // If the unmapped surface is currently focused, pass keyboard focus
     // to the most appropriate surface.

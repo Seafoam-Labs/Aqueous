@@ -178,14 +178,12 @@ fn handleAssociate(listener: *wl.Listener(void)) void {
 
     xwindow.xsurface.surface.?.events.map.add(&xwindow.map);
     xwindow.xsurface.surface.?.events.unmap.add(&xwindow.unmap);
-    xwindow.xsurface.surface.?.events.commit.add(&xwindow.commit);
 }
 
 fn handleDissociate(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("dissociate", listener);
     xwindow.map.link.remove();
     xwindow.unmap.link.remove();
-    xwindow.commit.link.remove();
 }
 
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
@@ -212,6 +210,11 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
         return;
     };
 
+    // Register after the scene tree so our commit listener runs after wlroots
+    // has created/replaced scene buffers. Otherwise the scene helper can reset
+    // opacity immediately after Aqueous applies it.
+    surface.events.commit.add(&xwindow.commit);
+
     if (xwindow.xsurface.fullscreen) {
         window.wm_scheduled.fullscreen_requested = .{ .fullscreen = null };
     }
@@ -228,6 +231,8 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
 
 fn handleUnmap(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("unmap", listener);
+
+    xwindow.commit.link.remove();
 
     xwindow.xsurface.surface.?.data = null;
 

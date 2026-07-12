@@ -1196,9 +1196,12 @@
         Enable or disable compositor backdrop blur for this specific window,
         relative to the global blur configured via river_window_manager_v1.set_blur.
 
-        Disabling blur for a window (enabled = 0) is intended for windows that
-        should not pay the per-frame blur cost or be visually blurred, such as
-        games or fullscreen video. When global blur is disabled this request has
+        Disabling blur for a window (enabled = 0) is a preference for windows
+        that should not pay the per-frame blur cost, such as games or fullscreen
+        video. Backends which only support scene-wide optimized blur may retain
+        the preference without applying it. Implementations must not fabricate an
+        opaque region to enforce this preference, since doing so corrupts
+        translucent window content. When global blur is disabled this request has
         no effect.
 
         This request completely overrides all previous set_window_blur requests

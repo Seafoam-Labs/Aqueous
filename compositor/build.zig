@@ -323,6 +323,17 @@ pub fn build(b: *Build) !void {
         });
         const run_scaling_test = b.addRunArtifact(scaling_test);
 
+        const visual_state_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/visual_state.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_visual_state_test = b.addRunArtifact(visual_state_test);
+
         const cursor_lock_restore_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/cursor_lock_restore.zig"),
@@ -436,6 +447,7 @@ pub fn build(b: *Build) !void {
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_scaling_test.step);
+        test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_aqueous_test.step);
         test_step.dependOn(&run_trace_test.step);

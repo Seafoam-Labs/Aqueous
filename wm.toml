@@ -55,7 +55,8 @@ right  = 0
 
 # -----------------------------------------------------------------------------
 # Backdrop blur (requires Aqueous built with SceneFX). Applied behind window
-# content. Per-window exclusions (e.g. games) live in rules.toml as `blur = false`.
+# content. Per-window blur preferences are parsed for compatibility, but safe
+# selective blur awaits SceneFX mask support.
 # -----------------------------------------------------------------------------
 [blur]
 enabled = false  # set true to enable compositor backdrop blur
