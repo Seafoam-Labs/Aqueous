@@ -10,6 +10,7 @@
 //! square corners and no reference to any SceneFX symbol.
 
 const build_options = @import("build_options");
+const math = @import("std").math;
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
 const visual_state = @import("visual_state.zig");
@@ -68,6 +69,28 @@ pub fn setRectRadius(rect: *wlr.SceneRect, radius: u31) void {
     if (comptime !build_options.scenefx) return;
     const c = @import("c");
     c.wlr_scene_rect_set_corner_radius(@ptrCast(rect), @intCast(radius));
+}
+
+pub const CornerRadii = struct {
+    top_left: u31 = 0,
+    top_right: u31 = 0,
+    bottom_right: u31 = 0,
+    bottom_left: u31 = 0,
+};
+
+/// Set each corner of a scene rect independently. Border corner pieces need
+/// this rather than `setRectRadius`: rounding all four corners of a thin edge
+/// turns it into a capsule instead of one quadrant of the window outline.
+pub fn setRectRadii(rect: *wlr.SceneRect, radii: CornerRadii) void {
+    if (comptime !build_options.scenefx) return;
+    const c = @import("c");
+    const max = math.maxInt(u16);
+    c.wlr_scene_rect_set_corner_radii(@ptrCast(rect), .{
+        .top_left = @intCast(@min(radii.top_left, max)),
+        .top_right = @intCast(@min(radii.top_right, max)),
+        .bottom_right = @intCast(@min(radii.bottom_right, max)),
+        .bottom_left = @intCast(@min(radii.bottom_left, max)),
+    });
 }
 
 /// Apply the given corner radius to every buffer node in the given subtree.

@@ -260,6 +260,10 @@ border: struct {
     right: *wlr.SceneRect,
     top: *wlr.SceneRect,
     bottom: *wlr.SceneRect,
+    top_left: *wlr.SceneRect,
+    top_right: *wlr.SceneRect,
+    bottom_right: *wlr.SceneRect,
+    bottom_left: *wlr.SceneRect,
 },
 
 decorations_above: wl.list.Head(Decoration, .link),
@@ -584,6 +588,10 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
             .right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .top = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .bottom = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+            .top_left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+            .top_right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+            .bottom_right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+            .bottom_left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
         },
         .decorations_above = undefined,
         .decorations_above_tree = try tree.createSceneTree(),
@@ -603,6 +611,13 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
+
+    // Rounded corner pieces overlap the nominal content box so that the outer
+    // and inner curves meet. Keep them immediately below both live and saved
+    // surface trees; the rounded client surface supplies the inner cutout.
+    inline for (.{ "top_left", "top_right", "bottom_right", "bottom_left" }) |corner| {
+        @field(window.border, corner).node.placeBelow(&window.surfaces.tree.node);
+    }
 
     window.capture_scene.restack_xwayland_surfaces = false;
 
@@ -1350,8 +1365,17 @@ pub fn renderFinish(window: *Window) void {
         window.fullscreen_background.setSize(width, height);
         clip = .{ .x = 0, .y = 0, .width = width, .height = height };
         content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-        inline for (.{ "left", "right", "top", "bottom" }) |edge| {
-            @field(window.border, edge).node.setEnabled(false);
+        inline for (.{
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "top_left",
+            "top_right",
+            "bottom_right",
+            "bottom_left",
+        }) |part| {
+            @field(window.border, part).node.setEnabled(false);
         }
         // Fullscreen content should not be rounded.
         fx.setTreeRadius(window.surfaces.tree, 0);
@@ -1591,49 +1615,69 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
 
 fn drawBorders(window: *Window) void {
     const requested = &window.rendering_requested;
+    inline for (.{
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "top_left",
+        "top_right",
+        "bottom_right",
+        "bottom_left",
+    }) |part| {
+        @field(window.border, part).node.setEnabled(false);
+    }
+
     var content: wlr.Box = .{
         .x = 0,
         .y = 0,
         .width = window.box.width,
         .height = window.box.height,
     };
-    if (requested.content_clip.empty() or
-        content.intersection(&content, &requested.content_clip))
-    {
-        // f32 cannot represent all u32 values exactly, therefore we must initially use f64
-        // (which can) and then cast to f32, potentially losing precision.
-        const border = &requested.border;
-        const color: [4]f32 = .{
-            @floatCast(@as(f64, @floatFromInt(border.r)) / math.maxInt(u32)),
-            @floatCast(@as(f64, @floatFromInt(border.g)) / math.maxInt(u32)),
-            @floatCast(@as(f64, @floatFromInt(border.b)) / math.maxInt(u32)),
-            @floatCast(@as(f64, @floatFromInt(border.a)) / math.maxInt(u32)),
-        };
+    if (!requested.content_clip.empty() and
+        !content.intersection(&content, &requested.content_clip)) return;
+
+    // f32 cannot represent all u32 values exactly, therefore we must initially use f64
+    // (which can) and then cast to f32, potentially losing precision.
+    const border = &requested.border;
+    if (border.width == 0) return;
+    const color: [4]f32 = .{
+        @floatCast(@as(f64, @floatFromInt(border.r)) / math.maxInt(u32)),
+        @floatCast(@as(f64, @floatFromInt(border.g)) / math.maxInt(u32)),
+        @floatCast(@as(f64, @floatFromInt(border.b)) / math.maxInt(u32)),
+        @floatCast(@as(f64, @floatFromInt(border.a)) / math.maxInt(u32)),
+    };
+
+    // A set_clip_box can cut through any side of the outline. Keep that path
+    // square: rounding the newly clipped edge would create a corner at the clip
+    // boundary rather than preserve the window's original corner.
+    const rounded = border.corner_radius > 0 and requested.clip.empty();
+    if (!rounded) {
         var left: wlr.Box = .{
-            .x = -@as(i32, border.width),
-            .y = 0,
+            .x = content.x - @as(i32, border.width),
+            .y = content.y,
             .width = border.width,
             .height = content.height,
         };
         var right: wlr.Box = .{
-            .x = content.width,
-            .y = 0,
+            .x = content.x + content.width,
+            .y = content.y,
             .width = border.width,
             .height = content.height,
         };
         var top: wlr.Box = .{
-            .x = 0,
-            .y = -@as(i32, border.width),
+            .x = content.x,
+            .y = content.y - @as(i32, border.width),
             .width = content.width,
             .height = border.width,
         };
         var bottom: wlr.Box = .{
-            .x = 0,
-            .y = content.height,
+            .x = content.x,
+            .y = content.y + content.height,
             .width = content.width,
             .height = border.width,
         };
-        // Use left and right scene rects to draw the corners if needed
+        // Use left and right scene rects to draw square corners if needed.
         if (border.edges.top) {
             left.y -= border.width;
             left.height += border.width;
@@ -1658,8 +1702,81 @@ fn drawBorders(window: *Window) void {
             rect.node.setPosition(edge.box.x, edge.box.y);
             rect.setSize(edge.box.width, edge.box.height);
             rect.setColor(&color);
-            fx.setRectRadius(rect, border.corner_radius);
+            fx.setRectRadius(rect, 0);
         }
+        return;
+    }
+
+    const half_short_side: u31 = @intCast(@divTrunc(@min(content.width, content.height), 2));
+    const radius: u31 = @min(border.corner_radius, half_short_side);
+    const outer_radius: u31 = @intCast(@min(
+        @as(u32, radius) + @as(u32, border.width),
+        math.maxInt(u31),
+    ));
+    const r: i32 = radius;
+    const outer: i32 = outer_radius;
+    const bw: i32 = border.width;
+
+    var left: wlr.Box = .{
+        .x = content.x - bw,
+        .y = content.y + (if (border.edges.top) r else 0),
+        .width = bw,
+        .height = content.height -
+            (if (border.edges.top) r else 0) -
+            (if (border.edges.bottom) r else 0),
+    };
+    var right = left;
+    right.x = content.x + content.width;
+    var top: wlr.Box = .{
+        .x = content.x + (if (border.edges.left) r else 0),
+        .y = content.y - bw,
+        .width = content.width -
+            (if (border.edges.left) r else 0) -
+            (if (border.edges.right) r else 0),
+        .height = bw,
+    };
+    var bottom = top;
+    bottom.y = content.y + content.height;
+
+    inline for (.{
+        .{ .name = "left", .box = &left },
+        .{ .name = "right", .box = &right },
+        .{ .name = "top", .box = &top },
+        .{ .name = "bottom", .box = &bottom },
+    }) |edge| {
+        const rect = @field(window.border, edge.name);
+        rect.node.setEnabled(@field(border.edges, edge.name) and !edge.box.empty());
+        rect.node.setPosition(edge.box.x, edge.box.y);
+        rect.setSize(edge.box.width, edge.box.height);
+        rect.setColor(&color);
+        fx.setRectRadius(rect, 0);
+    }
+
+    var top_left: wlr.Box = .{
+        .x = content.x - bw,
+        .y = content.y - bw,
+        .width = outer,
+        .height = outer,
+    };
+    var top_right = top_left;
+    top_right.x = content.x + content.width - r;
+    var bottom_right = top_right;
+    bottom_right.y = content.y + content.height - r;
+    var bottom_left = top_left;
+    bottom_left.y = content.y + content.height - r;
+
+    inline for (.{
+        .{ .name = "top_left", .box = &top_left, .enabled = border.edges.top and border.edges.left, .radii = fx.CornerRadii{ .top_left = outer_radius } },
+        .{ .name = "top_right", .box = &top_right, .enabled = border.edges.top and border.edges.right, .radii = fx.CornerRadii{ .top_right = outer_radius } },
+        .{ .name = "bottom_right", .box = &bottom_right, .enabled = border.edges.bottom and border.edges.right, .radii = fx.CornerRadii{ .bottom_right = outer_radius } },
+        .{ .name = "bottom_left", .box = &bottom_left, .enabled = border.edges.bottom and border.edges.left, .radii = fx.CornerRadii{ .bottom_left = outer_radius } },
+    }) |corner| {
+        const rect = @field(window.border, corner.name);
+        rect.node.setEnabled(corner.enabled);
+        rect.node.setPosition(corner.box.x, corner.box.y);
+        rect.setSize(corner.box.width, corner.box.height);
+        rect.setColor(&color);
+        fx.setRectRadii(rect, corner.radii);
     }
 }
 
