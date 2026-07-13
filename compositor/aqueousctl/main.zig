@@ -16,12 +16,24 @@ const allocator = std.heap.c_allocator;
 const usage =
     \\usage: aqueousctl windows [--json]
     \\       aqueousctl inspect --rule
+    \\       aqueousctl scene [--dot]
     \\
-    \\List mapped windows or emit ready-to-paste rules.toml entries.
+    \\Inspect mapped windows, author rules, or visualize the compositor scene graph.
     \\
 ;
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
+
+const Mode = enum { windows, json, rules, scene, scene_dot };
+
+const SceneNode = struct {
+    id: u32,
+    parent: u32,
+    label: []u8,
+    node_type: aqueous.SceneSnapshotV1.NodeType,
+    enabled: bool,
+    geometry: Geometry,
+};
 
 const Window = struct {
     state: *State,
@@ -72,12 +84,17 @@ const State = struct {
     info_version: u32 = 0,
     list: ?*ext.ForeignToplevelListV1 = null,
     info_manager: ?*aqueous.WindowInfoManagerV1 = null,
+    scene_snapshot: ?*aqueous.SceneSnapshotV1 = null,
+    scene_done: bool = false,
+    scene_nodes: std.ArrayListUnmanaged(SceneNode) = .empty,
     list_finished: bool = false,
     windows: std.ArrayListUnmanaged(*Window) = .empty,
 
     fn deinit(state: *State) void {
         for (state.windows.items) |window| window.deinit();
         state.windows.deinit(allocator);
+        for (state.scene_nodes.items) |node| allocator.free(node.label);
+        state.scene_nodes.deinit(allocator);
         state.registry.destroy();
     }
 
@@ -87,6 +104,10 @@ const State = struct {
             if (!window.closed and !window.info_done) return true;
         }
         return false;
+    }
+
+    fn scenePending(state: *const State) bool {
+        return !state.scene_done;
     }
 };
 
@@ -102,10 +123,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
-    const mode: enum { windows, json, rules } = blk: {
+    const mode: Mode = blk: {
         if (args.len == 2 and mem.eql(u8, args[1], "windows")) break :blk .windows;
         if (args.len == 3 and mem.eql(u8, args[1], "windows") and mem.eql(u8, args[2], "--json")) break :blk .json;
         if (args.len == 3 and mem.eql(u8, args[1], "inspect") and mem.eql(u8, args[2], "--rule")) break :blk .rules;
+        if (args.len == 2 and mem.eql(u8, args[1], "scene")) break :blk .scene;
+        if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) break :blk .scene_dot;
         try stderr.writeAll(usage);
         try stderr.flush();
         std.process.exit(2);
@@ -124,13 +147,34 @@ pub fn main(init: std.process.Init.Minimal) !void {
     registry.setListener(*State, registryListener, &state);
     tryRoundtrip(display, stderr);
 
-    if (state.list_name == 0 or state.info_name == 0) {
+    const scene_mode = mode == .scene or mode == .scene_dot;
+    if (state.info_name == 0 or (!scene_mode and state.list_name == 0)) {
         try stderr.writeAll("aqueousctl: compositor does not expose Aqueous window introspection\n");
         try stderr.flush();
         std.process.exit(1);
     }
 
     state.info_manager = try registry.bind(state.info_name, aqueous.WindowInfoManagerV1, state.info_version);
+    if (scene_mode) {
+        if (state.info_version < 2) {
+            try stderr.writeAll("aqueousctl: compositor does not expose scene graph snapshots\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        state.scene_snapshot = try state.info_manager.?.getSceneSnapshot();
+        state.scene_snapshot.?.setListener(*State, sceneListener, &state);
+        var rounds: usize = 0;
+        while (state.scenePending() and rounds < 8) : (rounds += 1) tryRoundtrip(display, stderr);
+        if (state.scenePending()) {
+            try stderr.writeAll("aqueousctl: timed out collecting the scene graph snapshot\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        if (mode == .scene) try writeSceneTree(stdout, &state) else try writeSceneDot(stdout, &state);
+        try stdout.flush();
+        return;
+    }
+
     state.list = try registry.bind(state.list_name, ext.ForeignToplevelListV1, state.list_version);
     state.list.?.setListener(*State, listListener, &state);
 
@@ -150,6 +194,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
+        .scene, .scene_dot => unreachable,
     }
     try stdout.flush();
 }
@@ -230,10 +275,139 @@ fn infoListener(_: *aqueous.WindowInfoV1, event: aqueous.WindowInfoV1.Event, win
     }
 }
 
+fn sceneListener(_: *aqueous.SceneSnapshotV1, event: aqueous.SceneSnapshotV1.Event, state: *State) void {
+    switch (event) {
+        .node => |value| {
+            const label = allocator.dupe(u8, mem.span(value.label)) catch return;
+            state.scene_nodes.append(allocator, .{
+                .id = value.id,
+                .parent = value.parent,
+                .label = label,
+                .node_type = value.node_type,
+                .enabled = value.enabled != 0,
+                .geometry = .{
+                    .x = value.x,
+                    .y = value.y,
+                    .width = value.width,
+                    .height = value.height,
+                },
+            }) catch allocator.free(label);
+        },
+        .done => state.scene_done = true,
+    }
+}
+
 fn replaceString(destination: *?[]u8, value: []const u8) void {
     const replacement = allocator.dupe(u8, value) catch return;
     if (destination.*) |old| allocator.free(old);
     destination.* = replacement;
+}
+
+fn writeSceneTree(writer: *Io.Writer, state: *const State) !void {
+    for (state.scene_nodes.items, 0..) |node, index| {
+        var chain: [256]usize = undefined;
+        var chain_len: usize = 0;
+        var cursor: ?usize = index;
+        while (cursor) |node_index| {
+            if (chain_len == chain.len) break;
+            chain[chain_len] = node_index;
+            chain_len += 1;
+            const parent = state.scene_nodes.items[node_index].parent;
+            cursor = if (parent == 0) null else sceneNodeIndex(state, parent);
+        }
+
+        if (chain_len > 1) {
+            var level = chain_len - 1;
+            while (level > 1) : (level -= 1) {
+                const ancestor_index = chain[level - 1];
+                try writer.writeAll(if (hasLaterSceneSibling(state, ancestor_index)) "│  " else "   ");
+            }
+            try writer.writeAll(if (hasLaterSceneSibling(state, index)) "├─ " else "└─ ");
+        }
+
+        try writeSingleLine(writer, node.label);
+        try writer.print(" [{s}]", .{@tagName(node.node_type)});
+        if (!node.enabled) try writer.writeAll(" disabled");
+        if (node.geometry.x != 0 or node.geometry.y != 0 or
+            node.geometry.width != 0 or node.geometry.height != 0)
+        {
+            try writer.print(" ({d},{d} {d}x{d})", .{
+                node.geometry.x,
+                node.geometry.y,
+                node.geometry.width,
+                node.geometry.height,
+            });
+        }
+        try writer.writeByte('\n');
+    }
+}
+
+fn sceneNodeIndex(state: *const State, id: u32) ?usize {
+    for (state.scene_nodes.items, 0..) |node, index| if (node.id == id) return index;
+    return null;
+}
+
+fn hasLaterSceneSibling(state: *const State, index: usize) bool {
+    const parent = state.scene_nodes.items[index].parent;
+    for (state.scene_nodes.items[index + 1 ..]) |candidate| {
+        if (candidate.parent == parent) return true;
+    }
+    return false;
+}
+
+fn writeSingleLine(writer: *Io.Writer, value: []const u8) !void {
+    for (value) |byte| try writer.writeByte(if (byte == '\n' or byte == '\r') ' ' else byte);
+}
+
+fn writeSceneDot(writer: *Io.Writer, state: *const State) !void {
+    try writer.writeAll(
+        \\digraph aqueous_scene {
+        \\  graph [rankdir=LR, bgcolor="#111827", fontname="monospace"];
+        \\  node [shape=box, style="rounded,filled", fontname="monospace", color="#475569", fontcolor="#0f172a"];
+        \\  edge [color="#64748b"];
+        \\
+    );
+    for (state.scene_nodes.items) |node| {
+        try writer.print("  n{d} [label=\"", .{node.id});
+        try writeDotEscaped(writer, node.label);
+        try writer.print("\\n{s}", .{@tagName(node.node_type)});
+        if (!node.enabled) try writer.writeAll(" · disabled");
+        if (node.geometry.x != 0 or node.geometry.y != 0 or
+            node.geometry.width != 0 or node.geometry.height != 0)
+        {
+            try writer.print("\\n{d},{d} {d}x{d}", .{
+                node.geometry.x,
+                node.geometry.y,
+                node.geometry.width,
+                node.geometry.height,
+            });
+        }
+        const fill = if (!node.enabled) "#94a3b8" else switch (node.node_type) {
+            .tree => "#93c5fd",
+            .rect => "#fcd34d",
+            .buffer => "#86efac",
+            _ => "#e2e8f0",
+        };
+        try writer.print("\", fillcolor=\"{s}\"", .{fill});
+        if (!node.enabled) try writer.writeAll(", style=\"rounded,filled,dashed\"");
+        try writer.writeAll("];\n");
+    }
+    for (state.scene_nodes.items) |node| {
+        if (node.parent != 0) try writer.print("  n{d} -> n{d};\n", .{ node.parent, node.id });
+    }
+    try writer.writeAll("}\n");
+}
+
+fn writeDotEscaped(writer: *Io.Writer, value: []const u8) !void {
+    for (value) |byte| switch (byte) {
+        '"' => try writer.writeAll("\\\""),
+        '\\' => try writer.writeAll("\\\\"),
+        '\n', '\r' => try writer.writeAll("\\n"),
+        else => if (byte < 0x20)
+            try writer.writeByte('?')
+        else
+            try writer.writeByte(byte),
+    };
 }
 
 fn writeHuman(writer: *Io.Writer, state: *const State) !void {

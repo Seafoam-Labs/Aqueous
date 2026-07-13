@@ -13,7 +13,7 @@
     owned by ext_foreign_toplevel_list_v1.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="1">
+  <interface name="aqueous_window_info_manager_v1" version="2">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -34,6 +34,15 @@
 
     <request name="destroy" type="destructor">
       <description summary="destroy the manager proxy"/>
+    </request>
+
+    <request name="get_scene_snapshot" since="2">
+      <description summary="snapshot the compositor scene graph">
+        The returned object emits a stable, one-shot view of the current scene
+        graph. Node identifiers are local to the snapshot and reveal no server
+        pointers or other compositor-private identifiers.
+      </description>
+      <arg name="id" type="new_id" interface="aqueous_scene_snapshot_v1"/>
     </request>
   </interface>
 
@@ -112,6 +121,43 @@
 
     <event name="done">
       <description summary="the complete snapshot has been sent"/>
+    </event>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this snapshot object"/>
+    </request>
+  </interface>
+
+  <interface name="aqueous_scene_snapshot_v1" version="1">
+    <description summary="one-shot compositor scene graph snapshot">
+      A read-only, pre-order snapshot of the wlroots scene graph. Parent zero
+      identifies the root. Positions are relative to the parent node.
+    </description>
+
+    <enum name="node_type">
+      <entry name="tree" value="0"/>
+      <entry name="rect" value="1"/>
+      <entry name="buffer" value="2"/>
+    </enum>
+
+    <event name="node">
+      <description summary="one scene node">
+        Nodes are emitted in render order. Width and height are zero for tree
+        nodes and for buffers without a current destination size.
+      </description>
+      <arg name="id" type="uint" summary="snapshot-local node identifier"/>
+      <arg name="parent" type="uint" summary="parent identifier, or zero for the root"/>
+      <arg name="label" type="string" summary="human-readable semantic label"/>
+      <arg name="node_type" type="uint" enum="node_type"/>
+      <arg name="enabled" type="uint" summary="one when locally enabled"/>
+      <arg name="x" type="int" summary="parent-relative x position"/>
+      <arg name="y" type="int" summary="parent-relative y position"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="done">
+      <description summary="the complete scene snapshot has been sent"/>
     </event>
 
     <request name="destroy" type="destructor">
