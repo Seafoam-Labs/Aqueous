@@ -419,6 +419,16 @@ The Unix socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock` is hosted inside the
 compositor. It preserves the display-panel JSON contract without a separate
 `aqueous-outputd` process and accepts only same-UID peers.
 
+Output specifications are validated independently. A setting rejected for one
+output (for example, an unavailable mode or a connector absent from the current
+dock) is logged and reported without cancelling valid settings for other
+outputs. `set`, `reload`, and `apply_profile` responses include `applied`,
+`partial`, `rejected`, and a `rejections` array containing the spec index,
+matcher, affected output when known, and rejection reason. `ok` remains true
+for a partial application and is false when every requested output setting was
+rejected. The accepted output states are still committed as one backend
+transaction so the visible multi-output update remains atomic.
+
 ## Configuration reload
 
 Every second, an event-loop timer fingerprints the resolved configuration,

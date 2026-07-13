@@ -49,8 +49,8 @@ pub fn init(service: *Service) void {
 
 pub fn start(service: *Service) void {
     if (service.started) return;
-    service.reload(false);
-    if (service.config.apply_on_start) service.applyConfigured();
+    _ = service.reload(false);
+    if (service.config.apply_on_start) _ = service.applyConfigured();
     service.openSocket() catch |err| {
         log.warn("unable to create output compatibility socket: {}", .{err});
         return;
@@ -73,13 +73,13 @@ pub fn deinit(service: *Service) void {
     service.started = false;
 }
 
-pub fn reload(service: *Service, apply: bool) void {
+pub fn reload(service: *Service, apply: bool) ?OutputManager.ApplyReport {
     service.config = loadWmConfig();
     service.persisted = loadOutputsConfig();
     service.wm_fingerprint = configFingerprint(true);
     service.persisted_fingerprint = configFingerprint(false);
     service.primary_ambiguity_logged = false;
-    if (apply and service.config.apply_on_reload) service.applyConfigured();
+    return if (apply and service.config.apply_on_reload) service.applyConfigured() else null;
 }
 
 /// Return the configured primary output when it is currently usable. Specs are
@@ -134,12 +134,12 @@ pub fn pollReload(service: *Service) bool {
     const wm_fingerprint = configFingerprint(true);
     const persisted_fingerprint = configFingerprint(false);
     if (wm_fingerprint == service.wm_fingerprint and persisted_fingerprint == service.persisted_fingerprint) return false;
-    service.reload(true);
+    _ = service.reload(true);
     log.info("output configuration hot-reloaded", .{});
     return true;
 }
 
-fn applyConfigured(service: *Service) void {
+fn applyConfigured(service: *Service) OutputManager.ApplyReport {
     var selected: [Config.max_outputs]Config.Spec = undefined;
     var count: usize = 0;
     for (service.config.outputs[0..service.config.output_count]) |entry| if (entry.hasDisplayField()) {
@@ -152,21 +152,28 @@ fn applyConfigured(service: *Service) void {
             count += 1;
         }
     }
-    if (count == 0) return;
-    const applied = server.om.applySpecs(selected[0..count]) catch |err| {
+    if (count == 0) return .{};
+    const report = server.om.applySpecs(selected[0..count]) catch |err| {
         log.warn("configured output transaction rejected: {}", .{err});
-        if (!service.config.fallback_profile.empty()) _ = service.applyProfile(service.config.fallback_profile.slice()) catch 0;
-        return;
+        if (!service.config.fallback_profile.empty()) _ = service.applyProfile(service.config.fallback_profile.slice()) catch .{};
+        return .{};
     };
-    log.info("staged native output configuration for {d} output(s)", .{applied});
+    logApplyReport("configured output", &report);
+    if (report.applied == 0 and report.total_rejections != 0 and !service.config.fallback_profile.empty()) {
+        return service.applyProfile(service.config.fallback_profile.slice()) catch report;
+    }
+    return report;
 }
 
-fn applyProfile(service: *Service, name: []const u8) !usize {
+fn applyProfile(service: *Service, name: []const u8) !OutputManager.ApplyReport {
     const profile = service.config.profile(name) orelse service.persisted.profile(name) orelse return error.UnknownProfile;
-    const applied = try server.om.applySpecs(profile.outputs[0..profile.output_count]);
-    _ = service.active_profile.set(name);
-    service.broadcastProfileChanged();
-    return applied;
+    const report = try server.om.applySpecs(profile.outputs[0..profile.output_count]);
+    logApplyReport("output profile", &report);
+    if (reportOk(&report)) {
+        _ = service.active_profile.set(name);
+        service.broadcastProfileChanged();
+    }
+    return report;
 }
 
 pub fn outputsChanged(service: *Service, hotplug: bool) void {
@@ -174,7 +181,7 @@ pub fn outputsChanged(service: *Service, hotplug: bool) void {
     if (hotplug) {
         service.broadcastHotplug();
         service.captureOutputNames();
-        service.applyConfigured();
+        _ = service.applyConfigured();
     }
     const fingerprint = outputFingerprint();
     if (!hotplug and fingerprint == service.output_fingerprint) return;
@@ -295,9 +302,10 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     if (std.mem.eql(u8, op, "version")) return service.sendStatic(client, "{\"ok\":true,\"daemon\":\"aqueous-outputd\",\"version\":\"0.0.1\",\"protocol\":1}\n");
     if (std.mem.eql(u8, op, "list")) return service.sendList(client, true, null);
     if (std.mem.eql(u8, op, "reload")) {
-        service.reload(true);
+        const report = service.reload(true);
         service.broadcastOutputChanged();
-        return service.sendStatic(client, "{\"ok\":true}\n");
+        if (report) |*value| return service.sendList(client, reportOk(value), value);
+        return service.sendList(client, true, null);
     }
     if (std.mem.eql(u8, op, "subscribe")) {
         client.subscribed = true;
@@ -305,8 +313,11 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     }
     if (std.mem.eql(u8, op, "apply_profile")) {
         const name = jsonString(parsed.value.object.get("name")) orelse return service.sendError(client, "missing 'name'");
-        const applied = service.applyProfile(name) catch return service.sendError(client, "unknown profile");
-        return service.sendList(client, true, applied);
+        const report = service.applyProfile(name) catch |err| return switch (err) {
+            error.UnknownProfile => service.sendError(client, "unknown profile"),
+            else => service.sendApplyError(client, @errorCast(err)),
+        };
+        return service.sendList(client, reportOk(&report), &report);
     }
     if (std.mem.eql(u8, op, "set")) return service.handleSet(client, parsed.value.object.get("changes"));
     if (std.mem.eql(u8, op, "save_profile")) return service.handleSaveProfile(client, &parsed.value);
@@ -323,9 +334,10 @@ fn handleSet(service: *Service, client: *Client, changes_value: ?std.json.Value)
         specs[count] = specFromJson(value.object) orelse return service.sendError(client, "invalid change");
         count += 1;
     }
-    const applied = server.om.applySpecs(specs[0..count]) catch |err| return service.sendApplyError(client, err);
+    const report = server.om.applySpecs(specs[0..count]) catch |err| return service.sendApplyError(client, err);
+    logApplyReport("output service set", &report);
     service.broadcastOutputChanged();
-    service.sendList(client, true, applied);
+    service.sendList(client, reportOk(&report), &report);
 }
 
 fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
@@ -354,7 +366,7 @@ fn handleSaveProfile(service: *Service, client: *Client, request: *const std.jso
     const outputs = request.object.get("outputs") orelse return service.sendError(client, "missing 'outputs' array");
     if (outputs != .array) return service.sendError(client, "missing 'outputs' array");
     service.persistProfile(name, outputs.array.items) catch return service.sendError(client, "write failed");
-    service.reload(false);
+    _ = service.reload(false);
     var response: [std.fs.max_path_bytes + 64]u8 = undefined;
     const path = outputsPath(&response) orelse return service.sendError(client, "write failed");
     var buffer: [std.fs.max_path_bytes + 80]u8 = undefined;
@@ -430,22 +442,77 @@ fn writeTomlString(writer: *std.Io.Writer, value: []const u8) !void {
     try writer.writeByte('"');
 }
 
-fn sendList(service: *Service, client: *Client, ok: bool, applied: ?usize) void {
+fn reportOk(report: *const OutputManager.ApplyReport) bool {
+    return report.applied != 0 or report.total_rejections == 0;
+}
+
+fn sendList(service: *Service, client: *Client, ok: bool, report: ?*const OutputManager.ApplyReport) void {
     var buffer: [max_response]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
     var json: std.json.Stringify = .{ .writer = &writer };
     json.beginObject() catch return;
     json.objectField("ok") catch return;
     json.write(ok) catch return;
-    if (applied) |count| {
-        json.objectField("applied") catch return;
-        json.write(count) catch return;
+    if (report) |value| {
+        field(&json, "applied", value.applied) catch return;
+        field(&json, "partial", value.applied != 0 and value.total_rejections != 0) catch return;
+        field(&json, "rejected", value.total_rejections) catch return;
+        json.objectField("rejections") catch return;
+        writeRejections(&json, value) catch return;
     }
     json.objectField("outputs") catch return;
     service.writeOutputs(&json) catch return;
     json.endObject() catch return;
     writer.writeByte('\n') catch return;
     service.sendStatic(client, writer.buffered());
+}
+
+fn writeRejections(json: *std.json.Stringify, report: *const OutputManager.ApplyReport) !void {
+    try json.beginArray();
+    for (report.rejections[0..report.rejection_count]) |rejection| {
+        try json.beginObject();
+        try field(json, "spec_index", rejection.spec_index);
+        try field(json, "matcher_kind", @tagName(rejection.matcher_kind));
+        try field(json, "matcher", rejection.matcher.slice());
+        try json.objectField("output");
+        if (rejection.output_name) |name| try json.write(name) else try json.write(null);
+        try field(json, "error", OutputManager.rejectionMessage(rejection.reason));
+        try json.endObject();
+    }
+    try json.endArray();
+    if (report.total_rejections > report.rejection_count) {
+        try field(json, "rejections_truncated", report.total_rejections - report.rejection_count);
+    }
+}
+
+fn logApplyReport(context: []const u8, report: *const OutputManager.ApplyReport) void {
+    for (report.rejections[0..report.rejection_count]) |rejection| {
+        const matcher_kind = @tagName(rejection.matcher_kind);
+        const matcher = rejection.matcher.slice();
+        const reason = OutputManager.rejectionMessage(rejection.reason);
+        if (rejection.output_name) |output_name| {
+            log.warn("{s}: spec[{d}] {s}={s} rejected for output {s}: {s}", .{
+                context,
+                rejection.spec_index,
+                matcher_kind,
+                matcher,
+                output_name,
+                reason,
+            });
+        } else {
+            log.warn("{s}: spec[{d}] {s}={s} rejected: {s}", .{
+                context,
+                rejection.spec_index,
+                matcher_kind,
+                matcher,
+                reason,
+            });
+        }
+    }
+    if (report.total_rejections > report.rejection_count) {
+        log.warn("{s}: {d} additional rejection(s) omitted", .{ context, report.total_rejections - report.rejection_count });
+    }
+    log.info("{s}: staged {d} output(s), rejected {d} setting(s)", .{ context, report.applied, report.total_rejections });
 }
 
 fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {

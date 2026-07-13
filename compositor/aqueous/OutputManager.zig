@@ -114,21 +114,87 @@ pub const ApplyError = error{
     TooManyOutputs,
 };
 
+pub const RejectionReason = enum {
+    missing_matcher,
+    unknown_output,
+    wildcard_position,
+    mode_not_advertised,
+    invalid_coordinates,
+};
+
+pub const Rejection = struct {
+    spec_index: usize,
+    matcher_kind: enum { name, edid },
+    matcher: OutputConfig.Text,
+    output_name: ?[]const u8,
+    reason: RejectionReason,
+};
+
+pub const max_rejections = OutputConfig.max_outputs * 2;
+
+pub const ApplyReport = struct {
+    applied: usize = 0,
+    rejections: [max_rejections]Rejection = undefined,
+    rejection_count: usize = 0,
+    total_rejections: usize = 0,
+
+    fn reject(
+        report: *ApplyReport,
+        spec_index: usize,
+        matcher_kind: @FieldType(Rejection, "matcher_kind"),
+        matcher: OutputConfig.Text,
+        output_name: ?[]const u8,
+        reason: RejectionReason,
+    ) void {
+        if (report.rejection_count < report.rejections.len) {
+            report.rejections[report.rejection_count] = .{
+                .spec_index = spec_index,
+                .matcher_kind = matcher_kind,
+                .matcher = matcher,
+                .output_name = output_name,
+                .reason = reason,
+            };
+            report.rejection_count += 1;
+        }
+        report.total_rejections += 1;
+    }
+};
+
+pub fn rejectionMessage(reason: RejectionReason) []const u8 {
+    return switch (reason) {
+        .missing_matcher => "missing 'name' or 'edid'",
+        .unknown_output => "no connected output matches the spec",
+        .wildcard_position => "position is not allowed with a wildcard name",
+        .mode_not_advertised => "mode is not advertised by the output",
+        .invalid_coordinates => "coordinates are incompatible with Xwayland",
+    };
+}
+
 /// Validate and stage a native output transaction. Later specs override fields
 /// from earlier specs, which preserves outputd's wildcard-then-specific behavior.
-/// The existing WindowManager transaction performs the atomic backend commit and
-/// restores `current` if wlroots rejects the modeset.
-pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!usize {
+/// A rejected spec/output pair is reported and skipped without preventing valid
+/// settings for other outputs from being staged. The existing WindowManager
+/// transaction performs the atomic backend commit and restores `current` if
+/// wlroots rejects the modeset.
+pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!ApplyReport {
     const Pending = struct { output: *Output, state: Output.State };
     var pending: [OutputConfig.max_outputs]Pending = undefined;
     var pending_count: usize = 0;
+    var report: ApplyReport = .{};
 
-    for (specs) |*spec| {
-        if (spec.name.empty() and spec.edid.empty()) return error.MissingMatcher;
+    for (specs, 0..) |*spec, spec_index| {
+        const matcher_kind: @FieldType(Rejection, "matcher_kind") = if (!spec.edid.empty()) .edid else .name;
+        const matcher = if (matcher_kind == .edid) spec.edid else spec.name;
+        if (spec.name.empty() and spec.edid.empty()) {
+            report.reject(spec_index, matcher_kind, matcher, null, .missing_matcher);
+            continue;
+        }
         const wildcard = spec.edid.empty() and hasGlob(spec.name.slice());
-        if (wildcard and spec.x != null) return error.WildcardPosition;
+        if (wildcard and spec.x != null) {
+            report.reject(spec_index, matcher_kind, matcher, null, .wildcard_position);
+            continue;
+        }
         var matched: usize = 0;
-        var valid: usize = 0;
         var it = om.outputs.iterator(.forward);
         while (it.next()) |output| {
             const wlr_output = output.wlr_output orelse continue;
@@ -149,26 +215,35 @@ pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyErr
             }
             var proposed = pending[index.?].state;
             applySpecToState(spec, wlr_output, &proposed) catch |err| {
-                if (wildcard and err == error.ModeNotAdvertised) {
-                    if (created) pending_count -= 1;
-                    continue;
-                }
-                return err;
+                if (created) pending_count -= 1;
+                report.reject(spec_index, matcher_kind, matcher, std.mem.span(wlr_output.name), switch (err) {
+                    error.ModeNotAdvertised => .mode_not_advertised,
+                    else => unreachable,
+                });
+                continue;
             };
+            if (!coordinatesValid(&proposed)) {
+                if (created) pending_count -= 1;
+                report.reject(spec_index, matcher_kind, matcher, std.mem.span(wlr_output.name), .invalid_coordinates);
+                continue;
+            }
             pending[index.?].state = proposed;
-            valid += 1;
         }
-        if (matched == 0 or valid == 0) return error.UnknownOutput;
+        if (matched == 0) report.reject(spec_index, matcher_kind, matcher, null, .unknown_output);
     }
 
-    if (build_options.xwayland and server.xwayland != null) for (pending[0..pending_count]) |entry| {
-        if (entry.state.state != .enabled) continue;
-        const width, const height = entry.state.dimensions();
-        if (entry.state.x < 0 or entry.state.y < 0 or entry.state.x + width > math.maxInt(i16) or entry.state.y + height > math.maxInt(i16)) return error.InvalidCoordinates;
-    };
     for (pending[0..pending_count]) |entry| entry.output.scheduled = entry.state;
     if (pending_count != 0) server.wm.dirtyWindowing();
-    return pending_count;
+    report.applied = pending_count;
+    return report;
+}
+
+fn coordinatesValid(state: *const Output.State) bool {
+    if (!build_options.xwayland or server.xwayland == null or state.state != .enabled) return true;
+    const width, const height = state.dimensions();
+    return state.x >= 0 and state.y >= 0 and
+        state.x + width <= math.maxInt(i16) and
+        state.y + height <= math.maxInt(i16);
 }
 
 fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, state: *Output.State) ApplyError!void {

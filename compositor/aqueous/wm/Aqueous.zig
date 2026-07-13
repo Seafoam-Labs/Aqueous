@@ -122,7 +122,7 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     aqueous.applyInputConfig();
-    aqueous.output_service.reload(true);
+    _ = aqueous.output_service.reload(true);
     aqueous.runExec(.reload);
     aqueous.notify("Aqueous configuration reloaded", null, false);
     log.info("configuration reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});

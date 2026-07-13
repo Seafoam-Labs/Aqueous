@@ -88,6 +88,21 @@ echo "$invalid" | jq -e '.ok == false' >/dev/null \
     && pass "output socket: invalid scale rejected" \
     || err "output socket: invalid scale was accepted"
 
+# A rejected output entry must not prevent a valid entry in the same request
+# from being staged, and the response must describe the partial application.
+partial=$(output_request "{\"op\":\"set\",\"changes\":[{\"name\":\"MISSING-OUTPUT\",\"scale\":1},{\"name\":\"$NAME\",\"scale\":1}]}")
+echo "$partial" | jq -e '
+    .ok == true and
+    .partial == true and
+    .applied == 1 and
+    .rejected == 1 and
+    .rejections[0].matcher == "MISSING-OUTPUT" and
+    .rejections[0].output == null and
+    (.rejections[0].error | contains("no connected output"))
+' >/dev/null \
+    && pass "output socket: partial application reports rejected output and stages valid output" \
+    || err "output socket: rejected output cancelled or was missing from partial report"
+
 start_client() {
     if have ghostty; then
         WAYLAND_DEBUG=1 GDK_BACKEND=wayland ghostty \
