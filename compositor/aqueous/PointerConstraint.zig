@@ -3,6 +3,7 @@
 
 const PointerConstraint = @This();
 
+const build_options = @import("build_options");
 const std = @import("std");
 const assert = std.debug.assert;
 const wlr = @import("wlroots");
@@ -11,6 +12,7 @@ const wl = @import("wayland").server.wl;
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
+const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
 
 const log = std.log.scoped(.input);
@@ -47,10 +49,33 @@ pub fn create(wlr_constraint: *wlr.PointerConstraintV1) error{OutOfMemory}!void 
     wlr_constraint.events.destroy.add(&constraint.destroy);
     wlr_constraint.surface.events.commit.add(&constraint.commit);
 
+    // Same-process override-redirect menus deliberately retain keyboard focus
+    // on their managed owner. Fullscreen Xwayland game surfaces can have the
+    // same relationship, but distinguish themselves by requesting a pointer
+    // constraint and require direct focus for that constraint to activate.
+    if (build_options.xwayland) {
+        if (SceneNodeData.fromSurface(wlr_constraint.surface)) |node_data| {
+            switch (node_data.data) {
+                .override_redirect => |override_redirect| {
+                    if (seat.focused == .window and
+                        seat.focused.window.impl == .xwayland and
+                        seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
+                    {
+                        seat.focus(.{ .override_redirect = override_redirect });
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
     if (seat.wlr_seat.keyboard_state.focused_surface) |surface| {
         if (surface == wlr_constraint.surface) {
-            assert(seat.cursor.constraint == null);
-            seat.cursor.constraint = constraint;
+            if (seat.cursor.constraint) |active_constraint| {
+                assert(active_constraint == constraint);
+            } else {
+                seat.cursor.constraint = constraint;
+            }
             constraint.maybeActivate();
         }
     }

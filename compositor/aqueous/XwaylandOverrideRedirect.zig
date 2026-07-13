@@ -213,7 +213,7 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (override_redirect.xsurface.overrideRedirectWantsFocus() and
         override_redirect.xsurface.icccmInputModel() != .none)
     {
-        if (override_redirect.xsurface.surface == null) return;
+        const surface = override_redirect.xsurface.surface orelse return;
         const seat = server.input_manager.defaultSeat();
         // Override-redirect menus use an X11 grab to receive their keyboard and
         // pointer input. If their top-level owner is already focused, keep the
@@ -225,6 +225,13 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
             seat.focused.window.impl == .xwayland and
             seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
         {
+            // A fullscreen Xwayland game can share this same-process topology
+            // with a menu. Its pointer constraint is the unambiguous signal that
+            // the override-redirect surface itself needs focus. This also covers
+            // constraints created before the surface maps.
+            if (server.input_manager.pointer_constraints.constraintForSurface(surface, seat.wlr_seat) != null) {
+                seat.focus(.{ .override_redirect = override_redirect });
+            }
             return;
         } else {
             seat.focus(.{ .override_redirect = override_redirect });
