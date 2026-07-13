@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<protocol name="wlr_virtual_pointer_unstable_v1">
+  <copyright>
+    Copyright © 2019 Josef Gajdusek
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="zwlr_virtual_pointer_v1" version="2">
+    <description summary="virtual pointer">
+      This protocol allows clients to emulate a physical pointer device.
+    </description>
+
+    <request name="motion">
+      <arg name="time" type="uint"/>
+      <arg name="dx" type="fixed"/>
+      <arg name="dy" type="fixed"/>
+    </request>
+
+    <request name="motion_absolute">
+      <arg name="time" type="uint"/>
+      <arg name="x" type="uint"/>
+      <arg name="y" type="uint"/>
+      <arg name="x_extent" type="uint"/>
+      <arg name="y_extent" type="uint"/>
+    </request>
+
+    <request name="button">
+      <arg name="time" type="uint"/>
+      <arg name="button" type="uint"/>
+      <arg name="state" type="uint" enum="wl_pointer.button_state"/>
+    </request>
+
+    <request name="axis">
+      <arg name="time" type="uint"/>
+      <arg name="axis" type="uint" enum="wl_pointer.axis"/>
+      <arg name="value" type="fixed"/>
+    </request>
+
+    <request name="frame"/>
+
+    <request name="axis_source">
+      <arg name="axis_source" type="uint" enum="wl_pointer.axis_source"/>
+    </request>
+
+    <request name="axis_stop">
+      <arg name="time" type="uint"/>
+      <arg name="axis" type="uint" enum="wl_pointer.axis"/>
+    </request>
+
+    <request name="axis_discrete">
+      <arg name="time" type="uint"/>
+      <arg name="axis" type="uint" enum="wl_pointer.axis"/>
+      <arg name="value" type="fixed"/>
+      <arg name="discrete" type="int"/>
+    </request>
+
+    <request name="destroy" type="destructor" since="1"/>
+
+    <enum name="error">
+      <entry name="invalid_axis" value="0"/>
+      <entry name="invalid_axis_source" value="1"/>
+    </enum>
+  </interface>
+
+  <interface name="zwlr_virtual_pointer_manager_v1" version="2">
+    <description summary="virtual pointer manager">
+      This object allows clients to create individual virtual pointer objects.
+    </description>
+
+    <request name="create_virtual_pointer">
+      <arg name="seat" type="object" interface="wl_seat" allow-null="true"/>
+      <arg name="id" type="new_id" interface="zwlr_virtual_pointer_v1"/>
+    </request>
+
+    <request name="destroy" type="destructor" since="1"/>
+
+    <request name="create_virtual_pointer_with_output" since="2">
+      <arg name="seat" type="object" interface="wl_seat" allow-null="true"/>
+      <arg name="output" type="object" interface="wl_output" allow-null="true"/>
+      <arg name="id" type="new_id" interface="zwlr_virtual_pointer_v1"/>
+    </request>
+  </interface>
+</protocol>

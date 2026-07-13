@@ -35,6 +35,8 @@ set_hints: wl.Listener(void) = .init(handleSetHints),
 set_window_type: wl.Listener(void) = .init(handleSetWindowType),
 set_role: wl.Listener(void) = .init(handleSetRole),
 focus_in: wl.Listener(void) = .init(handleFocusIn),
+grab_focus: wl.Listener(void) = .init(handleGrabFocus),
+grab_focused_before_map: bool = false,
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -65,6 +67,7 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.set_window_type.add(&override_redirect.set_window_type);
     xsurface.events.set_hints.add(&override_redirect.set_hints);
     xsurface.events.focus_in.add(&override_redirect.focus_in);
+    xsurface.events.grab_focus.add(&override_redirect.grab_focus);
 
     if (xsurface.surface) |surface| {
         handleAssociate(&override_redirect.associate);
@@ -93,6 +96,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     override_redirect.set_hints.link.remove();
     override_redirect.set_role.link.remove();
     override_redirect.focus_in.link.remove();
+    override_redirect.grab_focus.link.remove();
 
     util.gpa.destroy(override_redirect);
 }
@@ -144,6 +148,10 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
     override_redirect.applyOpacity();
 
     override_redirect.focusIfDesired();
+    if (override_redirect.grab_focused_before_map) {
+        override_redirect.grab_focused_before_map = false;
+        server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
+    }
 }
 
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
@@ -269,10 +277,33 @@ fn handleFocusIn(listener: *wl.Listener(void)) void {
     if (!surface.mapped or override_redirect.surface_tree == null) return;
 
     const seat = server.input_manager.defaultSeat();
-    if (seat.wlr_seat.keyboard_state.focused_surface != surface) {
+    if (seat.focused.surface() != surface) {
         seat.focusFromClient(.{ .override_redirect = override_redirect });
         server.wm.dirtyWindowing();
     }
+}
+
+fn handleGrabFocus(listener: *wl.Listener(void)) void {
+    const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("grab_focus", listener);
+    const surface = override_redirect.xsurface.surface orelse {
+        override_redirect.grab_focused_before_map = true;
+        return;
+    };
+    if (!surface.mapped or override_redirect.surface_tree == null) {
+        override_redirect.grab_focused_before_map = true;
+        return;
+    }
+
+    log.debug(
+        "Xwayland grab-focus override-redirect=0x{x} pid={d} title='{?s}' surface=0x{x}",
+        .{
+            override_redirect.xsurface.window_id,
+            override_redirect.xsurface.pid,
+            override_redirect.xsurface.title,
+            @intFromPtr(surface),
+        },
+    );
+    server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
 }
 
 fn handleSetHints(listener: *wl.Listener(void)) void {

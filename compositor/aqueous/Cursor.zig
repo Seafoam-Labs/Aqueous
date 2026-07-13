@@ -110,9 +110,9 @@ wm_image_surface_destroy: wl.Listener(*wlr.Surface) = .init(handleWmImageSurface
 /// The set of currently pressed pointer buttons and the corresponding pointer mapping if any.
 pressed: std.AutoHashMapUnmanaged(u32, ?*PointerBinding) = .{},
 
-/// The pointer constraint for the surface that currently has keyboard focus, if any.
-/// This constraint is not necessarily active, activation only occurs once the cursor
-/// has been moved inside the constraint region.
+/// The pointer constraint for the surface that currently has pointer focus, if
+/// any. This constraint is not necessarily active; activation only occurs once
+/// the cursor is inside the constraint region.
 constraint: ?*PointerConstraint = null,
 constraints_suppressed: bool = false,
 pointer_lock_restore: ?PointerLockRestore = null,
@@ -401,6 +401,7 @@ fn handleRequestSetCursor(
 fn clearFocus(cursor: *Cursor) void {
     cursor.setImage(cursor.wm_image);
     cursor.seat.wlr_seat.pointerNotifyClearFocus();
+    cursor.seat.updatePointerConstraint(null);
     cursor.invalidateLastSent();
 }
 
@@ -1002,6 +1003,7 @@ fn passthrough(cursor: *Cursor, time: u32) void {
             const cursor_moved = (lx != cursor.last_sent_lx or ly != cursor.last_sent_ly);
 
             cursor.seat.wlr_seat.pointerNotifyEnter(surface, result.sx, result.sy);
+            cursor.seat.updatePointerConstraint(surface);
 
             var sx = result.sx;
             var sy = result.sy;

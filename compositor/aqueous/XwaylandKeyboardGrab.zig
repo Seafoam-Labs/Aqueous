@@ -35,6 +35,7 @@ pub const Manager = struct {
                 manager,
                 bind,
             );
+            log.debug("created Xwayland keyboard-grab global", .{});
         }
     }
 
@@ -48,7 +49,7 @@ pub const Manager = struct {
         var affected_seat: ?*Seat = null;
         var grabs = manager.grabs.iterator(.forward);
         while (grabs.next()) |grab| {
-            if (grab.surface == surface and grab.honored) {
+            if (grab.surface == surface and (grab.honored or grab.active)) {
                 grab.honored = false;
                 affected_seat = grab.seat;
             }
@@ -56,16 +57,34 @@ pub const Manager = struct {
         if (affected_seat) |seat| manager.selectNewestForSeat(seat);
     }
 
+    /// Stop honoring all Xwayland grabs for a seat. Session locking uses this
+    /// before assigning focus to the lock surface so a client grab can never
+    /// intercept the lock screen's keyboard input.
+    pub fn cancelForSeat(manager: *Manager, seat: *Seat) void {
+        var affected = false;
+        var grabs = manager.grabs.iterator(.forward);
+        while (grabs.next()) |grab| {
+            if (grab.seat != seat or (!grab.honored and !grab.active)) continue;
+            grab.honored = false;
+            affected = true;
+        }
+        if (affected) manager.selectNewestForSeat(seat);
+    }
+
     fn bind(client: *wl.Client, manager: *Manager, version: u32, id: u32) void {
         const xwayland = server.xwayland orelse return;
         const xwayland_server = xwayland.server orelse return;
-        if (client != xwayland_server.client) return;
+        if (client != xwayland_server.client) {
+            log.warn("denied non-Xwayland client binding keyboard-grab global", .{});
+            return;
+        }
 
         const object = zwp.XwaylandKeyboardGrabManagerV1.create(client, version, id) catch {
             client.postNoMemory();
             return;
         };
         object.setHandler(*Manager, handleManagerRequest, null, manager);
+        log.debug("Xwayland bound keyboard-grab manager version={d}", .{version});
     }
 
     fn handleManagerRequest(
@@ -82,15 +101,25 @@ pub const Manager = struct {
     }
 
     fn selectNewestForSeat(manager: *Manager, seat: *Seat) void {
+        var had_active = false;
+        var active_grabs = manager.grabs.iterator(.forward);
+        while (active_grabs.next()) |grab| {
+            if (grab.seat == seat and grab.active) {
+                grab.deactivate();
+                had_active = true;
+            }
+        }
+
         seat.xwayland_keyboard_grab_surface = null;
         var grabs = manager.grabs.iterator(.reverse);
         while (grabs.next()) |grab| {
             if (grab.seat == seat and grab.honored) {
-                seat.xwayland_keyboard_grab_surface = grab.surface;
-                grab.focusSurface();
-                return;
+                if (grab.activate()) return;
+                break;
             }
         }
+
+        if (had_active) seat.restoreKeyboardFocusAfterXwaylandGrab();
     }
 };
 
@@ -99,6 +128,8 @@ object: *zwp.XwaylandKeyboardGrabV1,
 seat: *Seat,
 surface: *wlr.Surface,
 honored: bool = false,
+active: bool = false,
+keyboard_grab: wlr.Seat.KeyboardGrab,
 surface_destroy: wl.Listener(*wlr.Surface) = .init(handleSurfaceDestroy),
 surface_map: wl.Listener(void) = .init(handleSurfaceMap),
 surface_unmap: wl.Listener(void) = .init(handleSurfaceUnmap),
@@ -118,15 +149,15 @@ fn create(
     // The protocol requires the object to be created even when the compositor
     // declines the grab. Invalid objects therefore remain inert until the
     // client destroys them.
-    const surface_data = args.surface.getUserData() orelse {
+    const wlr_seat_client = wlr.Seat.Client.fromWlSeat(args.seat) orelse {
         object.setHandler(?*anyopaque, handleIgnoredRequest, null, null);
         return;
     };
-    const seat_data = args.seat.getUserData() orelse {
+    const seat_data = wlr_seat_client.seat.data orelse {
         object.setHandler(?*anyopaque, handleIgnoredRequest, null, null);
         return;
     };
-    const surface: *wlr.Surface = @ptrCast(@alignCast(surface_data));
+    const surface = wlr.Surface.fromWlSurface(args.surface);
     const seat: *Seat = @ptrCast(@alignCast(seat_data));
 
     const grab = try util.gpa.create(XwaylandKeyboardGrab);
@@ -135,6 +166,11 @@ fn create(
         .object = object,
         .seat = seat,
         .surface = surface,
+        .keyboard_grab = .{
+            .interface = &keyboard_grab_interface,
+            .seat = seat.wlr_seat,
+            .data = null,
+        },
         .link = undefined,
     };
     object.setHandler(*XwaylandKeyboardGrab, handleRequest, handleDestroy, grab);
@@ -142,6 +178,11 @@ fn create(
     surface.events.map.add(&grab.surface_map);
     surface.events.unmap.add(&grab.surface_unmap);
     manager.grabs.append(grab);
+
+    log.debug(
+        "Xwayland requested keyboard grab surface=0x{x} mapped={}",
+        .{ @intFromPtr(surface), surface.mapped },
+    );
 
     grab.maybeHonor();
 }
@@ -160,23 +201,103 @@ fn maybeHonor(grab: *XwaylandKeyboardGrab) void {
     }
 
     grab.honored = true;
-    grab.seat.xwayland_keyboard_grab_surface = grab.surface;
-    grab.focusSurface();
-    log.info("honoring Xwayland keyboard grab", .{});
+    grab.manager.selectNewestForSeat(grab.seat);
 }
 
-fn focusSurface(grab: *XwaylandKeyboardGrab) void {
-    const node_data = SceneNodeData.fromSurface(grab.surface) orelse return;
-    switch (node_data.data) {
-        .window => |window| {
-            if (window.impl == .xwayland) {
-                grab.seat.focusFromClient(.{ .window = window });
-            }
-        },
-        .override_redirect => |override_redirect| {
-            grab.seat.focusFromClient(.{ .override_redirect = override_redirect });
-        },
-        else => {},
+fn activate(grab: *XwaylandKeyboardGrab) bool {
+    if (!grab.honored or grab.active or !grab.surface.mapped or
+        server.lock_manager.state != .unlocked)
+    {
+        return false;
+    }
+
+    // A protocol keyboard grab supersedes any shorter-lived wlroots grab. End
+    // it through the grab API so its owner receives the normal cancellation
+    // callback instead of silently replacing the pointer in keyboard_state.
+    if (grab.seat.wlr_seat.keyboardHasGrab()) {
+        log.info("Xwayland keyboard grab replacing an existing seat grab", .{});
+        grab.seat.wlr_seat.keyboardEndGrab();
+    }
+
+    // Establish the protocol target while the default grab is active. Once
+    // our grab starts, enter/clear-focus requests are deliberately ignored and
+    // key/modifier callbacks continue sending to this focused client.
+    grab.seat.focusXwaylandGrabSurface(grab.surface);
+    grab.seat.xwayland_keyboard_grab_surface = grab.surface;
+    grab.seat.xwayland_keyboard_grab = &grab.keyboard_grab;
+    grab.active = true;
+    grab.seat.wlr_seat.keyboardStartGrab(&grab.keyboard_grab);
+    log.info(
+        "honoring Xwayland keyboard grab surface=0x{x}",
+        .{@intFromPtr(grab.surface)},
+    );
+    return true;
+}
+
+fn deactivate(grab: *XwaylandKeyboardGrab) void {
+    if (!grab.active) return;
+
+    if (grab.seat.wlr_seat.keyboard_state.grab == &grab.keyboard_grab) {
+        grab.seat.wlr_seat.keyboardEndGrab();
+    } else {
+        // A different wlroots subsystem may have superseded this grab. Its
+        // target is no longer authoritative, but never end the newer grab.
+        grab.active = false;
+        if (grab.seat.xwayland_keyboard_grab_surface == grab.surface) {
+            grab.seat.xwayland_keyboard_grab_surface = null;
+        }
+        if (grab.seat.xwayland_keyboard_grab == &grab.keyboard_grab) {
+            grab.seat.xwayland_keyboard_grab = null;
+        }
+    }
+}
+
+const keyboard_grab_interface: wlr.Seat.KeyboardGrab.Interface = .{
+    .enter = keyboardGrabEnter,
+    .clear_focus = keyboardGrabClearFocus,
+    .key = keyboardGrabKey,
+    .modifiers = keyboardGrabModifiers,
+    .cancel = keyboardGrabCancel,
+};
+
+fn keyboardGrabEnter(
+    _: *wlr.Seat.KeyboardGrab,
+    _: *wlr.Surface,
+    _: ?[*]const u32,
+    _: usize,
+    _: ?*const wlr.Keyboard.Modifiers,
+) callconv(.c) void {
+    // Keyboard focus remains on the protocol target until this grab ends.
+}
+
+fn keyboardGrabClearFocus(_: *wlr.Seat.KeyboardGrab) callconv(.c) void {
+    // Keyboard focus remains on the protocol target until this grab ends.
+}
+
+fn keyboardGrabKey(
+    wlr_grab: *wlr.Seat.KeyboardGrab,
+    time_msec: u32,
+    key: u32,
+    state: u32,
+) callconv(.c) void {
+    wlr_grab.seat.keyboardSendKey(time_msec, key, state);
+}
+
+fn keyboardGrabModifiers(
+    wlr_grab: *wlr.Seat.KeyboardGrab,
+    modifiers: ?*const wlr.Keyboard.Modifiers,
+) callconv(.c) void {
+    wlr_grab.seat.keyboardSendModifiers(modifiers);
+}
+
+fn keyboardGrabCancel(wlr_grab: *wlr.Seat.KeyboardGrab) callconv(.c) void {
+    const grab: *XwaylandKeyboardGrab = @fieldParentPtr("keyboard_grab", wlr_grab);
+    grab.active = false;
+    if (grab.seat.xwayland_keyboard_grab_surface == grab.surface) {
+        grab.seat.xwayland_keyboard_grab_surface = null;
+    }
+    if (grab.seat.xwayland_keyboard_grab == &grab.keyboard_grab) {
+        grab.seat.xwayland_keyboard_grab = null;
     }
 }
 
@@ -201,15 +322,18 @@ fn handleIgnoredRequest(
 }
 
 fn handleDestroy(_: *zwp.XwaylandKeyboardGrabV1, grab: *XwaylandKeyboardGrab) void {
+    const manager = grab.manager;
+    const seat = grab.seat;
+    const was_honored = grab.honored or grab.active;
+    grab.honored = false;
+    if (was_honored) manager.selectNewestForSeat(seat);
+
     grab.surface_destroy.link.remove();
     grab.surface_map.link.remove();
     grab.surface_unmap.link.remove();
     grab.link.remove();
-    const manager = grab.manager;
-    const seat = grab.seat;
     util.gpa.destroy(grab);
 
-    manager.selectNewestForSeat(seat);
     log.info("released Xwayland keyboard grab", .{});
 }
 

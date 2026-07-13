@@ -42,7 +42,9 @@ request_maximize: wl.Listener(void) = .init(handleRequestMaximize),
 request_fullscreen: wl.Listener(void) = .init(handleRequestFullscreen),
 request_minimize: wl.Listener(*wlr.XwaylandSurface.event.Minimize) = .init(handleRequestMinimize),
 focus_in: wl.Listener(void) = .init(handleFocusIn),
+grab_focus: wl.Listener(void) = .init(handleGrabFocus),
 focused_before_map: bool = false,
+grab_focused_before_map: bool = false,
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -82,6 +84,7 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.request_fullscreen.add(&xwindow.request_fullscreen);
     xsurface.events.request_minimize.add(&xwindow.request_minimize);
     xsurface.events.focus_in.add(&xwindow.focus_in);
+    xsurface.events.grab_focus.add(&xwindow.grab_focus);
 
     if (xsurface.surface) |surface| {
         handleAssociate(&xwindow.associate);
@@ -170,6 +173,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.request_fullscreen.link.remove();
     xwindow.request_minimize.link.remove();
     xwindow.focus_in.link.remove();
+    xwindow.grab_focus.link.remove();
 
     xwindow.xsurface.data = null;
 
@@ -234,6 +238,10 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
         xwindow.focused_before_map = false;
         server.input_manager.defaultSeat().focusFromClient(.{ .window = window });
     }
+    if (xwindow.grab_focused_before_map) {
+        xwindow.grab_focused_before_map = false;
+        server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
+    }
     server.wm.dirtyWindowing();
 }
 
@@ -253,10 +261,35 @@ fn handleFocusIn(listener: *wl.Listener(void)) void {
     }
 
     const seat = server.input_manager.defaultSeat();
-    if (seat.wlr_seat.keyboard_state.focused_surface != surface) {
+    if (seat.focused.surface() != surface) {
         seat.focusFromClient(.{ .window = xwindow.window });
         server.wm.dirtyWindowing();
     }
+}
+
+/// wlroots reports FocusIn(mode=Grab) separately from ordinary focus changes.
+/// It is temporary input routing, not a durable WM selection change.
+fn handleGrabFocus(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("grab_focus", listener);
+    const surface = xwindow.xsurface.surface orelse {
+        xwindow.grab_focused_before_map = true;
+        return;
+    };
+    if (!surface.mapped or xwindow.window.state == .init) {
+        xwindow.grab_focused_before_map = true;
+        return;
+    }
+
+    log.debug(
+        "Xwayland grab-focus window=0x{x} pid={d} title='{?s}' surface=0x{x}",
+        .{
+            xwindow.xsurface.window_id,
+            xwindow.xsurface.pid,
+            xwindow.xsurface.title,
+            @intFromPtr(surface),
+        },
+    );
+    server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
 }
 
 fn handleUnmap(listener: *wl.Listener(void)) void {

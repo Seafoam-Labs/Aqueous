@@ -3,21 +3,29 @@
 
 const PointerConstraint = @This();
 
-const build_options = @import("build_options");
 const std = @import("std");
 const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 
-const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
-const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
+
+const ActivationBlock = enum {
+    suppressed,
+    compositor_operation,
+    no_pointer_focus,
+    different_surface_tree,
+    no_scene_surface,
+    outside_surface,
+    outside_region,
+};
 
 const log = std.log.scoped(.input);
 
 wlr_constraint: *wlr.PointerConstraintV1,
+last_activation_block: ?ActivationBlock = null,
 
 state: union(enum) {
     inactive,
@@ -49,36 +57,20 @@ pub fn create(wlr_constraint: *wlr.PointerConstraintV1) error{OutOfMemory}!void 
     wlr_constraint.events.destroy.add(&constraint.destroy);
     wlr_constraint.surface.events.commit.add(&constraint.commit);
 
-    // Same-process override-redirect menus deliberately retain keyboard focus
-    // on their managed owner. Fullscreen Xwayland game surfaces can have the
-    // same relationship, but distinguish themselves by requesting a pointer
-    // constraint and require direct focus for that constraint to activate.
-    if (build_options.xwayland) {
-        if (SceneNodeData.fromSurface(wlr_constraint.surface)) |node_data| {
-            switch (node_data.data) {
-                .override_redirect => |override_redirect| {
-                    if (seat.focused == .window and
-                        seat.focused.window.impl == .xwayland and
-                        seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
-                    {
-                        seat.focusFromClient(.{ .override_redirect = override_redirect });
-                    }
-                },
-                else => {},
-            }
-        }
-    }
+    log.debug(
+        "new pointer constraint type={s} surface=0x{x} root=0x{x} keyboard=0x{x} pointer=0x{x}",
+        .{
+            @tagName(wlr_constraint.type),
+            @intFromPtr(wlr_constraint.surface),
+            @intFromPtr(wlr_constraint.surface.getRootSurface()),
+            surfaceAddress(seat.wlr_seat.keyboard_state.focused_surface),
+            surfaceAddress(seat.wlr_seat.pointer_state.focused_surface),
+        },
+    );
 
-    if (seat.wlr_seat.keyboard_state.focused_surface) |surface| {
-        if (surface == wlr_constraint.surface) {
-            if (seat.cursor.constraint) |active_constraint| {
-                assert(active_constraint == constraint);
-            } else {
-                seat.cursor.constraint = constraint;
-            }
-            constraint.maybeActivate();
-        }
-    }
+    // new_constraint is emitted after wlroots inserts the object in its
+    // manager, so the normal pointer-focus lookup can select it immediately.
+    seat.updatePointerConstraint(seat.wlr_seat.pointer_state.focused_surface);
 }
 
 pub fn maybeActivate(constraint: *PointerConstraint) void {
@@ -86,36 +78,147 @@ pub fn maybeActivate(constraint: *PointerConstraint) void {
 
     assert(seat.cursor.constraint == constraint);
 
-    if (seat.cursor.constraints_suppressed) return;
+    if (seat.cursor.constraints_suppressed) {
+        constraint.activationBlocked(.suppressed, seat);
+        return;
+    }
     if (constraint.state == .active) return;
 
-    if (seat.cursor.mode == .op) return;
+    if (seat.cursor.mode == .op) {
+        constraint.activationBlocked(.compositor_operation, seat);
+        return;
+    }
 
-    const result = server.scene.at(seat.cursor.wlr_cursor.x, seat.cursor.wlr_cursor.y) orelse return;
-    if (result.surface != constraint.wlr_constraint.surface) return;
+    const pointer_surface = seat.wlr_seat.pointer_state.focused_surface orelse {
+        constraint.activationBlocked(.no_pointer_focus, seat);
+        return;
+    };
+    if (pointer_surface.getRootSurface() != constraint.wlr_constraint.surface.getRootSurface()) {
+        constraint.activationBlocked(.different_surface_tree, seat);
+        return;
+    }
 
-    const sx: i32 = @intFromFloat(result.sx);
-    const sy: i32 = @intFromFloat(result.sy);
-    if (!constraint.wlr_constraint.region.containsPoint(sx, sy, null)) return;
+    // Find the constrained surface's own scene node instead of accepting only
+    // the top-most result of a whole-scene hit test. This keeps child surfaces
+    // and same-client overlays from masking a valid root-surface constraint.
+    const node = sceneNodeForSurface(constraint.wlr_constraint.surface) orelse {
+        constraint.activationBlocked(.no_scene_surface, seat);
+        return;
+    };
+    var surface_sx: f64 = undefined;
+    var surface_sy: f64 = undefined;
+    const hit = node.at(
+        seat.cursor.wlr_cursor.x,
+        seat.cursor.wlr_cursor.y,
+        &surface_sx,
+        &surface_sy,
+    ) orelse {
+        constraint.activationBlocked(.outside_surface, seat);
+        return;
+    };
+    if (hit != node) {
+        constraint.activationBlocked(.outside_surface, seat);
+        return;
+    }
+
+    const sx: i32 = @intFromFloat(surface_sx);
+    const sy: i32 = @intFromFloat(surface_sy);
+    if (!constraint.wlr_constraint.region.containsPoint(sx, sy, null)) {
+        constraint.activationBlockedRegion(seat, sx, sy);
+        return;
+    }
 
     assert(constraint.state == .inactive);
-    const point = seat.cursor.clampSurfacePoint(result.node, result.sx, result.sy);
+    constraint.last_activation_block = null;
+    const point = seat.cursor.clampSurfacePoint(node, surface_sx, surface_sy);
     constraint.state = .{
         .active = .{
-            .node = result.node,
+            .node = node,
             .sx = point.sx,
             .sy = point.sy,
         },
     };
-    result.node.events.destroy.add(&constraint.node_destroy);
+    node.events.destroy.add(&constraint.node_destroy);
     if (constraint.wlr_constraint.type == .locked) {
-        seat.cursor.beginPointerLock(result.node, point.sx, point.sy, util.msecTimestamp());
+        seat.cursor.beginPointerLock(node, point.sx, point.sy, util.msecTimestamp());
     }
     seat.cursor.invalidateLastSent();
 
-    log.info("activating pointer constraint", .{});
+    log.info(
+        "activating pointer constraint type={s} surface=0x{x} pointer=0x{x}",
+        .{
+            @tagName(constraint.wlr_constraint.type),
+            @intFromPtr(constraint.wlr_constraint.surface),
+            @intFromPtr(pointer_surface),
+        },
+    );
 
     constraint.wlr_constraint.sendActivated();
+}
+
+fn activationBlockedRegion(constraint: *PointerConstraint, seat: *Seat, sx: i32, sy: i32) void {
+    if (constraint.last_activation_block == .outside_region) return;
+    constraint.last_activation_block = .outside_region;
+    const extents = constraint.wlr_constraint.region.extents;
+    log.debug(
+        "pointer constraint waiting reason=outside_region type={s} surface=0x{x} point={d},{d} region={d},{d}-{d},{d} keyboard=0x{x} pointer=0x{x}",
+        .{
+            @tagName(constraint.wlr_constraint.type),
+            @intFromPtr(constraint.wlr_constraint.surface),
+            sx,
+            sy,
+            extents.x1,
+            extents.y1,
+            extents.x2,
+            extents.y2,
+            surfaceAddress(seat.wlr_seat.keyboard_state.focused_surface),
+            surfaceAddress(seat.wlr_seat.pointer_state.focused_surface),
+        },
+    );
+}
+
+fn activationBlocked(constraint: *PointerConstraint, reason: ActivationBlock, seat: *Seat) void {
+    if (constraint.last_activation_block == reason) return;
+    constraint.last_activation_block = reason;
+    log.debug(
+        "pointer constraint waiting reason={s} type={s} surface=0x{x} root=0x{x} keyboard=0x{x} pointer=0x{x}",
+        .{
+            @tagName(reason),
+            @tagName(constraint.wlr_constraint.type),
+            @intFromPtr(constraint.wlr_constraint.surface),
+            @intFromPtr(constraint.wlr_constraint.surface.getRootSurface()),
+            surfaceAddress(seat.wlr_seat.keyboard_state.focused_surface),
+            surfaceAddress(seat.wlr_seat.pointer_state.focused_surface),
+        },
+    );
+}
+
+fn surfaceAddress(surface: ?*wlr.Surface) usize {
+    return if (surface) |s| @intFromPtr(s) else 0;
+}
+
+const SurfaceNodeSearch = struct {
+    target: *wlr.Surface,
+    node: ?*wlr.SceneNode = null,
+};
+
+fn findSurfaceNode(
+    buffer: *wlr.SceneBuffer,
+    _: c_int,
+    _: c_int,
+    search: *SurfaceNodeSearch,
+) void {
+    if (search.node != null) return;
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+    if (scene_surface.surface == search.target) search.node = &buffer.node;
+}
+
+fn sceneNodeForSurface(surface: *wlr.Surface) ?*wlr.SceneNode {
+    const root_data = surface.getRootSurface().data orelse return null;
+    const root_node: *wlr.SceneNode = @ptrCast(@alignCast(root_data));
+    var search: SurfaceNodeSearch = .{ .target = surface };
+    root_node.forEachBuffer(*SurfaceNodeSearch, findSurfaceNode, &search);
+    return search.node;
 }
 
 /// Called when the cursor position or content in the scene graph changes

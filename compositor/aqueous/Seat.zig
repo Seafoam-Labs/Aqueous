@@ -171,6 +171,8 @@ pub fn policyFocusedHandle(seat: *const Seat) ?u64 {
 pub fn xwaylandKeyboardGrabActive(seat: *const Seat) bool {
     const surface = seat.xwayland_keyboard_grab_surface orelse return false;
     return server.lock_manager.state == .unlocked and
+        seat.xwayland_keyboard_grab != null and
+        seat.wlr_seat.keyboard_state.grab == seat.xwayland_keyboard_grab.? and
         seat.wlr_seat.keyboard_state.focused_surface == surface;
 }
 
@@ -272,10 +274,10 @@ keyboard_groups: wl.list.Head(KeyboardGroup, .link),
 
 focused: Focus = .none,
 
-/// Surface selected by zwp_xwayland_keyboard_grab_v1. While set, normal
-/// window-management focus changes cannot redirect keyboard events away from
-/// the X11 client. Session locking remains authoritative.
+/// Effective target and wlroots grab selected by
+/// zwp_xwayland_keyboard_grab_v1. Logical WM focus remains independent.
 xwayland_keyboard_grab_surface: ?*wlr.Surface = null,
+xwayland_keyboard_grab: ?*wlr.Seat.KeyboardGrab = null,
 
 /// The currently in progress drag operation type.
 drag: enum {
@@ -788,10 +790,13 @@ pub fn manageFinish(seat: *Seat) void {
 pub fn focus(seat: *Seat, new_focus: Focus) void {
     const target_surface = new_focus.surface();
 
-    if (seat.xwayland_keyboard_grab_surface) |grab_surface| {
-        if (server.lock_manager.state == .unlocked and target_surface != grab_surface) {
-            return;
-        }
+    // A session lock always supersedes application-level keyboard grabs. End
+    // the protocol grab before notifying the lock surface; the grab interface
+    // intentionally ignores focus changes while active.
+    if (build_options.xwayland and new_focus == .lock_surface and
+        seat.xwayland_keyboard_grab != null)
+    {
+        server.input_manager.xwayland_keyboard_grabs.cancelForSeat(seat);
     }
 
     // The logical focus and wl_seat focus can diverge when Xwayland processes
@@ -802,7 +807,6 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
         if (seat.wlr_seat.keyboard_state.focused_surface == target_surface) return;
         seat.keyboardEnterOrLeave(target_surface);
         seat.relay.focus(target_surface);
-        seat.attachPointerConstraint(target_surface);
         return;
     }
 
@@ -824,41 +828,59 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
         if (new_focus.window.workspace) |workspace| seat.selected_output = workspace.output;
     }
 
-    if (seat.cursor.constraint) |constraint| {
-        if (constraint.wlr_constraint.surface != target_surface) {
-            if (constraint.state == .active) {
-                log.info("deactivating pointer constraint for surface, keyboard focus lost", .{});
-                constraint.deactivate();
-            }
-            seat.cursor.constraint = null;
-        }
-    }
-
     seat.keyboardEnterOrLeave(target_surface);
     seat.relay.focus(target_surface);
-
-    seat.attachPointerConstraint(target_surface);
 }
 
-fn attachPointerConstraint(seat: *Seat, target_surface: ?*wlr.Surface) void {
-    if (target_surface) |surface| {
+/// Synchronize the cursor's constraint with effective pointer focus. Pointer
+/// constraints are independent of keyboard/WM focus; tying them together
+/// breaks Xwayland clients which move X focus among game and overlay windows.
+pub fn updatePointerConstraint(seat: *Seat, target_surface: ?*wlr.Surface) void {
+    const wlr_constraint: ?*wlr.PointerConstraintV1 = if (target_surface) |surface| blk: {
         const pointer_constraints = server.input_manager.pointer_constraints;
-        if (pointer_constraints.constraintForSurface(surface, seat.wlr_seat)) |wlr_constraint| {
-            if (seat.cursor.constraint) |constraint| {
-                assert(constraint.wlr_constraint == wlr_constraint);
-            } else {
-                seat.cursor.constraint = @ptrCast(@alignCast(wlr_constraint.data));
-                assert(seat.cursor.constraint != null);
-            }
-
-            // A client may create its constraint before receiving keyboard focus.
-            // In that case PointerConstraint.create() cannot activate it, and merely
-            // attaching it to the cursor here would leave the constraint dormant
-            // until an unrelated cursor-state update. Xwayland games commonly use
-            // this ordering when translating an X11 pointer grab.
-            seat.cursor.constraint.?.maybeActivate();
+        if (pointer_constraints.constraintForSurface(surface, seat.wlr_seat)) |constraint| {
+            break :blk constraint;
         }
+        const root = surface.getRootSurface();
+        if (root != surface) {
+            break :blk pointer_constraints.constraintForSurface(root, seat.wlr_seat);
+        }
+        break :blk null;
+    } else null;
+
+    if (seat.cursor.constraint) |constraint| {
+        if (wlr_constraint == constraint.wlr_constraint) {
+            constraint.maybeActivate();
+            return;
+        }
+        if (constraint.state == .active) {
+            log.info("deactivating pointer constraint, pointer focus lost", .{});
+            constraint.deactivate();
+        }
+        seat.cursor.constraint = null;
     }
+
+    if (wlr_constraint) |constraint| {
+        seat.cursor.constraint = @ptrCast(@alignCast(constraint.data));
+        assert(seat.cursor.constraint != null);
+        seat.cursor.constraint.?.maybeActivate();
+    }
+}
+
+/// Establish the effective Wayland keyboard target used by an X11 active grab
+/// without changing the WM's selected window.
+pub fn focusXwaylandGrabSurface(seat: *Seat, surface: *wlr.Surface) void {
+    if (server.lock_manager.state != .unlocked or !surface.mapped) return;
+    seat.keyboardEnterOrLeave(surface);
+    seat.relay.focus(surface);
+}
+
+/// Restore effective keyboard focus after the last Xwayland grab ends. Policy
+/// focus may have changed while grabbed, so always resolve it at release time.
+pub fn restoreKeyboardFocusAfterXwaylandGrab(seat: *Seat) void {
+    const surface = seat.focused.surface();
+    seat.keyboardEnterOrLeave(surface);
+    seat.relay.focus(surface);
 }
 
 /// Apply a focus change initiated by a client-side protocol event. Such an
