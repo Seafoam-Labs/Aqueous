@@ -213,17 +213,19 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (override_redirect.xsurface.overrideRedirectWantsFocus() and
         override_redirect.xsurface.icccmInputModel() != .none)
     {
-        const surface = override_redirect.xsurface.surface orelse return;
+        if (override_redirect.xsurface.surface == null) return;
         const seat = server.input_manager.defaultSeat();
-        // Keep the parent top-level Xwayland window of any override redirect surface
-        // activated while that override redirect surface is focused. This ensures
-        // override redirect menus do not disappear as a result of deactivating
-        // their parent window.
+        // Override-redirect menus use an X11 grab to receive their keyboard and
+        // pointer input. If their top-level owner is already focused, keep the
+        // Wayland keyboard focus there: entering the popup sends FocusOut to the
+        // owner and clients such as Steam immediately close the menu. This must
+        // also cover popups whose type/role hints are incomplete at map time and
+        // therefore temporarily pass overrideRedirectWantsFocus().
         if (seat.focused == .window and
             seat.focused.window.impl == .xwayland and
             seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
         {
-            seat.keyboardEnterOrLeave(surface);
+            return;
         } else {
             seat.focus(.{ .override_redirect = override_redirect });
         }
