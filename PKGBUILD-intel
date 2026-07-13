@@ -3,7 +3,7 @@
 pkgname=aqueous-git-intel
 pkgbase=aqueous-intel
 pkgver=0.3.0 # Will be updated by pkgver()
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 build)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -18,7 +18,7 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'uwsm'
          'scenefx')
 makedepends=('clang' 'lld' 'llvm'
-             'git' 'wayland-protocols' 'scenefx')
+             'git' 'scdoc' 'wayland-protocols' 'scenefx')
 optdepends=('ly: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'tabby: recommended terminal emulator'
@@ -78,7 +78,26 @@ build() {
     # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
     zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
         -Dxwayland -Dllvm -Dscenefx=true \
+        -Dman-pages=true \
         --prefix "$srcdir/aqueous-dist" install
+}
+
+check() {
+    # aqueousctl and its protocol/manual are one feature: reject a partial
+    # install tree before package() copies it into the package image.
+    local required=(
+        bin/aqueous
+        bin/aqueousctl
+        share/man/man1/aqueousctl.1
+        share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+    )
+    local path
+    for path in "${required[@]}"; do
+        if [[ ! -e "$srcdir/aqueous-dist/$path" ]]; then
+            error "build output is missing required file: $path"
+            return 1
+        fi
+    done
 }
 
 package() {

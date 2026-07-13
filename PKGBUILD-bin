@@ -3,7 +3,7 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -40,6 +40,7 @@ check() {
     local required=(
         bin/aqueous
         bin/aqueousctl
+        share/aqueous-protocols/stable/aqueous-window-info-v1.xml
         bin/aqueous-init
         bin/aqueous-wm
         share/wayland-sessions/aqueous.desktop
