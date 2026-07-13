@@ -174,7 +174,11 @@ pub fn manageStart(shell_output: *LayerShellOutput) void {
                 shell_output.scheduled.non_exclusive_area.width,
                 shell_output.scheduled.non_exclusive_area.height,
             );
-            shell_output.sent.non_exclusive_area = shell_output.scheduled.non_exclusive_area;
         }
+        // Integrated policy has no river_layer_shell_output_v1 object, but the
+        // compositor still needs to advance its sent snapshot. Leaving it null
+        // makes every later layer arrange look like a new configuration and can
+        // keep the manage/render transaction loop permanently dirty.
+        shell_output.sent.non_exclusive_area = shell_output.scheduled.non_exclusive_area;
     }
 }

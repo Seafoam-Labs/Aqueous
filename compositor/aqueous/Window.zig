@@ -418,7 +418,18 @@ pub fn policyApplyPlacement(
     maximized: bool,
 ) void {
     if (width > 0 and height > 0) {
-        window.wm_requested.dimensions = .{ .width = @intCast(width), .height = @intCast(height) };
+        const target_width: u31 = @intCast(width);
+        const target_height: u31 = @intCast(height);
+        // The integrated policy recomputes the complete layout on every manage
+        // cycle. Do not turn an unchanged placement back into a fresh configure:
+        // doing so makes a harmless redundant dirty notification feed another
+        // full configure/render pass (and used to produce alternating trace
+        // fingerprints because manageFinish clears wm_requested.dimensions).
+        if (window.configure_sent.width != target_width or
+            window.configure_sent.height != target_height)
+        {
+            window.wm_requested.dimensions = .{ .width = target_width, .height = target_height };
+        }
     } else if (visible) {
         return;
     }
@@ -1103,8 +1114,12 @@ pub fn manageFinish(window: *Window) bool {
         wm_requested.close = false;
     }
 
+    // Seat.manageFinish() has already applied the policy request at this point.
+    // The compositor seat list is therefore the authoritative focus state for
+    // both policy modes. `wm.sent.seats` only contains river_seat_v1 objects and
+    // is deliberately empty while the integrated policy is active.
     const activated = blk: {
-        var it = server.wm.sent.seats.iterator(.forward);
+        var it = server.input_manager.seats.iterator(.forward);
         while (it.next()) |seat| {
             if (seat.focused == .window and seat.focused.window == window) {
                 break :blk true;
