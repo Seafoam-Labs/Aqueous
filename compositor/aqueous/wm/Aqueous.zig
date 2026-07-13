@@ -22,6 +22,7 @@ const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const pointer_drag = @import("input/drag.zig");
 const StateStore = @import("state/store.zig");
+const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
 const rules_config = @import("rules/config.zig");
@@ -191,6 +192,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 (if (focused == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)
             else
                 null;
+            aqueous.reconcileTransientParent(window, usable_area);
             aqueous.api.ensureWorkspace(window.handle, output.id);
             const effect = aqueous.reconcileWindowRule(
                 window,
@@ -310,6 +312,21 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             state.deinit(util.gpa);
         }
     }
+}
+
+/// Apply the compositor's established parent-based popup heuristic on the
+/// null -> parent edge. xdg_toplevel parents and X11 WM_TRANSIENT_FOR both
+/// arrive through this field, covering native dialogs and Xwayland dialogs
+/// without application-specific rules.
+fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usable_area: layout_types.Rect) void {
+    const state = aqueous.window_states.get(window.handle) orelse return;
+    if (!transient.parentChanged(state, window.parent)) return;
+    const parent = window.parent.?;
+
+    aqueous.api.moveToParentWorkspace(window.handle);
+    const parent_geometry = aqueous.api.windowGeometry(parent) orelse usable_area;
+    const geometry = transient.geometry(usable_area, parent_geometry, window.min_width, window.min_height);
+    _ = aqueous.window_states.setAutomaticFloating(window.handle, geometry);
 }
 
 /// Drop policy state before the compositor invalidates a stable window handle.

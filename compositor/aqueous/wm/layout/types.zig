@@ -22,6 +22,10 @@ pub const Rect = struct {
 
 pub const Window = struct {
     handle: Handle,
+    /// Toplevel parent, when the client declared this window as a transient.
+    /// The policy uses this relationship to keep dialogs and file pickers out
+    /// of the tiling set.
+    parent: ?Handle = null,
     app_id: ?[]u8 = null,
     title: ?[]u8 = null,
     min_width: i32 = 0,

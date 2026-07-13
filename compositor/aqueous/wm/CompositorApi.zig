@@ -414,6 +414,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
                 null;
             windows.appendAssumeCapacity(.{
                 .handle = window_snapshot.handle,
+                .parent = window_snapshot.parent_handle,
                 .app_id = app_id,
                 .title = title,
                 .fullscreen = window_snapshot.fullscreen,
@@ -464,6 +465,23 @@ pub fn ensureWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64) 
     if (window.workspace != null) return;
     const output = outputById(output_id) orelse return;
     if (output.active_workspace) |workspace| window.setWorkspace(workspace);
+}
+
+/// Place a newly-parented transient beside its owner. This is edge-triggered
+/// by the policy so later explicit workspace rules and user moves still win.
+pub fn moveToParentWorkspace(_: CompositorApi, handle: layout.Handle) void {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return;
+    const parent = window.getParent() orelse return;
+    const workspace = parent.workspace orelse return;
+    window.setWorkspace(workspace);
+}
+
+pub fn windowGeometry(_: CompositorApi, handle: layout.Handle) ?layout.Rect {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return null;
+    if (window.box.width <= 0 or window.box.height <= 0) return null;
+    return .{ .x = window.box.x, .y = window.box.y, .width = window.box.width, .height = window.box.height };
 }
 
 pub fn applyRuleWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32) bool {

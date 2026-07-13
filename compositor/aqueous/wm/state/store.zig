@@ -42,6 +42,16 @@ pub fn setFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bo
     return true;
 }
 
+/// Float a newly-parented transient without recording a manual override.
+/// Overlay states retain precedence, matching the state controller's normal
+/// transition guards.
+pub fn setAutomaticFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (entry.kind != .tiled) return false;
+    setFloatingEntry(entry, geometry);
+    return true;
+}
+
 /// Apply floating as a rule-owned transition. Unlike setFloating(), this does
 /// not mark the action as a user override.
 pub fn setRuleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
@@ -129,6 +139,23 @@ test "embedded policy state preserves the prior mode around floating" {
     try std.testing.expectEqual(Kind.floating, entry.kind);
     try std.testing.expectEqual(Kind.maximized, entry.previous);
     try std.testing.expectEqual(types.Rect{ .x = 10, .y = 20, .width = 300, .height = 200 }, entry.floating_geometry);
+}
+
+test "automatic floating only promotes tiled windows and remains user-toggleable" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    const geometry: types.Rect = .{ .x = 20, .y = 30, .width = 580, .height = 360 };
+    try std.testing.expect(store.setAutomaticFloating(1, geometry));
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(geometry, TestResolver.entries[0].floating_geometry);
+    try std.testing.expectEqual(false, store.toggleFloating(1, .empty).?);
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+
+    TestResolver.entries[1].kind = .maximized;
+    try std.testing.expect(!store.setAutomaticFloating(2, geometry));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
 }
 
 test "rule floating rolls back unless manually overridden" {

@@ -466,7 +466,9 @@ fn handleRequestResize(listener: *wl.Listener(*wlr.XdgToplevel.event.Resize), ev
     }
 }
 
-fn handleSetParent(_: *wl.Listener(void)) void {
+fn handleSetParent(listener: *wl.Listener(void)) void {
+    const toplevel: *XdgToplevel = @fieldParentPtr("set_parent", listener);
+    if (toplevel.wlr_toplevel.parent == null) toplevel.window.policy_state.auto_float_parent = 0;
     server.wm.dirtyWindowing();
 }
 

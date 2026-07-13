@@ -10,6 +10,11 @@ kind: Kind = .tiled,
 previous: Kind = .tiled,
 floating_geometry: types.Rect = .empty,
 
+/// Last non-null toplevel parent for which automatic transient placement was
+/// applied. Keeping this edge-triggered lets a user tile the dialog manually
+/// without the next manage cycle immediately forcing it floating again.
+auto_float_parent: types.Handle = 0,
+
 /// Semantic identity of the rule last reconciled for this window. A zero hash
 /// represents no match. `rule_initialized` distinguishes that from a window
 /// which has not reached its first rule evaluation yet.

@@ -12,4 +12,5 @@ test {
     _ = @import("layout/engine.zig");
     _ = @import("rules/config.zig");
     _ = @import("state/store.zig");
+    _ = @import("state/transient.zig");
 }

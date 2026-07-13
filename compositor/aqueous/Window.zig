@@ -175,6 +175,7 @@ pub const Ref = packed struct {
 
 pub const PolicySnapshot = struct {
     handle: u64,
+    parent_handle: ?u64,
     output_id: ?u64,
     active: bool,
     app_id: ?[*:0]const u8,
@@ -406,11 +407,26 @@ ftm_request_close: wl.Listener(*wlr.ForeignToplevelHandleV1) =
     .init(handleFtmRequestClose),
 
 pub fn policySnapshot(window: *const Window) PolicySnapshot {
-    const output = if (window.workspace) |workspace| workspace.output else null;
+    const parent = window.getParent();
+    const parent_handle: ?u64 = if (parent) |parent_window| @bitCast(parent_window.ref) else null;
+    // A transient belongs with its parent even before its own first map. This
+    // also lets the integrated policy choose the correct output for the
+    // initial configure instead of defaulting every new dialog to output 0.
+    // After the parent edge has been consumed, explicit workspace rules and
+    // user moves remain authoritative.
+    const effective_workspace = if (parent) |parent_window|
+        if (window.policy_state.auto_float_parent != parent_handle.?)
+            parent_window.workspace orelse window.workspace
+        else
+            window.workspace
+    else
+        window.workspace;
+    const output = if (effective_workspace) |workspace| workspace.output else null;
     const active = window.state != .init and window.state != .closing and
-        (output == null or output.?.policyWorkspaceActive(window.workspace));
+        (output == null or output.?.policyWorkspaceActive(effective_workspace));
     return .{
         .handle = @bitCast(window.ref),
+        .parent_handle = parent_handle,
         .output_id = if (output) |value| value.policyId() else null,
         .active = active,
         // The protocol implementation has already been destroyed by the time a
@@ -1698,7 +1714,7 @@ pub fn destroyPopups(window: Window) void {
     }
 }
 
-pub fn getParent(window: *Window) ?*Window {
+pub fn getParent(window: *const Window) ?*Window {
     switch (window.impl) {
         .toplevel => |toplevel| {
             const wlr_parent = toplevel.wlr_toplevel.parent orelse return null;
