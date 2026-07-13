@@ -178,6 +178,19 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.xsurface.data = null;
 
     const window = xwindow.window;
+    switch (window.state) {
+        .init, .closing => {},
+        // As with XDG, an X11 window may be destroyed after policy assigned a
+        // workspace but before it mapped, in which case no unmap event exists
+        // to release the intrusive workspace link.
+        .ready, .initialized => {
+            window.clearWorkspace();
+            window.state = .closing;
+            server.wm.dirtyWindowing();
+        },
+        // A mapped Xwayland surface must emit unmap before destroy.
+        .mapped => unreachable,
+    }
     window.impl = .destroying;
 }
 

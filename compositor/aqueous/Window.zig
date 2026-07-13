@@ -629,6 +629,17 @@ pub fn destroy(window: *Window) void {
     }
     assert(window.object == null);
 
+    // A backend destroy event can arrive after policy assigned the window to a
+    // workspace but before the surface ever mapped. Those windows never receive
+    // an unmap event, so keep destruction as the final ownership boundary: no
+    // intrusive workspace link may outlive the Window allocation.
+    if (window.workspace != null) {
+        log.err("destroying window still attached to a workspace; detaching defensively", .{});
+        window.clearWorkspace();
+    }
+    assert(window.workspace_link.prev == &window.workspace_link);
+    assert(window.workspace_link.next == &window.workspace_link);
+
     {
         var it = server.input_manager.seats.iterator(.forward);
         while (it.next()) |seat| {

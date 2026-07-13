@@ -257,18 +257,31 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     toplevel.wlr_toplevel.base.surface.data = null;
 
     const window = toplevel.window;
-    window.impl = .destroying;
     switch (window.state) {
         .init, .closing => {},
         // This can happen if the xdg toplevel is destroyed after the initial
-        // commit but before the window is mapped.
+        // commit but before the window is mapped. Policy may already have
+        // assigned a workspace, but no unmap event will arrive to detach it.
         .ready, .initialized => {
+            window.clearWorkspace();
             window.state = .closing;
             server.wm.dirtyWindowing();
         },
         // State must have been set to closing in Window.unmap()
         .mapped => unreachable,
     }
+
+    // Destruction is the terminal response to any configure still tracked by
+    // the current transaction. Without this cancellation the window manager
+    // waits for its timeout even though the client can no longer ack/commit.
+    switch (toplevel.configure_state) {
+        .inflight, .acked => {
+            toplevel.configure_state = .committed;
+            server.wm.notifyConfigured();
+        },
+        .idle, .committed, .timed_out, .timed_out_acked => {},
+    }
+    window.impl = .destroying;
 }
 
 fn handleMap(listener: *wl.Listener(void)) void {
