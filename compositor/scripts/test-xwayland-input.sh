@@ -7,6 +7,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
+AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/xwayland-input-grab.c"
 VIRTUAL_KEYBOARD_PROTOCOL="$here/protocol/upstream/virtual-keyboard-unstable-v1.xml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
@@ -16,6 +17,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || \
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN (build with: zig build -Dxwayland)"
+[ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
 [ -r "$FIXTURE_SOURCE" ] || die "missing X11 input-grab fixture"
 for tool in cc pkg-config wayland-scanner Xwayland wlrctl; do
     have "$tool" || die "$tool is required for Xwayland input integration tests"
@@ -106,6 +108,15 @@ run_case() {
     export XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="$socket"
 
     wait_for_text "$CLIENT_LOG" "READY mode=$mode" "$mode X11 window to map"
+
+    if [ "$mode" = managed ]; then
+        local info_json rule_snippet
+        info_json=$("$AQUEOUSCTL_BIN" windows --json)
+        grep -q '"backend":"xwayland"' <<<"$info_json" || die "aqueousctl omitted the XWayland backend"
+        grep -q '"class":"AqueousXwaylandGrabTest"' <<<"$info_json" || die "aqueousctl omitted WM_CLASS"
+        rule_snippet=$("$AQUEOUSCTL_BIN" inspect --rule)
+        grep -q 'class = "AqueousXwaylandGrabTest"' <<<"$rule_snippet" || die "aqueousctl did not generate an XWayland class rule"
+    fi
 
     wait_for_text "$CLIENT_LOG" "GRABBED pointer=0 keyboard=0" "$mode X11 grabs"
     # Override-redirect MapNotify can precede the compositor's scene-map

@@ -27,6 +27,7 @@ const Seat = @import("Seat.zig");
 const TabletTool = @import("TabletTool.zig");
 const Window = @import("Window.zig");
 const WindowManager = @import("WindowManager.zig");
+const WindowInfoManager = @import("WindowInfoManager.zig");
 const WorkspaceManager = @import("WorkspaceManager.zig");
 const XkbBindings = @import("XkbBindings.zig");
 const LayerShell = @import("LayerShell.zig");
@@ -124,6 +125,7 @@ lock_manager: LockManager,
 wm: WindowManager,
 aqueous: Aqueous,
 workspace_manager: WorkspaceManager,
+window_info_manager: WindowInfoManager,
 xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
 
@@ -428,6 +430,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         .wm = undefined,
         .aqueous = undefined,
         .workspace_manager = undefined,
+        .window_info_manager = undefined,
         .xkb_bindings = undefined,
         .layer_shell = undefined,
     };
@@ -473,6 +476,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
     try server.wm.init();
     server.aqueous.init(policy_mode);
     try server.workspace_manager.init();
+    try server.window_info_manager.init();
     try server.xkb_bindings.init();
     try server.layer_shell.init();
     try server.scene.init();
@@ -630,6 +634,7 @@ fn blocklist(server: *Server, global: *const wl.Global) bool {
         global == server.output_image_capture_source_manager.global or
         global == server.wlr_foreign_toplevel_manager.global or
         global == server.foreign_toplevel_list.global or
+        global == server.window_info_manager.global or
         global == server.toplevel_capture_source_manager.global or
         global == server.export_dmabuf_manager.global or
         global == server.data_control_manager.global or

@@ -65,7 +65,7 @@ build() {
 
     cd "$srcdir/aqueous"
 
-    # Build the single Aqueous compositor/policy executable.
+    # Build the Aqueous compositor/policy executable and inspection client.
     msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
@@ -75,8 +75,9 @@ build() {
 }
 
 package() {
-    # Install the single compositor/window-manager executable.
+    # Install the compositor/window-manager and read-only inspection client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/aqueous-dist/bin/aqueousctl" "$pkgdir/usr/bin/aqueousctl"
 
     # Install compositor share data (man pages and protocol ABI metadata).
     if [ -d "$srcdir/aqueous-dist/share" ]; then

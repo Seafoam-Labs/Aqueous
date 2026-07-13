@@ -39,6 +39,7 @@ check() {
     # and user units retired by the single-process cutover.
     local required=(
         bin/aqueous
+        bin/aqueousctl
         bin/aqueous-init
         bin/aqueous-wm
         share/wayland-sessions/aqueous.desktop
@@ -83,6 +84,7 @@ package() {
     # Binaries
     install -d "$pkgdir/usr/bin"
     install -Dm755 "$srcdir/bin/aqueous"      "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/bin/aqueousctl"   "$pkgdir/usr/bin/aqueousctl"
     install -Dm755 "$srcdir/bin/aqueous-init" "$pkgdir/usr/bin/aqueous-init"
     install -Dm755 "$srcdir/bin/aqueous-wm"   "$pkgdir/usr/bin/aqueous-wm"
 

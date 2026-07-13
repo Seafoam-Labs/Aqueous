@@ -8,12 +8,14 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
+AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURES="$here/scripts/fixtures"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
+[ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
 for tool in ghostty wlrctl timeout; do
     have "$tool" || die "$tool is required for real-window policy integration tests"
 done
@@ -152,7 +154,7 @@ start_session() {
 }
 
 exercise_session() {
-    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_moved geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom game_pid fallback_geom dwindle_after_fallback tile_after_fallback
+    local baseline focus0 focus1 focus2 return_focus cycle_focus geom1 geom2 geom_moved geom_mono ws1 ws2 moved_geom fullscreen_geom manual_geom closed_geom game_pid fallback_geom dwindle_after_fallback tile_after_fallback legacy_list info_json rule_snippet
 
     baseline=$(trace_line)
     focus0=$(trace_field "$baseline" focus)
@@ -161,6 +163,13 @@ exercise_session() {
     echo "CHECK: real Ghostty mapping and pointer focus"
     launch_ghostty aq-parity-one
     wait_windows 1
+    legacy_list=$(wlrctl toplevel list)
+    grep -q 'aq-parity-one' <<<"$legacy_list" || die "wlrctl did not enumerate the mapped window"
+    info_json=$("$AQUEOUSCTL_BIN" windows --json)
+    grep -q '"app_id":"com.mitchellh.ghostty"' <<<"$info_json" || die "aqueousctl JSON omitted the native app_id"
+    grep -q '"workspace":1' <<<"$info_json" || die "aqueousctl JSON omitted the workspace"
+    rule_snippet=$("$AQUEOUSCTL_BIN" inspect --rule)
+    grep -q 'app_id = "com.mitchellh.ghostty"' <<<"$rule_snippet" || die "aqueousctl did not generate a usable rule"
     wlrctl pointer move 300 300
     wait_field_ne focus "$focus0"
     focus1=$(trace_field "$(trace_line)" focus)
@@ -276,6 +285,9 @@ exercise_session() {
     press g SUPER
     kill "$game_pid"
     wait_windows 6
+    # Window removal and replacement focus are separate coalesced cycles; wait
+    # for both before comparing the two policy-mode traces.
+    sleep 0.15
     fallback_geom=$(trace_field "$(trace_line)" geometry)
     checkpoint game_mode_dwindle_fallback
     press d SUPER

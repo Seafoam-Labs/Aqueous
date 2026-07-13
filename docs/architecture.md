@@ -16,7 +16,8 @@ aqueous
 ├── layouts, rules, focus, workspaces, and window state
 ├── XKB/libinput and direct key/pointer actions
 ├── startup/reload commands and screencopy
-└── native output policy and outputd-compatible Unix socket
+├── native output policy and outputd-compatible Unix socket
+└── foreign-toplevel enumeration and read-only window introspection
 ```
 
 ## Repository layout
@@ -26,9 +27,10 @@ compositor/
 ├── build.zig                 # canonical build and Zig tests
 ├── aqueous/                  # compositor integration
 │   └── wm/                   # policy, config, layouts, rules, input, outputs
+├── aqueousctl/               # read-only window inspection client
 ├── protocol/                 # Wayland protocol definitions
 └── scripts/                  # headless integration checks
-scripts/build-compositor.sh   # stages bin/aqueous
+scripts/build-compositor.sh   # stages bin/aqueous and bin/aqueousctl
 launch_river.sh               # nested development session
 packaging/                    # session hooks and units
 PKGBUILD                      # source package
@@ -54,8 +56,9 @@ wlroots transaction path.
 ## Build flow
 
 `scripts/build-compositor.sh` runs `zig build` in `compositor/` and stages the
-result as `bin/aqueous`. `launch_river.sh`, the Arch package, and release CI all
-use the same Zig build. There is no language-runtime side build.
+compositor and inspection client under `bin/`. `launch_river.sh`, the Arch
+package, and release CI all use the same Zig build. There is no language-runtime
+side build.
 
 Useful overrides:
 

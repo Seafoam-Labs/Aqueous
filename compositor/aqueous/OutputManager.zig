@@ -23,6 +23,7 @@ const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const OutputConfig = @import("wm/output/config.zig");
 const autolayout = @import("wm/output/autolayout.zig");
+const mode_match = @import("wm/output/mode_match.zig");
 
 const log = std.log.scoped(.output);
 
@@ -177,12 +178,25 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         var modes = wlr_output.modes.iterator(.forward);
         while (modes.next()) |mode| {
             if (mode.width != requested.width or mode.height != requested.height) continue;
-            if (requested.refresh_mhz == null or @abs(mode.refresh - requested.refresh_mhz.?) < 500) {
+            const candidate: mode_match.Candidate = .{
+                .refresh_mhz = mode.refresh,
+                .preferred = mode.preferred,
+            };
+            const best: ?mode_match.Candidate = if (selected) |current| .{
+                .refresh_mhz = current.refresh,
+                .preferred = current.preferred,
+            } else null;
+            if (mode_match.prefer(requested.refresh_mhz, best, candidate)) {
                 selected = mode;
-                break;
             }
         }
-        if (selected) |mode| state.mode = .{ .standard = mode } else if (wlr_output.modes.first() == null) {
+        if (selected) |mode| {
+            state.mode = .{ .standard = mode };
+            if (requested.refresh_mhz) |refresh| log.info(
+                "output {s}: requested {d}x{d}@{d} mHz, selected {d} mHz",
+                .{ wlr_output.name, requested.width, requested.height, refresh, mode.refresh },
+            );
+        } else if (wlr_output.modes.first() == null) {
             state.mode = .{ .custom = .{ .width = requested.width, .height = requested.height, .refresh = requested.refresh_mhz orelse 0 } };
         } else return error.ModeNotAdvertised;
     }

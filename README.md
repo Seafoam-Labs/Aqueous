@@ -124,6 +124,22 @@ See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.
 
+### Inspecting windows
+
+The build installs `aqueousctl`, a read-only Wayland client for discovering the
+exact identities used by window rules:
+
+```sh
+aqueousctl windows
+aqueousctl windows --json
+aqueousctl inspect --rule
+```
+
+The final command emits ready-to-paste `[[window]]` entries. Native Wayland
+windows use `app_id`; XWayland windows use their `WM_CLASS` as `class`.
+`wlrctl toplevel list` remains supported through the legacy foreign-toplevel
+management protocol for compatibility.
+
 ## Build
 
 Building requires Zig 0.16 or newer, wlroots 0.20, Wayland,
@@ -188,9 +204,9 @@ pipeline.
 ## Packaging
 
 The reference `PKGBUILD`, `PKGBUILD-bin`, and generic-CPU `PKGBUILD-intel`
-install one required compositor binary: `/usr/bin/aqueous`. Packages also
-provide the session launcher, environment hook, default TOML configuration,
-desktop entry, systemd user units, and Noctalia integration. Aqueous has no
+install `/usr/bin/aqueous` and its read-only `/usr/bin/aqueousctl` inspection
+client. Packages also provide the session launcher, environment hook, default
+TOML configuration, desktop entry, systemd user units, and Noctalia integration. Aqueous has no
 .NET, `aqueous-wm-client`, `aqueous-outputd`, `wlr-randr`, or
 `xwayland-satellite` runtime dependency.
 

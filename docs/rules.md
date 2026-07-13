@@ -121,10 +121,9 @@ Two-release deprecation window - after which the warning becomes an error.
 
 ## Troubleshooting
 
-- **Rule didn't apply.** Confirm the window's actual `app_id` via the River
-  log (Aqueous writes `window 0x... app_id=<name>` on every change). Wayland
-  app ids are case-sensitive; native XWayland clients expose their `WM_CLASS`
-  through the same managed-window path.
+- **Rule didn't apply.** Run `aqueousctl inspect --rule` for ready-to-paste
+  matchers, or `aqueousctl windows --json` for the complete window snapshot.
+  Wayland app IDs and XWayland classes are case-sensitive.
 - **Anchor doesn't update when I edit `rules.toml`.** Check the compositor log
   for a parse warning, or press `Super+R` to request an immediate reload.
 - **Game mode disappears when I close the game.** Expected - with no

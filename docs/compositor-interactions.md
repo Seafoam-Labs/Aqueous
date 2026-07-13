@@ -52,6 +52,7 @@ transaction coordinator will configure and render.
 | `Server.zig` | Owns wlroots globals and all major managers; creates XDG and XWayland windows and exposes screencopy and foreign-toplevel protocols. |
 | `WindowManager.zig` | Coalesces dirty events and runs the manage/configure/render transaction state machine. |
 | `Window.zig` | Owns a native or XWayland window, its lifecycle, workspace, requested configuration, rendering state, and embedded policy metadata. |
+| `WindowInfoManager.zig` | Extends standard foreign-toplevel handles with one-shot, read-only backend, workspace, geometry, state, and matched-rule snapshots. |
 | `Aqueous.zig` | Implements rules, layouts, focus, workspace actions, window state actions, bindings, startup commands, and reload behavior. |
 | `CompositorApi.zig` | Builds policy snapshots and translates policy decisions back into compositor operations. |
 | `Output.zig` / `Workspace.zig` | Own output geometry, nine per-output workspaces, active workspace state, and workspace transitions. |
@@ -83,6 +84,22 @@ transaction coordinator will configure and render.
 and `log` affect whether and how a child is launched. Restarting commands use
 bounded backoff in a shell loop. The compositor itself does not synchronously
 wait for these children.
+
+## Window inspection protocols
+
+Mapped windows are published through both `ext_foreign_toplevel_list_v1` and
+the legacy `zwlr_foreign_toplevel_manager_v1`. Publication is owned by the
+window map/unmap lifecycle and does not depend on an external policy client.
+This keeps `wlrctl toplevel list`, taskbars, and modern foreign-toplevel clients
+working while integrated policy is active.
+
+`aqueous_window_info_v1` is a read-only extension of an
+`ext_foreign_toplevel_handle_v1`. A request returns a one-shot snapshot of the
+window backend, native app ID or XWayland class, output, workspace, geometry,
+placement state, and matched rule. Enumeration and stable identifiers stay in
+the standard ext protocol. `aqueousctl` combines the two protocols for table,
+JSON, and ready-to-paste rule output. All three foreign-window globals are
+hidden from Wayland security contexts.
 
 ## The transaction cycle
 

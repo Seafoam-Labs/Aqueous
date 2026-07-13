@@ -1,6 +1,6 @@
 name: Release
 
-# Build the single Aqueous compositor/policy executable and attach it to a
+# Build Aqueous and its inspection client and attach them to a
 # GitHub Release. Runs inside an Arch Linux container
 # so we inherit Arch's patched `wayland-protocols` (which carries
 # `wp_color_manager_v1` v2) — Ubuntu/upstream tarballs do not have it yet.
@@ -99,6 +99,7 @@ jobs:
 
           # Binaries
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
+          cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
 
           # Compositor share data (man pages and protocol ABI metadata) if present
           if [ -d publish/aqueous-compositor/share ]; then

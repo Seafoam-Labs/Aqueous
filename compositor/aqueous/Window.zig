@@ -186,6 +186,28 @@ pub const PolicySnapshot = struct {
     max_height: i32,
 };
 
+pub const InfoBackend = enum { xdg, xwayland };
+
+/// Read-only compositor-owned state exposed through aqueous_window_info_v1.
+/// Strings borrow their backing protocol/output objects and are consumed
+/// synchronously while servicing the request.
+pub const InfoSnapshot = struct {
+    backend: InfoBackend,
+    app_id: ?[*:0]const u8,
+    class: ?[*:0]const u8,
+    title: ?[*:0]const u8,
+    output: ?[*:0]const u8,
+    workspace: u32,
+    geometry: wlr.Box,
+    focused: bool,
+    floating: bool,
+    fullscreen: bool,
+    maximized: bool,
+    minimized: bool,
+    visible: bool,
+    layout: [:0]const u8,
+};
+
 ref: Ref,
 
 /// The workspace this window currently belongs to, or null if unassigned.
@@ -714,37 +736,10 @@ pub fn manageStart(window: *Window) void {
                 window.node.link.remove();
                 server.wm.rendering_requested.list.append(&window.node);
 
-                // A handle may have already been created if the window manager is restarted.
-                if (window.foreign_toplevel_handle == null) {
-                    if (wlr.ExtForeignToplevelHandleV1.create(server.foreign_toplevel_list, &.{
-                        .title = window.getTitle(),
-                        .app_id = window.getAppId(),
-                    })) |handle| {
-                        window.foreign_toplevel_handle = handle;
-                        handle.data = window;
-                    } else |_| {
-                        log.err("failed to create ext foreign toplevel handle", .{});
-                    }
-                }
-
-                if (window.wlr_toplevel_handle == null) {
-                    if (wlr.ForeignToplevelHandleV1.create(server.wlr_foreign_toplevel_manager)) |handle| {
-                        window.wlr_toplevel_handle = handle;
-                        handle.data = window;
-                        if (window.getTitle()) |title| handle.setTitle(title);
-                        if (window.getAppId()) |app_id| handle.setAppId(app_id);
-                        // Phase 4: forward dock/taskbar requests into the wm.
-                        handle.events.request_maximize.add(&window.ftm_request_maximize);
-                        handle.events.request_minimize.add(&window.ftm_request_minimize);
-                        handle.events.request_activate.add(&window.ftm_request_activate);
-                        handle.events.request_fullscreen.add(&window.ftm_request_fullscreen);
-                        handle.events.request_close.add(&window.ftm_request_close);
-                        // Reset cached sent-state so the next manageFinish pushes fresh state.
-                        window.wlr_toplevel_sent = .{};
-                    } else |_| {
-                        log.err("failed to create wlr foreign toplevel handle", .{});
-                    }
-                }
+                // External policy needs the ext identifier before the first map
+                // so it can satisfy river_window_v1.identifier's send-once
+                // contract. Integrated policy publishes from map() instead.
+                window.publishForeignToplevels();
 
                 break :blk window_v1;
             };
@@ -1114,55 +1109,8 @@ pub fn manageFinish(window: *Window) bool {
         wm_requested.close = false;
     }
 
-    // Seat.manageFinish() has already applied the policy request at this point.
-    // The compositor seat list is therefore the authoritative focus state for
-    // both policy modes. `wm.sent.seats` only contains river_seat_v1 objects and
-    // is deliberately empty while the integrated policy is active.
-    const activated = blk: {
-        var it = server.input_manager.seats.iterator(.forward);
-        while (it.next()) |seat| {
-            if (seat.focused == .window and seat.focused.window == window) {
-                break :blk true;
-            }
-        }
-        break :blk false;
-    };
-
-    if (window.wlr_toplevel_handle) |handle| {
-        const sent = &window.wlr_toplevel_sent;
-        if (sent.activated != activated) {
-            handle.setActivated(activated);
-            sent.activated = activated;
-        }
-        const maximized = wm_requested.maximized;
-        if (sent.maximized != maximized) {
-            handle.setMaximized(maximized);
-            sent.maximized = maximized;
-        }
-        const fullscreen = wm_requested.fullscreen != null or wm_requested.inform_fullscreen;
-        if (sent.fullscreen != fullscreen) {
-            handle.setFullscreen(fullscreen);
-            sent.fullscreen = fullscreen;
-        }
-        // The wm communicates "minimized" by hiding the window in the scene.
-        const minimized = window.rendering_requested.hidden;
-        if (sent.minimized != minimized) {
-            handle.setMinimized(minimized);
-            sent.minimized = minimized;
-        }
-        // Parent relationship — only mirror if both parent and self have a handle.
-        const parent_handle: ?*wlr.ForeignToplevelHandleV1 = blk: {
-            const parent = window.getParent() orelse break :blk null;
-            break :blk parent.wlr_toplevel_handle;
-        };
-        if (sent.parent != parent_handle) {
-            handle.setParent(parent_handle);
-            sent.parent = parent_handle;
-        }
-        // Push per-output enter/leave so foreign-toplevel clients can scope
-        // windows to monitors (Noctalia onlySameOutput, waybar wlr-taskbar, …).
-        window.syncForeignToplevelOutputs();
-    }
+    const activated = window.isFocused();
+    window.syncForeignToplevelState();
 
     const width, const height = blk: {
         if (wm_requested.fullscreen) |output| {
@@ -1799,6 +1747,47 @@ pub fn getAppId(window: Window) ?[*:0]const u8 {
     };
 }
 
+pub fn infoSnapshot(window: *const Window) InfoSnapshot {
+    const backend: InfoBackend, const app_id: ?[*:0]const u8, const class: ?[*:0]const u8 = switch (window.impl) {
+        .toplevel => |toplevel| .{ .xdg, toplevel.wlr_toplevel.app_id, null },
+        .xwayland => |xwindow| .{ .xwayland, null, xwindow.xsurface.class },
+        .destroying => unreachable,
+    };
+    const workspace = window.workspace;
+    const focused = blk: {
+        var seats = server.input_manager.seats.iterator(.forward);
+        while (seats.next()) |seat| {
+            if (seat.focused == .window and seat.focused.window == window) break :blk true;
+        }
+        break :blk false;
+    };
+    const visible_workspace = if (workspace) |ws| ws.isActive() else true;
+    const kind = window.policy_state.kind;
+    return .{
+        .backend = backend,
+        .app_id = app_id,
+        .class = class,
+        .title = window.getTitle(),
+        .output = if (workspace) |ws|
+            if (ws.output.wlr_output) |output| output.name else null
+        else
+            null,
+        .workspace = if (workspace) |ws| ws.policyNumber() else 0,
+        .geometry = window.box,
+        .focused = focused,
+        .floating = kind == .floating,
+        .fullscreen = window.wm_requested.fullscreen != null or window.wm_requested.inform_fullscreen,
+        .maximized = kind == .maximized or window.wm_requested.maximized,
+        .minimized = kind == .minimized or window.rendering_requested.hidden,
+        .visible = window.state == .mapped and visible_workspace and !window.rendering_requested.hidden,
+        .layout = @tagName(kind),
+    };
+}
+
+pub fn matchedRuleFingerprint(window: *const Window) u64 {
+    return if (window.policy_state.rule_initialized) window.policy_state.rule_match else 0;
+}
+
 /// Per-window content opacity: the per-window value (set_window_opacity) wins over
 /// the global default (set_opacity); both are 32-bit unsigned fractions. Newly
 /// created scene buffers default to opacity 1.0, so this must be reapplied whenever
@@ -1822,6 +1811,86 @@ pub fn effectiveOpacity(window: *const Window) f32 {
     return visual_state.fractionToOpacity(opacity_frac);
 }
 
+/// Publish this window through both the standard ext list and the legacy wlr
+/// manager used by wlrctl/taskbars. This must not depend on an external
+/// river_window_manager_v1 client: integrated policy deliberately has none.
+fn publishForeignToplevels(window: *Window) void {
+    if (window.foreign_toplevel_handle == null) {
+        if (wlr.ExtForeignToplevelHandleV1.create(server.foreign_toplevel_list, &.{
+            .title = window.getTitle(),
+            .app_id = window.getAppId(),
+        })) |handle| {
+            window.foreign_toplevel_handle = handle;
+            handle.data = window;
+        } else |_| {
+            log.err("failed to create ext foreign toplevel handle", .{});
+        }
+    }
+
+    if (window.wlr_toplevel_handle == null) {
+        if (wlr.ForeignToplevelHandleV1.create(server.wlr_foreign_toplevel_manager)) |handle| {
+            window.wlr_toplevel_handle = handle;
+            handle.data = window;
+            if (window.getTitle()) |title| handle.setTitle(title);
+            if (window.getAppId()) |app_id| handle.setAppId(app_id);
+            handle.events.request_maximize.add(&window.ftm_request_maximize);
+            handle.events.request_minimize.add(&window.ftm_request_minimize);
+            handle.events.request_activate.add(&window.ftm_request_activate);
+            handle.events.request_fullscreen.add(&window.ftm_request_fullscreen);
+            handle.events.request_close.add(&window.ftm_request_close);
+            window.wlr_toplevel_sent = .{};
+        } else |_| {
+            log.err("failed to create wlr foreign toplevel handle", .{});
+        }
+    }
+}
+
+/// Push the compositor's authoritative current state to the legacy foreign
+/// handle. Seat.manageFinish() has already applied policy focus when this runs
+/// from a transaction; map() also calls it to seed a newly published handle.
+fn syncForeignToplevelState(window: *Window) void {
+    const handle = window.wlr_toplevel_handle orelse return;
+    const activated = window.isFocused();
+
+    const sent = &window.wlr_toplevel_sent;
+    if (sent.activated != activated) {
+        handle.setActivated(activated);
+        sent.activated = activated;
+    }
+    const maximized = window.wm_requested.maximized;
+    if (sent.maximized != maximized) {
+        handle.setMaximized(maximized);
+        sent.maximized = maximized;
+    }
+    const fullscreen = window.wm_requested.fullscreen != null or window.wm_requested.inform_fullscreen;
+    if (sent.fullscreen != fullscreen) {
+        handle.setFullscreen(fullscreen);
+        sent.fullscreen = fullscreen;
+    }
+    const minimized = window.rendering_requested.hidden;
+    if (sent.minimized != minimized) {
+        handle.setMinimized(minimized);
+        sent.minimized = minimized;
+    }
+    const parent_handle: ?*wlr.ForeignToplevelHandleV1 = blk: {
+        const parent = window.getParent() orelse break :blk null;
+        break :blk parent.wlr_toplevel_handle;
+    };
+    if (sent.parent != parent_handle) {
+        handle.setParent(parent_handle);
+        sent.parent = parent_handle;
+    }
+    window.syncForeignToplevelOutputs();
+}
+
+fn isFocused(window: *const Window) bool {
+    var it = server.input_manager.seats.iterator(.forward);
+    while (it.next()) |seat| {
+        if (seat.focused == .window and seat.focused.window == window) return true;
+    }
+    return false;
+}
+
 /// Called by the impl when the surface is ready to be displayed
 pub fn map(window: *Window) !void {
     log.debug("window '{?s}' mapped", .{window.getTitle()});
@@ -1839,6 +1908,12 @@ pub fn map(window: *Window) !void {
             if (output.active_workspace) |workspace| window.setWorkspace(workspace);
         }
     }
+
+    // Foreign-toplevel protocols describe mapped windows. This is also the
+    // integrated-policy publication path: there is no river_window_manager_v1
+    // object in that mode, so publication must not depend on manageStart().
+    window.publishForeignToplevels();
+    window.syncForeignToplevelState();
 }
 
 /// Called by the impl when the surface will no longer be displayed

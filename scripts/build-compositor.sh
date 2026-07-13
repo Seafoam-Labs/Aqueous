@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the in-tree Aqueous compositor and stages the binary at
-# ./bin/aqueous (relative to the repo root).
+# Builds the in-tree Aqueous compositor and control client and stages them at
+# ./bin/ (relative to the repo root).
 #
 # Used by:
 #   - launch_river.sh (dev-time, on demand)
@@ -40,3 +40,11 @@ else
 fi
 install -m 0755 "$src" "$here/bin/aqueous"
 echo "[build-compositor] -> $here/bin/aqueous"
+
+if [ -x "$here/compositor/zig-out/bin/aqueousctl" ]; then
+    install -m 0755 "$here/compositor/zig-out/bin/aqueousctl" "$here/bin/aqueousctl"
+    echo "[build-compositor] -> $here/bin/aqueousctl"
+else
+    echo "[build-compositor] no aqueousctl binary produced under compositor/zig-out/bin/" >&2
+    exit 1
+fi

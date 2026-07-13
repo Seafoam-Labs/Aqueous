@@ -26,6 +26,10 @@ TTY using DRM/KMS. `-policy internal` is accepted explicitly but is also the
 default. Aqueous loads its TOML configuration and directly manages layouts,
 focus, workspaces, bindings, startup commands, screencopy, and outputs.
 
+The same build produces `zig-out/bin/aqueousctl`. While running inside an
+Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
+`aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
+
 The headless cutover and output checks are:
 
 ```sh

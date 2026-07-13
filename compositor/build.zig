@@ -112,6 +112,7 @@ pub fn build(b: *Build) !void {
     scanner.addSystemProtocol("staging/color-representation/color-representation-v1.xml");
     scanner.addSystemProtocol("staging/cursor-shape/cursor-shape-v1.xml");
     scanner.addSystemProtocol("staging/ext-session-lock/ext-session-lock-v1.xml");
+    scanner.addSystemProtocol("staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml");
     scanner.addSystemProtocol("staging/tearing-control/tearing-control-v1.xml");
     scanner.addSystemProtocol("unstable/pointer-constraints/pointer-constraints-unstable-v1.xml");
     scanner.addSystemProtocol("unstable/pointer-gestures/pointer-gestures-unstable-v1.xml");
@@ -120,6 +121,7 @@ pub fn build(b: *Build) !void {
     scanner.addSystemProtocol("unstable/xdg-foreign/xdg-foreign-unstable-v2.xml");
 
     scanner.addCustomProtocol(b.path("protocol/river-window-management-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-window-info-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-xkb-bindings-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-layer-shell-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-input-management-v1.xml"));
@@ -156,12 +158,14 @@ pub fn build(b: *Build) !void {
     scanner.generate("zxdg_importer_v2", 1);
     scanner.generate("zxdg_exporter_v2", 1);
     scanner.generate("ext_session_lock_manager_v1", 1);
+    scanner.generate("ext_foreign_toplevel_list_v1", 1);
     scanner.generate("wp_cursor_shape_manager_v1", 1);
     scanner.generate("wp_tearing_control_manager_v1", 1);
     scanner.generate("wp_color_manager_v1", 2);
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("river_window_manager_v1", 9);
+    scanner.generate("aqueous_window_info_manager_v1", 1);
     scanner.generate("river_xkb_bindings_v1", 3);
     scanner.generate("river_layer_shell_v1", 1);
     scanner.generate("river_input_manager_v1", 2);
@@ -266,6 +270,26 @@ pub fn build(b: *Build) !void {
     }
 
     {
+        const aqueousctl = b.addExecutable(.{
+            .name = "aqueousctl",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueousctl/main.zig"),
+                .target = target,
+                .optimize = optimize,
+                .strip = strip,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        aqueousctl.root_module.addImport("wayland", wayland);
+        aqueousctl.root_module.linkSystemLibrary("wayland-client", .{});
+        aqueousctl.pie = pie;
+        aqueousctl.root_module.omit_frame_pointer = omit_frame_pointer;
+        b.installArtifact(aqueousctl);
+    }
+
+    {
         const wf = Build.Step.WriteFile.create(b);
         const pc_file = wf.add("aqueous-protocols.pc", b.fmt(
             \\prefix={s}
@@ -280,6 +304,7 @@ pub fn build(b: *Build) !void {
         b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-protocols.pc").step);
         inline for (&.{
             "river-window-management-v1.xml",
+            "aqueous-window-info-v1.xml",
             "river-xkb-bindings-v1.xml",
             "river-layer-shell-v1.xml",
             "river-input-management-v1.xml",
@@ -291,7 +316,7 @@ pub fn build(b: *Build) !void {
     }
 
     if (man_pages) {
-        inline for (.{"aqueous"}) |page| {
+        inline for (.{ "aqueous", "aqueousctl" }) |page| {
             // Workaround for https://github.com/ziglang/zig/issues/16369
             // Even passing a buffer to std.Build.Step.Run appears to be racy and occasionally deadlocks.
             const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "scdoc < doc/" ++ page ++ ".1.scd" });

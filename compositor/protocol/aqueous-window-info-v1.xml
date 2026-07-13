@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="aqueous_window_info_v1">
+  <copyright>
+    SPDX-FileCopyrightText: © 2026 Seafoam Labs
+    SPDX-License-Identifier: MIT
+  </copyright>
+
+  <description summary="read-only Aqueous window introspection">
+    This protocol augments ext_foreign_toplevel_handle_v1 with compositor
+    policy information useful to diagnostics and window-rule authoring.
+
+    It is intentionally read-only. Enumeration and stable identifiers remain
+    owned by ext_foreign_toplevel_list_v1.
+  </description>
+
+  <interface name="aqueous_window_info_manager_v1" version="1">
+    <description summary="window information factory">
+      Create a one-shot information snapshot for an Aqueous toplevel.
+    </description>
+
+    <enum name="error">
+      <entry name="invalid_toplevel" value="0"
+             summary="the foreign toplevel handle is not owned by Aqueous"/>
+    </enum>
+
+    <request name="get_window_info">
+      <description summary="snapshot a foreign toplevel">
+        The returned object receives all currently available properties followed
+        by done. Properties without a meaningful value are omitted.
+      </description>
+      <arg name="id" type="new_id" interface="aqueous_window_info_v1"/>
+      <arg name="toplevel" type="object" interface="ext_foreign_toplevel_handle_v1"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager proxy"/>
+    </request>
+  </interface>
+
+  <interface name="aqueous_window_info_v1" version="1">
+    <description summary="one-shot window information snapshot">
+      A read-only snapshot of compositor-owned state for one mapped toplevel.
+    </description>
+
+    <enum name="backend">
+      <entry name="xdg" value="0" summary="native xdg-shell toplevel"/>
+      <entry name="xwayland" value="1" summary="X11 toplevel through XWayland"/>
+    </enum>
+
+    <enum name="state" bitfield="true">
+      <entry name="focused" value="1"/>
+      <entry name="floating" value="2"/>
+      <entry name="fullscreen" value="4"/>
+      <entry name="maximized" value="8"/>
+      <entry name="minimized" value="16"/>
+      <entry name="visible" value="32"/>
+    </enum>
+
+    <enum name="matcher">
+      <entry name="app_id" value="0"/>
+      <entry name="class" value="1"/>
+      <entry name="title" value="2"/>
+    </enum>
+
+    <event name="backend">
+      <arg name="backend" type="uint" enum="backend"/>
+    </event>
+
+    <event name="app_id">
+      <arg name="app_id" type="string"/>
+    </event>
+
+    <event name="class">
+      <arg name="class" type="string"/>
+    </event>
+
+    <event name="output">
+      <arg name="output" type="string"/>
+    </event>
+
+    <event name="workspace">
+      <description summary="one-based workspace number"/>
+      <arg name="workspace" type="uint"/>
+    </event>
+
+    <event name="geometry">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="state">
+      <arg name="state" type="uint" enum="state"/>
+    </event>
+
+    <event name="layout">
+      <description summary="effective per-window placement mode"/>
+      <arg name="layout" type="string"/>
+    </event>
+
+    <event name="matched_rule">
+      <description summary="one-based index in rules.toml"/>
+      <arg name="index" type="uint"/>
+    </event>
+
+    <event name="rule_matcher">
+      <description summary="a matcher belonging to the matched rule"/>
+      <arg name="matcher" type="uint" enum="matcher"/>
+      <arg name="pattern" type="string"/>
+    </event>
+
+    <event name="done">
+      <description summary="the complete snapshot has been sent"/>
+    </event>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this snapshot object"/>
+    </request>
+  </interface>
+</protocol>
