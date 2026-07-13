@@ -538,10 +538,12 @@ pub fn deinit(server: *Server) void {
 }
 
 fn globalFilter(client: *const wl.Client, global: *const wl.Global, server: *Server) bool {
-    // Only expose the xwalyand_shell_v1 global to the Xwayland process.
+    // Only expose Xwayland-private globals to the Xwayland process.
     if (build_options.xwayland) {
         if (server.xwayland) |xwayland| {
-            if (global == xwayland.shell_v1.global) {
+            if (global == xwayland.shell_v1.global or
+                global == server.input_manager.xwayland_keyboard_grabs.global)
+            {
                 if (xwayland.server) |xwayland_server| {
                     return client == xwayland_server.client;
                 }

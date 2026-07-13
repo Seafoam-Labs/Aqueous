@@ -261,6 +261,10 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
         for (xkb_state.keyGetSyms(xkb_keycode)) |sym| {
             if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
         }
+        // An honored X11 active keyboard grab receives compositor shortcuts as
+        // ordinary keys. Aqueous.handleKey() still recognizes the dedicated
+        // pointer-untrap action above, which remains the user's escape hatch.
+        if (group.seat.xwaylandKeyboardGrabActive()) break :blk .focus;
         if (group.seat.matchXkbBinding(xkb_keycode, modifiers, xkb_state)) |binding| {
             log.debug("matched xkb binding", .{});
             group.seat.xkb_bindings_seat.ensure_next_key_eaten = false;

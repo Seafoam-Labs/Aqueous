@@ -814,7 +814,7 @@ fn interact(cursor: Cursor, result: Scene.AtResult) void {
         },
         .override_redirect => |override_redirect| {
             assert(server.lock_manager.state != .locked);
-            override_redirect.focusIfDesired();
+            override_redirect.focusForInteraction();
         },
     }
 }

@@ -20,6 +20,7 @@ const Keyboard = @import("Keyboard.zig");
 const PointerConstraint = @import("PointerConstraint.zig");
 const Seat = @import("Seat.zig");
 const TextInput = @import("TextInput.zig");
+const XwaylandKeyboardGrab = @import("XwaylandKeyboardGrab.zig");
 
 const default_seat_name = "default";
 
@@ -39,6 +40,7 @@ pointer_constraints: *wlr.PointerConstraintsV1,
 input_method_manager: *wlr.InputMethodManagerV2,
 text_input_manager: *wlr.TextInputManagerV3,
 tablet_manager: *wlr.TabletManagerV2,
+xwayland_keyboard_grabs: XwaylandKeyboardGrab.Manager,
 
 devices: wl.list.Head(InputDevice, .link),
 seats: wl.list.Head(Seat, .link),
@@ -62,6 +64,7 @@ pub fn init(input_manager: *InputManager) !void {
         .input_method_manager = try wlr.InputMethodManagerV2.create(server.wl_server),
         .text_input_manager = try wlr.TextInputManagerV3.create(server.wl_server),
         .tablet_manager = try wlr.TabletManagerV2.create(server.wl_server),
+        .xwayland_keyboard_grabs = undefined,
 
         .objects = undefined,
         .devices = undefined,
@@ -72,6 +75,10 @@ pub fn init(input_manager: *InputManager) !void {
     input_manager.seats.init();
 
     try Seat.create(default_seat_name);
+
+    if (build_options.xwayland) {
+        try input_manager.xwayland_keyboard_grabs.init();
+    }
 
     if (build_options.xwayland) {
         if (server.xwayland) |xwayland| {
@@ -89,6 +96,10 @@ pub fn init(input_manager: *InputManager) !void {
 
 pub fn deinit(input_manager: *InputManager) void {
     input_manager.global.destroy();
+
+    if (build_options.xwayland) {
+        input_manager.xwayland_keyboard_grabs.deinit();
+    }
 
     // This function must be called after the backend has been destroyed
     assert(input_manager.objects.empty());

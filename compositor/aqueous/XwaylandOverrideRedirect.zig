@@ -34,6 +34,7 @@ dissociate: wl.Listener(void) = .init(handleDissociate),
 set_hints: wl.Listener(void) = .init(handleSetHints),
 set_window_type: wl.Listener(void) = .init(handleSetWindowType),
 set_role: wl.Listener(void) = .init(handleSetRole),
+focus_in: wl.Listener(void) = .init(handleFocusIn),
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -63,6 +64,7 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.set_role.add(&override_redirect.set_role);
     xsurface.events.set_window_type.add(&override_redirect.set_window_type);
     xsurface.events.set_hints.add(&override_redirect.set_hints);
+    xsurface.events.focus_in.add(&override_redirect.focus_in);
 
     if (xsurface.surface) |surface| {
         handleAssociate(&override_redirect.associate);
@@ -90,6 +92,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     override_redirect.set_window_type.link.remove();
     override_redirect.set_hints.link.remove();
     override_redirect.set_role.link.remove();
+    override_redirect.focus_in.link.remove();
 
     util.gpa.destroy(override_redirect);
 }
@@ -230,12 +233,45 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
             // the override-redirect surface itself needs focus. This also covers
             // constraints created before the surface maps.
             if (server.input_manager.pointer_constraints.constraintForSurface(surface, seat.wlr_seat) != null) {
-                seat.focus(.{ .override_redirect = override_redirect });
+                seat.focusFromClient(.{ .override_redirect = override_redirect });
             }
             return;
         } else {
-            seat.focus(.{ .override_redirect = override_redirect });
+            seat.focusFromClient(.{ .override_redirect = override_redirect });
         }
+    }
+}
+
+/// Preserve the owner focus used by ordinary X11 menus. A pointer constraint
+/// is the unambiguous signal that an override-redirect game surface needs
+/// direct focus for cursor trapping.
+pub fn focusForInteraction(override_redirect: *XwaylandOverrideRedirect) void {
+    if (server.lock_manager.state != .unlocked) return;
+    if (!override_redirect.xsurface.overrideRedirectWantsFocus() or
+        override_redirect.xsurface.icccmInputModel() == .none or
+        override_redirect.xsurface.surface == null)
+    {
+        return;
+    }
+
+    const surface = override_redirect.xsurface.surface.?;
+    const seat = server.input_manager.defaultSeat();
+    if (server.input_manager.pointer_constraints.constraintForSurface(surface, seat.wlr_seat) != null) {
+        seat.focusFromClient(.{ .override_redirect = override_redirect });
+    } else {
+        override_redirect.focusIfDesired();
+    }
+}
+
+fn handleFocusIn(listener: *wl.Listener(void)) void {
+    const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("focus_in", listener);
+    const surface = override_redirect.xsurface.surface orelse return;
+    if (!surface.mapped or override_redirect.surface_tree == null) return;
+
+    const seat = server.input_manager.defaultSeat();
+    if (seat.wlr_seat.keyboard_state.focused_surface != surface) {
+        seat.focusFromClient(.{ .override_redirect = override_redirect });
+        server.wm.dirtyWindowing();
     }
 }
 
@@ -257,6 +293,7 @@ fn handleSetRole(listener: *wl.Listener(void)) void {
 fn handleUnmap(listener: *wl.Listener(void)) void {
     const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("unmap", listener);
 
+    server.input_manager.xwayland_keyboard_grabs.releaseSurface(override_redirect.xsurface.surface.?);
     override_redirect.commit.link.remove();
     override_redirect.set_geometry.link.remove();
 

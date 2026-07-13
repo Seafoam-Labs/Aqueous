@@ -7,6 +7,8 @@ const build_options = @import("build_options");
 const std = @import("std");
 const wl = @import("wayland").server.wl;
 
+const server = &@import("../main.zig").server;
+
 const CompositorApi = @import("CompositorApi.zig");
 const Mode = @import("Mode.zig").Mode;
 const Trace = @import("Trace.zig");
@@ -341,6 +343,11 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
         return true;
     }
     const verb = aqueous.config.actions.find(keysym, modifiers & (1 | 4 | 8 | 64)) orelse return false;
+    if (server.input_manager.defaultSeat().xwaylandKeyboardGrabActive() and
+        !std.mem.eql(u8, verb, "builtin:untrap_pointer"))
+    {
+        return false;
+    }
     if (std.mem.eql(u8, verb, "builtin:untrap_pointer")) {
         aqueous.untrap_keysym = if (pressed) keysym else null;
         aqueous.api.suppressPointerConstraints(pressed);

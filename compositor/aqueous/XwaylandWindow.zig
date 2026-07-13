@@ -41,6 +41,8 @@ set_hints: wl.Listener(void) = .init(handleSetHints),
 request_maximize: wl.Listener(void) = .init(handleRequestMaximize),
 request_fullscreen: wl.Listener(void) = .init(handleRequestFullscreen),
 request_minimize: wl.Listener(*wlr.XwaylandSurface.event.Minimize) = .init(handleRequestMinimize),
+focus_in: wl.Listener(void) = .init(handleFocusIn),
+focused_before_map: bool = false,
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -79,6 +81,7 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.request_maximize.add(&xwindow.request_maximize);
     xsurface.events.request_fullscreen.add(&xwindow.request_fullscreen);
     xsurface.events.request_minimize.add(&xwindow.request_minimize);
+    xsurface.events.focus_in.add(&xwindow.focus_in);
 
     if (xsurface.surface) |surface| {
         handleAssociate(&xwindow.associate);
@@ -166,6 +169,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.request_maximize.link.remove();
     xwindow.request_fullscreen.link.remove();
     xwindow.request_minimize.link.remove();
+    xwindow.focus_in.link.remove();
 
     xwindow.xsurface.data = null;
 
@@ -226,12 +230,39 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
         log.err("out of memory", .{});
         surface.resource.getClient().postNoMemory();
     };
+    if (xwindow.focused_before_map) {
+        xwindow.focused_before_map = false;
+        server.input_manager.defaultSeat().focusFromClient(.{ .window = window });
+    }
     server.wm.dirtyWindowing();
+}
+
+/// Xwayland permits an X11 client to move focus between windows owned by the
+/// same process, then emits focus_in so the compositor can synchronize its
+/// wl_seat. Ignoring it leaves X11 and Wayland focus disagreeing, which breaks
+/// focus/grab behavior in games and globally-active clients.
+fn handleFocusIn(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("focus_in", listener);
+    const surface = xwindow.xsurface.surface orelse {
+        xwindow.focused_before_map = true;
+        return;
+    };
+    if (!surface.mapped or xwindow.window.state == .init) {
+        xwindow.focused_before_map = true;
+        return;
+    }
+
+    const seat = server.input_manager.defaultSeat();
+    if (seat.wlr_seat.keyboard_state.focused_surface != surface) {
+        seat.focusFromClient(.{ .window = xwindow.window });
+        server.wm.dirtyWindowing();
+    }
 }
 
 fn handleUnmap(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("unmap", listener);
 
+    server.input_manager.xwayland_keyboard_grabs.releaseSurface(xwindow.xsurface.surface.?);
     xwindow.commit.link.remove();
 
     xwindow.xsurface.surface.?.data = null;

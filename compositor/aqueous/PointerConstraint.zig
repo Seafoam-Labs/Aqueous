@@ -61,7 +61,7 @@ pub fn create(wlr_constraint: *wlr.PointerConstraintV1) error{OutOfMemory}!void 
                         seat.focused.window.impl == .xwayland and
                         seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
                     {
-                        seat.focus(.{ .override_redirect = override_redirect });
+                        seat.focusFromClient(.{ .override_redirect = override_redirect });
                     }
                 },
                 else => {},

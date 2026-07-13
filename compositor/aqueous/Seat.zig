@@ -168,6 +168,12 @@ pub fn policyFocusedHandle(seat: *const Seat) ?u64 {
     };
 }
 
+pub fn xwaylandKeyboardGrabActive(seat: *const Seat) bool {
+    const surface = seat.xwayland_keyboard_grab_surface orelse return false;
+    return server.lock_manager.state == .unlocked and
+        seat.wlr_seat.keyboard_state.focused_surface == surface;
+}
+
 pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| {
@@ -265,6 +271,11 @@ relay: InputRelay,
 keyboard_groups: wl.list.Head(KeyboardGroup, .link),
 
 focused: Focus = .none,
+
+/// Surface selected by zwp_xwayland_keyboard_grab_v1. While set, normal
+/// window-management focus changes cannot redirect keyboard events away from
+/// the X11 client. Session locking remains authoritative.
+xwayland_keyboard_grab_surface: ?*wlr.Surface = null,
 
 /// The currently in progress drag operation type.
 drag: enum {
@@ -775,10 +786,25 @@ pub fn manageFinish(seat: *Seat) void {
 }
 
 pub fn focus(seat: *Seat, new_focus: Focus) void {
-    // If the target is already focused, do nothing
-    if (std.meta.eql(new_focus, seat.focused)) return;
-
     const target_surface = new_focus.surface();
+
+    if (seat.xwayland_keyboard_grab_surface) |grab_surface| {
+        if (server.lock_manager.state == .unlocked and target_surface != grab_surface) {
+            return;
+        }
+    }
+
+    // The logical focus and wl_seat focus can diverge when Xwayland processes
+    // an XSetInputFocus/active-grab transition. Re-send enter in that case;
+    // returning solely because Focus is unchanged leaves both keyboard grabs
+    // and pointer constraints attached to a stale surface.
+    if (std.meta.eql(new_focus, seat.focused)) {
+        if (seat.wlr_seat.keyboard_state.focused_surface == target_surface) return;
+        seat.keyboardEnterOrLeave(target_surface);
+        seat.relay.focus(target_surface);
+        seat.attachPointerConstraint(target_surface);
+        return;
+    }
 
     // First clear the current focus
     switch (seat.focused) {
@@ -811,6 +837,10 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
     seat.keyboardEnterOrLeave(target_surface);
     seat.relay.focus(target_surface);
 
+    seat.attachPointerConstraint(target_surface);
+}
+
+fn attachPointerConstraint(seat: *Seat, target_surface: ?*wlr.Surface) void {
     if (target_surface) |surface| {
         const pointer_constraints = server.input_manager.pointer_constraints;
         if (pointer_constraints.constraintForSurface(surface, seat.wlr_seat)) |wlr_constraint| {
@@ -829,6 +859,14 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
             seat.cursor.constraint.?.maybeActivate();
         }
     }
+}
+
+/// Apply a focus change initiated by a client-side protocol event. Such an
+/// event is newer than any focus request already queued for the current WM
+/// transaction, so prevent manageFinish() from immediately overwriting it.
+pub fn focusFromClient(seat: *Seat, new_focus: Focus) void {
+    seat.wm_requested.focus = .none;
+    seat.focus(new_focus);
 }
 
 /// Send keyboard enter/leave events and handle pointer constraints
