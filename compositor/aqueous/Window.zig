@@ -2048,8 +2048,10 @@ pub fn map(window: *Window) !void {
     window.applyOpacity();
 
     if (window.workspace == null) {
-        if (server.om.outputs.first()) |output| {
-            if (output.active_workspace) |workspace| window.setWorkspace(workspace);
+        if (window.initialOutput()) |output| {
+            if (output.active_workspace) |workspace| {
+                window.setWorkspace(workspace);
+            }
         }
     }
 
@@ -2180,9 +2182,36 @@ pub fn syncForeignToplevelOutputs(window: *Window) void {
     }
 }
 
+pub fn initialOutput(window: *Window) ?*Output {
+    if (window.getParent()) |parent| {
+        if (parent.workspace) |workspace| {
+            if (outputIsUsable(workspace.output)) {
+                return workspace.output;
+            }
+        }
+    }
+
+    if (server.input_manager.seats.first()) |seat| {
+        const cursor = seat.cursor.wlr_cursor;
+
+        if (server.om.outputAt(cursor.x, cursor.y)) |wlr_output| {
+            if (wlr_output.data) |data| {
+                const output: *Output = @ptrCast(@alignCast(data));
+                if (outputIsUsable(output)) return output;
+            }
+        }
+    }
+
+    if (server.aqueous.output_service.primaryOutput()) |output| return output;
+
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (outputIsUsable(output)) return output;
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------------------
-// Phase 4: foreign-toplevel-management client request handlers.
-//
 // External docks/taskbars (Noctalia, waybar's wlr-taskbar, etc.) can ask the
 // compositor to activate / close / maximize / minimize / fullscreen a window
 // via zwlr_foreign_toplevel_manager_v1. We forward those into the same
@@ -2266,4 +2295,9 @@ fn handleFtmRequestClose(
     const window: *Window = @fieldParentPtr("ftm_request_close", listener);
     if (window.state != .mapped and window.state != .initialized) return;
     window.close();
+}
+
+fn outputIsUsable(output: *Output) bool {
+    const box = output.policyFullBox();
+    return output.active_workspace != null and box.width > 0 and box.height > 0;
 }

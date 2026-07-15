@@ -403,7 +403,10 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
             // assigns it to that output's active workspace during this cycle.
             if (window_snapshot.output_id) |id| {
                 if (id != output.policyId()) continue;
-            } else if (output_index != 0) continue;
+            } else {
+                const initial_ouput = window.initialOutput() orelse continue;
+                if (initial_ouput != output) continue;
+            }
             const app_id = if (window_snapshot.app_id) |value| try allocator.dupe(u8, std.mem.span(value)) else null;
             const title = if (window_snapshot.title) |value|
                 allocator.dupe(u8, std.mem.span(value)) catch |err| {
