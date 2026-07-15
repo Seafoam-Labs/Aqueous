@@ -472,6 +472,20 @@ pub fn build(b: *Build) !void {
         });
         const run_workspaces_test = b.addRunArtifact(workspaces_test);
 
+        const aqueousctl_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueousctl/main.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        aqueousctl_test.root_module.addImport("wayland", wayland);
+        aqueousctl_test.root_module.linkSystemLibrary("wayland-client", .{});
+        const run_aqueousctl_test = b.addRunArtifact(aqueousctl_test);
+
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_scaling_test.step);
@@ -486,5 +500,6 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_output_navigation_test.step);
         test_step.dependOn(&run_input_drag_test.step);
         test_step.dependOn(&run_workspaces_test.step);
+        test_step.dependOn(&run_aqueousctl_test.step);
     }
 }

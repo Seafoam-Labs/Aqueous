@@ -123,12 +123,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
-    const mode: Mode = blk: {
-        if (args.len == 2 and mem.eql(u8, args[1], "windows")) break :blk .windows;
-        if (args.len == 3 and mem.eql(u8, args[1], "windows") and mem.eql(u8, args[2], "--json")) break :blk .json;
-        if (args.len == 3 and mem.eql(u8, args[1], "inspect") and mem.eql(u8, args[2], "--rule")) break :blk .rules;
-        if (args.len == 2 and mem.eql(u8, args[1], "scene")) break :blk .scene;
-        if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) break :blk .scene_dot;
+    const mode = parseMode(args) orelse {
         try stderr.writeAll(usage);
         try stderr.flush();
         std.process.exit(2);
@@ -197,6 +192,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .scene, .scene_dot => unreachable,
     }
     try stdout.flush();
+}
+
+fn parseMode(args: anytype) ?Mode {
+    if (args.len == 2 and mem.eql(u8, args[1], "windows")) return .windows;
+    if (args.len == 3 and mem.eql(u8, args[1], "windows") and mem.eql(u8, args[2], "--json")) return .json;
+    if (args.len == 3 and mem.eql(u8, args[1], "inspect") and mem.eql(u8, args[2], "--rule")) return .rules;
+    if (args.len == 2 and mem.eql(u8, args[1], "scene")) return .scene;
+    if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) return .scene_dot;
+    return null;
 }
 
 fn tryRoundtrip(display: *wl.Display, stderr: *Io.Writer) void {
@@ -529,4 +533,189 @@ fn writeRules(writer: *Io.Writer, state: *const State) !void {
         try jsonString(writer, title);
         try writer.writeAll("\n\n");
     }
+}
+
+test "command modes accept only documented argument forms" {
+    const testing = std.testing;
+
+    try testing.expectEqual(Mode.windows, parseMode(&.{ "aqueousctl", "windows" }).?);
+    try testing.expectEqual(Mode.json, parseMode(&.{ "aqueousctl", "windows", "--json" }).?);
+    try testing.expectEqual(Mode.rules, parseMode(&.{ "aqueousctl", "inspect", "--rule" }).?);
+    try testing.expectEqual(Mode.scene, parseMode(&.{ "aqueousctl", "scene" }).?);
+    try testing.expectEqual(Mode.scene_dot, parseMode(&.{ "aqueousctl", "scene", "--dot" }).?);
+
+    try testing.expect(parseMode(&.{"aqueousctl"}) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "windows", "--dot" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "scene", "--json" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "inspect" }) == null);
+}
+
+test "pending waits for the list and every live window snapshot" {
+    var state: State = .{ .registry = undefined };
+    var window: Window = .{
+        .state = &state,
+        .handle = undefined,
+    };
+    var windows = [_]*Window{&window};
+    state.windows = .{ .items = &windows, .capacity = windows.len };
+
+    try std.testing.expect(state.pending());
+    state.list_finished = true;
+    try std.testing.expect(state.pending());
+    window.info_done = true;
+    try std.testing.expect(!state.pending());
+    window.info_done = false;
+    window.closed = true;
+    try std.testing.expect(!state.pending());
+}
+
+test "human output selects identity fallback and ordered states" {
+    var state: State = .{ .registry = undefined };
+    var window: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .info_done = true,
+        .identifier = @constCast("window-1"),
+        .title = @constCast("Editor"),
+        .foreign_app_id = @constCast("foreign-editor"),
+        .class = @constCast("EditorClass"),
+        .output = @constCast("DP-1"),
+        .layout = @constCast("dwindle"),
+        .workspace = 4,
+        .geometry = .{ .x = -10, .y = 20, .width = 1280, .height = 720 },
+        .states = .{ .focused = true, .fullscreen = true, .visible = true },
+    };
+    var windows = [_]*Window{&window};
+    state.windows = .{ .items = &windows, .capacity = windows.len };
+
+    var buffer: [1024]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeHuman(&writer, &state);
+
+    try std.testing.expectEqualStrings(
+        "ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tSTATE\n" ++
+            "window-1\txdg\tEditorClass\tEditor\tDP-1:4\t-10,20 1280x720\tdwindle\tfocused,fullscreen,visible\n",
+        writer.buffered(),
+    );
+}
+
+test "json output escapes values, emits nulls, and filters unusable windows" {
+    var state: State = .{ .registry = undefined };
+    var included: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .info_done = true,
+        .identifier = @constCast("id\"\\\n"),
+        .app_id = @constCast("org.test\tapp"),
+        .title = @constCast("line\rtitle"),
+        .workspace = 2,
+        .geometry = .{ .x = 1, .y = -2, .width = 3, .height = 4 },
+        .matched_rule = 7,
+        .states = .{ .floating = true, .minimized = true },
+    };
+    var closed: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .info_done = true,
+        .closed = true,
+        .identifier = @constCast("closed"),
+    };
+    var incomplete: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .identifier = @constCast("incomplete"),
+    };
+    var windows = [_]*Window{ &included, &closed, &incomplete };
+    state.windows = .{ .items = &windows, .capacity = windows.len };
+
+    var buffer: [2048]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeJson(&writer, &state);
+
+    try std.testing.expectEqualStrings(
+        "[\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\"]}\n" ++
+            "]\n",
+        writer.buffered(),
+    );
+}
+
+test "rule suggestions use backend identity and sanitize titles" {
+    var state: State = .{ .registry = undefined };
+    var xdg: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .info_done = true,
+        .identifier = @constCast("xdg-window"),
+        .foreign_app_id = @constCast("foreign.xdg"),
+        .app_id = @constCast("org.example.App"),
+        .title = @constCast("First\nTitle"),
+        .matched_rule = 3,
+    };
+    var xwayland: Window = .{
+        .state = &state,
+        .handle = undefined,
+        .info_done = true,
+        .backend = .xwayland,
+        .identifier = @constCast("x11-window"),
+        .foreign_app_id = @constCast("fallback-class"),
+        .title = @constCast("Quoted \"title\""),
+    };
+    var windows = [_]*Window{ &xdg, &xwayland };
+    state.windows = .{ .items = &windows, .capacity = windows.len };
+
+    var buffer: [2048]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeRules(&writer, &state);
+
+    try std.testing.expectEqualStrings(
+        "# xdg-window — First Title (currently matches rule 3)\n" ++
+            "[[window]]\napp_id = \"org.example.App\"\n# title = \"First\\nTitle\"\n\n" ++
+            "# x11-window — Quoted \"title\"\n" ++
+            "[[window]]\nclass = \"fallback-class\"\n# title = \"Quoted \\\"title\\\"\"\n\n",
+        writer.buffered(),
+    );
+}
+
+test "scene tree renders hierarchy, status, geometry, and single-line labels" {
+    var state: State = .{ .registry = undefined };
+    var nodes = [_]SceneNode{
+        .{ .id = 1, .parent = 0, .label = @constCast("root"), .node_type = .tree, .enabled = true, .geometry = .{} },
+        .{ .id = 2, .parent = 1, .label = @constCast("alpha"), .node_type = .tree, .enabled = true, .geometry = .{} },
+        .{ .id = 3, .parent = 2, .label = @constCast("leaf\nname"), .node_type = .buffer, .enabled = false, .geometry = .{ .x = 1, .y = 2, .width = 3, .height = 4 } },
+        .{ .id = 4, .parent = 1, .label = @constCast("beta"), .node_type = .rect, .enabled = true, .geometry = .{} },
+    };
+    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len };
+
+    var buffer: [1024]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeSceneTree(&writer, &state);
+
+    try std.testing.expectEqualStrings(
+        "root [tree]\n" ++
+            "├─ alpha [tree]\n" ++
+            "│  └─ leaf name [buffer] disabled (1,2 3x4)\n" ++
+            "└─ beta [rect]\n",
+        writer.buffered(),
+    );
+}
+
+test "scene dot escapes labels and styles node types" {
+    var state: State = .{ .registry = undefined };
+    var nodes = [_]SceneNode{
+        .{ .id = 1, .parent = 0, .label = @constCast("root\"\\\n"), .node_type = .tree, .enabled = true, .geometry = .{} },
+        .{ .id = 2, .parent = 1, .label = @constCast("leaf"), .node_type = .buffer, .enabled = false, .geometry = .{ .width = 10, .height = 20 } },
+    };
+    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len };
+
+    var buffer: [2048]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeSceneDot(&writer, &state);
+    const output = writer.buffered();
+
+    try std.testing.expect(mem.indexOf(u8, output, "n1 [label=\"root\\\"\\\\\\n\\ntree\"") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "fillcolor=\"#93c5fd\"") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "leaf\\nbuffer · disabled\\n0,0 10x20") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "fillcolor=\"#94a3b8\", style=\"rounded,filled,dashed\"") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "n1 -> n2;") != null);
 }

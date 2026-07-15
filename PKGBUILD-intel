@@ -2,7 +2,7 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous-git-intel
 pkgbase=aqueous-intel
-pkgver=0.3.0 # Will be updated by pkgver()
+pkgver=0.4.0 # Will be updated by pkgver()
 pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 build)"
 arch=('x86_64')
