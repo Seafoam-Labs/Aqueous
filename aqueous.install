@@ -2,10 +2,9 @@ post_install() {
     cat <<'EOF'
 ==> Aqueous installed (single-process Zig build).
 
-    Select 'Aqueous' from your display manager's session list. 'ly' is the
-    recommended greeter (enable it with 'systemctl enable ly.service'); sddm
-    and tuigreet/greetd also work. greetd users can install
-    'aqueous-greetd-config' (or apply packaging/greetd/config.toml.example).
+    Select 'Aqueous' from your display manager's session list. 'noctalia-greeter' is the
+    recommended greeter (enable it with 'systemctl enable greetd.service'); sddm
+    and tuigreet/greetd also work.
 
     The session is now managed by uwsm (Universal Wayland Session Manager):
     the 'Aqueous' wayland-session entry runs 'uwsm start -- aqueous-wm', which
@@ -81,7 +80,6 @@ post_remove() {
         ~/.cache/aqueous
         ~/.config/aqueous
         ~/.local/state/aqueous
-        ~/.local/state/river
 
     Delete manually if no longer wanted.
 EOF

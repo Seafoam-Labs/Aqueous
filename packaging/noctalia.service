@@ -8,6 +8,7 @@ After=graphical-session.target
 # xdg-desktop-autostart.target register against a watcher that doesn't exist
 # yet and drop their icons.
 Before=xdg-desktop-autostart.target
+ConditionEnvironment=XDG_CURRENT_DESKTOP=Aqueous
 
 [Service]
 # Noctalia v5 is the native C++/GLES shell. `--daemon` forks the shell into the
