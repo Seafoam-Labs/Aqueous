@@ -10,16 +10,16 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
-         'libscenefx-0.5.so')
+         'libscenefx-0.5.so' 'zig >= 0.16')
 makedepends=('clang' 'lld' 'llvm'
-             'git' 'scdoc' 'wayland-protocols' 'libscenefx-0.5.so' 'zig>=0.16')
-optdepends=('noctalia-greeter: recommended display manager / login greeter'
+             'git' 'scdoc' 'wayland-protocols' 'libscenefx-0.5.so')
+optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
@@ -29,8 +29,10 @@ conflicts=('aqueous-git' 'aqueous-bin')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
+    'packaging/aqueous-dms.service'
 )
-sha256sums=('SKIP')
+sha256sums=('SKIP'
+            '382aab54e57cc8c90923b0d9d2807af7d941e05b148bb19f24dca382b0f6d2a4')
 
 build() {
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
@@ -117,6 +119,9 @@ package() {
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
+    sed -i 's|toggle_start_menu = "noctalia msg panel-toggle launcher"|toggle_start_menu = "dms ipc call spotlight toggle"|' \
+        "$pkgdir/etc/xdg/aqueous/wm.toml" \
+        "$pkgdir/usr/share/aqueous/wm.toml"
 
     # Session wrapper target. graphical-session.target is static
     # (RefuseManualStart) and xdg-desktop-portal.service has
@@ -127,20 +132,14 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
         "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
 
-    # Noctalia shell as a graphical-session.target user unit. This brings the
-    # SNI tray watcher (org.kde.StatusNotifierWatcher) up BEFORE
-    # xdg-desktop-autostart.target, so tray apps autostarted by uwsm register
-    # against a live watcher and their icons populate on first login. The
-    # symlink in graphical-session.target.wants pulls it in on every session
-    # with zero per-user action (mirrors how the rest of the session is wired).
-    # Replaces the old [[exec]] noctalia block in wm.toml (which lost the
-    # startup race because it launched the bar after Aqueous had already
-    # started, post xdg-desktop-autostart.target).
-    install -Dm644 "$srcdir/aqueous/packaging/noctalia.service" \
-        "$pkgdir/usr/lib/systemd/user/noctalia.service"
+    # DMS as a graphical-session user unit. The unit's XDG_CURRENT_DESKTOP
+    # condition restricts it to Aqueous even though graphical-session.target is
+    # shared by every desktop and compositor in the user's systemd manager.
+    install -Dm644 "$srcdir/aqueous-dms.service" \
+        "$pkgdir/usr/lib/systemd/user/aqueous-dms.service"
     install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
-    ln -s ../noctalia.service \
-        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/noctalia.service"
+    ln -s ../aqueous-dms.service \
+        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service"
 
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.
@@ -149,16 +148,6 @@ package() {
 
     install -Dm644 "$srcdir/aqueous/packaging/udev/70-aqueous-uaccess.rules" \
         "$pkgdir/usr/lib/udev/rules.d/70-aqueous-uaccess.rules"
-
-    # Default Noctalia (v5) config (seeded on first launch by aqueous-init when
-    # the user has no ~/.config/noctalia/config.toml yet).
-    install -Dm644 "$srcdir/aqueous/packaging/noctalia/config.toml" \
-        "$pkgdir/usr/share/aqueous/noctalia/config.toml"
-
-    # Default wallpapers referenced by the shipped Noctalia config.
-    install -d "$pkgdir/usr/share/aqueous/wallpapers"
-    install -m644 "$srcdir/aqueous/packaging/wallpapers/"*.avif \
-        "$pkgdir/usr/share/aqueous/wallpapers/"
 
     # Documented greetd example (not auto-installed to /etc).
     install -Dm644 "$srcdir/aqueous/packaging/greetd/config.toml.example" \

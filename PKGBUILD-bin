@@ -10,16 +10,16 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'noctalia-git' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle; the aqueous.desktop session
          # entry execs `uwsm start`.
          'uwsm'
          'scenefx')
-optdepends=('ly: recommended display manager / login greeter'
+optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
-            'tabby: recommended terminal emulator'
+            'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser'
             'wireplumber: volume/media key bindings (wpctl)')

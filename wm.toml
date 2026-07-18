@@ -128,15 +128,15 @@ right  = 0
 # selective blur awaits SceneFX mask support.
 # -----------------------------------------------------------------------------
 [blur]
-enabled = false  # set true to enable compositor backdrop blur
-radius  = 5      # blur radius in pixels
-passes  = 3      # number of blur passes (higher = blurrier, costlier)
+enabled = true  # set true to enable compositor backdrop blur
+radius  = 10      # blur radius in pixels
+passes  = 8      # number of blur passes (higher = blurrier, costlier)
 
 # Default window-content opacity (requires Aqueous with opacity support).
 # Per-window overrides live in rules.toml as `opacity = 0.85`.
 [opacity]
-enabled         = false  # set true to apply opacity to window content
-value           = 0.9    # stable opacity when focus_sensitive = false
+enabled         = true   # set true to apply opacity to window content
+value           = 0.85   # stable opacity when focus_sensitive = false
 focus_sensitive = false  # true = use focused/unfocused below per window focus
 focused         = 1.0    # focused-window opacity when focus_sensitive = true
 unfocused       = 0.9    # unfocused-window opacity when focus_sensitive = true
@@ -155,8 +155,7 @@ rate = 0.0
 # -----------------------------------------------------------------------------
 [actions]
 toggle_start_menu = "noctalia msg panel-toggle launcher"
-spawn_terminal = "tabby"
-lock_screen = "swaylock -f --screenshots --clock --indicator --effect-blur 7x5 --effect-vignette 0.5:0.5 --fade-in 0.2 --grace 2 --ring-color bb00cc --key-hover-color ee00ee --line-color 00000000 --inside-color 00000088 --separator-color 00000000"
+spawn_terminal = "ghostty"
 
 # -----------------------------------------------------------------------------
 # Keybindings.

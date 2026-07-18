@@ -1,0 +1,20 @@
+[Unit]
+Description=DankMaterialShell for Aqueous
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+Before=xdg-desktop-autostart.target
+ConditionEnvironment=XDG_CURRENT_DESKTOP=Aqueous
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.Notifications
+ExecStart=/usr/bin/dms run --session
+ExecReload=/usr/bin/pkill -USR1 -x dms
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+Slice=app-graphical.slice
+
+[Install]
+WantedBy=graphical-session.target
