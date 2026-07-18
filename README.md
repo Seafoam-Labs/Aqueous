@@ -124,19 +124,22 @@ See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.
 
-### Inspecting windows
+### Inspecting windows and outputs
 
 The build installs `aqueousctl`, a read-only Wayland client for discovering the
-exact identities used by window rules:
+exact identities used by window rules and the modes advertised by each output:
 
 ```sh
 aqueousctl windows
 aqueousctl windows --json
 aqueousctl inspect --rule
+aqueousctl outputs
 ```
 
-The final command emits ready-to-paste `[[window]]` entries. Native Wayland
+The rule command emits ready-to-paste `[[window]]` entries. Native Wayland
 windows use `app_id`; XWayland windows use their `WM_CLASS` as `class`.
+The outputs command lists available resolutions and refresh rates and marks the
+current and preferred modes.
 `wlrctl toplevel list` remains supported through the legacy foreign-toplevel
 management protocol for compatibility.
 

@@ -101,6 +101,10 @@ the standard ext protocol. `aqueousctl` combines the two protocols for table,
 JSON, and ready-to-paste rule output. All three foreign-window globals are
 hidden from Wayland security contexts.
 
+`aqueousctl outputs` separately reads the standard `wl_output` globals and
+prints every advertised physical resolution and refresh rate, marking current
+and preferred modes without entering the output-management transaction path.
+
 ## The transaction cycle
 
 Most interactions converge on `WindowManager.dirtyWindowing()`. It marks the

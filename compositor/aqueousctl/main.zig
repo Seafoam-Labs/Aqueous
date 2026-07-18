@@ -17,14 +17,47 @@ const usage =
     \\usage: aqueousctl windows [--json]
     \\       aqueousctl inspect --rule
     \\       aqueousctl scene [--dot]
+    \\       aqueousctl outputs
     \\
-    \\Inspect mapped windows, author rules, or visualize the compositor scene graph.
+    \\Inspect mapped windows and outputs, author rules, or visualize the compositor scene graph.
     \\
 ;
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
 
-const Mode = enum { windows, json, rules, scene, scene_dot };
+const Mode = enum { windows, json, rules, scene, scene_dot, outputs };
+
+const OutputMode = struct {
+    width: i32,
+    height: i32,
+    refresh_mhz: i32,
+    current: bool,
+    preferred: bool,
+};
+
+const DisplayOutput = struct {
+    handle: *wl.Output,
+    global_name: u32,
+    name: ?[]u8 = null,
+    make: ?[]u8 = null,
+    model: ?[]u8 = null,
+    description: ?[]u8 = null,
+    removed: bool = false,
+    modes: std.ArrayListUnmanaged(OutputMode) = .empty,
+
+    fn deinit(output: *DisplayOutput) void {
+        inline for (.{ output.name, output.make, output.model, output.description }) |value| {
+            if (value) |owned| allocator.free(owned);
+        }
+        output.modes.deinit(allocator);
+        if (output.handle.getVersion() >= wl.Output.release_since_version) {
+            output.handle.release();
+        } else {
+            output.handle.destroy();
+        }
+        allocator.destroy(output);
+    }
+};
 
 const SceneNode = struct {
     id: u32,
@@ -78,6 +111,7 @@ const Window = struct {
 
 const State = struct {
     registry: *wl.Registry,
+    collect_outputs: bool = false,
     list_name: u32 = 0,
     list_version: u32 = 0,
     info_name: u32 = 0,
@@ -87,6 +121,7 @@ const State = struct {
     scene_snapshot: ?*aqueous.SceneSnapshotV1 = null,
     scene_done: bool = false,
     scene_nodes: std.ArrayListUnmanaged(SceneNode) = .empty,
+    outputs: std.ArrayListUnmanaged(*DisplayOutput) = .empty,
     list_finished: bool = false,
     windows: std.ArrayListUnmanaged(*Window) = .empty,
 
@@ -95,6 +130,8 @@ const State = struct {
         state.windows.deinit(allocator);
         for (state.scene_nodes.items) |node| allocator.free(node.label);
         state.scene_nodes.deinit(allocator);
+        for (state.outputs.items) |output| output.deinit();
+        state.outputs.deinit(allocator);
         state.registry.destroy();
     }
 
@@ -137,10 +174,20 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer display.disconnect();
 
     const registry = try display.getRegistry();
-    var state: State = .{ .registry = registry };
+    var state: State = .{ .registry = registry, .collect_outputs = mode == .outputs };
     defer state.deinit();
     registry.setListener(*State, registryListener, &state);
     tryRoundtrip(display, stderr);
+
+    if (mode == .outputs) {
+        // Output globals are bound while dispatching the registry roundtrip.
+        // Complete one more roundtrip to receive their initial geometry, name,
+        // and advertised mode batches before rendering the snapshot.
+        tryRoundtrip(display, stderr);
+        try writeOutputs(stdout, &state);
+        try stdout.flush();
+        return;
+    }
 
     const scene_mode = mode == .scene or mode == .scene_dot;
     if (state.info_name == 0 or (!scene_mode and state.list_name == 0)) {
@@ -189,7 +236,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot => unreachable,
+        .scene, .scene_dot, .outputs => unreachable,
     }
     try stdout.flush();
 }
@@ -200,6 +247,7 @@ fn parseMode(args: anytype) ?Mode {
     if (args.len == 3 and mem.eql(u8, args[1], "inspect") and mem.eql(u8, args[2], "--rule")) return .rules;
     if (args.len == 2 and mem.eql(u8, args[1], "scene")) return .scene;
     if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) return .scene_dot;
+    if (args.len == 2 and mem.eql(u8, args[1], "outputs")) return .outputs;
     return null;
 }
 
@@ -220,9 +268,59 @@ fn registryListener(_: *wl.Registry, event: wl.Registry.Event, state: *State) vo
             } else if (mem.eql(u8, name, mem.span(aqueous.WindowInfoManagerV1.interface.name))) {
                 state.info_name = global.name;
                 state.info_version = global.version;
+            } else if (state.collect_outputs and mem.eql(u8, name, mem.span(wl.Output.interface.name))) {
+                const version = @min(global.version, wl.Output.generated_version);
+                const handle = state.registry.bind(global.name, wl.Output, version) catch return;
+                const output = allocator.create(DisplayOutput) catch {
+                    if (version >= wl.Output.release_since_version) handle.release() else handle.destroy();
+                    return;
+                };
+                output.* = .{ .handle = handle, .global_name = global.name };
+                state.outputs.append(allocator, output) catch {
+                    output.deinit();
+                    return;
+                };
+                handle.setListener(*DisplayOutput, outputListener, output);
             }
         },
-        .global_remove => {},
+        .global_remove => |removed| for (state.outputs.items) |output| {
+            if (output.global_name == removed.name) {
+                output.removed = true;
+                break;
+            }
+        },
+    }
+}
+
+fn outputListener(_: *wl.Output, event: wl.Output.Event, output: *DisplayOutput) void {
+    switch (event) {
+        .geometry => |value| {
+            replaceString(&output.make, mem.span(value.make));
+            replaceString(&output.model, mem.span(value.model));
+        },
+        .mode => |value| {
+            if (value.flags.current) {
+                for (output.modes.items) |*existing| existing.current = false;
+            }
+            for (output.modes.items) |*existing| {
+                if (existing.width != value.width or
+                    existing.height != value.height or
+                    existing.refresh_mhz != value.refresh) continue;
+                existing.current = value.flags.current;
+                existing.preferred = value.flags.preferred;
+                return;
+            }
+            output.modes.append(allocator, .{
+                .width = value.width,
+                .height = value.height,
+                .refresh_mhz = value.refresh,
+                .current = value.flags.current,
+                .preferred = value.flags.preferred,
+            }) catch {};
+        },
+        .name => |value| replaceString(&output.name, mem.span(value.name)),
+        .description => |value| replaceString(&output.description, mem.span(value.description)),
+        .done, .scale => {},
     }
 }
 
@@ -361,6 +459,70 @@ fn hasLaterSceneSibling(state: *const State, index: usize) bool {
 
 fn writeSingleLine(writer: *Io.Writer, value: []const u8) !void {
     for (value) |byte| try writer.writeByte(if (byte == '\n' or byte == '\r') ' ' else byte);
+}
+
+fn writeOutputs(writer: *Io.Writer, state: *const State) !void {
+    var rendered: usize = 0;
+    for (state.outputs.items) |output| {
+        if (output.removed) continue;
+        if (rendered != 0) try writer.writeByte('\n');
+        rendered += 1;
+
+        if (output.name) |name| {
+            try writeSingleLine(writer, name);
+        } else {
+            try writer.print("output-{d}", .{output.global_name});
+        }
+
+        if (output.description) |text| {
+            try writer.writeAll(" — ");
+            try writeSingleLine(writer, text);
+        } else if (output.make != null or output.model != null) {
+            var identity_buffer: [512]u8 = undefined;
+            const identity = std.fmt.bufPrint(&identity_buffer, "{s}{s}{s}", .{
+                output.make orelse "",
+                if (output.make != null and output.model != null) " " else "",
+                output.model orelse "",
+            }) catch "";
+            if (identity.len != 0) {
+                try writer.writeAll(" — ");
+                try writeSingleLine(writer, identity);
+            }
+        }
+        try writer.writeByte('\n');
+
+        if (output.modes.items.len == 0) {
+            try writer.writeAll("  (no modes advertised)\n");
+            continue;
+        }
+        for (output.modes.items) |available| {
+            try writer.print("  {d}x{d} @ ", .{ available.width, available.height });
+            try writeRefreshRate(writer, available.refresh_mhz);
+            if (available.current or available.preferred) {
+                try writer.writeAll(" [");
+                if (available.current) try writer.writeAll("current");
+                if (available.current and available.preferred) try writer.writeAll(", ");
+                if (available.preferred) try writer.writeAll("preferred");
+                try writer.writeByte(']');
+            }
+            try writer.writeByte('\n');
+        }
+    }
+    if (rendered == 0) try writer.writeAll("No outputs found.\n");
+}
+
+fn writeRefreshRate(writer: *Io.Writer, refresh_mhz: i32) !void {
+    if (refresh_mhz <= 0) return writer.writeAll("unknown refresh");
+    const fractional = @mod(refresh_mhz, 1000);
+    try writer.print("{d}.", .{@divTrunc(refresh_mhz, 1000)});
+    if (fractional < 10) {
+        try writer.print("00{d}", .{fractional});
+    } else if (fractional < 100) {
+        try writer.print("0{d}", .{fractional});
+    } else {
+        try writer.print("{d}", .{fractional});
+    }
+    try writer.writeAll(" Hz");
 }
 
 fn writeSceneDot(writer: *Io.Writer, state: *const State) !void {
@@ -543,11 +705,52 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.rules, parseMode(&.{ "aqueousctl", "inspect", "--rule" }).?);
     try testing.expectEqual(Mode.scene, parseMode(&.{ "aqueousctl", "scene" }).?);
     try testing.expectEqual(Mode.scene_dot, parseMode(&.{ "aqueousctl", "scene", "--dot" }).?);
+    try testing.expectEqual(Mode.outputs, parseMode(&.{ "aqueousctl", "outputs" }).?);
 
     try testing.expect(parseMode(&.{"aqueousctl"}) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "windows", "--dot" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "scene", "--json" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "outputs", "--json" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "inspect" }) == null);
+}
+
+test "outputs render advertised refresh rates and mode flags" {
+    var state: State = .{ .registry = undefined };
+    var first: DisplayOutput = .{
+        .handle = undefined,
+        .global_name = 7,
+        .name = @constCast("DP-1"),
+        .description = @constCast("Example Display\n27-inch"),
+    };
+    var first_modes = [_]OutputMode{
+        .{ .width = 3840, .height = 2160, .refresh_mhz = 59_997, .current = true, .preferred = true },
+        .{ .width = 2560, .height = 1440, .refresh_mhz = 120_000, .current = false, .preferred = false },
+        .{ .width = 1920, .height = 1080, .refresh_mhz = 0, .current = false, .preferred = false },
+    };
+    first.modes = .{ .items = &first_modes, .capacity = first_modes.len };
+    var second: DisplayOutput = .{
+        .handle = undefined,
+        .global_name = 9,
+        .make = @constCast("Acme"),
+        .model = @constCast("Panel"),
+    };
+    var outputs = [_]*DisplayOutput{ &first, &second };
+    state.outputs = .{ .items = &outputs, .capacity = outputs.len };
+
+    var buffer: [2048]u8 = undefined;
+    var writer = Io.Writer.fixed(&buffer);
+    try writeOutputs(&writer, &state);
+
+    try std.testing.expectEqualStrings(
+        "DP-1 — Example Display 27-inch\n" ++
+            "  3840x2160 @ 59.997 Hz [current, preferred]\n" ++
+            "  2560x1440 @ 120.000 Hz\n" ++
+            "  1920x1080 @ unknown refresh\n" ++
+            "\n" ++
+            "output-9 — Acme Panel\n" ++
+            "  (no modes advertised)\n",
+        writer.buffered(),
+    );
 }
 
 test "pending waits for the list and every live window snapshot" {

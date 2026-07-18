@@ -27,7 +27,7 @@ compositor/
 ├── build.zig                 # canonical build and Zig tests
 ├── aqueous/                  # compositor integration
 │   └── wm/                   # policy, config, layouts, rules, input, outputs
-├── aqueousctl/               # read-only window inspection client
+├── aqueousctl/               # read-only window and output inspection client
 ├── protocol/                 # Wayland protocol definitions
 └── scripts/                  # headless integration checks
 scripts/build-compositor.sh   # stages bin/aqueous and bin/aqueousctl
