@@ -544,6 +544,12 @@ pub fn applyPlacement(_: CompositorApi, placement: layout.Placement) void {
         placement.geometry.y,
         placement.geometry.width,
         placement.geometry.height,
+        if (placement.clip) |clip| .{
+            .x = clip.x,
+            .y = clip.y,
+            .width = clip.width,
+            .height = clip.height,
+        } else null,
         placement.visible,
         @intCast(@max(0, placement.border.width)),
         border_color,

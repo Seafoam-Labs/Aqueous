@@ -56,6 +56,10 @@ pub const Options = struct {
 pub const Placement = struct {
     handle: Handle,
     geometry: Rect,
+    /// Optional rendering clip in window-local coordinates. Layouts which
+    /// expose only part of a full-sized window use this to describe their
+    /// viewport without changing the configured window dimensions.
+    clip: ?Rect = null,
     z_order: i32,
     visible: bool,
     border: Border,

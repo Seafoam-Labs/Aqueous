@@ -251,6 +251,27 @@ test "game mode routes viewport movement to a scrolling fallback" {
     try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_index);
 }
 
+test "game mode preserves each scrolling side column as its own viewport" {
+    var state: State = .{
+        .rule_anchor = 1,
+        .rule_options = .{
+            .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+            .remainder = .scrolling,
+            .gaps_inner = 0,
+        },
+    };
+    defer state.deinit(std.testing.allocator);
+    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 300, .height = 100 }, &.{
+        .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 }, .{ .handle = 5 },
+    }, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
+    defer std.testing.allocator.free(placements);
+
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 2).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 3).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 4).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 5).clip.?);
+}
+
 test "game mode applies rows independently to both side columns" {
     var state: State = .{
         .rule_anchor = 1,

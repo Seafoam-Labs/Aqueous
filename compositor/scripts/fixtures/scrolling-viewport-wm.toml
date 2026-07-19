@@ -1,0 +1,22 @@
+[layout]
+default = "scrolling"
+gaps_outer = 0
+gaps_inner = 0
+border_width = 0
+
+[layout.options.scrolling]
+column_fraction = 0.5
+center_focused = true
+follow_new_windows = true
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0
+
+[input]
+focus_follows_mouse = false
+
+[keybinds]
+focus_left = "Super+H"

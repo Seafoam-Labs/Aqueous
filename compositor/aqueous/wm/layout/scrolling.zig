@@ -84,11 +84,23 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     }
     for (result, handles, widths, offsets, 0..) |*placement, handle, width, offset, index| {
         const x = area.x + offset - state.viewport_x;
+        const geometry: types.Rect = .{ .x = x, .y = area.y, .width = width, .height = area.height };
+        const visible = math.intersect(geometry, area).width > 0;
         placement.* = .{
             .handle = handle,
-            .geometry = .{ .x = x, .y = area.y, .width = width, .height = area.height },
+            .geometry = geometry,
+            // The viewport stays fixed while the full window moves behind it.
+            // Expressing it relative to the window keeps the compositor-side
+            // clip correct for non-zero output origins and nested scrolling
+            // areas such as game-mode side columns.
+            .clip = if (visible) .{
+                .x = area.x - geometry.x,
+                .y = area.y - geometry.y,
+                .width = area.width,
+                .height = area.height,
+            } else null,
             .z_order = if (index == state.focused_index) 1 else 0,
-            .visible = x + width > area.x and x < area.right(),
+            .visible = visible,
             .border = options.border,
         };
     }
@@ -126,7 +138,29 @@ test "scrolling centres focus and hides off-screen columns" {
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(@as(i32, 25), placements[2].geometry.x);
     try std.testing.expect(!placements[0].visible);
+    try std.testing.expectEqual(@as(?types.Rect, null), placements[0].clip);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 80 }, placements[1].clip.?);
     try std.testing.expect(placements[2].visible);
+    try std.testing.expectEqual(types.Rect{ .x = -75, .y = 0, .width = 100, .height = 80 }, placements[3].clip.?);
+}
+
+test "scrolling clips oversized columns to a non-zero viewport" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const placements = try arrange(
+        std.testing.allocator,
+        &state,
+        .{ .x = 200, .y = 40, .width = 120, .height = 90 },
+        &.{.{ .handle = 1, .min_width = 160 }},
+        1,
+        .{ .gaps_outer = 10, .gaps_inner = 0 },
+        .{},
+    );
+    defer std.testing.allocator.free(placements);
+
+    try std.testing.expectEqual(types.Rect{ .x = 180, .y = 50, .width = 160, .height = 70 }, placements[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 30, .y = 0, .width = 100, .height = 70 }, placements[0].clip.?);
+    try std.testing.expect(placements[0].visible);
 }
 
 test "manual column pan survives arrange while focus is unchanged" {

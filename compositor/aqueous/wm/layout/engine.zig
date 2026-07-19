@@ -113,6 +113,25 @@ test "pointer reorder swaps rows without changing window state" {
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.rows.order.items.items);
 }
 
+test "switching away from scrolling returns unclipped placements" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    snapshot.options[@intFromEnum(config.LayoutId.scrolling)].gaps_outer = 0;
+    snapshot.options[@intFromEnum(config.LayoutId.scrolling)].gaps_inner = 0;
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const scrolling_placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 1, .{});
+    defer std.testing.allocator.free(scrolling_placements);
+    try std.testing.expect(scrolling_placements[0].clip != null);
+
+    snapshot.default = .tile;
+    const tiled_placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 1, .{});
+    defer std.testing.allocator.free(tiled_placements);
+    try std.testing.expectEqual(@as(?types.Rect, null), tiled_placements[0].clip);
+    try std.testing.expectEqual(@as(?types.Rect, null), tiled_placements[1].clip);
+}
+
 test "all managed layouts advertise tiled placements while floating does not" {
     inline for (.{
         config.LayoutId.tile,

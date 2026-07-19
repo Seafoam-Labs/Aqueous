@@ -371,6 +371,10 @@ anim_active: bool = false,
 anim_initialized: bool = false,
 /// True while `anim_tree` currently holds a cloned snapshot of the surfaces.
 anim_snapshot: bool = false,
+/// Original geometry of each buffer cloned into `anim_tree`. Clipped scrolling
+/// animations recrop these buffers on every frame so the viewport remains
+/// fixed in layout coordinates while the clone moves behind it.
+anim_buffers: std.ArrayListUnmanaged(AnimBuffer) = .empty,
 /// Set once a window's clone has been seeded off-screen for the current
 /// workspace-swap slide, so the seeding only happens on the first transition
 /// frame. Reset at the start of each transition in `Output.activateWorkspace`.
@@ -453,6 +457,7 @@ pub fn policyApplyPlacement(
     y: i32,
     width: i32,
     height: i32,
+    clip: ?wlr.Box,
     visible: bool,
     border_width: u31,
     border_color: u32,
@@ -477,6 +482,9 @@ pub fn policyApplyPlacement(
     }
     window.rendering_requested.x = x;
     window.rendering_requested.y = y;
+    // Placement is a complete rendering contract. Clear clips requested by a
+    // previous scrolling layout when the new layout does not provide one.
+    window.rendering_requested.clip = clip orelse .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     window.rendering_requested.hidden = !visible;
     window.wm_requested.tiled = if (tiled) .{ .top = true, .bottom = true, .left = true, .right = true } else .{};
     window.wm_requested.maximized = maximized;
@@ -670,6 +678,7 @@ pub fn destroy(window: *Window) void {
     window.tree.node.destroy();
     window.popup_tree.node.destroy();
     window.anim_tree.node.destroy();
+    window.anim_buffers.deinit(util.gpa);
     window.capture_scene.tree.node.destroy();
 
     window.node.deinit();
@@ -1488,6 +1497,7 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
     // Geometry/input always settle at the target; only `anim_tree` animates.
     window.box.x = target_x;
     window.box.y = target_y;
+    window.updateAnimationClip();
 }
 
 /// Capture a frozen clone of the live surfaces into `anim_tree`, positioned at the
@@ -1502,7 +1512,23 @@ fn armSnapshot(window: *Window) void {
     if (window.tree.node.parent) |parent| {
         window.anim_tree.node.reparent(parent);
     }
+    // A scrolling window's live surface tree may already be cropped by the
+    // prior frame. Temporarily remove that crop so the snapshot retains the
+    // complete buffer and can reveal the correct portion as it moves. The live
+    // tree receives the current requested clip later in renderFinish().
+    const no_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    window.applySurfaceClip(&no_clip, &no_clip);
     window.surfaces.cloneInto(window.anim_tree);
+    window.anim_buffers.clearRetainingCapacity();
+    var capture: AnimBufferCapture = .{ .window = window };
+    window.anim_tree.node.forEachBuffer(*AnimBufferCapture, captureAnimBuffer, &capture);
+    if (capture.failed) {
+        log.err("unable to track animation buffers for viewport clipping", .{});
+        var it = window.anim_tree.children.safeIterator(.forward);
+        while (it.next()) |node| node.destroy();
+        window.anim_buffers.clearRetainingCapacity();
+        return;
+    }
     window.anim_tree.node.setPosition(
         @intFromFloat(@round(window.anim_x)),
         @intFromFloat(@round(window.anim_y)),
@@ -1532,6 +1558,7 @@ fn clearSnapshot(window: *Window) void {
     if (!window.anim_snapshot) return;
     var it = window.anim_tree.children.safeIterator(.forward);
     while (it.next()) |node| node.destroy();
+    window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
     window.applyOpacity();
@@ -1609,8 +1636,149 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
         @intFromFloat(@round(window.anim_x)),
         @intFromFloat(@round(window.anim_y)),
     );
+    window.updateAnimationClip();
 
     return true;
+}
+
+const AnimBuffer = struct {
+    buffer: *wlr.SceneBuffer,
+    x: i32,
+    y: i32,
+    source: wlr.FBox,
+    dest_width: i32,
+    dest_height: i32,
+    transform: wl.Output.Transform,
+};
+
+const AnimBufferCapture = struct {
+    window: *Window,
+    failed: bool = false,
+};
+
+fn captureAnimBuffer(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, capture: *AnimBufferCapture) void {
+    if (capture.failed) return;
+    const source = effectiveSourceBox(buffer) orelse return;
+    const quarter_turn = transformSwapsAxes(buffer.transform);
+    const natural_width = if (quarter_turn) source.height else source.width;
+    const natural_height = if (quarter_turn) source.width else source.height;
+    const dest_width = if (buffer.dst_width > 0)
+        buffer.dst_width
+    else
+        @max(1, @as(i32, @intFromFloat(@round(natural_width))));
+    const dest_height = if (buffer.dst_height > 0)
+        buffer.dst_height
+    else
+        @max(1, @as(i32, @intFromFloat(@round(natural_height))));
+    capture.window.anim_buffers.append(util.gpa, .{
+        .buffer = buffer,
+        .x = sx,
+        .y = sy,
+        .source = source,
+        .dest_width = dest_width,
+        .dest_height = dest_height,
+        .transform = buffer.transform,
+    }) catch {
+        capture.failed = true;
+    };
+}
+
+fn effectiveSourceBox(buffer: *const wlr.SceneBuffer) ?wlr.FBox {
+    if (!buffer.src_box.empty()) return buffer.src_box;
+    const backing = buffer.buffer orelse return null;
+    if (backing.width <= 0 or backing.height <= 0) return null;
+    return .{
+        .x = 0,
+        .y = 0,
+        .width = @floatFromInt(backing.width),
+        .height = @floatFromInt(backing.height),
+    };
+}
+
+fn transformSwapsAxes(transform: wl.Output.Transform) bool {
+    return switch (transform) {
+        .@"90", .@"270", .flipped_90, .flipped_270 => true,
+        else => false,
+    };
+}
+
+fn inverseTransform(transform: wl.Output.Transform) wl.Output.Transform {
+    return switch (transform) {
+        .@"90" => .@"270",
+        .@"270" => .@"90",
+        // Reflections, including reflected rotations, are self-inverse.
+        else => transform,
+    };
+}
+
+/// Crop the input-inert animation clone against the fixed global viewport.
+/// Source rectangles are transformed back into buffer coordinates so rotated
+/// and flipped client buffers remain correct.
+fn updateAnimationClip(window: *Window) void {
+    if (!window.anim_snapshot) return;
+    const requested = &window.rendering_requested;
+    if (requested.clip.empty()) {
+        for (window.anim_buffers.items) |record| restoreAnimBuffer(record);
+        return;
+    }
+
+    const origin_x: i32 = @intFromFloat(@round(window.anim_x));
+    const origin_y: i32 = @intFromFloat(@round(window.anim_y));
+    const viewport: wlr.Box = .{
+        .x = requested.x + requested.clip.x,
+        .y = requested.y + requested.clip.y,
+        .width = requested.clip.width,
+        .height = requested.clip.height,
+    };
+    for (window.anim_buffers.items) |record| {
+        const destination: visual_state.Rect = .{
+            .x = origin_x + record.x,
+            .y = origin_y + record.y,
+            .width = record.dest_width,
+            .height = record.dest_height,
+        };
+        const clipped = visual_state.destinationCrop(destination, .{
+            .x = viewport.x,
+            .y = viewport.y,
+            .width = viewport.width,
+            .height = viewport.height,
+        }) orelse {
+            record.buffer.node.setEnabled(false);
+            continue;
+        };
+
+        record.buffer.node.setEnabled(true);
+        const crop_x = clipped.x;
+        const crop_y = clipped.y;
+        record.buffer.node.setPosition(record.x + crop_x, record.y + crop_y);
+        record.buffer.setDestSize(clipped.width, clipped.height);
+
+        const transformed_width = if (transformSwapsAxes(record.transform)) record.source.height else record.source.width;
+        const transformed_height = if (transformSwapsAxes(record.transform)) record.source.width else record.source.height;
+        const transformed_crop: wlr.FBox = .{
+            .x = @as(f64, @floatFromInt(crop_x)) * transformed_width / @as(f64, @floatFromInt(record.dest_width)),
+            .y = @as(f64, @floatFromInt(crop_y)) * transformed_height / @as(f64, @floatFromInt(record.dest_height)),
+            .width = @as(f64, @floatFromInt(clipped.width)) * transformed_width / @as(f64, @floatFromInt(record.dest_width)),
+            .height = @as(f64, @floatFromInt(clipped.height)) * transformed_height / @as(f64, @floatFromInt(record.dest_height)),
+        };
+        var source_crop: wlr.FBox = undefined;
+        source_crop.transform(
+            &transformed_crop,
+            inverseTransform(record.transform),
+            transformed_width,
+            transformed_height,
+        );
+        source_crop.x += record.source.x;
+        source_crop.y += record.source.y;
+        record.buffer.setSourceBox(&source_crop);
+    }
+}
+
+fn restoreAnimBuffer(record: AnimBuffer) void {
+    record.buffer.node.setEnabled(true);
+    record.buffer.node.setPosition(record.x, record.y);
+    record.buffer.setDestSize(record.dest_width, record.dest_height);
+    record.buffer.setSourceBox(&record.source);
 }
 
 fn drawBorders(window: *Window) void {
