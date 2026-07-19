@@ -16,7 +16,7 @@ pub const GestureBinding = struct {
     kind: GestureKind = undefined,
     direction: GestureDirection = undefined,
     fingers: u8 = undefined,
-    verb: wm.Text = undefined,
+    verb: wm.Text = .{},
 };
 
 pub const Binding = struct {
@@ -51,6 +51,20 @@ pub const Snapshot = struct {
     pub fn find(snapshot: *const Snapshot, keysym: u32, modifiers: u32) ?[]const u8 {
         for (snapshot.bindings[0..snapshot.binding_count]) |*binding| {
             if (binding.keysym == keysym and binding.modifiers == modifiers) return binding.verb.slice();
+        }
+        return null;
+    }
+
+    pub fn hasGesture(snapshot: *const Snapshot, kind: GestureKind, fingers: u8) bool {
+        for (snapshot.gestures[0..snapshot.gestures_count]) |gesture| {
+            if (gesture.kind == kind and gesture.fingers == fingers) return true;
+        }
+        return false;
+    }
+
+    pub fn findGesture(snapshot: *const Snapshot, kind: GestureKind, direction: GestureDirection, fingers: u8) ?[]const u8 {
+        for (snapshot.gestures[0..snapshot.gestures_count]) |*gesture| {
+            if (gesture.kind == kind and gesture.direction == direction and gesture.fingers == fingers) return gesture.verb.slice();
         }
         return null;
     }
@@ -135,7 +149,6 @@ pub fn addBinding(snapshot: *Snapshot, chord: []const u8, verb: []const u8) void
 }
 
 pub fn addGesture(snapshot: *Snapshot, kind: GestureKind, direction: GestureDirection, fingers: u8, verb: []const u8) void {
-    if (snapshot.gestures_count == max_gestures) return;
     var gesture: GestureBinding = .{ .direction = direction, .kind = kind, .fingers = fingers };
     if (!gesture.verb.set(verb)) return;
     var i: usize = 0;
@@ -145,6 +158,7 @@ pub fn addGesture(snapshot: *Snapshot, kind: GestureKind, direction: GestureDire
             return;
         }
     }
+    if (snapshot.gestures_count == max_gestures) return;
     snapshot.gestures[snapshot.gestures_count] = gesture;
     snapshot.gestures_count += 1;
 }
@@ -215,6 +229,20 @@ test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = '2' }, parseChord("Super+Shift+2").?);
     try std.testing.expectEqual(@as(u32, 0x1008ff13), parseChord("XF86AudioRaiseVolume").?.keysym);
     try std.testing.expect(parseChord("Super+Shift") == null);
+}
+
+test "gesture bindings can be captured, resolved, and replaced" {
+    var snapshot: Snapshot = .{};
+    addGesture(&snapshot, .swipe, .left, 3, "builtin:focus_workspace_down");
+
+    try std.testing.expect(snapshot.hasGesture(.swipe, 3));
+    try std.testing.expect(!snapshot.hasGesture(.pinch, 3));
+    try std.testing.expectEqualStrings("builtin:focus_workspace_down", snapshot.findGesture(.swipe, .left, 3).?);
+    try std.testing.expect(snapshot.findGesture(.swipe, .right, 3) == null);
+
+    addGesture(&snapshot, .swipe, .left, 3, "builtin:focus_workspace_up");
+    try std.testing.expectEqual(@as(u8, 1), snapshot.gestures_count);
+    try std.testing.expectEqualStrings("builtin:focus_workspace_up", snapshot.findGesture(.swipe, .left, 3).?);
 }
 
 test "shipped defaults keep scrolling output navigation and pointer actions reachable" {

@@ -23,6 +23,7 @@ const InputManager = @import("InputManager.zig");
 const InputRelay = @import("InputRelay.zig");
 const Keyboard = @import("Keyboard.zig");
 const KeyboardGroup = @import("KeyboardGroup.zig");
+const Gesture = @import("wm/input/gestures.zig");
 const LayerShellSeat = @import("LayerShellSeat.zig");
 const LayerSurface = @import("LayerSurface.zig");
 const LockSurface = @import("LockSurface.zig");
@@ -211,6 +212,7 @@ layer_shell: LayerShellSeat = .{},
 xkb_bindings_seat: XkbBindingsSeat = .{},
 
 event_queue: std.Deque(Event),
+gesture: Gesture.State = .{},
 
 /// State to be sent to the wm in the next manage sequence.
 wm_scheduled: struct {
@@ -459,13 +461,37 @@ pub fn processEvents(seat: *Seat) void {
             .pointer_axis => |ev| seat.cursor.processAxis(&ev),
             .pointer_frame => seat.wlr_seat.pointerNotifyFrame(),
 
-            .pointer_swipe_begin => |ev| pg.sendSwipeBegin(seat.wlr_seat, ev.time_msec, ev.fingers),
-            .pointer_swipe_update => |ev| pg.sendSwipeUpdate(seat.wlr_seat, ev.time_msec, ev.dx, ev.dy),
-            .pointer_swipe_end => |ev| pg.sendSwipeEnd(seat.wlr_seat, ev.time_msec, ev.cancelled),
+            .pointer_swipe_begin => |ev| {
+                seat.gesture.reset();
+                const captured = server.aqueous.wantsGesture(.swipe, ev.fingers) and seat.gesture.beginSwipe(ev.fingers);
+                if (!captured) pg.sendSwipeBegin(seat.wlr_seat, ev.time_msec, ev.fingers);
+            },
+            .pointer_swipe_update => |ev| {
+                if (!seat.gesture.updateSwipe(ev.dx, ev.dy)) pg.sendSwipeUpdate(seat.wlr_seat, ev.time_msec, ev.dx, ev.dy);
+            },
+            .pointer_swipe_end => |ev| {
+                if (seat.gesture.swipeActive()) {
+                    if (seat.gesture.endSwipe(ev.cancelled)) |gesture| server.aqueous.handleGesture(gesture);
+                } else {
+                    pg.sendSwipeEnd(seat.wlr_seat, ev.time_msec, ev.cancelled);
+                }
+            },
 
-            .pointer_pinch_begin => |ev| pg.sendPinchBegin(seat.wlr_seat, ev.time_msec, ev.fingers),
-            .pointer_pinch_update => |ev| pg.sendPinchUpdate(seat.wlr_seat, ev.time_msec, ev.dx, ev.dy, ev.scale, ev.rotation),
-            .pointer_pinch_end => |ev| pg.sendPinchEnd(seat.wlr_seat, ev.time_msec, ev.cancelled),
+            .pointer_pinch_begin => |ev| {
+                seat.gesture.reset();
+                const captured = server.aqueous.wantsGesture(.pinch, ev.fingers) and seat.gesture.beginPinch(ev.fingers);
+                if (!captured) pg.sendPinchBegin(seat.wlr_seat, ev.time_msec, ev.fingers);
+            },
+            .pointer_pinch_update => |ev| {
+                if (!seat.gesture.updatePinch(ev.scale)) pg.sendPinchUpdate(seat.wlr_seat, ev.time_msec, ev.dx, ev.dy, ev.scale, ev.rotation);
+            },
+            .pointer_pinch_end => |ev| {
+                if (seat.gesture.pinchActive()) {
+                    if (seat.gesture.endPinch(ev.cancelled)) |gesture| server.aqueous.handleGesture(gesture);
+                } else {
+                    pg.sendPinchEnd(seat.wlr_seat, ev.time_msec, ev.cancelled);
+                }
+            },
 
             .pointer_hold_begin => |ev| pg.sendHoldBegin(seat.wlr_seat, ev.time_msec, ev.fingers),
             .pointer_hold_end => |ev| pg.sendHoldEnd(seat.wlr_seat, ev.time_msec, ev.cancelled),

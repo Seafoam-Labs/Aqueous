@@ -21,6 +21,7 @@ const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const pointer_drag = @import("input/drag.zig");
+const gesture_input = @import("input/gestures.zig");
 const StateStore = @import("state/store.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
@@ -372,6 +373,17 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
     }
     if (pressed) aqueous.runVerb(verb);
     return true;
+}
+
+pub fn wantsGesture(aqueous: *const Aqueous, kind: action_config.GestureKind, fingers: u32) bool {
+    if (!aqueous.mode.runsInternal() or fingers > std.math.maxInt(u8)) return false;
+    return aqueous.config.actions.hasGesture(kind, @intCast(fingers));
+}
+
+pub fn handleGesture(aqueous: *Aqueous, gesture: gesture_input.Completed) void {
+    if (!aqueous.mode.runsInternal()) return;
+    const verb = aqueous.config.actions.findGesture(gesture.kind, gesture.direction, gesture.fingers) orelse return;
+    aqueous.runVerb(verb);
 }
 
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64) bool {
