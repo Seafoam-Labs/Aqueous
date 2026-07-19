@@ -6,6 +6,18 @@ const wm = @import("wm.zig");
 
 pub const max_bindings = 160;
 pub const max_exec = 32;
+pub const max_gestures = 16;
+
+pub const GestureKind = enum { swipe, pinch };
+
+pub const GestureDirection = enum { left, right, up, down, in, out };
+
+pub const GestureBinding = struct {
+    kind: GestureKind = undefined,
+    direction: GestureDirection = undefined,
+    fingers: u8 = undefined,
+    verb: wm.Text = undefined,
+};
 
 pub const Binding = struct {
     modifiers: u32 = 0,
@@ -23,11 +35,14 @@ pub const Exec = struct {
     log_path: wm.Text = .{},
     env: wm.Text = .{},
 };
+
 pub const Snapshot = struct {
     bindings: [max_bindings]Binding = undefined,
     binding_count: u16 = 0,
     exec: [max_exec]Exec = undefined,
     exec_count: u8 = 0,
+    gestures: [max_gestures]GestureBinding = undefined,
+    gestures_count: u8 = 0,
     toggle_start_menu: wm.Text = .{},
     spawn_terminal: wm.Text = .{},
     lock_screen: wm.Text = .{},
@@ -117,6 +132,21 @@ pub fn addBinding(snapshot: *Snapshot, chord: []const u8, verb: []const u8) void
     }
     snapshot.bindings[snapshot.binding_count] = binding;
     snapshot.binding_count += 1;
+}
+
+pub fn addGesture(snapshot: *Snapshot, kind: GestureKind, direction: GestureDirection, fingers: u8, verb: []const u8) void {
+    if (snapshot.gestures_count == max_gestures) return;
+    var gesture: GestureBinding = .{ .direction = direction, .kind = kind, .fingers = fingers };
+    if (!gesture.verb.set(verb)) return;
+    var i: usize = 0;
+    while (i < snapshot.gestures_count) : (i += 1) {
+        if (snapshot.gestures[i].direction == gesture.direction and snapshot.gestures[i].fingers == gesture.fingers and snapshot.gestures[i].kind == gesture.kind) {
+            snapshot.gestures[i] = gesture;
+            return;
+        }
+    }
+    snapshot.gestures[snapshot.gestures_count] = gesture;
+    snapshot.gestures_count += 1;
 }
 
 fn removeBuiltin(snapshot: *Snapshot, action: []const u8) void {

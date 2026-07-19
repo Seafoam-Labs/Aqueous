@@ -42,7 +42,7 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
 }
 
 fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
-    const Section = enum { none, action, keybinds, custom, exec };
+    const Section = enum { none, action, keybinds, custom, gestures, exec };
     var section: Section = .none;
     var pending: ?actions.Exec = null;
     var lines = std.mem.splitScalar(u8, source, '\n');
@@ -60,7 +60,7 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
             if (std.mem.eql(u8, line, "[[exec]]")) {
                 section = .exec;
                 pending = .{};
-            } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else section = .none;
+            } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else if (std.mem.eql(u8, line, "[gestures]")) section = .gestures else section = .none;
             continue;
         }
         const equal = wm.indexUnquoted(line, '=') orelse continue;
@@ -88,12 +88,70 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
                 if (std.mem.eql(u8, key, "log")) _ = entry.log_path.set(value);
                 if (std.mem.eql(u8, key, "env")) _ = entry.env.set(raw_value);
             },
+            .gestures => {
+                const gesture = parseGestureKey(key) orelse continue;
+                var decoded: [256]u8 = undefined;
+                actions.addGesture(snapshot, gesture.kind, gesture.direction, gesture.fingers, decodeBasic(value, &decoded) orelse value);
+            },
             .none => {},
         }
     }
     if (pending) |entry| if (!entry.name.empty() and !entry.command.empty() and snapshot.exec_count < actions.max_exec) {
         snapshot.exec[snapshot.exec_count] = entry;
         snapshot.exec_count += 1;
+    };
+}
+
+const ParsedGestureKey = struct {
+    kind: actions.GestureKind,
+    direction: actions.GestureDirection,
+    fingers: u8,
+};
+
+fn parseGestureKey(key: []const u8) ?ParsedGestureKey {
+    var parts = std.mem.splitScalar(u8, key, '_');
+
+    const kind_text = parts.next() orelse return null;
+    const fingers_text = parts.next() orelse return null;
+    const direction_text = parts.next() orelse return null;
+
+    // Reject extra components such as swipe_3_left_extra.
+    if (parts.next() != null) return null;
+
+    const kind = std.meta.stringToEnum(
+        actions.GestureKind,
+        kind_text,
+    ) orelse return null;
+
+    const direction = std.meta.stringToEnum(
+        actions.GestureDirection,
+        direction_text,
+    ) orelse return null;
+
+    const fingers = std.fmt.parseInt(
+        u8,
+        fingers_text,
+        10,
+    ) catch return null;
+
+    if (fingers == 0) return null;
+
+    // Only accept directions meaningful for each gesture type.
+    switch (kind) {
+        .swipe => switch (direction) {
+            .left, .right, .up, .down => {},
+            .in, .out => return null,
+        },
+        .pinch => switch (direction) {
+            .in, .out => {},
+            .left, .right, .up, .down => return null,
+        },
+    }
+
+    return .{
+        .kind = kind,
+        .direction = direction,
+        .fingers = fingers,
     };
 }
 
@@ -132,6 +190,10 @@ test "actions custom bindings and exec are immutable snapshot data" {
         \\cycle_focus = []
         \\[keybinds.custom]
         \\"Super+E" = "spawn:nemo"
+        \\[gestures]
+        \\swipe_3_left = "builtin:focus_workspace_down"
+        \\swipe_3_right = "builtin:focus_workspace_up"
+        \\pinch_4_in = "builtin:toggle_start_menu"
         \\[[exec]]
         \\name = "agent"
         \\command = "agent --daemon"
@@ -147,6 +209,42 @@ test "actions custom bindings and exec are immutable snapshot data" {
     try std.testing.expect(snapshot.exec[0].restart);
     try std.testing.expectEqualStrings("/tmp/agent.log", snapshot.exec[0].log_path.slice());
     try std.testing.expectEqualStrings("{ MODE = \"native\" }", snapshot.exec[0].env.slice());
+    try std.testing.expectEqual(@as(u8, 3), snapshot.gestures_count);
+
+    try std.testing.expectEqual(
+        actions.GestureKind.swipe,
+        snapshot.gestures[0].kind,
+    );
+    try std.testing.expectEqual(
+        actions.GestureDirection.left,
+        snapshot.gestures[0].direction,
+    );
+    try std.testing.expectEqual(@as(u8, 3), snapshot.gestures[0].fingers);
+    try std.testing.expectEqualStrings(
+        "builtin:focus_workspace_down",
+        snapshot.gestures[0].verb.slice(),
+    );
+
+    try std.testing.expectEqual(
+        actions.GestureKind.pinch,
+        snapshot.gestures[2].kind,
+    );
+    try std.testing.expectEqual(
+        actions.GestureDirection.in,
+        snapshot.gestures[2].direction,
+    );
+    try std.testing.expectEqual(@as(u8, 4), snapshot.gestures[2].fingers);
+}
+
+test "gesture parser rejects malformed and incompatible keys" {
+    try std.testing.expect(parseGestureKey("swipe_3_left") != null);
+    try std.testing.expect(parseGestureKey("pinch_4_in") != null);
+
+    try std.testing.expect(parseGestureKey("swipe_3_in") == null);
+    try std.testing.expect(parseGestureKey("pinch_4_left") == null);
+    try std.testing.expect(parseGestureKey("swipe_0_left") == null);
+    try std.testing.expect(parseGestureKey("swipe_three_left") == null);
+    try std.testing.expect(parseGestureKey("swipe_3_left_extra") == null);
 }
 
 pub const Environment = struct {
