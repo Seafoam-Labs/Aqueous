@@ -95,6 +95,21 @@ rollback_seconds = 0
 # xkb_layout = "us"
 # xkb_variant = ""
 # xkb_options = ""
+#
+# [input.touchpad]
+# accel_profile = "adaptive"
+# accel_speed = 0.0
+# natural_scroll = true
+# tap = true
+# dwt = true
+# click_method = "clickfinger"
+# scroll_method = "two-finger"
+#
+# [gestures]
+# swipe_3_left = "builtin:focus_workspace_down"
+# swipe_3_right = "builtin:focus_workspace_up"
+# pinch_4_in = "builtin:toggle_start_menu"
+#
 
 # -----------------------------------------------------------------------------
 # Per-workspace layout overrides. Each [[workspace]] block forces one workspace
