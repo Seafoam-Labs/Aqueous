@@ -30,4 +30,16 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run Aqueous Settings");
     run_step.dependOn(&run.step);
+
+    const config_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/config.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    const run_config_tests = b.addRunArtifact(config_tests);
+    const test_step = b.step("test", "Run settings configuration tests");
+    test_step.dependOn(&run_config_tests.step);
 }

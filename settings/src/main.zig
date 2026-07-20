@@ -1,18 +1,31 @@
 const std = @import("std");
 const quark = @import("quark");
+const config = @import("config.zig");
 
-const Settings = struct {
-    blur: bool = true,
-    animations: bool = true,
-    natural_scroll: bool = true,
-    tap_to_click: bool = true,
-};
+const Settings = config.Settings;
 
 const App = struct {
     allocator: std.mem.Allocator,
-    draft: Settings = .{},
-    applied: Settings = .{},
-    status: []const u8 = "Settings are up to date",
+    store: config.Store,
+    draft: Settings,
+    applied: Settings,
+    status: []const u8 = "Loaded from Aqueous configuration",
+
+    fn init(allocator: std.mem.Allocator) !App {
+        var store = try config.Store.init(allocator);
+        errdefer store.deinit();
+        const settings = try store.load();
+        return .{
+            .allocator = allocator,
+            .store = store,
+            .draft = settings,
+            .applied = settings,
+        };
+    }
+
+    fn deinit(self: *App) void {
+        self.store.deinit();
+    }
 
     fn view(self: *App) !quark.Widget {
         var root = quark.widget.Column.init(self.allocator, .{
@@ -187,8 +200,12 @@ const App = struct {
     }
 
     fn apply(self: *App, _: quark.Action) void {
+        self.store.save(self.applied, self.draft) catch {
+            self.status = "Unable to write Aqueous configuration";
+            return;
+        };
         self.applied = self.draft;
-        self.status = "Settings applied for this session";
+        self.status = "Saved to Aqueous configuration";
     }
 
     fn reset(self: *App, _: quark.Action) void {
@@ -211,7 +228,8 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    var app = App{ .allocator = window.allocator };
+    var app = try App.init(window.allocator);
+    defer app.deinit();
     window.setLayout(try app.view());
 
     while (window.update()) |event| {

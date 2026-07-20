@@ -1,13 +1,15 @@
 # Aqueous Settings
 
-A small Zig/Quark shell for the future Aqueous settings application.
+A small Zig/Quark settings application for Aqueous.
 
-The current shell keeps a draft settings model in memory and demonstrates
-navigation, editing, apply, and reset behavior. It intentionally does not edit
-the compositor's TOML files yet.
+It reads the same `wm.toml` and optional `input.toml` locations as the
+compositor, including `AQUEOUS_CONFIG`, `AQUEOUS_INPUT`, XDG, HOME, and system
+fallback paths. Apply updates only the changed TOML keys while retaining the
+file's comments, formatting, and unrelated settings.
 
 ```sh
 zig build
+zig build test
 zig build run
 ```
 
