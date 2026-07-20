@@ -1,0 +1,18 @@
+.{
+    .name = .aqueous_settings,
+    .version = "0.1.0",
+    .fingerprint = 0x5c64203a5172efda,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .quark = .{
+            .url = "git+https://codeberg.org/pparaxan/quark.git#c104e1c953347d677fb1b363260854842217d967",
+            .hash = "quark-0.2.0-Uqg3xpBHCQDmN0ctA7UhteVoZ88LIxJTVMloQ6S4mkfu",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "src",
+    },
+}
