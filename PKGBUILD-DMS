@@ -2,7 +2,7 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous
 pkgbase=aqueous
-pkgver=0.4.0
+pkgver=0.4.1
 pkgrel=1
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
@@ -16,9 +16,9 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
-         'libscenefx-0.5.so' 'zig >= 0.16')
+         'libscenefx-0.5.so' 'zig>=0.16')
 makedepends=('clang' 'lld' 'llvm'
-             'git' 'scdoc' 'wayland-protocols' 'libscenefx-0.5.so')
+             'git' 'scdoc' 'wayland-protocols' 'libscenefx-0.5.so' 'zig>=0.16')
 optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
@@ -29,10 +29,8 @@ conflicts=('aqueous-git' 'aqueous-bin')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
-    'packaging/aqueous-dms.service'
 )
-sha256sums=('SKIP'
-            '382aab54e57cc8c90923b0d9d2807af7d941e05b148bb19f24dca382b0f6d2a4')
+sha256sums=('SKIP')
 
 build() {
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
@@ -135,7 +133,7 @@ package() {
     # DMS as a graphical-session user unit. The unit's XDG_CURRENT_DESKTOP
     # condition restricts it to Aqueous even though graphical-session.target is
     # shared by every desktop and compositor in the user's systemd manager.
-    install -Dm644 "$srcdir/aqueous-dms.service" \
+    install -Dm644 "$srcdir/aqueous/packaging/aqueous-dms.service" \
         "$pkgdir/usr/lib/systemd/user/aqueous-dms.service"
     install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
     ln -s ../aqueous-dms.service \
