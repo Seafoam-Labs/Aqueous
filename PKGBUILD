@@ -62,7 +62,7 @@ build() {
     # Keep the manuals deterministic in clean chroots. In-tree builds make
     # them optional when scdoc is absent, but packages must always document
     # both installed executables, including aqueousctl.
-    zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dscenefx=true \
+    zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dscenefx=true \
         -Dman-pages=true \
         --prefix "$srcdir/aqueous-dist" install
 }
