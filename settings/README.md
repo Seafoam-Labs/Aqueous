@@ -1,11 +1,21 @@
 # Aqueous Settings
 
-A small Zig/Quark settings application for Aqueous.
+A small Zig/Quark application for editing the complete Aqueous configuration.
 
-It reads the same `wm.toml` and optional `input.toml` locations as the
-compositor, including `AQUEOUS_CONFIG`, `AQUEOUS_INPUT`, XDG, HOME, and system
-fallback paths. Apply updates only the changed TOML keys while retaining the
-file's comments, formatting, and unrelated settings.
+It opens `wm.toml`, `layout.toml`, `input.toml`, `outputs.toml`, and
+`rules.toml` from the same environment, XDG, HOME, linked-path, and system
+locations used by the compositor. Every existing table and value is editable;
+booleans use checkboxes and other TOML values appear as editable text-field
+contents.
+
+The Add setting form accepts a section name such as `blur`, a repeated table
+header such as `[[window]]`, or a displayed numeric table index when adding a
+key to one specific repeated table. Values must use TOML syntax. Entries and
+entire tables can also be removed.
+
+Save all writes only changed files with an atomic rename while preserving
+comments, formatting, ordering, and unrelated settings. Reload discards
+unsaved edits and reads the files again.
 
 ```sh
 zig build
