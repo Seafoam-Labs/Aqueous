@@ -139,23 +139,83 @@ pub fn setBlurParams(scene: *wlr.Scene, radius: c_int, passes: c_int) void {
     );
 }
 
-/// Ensure the optimized (backdrop) blur node exists as a child of `tree`, creating
-/// it on first use. The node is created once and kept; the global on/off state is
-/// expressed through `setBlurParams` (radius/passes 0 == no blur) rather than by
-/// destroying the node. Returns the node as an opaque pointer so callers in
-/// non-SceneFX builds need not name any SceneFX type. Width/height of 0 makes the
-/// node track the full output size.
-pub fn ensureOptimizedBlur(tree: *wlr.SceneTree, existing: ?*anyopaque) ?*anyopaque {
-    if (comptime !build_options.scenefx) return null;
-    if (existing != null) return existing;
+/// Create an output-sized optimized blur node. SceneFX treats width and height
+/// as literal values, so callers must supply the output's logical dimensions.
+pub fn createOptimizedBlur(
+    tree: *wlr.SceneTree,
+    width: c_int,
+    height: c_int,
+) ?*anyopaque {
+    if (comptime !blur_available) return null;
+
     const c = @import("c");
-    const node = c.wlr_scene_optimized_blur_create(@ptrCast(tree), 0, 0);
-    if (node) |n| {
-        // Keep the blur backdrop at the bottom of its tree so it only blurs the
-        // content behind it (background / bottom layers), never the windows above.
-        c.wlr_scene_node_lower_to_bottom(&n.*.node);
+    const blur = c.wlr_scene_optimized_blur_create(
+        @ptrCast(tree),
+        width,
+        height,
+    );
+
+    if (blur) |node| {
+        c.wlr_scene_node_lower_to_bottom(&node.*.node);
+        c.wlr_scene_optimized_blur_mark_dirty(node);
     }
-    return @ptrCast(node);
+
+    return if (blur) |node| @ptrCast(node) else null;
+}
+
+/// Synchronize the output-local geometry and enabled state of an optimized blur
+/// node. `dirty` should only be set when the node's backdrop may have changed;
+/// regenerating an optimized blur texture every frame defeats the optimization.
+pub fn configureOptimizedBlur(
+    raw: *anyopaque,
+    box: wlr.Box,
+    enabled: bool,
+    dirty: bool,
+) void {
+    if (comptime !blur_available) return;
+
+    const c = @import("c");
+    const blur: *c.struct_wlr_scene_optimized_blur =
+        @ptrCast(@alignCast(raw));
+
+    c.wlr_scene_node_set_position(&blur.node, box.x, box.y);
+    c.wlr_scene_node_set_enabled(&blur.node, enabled);
+    c.wlr_scene_optimized_blur_set_size(
+        blur,
+        @intCast(box.width),
+        @intCast(box.height),
+    );
+
+    if (dirty) {
+        c.wlr_scene_optimized_blur_mark_dirty(blur);
+    }
+}
+
+pub fn markOptimizedBlurDirty(raw: *anyopaque) void {
+    if (comptime !blur_available) return;
+
+    const c = @import("c");
+    const blur: *c.struct_wlr_scene_optimized_blur =
+        @ptrCast(@alignCast(raw));
+    c.wlr_scene_optimized_blur_mark_dirty(blur);
+}
+
+pub fn setOptimizedBlurEnabled(raw: *anyopaque, enabled: bool) void {
+    if (comptime !blur_available) return;
+
+    const c = @import("c");
+    const blur: *c.struct_wlr_scene_optimized_blur =
+        @ptrCast(@alignCast(raw));
+    c.wlr_scene_node_set_enabled(&blur.node, enabled);
+}
+
+pub fn destroyOptimizedBlur(raw: *anyopaque) void {
+    if (comptime !blur_available) return;
+
+    const c = @import("c");
+    const blur: *c.struct_wlr_scene_optimized_blur =
+        @ptrCast(@alignCast(raw));
+    c.wlr_scene_node_destroy(&blur.node);
 }
 
 /// Synchronize compositor-owned visual state for every buffer in a tree.

@@ -33,6 +33,10 @@ ref: Ref,
 wlr_layer_surface: *wlr.LayerSurfaceV1,
 scene_layer_surface: *wlr.SceneLayerSurfaceV1,
 popup_tree: *wlr.SceneTree,
+/// Last scene layer used by this surface. The protocol's current layer has
+/// already changed by the commit callback, so retaining the prior value lets us
+/// invalidate blur when a surface moves into or out of a backdrop layer.
+scene_layer: zwlr.LayerShellV1.Layer,
 
 destroy: wl.Listener(*wlr.LayerSurfaceV1) = wl.Listener(*wlr.LayerSurfaceV1).init(handleDestroy),
 map: wl.Listener(void) = wl.Listener(void).init(handleMap),
@@ -54,6 +58,7 @@ pub fn create(wlr_layer_surface: *wlr.LayerSurfaceV1) error{OutOfMemory}!void {
         .wlr_layer_surface = wlr_layer_surface,
         .scene_layer_surface = try layer_tree.createSceneLayerSurfaceV1(wlr_layer_surface),
         .popup_tree = try server.scene.layers.popups.createSceneTree(),
+        .scene_layer = wlr_layer_surface.current.layer,
     };
 
     try SceneNodeData.attach(&layer_surface.scene_layer_surface.tree.node, .{ .layer_surface = layer_surface });
@@ -122,6 +127,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), _: *wlr.LayerSurfa
     layer_surface.new_popup.link.remove();
 
     layer_surface.destroyPopups();
+    layer_surface.invalidateBlur(layer_surface.scene_layer);
 
     // Defensively clear any seat focus/scheduled/sent focus still pointing at
     // this surface, in case destroy arrives without a preceding matching unmap.
@@ -153,6 +159,7 @@ fn handleMap(listener: *wl.Listener(void)) void {
 
     // Beware: it is possible for arrange() to destroy this LayerSurface!
     const output: *Output = @ptrCast(@alignCast(layer_surface.wlr_layer_surface.output.?.data));
+    layer_surface.invalidateBlur(wlr_layer_surface.current.layer);
     output.layer_shell.arrange();
     server.layer_shell.checkExclusiveFocus();
     server.wm.dirtyWindowing();
@@ -167,6 +174,7 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
 
     // Beware: it is possible for arrange() to destroy this LayerSurface!
     const output: *Output = @ptrCast(@alignCast(layer_surface.wlr_layer_surface.output.?.data));
+    layer_surface.invalidateBlur(layer_surface.scene_layer);
     output.layer_shell.arrange();
     server.layer_shell.checkExclusiveFocus();
     server.wm.dirtyWindowing();
@@ -180,9 +188,13 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
 
     // If the layer was changed, move the LayerSurface to the proper tree.
     if (wlr_layer_surface.current.committed.layer) {
+        layer_surface.invalidateBlur(layer_surface.scene_layer);
         const tree = server.scene.layerSurfaceTree(wlr_layer_surface.current.layer);
         layer_surface.scene_layer_surface.tree.node.reparent(tree);
+        layer_surface.scene_layer = wlr_layer_surface.current.layer;
     }
+
+    layer_surface.invalidateBlur(wlr_layer_surface.current.layer);
 
     if (wlr_layer_surface.initial_commit or
         @as(u32, @bitCast(wlr_layer_surface.current.committed)) != 0)
@@ -193,6 +205,16 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         server.layer_shell.checkExclusiveFocus();
         server.wm.dirtyWindowing();
     }
+}
+
+fn invalidateBlur(layer_surface: *LayerSurface, layer: zwlr.LayerShellV1.Layer) void {
+    switch (layer) {
+        .background, .bottom => {},
+        else => return,
+    }
+    const wlr_output = layer_surface.wlr_layer_surface.output orelse return;
+    const output: *Output = @ptrCast(@alignCast(wlr_output.data orelse return));
+    output.markBlurDirty();
 }
 
 fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_xdg_popup: *wlr.XdgPopup) void {

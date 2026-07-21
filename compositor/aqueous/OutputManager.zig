@@ -690,6 +690,8 @@ pub fn commitOutputState(om: *OutputManager) void {
             // Output.handleBind and Output.manageStart) so the DRM backend's
             // lazily-created global is eventually announced to the wm client.
             output.trySendWlOutput();
+            output.current = output.sent;
+            output.syncBlur(false);
             switch (output.sent.state) {
                 .enabled => {
                     assert(wlr_output.enabled);
@@ -705,7 +707,6 @@ pub fn commitOutputState(om: *OutputManager) void {
                 },
                 .destroying => unreachable,
             }
-            output.current = output.sent;
         }
     }
 

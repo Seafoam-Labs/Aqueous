@@ -217,6 +217,12 @@ rendering_current: RenderingState = .init,
 /// previous frame has been recorded yet.
 anim_last_ns: i64 = 0,
 
+/// SceneFX optimized backdrop blur for this output. `blur_box` records the
+/// geometry used to produce the cached texture so moves and modesets can
+/// invalidate it without forcing regeneration on every frame.
+blur_node: ?*anyopaque = null,
+blur_box: ?wlr.Box = null,
+
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
 frame: wl.Listener(*wlr.Output) = .init(handleFrame),
@@ -229,6 +235,73 @@ bind: wl.Listener(*wlr.Output.event.Bind) = .init(handleBind),
 /// when the output no longer appears in a manage-cycle snapshot.
 pub fn policyId(output: *const Output) u64 {
     return @intFromPtr(output);
+}
+
+fn boxesEqual(a: wlr.Box, b: wlr.Box) bool {
+    return a.x == b.x and a.y == b.y and
+        a.width == b.width and a.height == b.height;
+}
+
+/// Synchronize the output-local optimized blur node with the current output
+/// state. Scene graph coordinates are logical, matching State.box().
+pub fn syncBlur(output: *Output, force_dirty: bool) void {
+    if (comptime !fx.blur_available) return;
+
+    const active = server.wm.blur.enabled and
+        server.wm.blur.radius > 0 and
+        server.wm.blur.passes > 0 and
+        output.current.state == .enabled and
+        output.current.mode != .none;
+    if (!active) {
+        if (output.blur_node) |node| fx.setOptimizedBlurEnabled(node, false);
+        // Re-enabling must regenerate the cached backdrop even if the output
+        // returns with identical geometry.
+        output.blur_box = null;
+        return;
+    }
+
+    const box = output.current.box();
+    if (box.width == 0 or box.height == 0) return;
+
+    var created = false;
+    if (output.blur_node == null) {
+        output.blur_node = fx.createOptimizedBlur(
+            server.scene.layers.wm,
+            box.width,
+            box.height,
+        );
+        created = output.blur_node != null;
+    }
+
+    const node = output.blur_node orelse return;
+    const geometry_changed = if (output.blur_box) |old| !boxesEqual(old, box) else true;
+    fx.configureOptimizedBlur(node, box, true, force_dirty or created or geometry_changed);
+    output.blur_box = box;
+
+    if (created or geometry_changed) {
+        const name = if (output.wlr_output) |wlr_output| std.mem.span(wlr_output.name) else "unknown";
+        log.debug("blur node for {s}: {d}x{d} at {d},{d}", .{
+            name,
+            box.width,
+            box.height,
+            box.x,
+            box.y,
+        });
+    }
+}
+
+/// Invalidate the cached backdrop after a background/bottom layer change.
+pub fn markBlurDirty(output: *Output) void {
+    if (comptime !fx.blur_available) return;
+    if (!server.wm.blur.enabled or output.current.state != .enabled) return;
+    if (output.blur_node) |node| fx.markOptimizedBlurDirty(node);
+}
+
+fn destroyBlur(output: *Output) void {
+    if (comptime !fx.blur_available) return;
+    if (output.blur_node) |node| fx.destroyOptimizedBlur(node);
+    output.blur_node = null;
+    output.blur_box = null;
 }
 
 /// Full output geometry exposed to the in-process policy.
@@ -642,6 +715,8 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     output.present.link.remove();
     output.commit.link.remove();
     output.bind.link.remove();
+
+    output.destroyBlur();
 
     wlr_output.data = null;
 

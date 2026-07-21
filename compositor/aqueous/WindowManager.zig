@@ -75,15 +75,12 @@ rendering_requested: struct {
     order_hash: u64 = 0,
 },
 
-/// Global backdrop-blur state driven by river_window_manager_v1.set_blur. The
-/// optimized-blur SceneFX node is lazily created on the first enabling request and
-/// kept thereafter; the on/off toggle is expressed by zeroing radius/passes when
-/// disabled. `node` is an opaque pointer so non-SceneFX builds still compile.
+/// Global backdrop-blur state driven by river_window_manager_v1.set_blur. Blur
+/// nodes and their geometry are owned by each output.
 blur: struct {
     enabled: bool = false,
     radius: i32 = 0,
     passes: i32 = 0,
-    node: ?*anyopaque = null,
 } = .{},
 
 /// Default window-content opacity driven by river_window_manager_v1.set_opacity,
@@ -263,19 +260,19 @@ fn handleRequest(
     }
 }
 
-/// Apply the current global blur state to the scene. Creates the optimized-blur
-/// node on first enable and pushes the radius/pass parameters; when disabled the
-/// parameters are zeroed so SceneFX skips the blur pass entirely. No-op on builds
-/// without SceneFX.
+/// Apply the current global blur parameters and synchronize each output-local
+/// optimized blur node. No-op on builds without SceneFX.
 fn applyBlur(wm: *WindowManager) void {
     if (comptime !fx.blur_available) return;
     const scene = server.scene.wlr_scene;
     if (wm.blur.enabled) {
-        wm.blur.node = fx.ensureOptimizedBlur(server.scene.layers.wm, wm.blur.node);
         fx.setBlurParams(scene, @intCast(wm.blur.radius), @intCast(wm.blur.passes));
     } else {
         fx.setBlurParams(scene, 0, 0);
     }
+
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| output.syncBlur(true);
 }
 
 pub fn policyApplyGlobals(wm: *WindowManager, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
