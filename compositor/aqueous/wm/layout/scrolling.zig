@@ -49,7 +49,8 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     var cursor: i32 = 0;
     for (handles, widths, offsets) |handle, *width, *offset| {
         const window = findWindow(windows, handle).?;
-        width.* = @max(base_width, window.min_width);
+        const requested_width = if (window.scrolling_full_width) area.width else base_width;
+        width.* = @max(requested_width, window.min_width);
         offset.* = cursor;
         cursor += width.* + options.gaps_inner;
     }
@@ -161,6 +162,30 @@ test "scrolling clips oversized columns to a non-zero viewport" {
     try std.testing.expectEqual(types.Rect{ .x = 180, .y = 50, .width = 160, .height = 70 }, placements[0].geometry);
     try std.testing.expectEqual(types.Rect{ .x = 30, .y = 0, .width = 100, .height = 70 }, placements[0].clip.?);
     try std.testing.expect(placements[0].visible);
+}
+
+test "a full-width window does not resize neighboring columns and remains scrollable" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1 },
+        .{ .handle = 2, .scrolling_full_width = true },
+        .{ .handle = 3 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+
+    const expanded = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(expanded);
+    try std.testing.expectEqual(@as(i32, 50), expanded[0].geometry.width);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 100, .height = 80 }, expanded[1].geometry);
+    try std.testing.expectEqual(@as(i32, 50), expanded[2].geometry.width);
+
+    try std.testing.expect(scrollViewport(&state, 1));
+    const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(scrolled);
+    try std.testing.expectEqual(@as(i32, 25), scrolled[2].geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), scrolled[2].geometry.width);
 }
 
 test "manual column pan survives arrange while focus is unchanged" {

@@ -94,9 +94,9 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "focus_output_left", "Super+Ctrl+Comma" },           .{ "focus_output_right", "Super+Ctrl+Period" },
     .{ "move_to_output_left", "Super+Shift+Comma" },        .{ "move_to_output_right", "Super+Shift+Period" },
     .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
-    .{ "toggle_floating", "Super+Shift+Space" },            .{ "toggle_minimize", "Super+N" },
-    .{ "unminimize_last", "Super+Shift+N" },                .{ "lock_screen", "Super+Ctrl+L" },
-    .{ "untrap_pointer", "Super+grave" },
+    .{ "toggle_scrolling_full_width", "Super+Shift+Z" },    .{ "toggle_floating", "Super+Shift+Space" },
+    .{ "toggle_minimize", "Super+N" },                      .{ "unminimize_last", "Super+Shift+N" },
+    .{ "lock_screen", "Super+Ctrl+L" },                     .{ "untrap_pointer", "Super+grave" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {
@@ -257,6 +257,7 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const output_right = parseChord("Super+Ctrl+Period").?;
     const previous_workspace = parseChord("Super+BackSpace").?;
     const untrap_pointer = parseChord("Super+grave").?;
+    const scrolling_full_width = parseChord("Super+Shift+Z").?;
 
     try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:scroll_viewport_right_arrow", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
@@ -266,4 +267,5 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:focus_output_right", snapshot.find(output_right.keysym, output_right.modifiers).?);
     try std.testing.expectEqualStrings("builtin:focus_previous_workspace", snapshot.find(previous_workspace.keysym, previous_workspace.modifiers).?);
     try std.testing.expectEqualStrings("builtin:untrap_pointer", snapshot.find(untrap_pointer.keysym, untrap_pointer.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:toggle_scrolling_full_width", snapshot.find(scrolling_full_width.keysym, scrolling_full_width.modifiers).?);
 }

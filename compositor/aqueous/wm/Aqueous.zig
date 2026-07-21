@@ -541,6 +541,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
     if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1);
     if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1);
+    if (std.mem.eql(u8, action, "toggle_scrolling_full_width")) return aqueous.toggleScrollingFullWidth();
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
     if (std.mem.eql(u8, action, "toggle_floating")) return aqueous.toggleFloating();
@@ -689,6 +690,13 @@ fn toggleFullscreen(aqueous: *Aqueous) void {
 fn toggleMaximize(aqueous: *Aqueous) void {
     const handle = aqueous.api.focusedWindow() orelse return;
     _ = aqueous.window_states.toggleMaximized(handle) orelse return;
+    aqueous.api.requestManageCycle();
+}
+
+fn toggleScrollingFullWidth(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
+    _ = context.window.policy_state.toggleScrollingFullWidth();
     aqueous.api.requestManageCycle();
 }
 

@@ -9,6 +9,9 @@ pub const Kind = enum { tiled, floating, maximized, minimized };
 kind: Kind = .tiled,
 previous: Kind = .tiled,
 floating_geometry: types.Rect = .empty,
+/// Scrolling-layout column width override. This is independent of `kind` so
+/// the window remains part of the layout and viewport navigation keeps working.
+scrolling_full_width: bool = false,
 
 /// Last non-null toplevel parent for which automatic transient placement was
 /// applied. Keeping this edge-triggered lets a user tile the dialog manually
@@ -50,6 +53,11 @@ pub fn overrideFullscreen(state: *PolicyState) void {
 pub fn overrideFloating(state: *PolicyState) void {
     state.rule_floating_owned = false;
     state.rule_floating_overridden = true;
+}
+
+pub fn toggleScrollingFullWidth(state: *PolicyState) bool {
+    state.scrolling_full_width = !state.scrolling_full_width;
+    return state.scrolling_full_width;
 }
 
 pub fn ruleChanged(state: *const PolicyState, match: u64) bool {
@@ -97,4 +105,14 @@ test "manual overrides release only their corresponding rule property" {
     state.acceptRuleMatch(7);
     try std.testing.expect(!state.rule_fullscreen_overridden);
     try std.testing.expect(!state.ruleChanged(7));
+}
+
+test "scrolling full width toggles independently of window kind" {
+    const std = @import("std");
+    var state: PolicyState = .{};
+
+    try std.testing.expect(state.toggleScrollingFullWidth());
+    try std.testing.expectEqual(Kind.tiled, state.kind);
+    try std.testing.expect(!state.toggleScrollingFullWidth());
+    try std.testing.expectEqual(Kind.tiled, state.kind);
 }

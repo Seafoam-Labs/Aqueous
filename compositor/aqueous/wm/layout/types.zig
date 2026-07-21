@@ -34,6 +34,7 @@ pub const Window = struct {
     max_height: i32 = 0,
     floating: bool = false,
     fullscreen: bool = false,
+    scrolling_full_width: bool = false,
 };
 
 pub const Border = struct {

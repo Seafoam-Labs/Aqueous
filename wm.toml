@@ -209,6 +209,7 @@ scroll_viewport_left_arrow  = "Super+Left"    # default
 scroll_viewport_right_arrow = "Super+Right"   # default
 move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
+toggle_scrolling_full_width = "Super+Shift+Z" # expand only the focused column; press again to restore
 
 # --- Opt-in actions (no default chord) ---
 reload_config         = "Super+R"          # immediately reload all TOML snapshots
