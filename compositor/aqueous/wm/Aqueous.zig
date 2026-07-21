@@ -461,7 +461,11 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         if (target_state.kind != .tiled) return;
         if (!aqueous.api.windowOnWorkspace(target.handle, drag.layout_key.output, drag.layout_key.workspace)) return;
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
-        if (!layout_engine.swap(layout_state, drag.handle, target.handle)) return;
+        const zone = pointer_drag.dropZone(target.geometry, x, y);
+        if (!(layout_engine.drop(util.gpa, layout_state, drag.handle, target.handle, zone) catch {
+            log.err("out of memory updating pointer drop target", .{});
+            return;
+        })) return;
         drag.awaiting_layout = target.handle;
         aqueous.api.requestManageCycle();
         return;
@@ -539,6 +543,8 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_window_down")) return aqueous.moveFocused(0, 1);
     if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocused(-1, 0);
     if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
+    if (std.mem.eql(u8, action, "consume_window_into_column")) return aqueous.consumeWindowIntoColumn();
+    if (std.mem.eql(u8, action, "expel_window_from_column")) return aqueous.expelWindowFromColumn();
     if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1);
     if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1);
     if (std.mem.eql(u8, action, "toggle_scrolling_full_width")) return aqueous.toggleScrollingFullWidth();
@@ -662,6 +668,14 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
+    if (state.active_layout == .scrolling) {
+        if (!(layout_engine.moveScrolling(util.gpa, state, handle, dx, dy) catch {
+            log.err("out of memory moving scrolling column member", .{});
+            return;
+        })) return;
+        aqueous.api.requestManageCycle();
+        return;
+    }
     const target = aqueous.api.directionalNeighbor(handle, dx, dy) orelse return;
     const target_state = aqueous.window_states.get(target) orelse return;
     if (target_state.kind != .tiled) return;
@@ -672,6 +686,28 @@ fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
     if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), delta)) aqueous.api.requestManageCycle();
+}
+
+fn consumeWindowIntoColumn(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
+    const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
+    if (!(layout_engine.consumeWindowIntoColumn(util.gpa, state, @bitCast(context.window.ref)) catch {
+        log.err("out of memory consuming window into column", .{});
+        return;
+    })) return;
+    aqueous.api.requestManageCycle();
+}
+
+fn expelWindowFromColumn(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
+    const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
+    if (!(layout_engine.expelWindowFromColumn(util.gpa, state, @bitCast(context.window.ref)) catch {
+        log.err("out of memory expelling window from column", .{});
+        return;
+    })) return;
+    aqueous.api.requestManageCycle();
 }
 
 fn toggleFullscreen(aqueous: *Aqueous) void {

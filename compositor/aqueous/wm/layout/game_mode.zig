@@ -39,7 +39,7 @@ pub const RemainderState = struct {
             .grid => &state.grid.order,
             .rows => &state.rows.order,
             .dwindle => &state.dwindle.order,
-            .scrolling => &state.scrolling.order,
+            .scrolling => null,
             .floating => null,
         };
     }
@@ -168,14 +168,16 @@ fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: 
 pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     var changed = false;
     inline for (.{ &state.fallback, &state.left, &state.right }) |side| {
-        inline for (.{ &side.tile.order, &side.monocle.order, &side.grid.order, &side.rows.order, &side.dwindle.order, &side.scrolling.order }) |layout_order| {
+        inline for (.{ &side.tile.order, &side.monocle.order, &side.grid.order, &side.rows.order, &side.dwindle.order }) |layout_order| {
             if (layout_order.swap(a, b)) changed = true;
         }
+        if (scrolling.swap(&side.scrolling, a, b)) changed = true;
     }
     return changed;
 }
 
 pub fn moveAdjacent(state: *State, focused: types.Handle, delta: i32) bool {
+    if (state.active_remainder == .scrolling) return false;
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
         const layout_order = side.orderFor(state.active_remainder) orelse return false;
         const index = std.mem.indexOfScalar(types.Handle, layout_order.items.items, focused) orelse continue;
@@ -190,7 +192,7 @@ pub fn moveAdjacent(state: *State, focused: types.Handle, delta: i32) bool {
 pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
     if (state.active_remainder != .scrolling) return false;
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
-        if (std.mem.indexOfScalar(types.Handle, side.scrolling.order.items.items, focused) != null) {
+        if (scrolling.containsHandle(&side.scrolling, focused)) {
             return scrolling.scrollViewport(&side.scrolling, delta);
         }
     }
@@ -248,7 +250,7 @@ test "game mode routes viewport movement to a scrolling fallback" {
     std.testing.allocator.free(placements);
 
     try std.testing.expect(scrollViewport(&state, 1, 1));
-    try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_index);
+    try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_column);
 }
 
 test "game mode preserves each scrolling side column as its own viewport" {

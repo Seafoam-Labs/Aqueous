@@ -76,3 +76,10 @@ pub const Direction = enum {
     prev,
     next,
 };
+
+pub const DropZone = enum {
+    stack_before,
+    stack_after,
+    column_before,
+    column_after,
+};

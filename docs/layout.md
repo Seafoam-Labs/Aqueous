@@ -41,3 +41,25 @@ are applied by the native manage cycle.
 The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
+
+## Scrolling columns
+
+The scrolling engine owns an ordered list of columns. New windows begin in
+their own column, while a column with multiple windows divides its height
+equally between them. Horizontal viewport movement operates on columns;
+left/right focus moves between columns and up/down focus moves within a column.
+
+The default column-management bindings are:
+
+- `Super+Ctrl+J` consumes the first window from the column on the right into
+  the bottom of the focused column.
+- `Super+Ctrl+K` expels the focused member into a new column on the right.
+- `Super+Shift+Z` toggles full viewport width for the focused window's column.
+- `Super+Shift+H/L` moves the whole focused column; `Super+Shift+Up/Down`
+  reorders the focused member inside a stacked column.
+
+With `Super` held, left-drag a tiled window over the top or bottom third of
+another window to stack it before or after that window. Dropping over the
+middle-left or middle-right creates an adjacent column. A full-width flag is
+owned by the window that triggered it, but all members share their column's
+horizontal width.

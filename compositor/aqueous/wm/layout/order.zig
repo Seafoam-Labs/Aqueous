@@ -34,6 +34,17 @@ pub const State = struct {
         std.mem.swap(types.Handle, &state.items.items[ia], &state.items.items[ib]);
         return true;
     }
+
+    /// Reorder the handles already tracked by this layout to match a
+    /// column-major projection. Partially initialized dormant layouts are left
+    /// alone until their next normal sync.
+    pub fn reorder(state: *State, preferred: []const types.Handle) void {
+        if (state.items.items.len != preferred.len or preferred.len < 2) return;
+        for (preferred) |handle| {
+            if (std.mem.indexOfScalar(types.Handle, state.items.items, handle) == null) return;
+        }
+        @memcpy(state.items.items, preferred);
+    }
 };
 
 fn containsWindow(windows: []const types.Window, handle: types.Handle) bool {
@@ -47,4 +58,12 @@ test "sync retains live order, drops stale, and appends new handles" {
     try state.sync(std.testing.allocator, &.{ .{ .handle = 1 }, .{ .handle = 2 } });
     try state.sync(std.testing.allocator, &.{ .{ .handle = 3 }, .{ .handle = 1 } });
     try std.testing.expectEqualSlices(types.Handle, &.{ 1, 3 }, state.items.items);
+}
+
+test "reorder follows a preferred projection" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    try state.sync(std.testing.allocator, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } });
+    state.reorder(&.{ 3, 1, 2 });
+    try std.testing.expectEqualSlices(types.Handle, &.{ 3, 1, 2 }, state.items.items);
 }

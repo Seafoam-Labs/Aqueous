@@ -73,9 +73,51 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (state.grid.order.swap(a, b)) changed = true;
     if (state.rows.order.swap(a, b)) changed = true;
     if (state.dwindle.order.swap(a, b)) changed = true;
-    if (state.scrolling.order.swap(a, b)) changed = true;
+    if (scrolling.swap(&state.scrolling, a, b)) changed = true;
     if (game_mode.swap(&state.game_mode, a, b)) changed = true;
     return changed;
+}
+
+pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, target: types.Handle, zone: types.DropZone) !bool {
+    if (state.active_layout != .scrolling) return swap(state, dragged, target);
+    if (!try scrolling.drop(&state.scrolling, allocator, dragged, target, zone)) return false;
+    try projectScrollingOrder(allocator, state);
+    return true;
+}
+
+pub fn consumeWindowIntoColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle) !bool {
+    if (state.active_layout != .scrolling) return false;
+    if (!try scrolling.consumeFromRight(&state.scrolling, allocator, focused)) return false;
+    try projectScrollingOrder(allocator, state);
+    return true;
+}
+
+pub fn expelWindowFromColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle) !bool {
+    if (state.active_layout != .scrolling) return false;
+    if (!try scrolling.expelToRight(&state.scrolling, allocator, focused)) return false;
+    try projectScrollingOrder(allocator, state);
+    return true;
+}
+
+pub fn moveScrolling(allocator: std.mem.Allocator, state: *State, focused: types.Handle, dx: i32, dy: i32) !bool {
+    if (state.active_layout != .scrolling) return false;
+    const changed = if (dx != 0)
+        scrolling.moveColumn(&state.scrolling, focused, dx)
+    else
+        scrolling.moveWithinColumn(&state.scrolling, focused, dy);
+    if (!changed) return false;
+    try projectScrollingOrder(allocator, state);
+    return true;
+}
+
+fn projectScrollingOrder(allocator: std.mem.Allocator, state: *State) !void {
+    const projection = try scrolling.flattened(allocator, &state.scrolling);
+    defer allocator.free(projection);
+    state.tile.order.reorder(projection);
+    state.monocle.order.reorder(projection);
+    state.grid.order.reorder(projection);
+    state.rows.order.reorder(projection);
+    state.dwindle.order.reorder(projection);
 }
 
 pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {

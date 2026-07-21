@@ -77,6 +77,7 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "focus_up", "Super+K" },                             .{ "focus_down", "Super+J" },
     .{ "scroll_viewport_left", "Super+Comma" },             .{ "scroll_viewport_right", "Super+Period" },
     .{ "scroll_viewport_left_arrow", "Super+Left" },        .{ "scroll_viewport_right_arrow", "Super+Right" },
+    .{ "consume_window_into_column", "Super+Ctrl+J" },      .{ "expel_window_from_column", "Super+Ctrl+K" },
     .{ "move_window_left", "Super+Shift+Left" },            .{ "move_window_right", "Super+Shift+Right" },
     .{ "move_window_up", "Super+Shift+Up" },                .{ "move_window_down", "Super+Shift+Down" },
     .{ "reload_config", "Super+R" },                        .{ "focus_workspace_1", "Super+1" },
@@ -258,6 +259,8 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const previous_workspace = parseChord("Super+BackSpace").?;
     const untrap_pointer = parseChord("Super+grave").?;
     const scrolling_full_width = parseChord("Super+Shift+Z").?;
+    const consume_window = parseChord("Super+Ctrl+J").?;
+    const expel_window = parseChord("Super+Ctrl+K").?;
 
     try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:scroll_viewport_right_arrow", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
@@ -268,4 +271,6 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:focus_previous_workspace", snapshot.find(previous_workspace.keysym, previous_workspace.modifiers).?);
     try std.testing.expectEqualStrings("builtin:untrap_pointer", snapshot.find(untrap_pointer.keysym, untrap_pointer.modifiers).?);
     try std.testing.expectEqualStrings("builtin:toggle_scrolling_full_width", snapshot.find(scrolling_full_width.keysym, scrolling_full_width.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:consume_window_into_column", snapshot.find(consume_window.keysym, consume_window.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:expel_window_from_column", snapshot.find(expel_window.keysym, expel_window.modifiers).?);
 }

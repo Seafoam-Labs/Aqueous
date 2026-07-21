@@ -290,19 +290,21 @@ are overlaid around this result:
 
 This separation lets all layout algorithms remain testable without wlroots.
 
-### Example: swapping two tiled windows with the pointer
+### Example: rearranging tiled windows with the pointer
 
 1. Super+left-click hit-tests the scene and finds the window handle.
 2. For a tiled window in a tiling layout, the drag action is `swap_tiled`; the
    window is not converted to floating.
-3. Pointer motion hit-tests the window under the cursor. When it is another
-   tiled window on the same output/workspace, `layout_engine.swap()` exchanges
-   the handles in every initialized layout order.
+3. Pointer motion hit-tests the window under the cursor. In the scrolling
+   layout, its top/bottom thirds are stack insertion zones and its middle-left
+   and middle-right are adjacent-column zones. Other layouts retain pairwise
+   swapping.
 4. A manage cycle recalculates geometry. A guard waits until scene hit-testing
    reflects the new arrangement before another swap can occur, preventing the
    old scene geometry from immediately swapping the pair back.
-5. Releasing the button ends the drag. Because dormant layout orders were also
-   updated, the order survives switching layouts.
+5. Releasing the button ends the drag. The scrolling column-major projection is
+   copied into initialized dormant layout orders, so the order survives layout
+   switches.
 
 Super+right-click, or dragging a window already in a floating interaction,
 updates remembered floating geometry and requests manage cycles as the pointer

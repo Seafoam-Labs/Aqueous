@@ -196,13 +196,13 @@ close_focused         = "Super+Q"          # default
 cycle_focus           = "Super+Tab"        # default
 lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
 
-# --- Directional focus (works in tile/grid; scrolling = prev/next column) ---
+# --- Directional focus (scrolling: left/right columns, up/down column members) ---
 focus_left            = "Super+H"          # default
 focus_right           = "Super+L"          # default
 focus_up              = "Super+K"          # default
 focus_down            = "Super+J"          # default
 
-# --- Scrolling-layout viewport pan + column move ---
+# --- Scrolling-layout viewport, stacking, and column movement ---
 scroll_viewport_left        = "Super+Comma"   # legacy alias
 scroll_viewport_right       = "Super+Period"  # legacy alias
 scroll_viewport_left_arrow  = "Super+Left"    # default
@@ -210,6 +210,8 @@ scroll_viewport_right_arrow = "Super+Right"   # default
 move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 toggle_scrolling_full_width = "Super+Shift+Z" # expand only the focused column; press again to restore
+consume_window_into_column  = "Super+Ctrl+J"   # pull the first window from the right into this column
+expel_window_from_column    = "Super+Ctrl+K"   # move the focused stacked window into a new column
 
 # --- Opt-in actions (no default chord) ---
 reload_config         = "Super+R"          # immediately reload all TOML snapshots
