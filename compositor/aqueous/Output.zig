@@ -592,7 +592,6 @@ fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
                 dest.workspaces.append(workspace);
                 continue;
             }
-            workspace.link.remove();
             workspace.destroy();
             continue;
         }
