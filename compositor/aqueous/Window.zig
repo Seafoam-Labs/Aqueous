@@ -328,6 +328,11 @@ policy_state: PolicyState = .{},
 configure_scheduled: Configure = .init,
 /// State sent to the window in the latest configure.
 configure_sent: Configure = .init,
+/// Force the next xdg_toplevel configure even when the effective state and
+/// dimensions are unchanged. xdg-shell requires a configure response to
+/// fullscreen requests even when compositor policy rejects the request or the
+/// surface is already in the requested state.
+force_configure: bool = false,
 
 /// State to be sent to the wm in the next render sequence.
 rendering_scheduled: struct {
@@ -764,6 +769,7 @@ pub fn manageStart(window: *Window) void {
             window.state = .init;
             window.wm_sent = .{};
             window.wm_requested = .init;
+            window.force_configure = false;
             window.rendering_sent = .{};
             window.rendering_requested = .init;
 

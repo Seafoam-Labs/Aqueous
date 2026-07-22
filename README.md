@@ -195,10 +195,13 @@ Aqueous Wayland session.
 cd compositor
 zig build test
 scripts/test-policy-parity.sh
+scripts/test-xdg-fullscreen.sh
 scripts/test-scaling.sh
 ```
 
-The integration harness maps real Ghostty windows and injects virtual keyboard
+The xdg fullscreen harness covers application-originated `xdg_toplevel`
+fullscreen requests without relying on rules or compositor keybindings. The
+integration harness maps real Ghostty windows and injects virtual keyboard
 and pointer input to exercise layouts, rules, focus, fullscreen, keybindings,
 and repeated workspace changes. The scaling harness checks client-side
 `wl_output` events, the embedded output service, and the headless output commit

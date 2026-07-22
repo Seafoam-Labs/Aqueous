@@ -34,12 +34,16 @@ The headless cutover and output checks are:
 
 ```sh
 scripts/test-policy-parity.sh
+scripts/test-xdg-fullscreen.sh
 scripts/test-scaling.sh
 scripts/test-xwayland-input.sh
 ```
 
-The policy harness requires Ghostty and `wlrctl`; it maps real windows and
-injects virtual keyboard/pointer input instead of testing an idle compositor.
+The xdg fullscreen harness compiles a small native Wayland client and verifies
+application-requested fullscreen enter/exit configures, including repeated
+requests, against the integrated policy. The policy harness requires Ghostty
+and `wlrctl`; it maps real windows and injects virtual keyboard/pointer input
+instead of testing an idle compositor.
 The XWayland harness additionally requires a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. It verifies active keyboard grabs and pointer confinement for real X11

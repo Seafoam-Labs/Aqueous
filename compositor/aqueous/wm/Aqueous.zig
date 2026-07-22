@@ -149,6 +149,18 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
 
     var snapshot = try aqueous.api.policySnapshot(util.gpa);
     defer snapshot.deinit(util.gpa);
+    const fullscreen_requests = try aqueous.api.takeClientFullscreenRequests(util.gpa);
+    defer util.gpa.free(fullscreen_requests);
+    if (fullscreen_requests.len > 0) {
+        aqueous.applyClientFullscreenRequests(&snapshot, fullscreen_requests);
+
+        // A usable output hint can move a window between outputs. Rebuild the
+        // policy view so this same cycle lays it out under its new owner rather
+        // than using the stale output grouping captured above.
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
     const selected_output_id = aqueous.api.selectedOutputId();
@@ -313,6 +325,53 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             state.deinit(util.gpa);
         }
     }
+}
+
+/// Apply client-originated fullscreen transitions before layout reconciliation
+/// so this manage cycle configures and renders the requested state. Explicit
+/// output objects are preferences under xdg-shell; honor usable hints and fall
+/// back to the window's current output (then the first usable output).
+fn applyClientFullscreenRequests(
+    aqueous: *Aqueous,
+    snapshot: *CompositorApi.PolicySnapshot,
+    requests: []const CompositorApi.ClientFullscreenRequest,
+) void {
+    for (requests) |request| {
+        const state = aqueous.window_states.get(request.handle) orelse continue;
+        state.overrideFullscreen();
+
+        switch (request.action) {
+            .exit => {
+                aqueous.api.clearFullscreen(request.handle);
+            },
+            .enter => |output_hint| {
+                const target = findPolicyOutput(snapshot, output_hint) orelse
+                    findPolicyOutput(snapshot, request.current_output_id) orelse
+                    if (snapshot.outputs.len > 0) &snapshot.outputs[0] else null;
+                const output = target orelse continue;
+
+                // A fullscreen output hint may target a different display. Move
+                // the window to that output's active workspace so ownership,
+                // focus, and subsequent layout snapshots agree with rendering.
+                if (request.current_output_id != output.id) {
+                    _ = aqueous.api.moveWindowToWorkspace(
+                        request.handle,
+                        output.id,
+                        output.workspace_number,
+                    );
+                }
+
+                aqueous.api.clearOtherFullscreen(output.id, request.handle);
+                _ = aqueous.api.setFullscreen(request.handle, output.id);
+            },
+        }
+    }
+}
+
+fn findPolicyOutput(snapshot: *CompositorApi.PolicySnapshot, id: ?u64) ?*const CompositorApi.PolicyOutput {
+    const wanted = id orelse return null;
+    for (snapshot.outputs) |*output| if (output.id == wanted) return output;
+    return null;
 }
 
 /// Apply the compositor's established parent-based popup heuristic on the

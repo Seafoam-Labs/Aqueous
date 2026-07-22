@@ -23,6 +23,15 @@ pub const WorkspaceContext = struct {
     workspace_number: u32,
 };
 
+pub const ClientFullscreenRequest = struct {
+    handle: layout.Handle,
+    current_output_id: ?u64,
+    action: union(enum) {
+        enter: ?u64,
+        exit,
+    },
+};
+
 pub fn windowHandle(_: CompositorApi, window: *Window) WindowHandle {
     return .{ .ref = window.ref };
 }
@@ -453,6 +462,51 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
         output.windows = owned_windows[output.window_start..end];
     }
     return .{ .outputs = outputs, .windows = owned_windows };
+}
+
+/// Collect and consume fullscreen requests emitted by application toplevels or
+/// foreign-toplevel controllers while the integrated policy is active. The
+/// request fields are cleared only after the result allocation succeeds, so an
+/// allocation failure leaves every one-shot request available for a retry.
+pub fn takeClientFullscreenRequests(_: CompositorApi, allocator: std.mem.Allocator) ![]ClientFullscreenRequest {
+    var count: usize = 0;
+    var window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        if (window.wm_scheduled.fullscreen_requested != .no_request) count += 1;
+    }
+
+    const requests = try allocator.alloc(ClientFullscreenRequest, count);
+    var index: usize = 0;
+    window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        const pending = window.wm_scheduled.fullscreen_requested;
+        if (pending == .no_request) continue;
+
+        const current_output = if (window.workspace) |workspace|
+            workspace.output
+        else
+            window.initialOutput();
+        requests[index] = .{
+            .handle = @bitCast(window.ref),
+            .current_output_id = if (current_output) |output| output.policyId() else null,
+            .action = switch (pending) {
+                .no_request => unreachable,
+                .fullscreen => |output_hint| .{ .enter = if (output_hint) |output| output.policyId() else null },
+                .exit => .exit,
+            },
+        };
+        index += 1;
+    }
+
+    // No Wayland callback can interleave with this synchronous collection, so
+    // the second pass clears exactly the requests represented in the slice.
+    window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        if (window.wm_scheduled.fullscreen_requested != .no_request) {
+            window.wm_scheduled.fullscreen_requested = .no_request;
+        }
+    }
+    return requests;
 }
 
 fn outputById(output_id: u64) ?*Output {

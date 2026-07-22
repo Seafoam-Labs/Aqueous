@@ -179,6 +179,12 @@ pub fn configure(toplevel: *XdgToplevel) bool {
     };
     const configure_serial = wlr_toplevel.setSize(width, height);
 
+    // The configure requested by a client state transition has now been sent.
+    // Clear this before any early return below; size-identical configures do not
+    // need transaction tracking, but they still satisfy the xdg-shell response
+    // requirement.
+    toplevel.window.force_configure = false;
+
     toplevel.window.configure_sent = toplevel.window.configure_scheduled;
     toplevel.window.configure_sent.width = width;
     toplevel.window.configure_sent.height = height;
@@ -204,6 +210,8 @@ pub fn configure(toplevel: *XdgToplevel) bool {
 }
 
 fn needsConfigure(toplevel: *XdgToplevel) bool {
+    if (toplevel.window.force_configure) return true;
+
     const scheduled = &toplevel.window.configure_scheduled;
     const sent = &toplevel.window.configure_sent;
 
@@ -422,6 +430,7 @@ fn handleRequestShowWindowMenu(
 
 fn handleRequestFullscreen(listener: *wl.Listener(void)) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("request_fullscreen", listener);
+    toplevel.window.force_configure = true;
     if (toplevel.wlr_toplevel.requested.fullscreen) {
         if (toplevel.wlr_toplevel.requested.fullscreen_output) |wlr_output| {
             const output: *Output = @ptrCast(@alignCast(wlr_output.data));
