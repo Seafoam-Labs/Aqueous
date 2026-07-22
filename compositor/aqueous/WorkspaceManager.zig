@@ -62,7 +62,6 @@ const Handle = struct {
     /// Last state bitfield sent to the client, so only changes are re-emitted.
     sent_state: ext.WorkspaceHandleV1.State = .{},
     sent_coordinate: u32 = std.math.maxInt(u32),
-    sent_id: u32 = std.math.maxInt(u32),
     sent_name: ?[]u8 = null,
     /// The group this handle currently belongs to from the client's view. Drives
     /// workspace_enter/workspace_leave and composes correctly with migration.
@@ -138,13 +137,12 @@ const Manager = struct {
                     changed = true;
                 }
 
-                if (handle.sent_id != workspace.id) {
-                    handle.sent_id = workspace.id;
-                    var id_buf: [16]u8 = undefined;
-                    const id_str = std.fmt.bufPrintZ(&id_buf, "{d}", .{workspace.id}) catch "1";
-                    handle.resource.sendId(id_str.ptr);
-                    changed = true;
-                }
+                // Workspace.id is an in-process allocation handle. It changes
+                // whenever an output and its workspaces are recreated, so it
+                // does not satisfy ext-workspace-v1's requirement that an id be
+                // stable across sessions. Do not advertise an id until Aqueous
+                // has a persistent workspace identity; clients must use the
+                // human-readable name and coordinates for these workspaces.
 
                 if (handle.entered_group != group) {
                     if (handle.entered_group) |old| old.resource.sendWorkspaceLeave(handle.resource);
