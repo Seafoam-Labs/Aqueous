@@ -41,7 +41,7 @@ sequence: u64 = 0,
 
 pub fn emit(trace: *Trace, source: Source, phase: Phase, snapshot: Snapshot) void {
     trace.sequence +%= 1;
-    log.info(
+    log.debug(
         "state-trace sequence={} source={s} phase={s} windows={} order=0x{x} geometry=0x{x} workspace=0x{x} focus=0x{x} fingerprint=0x{x}",
         .{
             trace.sequence,
