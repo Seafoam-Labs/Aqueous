@@ -72,6 +72,7 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
             .action => {
                 if (std.mem.eql(u8, key, "toggle_start_menu")) _ = snapshot.toggle_start_menu.set(value);
                 if (std.mem.eql(u8, key, "spawn_terminal")) _ = snapshot.spawn_terminal.set(value);
+                if (std.mem.eql(u8, key, "screenshot")) _ = snapshot.screenshot.set(value);
                 if (std.mem.eql(u8, key, "lock_screen")) _ = snapshot.lock_screen.set(value);
             },
             .keybinds => actions.addBuiltinList(snapshot, key, raw_value),
@@ -208,7 +209,9 @@ test "actions custom bindings and exec are immutable snapshot data" {
     applyActions(&snapshot,
         \\[actions]
         \\spawn_terminal = "foot"
+        \\screenshot = "shot-region"
         \\[keybinds]
+        \\screenshot = "PrintScreen"
         \\cycle_focus = []
         \\[keybinds.custom]
         \\"Super+E" = "spawn:nemo"
@@ -225,6 +228,9 @@ test "actions custom bindings and exec are immutable snapshot data" {
         \\env = { MODE = "native" }
     );
     try std.testing.expectEqualStrings("foot", snapshot.spawn_terminal.slice());
+    try std.testing.expectEqualStrings("shot-region", snapshot.screenshot.slice());
+    const print = actions.parseChord("Print").?;
+    try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(print.keysym, print.modifiers).?);
     try std.testing.expectEqualStrings("spawn:nemo", snapshot.find('e', 64).?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.exec_count);
     try std.testing.expectEqual(actions.ExecWhen.always, snapshot.exec[0].when);

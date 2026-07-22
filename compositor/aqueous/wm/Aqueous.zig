@@ -564,6 +564,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     const action = if (colon) |index| value[0..index] else value;
     if (std.mem.eql(u8, action, "toggle_start_menu")) return aqueous.spawn(aqueous.config.actions.toggle_start_menu.slice());
     if (std.mem.eql(u8, action, "spawn_terminal")) return aqueous.spawn(aqueous.config.actions.spawn_terminal.slice());
+    if (std.mem.eql(u8, action, "screenshot")) return aqueous.spawn(aqueous.config.actions.screenshot.slice());
     if (std.mem.eql(u8, action, "lock_screen")) return aqueous.spawn(aqueous.config.actions.lock_screen.slice());
     if (std.mem.eql(u8, action, "close_focused")) {
         if (aqueous.api.focusedWindow()) |handle| aqueous.api.closeWindow(handle);

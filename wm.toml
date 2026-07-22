@@ -171,6 +171,7 @@ rate = 0.0
 [actions]
 toggle_start_menu = "noctalia msg panel-toggle launcher"
 spawn_terminal = "ghostty"
+screenshot = "grim -g \"$(slurp)\" - | wl-copy"
 
 # -----------------------------------------------------------------------------
 # Keybindings.
@@ -184,7 +185,8 @@ spawn_terminal = "ghostty"
 #   Modifiers: Super (Mod4) | Ctrl | Alt (Mod1) | Shift
 #   Keys:      single letters (A–Z), digits (0–9), F1–F24,
 #              named keys (Return, Space, Tab, Comma, Period, Escape,
-#              Left, Right, Up, Down, Home, End, PageUp, PageDown, ...)
+#              Left, Right, Up, Down, Home, End, PageUp, PageDown,
+#              Print/PrintScreen, ...)
 #
 # Omit any line to keep the compiled-in default (shown in the comment).
 # -----------------------------------------------------------------------------
@@ -192,6 +194,7 @@ spawn_terminal = "ghostty"
 # --- Window / session ---
 toggle_start_menu     = "Super+Space"      # default
 spawn_terminal        = "Super+Return"     # default
+screenshot            = "Print"            # default; select a region and copy it
 close_focused         = "Super+Q"          # default
 cycle_focus           = "Super+Tab"        # default
 lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
@@ -315,7 +318,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
-"Super+Shift+S"      = "spawn:grim -g \"$(slurp)\" - | wl-copy"
+"Super+Shift+S"      = "builtin:screenshot"
 "Super+B"            = "spawn:zen-browser"
 "XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
 "XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"

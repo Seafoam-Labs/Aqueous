@@ -7,6 +7,7 @@ const wm = @import("wm.zig");
 pub const max_bindings = 160;
 pub const max_exec = 32;
 pub const max_gestures = 16;
+pub const default_screenshot_command = "grim -g \"$(slurp)\" - | wl-copy";
 
 pub const GestureKind = enum { swipe, pinch };
 
@@ -45,6 +46,7 @@ pub const Snapshot = struct {
     gestures_count: u8 = 0,
     toggle_start_menu: wm.Text = .{},
     spawn_terminal: wm.Text = .{},
+    screenshot: wm.Text = .{},
     lock_screen: wm.Text = .{},
     primary_modifier: u32 = 64,
 
@@ -71,37 +73,39 @@ pub const Snapshot = struct {
 };
 
 const defaults = [_]struct { []const u8, []const u8 }{
-    .{ "toggle_start_menu", "Super+Space" },                .{ "spawn_terminal", "Super+Return" },
-    .{ "close_focused", "Super+Q" },                        .{ "cycle_focus", "Super+Tab" },
-    .{ "focus_left", "Super+H" },                           .{ "focus_right", "Super+L" },
-    .{ "focus_up", "Super+K" },                             .{ "focus_down", "Super+J" },
-    .{ "scroll_viewport_left", "Super+Comma" },             .{ "scroll_viewport_right", "Super+Period" },
-    .{ "scroll_viewport_left_arrow", "Super+Left" },        .{ "scroll_viewport_right_arrow", "Super+Right" },
-    .{ "consume_window_into_column", "Super+Ctrl+J" },      .{ "expel_window_from_column", "Super+Ctrl+K" },
-    .{ "move_window_left", "Super+Shift+Left" },            .{ "move_window_right", "Super+Shift+Right" },
-    .{ "move_window_up", "Super+Shift+Up" },                .{ "move_window_down", "Super+Shift+Down" },
-    .{ "reload_config", "Super+R" },                        .{ "focus_workspace_1", "Super+1" },
-    .{ "focus_workspace_2", "Super+2" },                    .{ "focus_workspace_3", "Super+3" },
-    .{ "focus_workspace_4", "Super+4" },                    .{ "focus_workspace_5", "Super+5" },
-    .{ "focus_workspace_6", "Super+6" },                    .{ "focus_workspace_7", "Super+7" },
-    .{ "focus_workspace_8", "Super+8" },                    .{ "focus_workspace_9", "Super+9" },
-    .{ "move_to_workspace_1", "Super+Shift+1" },            .{ "move_to_workspace_2", "Super+Shift+2" },
-    .{ "move_to_workspace_3", "Super+Shift+3" },            .{ "move_to_workspace_4", "Super+Shift+4" },
-    .{ "move_to_workspace_5", "Super+Shift+5" },            .{ "move_to_workspace_6", "Super+Shift+6" },
-    .{ "move_to_workspace_7", "Super+Shift+7" },            .{ "move_to_workspace_8", "Super+Shift+8" },
-    .{ "move_to_workspace_9", "Super+Shift+9" },            .{ "focus_workspace_up", "Super+Bracketleft" },
-    .{ "focus_workspace_down", "Super+Bracketright" },      .{ "focus_previous_workspace", "Super+BackSpace" },
-    .{ "move_to_workspace_up", "Super+Shift+Bracketleft" }, .{ "move_to_workspace_down", "Super+Shift+Bracketright" },
-    .{ "focus_output_left", "Super+Ctrl+Comma" },           .{ "focus_output_right", "Super+Ctrl+Period" },
-    .{ "move_to_output_left", "Super+Shift+Comma" },        .{ "move_to_output_right", "Super+Shift+Period" },
-    .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
-    .{ "toggle_scrolling_full_width", "Super+Shift+Z" },    .{ "toggle_floating", "Super+Shift+Space" },
-    .{ "toggle_minimize", "Super+N" },                      .{ "unminimize_last", "Super+Shift+N" },
-    .{ "lock_screen", "Super+Ctrl+L" },                     .{ "untrap_pointer", "Super+grave" },
+    .{ "toggle_start_menu", "Super+Space" },                   .{ "spawn_terminal", "Super+Return" },
+    .{ "screenshot", "Print" },                                .{ "close_focused", "Super+Q" },
+    .{ "cycle_focus", "Super+Tab" },                           .{ "focus_left", "Super+H" },
+    .{ "focus_right", "Super+L" },                             .{ "focus_up", "Super+K" },
+    .{ "focus_down", "Super+J" },                              .{ "scroll_viewport_left", "Super+Comma" },
+    .{ "scroll_viewport_right", "Super+Period" },              .{ "scroll_viewport_left_arrow", "Super+Left" },
+    .{ "scroll_viewport_right_arrow", "Super+Right" },         .{ "consume_window_into_column", "Super+Ctrl+J" },
+    .{ "expel_window_from_column", "Super+Ctrl+K" },           .{ "move_window_left", "Super+Shift+Left" },
+    .{ "move_window_right", "Super+Shift+Right" },             .{ "move_window_up", "Super+Shift+Up" },
+    .{ "move_window_down", "Super+Shift+Down" },               .{ "reload_config", "Super+R" },
+    .{ "focus_workspace_1", "Super+1" },                       .{ "focus_workspace_2", "Super+2" },
+    .{ "focus_workspace_3", "Super+3" },                       .{ "focus_workspace_4", "Super+4" },
+    .{ "focus_workspace_5", "Super+5" },                       .{ "focus_workspace_6", "Super+6" },
+    .{ "focus_workspace_7", "Super+7" },                       .{ "focus_workspace_8", "Super+8" },
+    .{ "focus_workspace_9", "Super+9" },                       .{ "move_to_workspace_1", "Super+Shift+1" },
+    .{ "move_to_workspace_2", "Super+Shift+2" },               .{ "move_to_workspace_3", "Super+Shift+3" },
+    .{ "move_to_workspace_4", "Super+Shift+4" },               .{ "move_to_workspace_5", "Super+Shift+5" },
+    .{ "move_to_workspace_6", "Super+Shift+6" },               .{ "move_to_workspace_7", "Super+Shift+7" },
+    .{ "move_to_workspace_8", "Super+Shift+8" },               .{ "move_to_workspace_9", "Super+Shift+9" },
+    .{ "focus_workspace_up", "Super+Bracketleft" },            .{ "focus_workspace_down", "Super+Bracketright" },
+    .{ "focus_previous_workspace", "Super+BackSpace" },        .{ "move_to_workspace_up", "Super+Shift+Bracketleft" },
+    .{ "move_to_workspace_down", "Super+Shift+Bracketright" }, .{ "focus_output_left", "Super+Ctrl+Comma" },
+    .{ "focus_output_right", "Super+Ctrl+Period" },            .{ "move_to_output_left", "Super+Shift+Comma" },
+    .{ "move_to_output_right", "Super+Shift+Period" },         .{ "toggle_fullscreen", "Super+Shift+F" },
+    .{ "toggle_maximize", "Super+Shift+M" },                   .{ "toggle_scrolling_full_width", "Super+Shift+Z" },
+    .{ "toggle_floating", "Super+Shift+Space" },               .{ "toggle_minimize", "Super+N" },
+    .{ "unminimize_last", "Super+Shift+N" },                   .{ "lock_screen", "Super+Ctrl+L" },
+    .{ "untrap_pointer", "Super+grave" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {
     snapshot.primary_modifier = primaryMask();
+    _ = snapshot.screenshot.set(default_screenshot_command);
     for (defaults) |entry| addBuiltin(snapshot, entry[0], entry[1]);
 }
 
@@ -199,17 +203,18 @@ fn primaryMask() u32 {
 
 fn resolveKeysym(token: []const u8) ?u32 {
     const names = .{
-        .{ "return", 0xff0d },                    .{ "enter", 0xff0d },                    .{ "space", 0x20 },                       .{ "tab", 0xff09 },
-        .{ "escape", 0xff1b },                    .{ "esc", 0xff1b },                      .{ "backspace", 0xff08 },                 .{ "delete", 0xffff },
-        .{ "left", 0xff51 },                      .{ "up", 0xff52 },                       .{ "right", 0xff53 },                     .{ "down", 0xff54 },
-        .{ "home", 0xff50 },                      .{ "end", 0xff57 },                      .{ "pageup", 0xff55 },                    .{ "pagedown", 0xff56 },
-        .{ "comma", 0x2c },                       .{ "period", 0x2e },                     .{ "semicolon", 0x3b },                   .{ "slash", 0x2f },
-        .{ "minus", 0x2d },                       .{ "equal", 0x3d },                      .{ "plus", 0x2b },                        .{ "bracketleft", 0x5b },
-        .{ "bracketright", 0x5d },                .{ "grave", 0x60 },                      .{ "apostrophe", 0x27 },                  .{ "backslash", 0x5c },
-        .{ "xf86audioraisevolume", 0x1008ff13 },  .{ "xf86audiolowervolume", 0x1008ff11 }, .{ "xf86audiomute", 0x1008ff12 },         .{ "xf86audiomicmute", 0x1008ffb2 },
-        .{ "xf86audioplay", 0x1008ff14 },         .{ "xf86audiopause", 0x1008ff31 },       .{ "xf86audiostop", 0x1008ff15 },         .{ "xf86audionext", 0x1008ff17 },
-        .{ "xf86audioprev", 0x1008ff16 },         .{ "xf86monbrightnessup", 0x1008ff02 },  .{ "xf86monbrightnessdown", 0x1008ff03 }, .{ "xf86kbdbrightnessup", 0x1008ff05 },
-        .{ "xf86kbdbrightnessdown", 0x1008ff06 }, .{ "xf86display", 0x1008ff59 },          .{ "xf86search", 0x1008ff1b },            .{ "xf86launch1", 0x1008ff41 },
+        .{ "return", 0xff0d },                    .{ "enter", 0xff0d },                   .{ "space", 0x20 },                       .{ "tab", 0xff09 },
+        .{ "escape", 0xff1b },                    .{ "esc", 0xff1b },                     .{ "backspace", 0xff08 },                 .{ "delete", 0xffff },
+        .{ "print", 0xff61 },                     .{ "printscreen", 0xff61 },             .{ "left", 0xff51 },                      .{ "up", 0xff52 },
+        .{ "right", 0xff53 },                     .{ "down", 0xff54 },                    .{ "home", 0xff50 },                      .{ "end", 0xff57 },
+        .{ "pageup", 0xff55 },                    .{ "pagedown", 0xff56 },                .{ "comma", 0x2c },                       .{ "period", 0x2e },
+        .{ "semicolon", 0x3b },                   .{ "slash", 0x2f },                     .{ "minus", 0x2d },                       .{ "equal", 0x3d },
+        .{ "plus", 0x2b },                        .{ "bracketleft", 0x5b },               .{ "bracketright", 0x5d },                .{ "grave", 0x60 },
+        .{ "apostrophe", 0x27 },                  .{ "backslash", 0x5c },                 .{ "xf86audioraisevolume", 0x1008ff13 },  .{ "xf86audiolowervolume", 0x1008ff11 },
+        .{ "xf86audiomute", 0x1008ff12 },         .{ "xf86audiomicmute", 0x1008ffb2 },    .{ "xf86audioplay", 0x1008ff14 },         .{ "xf86audiopause", 0x1008ff31 },
+        .{ "xf86audiostop", 0x1008ff15 },         .{ "xf86audionext", 0x1008ff17 },       .{ "xf86audioprev", 0x1008ff16 },         .{ "xf86monbrightnessup", 0x1008ff02 },
+        .{ "xf86monbrightnessdown", 0x1008ff03 }, .{ "xf86kbdbrightnessup", 0x1008ff05 }, .{ "xf86kbdbrightnessdown", 0x1008ff06 }, .{ "xf86display", 0x1008ff59 },
+        .{ "xf86search", 0x1008ff1b },            .{ "xf86launch1", 0x1008ff41 },
     };
     inline for (names) |entry| if (std.ascii.eqlIgnoreCase(token, entry[0])) return entry[1];
     if (token.len >= 2 and token.len <= 3 and (token[0] == 'f' or token[0] == 'F')) {
@@ -229,6 +234,8 @@ test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = 'h' }, parseChord("Super+Shift+H").?);
     try std.testing.expectEqual(Chord{ .modifiers = 65, .keysym = '2' }, parseChord("Super+Shift+2").?);
     try std.testing.expectEqual(@as(u32, 0x1008ff13), parseChord("XF86AudioRaiseVolume").?.keysym);
+    try std.testing.expectEqual(@as(u32, 0xff61), parseChord("Print").?.keysym);
+    try std.testing.expectEqual(parseChord("Print").?, parseChord("PrintScreen").?);
     try std.testing.expect(parseChord("Super+Shift") == null);
 }
 
@@ -259,6 +266,7 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const previous_workspace = parseChord("Super+BackSpace").?;
     const untrap_pointer = parseChord("Super+grave").?;
     const scrolling_full_width = parseChord("Super+Shift+Z").?;
+    const screenshot = parseChord("Print").?;
     const consume_window = parseChord("Super+Ctrl+J").?;
     const expel_window = parseChord("Super+Ctrl+K").?;
 
@@ -273,4 +281,6 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:toggle_scrolling_full_width", snapshot.find(scrolling_full_width.keysym, scrolling_full_width.modifiers).?);
     try std.testing.expectEqualStrings("builtin:consume_window_into_column", snapshot.find(consume_window.keysym, consume_window.modifiers).?);
     try std.testing.expectEqualStrings("builtin:expel_window_from_column", snapshot.find(expel_window.keysym, expel_window.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(screenshot.keysym, screenshot.modifiers).?);
+    try std.testing.expectEqualStrings(default_screenshot_command, snapshot.screenshot.slice());
 }
