@@ -102,6 +102,28 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
     };
 }
 
+fn applyGestures(snapshot: *actions.Snapshot, source: []const u8) void {
+    var in_gestures = false;
+    var lines = std.mem.splitScalar(u8, source, '\n');
+    while (lines.next()) |raw| {
+        const line = wm.cleanLine(raw);
+        if (line.len == 0) continue;
+        if (line[0] == '[') {
+            in_gestures = std.mem.eql(u8, line, "[gestures]");
+            continue;
+        }
+        if (!in_gestures) continue;
+
+        const equal = wm.indexUnquoted(line, '=') orelse continue;
+        const key = wm.unquote(std.mem.trim(u8, line[0..equal], " \t"));
+        const gesture = parseGestureKey(key) orelse continue;
+        const raw_value = std.mem.trim(u8, line[equal + 1 ..], " \t");
+        const value = wm.unquote(raw_value);
+        var decoded: [256]u8 = undefined;
+        actions.addGesture(snapshot, gesture.kind, gesture.direction, gesture.fingers, decodeBasic(value, &decoded) orelse value);
+    }
+}
+
 const ParsedGestureKey = struct {
     kind: actions.GestureKind,
     direction: actions.GestureDirection,
@@ -355,12 +377,17 @@ fn applyInputFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []con
     const source = readFile(allocator, path) orelse return;
     defer allocator.free(source);
     snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
+    applyInputSource(snapshot, source);
+}
+
+fn applyInputSource(snapshot: *Snapshot, source: []const u8) void {
     // Parse into a temporary default and merge only fields actually represented
     // by the input sidecar's sections. The parser ignores all unrelated tables.
     var overlay_wm: wm.Snapshot = .{};
     var ignored_layout: layout.Snapshot = .{};
     wm.apply(&overlay_wm, &ignored_layout, source);
     mergeInput(&snapshot.wm.input, overlay_wm.input);
+    applyGestures(&snapshot.actions, source);
 }
 
 fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
@@ -414,6 +441,37 @@ test "input sidecar repeat settings override inherited values including defaults
 
     try std.testing.expectEqual(@as(u31, 40), base.repeat_rate);
     try std.testing.expectEqual(@as(u31, 400), base.repeat_delay);
+}
+
+test "input sidecar applies gestures and overrides matching wm bindings" {
+    var snapshot: Snapshot = .{};
+    actions.initDefaults(&snapshot.actions);
+    applyActions(&snapshot.actions,
+        \\[gestures]
+        \\swipe_3_left = "builtin:focus_workspace_down"
+    );
+
+    applyInputSource(&snapshot,
+        \\[input]
+        \\repeat_rate = 55
+        \\[gestures]
+        \\swipe_3_left = "builtin:focus_workspace_up"
+        \\pinch_4_in = "builtin:toggle_start_menu"
+        \\[keybinds.custom]
+        \\"Super+E" = "spawn:nemo"
+    );
+
+    try std.testing.expectEqual(@as(u31, 55), snapshot.wm.input.repeat_rate);
+    try std.testing.expectEqual(@as(u8, 2), snapshot.actions.gestures_count);
+    try std.testing.expectEqualStrings(
+        "builtin:focus_workspace_up",
+        snapshot.actions.findGesture(.swipe, .left, 3).?,
+    );
+    try std.testing.expectEqualStrings(
+        "builtin:toggle_start_menu",
+        snapshot.actions.findGesture(.pinch, .in, 4).?,
+    );
+    try std.testing.expect(snapshot.actions.find('e', 64) == null);
 }
 
 test "layout sidecar applies workspace mappings as well as layout engines" {

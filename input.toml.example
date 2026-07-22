@@ -17,6 +17,13 @@
 # Keyboard repeat fields track explicit presence and can override any wm.toml
 # value, including by restoring the documented defaults.
 
+# Gesture bindings may live here or in wm.toml. When the same gesture appears
+# in both files, the binding in this input sidecar takes precedence.
+[gestures]
+swipe_3_left = "builtin:focus_workspace_down"
+swipe_3_right = "builtin:focus_workspace_up"
+pinch_4_in = "builtin:toggle_start_menu"
+
 [input]
 # Focus a window when the pointer enters it.
 focus_follows_mouse = false
