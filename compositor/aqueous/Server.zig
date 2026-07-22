@@ -348,6 +348,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
     // This keeps the code simpler and more readable.
 
     const wl_server = try wl.Server.create();
+    wl_display_set_default_max_buffer_size(wl_server, 1024 * 1024);
     const loop = wl_server.getEventLoop();
 
     var scanout_buf: [64]u8 = undefined;
@@ -853,3 +854,8 @@ fn handleToplevelCaptureRequest(
 
     _ = request.accept(capture_source);
 }
+
+extern fn wl_display_set_default_max_buffer_size(
+    display: *wl.Server,
+    max_buffer_size: usize,
+) void;
