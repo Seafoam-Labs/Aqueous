@@ -49,5 +49,15 @@ XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. It verifies active keyboard grabs and pointer confinement for real X11
 clients under the headless backend.
 
+SceneFX visual references and render metadata can be captured from a nested
+session with:
+
+```sh
+scripts/capture-effects-baseline.sh
+```
+
+See `doc/vulkan-effects-baseline.md` for fixture geometry, artifacts, timing
+semantics, and the current blur-cache invalidation inventory.
+
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.

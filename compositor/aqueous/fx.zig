@@ -13,6 +13,7 @@ const build_options = @import("build_options");
 const math = @import("std").math;
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
+const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
 
 /// Corner radius (in layout pixels) applied to window content and borders.
@@ -206,6 +207,7 @@ pub fn createOptimizedBlur(
     if (blur) |node| {
         c.wlr_scene_node_lower_to_bottom(&node.*.node);
         c.wlr_scene_optimized_blur_mark_dirty(node);
+        render_metrics.recordBlurCache(.create);
     }
 
     return if (blur) |node| @ptrCast(node) else null;
@@ -236,6 +238,7 @@ pub fn configureOptimizedBlur(
 
     if (dirty) {
         c.wlr_scene_optimized_blur_mark_dirty(blur);
+        render_metrics.recordBlurCache(.configure_dirty);
     }
 }
 
@@ -246,6 +249,7 @@ pub fn markOptimizedBlurDirty(raw: *anyopaque) void {
     const blur: *c.struct_wlr_scene_optimized_blur =
         @ptrCast(@alignCast(raw));
     c.wlr_scene_optimized_blur_mark_dirty(blur);
+    render_metrics.recordBlurCache(.damage_dirty);
 }
 
 pub fn setOptimizedBlurEnabled(raw: *anyopaque, enabled: bool) void {
@@ -255,6 +259,7 @@ pub fn setOptimizedBlurEnabled(raw: *anyopaque, enabled: bool) void {
     const blur: *c.struct_wlr_scene_optimized_blur =
         @ptrCast(@alignCast(raw));
     c.wlr_scene_node_set_enabled(&blur.node, enabled);
+    render_metrics.recordBlurCache(if (enabled) .enable else .disable);
 }
 
 pub fn destroyOptimizedBlur(raw: *anyopaque) void {
@@ -264,6 +269,7 @@ pub fn destroyOptimizedBlur(raw: *anyopaque) void {
     const blur: *c.struct_wlr_scene_optimized_blur =
         @ptrCast(@alignCast(raw));
     c.wlr_scene_node_destroy(&blur.node);
+    render_metrics.recordBlurCache(.destroy);
 }
 
 /// Synchronize compositor-owned visual state for every buffer in a tree.

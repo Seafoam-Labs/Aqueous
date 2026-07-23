@@ -19,6 +19,7 @@ const river = wayland.server.river;
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const scaling = @import("scaling.zig");
+const render_metrics = @import("render_metrics.zig");
 
 const fx = @import("fx.zig");
 const LayerShellOutput = @import("LayerShellOutput.zig");
@@ -222,6 +223,7 @@ anim_last_ns: i64 = 0,
 /// invalidate it without forcing regeneration on every frame.
 blur_node: ?*anyopaque = null,
 blur_box: ?wlr.Box = null,
+render_metric_sample: ?render_metrics.SceneSample = null,
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -302,6 +304,21 @@ fn destroyBlur(output: *Output) void {
     if (output.blur_node) |node| fx.destroyOptimizedBlur(node);
     output.blur_node = null;
     output.blur_box = null;
+}
+
+fn finishRenderMetric(output: *Output) void {
+    const wlr_output = output.wlr_output orelse return;
+    if (output.render_metric_sample) |*sample| {
+        sample.finish(std.mem.span(wlr_output.name));
+        output.render_metric_sample = null;
+    }
+}
+
+fn discardRenderMetric(output: *Output) void {
+    if (output.render_metric_sample) |*sample| {
+        sample.discard();
+        output.render_metric_sample = null;
+    }
 }
 
 /// Full output geometry exposed to the in-process policy.
@@ -715,6 +732,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     output.commit.link.remove();
     output.bind.link.remove();
 
+    output.finishRenderMetric();
     output.destroyBlur();
 
     wlr_output.data = null;
@@ -985,7 +1003,21 @@ fn renderAndCommit(output: *Output, force: bool) !void {
 
     output.current.applyNoModeset(&state);
 
-    if (!output.scene_output.?.buildState(&state, null)) return error.CommitFailed;
+    const collect_metrics =
+        render_metrics.enabled() and output.render_metric_sample == null;
+    var scene_options: wlr.SceneOutput.StateOptions = .{};
+    if (collect_metrics) {
+        output.render_metric_sample = .{};
+        scene_options.timer = &output.render_metric_sample.?.timer;
+    }
+
+    if (!output.scene_output.?.buildState(
+        &state,
+        if (collect_metrics) &scene_options else null,
+    )) {
+        if (collect_metrics) output.discardRenderMetric();
+        return error.CommitFailed;
+    }
 
     if (output.rendering_current.tearing) {
         state.tearing_page_flip = true;
@@ -997,7 +1029,10 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         }
     }
 
-    if (!wlr_output.commitState(&state)) return error.CommitFailed;
+    if (!wlr_output.commitState(&state)) {
+        if (collect_metrics) output.discardRenderMetric();
+        return error.CommitFailed;
+    }
 
     switch (server.lock_manager.state) {
         .unlocked => {
@@ -1053,6 +1088,7 @@ fn handlePresent(
     event: *wlr.Output.event.Present,
 ) void {
     const output: *Output = @fieldParentPtr("present", listener);
+    output.finishRenderMetric();
     if (!event.presented) {
         return;
     }

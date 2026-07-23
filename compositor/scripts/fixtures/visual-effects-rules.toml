@@ -1,0 +1,32 @@
+[[window]]
+app_id = "aqueous.effects.background"
+layout = "floating"
+floating = true
+width = 1760
+height = 920
+x = 80
+y = 80
+blur = false
+opacity = 1.0
+
+[[window]]
+app_id = "aqueous.effects.blur"
+layout = "floating"
+floating = true
+width = 760
+height = 520
+x = 260
+y = 210
+blur = true
+opacity = 0.88
+
+[[window]]
+app_id = "aqueous.effects.alpha"
+layout = "floating"
+floating = true
+width = 560
+height = 360
+x = 1120
+y = 460
+blur = false
+opacity = 0.72
