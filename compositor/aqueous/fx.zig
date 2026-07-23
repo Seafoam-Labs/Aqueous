@@ -122,10 +122,11 @@ fn setBufferRadiusIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, radius: *
 }
 
 // ----------------------------------------------------------------------------
-// Backdrop blur (SceneFX optimized blur), all comptime-gated like the corner
-// radius helpers above. Global blur parameters arrive from Aqueous via
-// river_window_manager_v1.set_blur. Per-window exclusion is deliberately not
-// emulated with opaque-region overrides because that corrupts translucent output.
+// Backdrop blur, all comptime-gated like the corner-radius helpers above.
+// SceneFX's optimized node caches the static background, while a regular blur
+// node in each window tree displays that cache behind the window's content.
+// Per-window exclusion is deliberately not emulated with opaque-region
+// overrides because that corrupts translucent output.
 // ----------------------------------------------------------------------------
 
 /// Whether blur is available in this build. Mirrors the corner_radius gate so
@@ -150,6 +151,40 @@ pub fn setBlurParams(scene: *wlr.Scene, radius: c_int, passes: c_int) void {
         defaults.contrast,
         defaults.saturation,
     );
+}
+
+/// Create the blur node that is rendered directly behind one window. The
+/// optimized output-local node is only a backdrop cache; SceneFX still requires
+/// one of these regular blur nodes to make that cache visible.
+pub fn createWindowBlur(tree: *wlr.SceneTree) ?*anyopaque {
+    if (comptime !blur_available) return null;
+
+    const c = @import("c");
+    const blur = c.wlr_scene_blur_create(@ptrCast(tree), 0, 0);
+    if (blur) |node| {
+        c.wlr_scene_blur_set_should_only_blur_bottom_layer(node, true);
+        c.wlr_scene_node_lower_to_bottom(&node.*.node);
+    }
+    return if (blur) |node| @ptrCast(node) else null;
+}
+
+/// Synchronize a window-local blur node with the visible portion of the window.
+pub fn configureWindowBlur(
+    raw: *anyopaque,
+    box: wlr.Box,
+    radius: u31,
+    enabled: bool,
+) void {
+    if (comptime !blur_available) return;
+
+    const c = @import("c");
+    const blur: *c.struct_wlr_scene_blur = @ptrCast(@alignCast(raw));
+    c.wlr_scene_node_set_enabled(&blur.node, enabled);
+    if (!enabled) return;
+
+    c.wlr_scene_node_set_position(&blur.node, box.x, box.y);
+    c.wlr_scene_blur_set_size(blur, box.width, box.height);
+    c.wlr_scene_blur_set_corner_radius(blur, @intCast(radius));
 }
 
 /// Create an output-sized optimized blur node. SceneFX treats width and height

@@ -245,6 +245,10 @@ impl: Impl,
 /// The trees in the following fields are in rendering order.
 tree: *wlr.SceneTree,
 
+/// SceneFX blur rendered behind this window's content. The output-local
+/// optimized blur node only caches the background; this node displays it.
+backdrop_blur: ?*anyopaque,
+
 /// Opaque black rectangle used as the background while this window is rendered fullscreen.
 /// TODO consider using one of these per output rather than one per window to save memory
 /// if the complexity tradeoff is worth it.
@@ -584,11 +588,14 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const anim_tree = try server.scene.hidden_tree.createSceneTree();
     errdefer anim_tree.node.destroy();
 
+    const backdrop_blur = fx.createWindowBlur(tree);
+
     window.* = .{
         .ref = .{ .key = key },
         .node = undefined,
         .impl = impl,
         .tree = tree,
+        .backdrop_blur = backdrop_blur,
         .fullscreen_background = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1 }),
         .decorations_below = undefined,
         .decorations_below_tree = try tree.createSceneTree(),
@@ -618,6 +625,9 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
+    if (window.backdrop_blur) |blur| {
+        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+    }
 
     window.capture_scene.restack_xwayland_surfaces = false;
 
@@ -1418,6 +1428,7 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
         fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
     }
+    window.refreshBackdropBlur();
 
     // While a position animation is running, applyOpacity() updates the visible
     // animation clone and keeps the live surfaces invisible at the target so
@@ -1438,6 +1449,63 @@ pub fn renderFinish(window: *Window) void {
             decoration.renderFinish(&clip);
         }
     }
+}
+
+fn refreshBackdropBlur(window: *Window) void {
+    const requested = &window.rendering_requested;
+    const fullscreen = window.wm_requested.fullscreen != null;
+    window.syncBackdropBlur(
+        &requested.clip,
+        &requested.content_clip,
+        if (fullscreen) 0 else requested.border.corner_radius,
+        !fullscreen,
+    );
+}
+
+/// Size the SceneFX blur to the same visible window-local rectangle as the
+/// surface content. A clip through a window edge intentionally drops rounding
+/// at the newly-created edge, matching drawBorders().
+fn syncBackdropBlur(
+    window: *Window,
+    clip: *const wlr.Box,
+    content_clip: *const wlr.Box,
+    radius: u31,
+    allow: bool,
+) void {
+    const blur = window.backdrop_blur orelse return;
+    const requested = &window.rendering_requested;
+    const active = allow and
+        server.wm.blur.enabled and
+        server.wm.blur.radius > 0 and
+        server.wm.blur.passes > 0 and
+        requested.blur_enabled and
+        !window.anim_snapshot and
+        window.box.width > 0 and
+        window.box.height > 0;
+    if (!active) {
+        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        return;
+    }
+
+    const full: wlr.Box = .{
+        .x = 0,
+        .y = 0,
+        .width = window.box.width,
+        .height = window.box.height,
+    };
+    var visible = full;
+    if (!clip.empty() and !visible.intersection(&visible, clip)) {
+        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        return;
+    }
+    if (!content_clip.empty() and !visible.intersection(&visible, content_clip)) {
+        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        return;
+    }
+
+    const clipped = visible.x != full.x or visible.y != full.y or
+        visible.width != full.width or visible.height != full.height;
+    fx.configureWindowBlur(blur, visible, if (clipped) 0 else radius, true);
 }
 
 /// Feed a new target position into the animator.
@@ -1552,6 +1620,7 @@ fn clearSnapshot(window: *Window) void {
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
     window.applyOpacity();
+    window.refreshBackdropBlur();
 }
 
 /// Begin a slide whose eased clone starts at (start_x, start_y) and animates to
