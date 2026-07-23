@@ -17,7 +17,7 @@ const visual_state = @import("visual_state.zig");
 
 /// Corner radius (in layout pixels) applied to window content and borders.
 /// When SceneFX is unavailable this is always 0, i.e. square corners.
-pub const corner_radius: u31 = if (build_options.scenefx) 12 else 0;
+pub const corner_radius: u31 = if (build_options.scenefx) 15 else 0;
 
 // ----------------------------------------------------------------------------
 // Window position animation tuning. Frame-rate-independent exponential
@@ -78,18 +78,31 @@ pub const CornerRadii = struct {
     bottom_left: u31 = 0,
 };
 
-/// Set each corner of a scene rect independently. Border corner pieces need
-/// this rather than `setRectRadius`: rounding all four corners of a thin edge
-/// turns it into a capsule instead of one quadrant of the window outline.
-pub fn setRectRadii(rect: *wlr.SceneRect, radii: CornerRadii) void {
+/// Cut a rounded area out of a scene rect. SceneFX evaluates the rect's outer
+/// radii and this inner clipped region in the same render pass, which makes a
+/// filled rect behave as a single stroked rounded rectangle without seams
+/// between independently antialiased nodes.
+pub fn setRectClippedRegion(
+    rect: *wlr.SceneRect,
+    area: wlr.Box,
+    radii: CornerRadii,
+) void {
     if (comptime !build_options.scenefx) return;
     const c = @import("c");
     const max = math.maxInt(u16);
-    c.wlr_scene_rect_set_corner_radii(@ptrCast(rect), .{
-        .top_left = @intCast(@min(radii.top_left, max)),
-        .top_right = @intCast(@min(radii.top_right, max)),
-        .bottom_right = @intCast(@min(radii.bottom_right, max)),
-        .bottom_left = @intCast(@min(radii.bottom_left, max)),
+    c.wlr_scene_rect_set_clipped_region(@ptrCast(rect), .{
+        .area = .{
+            .x = area.x,
+            .y = area.y,
+            .width = area.width,
+            .height = area.height,
+        },
+        .corners = .{
+            .top_left = @intCast(@min(radii.top_left, max)),
+            .top_right = @intCast(@min(radii.top_right, max)),
+            .bottom_right = @intCast(@min(radii.bottom_right, max)),
+            .bottom_left = @intCast(@min(radii.bottom_left, max)),
+        },
     });
 }
 

@@ -256,14 +256,11 @@ decorations_below_tree: *wlr.SceneTree,
 surfaces: Scene.SaveableSurfaces,
 
 border: struct {
+    rounded_outline: *wlr.SceneRect,
     left: *wlr.SceneRect,
     right: *wlr.SceneRect,
     top: *wlr.SceneRect,
     bottom: *wlr.SceneRect,
-    top_left: *wlr.SceneRect,
-    top_right: *wlr.SceneRect,
-    bottom_right: *wlr.SceneRect,
-    bottom_left: *wlr.SceneRect,
 },
 
 decorations_above: wl.list.Head(Decoration, .link),
@@ -597,14 +594,11 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_below_tree = try tree.createSceneTree(),
         .surfaces = try Scene.SaveableSurfaces.init(tree),
         .border = .{
+            .rounded_outline = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .top = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
             .bottom = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
-            .top_left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
-            .top_right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
-            .bottom_right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
-            .bottom_left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
         },
         .decorations_above = undefined,
         .decorations_above_tree = try tree.createSceneTree(),
@@ -624,13 +618,6 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
-
-    // Rounded corner pieces overlap the nominal content box so that the outer
-    // and inner curves meet. Keep them immediately below both live and saved
-    // surface trees; the rounded client surface supplies the inner cutout.
-    inline for (.{ "top_left", "top_right", "bottom_right", "bottom_left" }) |corner| {
-        @field(window.border, corner).node.placeBelow(&window.surfaces.tree.node);
-    }
 
     window.capture_scene.restack_xwayland_surfaces = false;
 
@@ -1381,14 +1368,11 @@ pub fn renderFinish(window: *Window) void {
         clip = .{ .x = 0, .y = 0, .width = width, .height = height };
         content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
         inline for (.{
+            "rounded_outline",
             "left",
             "right",
             "top",
             "bottom",
-            "top_left",
-            "top_right",
-            "bottom_right",
-            "bottom_left",
         }) |part| {
             @field(window.border, part).node.setEnabled(false);
         }
@@ -1790,14 +1774,11 @@ fn restoreAnimBuffer(record: AnimBuffer) void {
 fn drawBorders(window: *Window) void {
     const requested = &window.rendering_requested;
     inline for (.{
+        "rounded_outline",
         "left",
         "right",
         "top",
         "bottom",
-        "top_left",
-        "top_right",
-        "bottom_right",
-        "bottom_left",
     }) |part| {
         @field(window.border, part).node.setEnabled(false);
     }
@@ -1824,8 +1805,15 @@ fn drawBorders(window: *Window) void {
 
     // A set_clip_box can cut through any side of the outline. Keep that path
     // square: rounding the newly clipped edge would create a corner at the clip
-    // boundary rather than preserve the window's original corner.
-    const rounded = border.corner_radius > 0 and requested.clip.empty();
+    // boundary rather than preserve the window's original corner. A single
+    // clipped ring also represents all four edges, so selective borders use the
+    // edge-node fallback below.
+    const rounded = border.corner_radius > 0 and
+        requested.clip.empty() and
+        border.edges.top and
+        border.edges.right and
+        border.edges.bottom and
+        border.edges.left;
     if (!rounded) {
         var left: wlr.Box = .{
             .x = content.x - @as(i32, border.width),
@@ -1887,71 +1875,31 @@ fn drawBorders(window: *Window) void {
         @as(u32, radius) + @as(u32, border.width),
         math.maxInt(u31),
     ));
-    const r: i32 = radius;
-    const outer: i32 = outer_radius;
     const bw: i32 = border.width;
 
-    var left: wlr.Box = .{
-        .x = content.x - bw,
-        .y = content.y + (if (border.edges.top) r else 0),
-        .width = bw,
-        .height = content.height -
-            (if (border.edges.top) r else 0) -
-            (if (border.edges.bottom) r else 0),
-    };
-    var right = left;
-    right.x = content.x + content.width;
-    var top: wlr.Box = .{
-        .x = content.x + (if (border.edges.left) r else 0),
-        .y = content.y - bw,
-        .width = content.width -
-            (if (border.edges.left) r else 0) -
-            (if (border.edges.right) r else 0),
-        .height = bw,
-    };
-    var bottom = top;
-    bottom.y = content.y + content.height;
-
-    inline for (.{
-        .{ .name = "left", .box = &left },
-        .{ .name = "right", .box = &right },
-        .{ .name = "top", .box = &top },
-        .{ .name = "bottom", .box = &bottom },
-    }) |edge| {
-        const rect = @field(window.border, edge.name);
-        rect.node.setEnabled(@field(border.edges, edge.name) and !edge.box.empty());
-        rect.node.setPosition(edge.box.x, edge.box.y);
-        rect.setSize(edge.box.width, edge.box.height);
-        rect.setColor(&color);
-        fx.setRectRadius(rect, 0);
-    }
-
-    var top_left: wlr.Box = .{
+    const outline: wlr.Box = .{
         .x = content.x - bw,
         .y = content.y - bw,
-        .width = outer,
-        .height = outer,
+        .width = content.width + 2 * bw,
+        .height = content.height + 2 * bw,
     };
-    var top_right = top_left;
-    top_right.x = content.x + content.width - r;
-    var bottom_right = top_right;
-    bottom_right.y = content.y + content.height - r;
-    var bottom_left = top_left;
-    bottom_left.y = content.y + content.height - r;
-
-    inline for (.{
-        .{ .name = "top_left", .box = &top_left, .enabled = border.edges.top and border.edges.left, .radii = fx.CornerRadii{ .top_left = outer_radius } },
-        .{ .name = "top_right", .box = &top_right, .enabled = border.edges.top and border.edges.right, .radii = fx.CornerRadii{ .top_right = outer_radius } },
-        .{ .name = "bottom_right", .box = &bottom_right, .enabled = border.edges.bottom and border.edges.right, .radii = fx.CornerRadii{ .bottom_right = outer_radius } },
-        .{ .name = "bottom_left", .box = &bottom_left, .enabled = border.edges.bottom and border.edges.left, .radii = fx.CornerRadii{ .bottom_left = outer_radius } },
-    }) |corner| {
-        const rect = @field(window.border, corner.name);
-        rect.node.setEnabled(corner.enabled);
-        rect.node.setPosition(corner.box.x, corner.box.y);
-        rect.setSize(corner.box.width, corner.box.height);
-        rect.setColor(&color);
-        fx.setRectRadii(rect, corner.radii);
-    }
+    const rect = window.border.rounded_outline;
+    rect.node.setEnabled(true);
+    rect.node.setPosition(outline.x, outline.y);
+    rect.setSize(outline.width, outline.height);
+    rect.setColor(&color);
+    fx.setRectRadius(rect, outer_radius);
+    fx.setRectClippedRegion(rect, .{
+        .x = bw,
+        .y = bw,
+        .width = content.width,
+        .height = content.height,
+    }, .{
+        .top_left = radius,
+        .top_right = radius,
+        .bottom_right = radius,
+        .bottom_left = radius,
+    });
 }
 
 fn applySurfaceClip(window: *Window, a: *const wlr.Box, b: *const wlr.Box) void {

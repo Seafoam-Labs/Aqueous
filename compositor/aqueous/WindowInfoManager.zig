@@ -195,14 +195,11 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
     if (node == &window.decorations_below_tree.node) return "decorations below";
     if (node == &window.surfaces.tree.node) return "live surfaces";
     if (node == &window.surfaces.saved_tree.node) return "saved surfaces";
+    if (node == &window.border.rounded_outline.node) return "border: rounded outline";
     if (node == &window.border.left.node) return "border: left";
     if (node == &window.border.right.node) return "border: right";
     if (node == &window.border.top.node) return "border: top";
     if (node == &window.border.bottom.node) return "border: bottom";
-    if (node == &window.border.top_left.node) return "border: top-left corner";
-    if (node == &window.border.top_right.node) return "border: top-right corner";
-    if (node == &window.border.bottom_right.node) return "border: bottom-right corner";
-    if (node == &window.border.bottom_left.node) return "border: bottom-left corner";
     if (node == &window.decorations_above_tree.node) return "decorations above";
     return switch (node.type) {
         .tree => "window subtree",
