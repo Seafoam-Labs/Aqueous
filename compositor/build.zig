@@ -349,6 +349,30 @@ pub fn build(b: *Build) !void {
         effect_metadata_test.root_module.addImport("slotmap", slotmap);
         const run_effect_metadata_test = b.addRunArtifact(effect_metadata_test);
 
+        const output_hdr_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/output_hdr.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        output_hdr_test.root_module.addImport("wlroots", wlroots);
+        const run_output_hdr_test = b.addRunArtifact(output_hdr_test);
+
+        const global_filter_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/global_filter.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_global_filter_test = b.addRunArtifact(global_filter_test);
+
         const blur_cache_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/render/BlurCache.zig"),
@@ -509,6 +533,8 @@ pub fn build(b: *Build) !void {
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);
+        test_step.dependOn(&run_output_hdr_test.step);
+        test_step.dependOn(&run_global_filter_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_visual_state_test.step);

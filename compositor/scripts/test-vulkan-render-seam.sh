@@ -498,6 +498,19 @@ awk \
     }' ||
     die "backdrop blur was composited over the blur window's client content"
 
+# Recreate the nested backend swapchain at a smaller size and then return to
+# the original extent. Drivers commonly recycle the raw VkImageView handles in
+# this pattern, which previously let the blur cache select a stale descriptor.
+set_output_mode 1280 720
+capture_output "$ARTIFACT_DIR/blur-mode-small.png"
+set_output_mode 1920 1080
+capture_output "$ARTIFACT_DIR/blur-mode-roundtrip.png"
+roundtrip_pixels=$(nonblack_pixel_count \
+    "$ARTIFACT_DIR/blur-mode-roundtrip.png")
+awk -v pixels="$roundtrip_pixels" \
+    'BEGIN { exit !(pixels > 1000) }' ||
+    die "blur content did not survive the output mode roundtrip"
+
 for generation in 1 2 3 4; do
     send_background_command \
         localized-cache-hit "$generation" 1400 700 80 60
@@ -560,9 +573,11 @@ awk \
     -v width="$blurred_diff_width" \
     -v height="$blurred_diff_height" \
     'BEGIN {
-        exit !(changed > 1000 && width > 160 && height > 120)
+        exit !(changed > 1000 &&
+            width > 160 && width <= 240 &&
+            height > 120 && height <= 200)
     }' ||
-    die "localized backdrop update was not expanded by the blur kernel"
+    die "localized backdrop update escaped its expanded damage region"
 
 send_background_command stress "$STRESS_FRAMES" 360 240 160 120
 capture_output "$ARTIFACT_DIR/after-buffer-reuse.png"
@@ -736,6 +751,13 @@ total_draws=$((texture_draws + rect_draws))
     die "not every blur checkpoint produced a composite"
 [ "$blur_scratch_sets" -lt "$blur_checkpoints" ] ||
     die "blur scratch resources were allocated once per checkpoint"
+scratch_retirements=$(
+    grep -c \
+        'Vulkan blur scratch resource sets before render-target change' \
+        "$COMPOSITOR_LOG" || true
+)
+[ "$scratch_retirements" -gt 0 ] ||
+    die "output changes did not retire borrowed blur render targets"
 [ "$blur_image_allocations" -eq \
     $((blur_scratch_sets * 2 + blur_cache_images)) ] ||
     die "blur image allocation accounting is inconsistent"
@@ -806,6 +828,7 @@ fi
     printf 'blur_full_rebuilds=%s\n' "$blur_full_rebuilds"
     printf 'blur_pixels_processed=%s\n' "$blur_pixels_processed"
     printf 'blur_scratch_sets=%s\n' "$blur_scratch_sets"
+    printf 'blur_scratch_retirements=%s\n' "$scratch_retirements"
     printf 'blur_image_allocations=%s\n' "$blur_image_allocations"
     printf 'blur_descriptor_allocations=%s\n' \
         "$blur_descriptor_allocations"

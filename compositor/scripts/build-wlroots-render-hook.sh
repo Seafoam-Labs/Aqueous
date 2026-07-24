@@ -5,7 +5,10 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 version=0.20.2
 archive_sha256=972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 archive_url="https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/$version/wlroots-$version.tar.gz"
-patch_file="$here/patches/wlroots/0001-aqueous-vulkan-render-hook.patch"
+patch_files=(
+    "$here/patches/wlroots/0001-aqueous-vulkan-render-hook.patch"
+    "$here/patches/wlroots/0002-fix-hdr-min-luminance.patch"
+)
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
 archive="$cache_dir/wlroots-$version.tar.gz"
@@ -14,7 +17,9 @@ die() { echo "FAIL: $*" >&2; exit 1; }
 for tool in curl meson ninja patch sha256sum tar; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
-[ -r "$patch_file" ] || die "missing wlroots render-hook patch"
+for patch_file in "${patch_files[@]}"; do
+    [ -r "$patch_file" ] || die "missing wlroots patch: $patch_file"
+done
 
 mkdir -p "$cache_dir"
 if [ ! -f "$archive" ]; then
@@ -31,7 +36,9 @@ source_dir="$build_root/source"
 build_dir="$build_root/build"
 mkdir -p "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
-patch -d "$source_dir" -p1 <"$patch_file"
+for patch_file in "${patch_files[@]}"; do
+    patch -d "$source_dir" -p1 <"$patch_file"
+done
 
 meson setup "$build_dir" "$source_dir" \
     --prefix="$prefix" \

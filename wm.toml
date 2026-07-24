@@ -44,6 +44,7 @@ rollback_seconds = 0
 # transform = "normal"
 # position = [0, 0]
 # adaptive_sync = true
+# hdr = true # fixed HDR10 profile: 10-bit BT.2020 with PQ; capable DRM outputs only
 # primary = true
 # layout = "scrolling" # optional default WM layout for this output
 
@@ -76,6 +77,7 @@ rollback_seconds = 0
 # transform = "normal"
 # position = [0, 0]
 # adaptive_sync = true
+# hdr = true
 # primary = true
 
 # Optional sidecar selectors. Leave these commented to use normal XDG

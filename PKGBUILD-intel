@@ -2,8 +2,8 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous-git-intel
 pkgbase=aqueous-intel
-pkgver=0.4.2 # Will be updated by pkgver()
-pkgrel=3
+pkgver=0.4.3 # Will be updated by pkgver()
+pkgrel=1
 pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 build)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -44,7 +44,7 @@ pkgver() {
     local ver
     ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
     if [[ -z "$ver" ]]; then
-        ver="0.4.2.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
+        ver="0.4.3.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
     fi
     echo "$ver"
 }

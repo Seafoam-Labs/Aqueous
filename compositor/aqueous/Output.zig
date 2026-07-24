@@ -33,6 +33,7 @@ const util = @import("util.zig");
 const scaling = @import("scaling.zig");
 const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
+pub const hdr = @import("output_hdr.zig");
 
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
@@ -81,6 +82,8 @@ pub const State = struct {
     scale: f32,
     transform: wl.Output.Transform,
     adaptive_sync: bool,
+    /// Enable the fixed BT.2020/PQ HDR10 output profile.
+    hdr_enabled: bool,
     position_source: PositionSource,
 
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
@@ -111,6 +114,9 @@ pub const State = struct {
             .scale = scaling.roundScale(clamped_scale),
             .transform = state.transform,
             .adaptive_sync = state.adaptive_sync_enabled,
+            // wlr-output-management-v1 has no HDR field. Callers replacing
+            // existing state through that protocol preserve this separately.
+            .hdr_enabled = false,
             .position_source = .output_management,
         };
     }
@@ -141,10 +147,10 @@ pub const State = struct {
         wlr_state.setTransform(state.transform);
     }
 
-    pub fn applyModeset(state: *const State, wlr_state: *wlr.Output.State) void {
+    pub fn applyModeset(state: *const State, wlr_output: *wlr.Output, wlr_state: *wlr.Output.State) bool {
         const enabled = state.state == .enabled;
         wlr_state.setEnabled(enabled);
-        if (!enabled) return;
+        if (!enabled) return true;
         state.applyNoModeset(wlr_state);
         switch (state.mode) {
             .standard => |mode| wlr_state.setMode(mode),
@@ -152,6 +158,7 @@ pub const State = struct {
             .none => {},
         }
         wlr_state.setAdaptiveSyncEnabled(state.adaptive_sync);
+        return hdr.apply(wlr_output, state.hdr_enabled, wlr_state);
     }
 };
 
@@ -445,6 +452,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .scale = 1,
         .transform = .normal,
         .adaptive_sync = wlr_output.adaptive_sync_status == .enabled,
+        .hdr_enabled = false,
         .position_source = .automatic,
     };
     output.* = .{
@@ -652,6 +660,7 @@ fn effectsRenderBegin(
 fn effectsNodeRender(
     render_pass: ?*c.struct_wlr_render_pass,
     c_node: ?*c.struct_wlr_scene_node,
+    render_region: ?*const c.pixman_region32_t,
     data: ?*anyopaque,
 ) callconv(.c) void {
     if (comptime !build_options.vulkan_effects) return;
@@ -673,10 +682,12 @@ fn effectsNodeRender(
     const effect = windowBlurEffect(window, blur, state) orelse return;
     const config = server.effect_metadata.blurConfig();
     const pass = render_pass orelse return;
+    const clip = render_region orelse return;
     const rendered = if (uncachedBlurRequested())
         server.vulkan_context.blur_pipeline.render(
             pass,
             effect,
+            clip,
             config.radius,
             config.passes,
             state.scale,
@@ -692,6 +703,7 @@ fn effectsNodeRender(
             pass,
             @bitCast(handle.key),
             effect,
+            clip,
             blur.generation,
             config.generation,
             if (output_cache) |cache| cache.invalidation_generation else 0,

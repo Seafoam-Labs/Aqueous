@@ -15,6 +15,7 @@ const wp = wayland.server.wp;
 
 const util = @import("util.zig");
 const fx = @import("fx.zig");
+const global_filter = @import("global_filter.zig");
 const VulkanContext = if (build_options.vulkan_effects) @import("render/VulkanContext.zig") else void;
 const EffectMetadata = if (build_options.vulkan_effects) @import("render/EffectMetadata.zig") else void;
 
@@ -83,6 +84,7 @@ security_context_manager: *wlr.SecurityContextManagerV1,
 
 shm: *wlr.Shm,
 linux_dmabuf: ?*wlr.LinuxDmabufV1 = null,
+creating_linux_dmabuf_global: bool = false,
 linux_drm_syncobj_manager: ?*wlr.LinuxDrmSyncobjManagerV1 = null,
 single_pixel_buffer_manager: *wlr.SinglePixelBufferManagerV1,
 alpha_modifier: *wlr.AlphaModifierV1,
@@ -593,6 +595,11 @@ fn globalFilter(client: *const wl.Client, global: *const wl.Global, server: *Ser
 
 /// Returns true if the global is allowlisted for security contexts
 fn allowlist(server: *Server, global: *const wl.Global) bool {
+    if (global_filter.temporarilyAllowlistedInterface(
+        server.creating_linux_dmabuf_global,
+        global.getInterface().name,
+    )) return true;
+
     if (server.linux_dmabuf) |linux_dmabuf| {
         if (global == linux_dmabuf.global) return true;
     }
@@ -761,7 +768,16 @@ fn gpuResetRecover(server: *Server) !void {
 
     if (server.linux_dmabuf) |old_dmabuf| {
         if (new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
-            if (wlr.LinuxDmabufV1.createWithRenderer(server.wl_server, 5, new_renderer)) |new_dmabuf| {
+            const new_dmabuf_result = blk: {
+                server.creating_linux_dmabuf_global = true;
+                defer server.creating_linux_dmabuf_global = false;
+                break :blk wlr.LinuxDmabufV1.createWithRenderer(
+                    server.wl_server,
+                    5,
+                    new_renderer,
+                );
+            };
+            if (new_dmabuf_result) |new_dmabuf| {
                 old_dmabuf.global.destroy();
                 server.linux_dmabuf = new_dmabuf;
                 server.scene.wlr_scene.setLinuxDmabufV1(new_dmabuf);
