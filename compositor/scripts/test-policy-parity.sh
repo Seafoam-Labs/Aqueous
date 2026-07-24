@@ -132,7 +132,7 @@ start_session() {
     AQUEOUS_RULES="$FIXTURES/parity-rules.toml" \
     AQUEOUS_MOD=Super \
     GDK_BACKEND=wayland \
-        "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -log-level info "${args[@]}" -c true \
+        "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -log-level debug "${args[@]}" -c true \
         >"$SESSION_LOG" 2>&1 &
     COMPOSITOR_PID=$!
 
@@ -151,6 +151,18 @@ start_session() {
     export WAYLAND_DISPLAY="$socket" GDK_BACKEND=wayland
 
     grep -q 'policy mode=internal' "$SESSION_LOG" || die "$label did not start internal policy"
+
+    n=0
+    while [ "$n" -lt 160 ]; do
+        if ! kill -0 "$COMPOSITOR_PID" 2>/dev/null; then
+            tail -80 "$SESSION_LOG" >&2
+            die "compositor exited before the first $label frame"
+        fi
+        [ -n "$(trace_line || true)" ] && return 0
+        sleep 0.05
+        n=$((n + 1))
+    done
+    die "$label did not complete its first frame"
 }
 
 exercise_session() {

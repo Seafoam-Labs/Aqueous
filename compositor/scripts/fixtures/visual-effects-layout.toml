@@ -1,0 +1,16 @@
+[layout]
+default = "floating"
+gaps_outer = 0
+gaps_inner = 0
+
+[layout.options.scrolling]
+gaps_outer = 0
+gaps_inner = 0
+border_width = 4
+border_focused = 0xFFFF6B35
+border_normal = 0xFFFF6B35
+column_fraction = 0.5
+center_focused = false
+follow_new_windows = false
+snap_to_columns = false
+allow_overscroll = false

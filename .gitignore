@@ -9,7 +9,9 @@ riderModule.iml
 compositor/zig-cache/
 compositor/zig-out/
 compositor/.zig-cache/
+compositor/baselines/
 .zig-cache/
 
 # Aggregated native binaries
 /bin/aqueous
+lib/aqueous/

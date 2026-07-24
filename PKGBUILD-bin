@@ -3,7 +3,7 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
-pkgrel=4
+pkgrel=5
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -11,12 +11,13 @@ license=('GPL3')
 depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
-         'xdg-desktop-portal-wlr' 'wlroots0.20' 'wl-clipboard'
+         'xdg-desktop-portal-wlr' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle; the aqueous.desktop session
          # entry execs `uwsm start`.
          'uwsm'
-         'scenefx')
+         'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff'
+         'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm')
 optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
@@ -40,6 +41,7 @@ check() {
     local required=(
         bin/aqueous
         bin/aqueousctl
+        lib/aqueous/libwlroots-0.20.so
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
         bin/aqueous-init
         bin/aqueous-wm
@@ -59,6 +61,13 @@ check() {
             return 1
         fi
     done
+    readelf -d "$srcdir/bin/aqueous" |
+        grep -F '$ORIGIN/../lib/aqueous' >/dev/null
+    if readelf -d "$srcdir/bin/aqueous" |
+        grep -i 'scenefx' >/dev/null; then
+        error "release compositor still links SceneFX"
+        return 1
+    fi
 
     local retired=(
         bin/aqueous-outputd

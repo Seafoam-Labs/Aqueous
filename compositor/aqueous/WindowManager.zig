@@ -261,7 +261,7 @@ fn handleRequest(
 }
 
 /// Apply the current global blur parameters and synchronize each output-local
-/// optimized blur node. No-op on builds without SceneFX.
+/// optimized blur cache. No-op on builds without an effects backend.
 fn applyBlur(wm: *WindowManager) void {
     if (comptime !fx.blur_available) return;
     const scene = server.scene.wlr_scene;

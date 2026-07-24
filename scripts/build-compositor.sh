@@ -29,7 +29,13 @@ if ! command -v zig >/dev/null 2>&1; then
 fi
 
 echo "[build-compositor] zig $(zig version), optimize=$optimize, linker_flag=${linker_flag:-<none>}"
-(cd "$here/compositor" && zig build -Doptimize="$optimize" -Dscenefx=true -Dxwayland ${linker_flag:+$linker_flag})
+"$here/compositor/scripts/build-wlroots-render-hook.sh"
+(
+    cd "$here/compositor"
+    export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
+    export LD_LIBRARY_PATH="$PWD/.deps/wlroots-render-hook/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    zig build -Doptimize="$optimize" -Dxwayland ${linker_flag:+$linker_flag}
+)
 
 mkdir -p "$here/bin"
 if [ -x "$here/compositor/zig-out/bin/aqueous" ]; then
@@ -40,6 +46,12 @@ else
 fi
 install -m 0755 "$src" "$here/bin/aqueous"
 echo "[build-compositor] -> $here/bin/aqueous"
+
+mkdir -p "$here/lib/aqueous"
+install -m 0755 \
+    "$here/compositor/zig-out/lib/aqueous/libwlroots-0.20.so" \
+    "$here/lib/aqueous/libwlroots-0.20.so"
+echo "[build-compositor] -> $here/lib/aqueous/libwlroots-0.20.so"
 
 if [ -x "$here/compositor/zig-out/bin/aqueousctl" ]; then
     install -m 0755 "$here/compositor/zig-out/bin/aqueousctl" "$here/bin/aqueousctl"

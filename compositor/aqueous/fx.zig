@@ -1,23 +1,29 @@
 // SPDX-FileCopyrightText: © 2024 The River Developers
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Thin, comptime-gated wrappers around the SceneFX corner-radius API.
-//!
-//! Every function in this file is guarded by `comptime build_options.scenefx`.
-//! When SceneFX is not compiled in (`-Dscenefx=false`), the bodies (and the
-//! `@import("c")` symbols that only exist when the SceneFX headers are present)
-//! are completely compiled out, leaving the stock `wlr_scene` behavior with
-//! square corners and no reference to any SceneFX symbol.
+//! Backend-neutral facade for compositor visual effects.
 
 const build_options = @import("build_options");
-const math = @import("std").math;
+const std = @import("std");
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
+const EffectMetadata = @import("render/EffectMetadata.zig");
+const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
 
 /// Corner radius (in layout pixels) applied to window content and borders.
-/// When SceneFX is unavailable this is always 0, i.e. square corners.
-pub const corner_radius: u31 = if (build_options.scenefx) 15 else 0;
+/// Builds with no effects backend retain square corners.
+pub const corner_radius: u31 =
+    if (build_options.vulkan_effects) 15 else 0;
+
+pub const CornerRadii = EffectMetadata.CornerRadii;
+pub const WindowBlur = EffectMetadata.WindowBlurHandle;
+pub const OutputBlurCache = EffectMetadata.OutputBlurCacheHandle;
+
+fn metadata() *EffectMetadata {
+    comptime std.debug.assert(build_options.vulkan_effects);
+    return &@import("main.zig").server.effect_metadata;
+}
 
 // ----------------------------------------------------------------------------
 // Window position animation tuning. Frame-rate-independent exponential
@@ -41,74 +47,76 @@ pub const workspace_slide_rate: f64 = 7.0;
 pub const anim_epsilon: f64 = 0.5;
 
 /// Create the renderer appropriate for the current build.
-///
-/// A SceneFX-backed scene (created by `wlr.Scene.create()` once SceneFX is
-/// linked) requires the SceneFX FX renderer; driving it with a stock
-/// autocreated GLES2/Vulkan renderer crashes on the first scene-output commit.
-/// When SceneFX is not compiled in, fall back to the normal autocreated
-/// wlroots renderer.
 pub fn createRenderer(backend: *wlr.Backend) !*wlr.Renderer {
-    if (comptime build_options.scenefx) {
+    if (comptime build_options.vulkan_effects) {
         const c = @import("c");
-        const r = c.fx_renderer_create(@ptrCast(backend)) orelse
-            return error.RendererCreateFailed;
-        return @ptrCast(@alignCast(r));
+        if (setenv("WLR_RENDERER", "vulkan", 1) != 0) {
+            std.log.err("cannot select the wlroots Vulkan renderer: setenv failed", .{});
+            return error.VulkanRendererSelectionFailed;
+        }
+        const renderer = wlr.Renderer.autocreate(backend) catch |err| {
+            std.log.err("wlroots could not create the required Vulkan renderer: {s}", .{@errorName(err)});
+            return error.VulkanRendererUnavailable;
+        };
+        if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
+            renderer.destroy();
+            std.log.err("Vulkan effects require wlroots' Vulkan renderer, but another renderer was created", .{});
+            return error.VulkanRendererUnavailable;
+        }
+        return renderer;
     }
     return wlr.Renderer.autocreate(backend);
 }
 
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
 /// Set the corner radius of a single scene buffer node.
 pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    c.wlr_scene_buffer_set_corner_radius(@ptrCast(buffer), @intCast(radius));
+    if (comptime build_options.vulkan_effects) {
+        metadata().setBufferRadius(buffer, radius) catch {
+            std.log.err("could not store scene-buffer effect metadata: out of memory", .{});
+            return;
+        };
+        const c = @import("c");
+        c.wlr_scene_buffer_set_force_blend(@ptrCast(buffer), radius != 0);
+    }
 }
 
 /// Set the corner radius of a single scene rect node.
 pub fn setRectRadius(rect: *wlr.SceneRect, radius: u31) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    c.wlr_scene_rect_set_corner_radius(@ptrCast(rect), @intCast(radius));
+    if (comptime build_options.vulkan_effects) {
+        metadata().setRectRadius(rect, radius) catch {
+            std.log.err("could not store scene-rect effect metadata: out of memory", .{});
+            return;
+        };
+        const c = @import("c");
+        c.wlr_scene_rect_set_force_blend(
+            @ptrCast(rect),
+            metadata().rectData(rect) != null,
+        );
+    }
 }
 
-pub const CornerRadii = struct {
-    top_left: u31 = 0,
-    top_right: u31 = 0,
-    bottom_right: u31 = 0,
-    bottom_left: u31 = 0,
-};
-
-/// Cut a rounded area out of a scene rect. SceneFX evaluates the rect's outer
-/// radii and this inner clipped region in the same render pass, which makes a
-/// filled rect behave as a single stroked rounded rectangle without seams
-/// between independently antialiased nodes.
+/// Cut a rounded area out of a scene rect so the filled rect is rendered as one
+/// stroked rounded rectangle without seams between antialiased nodes.
 pub fn setRectClippedRegion(
     rect: *wlr.SceneRect,
     area: wlr.Box,
     radii: CornerRadii,
 ) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    const max = math.maxInt(u16);
-    c.wlr_scene_rect_set_clipped_region(@ptrCast(rect), .{
-        .area = .{
-            .x = area.x,
-            .y = area.y,
-            .width = area.width,
-            .height = area.height,
-        },
-        .corners = .{
-            .top_left = @intCast(@min(radii.top_left, max)),
-            .top_right = @intCast(@min(radii.top_right, max)),
-            .bottom_right = @intCast(@min(radii.bottom_right, max)),
-            .bottom_left = @intCast(@min(radii.bottom_left, max)),
-        },
-    });
+    if (comptime build_options.vulkan_effects) {
+        metadata().setRectClippedRegion(rect, area, radii) catch {
+            std.log.err("could not store scene-rect clip metadata: out of memory", .{});
+            return;
+        };
+        const c = @import("c");
+        c.wlr_scene_rect_set_force_blend(@ptrCast(rect), true);
+    }
 }
 
 /// Apply the given corner radius to every buffer node in the given subtree.
 pub fn setTreeRadius(tree: *wlr.SceneTree, radius: u31) void {
-    if (comptime !build_options.scenefx) return;
+    if (comptime !build_options.vulkan_effects) return;
     // forEachBuffer passes the user data through as an opaque pointer, so the
     // radius is forwarded by reference.
     var r = radius;
@@ -123,147 +131,95 @@ fn setBufferRadiusIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, radius: *
 
 // ----------------------------------------------------------------------------
 // Backdrop blur, all comptime-gated like the corner-radius helpers above.
-// SceneFX's optimized node caches the static background, while a regular blur
-// node in each window tree displays that cache behind the window's content.
-// Per-window exclusion is deliberately not emulated with opaque-region
-// overrides because that corrupts translucent output.
 // ----------------------------------------------------------------------------
 
-/// Whether blur is available in this build. Mirrors the corner_radius gate so
-/// callers can branch without referencing any SceneFX symbol.
-pub const blur_available: bool = build_options.scenefx;
+/// Whether blur state is available in this build.
+pub const blur_available: bool = build_options.vulkan_effects;
 
-/// Apply the scene-wide blur parameters. The noise/brightness/contrast/saturation
-/// values are taken from the SceneFX defaults; only the radius and pass count are
-/// driven by the user's `[blur]` config. Setting radius or passes to 0 disables
-/// blur (`is_scene_blur_enabled` returns false), so the global on/off toggle is
-/// expressed by passing 0 when disabled.
+/// Apply the scene-wide blur parameters. Setting radius or passes to 0 disables
+/// blur, so the global on/off toggle is expressed by passing 0 when disabled.
 pub fn setBlurParams(scene: *wlr.Scene, radius: c_int, passes: c_int) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    const defaults = c.blur_data_get_default();
-    c.wlr_scene_set_blur_data(
-        @ptrCast(scene),
-        passes,
-        radius,
-        defaults.noise,
-        defaults.brightness,
-        defaults.contrast,
-        defaults.saturation,
-    );
+    _ = scene;
+    if (comptime build_options.vulkan_effects) {
+        _ = metadata().setBlurConfig(radius, passes);
+    }
 }
 
-/// Create the blur node that is rendered directly behind one window. The
-/// optimized output-local node is only a backdrop cache; SceneFX still requires
-/// one of these regular blur nodes to make that cache visible.
-pub fn createWindowBlur(tree: *wlr.SceneTree) ?*anyopaque {
+/// Create the metadata that describes blur directly behind one window.
+pub fn createWindowBlur(tree: *wlr.SceneTree) ?WindowBlur {
     if (comptime !blur_available) return null;
 
-    const c = @import("c");
-    const blur = c.wlr_scene_blur_create(@ptrCast(tree), 0, 0);
-    if (blur) |node| {
-        c.wlr_scene_blur_set_should_only_blur_bottom_layer(node, true);
-        c.wlr_scene_node_lower_to_bottom(&node.*.node);
-    }
-    return if (blur) |node| @ptrCast(node) else null;
+    const handle = metadata().createWindowBlur(tree) catch {
+        std.log.err("could not create window-blur metadata: out of memory", .{});
+        return null;
+    };
+    return handle;
 }
 
 /// Synchronize a window-local blur node with the visible portion of the window.
 pub fn configureWindowBlur(
-    raw: *anyopaque,
+    blur_node: WindowBlur,
     box: wlr.Box,
     radius: u31,
     enabled: bool,
 ) void {
     if (comptime !blur_available) return;
-
-    const c = @import("c");
-    const blur: *c.struct_wlr_scene_blur = @ptrCast(@alignCast(raw));
-    c.wlr_scene_node_set_enabled(&blur.node, enabled);
-    if (!enabled) return;
-
-    c.wlr_scene_node_set_position(&blur.node, box.x, box.y);
-    c.wlr_scene_blur_set_size(blur, box.width, box.height);
-    c.wlr_scene_blur_set_corner_radius(blur, @intCast(radius));
+    _ = metadata().configureWindowBlur(blur_node, box, radius, enabled);
 }
 
-/// Create an output-sized optimized blur node. SceneFX treats width and height
-/// as literal values, so callers must supply the output's logical dimensions.
+/// Create an output-sized blur-cache record in logical output dimensions.
 pub fn createOptimizedBlur(
     tree: *wlr.SceneTree,
     width: c_int,
     height: c_int,
-) ?*anyopaque {
+) ?OutputBlurCache {
     if (comptime !blur_available) return null;
 
-    const c = @import("c");
-    const blur = c.wlr_scene_optimized_blur_create(
-        @ptrCast(tree),
-        width,
-        height,
-    );
-
-    if (blur) |node| {
-        c.wlr_scene_node_lower_to_bottom(&node.*.node);
-        c.wlr_scene_optimized_blur_mark_dirty(node);
-    }
-
-    return if (blur) |node| @ptrCast(node) else null;
+    const handle = metadata().createOutputBlurCache(tree, width, height) catch {
+        std.log.err("could not create output blur-cache metadata: out of memory", .{});
+        return null;
+    };
+    render_metrics.recordBlurCache(.create);
+    return handle;
 }
 
 /// Synchronize the output-local geometry and enabled state of an optimized blur
 /// node. `dirty` should only be set when the node's backdrop may have changed;
 /// regenerating an optimized blur texture every frame defeats the optimization.
 pub fn configureOptimizedBlur(
-    raw: *anyopaque,
+    blur_node: OutputBlurCache,
     box: wlr.Box,
     enabled: bool,
     dirty: bool,
 ) void {
     if (comptime !blur_available) return;
-
-    const c = @import("c");
-    const blur: *c.struct_wlr_scene_optimized_blur =
-        @ptrCast(@alignCast(raw));
-
-    c.wlr_scene_node_set_position(&blur.node, box.x, box.y);
-    c.wlr_scene_node_set_enabled(&blur.node, enabled);
-    c.wlr_scene_optimized_blur_set_size(
-        blur,
-        @intCast(box.width),
-        @intCast(box.height),
-    );
-
-    if (dirty) {
-        c.wlr_scene_optimized_blur_mark_dirty(blur);
-    }
+    _ = metadata().configureOutputBlurCache(blur_node, box, enabled, dirty);
+    if (dirty) render_metrics.recordBlurCache(.configure_dirty);
 }
 
-pub fn markOptimizedBlurDirty(raw: *anyopaque) void {
+pub fn markOptimizedBlurDirty(blur_node: OutputBlurCache) void {
     if (comptime !blur_available) return;
-
-    const c = @import("c");
-    const blur: *c.struct_wlr_scene_optimized_blur =
-        @ptrCast(@alignCast(raw));
-    c.wlr_scene_optimized_blur_mark_dirty(blur);
+    _ = metadata().markOutputBlurCacheDirty(blur_node);
+    render_metrics.recordBlurCache(.damage_dirty);
 }
 
-pub fn setOptimizedBlurEnabled(raw: *anyopaque, enabled: bool) void {
-    if (comptime !blur_available) return;
-
-    const c = @import("c");
-    const blur: *c.struct_wlr_scene_optimized_blur =
-        @ptrCast(@alignCast(raw));
-    c.wlr_scene_node_set_enabled(&blur.node, enabled);
+pub fn outputBlurCacheData(
+    blur_node: OutputBlurCache,
+) ?EffectMetadata.OutputBlurCacheData {
+    if (comptime !build_options.vulkan_effects) return null;
+    return metadata().outputBlurCacheData(blur_node);
 }
 
-pub fn destroyOptimizedBlur(raw: *anyopaque) void {
+pub fn setOptimizedBlurEnabled(blur_node: OutputBlurCache, enabled: bool) void {
     if (comptime !blur_available) return;
+    _ = metadata().setOutputBlurCacheEnabled(blur_node, enabled);
+    render_metrics.recordBlurCache(if (enabled) .enable else .disable);
+}
 
-    const c = @import("c");
-    const blur: *c.struct_wlr_scene_optimized_blur =
-        @ptrCast(@alignCast(raw));
-    c.wlr_scene_node_destroy(&blur.node);
+pub fn destroyOptimizedBlur(blur_node: OutputBlurCache) void {
+    if (comptime !blur_available) return;
+    metadata().destroyOutputBlurCache(blur_node);
+    render_metrics.recordBlurCache(.destroy);
 }
 
 /// Synchronize compositor-owned visual state for every buffer in a tree.
@@ -303,13 +259,20 @@ fn syncBufferVisualState(buffer: *wlr.SceneBuffer, opacity: f32) void {
     }
 }
 
-/// Copy SceneFX-specific attributes into a transaction snapshot. Fresh clone
+/// Copy backend-specific attributes into a transaction snapshot. Fresh clone
 /// buffers would otherwise reset their corners and effective opaque-region hint.
 pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
-    if (comptime !build_options.scenefx) return;
-    const c = @import("c");
-    const s: *c.struct_wlr_scene_buffer = @ptrCast(src);
-    const d: *c.struct_wlr_scene_buffer = @ptrCast(dst);
-    c.wlr_scene_buffer_set_corner_radii(d, s.corners);
-    c.wlr_scene_buffer_set_opaque_region(d, &s.opaque_region);
+    if (comptime build_options.vulkan_effects) {
+        const c = @import("c");
+        dst.setOpaqueRegion(&src.opaque_region);
+        metadata().copyBufferData(dst, src) catch {
+            std.log.err("could not copy scene-buffer effect metadata: out of memory", .{});
+            c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), false);
+            return;
+        };
+        c.wlr_scene_buffer_set_force_blend(
+            @ptrCast(dst),
+            metadata().bufferData(dst) != null,
+        );
+    }
 }

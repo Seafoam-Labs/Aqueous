@@ -3,7 +3,7 @@
 **A visually expressive Wayland compositor that keeps the fast path fast.**
 
 Aqueous combines a native tiling window manager, fluid compositor-side motion,
-and optional SceneFX effects in one Zig process. It is designed for desktops
+and Aqueous-owned Vulkan effects in one Zig process. It is designed for desktops
 that want rounded windows, backdrop blur, focus-aware
 opacity, animated placement, and sliding workspaces—without turning routine
 window management into a chain of scripts, subprocesses, or IPC round trips.
@@ -40,10 +40,10 @@ model; they do not replace it.
 
 ## Highlights
 
-- **Effects with an off switch.** SceneFX builds provide rounded corners and
-  optimized backdrop blur. Opacity can be global, focus-sensitive, or selected
-  by application rules. Expensive effects can be disabled globally or avoided
-  for games and fullscreen media.
+- **Effects with an off switch.** The default Vulkan build provides rounded
+  corners and damage-aware backdrop blur. Opacity can be global,
+  focus-sensitive, or selected by application rules. Expensive effects can be
+  disabled globally or avoided for games and fullscreen media.
 - **Motion owned by the compositor.** Window placement animates at render time,
   scrolling layouts move as a viewport, and workspace changes can slide without
   making the layout engine or clients produce intermediate geometry.
@@ -79,11 +79,12 @@ advance only the visual state that is changing. Stable window handles and
 per-output/workspace layout state avoid rebuilding policy in external clients.
 
 Effects are also explicit build-time and runtime choices. Animations can be
-compiled out with `-Danimations=false`; SceneFX can be selected with
-`-Dscenefx=true|false`; blur and opacity default to configurable policy; and
-per-application rules can keep latency-sensitive surfaces fully opaque and
-unblurred. Aqueous does not claim that effects are free—it makes their cost
-visible and optional.
+compiled out with `-Danimations=false`; the Aqueous Vulkan effects backend is
+enabled by default; and `-Dvulkan-effects=false` produces a stock-wlroots,
+square/no-blur diagnostic build. Blur and opacity default to configurable
+policy, and per-application rules can keep latency-sensitive surfaces fully
+opaque and unblurred. Aqueous does not claim that effects are free—it makes
+their cost visible and optional.
 
 ## Configuration
 
@@ -145,10 +146,11 @@ management protocol for compatibility.
 
 ## Build
 
-Building requires Zig 0.16 or newer, wlroots 0.20, Wayland,
-wayland-protocols, libxkbcommon, libinput, libevdev, pixman, and pkg-config.
-SceneFX is optional. `-Dxwayland` builds additionally require the `Xwayland`
-server executable (`xorg-xwayland` on Arch Linux).
+Building requires Zig 0.16 or newer, Wayland, wayland-protocols, libxkbcommon,
+libinput, libevdev, pixman, Vulkan headers and loader, pkg-config, Meson, Ninja,
+glslang, and the dependencies listed by wlroots 0.20. `-Dxwayland` builds
+additionally require the `Xwayland` server executable (`xorg-xwayland` on Arch
+Linux).
 
 ```sh
 scripts/build-compositor.sh
@@ -158,13 +160,18 @@ For direct development:
 
 ```sh
 cd compositor
+scripts/build-wlroots-render-hook.sh
+export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
 zig build test
 zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
 ```
 
-SceneFX is auto-detected. Production and package builds should select desired
-features explicitly, and distribution builds should target a suitably generic
-CPU rather than inheriting the build machine's instruction set.
+The default build uses the pinned Aqueous wlroots render hook, requires
+wlroots' Vulkan renderer at startup, and installs that exact shared library
+under `lib/aqueous` with an origin-relative runtime path. Use
+`-Dvulkan-effects=false` only for the diagnostic stock-wlroots build.
+Distribution builds should target a suitably generic CPU rather than
+inheriting the build machine's instruction set.
 
 The normal build contains only Aqueous's integrated policy. The retired
 `river_window_manager_v1` external-policy path is available solely for

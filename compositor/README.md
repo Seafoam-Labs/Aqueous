@@ -5,19 +5,46 @@ Wayland compositor with integrated window-management, input, and output policy.
 
 ## Building
 
-Required development libraries include Wayland, wayland-protocols, wlroots
-0.20, libxkbcommon, libinput, libevdev, pixman, and pkg-config. Zig 0.16 or
-newer is required; scdoc is optional for man pages.
+Required development libraries include Wayland, wayland-protocols,
+libxkbcommon, libinput, libevdev, pixman, Vulkan headers and loader, and the
+wlroots 0.20 build dependencies. Zig 0.16 or newer is required; scdoc is
+optional for man pages.
 
 ```sh
 zig build -Doptimize=ReleaseSafe -Dxwayland
 zig build test
 ```
 
-SceneFX is auto-detected and can be selected explicitly with
-`-Dscenefx=true|false`. Production builds run integrated policy by default.
-For legacy protocol compatibility testing only,
+Vulkan effects are enabled by default, borrow wlroots' Vulkan context, require
+wlroots' Vulkan renderer at startup, and use the pinned Aqueous wlroots render
+hook. `-Dvulkan-effects=false` builds the square/no-blur diagnostic compositor
+against stock wlroots. Production builds run integrated policy by default. For
+legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
+
+Build the pinned dependency before the default build:
+
+```sh
+scripts/build-wlroots-render-hook.sh .deps/wlroots-render-hook
+PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
+  zig build \
+    -Dexternal-policy=true \
+    -Dcpu=baseline \
+    -Doptimize=ReleaseSafe
+scripts/test-vulkan-render-seam.sh /tmp/aqueous-vulkan-render-seam
+```
+
+The test requires `VK_LAYER_KHRONOS_validation`, ImageMagick, grim, jq, netcat,
+a C compiler, and Wayland development tools. Its default nested-Wayland mode
+also requires a parent Wayland display; set
+`AQUEOUS_VULKAN_EFFECTS_BACKEND=headless` for the Vulkan-rendered headless
+mode. It
+checks rounded textures and hollow outlines through both compositor render
+paths, scales 1, 1.25, 1.5, and 2 with rotations, bounded damage, screencopy,
+explicit synchronization, and 4,096 releases and reuses of one client buffer.
+Set
+`AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION=0` only for a functional smoke run on a
+machine without the validation layer.
 
 ## Usage
 
@@ -48,6 +75,16 @@ The XWayland harness additionally requires a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. It verifies active keyboard grabs and pointer confinement for real X11
 clients under the headless backend.
+
+The Vulkan effects and uncached blur oracle can be captured from a nested
+session with:
+
+```sh
+scripts/test-vulkan-effects.sh /tmp/aqueous-vulkan-effects
+```
+
+See `doc/vulkan-effects-baseline.md` for fixture geometry, artifacts, timing
+semantics, and the current blur-cache behavior.
 
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.

@@ -72,7 +72,7 @@ pub const Border = struct {
     g: u32 = 0,
     a: u32 = 0,
     /// Corner radius applied to the border rects and window content. Defaults
-    /// to `fx.corner_radius`, which is 0 (square) unless SceneFX is compiled in.
+    /// to `fx.corner_radius`, which is 0 in the no-effects diagnostic build.
     corner_radius: u31 = fx.corner_radius,
 };
 
@@ -145,7 +145,7 @@ const RenderingRequested = struct {
     content_clip: wlr.Box,
     /// Per-window blur preference retained for policy/protocol compatibility.
     /// It must never be implemented by falsifying scene-buffer opaque regions;
-    /// selective translucent blur requires a real SceneFX mask.
+    /// selective translucent blur requires the compositor's effect mask.
     blur_enabled: bool = true,
     /// Window-content opacity as a 32-bit unsigned fraction (0 = transparent,
     /// 0xffffffff = opaque); null inherits the global default driven by
@@ -245,14 +245,18 @@ impl: Impl,
 /// The trees in the following fields are in rendering order.
 tree: *wlr.SceneTree,
 
-/// SceneFX blur rendered behind this window's content. The output-local
-/// optimized blur node only caches the background; this node displays it.
-backdrop_blur: ?*anyopaque,
+/// Backend-specific blur mask behind this window's content. The output-local
+/// cache owns the background image; this handle defines where it is displayed.
+backdrop_blur: ?fx.WindowBlur,
 
 /// Opaque black rectangle used as the background while this window is rendered fullscreen.
 /// TODO consider using one of these per output rather than one per window to save memory
 /// if the complexity tradeoff is worth it.
 fullscreen_background: *wlr.SceneRect,
+
+/// Transparent scene entry which fixes the blur composite below every visible
+/// surface and decoration belonging to this window.
+blur_marker: *wlr.SceneRect,
 
 decorations_below: wl.list.Head(Decoration, .link),
 decorations_below_tree: *wlr.SceneTree,
@@ -597,6 +601,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .tree = tree,
         .backdrop_blur = backdrop_blur,
         .fullscreen_background = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1 }),
+        .blur_marker = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 }),
         .decorations_below = undefined,
         .decorations_below_tree = try tree.createSceneTree(),
         .surfaces = try Scene.SaveableSurfaces.init(tree),
@@ -625,6 +630,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
+    window.blur_marker.node.setEnabled(false);
     if (window.backdrop_blur) |blur| {
         fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
     }
@@ -1425,15 +1431,13 @@ pub fn renderFinish(window: *Window) void {
         }
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
-        fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
-        fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
     }
     window.refreshBackdropBlur();
 
     // While a position animation is running, applyOpacity() updates the visible
     // animation clone and keeps the live surfaces invisible at the target so
     // scene hit-testing / input stay correct.
-    window.applyOpacity();
+    window.applySurfaceVisualState();
     window.tree.node.setPosition(window.box.x, window.box.y);
     window.popup_tree.node.setPosition(window.box.x, window.box.y);
 
@@ -1462,7 +1466,7 @@ fn refreshBackdropBlur(window: *Window) void {
     );
 }
 
-/// Size the SceneFX blur to the same visible window-local rectangle as the
+/// Size the blur mask to the same visible window-local rectangle as the
 /// surface content. A clip through a window edge intentionally drops rounding
 /// at the newly-created edge, matching drawBorders().
 fn syncBackdropBlur(
@@ -1483,7 +1487,7 @@ fn syncBackdropBlur(
         window.box.width > 0 and
         window.box.height > 0;
     if (!active) {
-        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        window.disableBackdropBlur(blur);
         return;
     }
 
@@ -1495,17 +1499,30 @@ fn syncBackdropBlur(
     };
     var visible = full;
     if (!clip.empty() and !visible.intersection(&visible, clip)) {
-        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        window.disableBackdropBlur(blur);
         return;
     }
     if (!content_clip.empty() and !visible.intersection(&visible, content_clip)) {
-        fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
+        window.disableBackdropBlur(blur);
         return;
     }
 
     const clipped = visible.x != full.x or visible.y != full.y or
         visible.width != full.width or visible.height != full.height;
+    window.blur_marker.node.setPosition(visible.x, visible.y);
+    window.blur_marker.setSize(visible.width, visible.height);
+    window.blur_marker.node.setEnabled(true);
     fx.configureWindowBlur(blur, visible, if (clipped) 0 else radius, true);
+}
+
+fn disableBackdropBlur(window: *Window, blur: fx.WindowBlur) void {
+    window.blur_marker.node.setEnabled(false);
+    fx.configureWindowBlur(
+        blur,
+        .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+        0,
+        false,
+    );
 }
 
 /// Feed a new target position into the animator.
@@ -2140,6 +2157,17 @@ pub fn applyOpacity(window: *Window) void {
     }
 }
 
+pub fn applySurfaceVisualState(window: *Window) void {
+    const radius = if (window.wm_requested.fullscreen != null)
+        0
+    else
+        window.rendering_requested.border.corner_radius;
+    fx.setTreeRadius(window.surfaces.tree, radius);
+    fx.setTreeRadius(window.surfaces.saved_tree, radius);
+    if (window.anim_snapshot) fx.setTreeRadius(window.anim_tree, radius);
+    window.applyOpacity();
+}
+
 /// Effective compositor opacity shared by a top-level and its popup surfaces.
 pub fn effectiveOpacity(window: *const Window) f32 {
     const opacity_frac = window.rendering_requested.opacity orelse server.wm.default_opacity;
@@ -2233,10 +2261,9 @@ pub fn map(window: *Window) !void {
     assert(window.state == .initialized);
     window.state = .mapped;
 
-    // The first buffer was just committed; scene buffers start at opacity 1.0, so
-    // apply the requested/global opacity now rather than waiting for the next
-    // render sequence.
-    window.applyOpacity();
+    // The first buffer was just committed. Apply compositor-owned opacity and
+    // corner metadata before its first rendered frame.
+    window.applySurfaceVisualState();
 
     if (window.workspace == null) {
         if (window.initialOutput()) |output| {

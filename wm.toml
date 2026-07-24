@@ -138,9 +138,8 @@ left   = 0
 right  = 0
 
 # -----------------------------------------------------------------------------
-# Backdrop blur (requires Aqueous built with SceneFX). Applied behind window
-# content. Per-window blur preferences are parsed for compatibility, but safe
-# selective blur awaits SceneFX mask support.
+# Backdrop blur (available in the default Vulkan-effects build). Applied behind
+# window content with per-window masks controlled by rules.
 # -----------------------------------------------------------------------------
 [blur]
 enabled = true  # set true to enable compositor backdrop blur

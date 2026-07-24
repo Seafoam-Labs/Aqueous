@@ -11,10 +11,13 @@ AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/xwayland-input-grab.c"
 VIRTUAL_KEYBOARD_PROTOCOL="$here/protocol/upstream/virtual-keyboard-unstable-v1.xml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
+RENDER_ONLY=${AQUEOUS_XWAYLAND_RENDER_ONLY:-0}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+[[ "$RENDER_ONLY" = 0 || "$RENDER_ONLY" = 1 ]] ||
+    die "AQUEOUS_XWAYLAND_RENDER_ONLY must be 0 or 1"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || \
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN (build with: zig build -Dxwayland)"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
@@ -118,6 +121,19 @@ run_case() {
         grep -q 'class = "AqueousXwaylandGrabTest"' <<<"$rule_snippet" || die "aqueousctl did not generate an XWayland class rule"
     fi
 
+    if [ "$RENDER_ONLY" = 1 ]; then
+        if [ "$mode" = managed ]; then
+            wait_for_text "$COMPOSITOR_LOG" \
+                "Vulkan rounded effects draw count=" \
+                "managed XWayland Vulkan effects draw"
+        fi
+        kill -0 "$COMPOSITOR_PID" 2>/dev/null ||
+            die "compositor crashed while rendering the $mode XWayland surface"
+        cleanup_session
+        echo "PASS: $mode XWayland surface rendered"
+        return
+    fi
+
     wait_for_text "$CLIENT_LOG" "GRABBED pointer=0 keyboard=0" "$mode X11 grabs"
     # Override-redirect MapNotify can precede the compositor's scene-map
     # callback. A post-map motion establishes pointer focus in that ordering.
@@ -146,4 +162,8 @@ run_case() {
 
 run_case managed
 run_case override
-echo "ALL XWAYLAND INPUT CHECKS PASSED"
+if [ "$RENDER_ONLY" = 1 ]; then
+    echo "ALL XWAYLAND RENDER CHECKS PASSED"
+else
+    echo "ALL XWAYLAND INPUT CHECKS PASSED"
+fi

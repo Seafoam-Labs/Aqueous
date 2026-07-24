@@ -653,9 +653,12 @@ pub fn commitOutputState(om: *OutputManager) void {
 
         for (states.items) |*state| {
             const output: *Output = @ptrCast(@alignCast(state.output.data));
-            if (!output.scene_output.?.buildState(&state.base, &.{
-                .swapchain = swapchain_manager.getSwapchain(state.output),
-            })) {
+            const built = output.buildSceneState(
+                &state.base,
+                swapchain_manager.getSwapchain(state.output),
+                false,
+            );
+            if (!built) {
                 log.err("failed to render scene for {s}", .{state.output.name});
             }
         }

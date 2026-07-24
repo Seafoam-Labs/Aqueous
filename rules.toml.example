@@ -61,8 +61,8 @@ gaps_inner = 8             # integer >= 0
 #   scale           positive multiplier applied to the resolved anchor size
 #
 # Visuals:
-#   blur            true/false per-window preference. Selective masking remains
-#                   limited by SceneFX; false is useful for games/video.
+#   blur            true/false per-window preference; false is useful for
+#                   games/video.
 #   opacity         0.0 through 1.0
 #
 # Stateful rule properties have lifecycle ownership. A manual workspace move,

@@ -43,21 +43,12 @@ pub fn build(b: *Build) !void {
         "Set to true to enable xwayland support",
     ) orelse false;
 
-    // soname/pkg-config name from the SceneFX wlroots-0.20 branch (SceneFX 0.5.0).
-    const scenefx_pkgconf = "scenefx-0.5";
-    const scenefx = b.option(
+    const wlroots_pkgconf = "wlroots-0.20";
+    const vulkan_effects = b.option(
         bool,
-        "scenefx",
-        "Enable SceneFX (rounded corners/blur/shadows). Defaults to true if scenefx is found.",
-    ) orelse detected: {
-        var ret: u8 = undefined;
-        _ = b.runAllowFail(
-            &.{ "pkg-config", "--exists", scenefx_pkgconf },
-            &ret,
-            .ignore,
-        ) catch break :detected false;
-        break :detected ret == 0;
-    };
+        "vulkan-effects",
+        "Enable Aqueous Vulkan effects on the wlroots Vulkan renderer. Defaults to true.",
+    ) orelse true;
 
     const full_version = blk: {
         if (b.option([]const u8, "version-string", "Override `aqueous -version` output.")) |version_override| {
@@ -99,7 +90,7 @@ pub fn build(b: *Build) !void {
 
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
-    options.addOption(bool, "scenefx", scenefx);
+    options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
     options.addOption([]const u8, "version", full_version);
@@ -192,7 +183,6 @@ pub fn build(b: *Build) !void {
     // exposed to the wlroots module for @cImport() to work. This seems to be
     // the best way to do so with the current std.Build API.
     wlroots.resolved_target = target;
-    const wlroots_pkgconf = "wlroots-0.20";
     wlroots.linkSystemLibrary(wlroots_pkgconf, .{});
 
     const flags = b.createModule(.{ .root_source_file = b.path("common/flags.zig") });
@@ -206,14 +196,10 @@ pub fn build(b: *Build) !void {
     });
     translate_c.linkSystemLibrary("libevdev", .{});
     translate_c.linkSystemLibrary("libinput", .{});
-    if (scenefx) {
-        // Expose SceneFX's augmented scene headers/symbols to the `c` module.
-        // Its include dir must precede wlroots so its augmented struct
-        // wlr_scene_buffer (with the corner-radius field) wins, and the
-        // RIVER_SCENEFX macro enables the include in river/c.h.
-        translate_c.linkSystemLibrary(scenefx_pkgconf, .{});
-        translate_c.defineCMacro("RIVER_SCENEFX", null);
-        // The SceneFX/wlroots scene headers require unstable wlroots features.
+    if (vulkan_effects) {
+        translate_c.linkSystemLibrary(wlroots_pkgconf, .{});
+        translate_c.linkSystemLibrary("vulkan", .{});
+        translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
         translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
     }
 
@@ -236,17 +222,11 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("libevdev", .{});
         river.root_module.linkSystemLibrary("libinput", .{});
         river.root_module.linkSystemLibrary("wayland-server", .{});
-        if (scenefx) {
-            // SceneFX is a drop-in replacement for the wlroots scene API. It
-            // MUST be linked before wlroots so that in DT_NEEDED order its
-            // duplicate wlr_scene_* symbols (and the augmented struct layout,
-            // e.g. wlr_scene_buffer with the corner-radius field) win symbol
-            // resolution at runtime. Otherwise wlroots' plain (smaller) scene
-            // objects get allocated while the FX renderer / SceneFX commit code
-            // expects the augmented layout, causing a crash on the first frame.
-            river.root_module.linkSystemLibrary(scenefx_pkgconf, .{});
-        }
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        if (vulkan_effects) {
+            river.root_module.linkSystemLibrary("vulkan", .{});
+            river.root_module.addRPathSpecial("$ORIGIN/../lib/aqueous");
+        }
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
 
@@ -267,6 +247,20 @@ pub fn build(b: *Build) !void {
         river.root_module.omit_frame_pointer = omit_frame_pointer;
 
         b.installArtifact(river);
+        if (vulkan_effects) {
+            const library = b.option(
+                []const u8,
+                "wlroots-render-hook-library",
+                "Path to the patched wlroots shared library installed with Aqueous.",
+            ) orelse findWlrootsRenderHook(b) orelse std.process.fatal(
+                "unable to locate libwlroots-0.20.so for the Vulkan effects install",
+                .{},
+            );
+            b.getInstallStep().dependOn(&b.addInstallFile(
+                .{ .cwd_relative = library },
+                "lib/aqueous/libwlroots-0.20.so",
+            ).step);
+        }
     }
 
     {
@@ -339,6 +333,32 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         const run_slotmap_test = b.addRunArtifact(slotmap_test);
+
+        const effect_metadata_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/render/EffectMetadata.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        effect_metadata_test.root_module.addImport("wayland", wayland);
+        effect_metadata_test.root_module.addImport("wlroots", wlroots);
+        effect_metadata_test.root_module.addImport("slotmap", slotmap);
+        const run_effect_metadata_test = b.addRunArtifact(effect_metadata_test);
+
+        const blur_cache_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/render/BlurCache.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_blur_cache_test = b.addRunArtifact(blur_cache_test);
 
         const scaling_test = b.addTest(.{
             .root_module = b.createModule(.{
@@ -488,6 +508,8 @@ pub fn build(b: *Build) !void {
 
         const test_step = b.step("test", "Run the tests");
         test_step.dependOn(&run_slotmap_test.step);
+        test_step.dependOn(&run_effect_metadata_test.step);
+        test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
@@ -502,4 +524,41 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_workspaces_test.step);
         test_step.dependOn(&run_aqueousctl_test.step);
     }
+}
+
+fn findWlrootsRenderHook(b: *Build) ?[]const u8 {
+    if (b.graph.environ_map.get("PKG_CONFIG_PATH")) |paths| {
+        var it = mem.splitScalar(u8, paths, ':');
+        while (it.next()) |pkgconfig_dir| {
+            const pc_file = b.pathJoin(&.{ pkgconfig_dir, "wlroots-0.20.pc" });
+            std.Io.Dir.cwd().access(b.graph.io, pc_file, .{}) catch continue;
+            const libdir = fs.path.dirname(pkgconfig_dir) orelse continue;
+            const library = b.pathJoin(&.{ libdir, "libwlroots-0.20.so" });
+            std.Io.Dir.cwd().access(b.graph.io, library, .{}) catch continue;
+            return library;
+        }
+    }
+
+    var ret: u8 = 1;
+    const output = b.runAllowFail(
+        &.{ "pkg-config", "--variable=libdir", "wlroots-0.20" },
+        &ret,
+        .ignore,
+    ) catch "";
+    if (ret == 0) {
+        const libdir = mem.trim(u8, output, &std.ascii.whitespace);
+        const library = b.pathJoin(&.{ libdir, "libwlroots-0.20.so" });
+        std.Io.Dir.cwd().access(b.graph.io, library, .{}) catch return null;
+        return library;
+    }
+
+    const candidates = [_][]const u8{
+        "/usr/local/lib/libwlroots-0.20.so",
+        "/usr/lib/libwlroots-0.20.so",
+    };
+    for (candidates) |library| {
+        std.Io.Dir.cwd().access(b.graph.io, library, .{}) catch continue;
+        return library;
+    }
+    return null;
 }
