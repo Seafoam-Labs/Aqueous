@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2026 The Aqueous Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
