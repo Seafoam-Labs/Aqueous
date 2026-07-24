@@ -80,7 +80,9 @@ per-output/workspace layout state avoid rebuilding policy in external clients.
 
 Effects are also explicit build-time and runtime choices. Animations can be
 compiled out with `-Danimations=false`; SceneFX can be selected with
-`-Dscenefx=true|false`; blur and opacity default to configurable policy; and
+`-Dscenefx=true|false`; and the in-progress Aqueous Vulkan effects backend can
+be selected with `-Dvulkan-effects=true`. The SceneFX and Vulkan-effects options
+are mutually exclusive. Blur and opacity default to configurable policy, and
 per-application rules can keep latency-sensitive surfaces fully opaque and
 unblurred. Aqueous does not claim that effects are free—it makes their cost
 visible and optional.
@@ -147,7 +149,8 @@ management protocol for compatibility.
 
 Building requires Zig 0.16 or newer, wlroots 0.20, Wayland,
 wayland-protocols, libxkbcommon, libinput, libevdev, pixman, and pkg-config.
-SceneFX is optional. `-Dxwayland` builds additionally require the `Xwayland`
+SceneFX is optional. Vulkan-effects builds additionally require Vulkan headers
+and the Vulkan loader. `-Dxwayland` builds additionally require the `Xwayland`
 server executable (`xorg-xwayland` on Arch Linux).
 
 ```sh
@@ -162,9 +165,12 @@ zig build test
 zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
 ```
 
-SceneFX is auto-detected. Production and package builds should select desired
-features explicitly, and distribution builds should target a suitably generic
-CPU rather than inheriting the build machine's instruction set.
+SceneFX is auto-detected unless `-Dvulkan-effects=true` is selected, which
+disables that automatic choice and requires wlroots' Vulkan renderer at
+startup. An explicit `-Dscenefx=true -Dvulkan-effects=true` combination is a
+build error. Production and package builds should select desired features
+explicitly, and distribution builds should target a suitably generic CPU
+rather than inheriting the build machine's instruction set.
 
 The normal build contains only Aqueous's integrated policy. The retired
 `river_window_manager_v1` external-policy path is available solely for

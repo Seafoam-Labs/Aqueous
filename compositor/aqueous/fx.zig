@@ -10,6 +10,7 @@
 //! square corners and no reference to any SceneFX symbol.
 
 const build_options = @import("build_options");
+const std = @import("std");
 const math = @import("std").math;
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
@@ -55,8 +56,27 @@ pub fn createRenderer(backend: *wlr.Backend) !*wlr.Renderer {
             return error.RendererCreateFailed;
         return @ptrCast(@alignCast(r));
     }
+    if (comptime build_options.vulkan_effects) {
+        const c = @import("c");
+        if (setenv("WLR_RENDERER", "vulkan", 1) != 0) {
+            std.log.err("cannot select the wlroots Vulkan renderer: setenv failed", .{});
+            return error.VulkanRendererSelectionFailed;
+        }
+        const renderer = wlr.Renderer.autocreate(backend) catch |err| {
+            std.log.err("wlroots could not create the required Vulkan renderer: {s}", .{@errorName(err)});
+            return error.VulkanRendererUnavailable;
+        };
+        if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
+            renderer.destroy();
+            std.log.err("Vulkan effects require wlroots' Vulkan renderer, but another renderer was created", .{});
+            return error.VulkanRendererUnavailable;
+        }
+        return renderer;
+    }
     return wlr.Renderer.autocreate(backend);
 }
+
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 
 /// Set the corner radius of a single scene buffer node.
 pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {

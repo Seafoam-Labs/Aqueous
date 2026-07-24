@@ -6,8 +6,9 @@ Wayland compositor with integrated window-management, input, and output policy.
 ## Building
 
 Required development libraries include Wayland, wayland-protocols, wlroots
-0.20, libxkbcommon, libinput, libevdev, pixman, and pkg-config. Zig 0.16 or
-newer is required; scdoc is optional for man pages.
+0.20, libxkbcommon, libinput, libevdev, pixman, and pkg-config. Vulkan-effects
+builds also require Vulkan headers and the loader. Zig 0.16 or newer is
+required; scdoc is optional for man pages.
 
 ```sh
 zig build -Doptimize=ReleaseSafe -Dxwayland
@@ -15,8 +16,10 @@ zig build test
 ```
 
 SceneFX is auto-detected and can be selected explicitly with
-`-Dscenefx=true|false`. Production builds run integrated policy by default.
-For legacy protocol compatibility testing only,
+`-Dscenefx=true|false`. `-Dvulkan-effects=true` disables SceneFX auto-detection,
+links the borrowed Vulkan context, and requires wlroots' Vulkan renderer at
+startup. Explicitly enabling both effects backends is a build error. Production
+builds run integrated policy by default. For legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
 
 ## Usage

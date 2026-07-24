@@ -15,6 +15,7 @@ const wp = wayland.server.wp;
 
 const util = @import("util.zig");
 const fx = @import("fx.zig");
+const VulkanContext = if (build_options.vulkan_effects) @import("render/VulkanContext.zig") else void;
 
 const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
@@ -67,6 +68,7 @@ session: ?*wlr.Session,
 
 renderer: *wlr.Renderer,
 allocator: *wlr.Allocator,
+vulkan_context: if (build_options.vulkan_effects) VulkanContext else void,
 gpu_reset_recover: ?*wl.EventSource = null,
 
 /// GPU selector environment variables resolved from the renderer's DRM device.
@@ -367,6 +369,9 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
     var session: ?*wlr.Session = undefined;
     const backend = try wlr.Backend.autocreate(loop, &session);
     const renderer = try fx.createRenderer(backend);
+    const vulkan_context = if (comptime build_options.vulkan_effects)
+        try VulkanContext.init(renderer)
+    else {};
 
     const compositor = try wlr.Compositor.create(wl_server, 6, renderer);
 
@@ -383,6 +388,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         .session = session,
         .renderer = renderer,
         .allocator = try wlr.Allocator.autocreate(backend, renderer),
+        .vulkan_context = vulkan_context,
 
         .security_context_manager = try wlr.SecurityContextManagerV1.create(wl_server),
 
@@ -530,6 +536,7 @@ pub fn deinit(server: *Server) void {
     // graph may require the renderer to still be around to destroy textures it seems.
     server.scene.wlr_scene.tree.node.destroy();
 
+    if (comptime build_options.vulkan_effects) server.vulkan_context.deinit();
     server.renderer.destroy();
     server.allocator.destroy();
 
@@ -687,16 +694,19 @@ fn gpuResetRecoverIdle(server: *Server) void {
     server.gpu_reset_recover = null;
     // There's not much that can be done if creating a new renderer or allocator fails.
     // With luck there might be another GPU reset after which we try again and succeed.
-    server.gpuResetRecover() catch |err| switch (err) {
-        error.RendererCreateFailed => log.err("failed to create new renderer after GPU reset", .{}),
-        error.AllocatorCreateFailed => log.err("failed to create new allocator after GPU reset", .{}),
-    };
+    server.gpuResetRecover() catch |err|
+        log.err("failed to recover rendering after GPU reset: {s}", .{@errorName(err)});
 }
 
 fn gpuResetRecover(server: *Server) !void {
     log.info("recovering from GPU reset", .{});
     const new_renderer = try fx.createRenderer(server.backend);
     errdefer new_renderer.destroy();
+
+    var new_vulkan_context = if (comptime build_options.vulkan_effects)
+        try VulkanContext.init(new_renderer)
+    else {};
+    errdefer if (comptime build_options.vulkan_effects) new_vulkan_context.deinit();
 
     const new_allocator = try wlr.Allocator.autocreate(server.backend, new_renderer);
     errdefer comptime unreachable; // no failure allowed after this point
@@ -718,8 +728,10 @@ fn gpuResetRecover(server: *Server) !void {
         }
     }
 
+    if (comptime build_options.vulkan_effects) server.vulkan_context.deinit();
     server.renderer.destroy();
     server.renderer = new_renderer;
+    if (comptime build_options.vulkan_effects) server.vulkan_context = new_vulkan_context;
 
     server.allocator.destroy();
     server.allocator = new_allocator;

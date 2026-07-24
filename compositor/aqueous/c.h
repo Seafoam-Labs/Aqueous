@@ -13,3 +13,8 @@
 #include <scenefx/types/wlr_scene.h>
 #include <scenefx/render/fx_renderer/fx_renderer.h>
 #endif
+
+#ifdef RIVER_VULKAN_EFFECTS
+#include <vulkan/vulkan_core.h>
+#include <wlr/render/vulkan.h>
+#endif

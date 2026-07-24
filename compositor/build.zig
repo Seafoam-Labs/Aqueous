@@ -45,11 +45,17 @@ pub fn build(b: *Build) !void {
 
     // soname/pkg-config name from the SceneFX wlroots-0.20 branch (SceneFX 0.5.0).
     const scenefx_pkgconf = "scenefx-0.5";
-    const scenefx = b.option(
+    const vulkan_effects = b.option(
+        bool,
+        "vulkan-effects",
+        "Enable Aqueous Vulkan effects on the wlroots Vulkan renderer.",
+    ) orelse false;
+    const scenefx_option = b.option(
         bool,
         "scenefx",
         "Enable SceneFX (rounded corners/blur/shadows). Defaults to true if scenefx is found.",
-    ) orelse detected: {
+    );
+    const scenefx = scenefx_option orelse if (vulkan_effects) false else detected: {
         var ret: u8 = undefined;
         _ = b.runAllowFail(
             &.{ "pkg-config", "--exists", scenefx_pkgconf },
@@ -58,6 +64,12 @@ pub fn build(b: *Build) !void {
         ) catch break :detected false;
         break :detected ret == 0;
     };
+    if (vulkan_effects and scenefx) {
+        std.process.fatal(
+            "-Dvulkan-effects=true and -Dscenefx=true are mutually exclusive",
+            .{},
+        );
+    }
 
     const full_version = blk: {
         if (b.option([]const u8, "version-string", "Override `aqueous -version` output.")) |version_override| {
@@ -100,6 +112,7 @@ pub fn build(b: *Build) !void {
     const options = b.addOptions();
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "scenefx", scenefx);
+    options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
     options.addOption([]const u8, "version", full_version);
@@ -216,6 +229,12 @@ pub fn build(b: *Build) !void {
         // The SceneFX/wlroots scene headers require unstable wlroots features.
         translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
     }
+    if (vulkan_effects) {
+        translate_c.linkSystemLibrary(wlroots_pkgconf, .{});
+        translate_c.linkSystemLibrary("vulkan", .{});
+        translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
+        translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
+    }
 
     {
         const river = b.addExecutable(.{
@@ -247,6 +266,9 @@ pub fn build(b: *Build) !void {
             river.root_module.linkSystemLibrary(scenefx_pkgconf, .{});
         }
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        if (vulkan_effects) {
+            river.root_module.linkSystemLibrary("vulkan", .{});
+        }
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
 
