@@ -66,6 +66,8 @@ The harness covers:
 - normal, 90°, 180°, and 270° transforms;
 - rounded textures, hollow rounded borders, clipping, alpha, and overlap;
 - moving and localized backdrop damage;
+- sharp client-content witnesses and post-map buffer replacement above the
+  blurred backdrop;
 - workspace animation snapshots;
 - output disable/resume resource rebuilding;
 - screencopy after final compositing;

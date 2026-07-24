@@ -72,6 +72,7 @@ struct app {
     int32_t height;
     bool configured;
     bool popup_configured;
+    bool replacement_committed;
     bool failed;
 };
 
@@ -235,6 +236,16 @@ static void paint_localized_patch(
 static void paint_blur(uint32_t *pixels, int32_t width, int32_t height) {
     for (int32_t y = 0; y < height; y++) {
         for (int32_t x = 0; x < width; x++) {
+            const bool content_witness =
+                x >= 304 && x < 464 && y >= 220 && y < 300;
+            if (content_witness) {
+                const bool alternate =
+                    (((x - 304) / 16) + ((y - 220) / 16)) % 2 == 0;
+                pixels[(size_t)y * (size_t)width + (size_t)x] = alternate
+                    ? argb(255, 255, 240, 0)
+                    : argb(255, 0, 20, 255);
+                continue;
+            }
             const int32_t edge = 28;
             const bool frame = x < edge || y < edge ||
                 x >= width - edge || y >= height - edge;
@@ -689,6 +700,13 @@ static void popup_surface_configure(
             return;
         }
         app->popup_configured = true;
+        if (!app->replacement_committed) {
+            if (!attach_buffer(app, app->width, app->height)) {
+                fail(app, "unable to replace the mapped blur buffer");
+                return;
+            }
+            app->replacement_committed = true;
+        }
         publish_ready_when_complete(app);
     }
 }

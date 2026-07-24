@@ -479,6 +479,24 @@ read -r _ BLUR_WIDTH BLUR_HEIGHT <"$blur_ready"
 [ "$BLUR_WIDTH $BLUR_HEIGHT" = "760 520" ] ||
     die "blur fixture mapped at an unexpected size"
 capture_output "$ARTIFACT_DIR/blur-static.png"
+content_order_values=$(
+    magick "$ARTIFACT_DIR/blur-static.png" \
+        -format '%[fx:(p{741,600}.r+p{741,600}.g+p{741,600}.b)/3] %[fx:(p{754,600}.r+p{754,600}.g+p{754,600}.b)/3] %[fx:(p{270,600}.r+p{270,600}.g+p{270,600}.b)/3] %[fx:abs(p{572,438}.r-p{588,438}.r)+abs(p{572,438}.g-p{588,438}.g)+abs(p{572,438}.b-p{588,438}.b)]' \
+        info:
+)
+read -r blur_grid blur_grid_adjacent blur_frame blur_content_contrast \
+    <<<"$content_order_values"
+awk \
+    -v grid="$blur_grid" \
+    -v adjacent="$blur_grid_adjacent" \
+    -v frame="$blur_frame" \
+    -v contrast="$blur_content_contrast" \
+    'BEGIN {
+        exit !(grid > adjacent + 0.10 &&
+            frame > 0.80 &&
+            contrast > 1.0)
+    }' ||
+    die "backdrop blur was composited over the blur window's client content"
 
 for generation in 1 2 3 4; do
     send_background_command \
@@ -793,6 +811,10 @@ fi
         "$blur_descriptor_allocations"
     printf 'blur_cache_images=%s\n' "$blur_cache_images"
     printf 'blur_composite_pipelines=%s\n' "$blur_composite_pipelines"
+    printf 'blur_content_grid=%s\n' "$blur_grid"
+    printf 'blur_content_adjacent=%s\n' "$blur_grid_adjacent"
+    printf 'blur_content_frame=%s\n' "$blur_frame"
+    printf 'blur_content_contrast=%s\n' "$blur_content_contrast"
     printf 'blur_motion_changed_pixels=%s\n' "$motion_difference"
     printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
     printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"

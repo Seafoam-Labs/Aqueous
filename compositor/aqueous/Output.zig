@@ -569,6 +569,7 @@ fn roundedRectHook(
     const output: *Output = @ptrCast(@alignCast(data orelse return false));
     const scene_rect: *wlr.SceneRect =
         @ptrCast(@alignCast(c_scene_rect orelse return false));
+    if (isBlurMarker(scene_rect)) return true;
     const effect = server.effect_metadata.rectData(scene_rect) orelse
         return false;
     const rect_options = options orelse return false;
@@ -583,6 +584,15 @@ fn roundedRectHook(
         log.err("Vulkan rounded rect draw failed: {s}", .{@errorName(err)});
         return false;
     };
+}
+
+fn isBlurMarker(scene_rect: *wlr.SceneRect) bool {
+    const owner = SceneNodeData.fromNode(&scene_rect.node) orelse return false;
+    const window = switch (owner.data) {
+        .window => |window| window,
+        else => return false,
+    };
+    return scene_rect == window.blur_marker;
 }
 
 fn effectRenderState(output: *const Output) *const State {
@@ -654,6 +664,7 @@ fn effectsNodeRender(
         else => return,
     };
     if (!nodeInTree(node, window.tree)) return;
+    if (node != &window.blur_marker.node) return;
     if (output.blur_last_window == window) return;
     output.blur_last_window = window;
 

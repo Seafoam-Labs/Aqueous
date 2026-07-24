@@ -210,7 +210,7 @@ fn handleDissociate(listener: *wl.Listener(void)) void {
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("commit", listener);
     const window = xwindow.window;
-    if (window.state == .mapped) window.applyOpacity();
+    if (window.state == .mapped) window.applySurfaceVisualState();
 }
 
 pub fn handleMap(listener: *wl.Listener(void)) void {
