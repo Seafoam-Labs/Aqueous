@@ -769,7 +769,7 @@
 +++ b/include/wlr/render/vulkan.h	2026-07-24 10:27:31.134215399 -0400
 @@ -16 +16 @@
 -#define WLR_AQUEOUS_RENDER_HOOK_VERSION 3
-+#define WLR_AQUEOUS_RENDER_HOOK_VERSION 6
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 7
 @@ -57,0 +58,2 @@
 +typedef void (*wlr_vk_render_completion_func_t)(void *data);
 +
@@ -838,7 +838,7 @@
 +	}
 --- a/types/scene/wlr_scene.c	2026-07-24 11:19:17.912358576 -0400
 +++ b/types/scene/wlr_scene.c	2026-07-24 10:49:34.484574233 -0400
-@@ -2685,0 +2686,19 @@
+@@ -2685,0 +2686,22 @@
 +	if (scene_output->render_begin_hook != NULL) {
 +		const pixman_box32_t *extents =
 +			pixman_region32_extents(&render_data.damage);
@@ -855,6 +855,9 @@
 +				damage_expansion);
 +			pixman_region32_intersect_rect(&render_data.damage,
 +				&render_data.damage, 0, 0, buffer->width, buffer->height);
++			// Keep backend damage synchronized with every pixel redrawn by
++			// the render hook, including blur-filter reach.
++			wlr_output_state_set_damage(state, &render_data.damage);
 +		}
 +	}
 +

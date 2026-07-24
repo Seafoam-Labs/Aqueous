@@ -39,6 +39,9 @@ tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 for patch_file in "${patch_files[@]}"; do
     patch -d "$source_dir" -p1 <"$patch_file"
 done
+grep -Fq 'wlr_output_state_set_damage(state, &render_data.damage);' \
+    "$source_dir/types/scene/wlr_scene.c" ||
+    die "patched wlroots does not synchronize expanded render and output damage"
 
 meson setup "$build_dir" "$source_dir" \
     --prefix="$prefix" \
