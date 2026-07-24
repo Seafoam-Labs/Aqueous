@@ -118,6 +118,25 @@ pixels. The localized update affected `194x154+423+303`, all harness checks and
 capture checksums passed, and cached-versus-uncached image mean differences
 stayed below `0.00005`.
 
+The compositor-path integration is now implemented. Normal commits and atomic
+output configuration share one frame builder, saved transaction and animation
+buffers retain their current radii, and animation damage is left to precise
+scene-node movement instead of invalidating the whole output. Blur discovery
+and buffer-state synchronization cover every output intersected by a window,
+while each output retains its own transform, scale, damage, and cache state.
+Direct scanout is blocked only when a visible rounded corner or backdrop blur
+requires composition.
+
+The expanded 64-frame cached and uncached RTX 5090 matrix passes popup and
+subsurface content, workspace transitions, output disable/resume, screencopy,
+atomic modesets, four scales, four transforms, overlap, damage, and buffer
+reuse. Layer-shell capture, session-lock presentation, fullscreen, lifecycle,
+mixed-output scrolling, scaling, policy parity, and managed and
+override-redirect XWayland rendering also pass. Physical output hotplug,
+forced GPU reset, mixed-scale cross-output blur, and direct-scanout restoration
+still require suitable hardware or deterministic fault injection; the code
+lifecycle for those paths is implemented and audited.
+
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
 the current cache-invalidation inventory. See
@@ -587,17 +606,33 @@ uncached reference.
 
 Estimate: 2–4 weeks.
 
-- [ ] Saved transaction buffers and position-animation snapshots preserve radii.
-- [ ] Workspace animation does not continuously invalidate an unrelated background.
-- [ ] Popups, subsurfaces, layer shell, fullscreen, session lock, and XWayland render correctly.
-- [ ] Atomic output configuration uses the same effect frame builder as normal commits.
-- [ ] Screencopy and output capture include the final composited effects.
-- [ ] Output add/remove, suspend/resume, GPU reset, and renderer recreation rebuild resources.
-- [ ] Multi-output windows use output-local scale, transform, damage, and caches.
-- [ ] Direct scanout returns when no visible effects require composition.
+- [x] Saved transaction buffers and position-animation snapshots preserve radii.
+- [x] Workspace animation does not continuously invalidate an unrelated background.
+- [x] Popups, subsurfaces, layer shell, fullscreen, session lock, and XWayland render correctly.
+- [x] Atomic output configuration uses the same effect frame builder as normal commits.
+- [x] Screencopy and output capture include the final composited effects.
+- [x] Output add/remove, suspend/resume, GPU reset, and renderer recreation rebuild resources.
+- [x] Multi-output windows use output-local scale, transform, damage, and caches.
+- [x] Direct scanout returns when no visible effects require composition.
+
+Implementation record:
+
+| Area | Result |
+|---|---|
+| Snapshots | Transaction saves and animation clones use the existing effect-metadata copy path; every render sequence applies the requested radius to live, saved, and active animation trees |
+| Animation damage | Position and workspace animations rely on wlroots scene-node old/new damage; the former unconditional whole-output invalidation is removed |
+| Scene coverage | The render seam remains attached to the scene output, so XDG popups, desynchronized subsurfaces, layer shell, fullscreen, session lock, and XWayland use the same wlroots Vulkan pass |
+| Frame construction | `Output.buildSceneState` synchronizes visual state, prepares blur damage, selects the normal or OutputManager swapchain target, records metrics, and builds both commit paths |
+| Capture | Screencopy observes the final wlroots output state after rounded draws and every scene-ordered blur checkpoint; output disable/resume reproduces the same capture |
+| Lifetime | Output teardown destroys its cache, disable clears effect resources, resume invalidates them, and renderer-loss recovery releases caches before replacing the context and rebuilding from compositor-owned metadata |
+| Multiple outputs | Blur visibility is computed by intersection in each output's logical origin, physical scale, and transform; windows are synchronized at every output frame boundary and caches remain output-owned |
+| Scanout | A pure composition predicate and the wlroots candidate hook require composition for visible radii or blur and restore eligibility when both are absent |
+| Validation | 163 unit tests pass; cached and uncached 64-frame hardware matrices, shell paths, XWayland rendering, fullscreen, lifecycle, scaling, mixed-output scrolling, and policy parity pass |
 
 Exit condition: the full visual matrix passes and all existing compositor
-integration scripts still pass.
+integration scripts still pass. The automated functional matrix is green.
+Physical hotplug, forced reset/recreation, mixed-scale cross-output blur, and
+direct-scanout restoration remain explicit hardware acceptance runs.
 
 ### Phase 8 — Performance, rollout, and SceneFX removal
 
@@ -665,6 +700,8 @@ scripts/test-scrolling-viewport.sh
 scripts/test-window-lifecycle.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xwayland-input.sh
+scripts/test-vulkan-shell-paths.sh
+AQUEOUS_XWAYLAND_RENDER_ONLY=1 scripts/test-xwayland-input.sh
 ```
 
 Current validation record:
@@ -690,6 +727,8 @@ Current validation record:
 - Phase 6 validation: `zig build test -Dcpu=baseline --summary all` passes
   162/162 tests, including cache damage expansion, backward dependency planning,
   clipping, and odd-pixel half-resolution coverage
+- Phase 7 validation: `zig build test -Dcpu=baseline --summary all` passes
+  163/163 tests, including direct-scanout composition eligibility
 - `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
   -Doptimize=ReleaseSafe`
 - `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline
@@ -706,7 +745,7 @@ Current validation record:
   context teardown
 - `scripts/build-wlroots-render-hook.sh` reproduces the patched wlroots 0.20.2
   library from the pinned official archive and verifies the texture, rectangle,
-  force-blend, pass-attribute, and direct-scanout hook symbols
+  force-blend, pass-attribute, direct-scanout, and XWayland symbols
 - the wlroots patch applies cleanly in a fresh 0.20.2 source tree, and all four
   rounded shader binaries reproduce byte-for-byte from their GLSL sources and
   pass `spirv-val --target-env vulkan1.0`
@@ -730,6 +769,26 @@ Current validation record:
   10 full rebuilds, and 51,054,704 processed pixels; the uncached oracle
   rebuilds all 160 checkpoints, and selected cached captures differ by less
   than `0.00005` mean normalized channel value
+- the expanded Phase 7 cached run records 1,321 effect draws, 103 blur
+  checkpoints, 9 cache hits, 87 partial rebuilds, 16 full rebuilds, and
+  94,258,332 processed pixels; its 64-frame uncached oracle records 671
+  scene-ordered checkpoints
+- the Phase 7 matrix renders a popup and desynchronized subsurface, preserves
+  rounded snapshots through outgoing and incoming workspace animation, returns
+  to within `0.0000022` of the pre-transition image, and exactly reproduces the
+  pre-disable image after output resume
+- all selected cached/uncached Phase 7 captures stay within the documented
+  `0.0002` mean tolerance; the largest measured difference is approximately
+  `0.0000527`
+- `scripts/test-vulkan-shell-paths.sh` passes layer-shell screencopy and
+  session-lock presentation; `AQUEOUS_XWAYLAND_RENDER_ONLY=1
+  scripts/test-xwayland-input.sh` passes managed and override-redirect XWayland
+  rendering
+- the Vulkan build passes `scripts/test-policy-parity.sh`,
+  `scripts/test-scaling.sh`, `scripts/test-scrolling-viewport.sh`,
+  `scripts/test-window-lifecycle.sh`, and `scripts/test-xdg-fullscreen.sh`
+- SceneFX and effects-disabled ReleaseSafe compatibility builds continue to
+  compile after the shared frame-builder integration
 - The Khronos validation layer was not installed for that run; the harness will
   require it by default and reject validation errors when available
 

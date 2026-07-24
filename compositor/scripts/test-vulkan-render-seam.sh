@@ -46,7 +46,7 @@ for file in \
     "$WORKSPACE_PROTOCOL"; do
     [ -r "$file" ] || die "missing test input: $file"
 done
-for tool in cc grim jq ldd magick nc nm pkg-config readelf sha256sum wayland-scanner; do
+for tool in cc grim jq ldd magick nc nm pkg-config readelf sha256sum wayland-scanner wlrctl; do
     have "$tool" || die "$tool is required"
 done
 pkg-config --exists wayland-client wayland-protocols ||
@@ -251,6 +251,7 @@ wait_output_state() {
             --arg transform "$transform" \
             '.outputs[0].current_mode.width == $width and
              .outputs[0].current_mode.height == $height and
+             .outputs[0].enabled == true and
              ((.outputs[0].scale - $scale) | fabs) < 0.001 and
              .outputs[0].transform == $transform' \
             >/dev/null <<<"$output_state"; then
@@ -280,6 +281,30 @@ set_output_mode() {
     wait_output_state "$width" "$height" 1 normal
 }
 
+wait_output_enabled() {
+    local enabled=$1
+    for _ in $(seq 1 240); do
+        output_state=$(output_request '{"op":"list"}')
+        if jq -e --argjson enabled "$enabled" \
+            '.outputs[0].enabled == $enabled' \
+            >/dev/null <<<"$output_state"; then
+            sleep 0.15
+            return
+        fi
+        sleep 0.05
+    done
+    die "output did not settle with enabled=$enabled"
+}
+
+set_output_enabled() {
+    local enabled=$1 response
+    response=$(output_request \
+        "{\"op\":\"set\",\"changes\":[{\"name\":\"$OUTPUT_NAME\",\"enabled\":$enabled}]}")
+    jq -e '.ok == true' >/dev/null <<<"$response" ||
+        die "output service rejected enabled=$enabled: $response"
+    wait_output_enabled "$enabled"
+}
+
 capture_output() {
     local destination=$1
     env -u LD_PRELOAD \
@@ -287,6 +312,13 @@ capture_output() {
         WAYLAND_DISPLAY="$socket" \
         grim -o "$OUTPUT_NAME" "$destination"
     [ -s "$destination" ] || die "empty capture: $destination"
+}
+
+send_key() {
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        wlrctl keyboard type "$1"
 }
 
 nonblack_pixel_count() {
@@ -545,6 +577,58 @@ overlap_difference=$(
 awk -v changed="$overlap_difference" \
     'BEGIN { exit !(changed > 1000) }' ||
     die "the overlapping blur window did not change the composited output"
+
+capture_output "$ARTIFACT_DIR/workspace-animation-before.png"
+send_key x
+sleep 0.25
+capture_output "$ARTIFACT_DIR/workspace-animation-outgoing.png"
+workspace_outgoing_difference=$(
+    magick \
+        "$ARTIFACT_DIR/workspace-animation-before.png" \
+        "$ARTIFACT_DIR/workspace-animation-outgoing.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$workspace_outgoing_difference" \
+    'BEGIN { exit !(changed > 1000) }' ||
+    die "workspace animation did not move the outgoing rounded snapshots"
+sleep 2.5
+send_key y
+sleep 0.25
+capture_output "$ARTIFACT_DIR/workspace-animation-incoming.png"
+workspace_incoming_pixels=$(nonblack_pixel_count \
+    "$ARTIFACT_DIR/workspace-animation-incoming.png")
+awk -v pixels="$workspace_incoming_pixels" \
+    'BEGIN { exit !(pixels > 1000) }' ||
+    die "workspace animation did not render incoming rounded snapshots"
+sleep 2.5
+capture_output "$ARTIFACT_DIR/workspace-animation-after.png"
+workspace_roundtrip_difference=$(
+    magick \
+        "$ARTIFACT_DIR/workspace-animation-before.png" \
+        "$ARTIFACT_DIR/workspace-animation-after.png" \
+        -compose difference -composite \
+        -alpha off -format '%[fx:mean]' info:
+)
+awk -v difference="$workspace_roundtrip_difference" \
+    'BEGIN { exit !(difference <= 0.0002) }' ||
+    die "workspace animation did not restore the composited effects"
+
+capture_output "$ARTIFACT_DIR/before-output-resume.png"
+set_output_enabled false
+set_output_enabled true
+capture_output "$ARTIFACT_DIR/after-output-resume.png"
+resume_difference=$(
+    magick \
+        "$ARTIFACT_DIR/before-output-resume.png" \
+        "$ARTIFACT_DIR/after-output-resume.png" \
+        -compose difference -composite \
+        -alpha off -format '%[fx:mean]' info:
+)
+awk -v difference="$resume_difference" \
+    'BEGIN { exit !(difference <= 0.0002) }' ||
+    die "output resume did not rebuild the composited effects"
 output_request '{"op":"list"}' | jq . >"$ARTIFACT_DIR/output.json"
 
 env -u LD_PRELOAD \
@@ -664,6 +748,14 @@ fi
     printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
     printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"
     printf 'blur_overlap_changed_pixels=%s\n' "$overlap_difference"
+    printf 'workspace_outgoing_changed_pixels=%s\n' \
+        "$workspace_outgoing_difference"
+    printf 'workspace_incoming_nonblack_pixels=%s\n' \
+        "$workspace_incoming_pixels"
+    printf 'workspace_roundtrip_difference=%s\n' \
+        "$workspace_roundtrip_difference"
+    printf 'output_resume_difference=%s\n' "$resume_difference"
+    printf 'auxiliary_surfaces=popup,subsurface\n'
     printf 'rounded_outer_corner_max=%s\n' "$outer_corner"
     printf 'rounded_antialias_corner_max=%s\n' "$antialias_corner"
     printf 'rounded_inset_content_max=%s\n' "$inset_content"
@@ -679,4 +771,4 @@ fi
         xargs -0 sha256sum >SHA256SUMS
 )
 
-echo "PASS: rounded Vulkan effects and blur survived both render paths, damage, motion, overlap, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
+echo "PASS: rounded Vulkan effects and blur survived both render paths, popup and subsurface content, damage, motion, overlap, workspace animation, output resume, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"

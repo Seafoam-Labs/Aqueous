@@ -36,6 +36,13 @@ pub fn fractionToOpacity(value: u32) f32 {
         @as(f64, @floatFromInt(std.math.maxInt(u32))));
 }
 
+pub fn effectsRequireComposition(
+    rounded_corners: bool,
+    backdrop_blur: bool,
+) bool {
+    return rounded_corners or backdrop_blur;
+}
+
 pub fn opaqueRegionPolicy(opacity: f32) OpaqueRegionPolicy {
     return if (opacity < 1) .empty else .client;
 }
@@ -65,4 +72,11 @@ test "moving animation destinations remain clipped to a fixed viewport" {
         .{ .x = 200, .y = 20, .width = 50, .height = 80 },
         viewport,
     ));
+}
+
+test "direct scanout is blocked only by visible compositor effects" {
+    try std.testing.expect(!effectsRequireComposition(false, false));
+    try std.testing.expect(effectsRequireComposition(true, false));
+    try std.testing.expect(effectsRequireComposition(false, true));
+    try std.testing.expect(effectsRequireComposition(true, true));
 }

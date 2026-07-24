@@ -32,7 +32,13 @@ for name in \
     blur-before-localized.png \
     blur-after-localized.png \
     after-buffer-reuse.png \
-    blur-overlap.png; do
+    blur-overlap.png \
+    workspace-animation-before.png \
+    workspace-animation-outgoing.png \
+    workspace-animation-incoming.png \
+    workspace-animation-after.png \
+    before-output-resume.png \
+    after-output-resume.png; do
     difference=$(
         magick \
             "$cached/$name" \

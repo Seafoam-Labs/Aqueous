@@ -1427,6 +1427,9 @@ pub fn renderFinish(window: *Window) void {
         window.drawBorders();
         fx.setTreeRadius(window.surfaces.tree, requested.border.corner_radius);
         fx.setTreeRadius(window.surfaces.saved_tree, requested.border.corner_radius);
+        if (window.anim_snapshot) {
+            fx.setTreeRadius(window.anim_tree, requested.border.corner_radius);
+        }
     }
     window.refreshBackdropBlur();
 

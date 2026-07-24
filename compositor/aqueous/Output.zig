@@ -32,6 +32,7 @@ const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const scaling = @import("scaling.zig");
 const render_metrics = @import("render_metrics.zig");
+const visual_state = @import("visual_state.zig");
 
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
@@ -538,9 +539,14 @@ fn roundedBufferNeedsComposition(
     if (comptime !build_options.vulkan_effects) return false;
     const scene_buffer: *wlr.SceneBuffer =
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
-    const effect = server.effect_metadata.bufferData(scene_buffer) orelse
-        return bufferWindowNeedsBlur(scene_buffer);
-    return hasRadius(effect.radii) or bufferWindowNeedsBlur(scene_buffer);
+    const rounded = if (server.effect_metadata.bufferData(scene_buffer)) |effect|
+        hasRadius(effect.radii)
+    else
+        false;
+    return visual_state.effectsRequireComposition(
+        rounded,
+        bufferWindowNeedsBlur(scene_buffer),
+    );
 }
 
 fn bufferWindowNeedsBlur(scene_buffer: *wlr.SceneBuffer) bool {
@@ -609,8 +615,6 @@ fn effectsRenderBegin(
     var affected = false;
     var windows = server.wm.windows.iterator();
     while (windows.next()) |window| {
-        const workspace = window.workspace orelse continue;
-        if (workspace.output != output or !window.tree.node.enabled) continue;
         const handle = windowBlurHandle(window) orelse continue;
         const blur = windowBlurData(window) orelse continue;
         const effect = windowBlurEffect(
@@ -777,6 +781,10 @@ fn windowBlurEffect(
         transformed_width,
         transformed_height,
     );
+    if (!renderBoxesIntersect(
+        .{ .x = 0, .y = 0, .width = transformed_width, .height = transformed_height },
+        .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
+    )) return null;
     return .{
         .box = .{
             .x = box.x,
@@ -821,9 +829,10 @@ fn hasVisibleBlur(output: *const Output) bool {
     if (comptime !build_options.vulkan_effects) return false;
     var it = server.wm.windows.iterator();
     while (it.next()) |window| {
-        const workspace = window.workspace orelse continue;
-        if (workspace.output != output or !window.tree.node.enabled) continue;
-        if (windowBlurData(window) != null) return true;
+        const blur = windowBlurData(window) orelse continue;
+        if (windowBlurEffect(window, blur, output.effectRenderState()) != null) {
+            return true;
+        }
     }
     return false;
 }
@@ -1459,7 +1468,6 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     const output: *Output = @fieldParentPtr("frame", listener);
 
     const animation_changed_scene = output.stepAnimations();
-    if (animation_changed_scene) output.scene_output.?.damage_ring.addWhole();
 
     // Commit the end of a workspace-swap slide once all windows have settled.
     output.finalizeTransition();
@@ -1533,15 +1541,8 @@ fn hasActiveAnimations(output: *Output) bool {
 }
 
 fn renderAndCommit(output: *Output, force: bool) !void {
-    // Native clients such as Firefox/Zen use desynchronized GPU subsurfaces
-    // which can replace their scene buffers without committing the XDG
-    // top-level. Surface commits still schedule an output frame, so use the
-    // frame boundary as the final visual-state barrier before SceneFX computes
-    // damage, opaque-region occlusion, and blending.
     output.syncWindowVisualState();
-
     if (!force and !output.scene_output.?.needsFrame()) return;
-    const uncached_blur_damage = output.prepareUncachedBlurDamage();
 
     const wlr_output = output.wlr_output.?;
 
@@ -1550,23 +1551,13 @@ fn renderAndCommit(output: *Output, force: bool) !void {
 
     output.current.applyNoModeset(&state);
 
-    const collect_metrics =
-        render_metrics.enabled() and output.render_metric_sample == null;
-    var scene_options: wlr.SceneOutput.StateOptions = .{};
-    if (collect_metrics) {
-        output.render_metric_sample = .{};
-        scene_options.timer = &output.render_metric_sample.?.timer;
-    }
-
-    if (!output.scene_output.?.buildState(
+    if (!output.buildSceneState(
         &state,
-        if (collect_metrics) &scene_options else null,
+        null,
+        render_metrics.enabled() and output.render_metric_sample == null,
     )) {
-        if (collect_metrics) output.discardRenderMetric();
         return error.CommitFailed;
     }
-    output.recordVulkanEffectsMetric();
-    if (uncached_blur_damage) output.setUncachedBlurDamage(&state);
 
     if (output.rendering_current.tearing) {
         state.tearing_page_flip = true;
@@ -1579,7 +1570,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
     }
 
     if (!wlr_output.commitState(&state)) {
-        if (collect_metrics) output.discardRenderMetric();
+        output.discardRenderMetric();
         return error.CommitFailed;
     }
 
@@ -1623,13 +1614,41 @@ fn renderAndCommit(output: *Output, force: bool) !void {
     }
 }
 
-fn syncWindowVisualState(output: *Output) void {
-    var windows = server.wm.windows.iterator();
-    while (windows.next()) |window| {
-        const workspace = window.workspace orelse continue;
-        if (workspace.output != output) continue;
-        window.applyOpacity();
+pub fn buildSceneState(
+    output: *Output,
+    state: *wlr.Output.State,
+    swapchain: ?*wlr.Swapchain,
+    collect_metrics: bool,
+) bool {
+    output.syncWindowVisualState();
+    output.effects_swapchain_path = swapchain != null;
+    defer output.effects_swapchain_path = false;
+
+    const uncached_blur_damage = output.prepareUncachedBlurDamage();
+    var scene_options: wlr.SceneOutput.StateOptions = .{
+        .swapchain = swapchain,
+    };
+    if (collect_metrics) {
+        output.render_metric_sample = .{};
+        scene_options.timer = &output.render_metric_sample.?.timer;
     }
+
+    if (!output.scene_output.?.buildState(
+        state,
+        if (swapchain != null or collect_metrics) &scene_options else null,
+    )) {
+        if (collect_metrics) output.discardRenderMetric();
+        return false;
+    }
+    output.recordVulkanEffectsMetric();
+    if (uncached_blur_damage) output.setUncachedBlurDamage(state);
+    return true;
+}
+
+fn syncWindowVisualState(output: *Output) void {
+    _ = output;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| window.applyOpacity();
 }
 
 fn handlePresent(

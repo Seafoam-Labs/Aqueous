@@ -37,7 +37,7 @@ meson setup "$build_dir" "$source_dir" \
     --prefix="$prefix" \
     --libdir=lib \
     -Dexamples=false \
-    -Dxwayland=disabled \
+    -Dxwayland=enabled \
     -Drenderers=vulkan \
     -Dbackends=drm,libinput \
     -Dallocators=gbm \
@@ -59,7 +59,8 @@ for symbol in \
     wlr_vk_render_pass_run_offscreen \
     wlr_vk_render_pass_add_completion \
     wlr_vk_render_pass_set_texture_hook \
-    wlr_vk_render_pass_get_attribs; do
+    wlr_vk_render_pass_get_attribs \
+    wlr_xwayland_create; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"
 done

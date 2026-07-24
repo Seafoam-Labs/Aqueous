@@ -17,7 +17,12 @@ focused = 1.0
 unfocused = 1.0
 
 [workspace_transition]
-enabled = false
+enabled = true
+rate = 4.0
+
+[keybinds]
+focus_workspace_1 = "y"
+focus_workspace_2 = "x"
 
 [struts]
 top = 0

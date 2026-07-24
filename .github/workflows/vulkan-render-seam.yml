@@ -11,6 +11,7 @@ on:
       - 'compositor/protocol/**'
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - 'compositor/protocol/**'
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
   workflow_dispatch:
 
@@ -45,7 +47,8 @@ jobs:
             wayland wayland-protocols libxkbcommon libinput \
             pixman libdrm libevdev mesa systemd-libs seatd \
             pkgconf ninja meson libdisplay-info libliftoff lcms2 \
-            glslang vulkan-headers vulkan-icd-loader
+            glslang vulkan-headers vulkan-icd-loader \
+            libxcb xcb-util-errors xcb-util-wm xorg-xwayland
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -72,6 +75,7 @@ jobs:
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
             zig build \
               -Dvulkan-effects=true \
+              -Dxwayland=true \
               -Dexternal-policy=true \
               -Dcpu=baseline \
               -Doptimize=ReleaseSafe
@@ -102,6 +106,8 @@ jobs:
             grep ' wlr_vk_render_pass_run_offscreen$'
           nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_add_completion$'
+          nm -D --defined-only "$library" |
+            grep ' wlr_xwayland_create$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_output_set_buffer_render_hook$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
@@ -122,6 +128,8 @@ jobs:
             grep ' wlr_vk_render_pass_run_offscreen$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_vk_render_pass_add_completion$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_xwayland_create$'
           readelf -d compositor/zig-out/bin/aqueous |
             grep 'libvulkan.so'
           if readelf -d compositor/zig-out/bin/aqueous |
