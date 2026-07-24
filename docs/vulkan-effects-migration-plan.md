@@ -60,6 +60,15 @@ requires the layer by default, but the validation-layer rerun remains the one
 open Phase 2 gate. Renderer-loss recreation is wired and build-verified but has
 not yet been forced on real hardware.
 
+Effect state is now owned by Aqueous independently of the Vulkan context.
+`EffectMetadata.zig` provides destruction-aware registries for scene buffers
+and rects, generation-safe typed handles for window blur masks and output blur
+caches, and generation counters for global blur configuration and cache
+invalidation. The existing `fx.zig` entry points route to either SceneFX or the
+Aqueous registry, while saved and animation snapshot buffers preserve metadata
+through their existing copy path. The metadata registry survives renderer-loss
+context replacement and is torn down after the scene graph.
+
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
 the current cache-invalidation inventory. See
@@ -105,7 +114,7 @@ Callers should not import Vulkan or know which effect backend is active.
 | `fx.setTreeRadius` | Walk tree and set SceneFX radii | Walk tree and update Aqueous buffer metadata |
 | `fx.setRectRadius` | SceneFX field on `wlr_scene_rect` | Rect metadata plus the rounded-solid pipeline |
 | `fx.setRectClippedRegion` | SceneFX clipped-region field | Inner SDF subtraction in the rounded-outline shader |
-| `fx.setBlurParams` | SceneFX global blur data | `Effects.blur_config`, with generation-based cache invalidation |
+| `fx.setBlurParams` | SceneFX global blur data | `EffectMetadata.blur_config`, with generation-based cache invalidation |
 | `fx.createWindowBlur` | SceneFX blur scene node | Aqueous `WindowBlur` metadata associated with the existing window tree |
 | `fx.configureWindowBlur` | Mutate SceneFX blur node | Update the window blur box, radius, enabled bit, and generation |
 | `fx.createOptimizedBlur` | SceneFX optimized blur node | Aqueous `BlurCache` owned by `Output` |
@@ -119,13 +128,13 @@ Call-site replacements are intentionally small:
 
 | Existing file | Change/status |
 |---|---|
-| `Window.zig` | Change `backdrop_blur` from `?*anyopaque` to a typed Aqueous handle; keep its existing geometry and enable logic |
-| `Scene.zig` | Copy Aqueous effect metadata when cloning saved/animation buffers |
-| `Output.zig` | Own `BlurCache`; call the effect-aware frame builder; retain the existing dirty triggers |
+| `Window.zig` | Done: `backdrop_blur` is a typed backend handle and retains the existing geometry and enable logic |
+| `Scene.zig` | Done: saved and animation buffers copy Aqueous effect metadata through `fx.copyBufferFx` |
+| `Output.zig` | Typed `OutputBlurCache` ownership is done; the effect-aware frame builder remains |
 | `OutputManager.zig` | Use the same effect-aware frame builder for atomic modesets |
-| `WindowManager.zig` | Store blur configuration in `Effects` and invalidate output caches |
+| `WindowManager.zig` | Done for metadata: store generation-tracked blur configuration and invalidate output caches |
 | `LayerSurface.zig` | Keep the existing background-change invalidation call |
-| `Server.zig` | Done for context lifetime: create on startup, destroy before the renderer, and replace around renderer-loss recovery; extend the same owner with effect resources |
+| `Server.zig` | Done: own metadata across renderer-loss recovery, destroy it after the scene, and independently replace the Vulkan context |
 | `build.zig` | Done: custom-effects option, mutual exclusion, Vulkan translation, and linking; remaining: shader compilation and SceneFX removal after rollout |
 
 ## Proposed source layout
@@ -402,16 +411,18 @@ layer was unavailable, so this condition is not fully closed until the default
 
 Estimate: 4–7 engineer-days.
 
-- [ ] Implement typed metadata for scene buffers, scene rects, window blur masks,
+- [x] Implement typed metadata for scene buffers, scene rects, window blur masks,
       and output blur caches.
-- [ ] Attach destroy listeners so pointer reuse cannot resurrect stale metadata.
-- [ ] Preserve metadata in `Scene.SaveableSurfaces.save` and `cloneInto`.
-- [ ] Keep the existing `fx.zig` function names while routing them to the new backend.
-- [ ] Add generation counters for blur configuration and cache invalidation.
-- [ ] Add leak and stale-handle tests.
+- [x] Attach destroy listeners so pointer reuse cannot resurrect stale metadata.
+- [x] Preserve metadata in `Scene.SaveableSurfaces.save` and `cloneInto`.
+- [x] Keep the existing `fx.zig` function names while routing them to the new backend.
+- [x] Add generation counters for blur configuration and cache invalidation.
+- [x] Add leak and stale-handle tests.
 
 Exit condition: every current SceneFX call has an Aqueous-owned equivalent even
-though most still render as stock visuals.
+though most still render as stock visuals. Met on 2026-07-23; the registry
+lifecycle suite includes destruction, pointer reuse, snapshot copying, stale
+generation rejection, cache invalidation, and forced cleanup coverage.
 
 ### Phase 4 — Implement rounded corners and borders
 
@@ -566,6 +577,8 @@ Current validation record:
 - `scripts/test-xdg-fullscreen.sh` passes against the fallback build
 - All capture artifacts pass `SHA256SUMS`
 - `zig build test`
+- Phase 3 validation: `zig build test -Dcpu=baseline --summary all` passes
+  157/157 tests, including the four effect-metadata lifecycle tests
 - `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
   -Doptimize=ReleaseSafe`
 - `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline

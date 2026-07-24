@@ -16,6 +16,7 @@ const wp = wayland.server.wp;
 const util = @import("util.zig");
 const fx = @import("fx.zig");
 const VulkanContext = if (build_options.vulkan_effects) @import("render/VulkanContext.zig") else void;
+const EffectMetadata = if (build_options.vulkan_effects) @import("render/EffectMetadata.zig") else void;
 
 const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
@@ -69,6 +70,7 @@ session: ?*wlr.Session,
 renderer: *wlr.Renderer,
 allocator: *wlr.Allocator,
 vulkan_context: if (build_options.vulkan_effects) VulkanContext else void,
+effect_metadata: if (build_options.vulkan_effects) EffectMetadata else void,
 gpu_reset_recover: ?*wl.EventSource = null,
 
 /// GPU selector environment variables resolved from the renderer's DRM device.
@@ -389,6 +391,9 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         .renderer = renderer,
         .allocator = try wlr.Allocator.autocreate(backend, renderer),
         .vulkan_context = vulkan_context,
+        .effect_metadata = if (comptime build_options.vulkan_effects)
+            EffectMetadata.init(util.gpa)
+        else {},
 
         .security_context_manager = try wlr.SecurityContextManagerV1.create(wl_server),
 
@@ -536,6 +541,16 @@ pub fn deinit(server: *Server) void {
     // graph may require the renderer to still be around to destroy textures it seems.
     server.scene.wlr_scene.tree.node.destroy();
 
+    if (comptime build_options.vulkan_effects) {
+        const live = server.effect_metadata.liveCounts();
+        if (live.total() != 0) {
+            log.warn(
+                "cleaning up {d} effect metadata records after scene destruction",
+                .{live.total()},
+            );
+        }
+        server.effect_metadata.deinit();
+    }
     if (comptime build_options.vulkan_effects) server.vulkan_context.deinit();
     server.renderer.destroy();
     server.allocator.destroy();

@@ -224,10 +224,10 @@ rendering_current: RenderingState = .init,
 /// previous frame has been recorded yet.
 anim_last_ns: i64 = 0,
 
-/// SceneFX optimized backdrop blur for this output. `blur_box` records the
-/// geometry used to produce the cached texture so moves and modesets can
+/// Backend-specific backdrop blur cache for this output. `blur_box` records
+/// the geometry used to produce the cached texture so moves and modesets can
 /// invalidate it without forcing regeneration on every frame.
-blur_node: ?*anyopaque = null,
+blur_node: ?fx.OutputBlurCache = null,
 blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
 render_probe_swapchain_path: bool = false,

@@ -245,9 +245,9 @@ impl: Impl,
 /// The trees in the following fields are in rendering order.
 tree: *wlr.SceneTree,
 
-/// SceneFX blur rendered behind this window's content. The output-local
-/// optimized blur node only caches the background; this node displays it.
-backdrop_blur: ?*anyopaque,
+/// Backend-specific blur mask behind this window's content. The output-local
+/// cache owns the background image; this handle defines where it is displayed.
+backdrop_blur: ?fx.WindowBlur,
 
 /// Opaque black rectangle used as the background while this window is rendered fullscreen.
 /// TODO consider using one of these per output rather than one per window to save memory
@@ -1462,7 +1462,7 @@ fn refreshBackdropBlur(window: *Window) void {
     );
 }
 
-/// Size the SceneFX blur to the same visible window-local rectangle as the
+/// Size the blur mask to the same visible window-local rectangle as the
 /// surface content. A clip through a window edge intentionally drops rounding
 /// at the newly-created edge, matching drawBorders().
 fn syncBackdropBlur(
