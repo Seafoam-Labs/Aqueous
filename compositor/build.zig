@@ -50,6 +50,11 @@ pub fn build(b: *Build) !void {
         "vulkan-effects",
         "Enable Aqueous Vulkan effects on the wlroots Vulkan renderer.",
     ) orelse false;
+    const vulkan_render_probe = b.option(
+        bool,
+        "vulkan-render-probe",
+        "Enable the rounded Vulkan render-seam validation probe.",
+    ) orelse false;
     const scenefx_option = b.option(
         bool,
         "scenefx",
@@ -67,6 +72,12 @@ pub fn build(b: *Build) !void {
     if (vulkan_effects and scenefx) {
         std.process.fatal(
             "-Dvulkan-effects=true and -Dscenefx=true are mutually exclusive",
+            .{},
+        );
+    }
+    if (vulkan_render_probe and !vulkan_effects) {
+        std.process.fatal(
+            "-Dvulkan-render-probe=true requires -Dvulkan-effects=true",
             .{},
         );
     }
@@ -113,6 +124,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "scenefx", scenefx);
     options.addOption(bool, "vulkan_effects", vulkan_effects);
+    options.addOption(bool, "vulkan_render_probe", vulkan_render_probe);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
     options.addOption([]const u8, "version", full_version);
@@ -234,6 +246,9 @@ pub fn build(b: *Build) !void {
         translate_c.linkSystemLibrary("vulkan", .{});
         translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
         translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
+    }
+    if (vulkan_render_probe) {
+        translate_c.defineCMacro("RIVER_VULKAN_RENDER_PROBE", null);
     }
 
     {

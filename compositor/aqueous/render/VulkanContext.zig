@@ -9,8 +9,13 @@ const VulkanContext = @This();
 const std = @import("std");
 const c = @import("c");
 const wlr = @import("wlroots");
+const build_options = @import("build_options");
 
 const util = @import("../util.zig");
+const RenderProbe = if (build_options.vulkan_render_probe)
+    @import("RenderProbe.zig")
+else
+    void;
 
 pub const Capabilities = struct {
     rgba16f_sampled: bool,
@@ -50,6 +55,7 @@ queue_family: u32,
 pipeline_cache: c.VkPipelineCache,
 capabilities: Capabilities,
 deferred: std.ArrayList(Deferred) = .empty,
+render_probe: if (build_options.vulkan_render_probe) RenderProbe else void,
 
 pub fn init(renderer: *wlr.Renderer) !VulkanContext {
     if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
@@ -77,8 +83,14 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
         std.log.err("failed to create Vulkan pipeline cache: {s}", .{resultName(cache_result)});
         return error.VulkanPipelineCacheCreateFailed;
     }
+    errdefer c.vkDestroyPipelineCache(device, pipeline_cache, null);
 
     const capabilities = queryCapabilities(physical_device, queue_family, renderer);
+    var render_probe = if (comptime build_options.vulkan_render_probe)
+        try RenderProbe.init(device, pipeline_cache)
+    else {};
+    errdefer if (comptime build_options.vulkan_render_probe)
+        render_probe.deinit();
     var properties = std.mem.zeroes(c.VkPhysicalDeviceProperties);
     c.vkGetPhysicalDeviceProperties(physical_device, &properties);
     const device_name: [*:0]const u8 = @ptrCast(&properties.deviceName);
@@ -114,10 +126,14 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
         .queue_family = queue_family,
         .pipeline_cache = pipeline_cache,
         .capabilities = capabilities,
+        .render_probe = render_probe,
     };
 }
 
 pub fn deinit(context: *VulkanContext) void {
+    if (comptime build_options.vulkan_render_probe) {
+        context.render_probe.deinit();
+    }
     if (context.deferred.items.len != 0) {
         const idle_result = c.vkDeviceWaitIdle(context.device);
         if (idle_result != c.VK_SUCCESS and idle_result != c.VK_ERROR_DEVICE_LOST) {

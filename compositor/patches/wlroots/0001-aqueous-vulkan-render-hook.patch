@@ -1,0 +1,192 @@
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -10,14 +10,25 @@
+ #define WLR_RENDER_VULKAN_H
+ 
+ #include <vulkan/vulkan_core.h>
++#include <wlr/render/pass.h>
+ #include <wlr/render/wlr_renderer.h>
+ 
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 1
++
+ struct wlr_vk_image_attribs {
+ 	VkImage image;
+ 	VkImageLayout layout;
+ 	VkFormat format;
+ };
+ 
++struct wlr_vk_render_pass_attribs {
++	VkCommandBuffer command_buffer;
++	VkRenderPass render_pass;
++	VkExtent2D extent;
++	uint32_t subpass;
++	bool has_signal_timeline;
++};
++
+ struct wlr_renderer *wlr_vk_renderer_create_with_drm_fd(int drm_fd);
+ 
+ VkInstance wlr_vk_renderer_get_instance(struct wlr_renderer *renderer);
+@@ -32,5 +43,14 @@
+ 	struct wlr_vk_image_attribs *attribs);
+ bool wlr_vk_texture_has_alpha(struct wlr_texture *texture);
+ 
+-#endif
++/**
++ * Get the active Vulkan command buffer and compatible render pass.
++ *
++ * This is only valid while a scene render hook is running. Retrieving the
++ * attributes invalidates wlroots' cached pipeline binding so callers may bind
++ * their own pipeline without corrupting later wlroots draws.
++ */
++bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *render_pass,
++	struct wlr_vk_render_pass_attribs *attribs);
+ 
++#endif
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -39,6 +39,8 @@
+ struct wlr_scene_node;
+ struct wlr_scene_buffer;
+ struct wlr_scene_output_layout;
++struct wlr_render_pass;
++struct wlr_render_texture_options;
+ 
+ struct wlr_presentation;
+ struct wlr_linux_dmabuf_v1;
+@@ -49,6 +51,12 @@
+ typedef bool (*wlr_scene_buffer_point_accepts_input_func_t)(
+ 	struct wlr_scene_buffer *buffer, double *sx, double *sy);
+ 
++typedef void (*wlr_scene_buffer_render_hook_func_t)(
++	struct wlr_render_pass *render_pass,
++	struct wlr_scene_buffer *scene_buffer,
++	const struct wlr_render_texture_options *options,
++	void *data);
++
+ typedef void (*wlr_scene_buffer_iterator_func_t)(
+ 	struct wlr_scene_buffer *buffer, int sx, int sy, void *user_data);
+ 
+@@ -270,6 +278,9 @@
+ 		uint64_t in_point;
+ 		struct wlr_drm_syncobj_timeline *out_timeline;
+ 		uint64_t out_point;
++
++		wlr_scene_buffer_render_hook_func_t render_hook;
++		void *render_hook_data;
+ 	} WLR_PRIVATE;
+ };
+ 
+@@ -595,6 +606,17 @@
+ void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
+ 	int lx, int ly);
+ 
++/**
++ * Set a callback invoked immediately after each ordinary scene buffer draw.
++ *
++ * Installing a hook disables direct scan-out. The callback runs while the
++ * renderer's pass is active and receives the transformed texture options and
++ * damage clip used by wlroots.
++ */
++void wlr_scene_output_set_buffer_render_hook(
++	struct wlr_scene_output *scene_output,
++	wlr_scene_buffer_render_hook_func_t hook, void *data);
++
+ struct wlr_scene_output_state_options {
+ 	struct wlr_scene_timer *timer;
+ 
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -5,6 +5,7 @@
+ #include <wlr/util/log.h>
+ #include <wlr/render/color.h>
+ #include <wlr/render/drm_syncobj.h>
++#include <wlr/render/vulkan.h>
+ 
+ #include "render/color.h"
+ #include "render/vulkan.h"
+@@ -19,6 +20,29 @@
+ 	return pass;
+ }
+ 
++bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *wlr_pass,
++		struct wlr_vk_render_pass_attribs *attribs) {
++	if (wlr_pass == NULL || attribs == NULL ||
++			wlr_pass->impl != &render_pass_impl) {
++		return false;
++	}
++
++	struct wlr_vk_render_pass *pass = get_render_pass(wlr_pass);
++	struct wlr_buffer *buffer = pass->render_buffer->wlr_buffer;
++	pass->bound_pipeline = VK_NULL_HANDLE;
++	*attribs = (struct wlr_vk_render_pass_attribs){
++		.command_buffer = pass->command_buffer->vk,
++		.render_pass = pass->render_setup->render_pass,
++		.extent = {
++			.width = buffer->width,
++			.height = buffer->height,
++		},
++		.subpass = 0,
++		.has_signal_timeline = pass->signal_timeline != NULL,
++	};
++	return true;
++}
++
+ static struct wlr_vk_color_transform *get_color_transform(
+ 		struct wlr_color_transform *c, struct wlr_vk_renderer *renderer) {
+ 	struct wlr_addon *a = wlr_addon_find(&c->addons, renderer, &vk_color_transform_impl);
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1538,7 +1538,7 @@
+ 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
+ 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
+ 
+-		wlr_render_pass_add_texture(data->render_pass, &(struct wlr_render_texture_options) {
++		struct wlr_render_texture_options texture_options = {
+ 			.texture = texture,
+ 			.src_box = scene_buffer->src_box,
+ 			.dst_box = dst_box,
+@@ -1556,7 +1556,12 @@
+ 			.luminance_multiplier = &luminance_multiplier,
+ 			.wait_timeline = scene_buffer->wait_timeline,
+ 			.wait_point = scene_buffer->wait_point,
+-		});
++		};
++		wlr_render_pass_add_texture(data->render_pass, &texture_options);
++		if (data->output->render_hook != NULL) {
++			data->output->render_hook(data->render_pass, scene_buffer,
++				&texture_options, data->output->render_hook_data);
++		}
+ 
+ 		struct wlr_scene_output_sample_event sample_event = {
+ 			.output = data->output,
+@@ -1893,6 +1898,20 @@
+ 	scene_output_update_geometry(scene_output, false);
+ }
+ 
++void wlr_scene_output_set_buffer_render_hook(
++		struct wlr_scene_output *scene_output,
++		wlr_scene_buffer_render_hook_func_t hook, void *data) {
++	if (scene_output->render_hook == hook &&
++			scene_output->render_hook_data == data) {
++		return;
++	}
++
++	scene_output->render_hook = hook;
++	scene_output->render_hook_data = data;
++	wlr_damage_ring_add_whole(&scene_output->damage_ring);
++	wlr_output_schedule_frame(scene_output->output);
++}
++
+ static bool scene_node_invisible(struct wlr_scene_node *node) {
+ 	if (node->type == WLR_SCENE_NODE_TREE) {
+ 		return true;
+@@ -2443,7 +2462,8 @@
+ 	// - There are no color transforms that need to be applied
+ 	// - Damage highlight debugging is not enabled
+ 	enum scene_direct_scanout_result scanout_result = SCANOUT_INELIGIBLE;
+-	if (options->color_transform == NULL && !render_gamma_lut && list_len == 1
++	if (scene_output->render_hook == NULL &&
++			options->color_transform == NULL && !render_gamma_lut && list_len == 1
+ 			&& debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
+ 		scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data);
+ 	}

@@ -58,6 +58,8 @@ struct app {
     int32_t pending_damage_width;
     int32_t pending_damage_height;
     int32_t motion_phase;
+    int32_t stress_generation;
+    uint32_t stress_remaining;
     int32_t pending_width;
     int32_t pending_height;
     int32_t width;
@@ -423,6 +425,10 @@ static void control_frame_done(
     struct app *app = data;
     wl_callback_destroy(callback);
     app->control_frame = NULL;
+    if (app->stress_remaining > 0) {
+        app->stress_remaining--;
+        if (app->stress_remaining > 0) return;
+    }
     app->last_control_sequence = app->pending_control_sequence;
     if (!publish_control_ack(
             app,
@@ -440,11 +446,73 @@ static const struct wl_callback_listener control_frame_listener = {
     .done = control_frame_done,
 };
 
+static bool submit_control_frame(
+    struct app *app,
+    uint64_t sequence,
+    const char *operation,
+    int32_t damage_x,
+    int32_t damage_y,
+    int32_t damage_width,
+    int32_t damage_height) {
+    struct owned_buffer *owned = app->active_buffer;
+    owned->released = false;
+    wl_surface_attach(app->surface, owned->buffer, 0, 0);
+    wl_surface_damage_buffer(
+        app->surface,
+        damage_x,
+        damage_y,
+        damage_width,
+        damage_height);
+    app->control_frame = wl_surface_frame(app->surface);
+    if (app->control_frame == NULL) return false;
+    wl_callback_add_listener(
+        app->control_frame,
+        &control_frame_listener,
+        app);
+    app->pending_control_sequence = sequence;
+    memcpy(
+        app->pending_control_operation,
+        operation,
+        strlen(operation) + 1);
+    app->pending_damage_x = damage_x;
+    app->pending_damage_y = damage_y;
+    app->pending_damage_width = damage_width;
+    app->pending_damage_height = damage_height;
+    wl_surface_commit(app->surface);
+    return true;
+}
+
+static bool submit_stress_frame(struct app *app) {
+    const int32_t damage_x = 360;
+    const int32_t damage_y = 240;
+    const int32_t damage_width = 160;
+    const int32_t damage_height = 120;
+    paint_localized_patch(
+        app->active_buffer->pixels,
+        app->active_buffer->width,
+        app->active_buffer->height,
+        damage_x,
+        damage_y,
+        app->stress_generation++);
+    return submit_control_frame(
+        app,
+        app->pending_control_sequence,
+        "stress",
+        damage_x,
+        damage_y,
+        damage_width,
+        damage_height);
+}
+
 static bool process_control(struct app *app) {
-    if (app->control_dir == NULL || app->active_buffer == NULL ||
-        !app->active_buffer->released || app->control_frame != NULL) {
+    if (app->control_dir == NULL || app->active_buffer == NULL) return true;
+    if (app->stress_remaining > 0) {
+        if (app->active_buffer->released && app->control_frame == NULL) {
+            return submit_stress_frame(app);
+        }
         return true;
     }
+    if (!app->active_buffer->released || app->control_frame != NULL) return true;
 
     char path[PATH_MAX];
     const int length = snprintf(path, sizeof(path), "%s/command", app->control_dir);
@@ -489,35 +557,23 @@ static bool process_control(struct app *app) {
     } else if (strcmp(operation, "reset") == 0) {
         app->motion_phase = 0;
         paint_background(owned->pixels, owned->width, owned->height, 0);
+    } else if (strcmp(operation, "stress") == 0 && value > 0) {
+        app->stress_generation = 0;
+        app->stress_remaining = (uint32_t)value;
+        app->pending_control_sequence = sequence;
+        return submit_stress_frame(app);
     } else {
         return false;
     }
 
-    owned->released = false;
-    wl_surface_attach(app->surface, owned->buffer, 0, 0);
-    wl_surface_damage_buffer(
-        app->surface,
+    return submit_control_frame(
+        app,
+        sequence,
+        operation,
         damage_x,
         damage_y,
         damage_width,
         damage_height);
-    app->control_frame = wl_surface_frame(app->surface);
-    if (app->control_frame == NULL) return false;
-    wl_callback_add_listener(
-        app->control_frame,
-        &control_frame_listener,
-        app);
-    app->pending_control_sequence = sequence;
-    memcpy(
-        app->pending_control_operation,
-        operation,
-        strlen(operation) + 1);
-    app->pending_damage_x = damage_x;
-    app->pending_damage_y = damage_y;
-    app->pending_damage_width = damage_width;
-    app->pending_damage_height = damage_height;
-    wl_surface_commit(app->surface);
-    return true;
 }
 
 static bool publish_ready(const struct app *app) {

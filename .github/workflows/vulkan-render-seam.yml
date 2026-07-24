@@ -1,0 +1,97 @@
+name: Vulkan render seam
+
+on:
+  push:
+    paths:
+      - '.github/workflows/vulkan-render-seam.yml'
+      - 'compositor/aqueous/**'
+      - 'compositor/build.zig'
+      - 'compositor/build.zig.zon'
+      - 'compositor/patches/wlroots/**'
+      - 'compositor/protocol/**'
+      - 'compositor/scripts/fixtures/**'
+      - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-vulkan-render-seam.sh'
+  pull_request:
+    paths:
+      - '.github/workflows/vulkan-render-seam.yml'
+      - 'compositor/aqueous/**'
+      - 'compositor/build.zig'
+      - 'compositor/build.zig.zon'
+      - 'compositor/patches/wlroots/**'
+      - 'compositor/protocol/**'
+      - 'compositor/scripts/fixtures/**'
+      - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-vulkan-render-seam.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --user root
+
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            base-devel git curl patch tar nodejs \
+            wayland wayland-protocols libxkbcommon libinput \
+            pixman libdrm libevdev mesa systemd-libs seatd \
+            pkgconf ninja meson libdisplay-info libliftoff lcms2 \
+            glslang vulkan-headers vulkan-icd-loader
+
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git
+        shell: bash
+        run: git config --global --add safe.directory '*'
+
+      - name: Setup Zig 0.16.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build pinned wlroots render hook
+        shell: bash
+        run: |
+          compositor/scripts/build-wlroots-render-hook.sh \
+            "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
+
+      - name: Build Vulkan render probe
+        shell: bash
+        run: |
+          cd compositor
+          PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
+            zig build \
+              -Dvulkan-effects=true \
+              -Dvulkan-render-probe=true \
+              -Dexternal-policy=true \
+              -Dcpu=baseline \
+              -Doptimize=ReleaseSafe
+
+      - name: Audit linked seam
+        shell: bash
+        run: |
+          library="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so"
+          nm -D --defined-only "$library" |
+            grep ' wlr_scene_output_set_buffer_render_hook$'
+          nm -D --defined-only "$library" |
+            grep ' wlr_vk_render_pass_get_attribs$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_scene_output_set_buffer_render_hook$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_vk_render_pass_get_attribs$'
+          readelf -d compositor/zig-out/bin/aqueous |
+            grep 'libvulkan.so'
+          if readelf -d compositor/zig-out/bin/aqueous |
+              grep -q 'libscenefx'; then
+            exit 1
+          fi

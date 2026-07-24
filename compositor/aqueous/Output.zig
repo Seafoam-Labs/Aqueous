@@ -5,12 +5,18 @@
 const Output = @This();
 
 const std = @import("std");
+const build_options = @import("build_options");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 const posix = std.posix;
 const fmt = std.fmt;
 const wlr = @import("wlroots");
+const c = if (build_options.vulkan_render_probe) @import("c") else struct {
+    const struct_wlr_render_pass = opaque {};
+    const struct_wlr_scene_buffer = opaque {};
+    const struct_wlr_render_texture_options = opaque {};
+};
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
 const zwlr = wayland.server.zwlr;
@@ -224,6 +230,7 @@ anim_last_ns: i64 = 0,
 blur_node: ?*anyopaque = null,
 blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
+render_probe_swapchain_path: bool = false,
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -422,6 +429,13 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .workspaces = undefined,
     };
     wlr_output.data = output;
+    if (comptime build_options.vulkan_render_probe) {
+        c.wlr_scene_output_set_buffer_render_hook(
+            @ptrCast(scene_output),
+            renderProbeHook,
+            output,
+        );
+    }
 
     server.om.outputs.append(output);
     output.link_sent.init();
@@ -450,6 +464,36 @@ pub fn create(wlr_output: *wlr.Output) !void {
     }
 
     server.wm.dirtyWindowing();
+}
+
+fn renderProbeHook(
+    render_pass: ?*c.struct_wlr_render_pass,
+    c_scene_buffer: ?*c.struct_wlr_scene_buffer,
+    options: ?*const c.struct_wlr_render_texture_options,
+    data: ?*anyopaque,
+) callconv(.c) void {
+    if (comptime !build_options.vulkan_render_probe) return;
+    const output: *Output = @ptrCast(@alignCast(data orelse return));
+    const scene_buffer: *wlr.SceneBuffer =
+        @ptrCast(@alignCast(c_scene_buffer orelse return));
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(scene_buffer) orelse
+        return;
+    if (scene_surface.surface.getRootSurface() != scene_surface.surface) return;
+    const owner = SceneNodeData.fromNode(&scene_buffer.node) orelse return;
+    const window = switch (owner.data) {
+        .window => |window| window,
+        else => return,
+    };
+    const app_id = window.getAppId() orelse return;
+    if (!mem.eql(u8, mem.span(app_id), "aqueous.effects.background")) return;
+
+    server.vulkan_context.render_probe.draw(
+        render_pass orelse return,
+        options orelse return,
+        output.render_probe_swapchain_path,
+    ) catch |err| {
+        log.err("Vulkan render probe failed: {s}", .{@errorName(err)});
+    };
 }
 
 /// Ensure the output has at least one workspace and an active workspace.

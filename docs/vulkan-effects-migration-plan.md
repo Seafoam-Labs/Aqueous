@@ -39,21 +39,32 @@ schema and aggregator are present, but correctly produce no samples until the
 render seam owns real timestamp queries and the blur cache owns real counters.
 
 `-Dvulkan-effects=true` now selects and verifies wlroots' Vulkan renderer,
-borrows its Vulkan handles, reports physical-device capabilities, owns an empty
+borrows its Vulkan handles, reports physical-device capabilities, owns a
 pipeline cache and fence-backed retirement queue, and follows initial startup,
 normal teardown, and renderer-loss recreation. A nested RTX 5090 run completed
 an atomic 1920×1080 modeset, screencopy, and clean context teardown.
 
-The render-seam decision remains open and is the next implementation target.
-The runtime harness automatically enables `VK_LAYER_KHRONOS_validation` when
-installed; the current workstation did not expose that layer, so a
-validation-layer rerun remains required before the render-seam prototype.
-Renderer-loss recreation is wired and build-verified but has not yet been
-forced on real hardware.
+The render-seam decision is accepted and implemented as an opt-in probe. A
+pinned wlroots 0.20.2 patch exposes a narrow scene-buffer callback and the
+active Vulkan pass; Aqueous records its rounded draw into wlroots' command
+buffer without creating a renderer, device, queue, or second submission. The
+full runtime harness recorded 4,110 draws, including 3 through the
+OutputManager swapchain path and 4,107 through ordinary output rendering. All
+4,110 used wlroots' output signal timeline. Screencopy, exact localized damage,
+a 1.25 fractional scale, a 90-degree transform, and 4,096 releases and reuses
+of one SHM buffer passed.
+
+The current workstation still does not expose
+`VK_LAYER_KHRONOS_validation`. The harness rejects validation messages and
+requires the layer by default, but the validation-layer rerun remains the one
+open Phase 2 gate. Renderer-loss recreation is wired and build-verified but has
+not yet been forced on real hardware.
 
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
-the current cache-invalidation inventory.
+the current cache-invalidation inventory. See
+[Use a narrow wlroots Vulkan render hook](architecture-decisions/0001-vulkan-render-seam.md)
+for the render-seam decision.
 
 ## Scope
 
@@ -184,6 +195,26 @@ compositor/
         └── exit-session.c
 ```
 
+Render-seam support now present:
+
+```text
+.github/workflows/
+└── vulkan-render-seam.yml
+compositor/
+├── aqueous/
+│   └── render/
+│       ├── RenderProbe.zig
+│       └── shaders/
+│           ├── render_probe.vert
+│           └── render_probe.frag
+├── patches/
+│   └── wlroots/
+│       └── 0001-aqueous-vulkan-render-hook.patch
+└── scripts/
+    ├── build-wlroots-render-hook.sh
+    └── test-vulkan-render-seam.sh
+```
+
 Fence-backed retirement currently lives in `VulkanContext.zig`. Split it into
 the proposed `DeferredDestroy.zig` only when the first production pipelines or
 images need retirement; keeping the empty foundation together avoids an
@@ -210,13 +241,14 @@ Choose one route at the end of the spike:
 
 | Route | Decision |
 |---|---|
-| Public API plus a supported render hook | Use it if output-target and synchronization ownership are explicit and testable |
-| Small downstream wlroots hook | Preferred fallback: expose only the active Vulkan pass/target hook required by Aqueous, keep the effect implementation in Aqueous, and version the patch with the wlroots package |
+| Public API plus a supported render hook | Rejected for wlroots 0.20; no public active-pass or custom-draw API exists |
+| Small downstream wlroots hook | Selected: expose the scene-buffer callback and active Vulkan pass, keep all effect implementation in Aqueous, and pin the patch to wlroots 0.20.2 |
 | Reimplement `wlr_scene_output_build_state` | Reject for this project unless the first two routes are impossible; it expands the work into scene traversal, occlusion, presentation, damage, direct scanout, and color handling |
 | Replace `wlr_renderer` | Reject; it contradicts the goal of using wlroots' Vulkan renderer and allocator |
 
-Do not start production blur work until this gate has a written decision,
-working synchronization, and a captured test frame.
+The decision, synchronization evidence, and captured test frame are recorded in
+the architecture decision. Production blur work remains gated on the pending
+Khronos-validation-layer run.
 
 ## Target frame flow
 
@@ -311,10 +343,11 @@ Implementation record:
 
 Treat the queried timeline-semaphore and synchronization2 values as physical
 device support only. They do not prove that wlroots enabled those features when
-creating the borrowed logical device. Fence submission is the only
-Aqueous-owned retirement mechanism approved at this point; Phase 2 must verify
-the device-feature and queue contract before using timeline semaphores or
-synchronization2 commands.
+creating the borrowed logical device. The render-seam probe therefore does not
+issue Aqueous-owned timeline, synchronization2, command-buffer, or queue
+operations. It records into wlroots' active pass, whose output signal timeline
+was present on every tested draw. Fence submission remains the only
+Aqueous-owned retirement mechanism approved for later resources.
 
 Exit condition: Aqueous runs with stock visuals on wlroots Vulkan, survives an
 output modeset, and creates/destroys its empty effects context without validation
@@ -328,21 +361,42 @@ called runtime-validated rather than implementation-verified.
 
 Estimate: 2–3 weeks.
 
-Status: not started. Begin only after the Phase 1 validation-layer rerun. The
-spike must use the landed borrowed context and may not create a replacement
-renderer, device, or queue.
+Status: implementation and functional real-GPU validation complete. The
+selected seam records Aqueous commands into wlroots' active render pass and
+submission. It uses the borrowed context and creates no replacement renderer,
+instance, device, queue, command buffer, target image, or submission. The
+Khronos-validation-layer rerun remains pending because the layer is not
+installed on the current workstation.
 
-- [ ] Prototype a custom fragment pipeline that changes one known scene buffer.
-- [ ] Test it through both `Output.renderAndCommit` and the
+- [x] Prototype a custom fragment pipeline that changes one known scene buffer.
+- [x] Test it through both `Output.renderAndCommit` and the
       `OutputManager` swapchain-manager path.
-- [ ] Prove transforms, fractional scaling, damage, explicit sync, and capture.
+- [x] Prove transforms, fractional scaling, damage, explicit sync, and capture.
 - [ ] Test buffer reuse for at least several thousand frames under validation.
-- [ ] Write a short architecture decision record choosing the route above.
-- [ ] Package and CI-build any wlroots patch as a pinned, auditable dependency.
-- [ ] Remove unsafe spike shortcuts before moving on.
+- [x] Write a short architecture decision record choosing the route above.
+- [x] Package and CI-build any wlroots patch as a pinned, auditable dependency.
+- [x] Remove unsafe spike shortcuts before moving on.
+
+Implementation record:
+
+| Area | Result |
+|---|---|
+| Seam | Scene-buffer callback runs after wlroots' ordinary texture draw while the same Vulkan pass is active |
+| Vulkan ownership | Aqueous borrows wlroots handles and records into its command buffer; no second submission is created |
+| Pipeline safety | Requesting pass attributes invalidates wlroots' cached pipeline binding, forcing the next wlroots draw to rebind |
+| Output paths | Final counters recorded 4,107 normal draws and 3 OutputManager swapchain draws |
+| Coordinates and damage | wlroots supplies the transformed destination and clip; the localized case changed exactly 19,200 pixels in `160x120+440+320` |
+| Synchronization | All 4,110 recorded draws were part of a pass with wlroots' output signal timeline |
+| Capture | The rounded buffer is visible in ordinary and transformed screencopies |
+| Reuse | One released SHM buffer completed 4,096 paced repaint/commit/release cycles |
+| Dependency | Official wlroots 0.20.2 archive, fixed SHA-256, versioned patch, API macro check, reproducible build script, and CI build |
 
 Exit condition: a rounded test buffer is visible in a screencopy and no Vulkan
-layout, lifetime, or synchronization warnings occur.
+layout, lifetime, or synchronization warnings occur. The functional and
+explicit-sync portions pass. No warning or VUID was logged, but the validation
+layer was unavailable, so this condition is not fully closed until the default
+`scripts/test-vulkan-render-seam.sh` run passes on a host with
+`VK_LAYER_KHRONOS_validation`.
 
 ### Phase 3 — Move SceneFX state into Aqueous metadata
 
@@ -526,13 +580,24 @@ Current validation record:
 - `scripts/test-vulkan-context.sh` passes on an NVIDIA GeForce RTX 5090 with
   Vulkan 1.4.341, including a 1920×1080 atomic modeset, screencopy, and clean
   context teardown
+- `scripts/build-wlroots-render-hook.sh` reproduces the patched wlroots 0.20.2
+  library from the pinned official archive and exports both versioned hook
+  symbols
+- the render-probe build succeeds against that reproduced dependency while
+  ordinary Vulkan-effects and effects-disabled builds continue to compile
+- `AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION=0
+  scripts/test-vulkan-render-seam.sh` passes 4,096 buffer-reuse frames on the
+  RTX 5090, recording 4,107 ordinary draws, 3 swapchain draws, and 4,110
+  explicit-sync draws
+- the rounded, localized-damage, transformed/fractional-scale, and post-stress
+  screencopies pass their assertions and every generated checksum verifies
 - The Khronos validation layer was not installed for that run; the harness will
-  enable it automatically and reject validation errors when available
+  require it by default and reject validation errors when available
 
-The Vulkan context harness requires a test build with
-`-Dexternal-policy=true` and runs `-policy compare` only so its private fixture
+The Vulkan runtime harnesses require a test build with
+`-Dexternal-policy=true` and run `-policy compare` only so their private fixture
 can request a graceful session exit. Internal Aqueous policy still performs the
-rendering and modeset. Production Vulkan builds remain
+rendering and modesets. Production Vulkan builds remain
 `-Dexternal-policy=false`.
 
 To repeat the functional run:
@@ -543,9 +608,10 @@ zig build -Dvulkan-effects=true -Dexternal-policy=true \
 scripts/test-vulkan-context.sh
 ```
 
-Before starting Phase 2, install the Khronos validation layer and repeat the
-same command. Close Phase 1 acceptance only if the log contains no validation
-errors or VUIDs. Keep the renderer-loss runtime test tracked separately until a
+To close the remaining Phase 1 and Phase 2 validation gates, install the
+Khronos validation layer and run both Vulkan harnesses without override
+variables. Close acceptance only if the logs contain no validation errors or
+VUIDs. Keep the renderer-loss runtime test tracked separately until a
 deterministic reset-injection method exists.
 
 ### Performance gates
@@ -566,7 +632,7 @@ are operational. Initial gates:
 
 | Risk | Mitigation |
 |---|---|
-| wlroots has no sufficient public insertion point | Resolve in Phase 2; carry a narrow versioned hook instead of building a second renderer |
+| wlroots has no sufficient public insertion point | Resolved with the pinned, versioned active-pass hook; reassess it at each wlroots upgrade |
 | Incorrect Vulkan layout or queue synchronization | Borrow wlroots handles, use its synchronization contract, run validation and explicit-sync stress tests |
 | Blur samples itself or content above the window | Use scene-ordered blur checkpoints and test overlapping translucent windows |
 | Partial damage leaves stale cache pixels | Expand by kernel reach and fall back to generation-based full invalidation |
@@ -608,14 +674,14 @@ The first sprint should end with evidence, not production shaders:
 - [x] Exercise normal context creation and clean teardown on real hardware.
 - [ ] Rerun the context harness with the Khronos validation layer enabled.
 - [ ] Inject renderer loss and verify context recreation on real hardware.
-- [ ] Prototype a single rounded textured quad on the output path.
-- [ ] Exercise the rounded prototype through normal commit and fractional scale.
-- [ ] Run Vulkan validation and an explicit-sync buffer-reuse stress test.
-- [ ] Write the render-seam decision record.
+- [x] Prototype a single rounded quad over a known scene buffer on the output path.
+- [x] Exercise the rounded prototype through normal commit and fractional scale.
+- [x] Run the explicit-sync buffer-reuse stress test for 4,096 frames.
+- [ ] Rerun the render-seam harness with the Khronos validation layer enabled.
+- [x] Write the render-seam decision record.
 
-If the rounded-quad prototype cannot be completed through a supported public
-path, stop and scope the smallest wlroots hook before estimating the remaining
-phases again.
+The public wlroots 0.20 API was insufficient. The selected downstream hook and
+its maintenance boundary are recorded in the architecture decision.
 
 ## Definition of done
 
