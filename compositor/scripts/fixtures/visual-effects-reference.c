@@ -542,11 +542,15 @@ static bool process_control(struct app *app) {
             owned->height,
             app->motion_phase);
     } else if (strcmp(operation, "localized-control") == 0 ||
-        strcmp(operation, "localized") == 0) {
-        damage_x = strcmp(operation, "localized-control") == 0 ? 120 : 360;
-        damage_y = 240;
-        damage_width = 160;
-        damage_height = 120;
+        strcmp(operation, "localized") == 0 ||
+        strcmp(operation, "localized-cache-hit") == 0) {
+        const bool cache_hit =
+            strcmp(operation, "localized-cache-hit") == 0;
+        damage_x = cache_hit ? 1400 :
+            (strcmp(operation, "localized-control") == 0 ? 120 : 360);
+        damage_y = cache_hit ? 700 : 240;
+        damage_width = cache_hit ? 80 : 160;
+        damage_height = cache_hit ? 60 : 120;
         paint_localized_patch(
             owned->pixels,
             owned->width,

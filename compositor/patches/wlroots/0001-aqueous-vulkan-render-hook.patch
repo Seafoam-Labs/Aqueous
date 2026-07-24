@@ -737,3 +737,113 @@
  	for (int i = list_len - 1; i >= 0; i--) {
  		struct render_list_entry *entry = &list_data[i];
  		scene_entry_render(entry, &render_data);
+--- a/include/render/vulkan.h	2026-07-24 11:19:17.912154969 -0400
++++ b/include/render/vulkan.h	2026-07-24 10:27:31.164215845 -0400
+@@ -282,0 +283 @@
++	struct wl_list completion_callbacks; // wlr_vk_render_completion.link
+@@ -289,0 +291,6 @@
++};
++
++struct wlr_vk_render_completion {
++	struct wl_list link;
++	wlr_vk_render_completion_func_t callback;
++	void *data;
+--- a/include/wlr/render/vulkan.h	2026-07-24 11:19:17.911753766 -0400
++++ b/include/wlr/render/vulkan.h	2026-07-24 10:27:31.134215399 -0400
+@@ -16 +16 @@
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 3
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 4
+@@ -57,0 +58,2 @@
++typedef void (*wlr_vk_render_completion_func_t)(void *data);
++
+@@ -102,0 +105,9 @@
++
++/**
++ * Run a callback after the active pass' command buffer has completed.
++ *
++ * The callback is also run if recording or submission fails, making it safe
++ * to use for releasing resources retained by a custom draw.
++ */
++bool wlr_vk_render_pass_add_completion(struct wlr_render_pass *render_pass,
++	wlr_vk_render_completion_func_t callback, void *data);
+--- a/include/wlr/types/wlr_scene.h	2026-07-24 11:19:17.912020752 -0400
++++ b/include/wlr/types/wlr_scene.h	2026-07-24 10:49:34.454574896 -0400
+@@ -69,2 +69,3 @@
+-typedef void (*wlr_scene_render_begin_hook_func_t)(
+-	struct wlr_render_pass *render_pass, void *data);
++typedef uint32_t (*wlr_scene_render_begin_hook_func_t)(
++	struct wlr_render_pass *render_pass,
++	const struct wlr_box *damage_bounds, void *data);
+--- a/render/vulkan/pass.c	2026-07-24 11:19:17.912283507 -0400
++++ b/render/vulkan/pass.c	2026-07-24 10:27:31.225216752 -0400
+@@ -131,0 +132,20 @@
++bool wlr_vk_render_pass_add_completion(struct wlr_render_pass *wlr_pass,
++		wlr_vk_render_completion_func_t callback, void *data) {
++	if (wlr_pass == NULL || callback == NULL ||
++			wlr_pass->impl != &render_pass_impl) {
++		return false;
++	}
++
++	struct wlr_vk_render_completion *completion = calloc(1, sizeof(*completion));
++	if (completion == NULL) {
++		return false;
++	}
++	completion->callback = callback;
++	completion->data = data;
++
++	struct wlr_vk_render_pass *pass = get_render_pass(wlr_pass);
++	wl_list_insert(pass->command_buffer->completion_callbacks.prev,
++		&completion->link);
++	return true;
++}
++
+--- a/render/vulkan/renderer.c	2026-07-24 11:19:17.912215888 -0400
++++ b/render/vulkan/renderer.c	2026-07-24 10:27:31.254217183 -0400
+@@ -451,0 +452 @@
++	wl_list_init(&cb->completion_callbacks);
+@@ -477,0 +479,8 @@
++	struct wlr_vk_render_completion *completion, *completion_tmp;
++	wl_list_for_each_safe(completion, completion_tmp,
++			&cb->completion_callbacks, link) {
++		wl_list_remove(&completion->link);
++		completion->callback(completion->data);
++		free(completion);
++	}
++
+@@ -601,0 +611,8 @@
++
++	struct wlr_vk_render_completion *completion, *completion_tmp;
++	wl_list_for_each_safe(completion, completion_tmp,
++			&cb->completion_callbacks, link) {
++		wl_list_remove(&completion->link);
++		completion->callback(completion->data);
++		free(completion);
++	}
+--- a/types/scene/wlr_scene.c	2026-07-24 11:19:17.912358576 -0400
++++ b/types/scene/wlr_scene.c	2026-07-24 10:49:34.484574233 -0400
+@@ -2672,0 +2673,19 @@
++	if (scene_output->render_begin_hook != NULL) {
++		const pixman_box32_t *extents =
++			pixman_region32_extents(&render_data.damage);
++		struct wlr_box damage_bounds = {
++			.x = extents->x1,
++			.y = extents->y1,
++			.width = extents->x2 - extents->x1,
++			.height = extents->y2 - extents->y1,
++		};
++		uint32_t damage_expansion = scene_output->render_begin_hook(
++			render_pass, &damage_bounds, scene_output->render_hook_data);
++		if (damage_expansion > 0) {
++			wlr_region_expand(&render_data.damage, &render_data.damage,
++				damage_expansion);
++			pixman_region32_intersect_rect(&render_data.damage,
++				&render_data.damage, 0, 0, buffer->width, buffer->height);
++		}
++	}
++
+@@ -2715,5 +2733,0 @@
+-
+-	if (scene_output->render_begin_hook != NULL) {
+-		scene_output->render_begin_hook(render_pass,
+-			scene_output->render_hook_data);
+-	}

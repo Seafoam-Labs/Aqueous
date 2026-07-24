@@ -743,10 +743,18 @@ fn gpuResetRecover(server: *Server) !void {
         }
     }
 
-    if (comptime build_options.vulkan_effects) server.vulkan_context.deinit();
+    if (comptime build_options.vulkan_effects) {
+        var output_it = server.om.outputs.iterator(.forward);
+        while (output_it.next()) |output| output.releaseVulkanBlurCache();
+        server.vulkan_context.deinit();
+    }
     server.renderer.destroy();
     server.renderer = new_renderer;
-    if (comptime build_options.vulkan_effects) server.vulkan_context = new_vulkan_context;
+    if (comptime build_options.vulkan_effects) {
+        server.vulkan_context = new_vulkan_context;
+        var output_it = server.om.outputs.iterator(.forward);
+        while (output_it.next()) |output| output.syncBlur(true);
+    }
 
     server.allocator.destroy();
     server.allocator = new_allocator;

@@ -15,6 +15,7 @@ STRESS_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS:-240}
 REQUIRE_VALIDATION=${AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION:-1}
 REQUIRE_EXPLICIT_SYNC=${AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC:-1}
 TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
+UNCACHED_ORACLE=${AQUEOUS_VULKAN_BLUR_UNCACHED:-0}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -31,6 +32,8 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [[ "$TEST_BACKEND" = auto || "$TEST_BACKEND" = wayland ||
     "$TEST_BACKEND" = headless ]] ||
     die "AQUEOUS_VULKAN_EFFECTS_BACKEND must be auto, wayland, or headless"
+[[ "$UNCACHED_ORACLE" = 0 || "$UNCACHED_ORACLE" = 1 ]] ||
+    die "AQUEOUS_VULKAN_BLUR_UNCACHED must be 0 or 1"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] ||
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 for file in \
@@ -69,6 +72,7 @@ for symbol in \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
     wlr_vk_render_pass_run_offscreen \
+    wlr_vk_render_pass_add_completion \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs; do
     nm -D --defined-only "$wlroots_library" | grep " $symbol$" >/dev/null ||
@@ -76,9 +80,9 @@ for symbol in \
 done
 grep -a -q 'Vulkan rounded effects pipeline initialized' "$AQUEOUS_COMPOSITOR_BIN" ||
     die "the compositor was not built with -Dvulkan-effects=true"
-grep -a -q 'Vulkan uncached backdrop-blur pipeline initialized' \
+grep -a -q 'Vulkan backdrop-blur pipeline initialized' \
     "$AQUEOUS_COMPOSITOR_BIN" ||
-    die "the compositor does not contain the uncached blur pipeline"
+    die "the compositor does not contain the blur pipeline"
 
 HOST_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}
 HOST_WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
@@ -444,6 +448,12 @@ read -r _ BLUR_WIDTH BLUR_HEIGHT <"$blur_ready"
     die "blur fixture mapped at an unexpected size"
 capture_output "$ARTIFACT_DIR/blur-static.png"
 
+for generation in 1 2 3 4; do
+    send_background_command \
+        localized-cache-hit "$generation" 1400 700 80 60
+done
+capture_output "$ARTIFACT_DIR/blur-cache-hit.png"
+
 set_output_state 1920 1080 1.25 90
 capture_output "$ARTIFACT_DIR/blur-scale-1.25-transform-90.png"
 set_output_state 1920 1080 1.5 180
@@ -565,15 +575,17 @@ read -r texture_draws rect_draws normal_draws swapchain_draws explicit_sync_draw
     <<<"$rounded_counts"
 blur_counts=$(
     sed -n \
-        's/.*destroyed Vulkan uncached blur after \([0-9][0-9]*\) checkpoints, \([0-9][0-9]*\) offscreen draws, and \([0-9][0-9]*\) composites.*/\1 \2 \3/p' \
+        's/.*destroyed Vulkan blur after \([0-9][0-9]*\) checkpoints, \([0-9][0-9]*\) offscreen draws, and \([0-9][0-9]*\) composites (\([0-9][0-9]*\) cache hits, \([0-9][0-9]*\) partial rebuilds, \([0-9][0-9]*\) full rebuilds, \([0-9][0-9]*\) pixels processed).*/\1 \2 \3 \4 \5 \6 \7/p' \
         "$COMPOSITOR_LOG" |
         tail -1
 )
 [ -n "$blur_counts" ] || {
     tail -120 "$COMPOSITOR_LOG" >&2
-    die "uncached blur teardown counts were not logged"
+    die "blur teardown counts were not logged"
 }
 read -r blur_checkpoints blur_offscreen_draws blur_composites \
+    blur_cache_hits blur_partial_rebuilds blur_full_rebuilds \
+    blur_pixels_processed \
     <<<"$blur_counts"
 total_draws=$((texture_draws + rect_draws))
 [ "$total_draws" -ge "$STRESS_FRAMES" ] ||
@@ -587,11 +599,30 @@ total_draws=$((texture_draws + rect_draws))
 [ "$swapchain_draws" -gt 0 ] ||
     die "OutputManager swapchain rendering did not invoke rounded effects"
 [ "$blur_checkpoints" -ge "$STRESS_FRAMES" ] ||
-    die "uncached blur recorded fewer checkpoints than the reuse stress"
+    die "blur recorded fewer checkpoints than the reuse stress"
 [ "$blur_composites" -eq "$blur_checkpoints" ] ||
-    die "not every uncached blur checkpoint produced a composite"
-[ "$blur_offscreen_draws" -eq $((blur_checkpoints * 17)) ] ||
-    die "uncached blur did not execute one downsample and sixteen separable draws per checkpoint"
+    die "not every blur checkpoint produced a composite"
+if [ "$UNCACHED_ORACLE" = 1 ]; then
+    [ "$blur_offscreen_draws" -eq $((blur_checkpoints * 17)) ] ||
+        die "the uncached oracle did not rebuild every checkpoint"
+    [ "$blur_cache_hits" -eq 0 ] &&
+        [ "$blur_partial_rebuilds" -eq 0 ] &&
+        [ "$blur_full_rebuilds" -eq 0 ] &&
+        [ "$blur_pixels_processed" -eq 0 ] ||
+        die "the uncached oracle unexpectedly used the cache"
+else
+    [ "$blur_offscreen_draws" -eq \
+        $(((blur_partial_rebuilds + blur_full_rebuilds) * 17)) ] ||
+        die "cache rebuilds did not execute one downsample and sixteen separable draws"
+    [ "$blur_cache_hits" -gt 0 ] ||
+        die "the blur cache did not record a reusable checkpoint"
+    [ "$blur_partial_rebuilds" -gt 0 ] ||
+        die "the blur cache did not record a partial rebuild"
+    [ "$blur_full_rebuilds" -gt 0 ] ||
+        die "the blur cache did not record a full rebuild"
+    [ "$blur_pixels_processed" -gt 0 ] ||
+        die "the blur cache did not account for processed pixels"
+fi
 if [ "$REQUIRE_EXPLICIT_SYNC" = 1 ] &&
     [ "$explicit_sync_draws" -ne "$total_draws" ]; then
     die "not every rounded-effects draw used wlroots' explicit-sync timeline"
@@ -606,7 +637,7 @@ if grep -Eq 'Vulkan rounded (texture|rect) draw failed:' "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
     die "the Vulkan rounded-effects renderer reported a runtime failure"
 fi
-if grep -Eq 'Vulkan (uncached blur processing|backdrop blur) failed:' \
+if grep -Eq 'Vulkan (cached blur processing|uncached blur processing|backdrop blur) failed:' \
     "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
     die "the Vulkan blur renderer reported a runtime failure"
@@ -625,6 +656,10 @@ fi
     printf 'blur_checkpoints=%s\n' "$blur_checkpoints"
     printf 'blur_offscreen_draws=%s\n' "$blur_offscreen_draws"
     printf 'blur_composites=%s\n' "$blur_composites"
+    printf 'blur_cache_hits=%s\n' "$blur_cache_hits"
+    printf 'blur_partial_rebuilds=%s\n' "$blur_partial_rebuilds"
+    printf 'blur_full_rebuilds=%s\n' "$blur_full_rebuilds"
+    printf 'blur_pixels_processed=%s\n' "$blur_pixels_processed"
     printf 'blur_motion_changed_pixels=%s\n' "$motion_difference"
     printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
     printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"
@@ -644,4 +679,4 @@ fi
         xargs -0 sha256sum >SHA256SUMS
 )
 
-echo "PASS: rounded Vulkan effects and uncached blur survived both render paths, damage, motion, overlap, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
+echo "PASS: rounded Vulkan effects and blur survived both render paths, damage, motion, overlap, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"

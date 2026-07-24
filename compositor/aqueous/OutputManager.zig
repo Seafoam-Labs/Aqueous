@@ -659,6 +659,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             const built = output.scene_output.?.buildState(&state.base, &.{
                 .swapchain = swapchain_manager.getSwapchain(state.output),
             });
+            if (built) output.recordVulkanEffectsMetric();
             if (built and uncached_blur_damage) {
                 output.setUncachedBlurDamage(&state.base);
             }

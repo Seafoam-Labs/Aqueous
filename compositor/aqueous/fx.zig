@@ -372,6 +372,17 @@ pub fn markOptimizedBlurDirty(blur_node: OutputBlurCache) void {
     render_metrics.recordBlurCache(.damage_dirty);
 }
 
+pub fn outputBlurCacheData(
+    blur_node: OutputBlurCache,
+) ?EffectMetadata.OutputBlurCacheData {
+    if (comptime !build_options.vulkan_effects) return null;
+    const handle = switch (blur_node) {
+        .aqueous => |handle| handle,
+        .scenefx => return null,
+    };
+    return metadata().outputBlurCacheData(handle);
+}
+
 pub fn setOptimizedBlurEnabled(blur_node: OutputBlurCache, enabled: bool) void {
     if (comptime !blur_available) return;
 

@@ -100,6 +100,8 @@ jobs:
             grep ' wlr_vk_renderer_enable_offscreen$'
           nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_run_offscreen$'
+          nm -D --defined-only "$library" |
+            grep ' wlr_vk_render_pass_add_completion$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_output_set_buffer_render_hook$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
@@ -118,6 +120,8 @@ jobs:
             grep ' wlr_vk_renderer_enable_offscreen$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_vk_render_pass_run_offscreen$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_vk_render_pass_add_completion$'
           readelf -d compositor/zig-out/bin/aqueous |
             grep 'libvulkan.so'
           if readelf -d compositor/zig-out/bin/aqueous |

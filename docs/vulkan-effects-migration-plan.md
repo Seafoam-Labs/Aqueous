@@ -34,9 +34,9 @@ logs, image statistics, and a portable checksum manifest.
 The harness also captures isolated square-corner and compositor-clipped
 variants, deterministic backdrop motion, a visible localized-damage control,
 and localized damage wholly behind blur. That final SceneFX capture records the
-known stale-cache behavior for ordinary-window damage. A custom Vulkan metrics
-schema and aggregator are present, but correctly produce no samples until the
-render seam owns real timestamp queries and the blur cache owns real counters.
+known stale-cache behavior for ordinary-window damage. The Vulkan metrics
+schema now receives real blur-cache hit, rebuild, and pixel counters; GPU
+duration remains zero until timestamp-query ownership is implemented.
 
 `-Dvulkan-effects=true` now selects and verifies wlroots' Vulkan renderer,
 borrows its Vulkan handles, reports physical-device capabilities, owns a
@@ -99,6 +99,25 @@ affected `186x147+428+308` after blur, demonstrating kernel expansion. All
 capture checksums verify. Validation-layer and mixed-output hardware runs
 remain open.
 
+The per-output blur cache and damage model are now implemented. Each output
+owns persistent half-resolution FP16 checkpoints keyed by generation-safe
+window blur identity, preserving scene order for overlapping windows without
+self-sampling. Ordinary scene damage is expanded before wlroots computes the
+render and output damage, then each separable pass walks its exact dependencies
+backward to update only the required cache rectangle. Mode, scale, transform,
+effect geometry, blur configuration, and explicit invalidation changes force
+safe rebuilds.
+
+Cache images are retired through callbacks attached to wlroots' own Vulkan
+command-buffer timeline, including reset and submission-failure paths; ordinary
+cache replacement does not submit an Aqueous queue operation or wait for the
+device. `AQUEOUS_VULKAN_BLUR_UNCACHED=1` retains the full-output implementation
+as an oracle. A 64-frame cached RTX 5090 run recorded 15 preserved-cache hits,
+71 partial rebuilds, 10 full rebuilds, and 51,054,704 processed half-resolution
+pixels. The localized update affected `194x154+423+303`, all harness checks and
+capture checksums passed, and cached-versus-uncached image mean differences
+stayed below `0.00005`.
+
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
 the current cache-invalidation inventory. See
@@ -160,11 +179,11 @@ Call-site replacements are intentionally small:
 |---|---|
 | `Window.zig` | Done: `backdrop_blur` is a typed backend handle and retains the existing geometry and enable logic |
 | `Scene.zig` | Done: saved and animation buffers copy Aqueous effect metadata through `fx.copyBufferFx` |
-| `Output.zig` | Done for uncached effects: installs texture, rect, and scene-order hooks; resolves scale/transform/clip geometry; promotes visible blur to full damage; and shares the pipelines with normal frames |
-| `OutputManager.zig` | Done for uncached effects: atomic modesets use the same hooks, blur checkpoints, and conservative damage path while recording their swapchain path |
+| `Output.zig` | Done through cached blur: owns output-local cache lifetime, visibility, damage, generation state, and counters while sharing the pipelines with normal frames |
+| `OutputManager.zig` | Done through cached blur: atomic modesets use the same hooks, cache rebuild rules, expanded damage, and swapchain path |
 | `WindowManager.zig` | Done for metadata: store generation-tracked blur configuration and invalidate output caches |
-| `LayerSurface.zig` | Keep the existing background-change invalidation call |
-| `Server.zig` | Done: own metadata across renderer-loss recovery, destroy it after the scene, and independently replace the Vulkan context |
+| `LayerSurface.zig` | Done: keep the backend-neutral trigger; Vulkan uses wlroots scene damage while SceneFX keeps its explicit invalidation |
+| `Server.zig` | Done through cached blur: release output cache ownership before renderer-loss context replacement and rebuild lazily on the new context |
 | `build.zig` | Done: custom-effects option, mutual exclusion, Vulkan translation, and linking; remaining: shader compilation and SceneFX removal after rollout |
 
 ## Proposed source layout
@@ -535,17 +554,30 @@ clipped-window, mixed-output, SceneFX-tolerance, and validation-layer runs.
 
 Estimate: 3–6 weeks.
 
-- [ ] Move the cache lifetime into `Output`.
-- [ ] Allocate cache images in output pixel coordinates and reallocate on mode,
+- [x] Move the cache lifetime into `Output`.
+- [x] Allocate cache images in output pixel coordinates and reallocate on mode,
       scale, transform, or format changes.
-- [ ] Convert existing `markBlurDirty` triggers into explicit cache damage.
-- [ ] Expand cache damage by every blur level's kernel radius.
-- [ ] Track scene/config generations to prevent stale reuse.
-- [ ] Support partial updates where safe.
-- [ ] Keep a full-output invalidation path for uncertain scene changes.
-- [ ] Skip all cache work when no visible window requests blur.
-- [ ] Add counters for cache hits, partial rebuilds, full rebuilds, and pixels processed.
-- [ ] Retire replaced cache images only after the last GPU submission completes.
+- [x] Convert existing `markBlurDirty` triggers into explicit cache damage.
+- [x] Expand cache damage by every blur level's kernel radius.
+- [x] Track scene/config generations to prevent stale reuse.
+- [x] Support partial updates where safe.
+- [x] Keep a full-output invalidation path for uncertain scene changes.
+- [x] Skip all cache work when no visible window requests blur.
+- [x] Add counters for cache hits, partial rebuilds, full rebuilds, and pixels processed.
+- [x] Retire replaced cache images only after the last GPU submission completes.
+
+Implementation record:
+
+| Area | Result |
+|---|---|
+| Ownership | `Output` owns one cache collection; each visible blurred window has a persistent scene-order checkpoint in output pixel coordinates |
+| Damage | The scene hook receives original buffer-space damage, returns the required kernel expansion to wlroots, and uses the unexpanded bounds to plan partial cache work |
+| Partial updates | Half-resolution scissor rectangles are derived backward through every horizontal and vertical pass; only the final affected rectangle is copied into the persistent image |
+| Invalidation | Stable window identity, window/config/output generations, transformed geometry, kernel parameters, and output extent prevent stale reuse; uncertain changes retain a full rebuild path |
+| Lifetime | Cache use increments a resource reference tied to the active wlroots command buffer; completion, reset, and renderer teardown release it before retired Vulkan images are destroyed |
+| Observability | Per-output frame metrics and pipeline totals report preserved hits, partial rebuilds, full rebuilds, and processed pixels |
+| Oracle | `AQUEOUS_VULKAN_BLUR_UNCACHED=1` rebuilds every checkpoint; `scripts/test-vulkan-effects.sh` runs both modes and checks selected captures within a configurable tolerance |
+| Validation | 162 unit tests pass; cached and uncached 64-frame RTX 5090 runs pass motion, localized damage, overlap, four scales, rotations, capture, atomic modesets, and checksum verification |
 
 Exit condition: static frames do not rebuild the cache, localized background
 damage does not leave stale pixels, and the optimized result matches the
@@ -655,6 +687,9 @@ Current validation record:
   `zig build test` pass 159/159 tests against the reproduced wlroots 0.20.2
   dependency; all five blur SPIR-V modules pass
   `spirv-val --target-env vulkan1.0`
+- Phase 6 validation: `zig build test -Dcpu=baseline --summary all` passes
+  162/162 tests, including cache damage expansion, backward dependency planning,
+  clipping, and odd-pixel half-resolution coverage
 - `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
   -Doptimize=ReleaseSafe`
 - `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline
@@ -691,6 +726,10 @@ Current validation record:
 - that run records 376 blur checkpoints, 6,392 offscreen draws, and 376
   composites; one downsample plus 16 separable draws is accounted for at every
   checkpoint and every artifact checksum verifies
+- the cached 64-frame run records 15 preserved-cache hits, 71 partial rebuilds,
+  10 full rebuilds, and 51,054,704 processed pixels; the uncached oracle
+  rebuilds all 160 checkpoints, and selected cached captures differ by less
+  than `0.00005` mean normalized channel value
 - The Khronos validation layer was not installed for that run; the harness will
   require it by default and reject validation errors when available
 
@@ -754,12 +793,12 @@ For one engineer familiar with Aqueous, wlroots, and Vulkan:
 | Correct rounded corners and uncached blur | 8–13 weeks |
 | Feature parity with damage-aware cached blur | 12–20 weeks |
 | Production hardening and broad GPU coverage | 20–32 weeks total |
-| Remaining work after the uncached-blur implementation | 9–18 weeks, dominated by cache invalidation, integration, performance, and hardware coverage |
+| Remaining work after the cached-blur implementation | 5–12 weeks, dominated by broad integration, performance, rollout, and hardware coverage |
 
 The render seam, synchronization contract, rounded pipelines, and correct
-scene-ordered uncached blur are now implemented. The per-output cache, partial
-damage model, broad compositor integration, and hardware validation remain the
-largest work items.
+scene-ordered cached blur are now implemented. Broad compositor integration,
+performance hardening, rollout, and validation across more GPU drivers remain
+the largest work items.
 
 Two engineers can shorten hardware testing and blur optimization, but the
 render-seam and frame-order design should have one owner to avoid incompatible

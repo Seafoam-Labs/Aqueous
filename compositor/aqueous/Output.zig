@@ -14,6 +14,7 @@ const fmt = std.fmt;
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
 const c = if (build_options.vulkan_effects) @import("c") else struct {
+    const struct_wlr_box = opaque {};
     const struct_wlr_render_pass = opaque {};
     const struct_wlr_scene_buffer = opaque {};
     const struct_wlr_scene_node = opaque {};
@@ -239,6 +240,8 @@ blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
 effects_swapchain_path: bool = false,
 blur_last_window: ?*Window = null,
+blur_cache: if (build_options.vulkan_effects) BlurPipeline.OutputCache else void =
+    if (build_options.vulkan_effects) .{} else {},
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -271,6 +274,9 @@ pub fn syncBlur(output: *Output, force_dirty: bool) void {
         output.current.mode != .none;
     if (!active) {
         if (output.blur_node) |node| fx.setOptimizedBlurEnabled(node, false);
+        if (comptime build_options.vulkan_effects) {
+            output.blur_cache.clear(&server.vulkan_context.blur_pipeline);
+        }
         // Re-enabling must regenerate the cached backdrop even if the output
         // returns with identical geometry.
         output.blur_box = null;
@@ -307,18 +313,32 @@ pub fn syncBlur(output: *Output, force_dirty: bool) void {
     }
 }
 
-/// Invalidate the cached backdrop after a background/bottom layer change.
+/// Propagate a background/bottom layer change to the active effects backend.
 pub fn markBlurDirty(output: *Output) void {
     if (comptime !fx.blur_available) return;
     if (!server.wm.blur.enabled or output.current.state != .enabled) return;
+    if (comptime build_options.vulkan_effects) {
+        const wlr_output = output.wlr_output orelse return;
+        wlr_output.scheduleFrame();
+        return;
+    }
     if (output.blur_node) |node| fx.markOptimizedBlurDirty(node);
 }
 
 fn destroyBlur(output: *Output) void {
+    if (comptime build_options.vulkan_effects) {
+        output.blur_cache.deinit(&server.vulkan_context.blur_pipeline);
+    }
     if (comptime !fx.blur_available) return;
     if (output.blur_node) |node| fx.destroyOptimizedBlur(node);
     output.blur_node = null;
     output.blur_box = null;
+}
+
+pub fn releaseVulkanBlurCache(output: *Output) void {
+    if (comptime build_options.vulkan_effects) {
+        output.blur_cache.clear(&server.vulkan_context.blur_pipeline);
+    }
 }
 
 fn finishRenderMetric(output: *Output) void {
@@ -565,11 +585,54 @@ fn effectRenderState(output: *const Output) *const State {
 
 fn effectsRenderBegin(
     _: ?*c.struct_wlr_render_pass,
+    damage_bounds: ?*const c.struct_wlr_box,
     data: ?*anyopaque,
-) callconv(.c) void {
-    if (comptime !build_options.vulkan_effects) return;
-    const output: *Output = @ptrCast(@alignCast(data orelse return));
+) callconv(.c) u32 {
+    if (comptime !build_options.vulkan_effects) return 0;
+    const output: *Output = @ptrCast(@alignCast(data orelse return 0));
     output.blur_last_window = null;
+    if (uncachedBlurRequested()) return 0;
+    output.blur_cache.beginFrame(
+        if (damage_bounds) |box| box.* else .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+    );
+    const config = server.effect_metadata.blurConfig();
+    const kernel = BlurPipeline.resolveKernel(
+        config.radius,
+        config.passes,
+        output.effectRenderState().scale,
+    ) orelse return 0;
+    const damage = if (damage_bounds) |box|
+        expandedRenderBox(box.*, kernel.reach)
+    else
+        c.struct_wlr_box{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    var preserved: u32 = 0;
+    var affected = false;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output or !window.tree.node.enabled) continue;
+        const handle = windowBlurHandle(window) orelse continue;
+        const blur = windowBlurData(window) orelse continue;
+        const effect = windowBlurEffect(
+            window,
+            blur,
+            output.effectRenderState(),
+        ) orelse continue;
+        const ready = output.blur_cache.markVisible(@bitCast(handle.key));
+        if (renderBoxesIntersect(damage, effect.box)) {
+            affected = true;
+        } else if (ready) {
+            preserved += 1;
+        }
+    }
+    output.blur_cache.removeInvisible(
+        &server.vulkan_context.blur_pipeline,
+    );
+    server.vulkan_context.blur_pipeline.recordCacheHits(
+        &output.blur_cache,
+        preserved,
+    );
+    return if (affected) kernel.reach else 0;
 }
 
 fn effectsNodeRender(
@@ -594,24 +657,50 @@ fn effectsNodeRender(
     const state = output.effectRenderState();
     const effect = windowBlurEffect(window, blur, state) orelse return;
     const config = server.effect_metadata.blurConfig();
-    _ = server.vulkan_context.blur_pipeline.render(
-        render_pass orelse return,
-        effect,
-        config.radius,
-        config.passes,
-        state.scale,
-    ) catch |err| {
+    const pass = render_pass orelse return;
+    const rendered = if (uncachedBlurRequested())
+        server.vulkan_context.blur_pipeline.render(
+            pass,
+            effect,
+            config.radius,
+            config.passes,
+            state.scale,
+        )
+    else blk: {
+        const output_cache = if (output.blur_node) |cache_node|
+            fx.outputBlurCacheData(cache_node)
+        else
+            null;
+        const handle = windowBlurHandle(window) orelse break :blk false;
+        break :blk server.vulkan_context.blur_pipeline.renderCached(
+            &output.blur_cache,
+            pass,
+            @bitCast(handle.key),
+            effect,
+            blur.generation,
+            config.generation,
+            if (output_cache) |cache| cache.invalidation_generation else 0,
+            config.radius,
+            config.passes,
+            state.scale,
+        );
+    };
+    _ = rendered catch |err| {
         log.err("Vulkan backdrop blur failed: {s}", .{@errorName(err)});
         return;
     };
 }
 
-fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
+fn windowBlurHandle(window: *Window) ?EffectMetadata.WindowBlurHandle {
     const blur = window.backdrop_blur orelse return null;
-    const handle = switch (blur) {
+    return switch (blur) {
         .aqueous => |handle| handle,
-        .scenefx => return null,
+        .scenefx => null,
     };
+}
+
+fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
+    const handle = windowBlurHandle(window) orelse return null;
     const data = server.effect_metadata.windowBlurData(handle) orelse
         return null;
     const config = server.effect_metadata.blurConfig();
@@ -621,6 +710,14 @@ fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
         return null;
     }
     return data;
+}
+
+fn uncachedBlurRequested() bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    const raw = std.c.getenv("AQUEOUS_VULKAN_BLUR_UNCACHED") orelse return false;
+    const value = mem.span(raw);
+    return mem.eql(u8, value, "1") or
+        std.ascii.eqlIgnoreCase(value, "true");
 }
 
 fn nodeInTree(node: *wlr.SceneNode, tree: *wlr.SceneTree) bool {
@@ -699,7 +796,28 @@ fn physicalDimensions(state: *const State) struct { i32, i32 } {
     };
 }
 
-fn hasVisibleUncachedBlur(output: *const Output) bool {
+fn expandedRenderBox(
+    box: c.struct_wlr_box,
+    reach: u32,
+) c.struct_wlr_box {
+    const amount: i32 = @intCast(@min(reach, math.maxInt(i32)));
+    return .{
+        .x = box.x -| amount,
+        .y = box.y -| amount,
+        .width = box.width +| amount *| 2,
+        .height = box.height +| amount *| 2,
+    };
+}
+
+fn renderBoxesIntersect(
+    a: c.struct_wlr_box,
+    b: c.struct_wlr_box,
+) bool {
+    return @max(a.x, b.x) < @min(a.x + a.width, b.x + b.width) and
+        @max(a.y, b.y) < @min(a.y + a.height, b.y + b.height);
+}
+
+fn hasVisibleBlur(output: *const Output) bool {
     if (comptime !build_options.vulkan_effects) return false;
     var it = server.wm.windows.iterator();
     while (it.next()) |window| {
@@ -711,7 +829,7 @@ fn hasVisibleUncachedBlur(output: *const Output) bool {
 }
 
 pub fn prepareUncachedBlurDamage(output: *Output) bool {
-    if (!output.hasVisibleUncachedBlur()) return false;
+    if (!uncachedBlurRequested() or !output.hasVisibleBlur()) return false;
     output.scene_output.?.damage_ring.addWhole();
     return true;
 }
@@ -733,6 +851,25 @@ pub fn setUncachedBlurDamage(
     region.initRect(0, 0, @intCast(width), @intCast(height));
     defer region.deinit();
     state.setDamage(&region);
+}
+
+pub fn recordVulkanEffectsMetric(output: *const Output) void {
+    if (comptime !build_options.vulkan_effects) return;
+    if (!render_metrics.enabled() or uncachedBlurRequested()) return;
+    const stats = output.blur_cache.stats;
+    if (stats.hits == 0 and stats.partial_rebuilds == 0 and
+        stats.full_rebuilds == 0)
+    {
+        return;
+    }
+    const wlr_output = output.wlr_output orelse return;
+    (render_metrics.VulkanEffectsSample{
+        .gpu_duration_ns = 0,
+        .cache_hits = stats.hits,
+        .cache_partial_rebuilds = stats.partial_rebuilds,
+        .cache_full_rebuilds = stats.full_rebuilds,
+        .pixels_processed = stats.pixels_processed,
+    }).record(std.mem.span(wlr_output.name));
 }
 
 fn rectEffect(
@@ -1428,6 +1565,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         if (collect_metrics) output.discardRenderMetric();
         return error.CommitFailed;
     }
+    output.recordVulkanEffectsMetric();
     if (uncached_blur_damage) output.setUncachedBlurDamage(&state);
 
     if (output.rendering_current.tearing) {

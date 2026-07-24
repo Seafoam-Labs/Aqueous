@@ -7,6 +7,7 @@ const std = @import("std");
 const c = @import("c");
 
 const util = @import("../util.zig");
+const BlurCache = @import("BlurCache.zig");
 const EffectMetadata = @import("EffectMetadata.zig");
 
 const fullscreen_vertex_shader align(4) =
@@ -80,6 +81,102 @@ const OffscreenCall = struct {
     failed: bool = false,
 };
 
+const CacheImage = struct {
+    device: c.VkDevice,
+    image: Image,
+    descriptor: c.VkDescriptorSet,
+    extent: c.VkExtent2D,
+    inflight: u32 = 0,
+    retired: bool = false,
+};
+
+const CacheEntry = struct {
+    key: u64,
+    resource: ?*CacheImage = null,
+    effect: Effect,
+    window_generation: u64 = 0,
+    config_generation: u64 = 0,
+    invalidation_generation: u64 = 0,
+    kernel_passes: u32 = 0,
+    kernel_sample_step: f32 = 0,
+    last_seen_frame: u64 = 0,
+};
+
+pub const CacheStats = struct {
+    hits: u32 = 0,
+    partial_rebuilds: u32 = 0,
+    full_rebuilds: u32 = 0,
+    pixels_processed: u64 = 0,
+};
+
+pub const OutputCache = struct {
+    entries: std.ArrayList(CacheEntry) = .empty,
+    damage: c.struct_wlr_box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+    frame: u64 = 0,
+    stats: CacheStats = .{},
+
+    pub fn beginFrame(
+        cache: *OutputCache,
+        damage: c.struct_wlr_box,
+    ) void {
+        cache.frame +%= 1;
+        if (cache.frame == 0) cache.frame = 1;
+        cache.damage = damage;
+        cache.stats = .{};
+    }
+
+    pub fn markVisible(cache: *OutputCache, key: u64) bool {
+        for (cache.entries.items) |*entry| {
+            if (entry.key != key) continue;
+            entry.last_seen_frame = cache.frame;
+            return entry.resource != null;
+        }
+        return false;
+    }
+
+    pub fn removeInvisible(
+        cache: *OutputCache,
+        pipeline: *BlurPipeline,
+    ) void {
+        var index: usize = 0;
+        while (index < cache.entries.items.len) {
+            const entry = &cache.entries.items[index];
+            if (entry.last_seen_frame != cache.frame) {
+                pipeline.retireCacheImage(entry.resource);
+                _ = cache.entries.swapRemove(index);
+                continue;
+            }
+            index += 1;
+        }
+    }
+
+    pub fn clear(cache: *OutputCache, pipeline: *BlurPipeline) void {
+        for (cache.entries.items) |entry| {
+            pipeline.retireCacheImage(entry.resource);
+        }
+        cache.entries.clearRetainingCapacity();
+        cache.damage = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    }
+
+    pub fn deinit(cache: *OutputCache, pipeline: *BlurPipeline) void {
+        cache.clear(pipeline);
+        cache.entries.deinit(util.gpa);
+    }
+};
+
+const CachedOffscreenCall = struct {
+    pipeline: *BlurPipeline,
+    kernel: Kernel,
+    target: *CacheImage,
+    update: c.struct_wlr_box,
+    pixels_processed: u64 = 0,
+    failed: bool = false,
+};
+
+const CacheUse = struct {
+    resource: *CacheImage,
+};
+
 physical_device: c.VkPhysicalDevice,
 device: c.VkDevice,
 pipeline_cache: c.VkPipelineCache,
@@ -95,8 +192,21 @@ composite_pipelines: std.ArrayList(CompositePipeline) = .empty,
 checkpoint_count: u64 = 0,
 offscreen_draw_count: u64 = 0,
 composite_draw_count: u64 = 0,
+cache_hit_count: u64 = 0,
+cache_partial_rebuild_count: u64 = 0,
+cache_full_rebuild_count: u64 = 0,
+cache_pixels_processed: u64 = 0,
 
 pub const resolveKernel = EffectMetadata.resolveBlurKernel;
+
+pub fn recordCacheHits(
+    pipeline: *BlurPipeline,
+    cache: *OutputCache,
+    count: u32,
+) void {
+    cache.stats.hits += count;
+    pipeline.cache_hit_count += count;
+}
 
 pub fn init(
     physical_device: c.VkPhysicalDevice,
@@ -153,7 +263,7 @@ pub fn init(
         &separable_fragment_shader,
         false,
     );
-    std.log.info("Vulkan uncached backdrop-blur pipeline initialized", .{});
+    std.log.info("Vulkan backdrop-blur pipeline initialized", .{});
     return pipeline;
 }
 
@@ -203,11 +313,15 @@ pub fn deinit(pipeline: *BlurPipeline) void {
     );
     c.vkDestroySampler(pipeline.device, pipeline.sampler, null);
     std.log.info(
-        "destroyed Vulkan uncached blur after {d} checkpoints, {d} offscreen draws, and {d} composites",
+        "destroyed Vulkan blur after {d} checkpoints, {d} offscreen draws, and {d} composites ({d} cache hits, {d} partial rebuilds, {d} full rebuilds, {d} pixels processed)",
         .{
             pipeline.checkpoint_count,
             pipeline.offscreen_draw_count,
             pipeline.composite_draw_count,
+            pipeline.cache_hit_count,
+            pipeline.cache_partial_rebuild_count,
+            pipeline.cache_full_rebuild_count,
+            pipeline.cache_pixels_processed,
         },
     );
 }
@@ -237,12 +351,140 @@ pub fn render(
 
     const resources = call.resources orelse
         return error.VulkanBlurOffscreenFailed;
+    try pipeline.composite(
+        render_pass,
+        effect,
+        resources.ping_descriptor,
+    );
+    pipeline.checkpoint_count += 1;
+    return true;
+}
+
+pub fn renderCached(
+    pipeline: *BlurPipeline,
+    cache: *OutputCache,
+    render_pass: *c.struct_wlr_render_pass,
+    key: u64,
+    effect: Effect,
+    window_generation: u64,
+    config_generation: u64,
+    invalidation_generation: u64,
+    radius: c_int,
+    passes: c_int,
+    scale: f32,
+) !bool {
+    const kernel = resolveKernel(radius, passes, scale) orelse return false;
+    if (effect.box.width <= 0 or effect.box.height <= 0) return false;
+
     var attributes = std.mem.zeroes(c.struct_wlr_vk_render_pass_attribs);
     if (!c.wlr_vk_render_pass_get_attribs(render_pass, &attributes)) {
         return error.VulkanBlurPassAttributesUnavailable;
     }
-    const graphics_pipeline =
-        try pipeline.compositePipelineFor(&attributes);
+
+    var entry = blk: {
+        for (cache.entries.items) |*candidate| {
+            if (candidate.key == key) break :blk candidate;
+        }
+        try cache.entries.append(util.gpa, .{
+            .key = key,
+            .effect = effect,
+        });
+        break :blk &cache.entries.items[cache.entries.items.len - 1];
+    };
+    entry.last_seen_frame = cache.frame;
+
+    const half_extent: c.VkExtent2D = .{
+        .width = @max(1, (attributes.extent.width + 1) / 2),
+        .height = @max(1, (attributes.extent.height + 1) / 2),
+    };
+    var full_rebuild = entry.resource == null or
+        entry.resource.?.extent.width != half_extent.width or
+        entry.resource.?.extent.height != half_extent.height or
+        entry.window_generation != window_generation or
+        entry.config_generation != config_generation or
+        entry.invalidation_generation != invalidation_generation or
+        entry.kernel_passes != kernel.passes or
+        entry.kernel_sample_step != kernel.sample_step or
+        !std.meta.eql(entry.effect, effect);
+
+    if (entry.resource) |resource| {
+        if (resource.extent.width != half_extent.width or
+            resource.extent.height != half_extent.height)
+        {
+            pipeline.retireCacheImage(resource);
+            entry.resource = null;
+        }
+    }
+    if (entry.resource == null) {
+        entry.resource = try pipeline.createCacheImage(half_extent);
+        full_rebuild = true;
+    }
+
+    var update = if (full_rebuild)
+        clippedBox(effect.box, attributes.extent)
+    else
+        clippedBox(expandedBox(cache.damage, kernel.reach), attributes.extent);
+    if (!full_rebuild) {
+        update = intersection(update, effect.box) orelse {
+            cache.stats.hits += 1;
+            pipeline.cache_hit_count += 1;
+            const resource = entry.resource.?;
+            try pipeline.retainForPass(render_pass, resource);
+            try pipeline.composite(render_pass, effect, resource.descriptor);
+            pipeline.checkpoint_count += 1;
+            return true;
+        };
+    }
+    if (update.width <= 0 or update.height <= 0) return false;
+
+    const resource = entry.resource.?;
+    var call: CachedOffscreenCall = .{
+        .pipeline = pipeline,
+        .kernel = kernel,
+        .target = resource,
+        .update = update,
+    };
+    if (!c.wlr_vk_render_pass_run_offscreen(
+        render_pass,
+        cachedOffscreenCallback,
+        &call,
+    ) or call.failed) {
+        return error.VulkanBlurOffscreenFailed;
+    }
+
+    entry.effect = effect;
+    entry.window_generation = window_generation;
+    entry.config_generation = config_generation;
+    entry.invalidation_generation = invalidation_generation;
+    entry.kernel_passes = kernel.passes;
+    entry.kernel_sample_step = kernel.sample_step;
+    if (full_rebuild) {
+        cache.stats.full_rebuilds += 1;
+        pipeline.cache_full_rebuild_count += 1;
+    } else {
+        cache.stats.partial_rebuilds += 1;
+        pipeline.cache_partial_rebuild_count += 1;
+    }
+    cache.stats.pixels_processed += call.pixels_processed;
+    pipeline.cache_pixels_processed += call.pixels_processed;
+
+    try pipeline.retainForPass(render_pass, resource);
+    try pipeline.composite(render_pass, effect, resource.descriptor);
+    pipeline.checkpoint_count += 1;
+    return true;
+}
+
+fn composite(
+    pipeline: *BlurPipeline,
+    render_pass: *c.struct_wlr_render_pass,
+    effect: Effect,
+    descriptor: c.VkDescriptorSet,
+) !void {
+    var attributes = std.mem.zeroes(c.struct_wlr_vk_render_pass_attribs);
+    if (!c.wlr_vk_render_pass_get_attribs(render_pass, &attributes)) {
+        return error.VulkanBlurPassAttributesUnavailable;
+    }
+    const graphics_pipeline = try pipeline.compositePipelineFor(&attributes);
     const push: CompositePush = .{
         .box = .{
             @floatFromInt(effect.box.x),
@@ -275,7 +517,7 @@ pub fn render(
         pipeline.pipeline_layout,
         0,
         1,
-        &resources.ping_descriptor,
+        &descriptor,
         0,
         null,
     );
@@ -288,9 +530,7 @@ pub fn render(
         &push,
     );
     c.vkCmdDraw(attributes.command_buffer, 4, 1, 0, 0);
-    pipeline.checkpoint_count += 1;
     pipeline.composite_draw_count += 1;
-    return true;
 }
 
 fn offscreenCallback(
@@ -313,6 +553,122 @@ fn offscreenCallback(
     };
     call.resources = resources;
     return true;
+}
+
+fn cachedOffscreenCallback(
+    attributes: ?*const c.struct_wlr_vk_render_offscreen_attribs,
+    data: ?*anyopaque,
+) callconv(.c) bool {
+    const call: *CachedOffscreenCall =
+        @ptrCast(@alignCast(data orelse return false));
+    call.pixels_processed = call.pipeline.processCachedOffscreen(
+        attributes orelse return false,
+        call.kernel,
+        call.target,
+        call.update,
+    ) catch |err| {
+        call.failed = true;
+        std.log.err(
+            "Vulkan cached blur processing failed: {s}",
+            .{@errorName(err)},
+        );
+        return false;
+    };
+    return true;
+}
+
+fn processCachedOffscreen(
+    pipeline: *BlurPipeline,
+    attributes: *const c.struct_wlr_vk_render_offscreen_attribs,
+    kernel: Kernel,
+    target: *CacheImage,
+    update: c.struct_wlr_box,
+) !u64 {
+    if (attributes.command_buffer == null or
+        attributes.source_image_view == null or
+        attributes.source_format != c.VK_FORMAT_R16G16B16A16_SFLOAT or
+        attributes.extent.width == 0 or attributes.extent.height == 0)
+    {
+        return error.VulkanBlurOffscreenAttributesInvalid;
+    }
+
+    const resources = try pipeline.resourcesFor(
+        attributes.extent,
+        attributes.source_image_view,
+    );
+    if (resources.half_extent.width != target.extent.width or
+        resources.half_extent.height != target.extent.height)
+    {
+        return error.VulkanBlurCacheExtentMismatch;
+    }
+
+    const plan = BlurCache.planUpdate(
+        toCacheBox(update),
+        toCacheExtent(resources.half_extent),
+        kernel.passes,
+        kernel.sample_step,
+    );
+    const final_box = fromCacheBox(plan.final);
+    const downsample_box = fromCacheBox(plan.downsample);
+
+    const downsample_push: OffscreenPush = .{ .data = .{
+        @floatFromInt(attributes.extent.width),
+        @floatFromInt(attributes.extent.height),
+        0,
+        0,
+    } };
+    pipeline.drawOffscreen(
+        attributes.command_buffer,
+        resources,
+        &resources.ping,
+        pipeline.downsample_pipeline,
+        resources.source_descriptor,
+        downsample_push,
+        downsample_box,
+    );
+
+    const inverse_width =
+        1.0 / @as(f32, @floatFromInt(resources.half_extent.width));
+    const inverse_height =
+        1.0 / @as(f32, @floatFromInt(resources.half_extent.height));
+    var iteration: u32 = 0;
+    while (iteration < kernel.passes) : (iteration += 1) {
+        pipeline.drawOffscreen(
+            attributes.command_buffer,
+            resources,
+            &resources.pong,
+            pipeline.separable_pipeline,
+            resources.ping_descriptor,
+            .{ .data = .{
+                inverse_width,
+                0,
+                kernel.sample_step,
+                0,
+            } },
+            fromCacheBox(plan.horizontal[iteration]),
+        );
+        pipeline.drawOffscreen(
+            attributes.command_buffer,
+            resources,
+            &resources.ping,
+            pipeline.separable_pipeline,
+            resources.pong_descriptor,
+            .{ .data = .{
+                0,
+                inverse_height,
+                kernel.sample_step,
+                0,
+            } },
+            fromCacheBox(plan.vertical[iteration]),
+        );
+    }
+    pipeline.copyToCache(
+        attributes.command_buffer,
+        &resources.ping,
+        target,
+        final_box,
+    );
+    return plan.pixels_processed;
 }
 
 fn processOffscreen(
@@ -346,6 +702,7 @@ fn processOffscreen(
         pipeline.downsample_pipeline,
         resources.source_descriptor,
         downsample_push,
+        fullBox(resources.half_extent),
     );
 
     const inverse_width =
@@ -366,6 +723,7 @@ fn processOffscreen(
                 kernel.sample_step,
                 0,
             } },
+            fullBox(resources.half_extent),
         );
         pipeline.drawOffscreen(
             attributes.command_buffer,
@@ -379,6 +737,7 @@ fn processOffscreen(
                 kernel.sample_step,
                 0,
             } },
+            fullBox(resources.half_extent),
         );
     }
     return resources;
@@ -392,6 +751,7 @@ fn drawOffscreen(
     graphics_pipeline: c.VkPipeline,
     source_descriptor: c.VkDescriptorSet,
     push: OffscreenPush,
+    scissor: c.struct_wlr_box,
 ) void {
     transitionForAttachment(command_buffer, target);
     var begin_info = std.mem.zeroes(c.VkRenderPassBeginInfo);
@@ -412,12 +772,7 @@ fn drawOffscreen(
     setViewportAndScissor(
         command_buffer,
         resources.half_extent,
-        .{
-            .x = 0,
-            .y = 0,
-            .width = @intCast(resources.half_extent.width),
-            .height = @intCast(resources.half_extent.height),
-        },
+        scissor,
     );
     c.vkCmdBindDescriptorSets(
         command_buffer,
@@ -537,7 +892,9 @@ fn createImage(
     image_info.samples = c.VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = c.VK_IMAGE_TILING_OPTIMAL;
     image_info.usage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-        c.VK_IMAGE_USAGE_SAMPLED_BIT;
+        c.VK_IMAGE_USAGE_SAMPLED_BIT |
+        c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+        c.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     image_info.sharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED;
     var image: c.VkImage = null;
@@ -615,6 +972,115 @@ fn createImage(
         .view = view,
         .framebuffer = framebuffer,
     };
+}
+
+fn createCacheImage(
+    pipeline: *BlurPipeline,
+    extent: c.VkExtent2D,
+) !*CacheImage {
+    const resource = try util.gpa.create(CacheImage);
+    errdefer util.gpa.destroy(resource);
+    const image = try pipeline.createImage(extent);
+    errdefer destroyImage(pipeline.device, image);
+    resource.* = .{
+        .device = pipeline.device,
+        .image = image,
+        .descriptor = try pipeline.allocateDescriptor(image.view),
+        .extent = extent,
+    };
+    return resource;
+}
+
+fn retireCacheImage(
+    pipeline: *BlurPipeline,
+    optional: ?*CacheImage,
+) void {
+    _ = pipeline;
+    const resource = optional orelse return;
+    resource.retired = true;
+    if (resource.inflight == 0) destroyCacheImage(resource);
+}
+
+fn retainForPass(
+    pipeline: *BlurPipeline,
+    render_pass: *c.struct_wlr_render_pass,
+    resource: *CacheImage,
+) !void {
+    _ = pipeline;
+    const use = try util.gpa.create(CacheUse);
+    errdefer util.gpa.destroy(use);
+    use.* = .{ .resource = resource };
+    if (!c.wlr_vk_render_pass_add_completion(
+        render_pass,
+        cacheUseComplete,
+        use,
+    )) {
+        return error.VulkanBlurCompletionRegistrationFailed;
+    }
+    resource.inflight += 1;
+}
+
+fn cacheUseComplete(data: ?*anyopaque) callconv(.c) void {
+    const use: *CacheUse =
+        @ptrCast(@alignCast(data orelse return));
+    const resource = use.resource;
+    std.debug.assert(resource.inflight > 0);
+    resource.inflight -= 1;
+    util.gpa.destroy(use);
+    if (resource.retired and resource.inflight == 0) {
+        destroyCacheImage(resource);
+    }
+}
+
+fn destroyCacheImage(resource: *CacheImage) void {
+    destroyImage(resource.device, resource.image);
+    util.gpa.destroy(resource);
+}
+
+fn copyToCache(
+    pipeline: *BlurPipeline,
+    command_buffer: c.VkCommandBuffer,
+    source: *Image,
+    target: *CacheImage,
+    box: c.struct_wlr_box,
+) void {
+    _ = pipeline;
+    transitionForTransferSource(command_buffer, source);
+    transitionForTransferDestination(command_buffer, &target.image);
+
+    const copy: c.VkImageCopy = .{
+        .srcSubresource = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .srcOffset = .{ .x = box.x, .y = box.y, .z = 0 },
+        .dstSubresource = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .dstOffset = .{ .x = box.x, .y = box.y, .z = 0 },
+        .extent = .{
+            .width = @intCast(box.width),
+            .height = @intCast(box.height),
+            .depth = 1,
+        },
+    };
+    c.vkCmdCopyImage(
+        command_buffer,
+        source.image,
+        c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        target.image.image,
+        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &copy,
+    );
+    transitionTransferToShader(command_buffer, source, true);
+    transitionTransferToShader(command_buffer, &target.image, false);
+    target.image.initialized = true;
 }
 
 fn compositePipelineFor(
@@ -954,6 +1420,112 @@ fn transitionForAttachment(
     );
 }
 
+fn transitionForTransferSource(
+    command_buffer: c.VkCommandBuffer,
+    image: *Image,
+) void {
+    var barrier = std.mem.zeroes(c.VkImageMemoryBarrier);
+    barrier.sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+    barrier.dstAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.oldLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image.image;
+    barrier.subresourceRange.aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    c.vkCmdPipelineBarrier(
+        command_buffer,
+        c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        c.VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
+    );
+}
+
+fn transitionForTransferDestination(
+    command_buffer: c.VkCommandBuffer,
+    image: *Image,
+) void {
+    var barrier = std.mem.zeroes(c.VkImageMemoryBarrier);
+    barrier.sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = if (image.initialized)
+        c.VK_ACCESS_SHADER_READ_BIT
+    else
+        0;
+    barrier.dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = if (image.initialized)
+        c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    else
+        c.VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image.image;
+    barrier.subresourceRange.aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    c.vkCmdPipelineBarrier(
+        command_buffer,
+        if (image.initialized)
+            c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        else
+            c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        c.VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
+    );
+}
+
+fn transitionTransferToShader(
+    command_buffer: c.VkCommandBuffer,
+    image: *Image,
+    source: bool,
+) void {
+    var barrier = std.mem.zeroes(c.VkImageMemoryBarrier);
+    barrier.sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = if (source)
+        c.VK_ACCESS_TRANSFER_READ_BIT
+    else
+        c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+    barrier.oldLayout = if (source)
+        c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    else
+        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image.image;
+    barrier.subresourceRange.aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    c.vkCmdPipelineBarrier(
+        command_buffer,
+        c.VK_PIPELINE_STAGE_TRANSFER_BIT,
+        c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
+    );
+}
+
 fn setViewportAndScissor(
     command_buffer: c.VkCommandBuffer,
     extent: c.VkExtent2D,
@@ -983,6 +1555,60 @@ fn setViewportAndScissor(
         },
     };
     c.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+}
+
+fn fullBox(extent: c.VkExtent2D) c.struct_wlr_box {
+    return fromCacheBox(BlurCache.fullBox(toCacheExtent(extent)));
+}
+
+fn clippedBox(
+    box: c.struct_wlr_box,
+    extent: c.VkExtent2D,
+) c.struct_wlr_box {
+    return fromCacheBox(BlurCache.clipped(
+        toCacheBox(box),
+        toCacheExtent(extent),
+    ));
+}
+
+fn intersection(
+    a: c.struct_wlr_box,
+    b: c.struct_wlr_box,
+) ?c.struct_wlr_box {
+    const box = BlurCache.intersection(
+        toCacheBox(a),
+        toCacheBox(b),
+    ) orelse return null;
+    return fromCacheBox(box);
+}
+
+fn expandedBox(
+    box: c.struct_wlr_box,
+    reach: u32,
+) c.struct_wlr_box {
+    return fromCacheBox(BlurCache.expanded(toCacheBox(box), reach));
+}
+
+fn toCacheBox(box: c.struct_wlr_box) BlurCache.Box {
+    return .{
+        .x = box.x,
+        .y = box.y,
+        .width = box.width,
+        .height = box.height,
+    };
+}
+
+fn fromCacheBox(box: BlurCache.Box) c.struct_wlr_box {
+    return .{
+        .x = box.x,
+        .y = box.y,
+        .width = box.width,
+        .height = box.height,
+    };
+}
+
+fn toCacheExtent(extent: c.VkExtent2D) BlurCache.Extent {
+    return .{ .width = extent.width, .height = extent.height };
 }
 
 fn findMemoryType(
