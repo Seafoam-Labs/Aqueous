@@ -612,7 +612,7 @@ Implementation record:
 | Area | Result |
 |---|---|
 | Ownership | `Output` owns one cache collection; each visible blurred window has a persistent scene-order checkpoint in output pixel coordinates |
-| Damage | The scene hook receives original buffer-space damage, returns the required kernel expansion to wlroots, and uses the unexpanded bounds to plan partial cache work |
+| Damage | The scene hook receives original buffer-space damage, returns the required kernel expansion to wlroots, and uses the unexpanded bounds to plan partial cache work. Each blur composite is clipped to the marker node's exact current render region so partial HDR/SDR frames cannot overwrite retained window content above it. |
 | Partial updates | Half-resolution scissor rectangles are derived backward through every horizontal and vertical pass; only the final affected rectangle is copied into the persistent image |
 | Invalidation | Stable window identity, window/config/output generations, transformed geometry, kernel parameters, and output extent prevent stale reuse; uncertain changes retain a full rebuild path |
 | Lifetime | Cache use increments a resource reference tied to the active wlroots command buffer; completion, reset, and renderer teardown release it before retired Vulkan images are destroyed |

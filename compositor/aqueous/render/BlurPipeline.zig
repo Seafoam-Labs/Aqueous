@@ -333,6 +333,7 @@ pub fn render(
     pipeline: *BlurPipeline,
     render_pass: *c.struct_wlr_render_pass,
     effect: Effect,
+    render_region: *const c.pixman_region32_t,
     radius: c_int,
     passes: c_int,
     scale: f32,
@@ -354,11 +355,12 @@ pub fn render(
 
     const resources = call.resources orelse
         return error.VulkanBlurOffscreenFailed;
-    try pipeline.composite(
+    if (!try pipeline.composite(
         render_pass,
         effect,
+        render_region,
         resources.ping_descriptor,
-    );
+    )) return false;
     pipeline.checkpoint_count += 1;
     return true;
 }
@@ -369,6 +371,7 @@ pub fn renderCached(
     render_pass: *c.struct_wlr_render_pass,
     key: u64,
     effect: Effect,
+    render_region: *const c.pixman_region32_t,
     window_generation: u64,
     config_generation: u64,
     invalidation_generation: u64,
@@ -433,7 +436,12 @@ pub fn renderCached(
             pipeline.cache_hit_count += 1;
             const resource = entry.resource.?;
             try pipeline.retainForPass(render_pass, resource);
-            try pipeline.composite(render_pass, effect, resource.descriptor);
+            if (!try pipeline.composite(
+                render_pass,
+                effect,
+                render_region,
+                resource.descriptor,
+            )) return false;
             pipeline.checkpoint_count += 1;
             return true;
         };
@@ -472,7 +480,12 @@ pub fn renderCached(
     pipeline.cache_pixels_processed += call.pixels_processed;
 
     try pipeline.retainForPass(render_pass, resource);
-    try pipeline.composite(render_pass, effect, resource.descriptor);
+    if (!try pipeline.composite(
+        render_pass,
+        effect,
+        render_region,
+        resource.descriptor,
+    )) return false;
     pipeline.checkpoint_count += 1;
     return true;
 }
@@ -481,8 +494,9 @@ fn composite(
     pipeline: *BlurPipeline,
     render_pass: *c.struct_wlr_render_pass,
     effect: Effect,
+    render_region: *const c.pixman_region32_t,
     descriptor: c.VkDescriptorSet,
-) !void {
+) !bool {
     var attributes = std.mem.zeroes(c.struct_wlr_vk_render_pass_attribs);
     if (!c.wlr_vk_render_pass_get_attribs(render_pass, &attributes)) {
         return error.VulkanBlurPassAttributesUnavailable;
@@ -509,11 +523,7 @@ fn composite(
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
         graphics_pipeline,
     );
-    setViewportAndScissor(
-        attributes.command_buffer,
-        attributes.extent,
-        effect.box,
-    );
+    setViewport(attributes.command_buffer, attributes.extent);
     c.vkCmdBindDescriptorSets(
         attributes.command_buffer,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -532,8 +542,17 @@ fn composite(
         @sizeOf(CompositePush),
         &push,
     );
-    c.vkCmdDraw(attributes.command_buffer, 4, 1, 0, 0);
+    // Never write outside this marker's scene damage. Higher window nodes are
+    // only redrawn inside the same region, so a wider composite would place
+    // blur over retained client content on partial SDR or HDR frames.
+    if (drawClipped(
+        attributes.command_buffer,
+        render_region,
+        effect.box,
+        attributes.extent,
+    ) == 0) return false;
     pipeline.composite_draw_count += 1;
+    return true;
 }
 
 fn offscreenCallback(
@@ -1538,12 +1557,26 @@ fn setViewportAndScissor(
     extent: c.VkExtent2D,
     box: c.struct_wlr_box,
 ) void {
+    setViewport(command_buffer, extent);
+    _ = setScissor(command_buffer, extent, box);
+}
+
+fn setViewport(
+    command_buffer: c.VkCommandBuffer,
+    extent: c.VkExtent2D,
+) void {
     var viewport = std.mem.zeroes(c.VkViewport);
     viewport.width = @floatFromInt(extent.width);
     viewport.height = @floatFromInt(extent.height);
     viewport.maxDepth = 1;
     c.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+}
 
+fn setScissor(
+    command_buffer: c.VkCommandBuffer,
+    extent: c.VkExtent2D,
+    box: c.struct_wlr_box,
+) bool {
     const left = @max(0, box.x);
     const top = @max(0, box.y);
     const right = @min(
@@ -1554,14 +1587,42 @@ fn setViewportAndScissor(
         @as(i32, @intCast(extent.height)),
         box.y + box.height,
     );
+    if (right <= left or bottom <= top) return false;
     const scissor: c.VkRect2D = .{
         .offset = .{ .x = left, .y = top },
         .extent = .{
-            .width = @intCast(@max(0, right - left)),
-            .height = @intCast(@max(0, bottom - top)),
+            .width = @intCast(right - left),
+            .height = @intCast(bottom - top),
         },
     };
     c.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+    return true;
+}
+
+fn drawClipped(
+    command_buffer: c.VkCommandBuffer,
+    clip: *const c.pixman_region32_t,
+    box: c.struct_wlr_box,
+    extent: c.VkExtent2D,
+) u32 {
+    var count: c_int = 0;
+    const rectangles = c.pixman_region32_rectangles(clip, &count);
+    var draws: u32 = 0;
+    var index: usize = 0;
+    while (index < @as(usize, @intCast(@max(0, count)))) : (index += 1) {
+        const rectangle = rectangles[index];
+        const clip_box: c.struct_wlr_box = .{
+            .x = rectangle.x1,
+            .y = rectangle.y1,
+            .width = rectangle.x2 - rectangle.x1,
+            .height = rectangle.y2 - rectangle.y1,
+        };
+        const draw_box = intersection(box, clip_box) orelse continue;
+        if (!setScissor(command_buffer, extent, draw_box)) continue;
+        c.vkCmdDraw(command_buffer, 4, 1, 0, 0);
+        draws += 1;
+    }
+    return draws;
 }
 
 fn fullBox(extent: c.VkExtent2D) c.struct_wlr_box {

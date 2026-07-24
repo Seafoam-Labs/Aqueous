@@ -560,9 +560,11 @@ awk \
     -v width="$blurred_diff_width" \
     -v height="$blurred_diff_height" \
     'BEGIN {
-        exit !(changed > 1000 && width > 160 && height > 120)
+        exit !(changed > 1000 &&
+            width > 160 && width <= 240 &&
+            height > 120 && height <= 200)
     }' ||
-    die "localized backdrop update was not expanded by the blur kernel"
+    die "localized backdrop update escaped its expanded damage region"
 
 send_background_command stress "$STRESS_FRAMES" 360 240 160 120
 capture_output "$ARTIFACT_DIR/after-buffer-reuse.png"

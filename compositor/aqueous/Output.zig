@@ -660,6 +660,7 @@ fn effectsRenderBegin(
 fn effectsNodeRender(
     render_pass: ?*c.struct_wlr_render_pass,
     c_node: ?*c.struct_wlr_scene_node,
+    render_region: ?*const c.pixman_region32_t,
     data: ?*anyopaque,
 ) callconv(.c) void {
     if (comptime !build_options.vulkan_effects) return;
@@ -681,10 +682,12 @@ fn effectsNodeRender(
     const effect = windowBlurEffect(window, blur, state) orelse return;
     const config = server.effect_metadata.blurConfig();
     const pass = render_pass orelse return;
+    const clip = render_region orelse return;
     const rendered = if (uncachedBlurRequested())
         server.vulkan_context.blur_pipeline.render(
             pass,
             effect,
+            clip,
             config.radius,
             config.passes,
             state.scale,
@@ -700,6 +703,7 @@ fn effectsNodeRender(
             pass,
             @bitCast(handle.key),
             effect,
+            clip,
             blur.generation,
             config.generation,
             if (output_cache) |cache| cache.invalidation_generation else 0,

@@ -10,7 +10,7 @@
 #include <vulkan/vulkan_core.h>
 #include <wlr/render/vulkan.h>
 #include <wlr/types/wlr_scene.h>
-#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 4
+#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 5
 #error "Vulkan effects require the pinned Aqueous wlroots render hook"
 #endif
 #endif

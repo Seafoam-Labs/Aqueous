@@ -125,7 +125,7 @@
  
  struct wlr_presentation;
  struct wlr_linux_dmabuf_v1;
-@@ -49,6 +54,24 @@ struct wlr_output_state;
+@@ -49,6 +54,25 @@ struct wlr_output_state;
  typedef bool (*wlr_scene_buffer_point_accepts_input_func_t)(
  	struct wlr_scene_buffer *buffer, double *sx, double *sy);
  
@@ -145,7 +145,8 @@
 +	struct wlr_render_pass *render_pass, void *data);
 +
 +typedef void (*wlr_scene_node_render_hook_func_t)(
-+	struct wlr_render_pass *render_pass, struct wlr_scene_node *node, void *data);
++	struct wlr_render_pass *render_pass, struct wlr_scene_node *node,
++	const pixman_region32_t *render_region, void *data);
 +
  typedef void (*wlr_scene_buffer_iterator_func_t)(
  	struct wlr_scene_buffer *buffer, int sx, int sy, void *user_data);
@@ -719,7 +720,7 @@
  
 +	if (data->output->node_render_hook != NULL) {
 +		data->output->node_render_hook(data->render_pass, node,
-+			data->output->render_hook_data);
++			&render_region, data->output->render_hook_data);
 +	}
 +
  	int x = entry->x - data->logical.x;
@@ -752,7 +753,7 @@
 +++ b/include/wlr/render/vulkan.h	2026-07-24 10:27:31.134215399 -0400
 @@ -16 +16 @@
 -#define WLR_AQUEOUS_RENDER_HOOK_VERSION 3
-+#define WLR_AQUEOUS_RENDER_HOOK_VERSION 4
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 5
 @@ -57,0 +58,2 @@
 +typedef void (*wlr_vk_render_completion_func_t)(void *data);
 +
