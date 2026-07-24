@@ -11,10 +11,12 @@ const math = std.math;
 const mem = std.mem;
 const posix = std.posix;
 const fmt = std.fmt;
+const pixman = @import("pixman");
 const wlr = @import("wlroots");
 const c = if (build_options.vulkan_effects) @import("c") else struct {
     const struct_wlr_render_pass = opaque {};
     const struct_wlr_scene_buffer = opaque {};
+    const struct_wlr_scene_node = opaque {};
     const struct_wlr_scene_rect = opaque {};
     const struct_wlr_render_texture_options = opaque {};
     const struct_wlr_render_rect_options = opaque {};
@@ -31,9 +33,11 @@ const scaling = @import("scaling.zig");
 const render_metrics = @import("render_metrics.zig");
 
 const fx = @import("fx.zig");
+const BlurPipeline = @import("render/BlurPipeline.zig");
 const EffectMetadata = @import("render/EffectMetadata.zig");
 const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
+const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const Workspace = @import("Workspace.zig");
 
@@ -234,6 +238,7 @@ blur_node: ?fx.OutputBlurCache = null,
 blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
 effects_swapchain_path: bool = false,
+blur_last_window: ?*Window = null,
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -446,6 +451,11 @@ pub fn create(wlr_output: *wlr.Output) !void {
             @ptrCast(scene_output),
             roundedRectHook,
         );
+        c.wlr_scene_output_set_render_hooks(
+            @ptrCast(scene_output),
+            effectsRenderBegin,
+            effectsNodeRender,
+        );
     }
 
     server.om.outputs.append(output);
@@ -509,8 +519,18 @@ fn roundedBufferNeedsComposition(
     const scene_buffer: *wlr.SceneBuffer =
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
     const effect = server.effect_metadata.bufferData(scene_buffer) orelse
-        return false;
-    return hasRadius(effect.radii);
+        return bufferWindowNeedsBlur(scene_buffer);
+    return hasRadius(effect.radii) or bufferWindowNeedsBlur(scene_buffer);
+}
+
+fn bufferWindowNeedsBlur(scene_buffer: *wlr.SceneBuffer) bool {
+    const owner = SceneNodeData.fromNode(&scene_buffer.node) orelse return false;
+    const window = switch (owner.data) {
+        .window => |window| window,
+        else => return false,
+    };
+    if (!nodeInTree(&scene_buffer.node, window.tree)) return false;
+    return windowBlurData(window) != null;
 }
 
 fn roundedRectHook(
@@ -541,6 +561,178 @@ fn roundedRectHook(
 
 fn effectRenderState(output: *const Output) *const State {
     return if (output.effects_swapchain_path) &output.sent else &output.current;
+}
+
+fn effectsRenderBegin(
+    _: ?*c.struct_wlr_render_pass,
+    data: ?*anyopaque,
+) callconv(.c) void {
+    if (comptime !build_options.vulkan_effects) return;
+    const output: *Output = @ptrCast(@alignCast(data orelse return));
+    output.blur_last_window = null;
+}
+
+fn effectsNodeRender(
+    render_pass: ?*c.struct_wlr_render_pass,
+    c_node: ?*c.struct_wlr_scene_node,
+    data: ?*anyopaque,
+) callconv(.c) void {
+    if (comptime !build_options.vulkan_effects) return;
+    const output: *Output = @ptrCast(@alignCast(data orelse return));
+    const node: *wlr.SceneNode =
+        @ptrCast(@alignCast(c_node orelse return));
+    const owner = SceneNodeData.fromNode(node) orelse return;
+    const window = switch (owner.data) {
+        .window => |window| window,
+        else => return,
+    };
+    if (!nodeInTree(node, window.tree)) return;
+    if (output.blur_last_window == window) return;
+    output.blur_last_window = window;
+
+    const blur = windowBlurData(window) orelse return;
+    const state = output.effectRenderState();
+    const effect = windowBlurEffect(window, blur, state) orelse return;
+    const config = server.effect_metadata.blurConfig();
+    _ = server.vulkan_context.blur_pipeline.render(
+        render_pass orelse return,
+        effect,
+        config.radius,
+        config.passes,
+        state.scale,
+    ) catch |err| {
+        log.err("Vulkan backdrop blur failed: {s}", .{@errorName(err)});
+        return;
+    };
+}
+
+fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
+    const blur = window.backdrop_blur orelse return null;
+    const handle = switch (blur) {
+        .aqueous => |handle| handle,
+        .scenefx => return null,
+    };
+    const data = server.effect_metadata.windowBlurData(handle) orelse
+        return null;
+    const config = server.effect_metadata.blurConfig();
+    if (!data.enabled or data.box.width <= 0 or data.box.height <= 0 or
+        config.radius <= 0 or config.passes <= 0)
+    {
+        return null;
+    }
+    return data;
+}
+
+fn nodeInTree(node: *wlr.SceneNode, tree: *wlr.SceneTree) bool {
+    var current = node;
+    while (true) {
+        if (current == &tree.node) return true;
+        const parent = current.parent orelse return false;
+        current = &parent.node;
+    }
+}
+
+fn windowBlurEffect(
+    window: *Window,
+    blur: EffectMetadata.WindowBlurData,
+    state: *const State,
+) ?BlurPipeline.Effect {
+    var global_x: i32 = 0;
+    var global_y: i32 = 0;
+    if (!window.tree.node.coords(&global_x, &global_y)) return null;
+
+    const logical_x = global_x + blur.box.x - state.x;
+    const logical_y = global_y + blur.box.y - state.y;
+    const left = scaleBoundary(logical_x, state.scale);
+    const top = scaleBoundary(logical_y, state.scale);
+    const right = scaleBoundary(
+        logical_x + blur.box.width,
+        state.scale,
+    );
+    const bottom = scaleBoundary(
+        logical_y + blur.box.height,
+        state.scale,
+    );
+    var box: wlr.Box = .{
+        .x = left,
+        .y = top,
+        .width = right - left,
+        .height = bottom - top,
+    };
+    if (box.width <= 0 or box.height <= 0) return null;
+
+    var radii = EffectMetadata.clampedPhysicalRadii(
+        .uniform(blur.radius),
+        box.width,
+        box.height,
+        state.scale,
+    );
+    const transform = invertTransform(state.transform);
+    radii = transformRadii(radii, transform);
+    var transformed_width, var transformed_height =
+        physicalDimensions(state);
+    if (@mod(@intFromEnum(state.transform), 2) != 0) {
+        mem.swap(i32, &transformed_width, &transformed_height);
+    }
+    box.transform(
+        &box,
+        transform,
+        transformed_width,
+        transformed_height,
+    );
+    return .{
+        .box = .{
+            .x = box.x,
+            .y = box.y,
+            .width = box.width,
+            .height = box.height,
+        },
+        .radii = radii,
+    };
+}
+
+fn physicalDimensions(state: *const State) struct { i32, i32 } {
+    return switch (state.mode) {
+        .standard => |mode| .{ mode.width, mode.height },
+        .custom => |mode| .{ mode.width, mode.height },
+        .none => .{ 0, 0 },
+    };
+}
+
+fn hasVisibleUncachedBlur(output: *const Output) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    var it = server.wm.windows.iterator();
+    while (it.next()) |window| {
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output or !window.tree.node.enabled) continue;
+        if (windowBlurData(window) != null) return true;
+    }
+    return false;
+}
+
+pub fn prepareUncachedBlurDamage(output: *Output) bool {
+    if (!output.hasVisibleUncachedBlur()) return false;
+    output.scene_output.?.damage_ring.addWhole();
+    return true;
+}
+
+pub fn setUncachedBlurDamage(
+    output: *const Output,
+    state: *wlr.Output.State,
+) void {
+    var width, var height = physicalDimensions(output.effectRenderState());
+    if (@mod(
+        @intFromEnum(output.effectRenderState().transform),
+        2,
+    ) != 0) {
+        mem.swap(i32, &width, &height);
+    }
+    if (width <= 0 or height <= 0) return;
+
+    var region: pixman.Region32 = undefined;
+    region.initRect(0, 0, @intCast(width), @intCast(height));
+    defer region.deinit();
+    state.setDamage(&region);
 }
 
 fn rectEffect(
@@ -1212,6 +1404,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
     output.syncWindowVisualState();
 
     if (!force and !output.scene_output.?.needsFrame()) return;
+    const uncached_blur_damage = output.prepareUncachedBlurDamage();
 
     const wlr_output = output.wlr_output.?;
 
@@ -1235,6 +1428,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         if (collect_metrics) output.discardRenderMetric();
         return error.CommitFailed;
     }
+    if (uncached_blur_damage) output.setUncachedBlurDamage(&state);
 
     if (output.rendering_current.tearing) {
         state.tearing_page_flip = true;

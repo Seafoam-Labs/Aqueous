@@ -87,6 +87,8 @@ jobs:
           nm -D --defined-only "$library" |
             grep ' wlr_scene_output_set_rect_render_hook$'
           nm -D --defined-only "$library" |
+            grep ' wlr_scene_output_set_render_hooks$'
+          nm -D --defined-only "$library" |
             grep ' wlr_scene_buffer_set_force_blend$'
           nm -D --defined-only "$library" |
             grep ' wlr_scene_rect_set_force_blend$'
@@ -94,6 +96,10 @@ jobs:
             grep ' wlr_vk_render_pass_set_texture_hook$'
           nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_get_attribs$'
+          nm -D --defined-only "$library" |
+            grep ' wlr_vk_renderer_enable_offscreen$'
+          nm -D --defined-only "$library" |
+            grep ' wlr_vk_render_pass_run_offscreen$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_output_set_buffer_render_hook$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
@@ -101,11 +107,17 @@ jobs:
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_output_set_rect_render_hook$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_scene_output_set_render_hooks$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_buffer_set_force_blend$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_scene_rect_set_force_blend$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_vk_render_pass_get_attribs$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_vk_renderer_enable_offscreen$'
+          nm -D --undefined-only compositor/zig-out/bin/aqueous |
+            grep ' wlr_vk_render_pass_run_offscreen$'
           readelf -d compositor/zig-out/bin/aqueous |
             grep 'libvulkan.so'
           if readelf -d compositor/zig-out/bin/aqueous |

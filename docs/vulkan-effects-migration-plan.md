@@ -81,6 +81,24 @@ wlroots' explicit-sync output timeline. The localized update remained exactly
 `160x120+440+320`. A validation-layer rerun and a formal SceneFX golden-image
 tolerance comparison remain open validation items.
 
+Uncached backdrop blur is now implemented in the Vulkan-effects build. The
+wlroots seam pauses its forced linear two-pass target at a scene-node
+checkpoint, exposes only pixels already rendered below that node, and resumes
+the same render pass and submission after Aqueous records its offscreen work.
+Aqueous downsamples the full output into an FP16 half-resolution image, applies
+the configured horizontal and vertical passes, linearly upsamples during
+composite, and masks the result with transformed rounded or square window
+geometry before wlroots draws that window's translucent content.
+
+A 2026-07-24 nested RTX 5090 run passed live backdrop motion, localized damage,
+overlapping blur windows, screencopy, scales 1, 1.25, 1.5, and 2, rotations 90°,
+180°, and 270°, normal and OutputManager swapchain rendering, explicit sync,
+and 64 reused-buffer frames. It recorded 376 scene-ordered checkpoints, 6,392
+offscreen draws, and 376 composites. The localized `160x120` source update
+affected `186x147+428+308` after blur, demonstrating kernel expansion. All
+capture checksums verify. Validation-layer and mixed-output hardware runs
+remain open.
+
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
 the current cache-invalidation inventory. See
@@ -142,8 +160,8 @@ Call-site replacements are intentionally small:
 |---|---|
 | `Window.zig` | Done: `backdrop_blur` is a typed backend handle and retains the existing geometry and enable logic |
 | `Scene.zig` | Done: saved and animation buffers copy Aqueous effect metadata through `fx.copyBufferFx` |
-| `Output.zig` | Done for rounded effects: installs texture/rect replacement hooks, resolves scale/transform/clip geometry, and shares the pipeline with normal frames |
-| `OutputManager.zig` | Done for rounded effects: atomic modesets use the same hooks and record their swapchain path |
+| `Output.zig` | Done for uncached effects: installs texture, rect, and scene-order hooks; resolves scale/transform/clip geometry; promotes visible blur to full damage; and shares the pipelines with normal frames |
+| `OutputManager.zig` | Done for uncached effects: atomic modesets use the same hooks, blur checkpoints, and conservative damage path while recording their swapchain path |
 | `WindowManager.zig` | Done for metadata: store generation-tracked blur configuration and invalidate output caches |
 | `LayerSurface.zig` | Keep the existing background-change invalidation call |
 | `Server.zig` | Done: own metadata across renderer-loss recovery, destroy it after the scene, and independently replace the Vulkan context |
@@ -217,7 +235,7 @@ compositor/
         └── exit-session.c
 ```
 
-Rounded render-seam support now present:
+Vulkan render-seam and effect-pipeline support now present:
 
 ```text
 .github/workflows/
@@ -225,8 +243,14 @@ Rounded render-seam support now present:
 compositor/
 ├── aqueous/
 │   └── render/
+│       ├── BlurPipeline.zig
 │       ├── RoundedPipeline.zig
 │       └── shaders/
+│           ├── blur_composite.frag
+│           ├── blur_composite.vert
+│           ├── blur_downsample.frag
+│           ├── blur_fullscreen.vert
+│           ├── blur_separable.frag
 │           ├── rounded_texture.vert
 │           ├── rounded_texture.frag
 │           ├── rounded_rect.vert
@@ -270,9 +294,9 @@ Choose one route at the end of the spike:
 | Reimplement `wlr_scene_output_build_state` | Reject for this project unless the first two routes are impossible; it expands the work into scene traversal, occlusion, presentation, damage, direct scanout, and color handling |
 | Replace `wlr_renderer` | Reject; it contradicts the goal of using wlroots' Vulkan renderer and allocator |
 
-The decision, synchronization evidence, and captured test frame are recorded in
-the architecture decision. Production blur work remains gated on the pending
-Khronos-validation-layer run.
+The decision, synchronization evidence, rounded captures, and uncached-blur
+extension are recorded in the architecture decision. Cached-blur acceptance
+remains gated on the pending Khronos-validation-layer run.
 
 ## Target frame flow
 
@@ -471,19 +495,41 @@ recording the agreed SceneFX comparison tolerance.
 
 Estimate: 3–5 weeks.
 
-- [ ] Start with one output and one blurred window.
-- [ ] Capture only the already-rendered background beneath the window.
-- [ ] Implement downsample, horizontal, vertical, and upsample/composite passes.
-- [ ] Define how the existing `radius` and `passes` configuration maps to kernel
+Status: implementation and single-output functional hardware validation are
+complete. The path deliberately does no content caching: it reprocesses the
+full output at every visible blurred-window checkpoint. A validation-layer run,
+formal SceneFX tolerance comparison, clipped-window capture, and mixed-output
+hardware matrix remain open acceptance work.
+
+- [x] Start with one output and one blurred window.
+- [x] Capture only the already-rendered background beneath the window.
+- [x] Implement downsample, horizontal, vertical, and upsample/composite passes.
+- [x] Define how the existing `radius` and `passes` configuration maps to kernel
       size and pass count; preserve current visual behavior where practical.
-- [ ] Expand source regions for kernel reach and clamp safely at output edges.
-- [ ] Apply the window's rounded or square mask during composite.
-- [ ] Verify translucent client content blends above, rather than becoming part
+- [x] Expand source regions for kernel reach and clamp safely at output edges.
+- [x] Apply the window's rounded or square mask during composite.
+- [x] Verify translucent client content blends above, rather than becoming part
       of, its own backdrop.
-- [ ] Add overlapping and nested-order test cases before optimizing.
+- [x] Add overlapping and nested-order test cases before optimizing.
+
+Implementation record:
+
+| Area | Result |
+|---|---|
+| Scene order | A render-begin hook resets output-local traversal state; the first renderable node in each visible window tree creates one checkpoint before any content from that window is drawn |
+| wlroots seam | The Vulkan renderer is forced through its FP16 linear two-pass path; the seam finishes the current pass, exposes the sampled linear image, records Aqueous work, transitions it back, and resumes the same pass and command buffer with load preservation |
+| Blur pipeline | One full-output downsample plus `passes` horizontal/vertical iterations in half-resolution FP16 images; the rounded composite's linear sampler performs the upsample |
+| Configuration | Passes are clamped to 1–16; logical radius is scaled to output pixels and converted to a half-resolution sample step; exact tap support is reported as conservative kernel reach |
+| Edges and damage | The uncached implementation processes the whole output and uses clamp-to-edge sampling, so every expanded source region is available; any visible blur promotes the frame to full output damage |
+| Mask and alpha | Window-local blur geometry reuses existing clipping state, becomes square when clipping cuts an edge, and is transformed before SDF masking; wlroots draws translucent client buffers afterward |
+| Resource safety | Scratch images are keyed by source image view and extent, preventing separate outputs or in-flight swapchain buffers from sharing writable ping-pong images |
+| Validation | The 64-frame hardware run produced 376 checkpoints, 6,392 offscreen draws, and 376 composites; motion, localized expansion, overlap, transforms, fractional scales, explicit sync, and checksummed screencopy passed |
 
 Exit condition: blur is visually correct under moving content, multiple windows,
 alpha, clipping, transforms, and mixed output scales with caching disabled.
+Motion, multiple windows, alpha, transforms, fractional scales, and uncached
+operation pass on the reference hardware. Close the condition after the
+clipped-window, mixed-output, SceneFX-tolerance, and validation-layer runs.
 
 ### Phase 6 — Add the per-output blur cache and damage model
 
@@ -605,6 +651,10 @@ Current validation record:
 - Phase 4 validation: `zig build test -Dcpu=baseline --summary all` passes
   158/158 tests, including effect-metadata lifecycle and CPU radius-clamping
   coverage
+- Phase 5 validation: the Vulkan-effects ReleaseSafe build and
+  `zig build test` pass 159/159 tests against the reproduced wlroots 0.20.2
+  dependency; all five blur SPIR-V modules pass
+  `spirv-val --target-env vulkan1.0`
 - `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
   -Doptimize=ReleaseSafe`
 - `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline
@@ -634,6 +684,13 @@ Current validation record:
 - rounded corners, hollow outlines, localized damage, scales 1, 1.25, 1.5, and
   2, rotations 90°, 180°, and 270°, and post-stress screencopies pass their
   assertions; every generated checksum verifies
+- the expanded uncached-blur harness passes 64 reused-buffer frames with
+  explicit sync, live backdrop motion, a kernel-expanded localized update,
+  translucent content, overlapping scene-ordered blur, and blur captures at
+  scales 1, 1.25, 1.5, and 2 with 90°, 180°, and 270° rotations
+- that run records 376 blur checkpoints, 6,392 offscreen draws, and 376
+  composites; one downsample plus 16 separable draws is accounted for at every
+  checkpoint and every artifact checksum verifies
 - The Khronos validation layer was not installed for that run; the harness will
   require it by default and reject validation errors when available
 
@@ -697,11 +754,12 @@ For one engineer familiar with Aqueous, wlroots, and Vulkan:
 | Correct rounded corners and uncached blur | 8–13 weeks |
 | Feature parity with damage-aware cached blur | 12–20 weeks |
 | Production hardening and broad GPU coverage | 20–32 weeks total |
-| Remaining work after the rounded-effects implementation | 12–23 weeks, dominated by blur correctness, cache invalidation, integration, and hardware coverage |
+| Remaining work after the uncached-blur implementation | 9–18 weeks, dominated by cache invalidation, integration, performance, and hardware coverage |
 
-The render seam, synchronization contract, and rounded pipelines are now
-implemented. Correct scene-ordered, damage-aware backdrop blur remains most of
-the implementation and validation effort.
+The render seam, synchronization contract, rounded pipelines, and correct
+scene-ordered uncached blur are now implemented. The per-output cache, partial
+damage model, broad compositor integration, and hardware validation remain the
+largest work items.
 
 Two engineers can shorten hardware testing and blur optimization, but the
 render-seam and frame-order design should have one owner to avoid incompatible

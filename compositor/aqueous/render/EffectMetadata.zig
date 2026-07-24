@@ -74,6 +74,36 @@ pub const BlurConfig = struct {
     generation: u64 = 1,
 };
 
+pub const BlurKernel = struct {
+    passes: u32,
+    sample_step: f32,
+    reach: u32,
+};
+
+pub fn resolveBlurKernel(
+    radius: c_int,
+    passes: c_int,
+    scale: f32,
+) ?BlurKernel {
+    if (radius <= 0 or passes <= 0 or !(scale > 0)) return null;
+    const pass_count: u32 = @intCast(std.math.clamp(passes, 1, 16));
+    const physical_radius =
+        @as(f32, @floatFromInt(radius)) * scale;
+    const root_passes = @sqrt(@as(f32, @floatFromInt(pass_count)));
+    const sample_step = @max(
+        0.125,
+        physical_radius / (12.9230769232 * root_passes),
+    );
+    return .{
+        .passes = pass_count,
+        .sample_step = sample_step,
+        .reach = @intFromFloat(@ceil(
+            6.4615384616 * sample_step *
+                @as(f32, @floatFromInt(pass_count)) + 2.0,
+        )),
+    };
+}
+
 pub const WindowBlurData = struct {
     box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
     radius: u31 = 0,
@@ -633,4 +663,17 @@ test "physical corner radii are scaled and clamped on the CPU" {
         [4]f32{ 0, 0, 0, 0 },
         clampedPhysicalRadii(.uniform(15), 0, 100, 2),
     );
+}
+
+test "blur kernel maps physical radius and bounds pass count" {
+    const normal = resolveBlurKernel(10, 8, 1).?;
+    try std.testing.expectEqual(@as(u32, 8), normal.passes);
+    try std.testing.expect(normal.reach >= 10);
+
+    const scaled = resolveBlurKernel(12, 100, 2).?;
+    try std.testing.expectEqual(@as(u32, 16), scaled.passes);
+    try std.testing.expect(scaled.reach >= 24);
+
+    try std.testing.expect(resolveBlurKernel(0, 8, 1) == null);
+    try std.testing.expect(resolveBlurKernel(10, 0, 1) == null);
 }

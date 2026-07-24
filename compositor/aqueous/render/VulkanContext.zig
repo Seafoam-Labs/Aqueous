@@ -11,6 +11,7 @@ const c = @import("c");
 const wlr = @import("wlroots");
 
 const util = @import("../util.zig");
+const BlurPipeline = @import("BlurPipeline.zig");
 const RoundedPipeline = @import("RoundedPipeline.zig");
 
 pub const Capabilities = struct {
@@ -52,10 +53,14 @@ pipeline_cache: c.VkPipelineCache,
 capabilities: Capabilities,
 deferred: std.ArrayList(Deferred) = .empty,
 rounded_pipeline: RoundedPipeline,
+blur_pipeline: BlurPipeline,
 
 pub fn init(renderer: *wlr.Renderer) !VulkanContext {
     if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
         return error.RendererIsNotVulkan;
+    }
+    if (!c.wlr_vk_renderer_enable_offscreen(@ptrCast(renderer))) {
+        return error.VulkanOffscreenPathUnavailable;
     }
 
     const instance = c.wlr_vk_renderer_get_instance(@ptrCast(renderer));
@@ -84,6 +89,12 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
     const capabilities = queryCapabilities(physical_device, queue_family, renderer);
     var rounded_pipeline = try RoundedPipeline.init(device, pipeline_cache);
     errdefer rounded_pipeline.deinit();
+    var blur_pipeline = try BlurPipeline.init(
+        physical_device,
+        device,
+        pipeline_cache,
+    );
+    errdefer blur_pipeline.deinit();
     var properties = std.mem.zeroes(c.VkPhysicalDeviceProperties);
     c.vkGetPhysicalDeviceProperties(physical_device, &properties);
     const device_name: [*:0]const u8 = @ptrCast(&properties.deviceName);
@@ -120,10 +131,12 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
         .pipeline_cache = pipeline_cache,
         .capabilities = capabilities,
         .rounded_pipeline = rounded_pipeline,
+        .blur_pipeline = blur_pipeline,
     };
 }
 
 pub fn deinit(context: *VulkanContext) void {
+    context.blur_pipeline.deinit();
     context.rounded_pipeline.deinit();
     if (context.deferred.items.len != 0) {
         const idle_result = c.vkDeviceWaitIdle(context.device);

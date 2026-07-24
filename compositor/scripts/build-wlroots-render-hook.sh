@@ -52,8 +52,11 @@ for symbol in \
     wlr_scene_output_set_buffer_render_hook \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \
+    wlr_scene_output_set_render_hooks \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_rect_set_force_blend \
+    wlr_vk_renderer_enable_offscreen \
+    wlr_vk_render_pass_run_offscreen \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||

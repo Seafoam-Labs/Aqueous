@@ -64,8 +64,11 @@ for symbol in \
     wlr_scene_output_set_buffer_render_hook \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \
+    wlr_scene_output_set_render_hooks \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_rect_set_force_blend \
+    wlr_vk_renderer_enable_offscreen \
+    wlr_vk_render_pass_run_offscreen \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs; do
     nm -D --defined-only "$wlroots_library" | grep " $symbol$" >/dev/null ||
@@ -73,6 +76,9 @@ for symbol in \
 done
 grep -a -q 'Vulkan rounded effects pipeline initialized' "$AQUEOUS_COMPOSITOR_BIN" ||
     die "the compositor was not built with -Dvulkan-effects=true"
+grep -a -q 'Vulkan uncached backdrop-blur pipeline initialized' \
+    "$AQUEOUS_COMPOSITOR_BIN" ||
+    die "the compositor does not contain the uncached blur pipeline"
 
 HOST_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}
 HOST_WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
@@ -112,11 +118,19 @@ else
 fi
 COMPOSITOR_LOG="$ARTIFACT_DIR/compositor.log"
 CLIENT_LOG="$ARTIFACT_DIR/client.log"
+BLUR_LOG="$ARTIFACT_DIR/blur.log"
+OVERLAP_LOG="$ARTIFACT_DIR/blur-overlap.log"
 COMPOSITOR_PID=""
 CLIENT_PID=""
+BLUR_PID=""
+OVERLAP_PID=""
 EXIT_PID=""
 
 cleanup() {
+    [ -z "$OVERLAP_PID" ] || kill "$OVERLAP_PID" 2>/dev/null || true
+    [ -z "$OVERLAP_PID" ] || wait "$OVERLAP_PID" 2>/dev/null || true
+    [ -z "$BLUR_PID" ] || kill "$BLUR_PID" 2>/dev/null || true
+    [ -z "$BLUR_PID" ] || wait "$BLUR_PID" 2>/dev/null || true
     [ -z "$CLIENT_PID" ] || kill "$CLIENT_PID" 2>/dev/null || true
     [ -z "$CLIENT_PID" ] || wait "$CLIENT_PID" 2>/dev/null || true
     [ -z "$EXIT_PID" ] || kill "$EXIT_PID" 2>/dev/null || true
@@ -407,8 +421,120 @@ done
 set_output_state 1920 1080 1 normal
 send_background_command \
     reset 0 0 0 "$BACKGROUND_WIDTH" "$BACKGROUND_HEIGHT"
+capture_output "$ARTIFACT_DIR/blur-source.png"
+
+blur_ready="$TEST_ROOT/blur.ready"
+env -u LD_PRELOAD \
+    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+    WAYLAND_DISPLAY="$socket" \
+    "$FIXTURE_BIN" blur "$blur_ready" \
+    >"$BLUR_LOG" 2>&1 &
+BLUR_PID=$!
+for _ in $(seq 1 240); do
+    [ -f "$blur_ready" ] && break
+    kill -0 "$BLUR_PID" 2>/dev/null || {
+        cat "$BLUR_LOG" >&2
+        die "blur fixture exited before mapping"
+    }
+    sleep 0.05
+done
+[ -f "$blur_ready" ] || die "blur fixture did not map"
+read -r _ BLUR_WIDTH BLUR_HEIGHT <"$blur_ready"
+[ "$BLUR_WIDTH $BLUR_HEIGHT" = "760 520" ] ||
+    die "blur fixture mapped at an unexpected size"
+capture_output "$ARTIFACT_DIR/blur-static.png"
+
+set_output_state 1920 1080 1.25 90
+capture_output "$ARTIFACT_DIR/blur-scale-1.25-transform-90.png"
+set_output_state 1920 1080 1.5 180
+capture_output "$ARTIFACT_DIR/blur-scale-1.5-transform-180.png"
+set_output_state 1920 1080 2 270
+capture_output "$ARTIFACT_DIR/blur-scale-2-transform-270.png"
+for capture in \
+    "$ARTIFACT_DIR/blur-scale-1.25-transform-90.png" \
+    "$ARTIFACT_DIR/blur-scale-1.5-transform-180.png" \
+    "$ARTIFACT_DIR/blur-scale-2-transform-270.png"; do
+    transformed_pixels=$(nonblack_pixel_count "$capture")
+    awk -v pixels="$transformed_pixels" \
+        'BEGIN { exit !(pixels > 1000) }' ||
+        die "scaled/rotated capture is missing Vulkan blur content: $capture"
+done
+set_output_state 1920 1080 1 normal
+
+send_background_command \
+    motion 19 0 0 "$BACKGROUND_WIDTH" "$BACKGROUND_HEIGHT"
+capture_output "$ARTIFACT_DIR/blur-motion.png"
+motion_difference=$(
+    magick \
+        "$ARTIFACT_DIR/blur-static.png" \
+        "$ARTIFACT_DIR/blur-motion.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$motion_difference" \
+    'BEGIN { exit !(changed > 100000) }' ||
+    die "moving backdrop did not update through the uncached blur"
+
+send_background_command \
+    reset 0 0 0 "$BACKGROUND_WIDTH" "$BACKGROUND_HEIGHT"
+capture_output "$ARTIFACT_DIR/blur-before-localized.png"
+send_background_command localized 2 360 240 160 120
+capture_output "$ARTIFACT_DIR/blur-after-localized.png"
+blurred_difference_stats=$(
+    magick \
+        "$ARTIFACT_DIR/blur-before-localized.png" \
+        "$ARTIFACT_DIR/blur-after-localized.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h] %@' info:
+)
+read -r blurred_difference_pixels blurred_difference_bounds \
+    <<<"$blurred_difference_stats"
+[[ "$blurred_difference_bounds" =~ ^([0-9]+)x([0-9]+)[+]([0-9]+)[+]([0-9]+)$ ]] ||
+    die "unable to locate the blurred localized update"
+blurred_diff_width=${BASH_REMATCH[1]}
+blurred_diff_height=${BASH_REMATCH[2]}
+awk \
+    -v changed="$blurred_difference_pixels" \
+    -v width="$blurred_diff_width" \
+    -v height="$blurred_diff_height" \
+    'BEGIN {
+        exit !(changed > 1000 && width > 160 && height > 120)
+    }' ||
+    die "localized backdrop update was not expanded by the blur kernel"
+
 send_background_command stress "$STRESS_FRAMES" 360 240 160 120
 capture_output "$ARTIFACT_DIR/after-buffer-reuse.png"
+
+overlap_ready="$TEST_ROOT/blur-overlap.ready"
+env -u LD_PRELOAD \
+    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+    WAYLAND_DISPLAY="$socket" \
+    "$FIXTURE_BIN" blur "$overlap_ready" \
+    >"$OVERLAP_LOG" 2>&1 &
+OVERLAP_PID=$!
+for _ in $(seq 1 240); do
+    [ -f "$overlap_ready" ] && break
+    kill -0 "$OVERLAP_PID" 2>/dev/null || {
+        cat "$OVERLAP_LOG" >&2
+        die "overlapping blur fixture exited before mapping"
+    }
+    sleep 0.05
+done
+[ -f "$overlap_ready" ] || die "overlapping blur fixture did not map"
+capture_output "$ARTIFACT_DIR/blur-overlap.png"
+overlap_difference=$(
+    magick \
+        "$ARTIFACT_DIR/after-buffer-reuse.png" \
+        "$ARTIFACT_DIR/blur-overlap.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$overlap_difference" \
+    'BEGIN { exit !(changed > 1000) }' ||
+    die "the overlapping blur window did not change the composited output"
 output_request '{"op":"list"}' | jq . >"$ARTIFACT_DIR/output.json"
 
 env -u LD_PRELOAD \
@@ -437,6 +563,18 @@ rounded_counts=$(
 }
 read -r texture_draws rect_draws normal_draws swapchain_draws explicit_sync_draws \
     <<<"$rounded_counts"
+blur_counts=$(
+    sed -n \
+        's/.*destroyed Vulkan uncached blur after \([0-9][0-9]*\) checkpoints, \([0-9][0-9]*\) offscreen draws, and \([0-9][0-9]*\) composites.*/\1 \2 \3/p' \
+        "$COMPOSITOR_LOG" |
+        tail -1
+)
+[ -n "$blur_counts" ] || {
+    tail -120 "$COMPOSITOR_LOG" >&2
+    die "uncached blur teardown counts were not logged"
+}
+read -r blur_checkpoints blur_offscreen_draws blur_composites \
+    <<<"$blur_counts"
 total_draws=$((texture_draws + rect_draws))
 [ "$total_draws" -ge "$STRESS_FRAMES" ] ||
     die "rounded effects recorded fewer draws than the reuse stress"
@@ -448,6 +586,12 @@ total_draws=$((texture_draws + rect_draws))
     die "ordinary Output.renderAndCommit did not invoke rounded effects"
 [ "$swapchain_draws" -gt 0 ] ||
     die "OutputManager swapchain rendering did not invoke rounded effects"
+[ "$blur_checkpoints" -ge "$STRESS_FRAMES" ] ||
+    die "uncached blur recorded fewer checkpoints than the reuse stress"
+[ "$blur_composites" -eq "$blur_checkpoints" ] ||
+    die "not every uncached blur checkpoint produced a composite"
+[ "$blur_offscreen_draws" -eq $((blur_checkpoints * 17)) ] ||
+    die "uncached blur did not execute one downsample and sixteen separable draws per checkpoint"
 if [ "$REQUIRE_EXPLICIT_SYNC" = 1 ] &&
     [ "$explicit_sync_draws" -ne "$total_draws" ]; then
     die "not every rounded-effects draw used wlroots' explicit-sync timeline"
@@ -462,6 +606,11 @@ if grep -Eq 'Vulkan rounded (texture|rect) draw failed:' "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
     die "the Vulkan rounded-effects renderer reported a runtime failure"
 fi
+if grep -Eq 'Vulkan (uncached blur processing|backdrop blur) failed:' \
+    "$COMPOSITOR_LOG"; then
+    tail -160 "$COMPOSITOR_LOG" >&2
+    die "the Vulkan blur renderer reported a runtime failure"
+fi
 
 {
     printf 'wlroots_library=%s\n' "$wlroots_library"
@@ -473,6 +622,13 @@ fi
     printf 'normal_draws=%s\n' "$normal_draws"
     printf 'swapchain_draws=%s\n' "$swapchain_draws"
     printf 'explicit_sync_draws=%s\n' "$explicit_sync_draws"
+    printf 'blur_checkpoints=%s\n' "$blur_checkpoints"
+    printf 'blur_offscreen_draws=%s\n' "$blur_offscreen_draws"
+    printf 'blur_composites=%s\n' "$blur_composites"
+    printf 'blur_motion_changed_pixels=%s\n' "$motion_difference"
+    printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
+    printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"
+    printf 'blur_overlap_changed_pixels=%s\n' "$overlap_difference"
     printf 'rounded_outer_corner_max=%s\n' "$outer_corner"
     printf 'rounded_antialias_corner_max=%s\n' "$antialias_corner"
     printf 'rounded_inset_content_max=%s\n' "$inset_content"
@@ -488,4 +644,4 @@ fi
         xargs -0 sha256sum >SHA256SUMS
 )
 
-echo "PASS: rounded Vulkan effects survived both render paths, damage, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
+echo "PASS: rounded Vulkan effects and uncached blur survived both render paths, damage, motion, overlap, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"

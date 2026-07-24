@@ -1,6 +1,7 @@
 # Use a narrow wlroots Vulkan render hook
 
 Date: 2026-07-23
+Updated: 2026-07-24
 
 Status: accepted
 
@@ -34,7 +35,13 @@ The patch adds:
 - a Vulkan-only query for the active command buffer, compatible render pass,
   render extent, subpass, and presence of the output signal timeline; and
 - explicit force-blend flags for effect-bearing buffers and rectangles, so
-  transparent shader pixels do not incorrectly cull lower scene content.
+  transparent shader pixels do not incorrectly cull lower scene content;
+- render-begin and pre-node callbacks that preserve wlroots' bottom-to-top
+  scene traversal order; and
+- a Vulkan-only offscreen callback that forces wlroots' FP16 linear
+  intermediate, suspends the active pass after already-rendered content is
+  complete, exposes that image for sampling, and resumes the same command
+  buffer and pass with its contents preserved.
 
 Aqueous records its effect commands into that same command buffer and render
 pass. It uses wlroots' transformed destination box and damage clip. wlroots
@@ -64,9 +71,11 @@ and a CI job that builds Aqueous against the patched library.
 - The wlroots patch must be reviewed and rebased for every wlroots upgrade.
 - Direct scanout remains available when no visible custom effect requires
   composition.
-- Production blur still needs explicit scene-order checkpoints and
-  Aqueous-owned metadata; this decision establishes the command-recording seam
-  but does not implement blur.
+- Scene-ordered uncached blur uses the same submission, with one checkpoint
+  before the first rendered node in each blurred window tree.
+- The uncached implementation deliberately processes the full output and uses
+  Aqueous-owned half-resolution scratch images. Per-output content caching and
+  partial damage remain separate work.
 
 ## Validation
 
@@ -82,6 +91,13 @@ path, and all 8,232 with wlroots' output signal timeline. No Vulkan error or
 VUID was logged. The workstation did not have
 `VK_LAYER_KHRONOS_validation` installed, so the required validation-layer rerun
 remains open; the harness requires that layer by default.
+
+The uncached-blur extension completed a separate 64-frame hardware run with
+376 scene-ordered checkpoints, 6,392 offscreen draws, and 376 masked
+composites. Live backdrop motion, an expanded localized update, overlapping
+blurred windows, transformed fractional-scale output, explicit sync, and
+screencopy passed without a logged Vulkan error. Mixed-output and validation
+layer runs remain open.
 
 ## Rejected alternatives
 

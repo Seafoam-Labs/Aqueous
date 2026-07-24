@@ -654,9 +654,14 @@ pub fn commitOutputState(om: *OutputManager) void {
         for (states.items) |*state| {
             const output: *Output = @ptrCast(@alignCast(state.output.data));
             output.effects_swapchain_path = true;
+            const uncached_blur_damage =
+                output.prepareUncachedBlurDamage();
             const built = output.scene_output.?.buildState(&state.base, &.{
                 .swapchain = swapchain_manager.getSwapchain(state.output),
             });
+            if (built and uncached_blur_damage) {
+                output.setUncachedBlurDamage(&state.base);
+            }
             output.effects_swapchain_path = false;
             if (!built) {
                 log.err("failed to render scene for {s}", .{state.output.name});
