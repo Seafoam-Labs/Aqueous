@@ -6,6 +6,7 @@ const Scene = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const build_options = @import("build_options");
+const c = @import("c");
 const wlr = @import("wlroots");
 const zwlr = @import("wayland").server.zwlr;
 
@@ -152,8 +153,17 @@ pub const SaveableSurfaces = struct {
     }
 
     fn syncEnabled(surfaces: *const SaveableSurfaces) void {
-        surfaces.tree.node.setEnabled(surfaces.enabled and !surfaces.saved);
-        surfaces.saved_tree.node.setEnabled(surfaces.enabled and surfaces.saved);
+        // Zig 0.16 may pass a computed `true` to a C `_Bool` parameter as
+        // 0xff. Route these expressions through an integer C shim so wlroots
+        // always stores a canonical 0 or 1 in the scene node.
+        c.aqueous_scene_node_set_enabled(
+            @ptrCast(&surfaces.tree.node),
+            @intFromBool(surfaces.enabled and !surfaces.saved),
+        );
+        c.aqueous_scene_node_set_enabled(
+            @ptrCast(&surfaces.saved_tree.node),
+            @intFromBool(surfaces.enabled and surfaces.saved),
+        );
     }
 
     pub fn setEnabled(surfaces: *SaveableSurfaces, enabled: bool) void {

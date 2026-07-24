@@ -635,6 +635,11 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
     }
 
+    // The outline is a window-sized visual rectangle whose center is removed
+    // by the effects shader. Exclude it from hit-testing so the shader-only
+    // transparent area cannot block pointer focus on the client surface.
+    fx.setRectInputEnabled(window.border.rounded_outline, false);
+
     window.capture_scene.restack_xwayland_surfaces = false;
 
     try SceneNodeData.attach(&window.tree.node, .{ .window = window });
@@ -1989,7 +1994,7 @@ fn drawBorders(window: *Window) void {
 }
 
 fn applySurfaceClip(window: *Window, a: *const wlr.Box, b: *const wlr.Box) void {
-    var surface_clip: wlr.Box = undefined;
+    var surface_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     if (!a.empty() and !b.empty()) {
         if (!surface_clip.intersection(a, b)) {
             // Clip boxes are both non-empty but don't intersect, all window

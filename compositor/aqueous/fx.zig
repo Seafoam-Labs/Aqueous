@@ -78,7 +78,10 @@ pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
             return;
         };
         const c = @import("c");
-        c.wlr_scene_buffer_set_force_blend(@ptrCast(buffer), radius != 0);
+        c.wlr_scene_buffer_set_force_blend(
+            @ptrCast(buffer),
+            @intFromBool(radius != 0),
+        );
     }
 }
 
@@ -92,8 +95,16 @@ pub fn setRectRadius(rect: *wlr.SceneRect, radius: u31) void {
         const c = @import("c");
         c.wlr_scene_rect_set_force_blend(
             @ptrCast(rect),
-            metadata().rectData(rect) != null,
+            @intFromBool(metadata().rectData(rect) != null),
         );
+    }
+}
+
+/// Include or exclude a visual rectangle from scene hit-testing.
+pub fn setRectInputEnabled(rect: *wlr.SceneRect, enabled: bool) void {
+    if (comptime build_options.vulkan_effects) {
+        const c = @import("c");
+        c.wlr_scene_rect_set_input_enabled(@ptrCast(rect), @intFromBool(enabled));
     }
 }
 
@@ -110,7 +121,7 @@ pub fn setRectClippedRegion(
             return;
         };
         const c = @import("c");
-        c.wlr_scene_rect_set_force_blend(@ptrCast(rect), true);
+        c.wlr_scene_rect_set_force_blend(@ptrCast(rect), 1);
     }
 }
 
@@ -267,12 +278,12 @@ pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
         dst.setOpaqueRegion(&src.opaque_region);
         metadata().copyBufferData(dst, src) catch {
             std.log.err("could not copy scene-buffer effect metadata: out of memory", .{});
-            c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), false);
+            c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), 0);
             return;
         };
         c.wlr_scene_buffer_set_force_blend(
             @ptrCast(dst),
-            metadata().bufferData(dst) != null,
+            @intFromBool(metadata().bufferData(dst) != null),
         );
     }
 }

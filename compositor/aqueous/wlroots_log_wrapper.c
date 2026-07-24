@@ -8,6 +8,9 @@
 
 #include <wlr/util/log.h>
 
+struct wlr_scene_node;
+void wlr_scene_node_set_enabled(struct wlr_scene_node *node, _Bool enabled);
+
 #define BUFFER_SIZE 1024
 
 void river_wlroots_log_callback(enum wlr_log_importance importance, const char *ptr, size_t len);
@@ -42,4 +45,8 @@ static void callback(enum wlr_log_importance importance, const char *fmt, va_lis
 
 void river_init_wlroots_log(enum wlr_log_importance importance) {
 	wlr_log_init(importance, callback);
+}
+
+void aqueous_scene_node_set_enabled(struct wlr_scene_node *node, int enabled) {
+	wlr_scene_node_set_enabled(node, enabled != 0);
 }
