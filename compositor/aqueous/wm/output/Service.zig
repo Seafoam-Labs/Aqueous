@@ -3,6 +3,7 @@
 
 const Service = @This();
 const std = @import("std");
+const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 const linux = std.os.linux;
 const util = @import("../../util.zig");
@@ -357,6 +358,7 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
         spec.y = jsonInt(position.array.items[1]) orelse return null;
     }
     spec.adaptive_sync = jsonBool(object.get("adaptive_sync"));
+    spec.hdr = jsonBool(object.get("hdr"));
     if (spec.name.empty() and spec.edid.empty()) return null;
     return spec;
 }
@@ -417,6 +419,7 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
         if (spec.transform) |v| try writer.print("transform = \"{s}\"\n", .{configTransformName(v)});
         if (spec.x) |x| try writer.print("position = [{d}, {d}]\n", .{ x, spec.y.? });
         if (spec.adaptive_sync) |v| try writer.print("adaptive_sync = {}\n", .{v});
+        if (spec.hdr) |v| try writer.print("hdr = {}\n", .{v});
     }
     var tmp_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const tmp = try std.fmt.bufPrint(&tmp_buffer, "{s}.tmp", .{path});
@@ -535,6 +538,15 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "scale", state.scale);
         try field(json, "transform", OutputManager.transformName(state.transform));
         try field(json, "adaptive_sync", state.adaptive_sync);
+        try field(json, "hdr", state.hdr_enabled);
+        try field(json, "hdr_capable", Output.hdr.capable(wlr_output));
+        try field(json, "hdr_active", Output.hdr.active(wlr_output));
+        var format_buffer: [4]u8 = undefined;
+        try field(json, "render_format", Output.hdr.formatName(wlr_output.render_format, &format_buffer));
+        try json.objectField("supported_primaries");
+        try writeSupportedPrimaries(json, wlr_output.supported_primaries);
+        try json.objectField("supported_transfer_functions");
+        try writeSupportedTransferFunctions(json, wlr_output.supported_transfer_functions);
         try json.objectField("current_mode");
         try writeModeState(json, state);
         try json.objectField("modes");
@@ -581,12 +593,35 @@ fn optionalField(json: *std.json.Stringify, name: []const u8, value: ?[*:0]u8) !
     if (value) |text| try json.write(std.mem.span(text)) else try json.write(null);
 }
 
+fn writeSupportedPrimaries(json: *std.json.Stringify, mask: u32) !void {
+    try json.beginArray();
+    if (mask & @as(u32, @intCast(@intFromEnum(wlr.color.NamedPrimaries.srgb))) != 0) try json.write("srgb");
+    if (mask & @as(u32, @intCast(@intFromEnum(wlr.color.NamedPrimaries.bt2020))) != 0) try json.write("bt2020");
+    try json.endArray();
+}
+
+fn writeSupportedTransferFunctions(json: *std.json.Stringify, mask: u32) !void {
+    try json.beginArray();
+    const entries = .{
+        .{ wlr.color.TransferFunction.srgb, "srgb" },
+        .{ wlr.color.TransferFunction.st2084_pq, "st2084_pq" },
+        .{ wlr.color.TransferFunction.ext_linear, "ext_linear" },
+        .{ wlr.color.TransferFunction.gamma22, "gamma22" },
+        .{ wlr.color.TransferFunction.bt1886, "bt1886" },
+    };
+    inline for (entries) |entry| {
+        if (mask & @as(u32, @intCast(@intFromEnum(entry[0]))) != 0) try json.write(entry[1]);
+    }
+    try json.endArray();
+}
+
 fn sendApplyError(service: *Service, client: *Client, err: OutputManager.ApplyError) void {
     service.sendError(client, switch (err) {
         error.MissingMatcher => "missing 'name' or 'edid'",
         error.UnknownOutput => "unknown output or no valid wildcard matches",
         error.WildcardPosition => "position not allowed with wildcard name",
         error.ModeNotAdvertised => "mode not in availableModes",
+        error.HdrUnsupported => "HDR10 is not supported by the output, renderer, or 10-bit scanout path",
         error.InvalidCoordinates => "coordinates are incompatible with Xwayland",
         error.TooManyOutputs => "too many outputs",
     });
@@ -713,6 +748,7 @@ fn outputFingerprint() u64 {
         const transform: c_int = @intFromEnum(state.transform);
         hash.update(std.mem.asBytes(&transform));
         hash.update(std.mem.asBytes(&state.adaptive_sync));
+        hash.update(std.mem.asBytes(&state.hdr_enabled));
         switch (state.mode) {
             .standard => |mode| {
                 hash.update(std.mem.asBytes(&mode.width));

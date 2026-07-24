@@ -110,6 +110,7 @@ pub const ApplyError = error{
     UnknownOutput,
     WildcardPosition,
     ModeNotAdvertised,
+    HdrUnsupported,
     InvalidCoordinates,
     TooManyOutputs,
 };
@@ -119,6 +120,7 @@ pub const RejectionReason = enum {
     unknown_output,
     wildcard_position,
     mode_not_advertised,
+    hdr_unsupported,
     invalid_coordinates,
 };
 
@@ -166,6 +168,7 @@ pub fn rejectionMessage(reason: RejectionReason) []const u8 {
         .unknown_output => "no connected output matches the spec",
         .wildcard_position => "position is not allowed with a wildcard name",
         .mode_not_advertised => "mode is not advertised by the output",
+        .hdr_unsupported => "HDR10 is not supported by the output, renderer, or 10-bit scanout path",
         .invalid_coordinates => "coordinates are incompatible with Xwayland",
     };
 }
@@ -218,6 +221,7 @@ pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyErr
                 if (created) pending_count -= 1;
                 report.reject(spec_index, matcher_kind, matcher, std.mem.span(wlr_output.name), switch (err) {
                     error.ModeNotAdvertised => .mode_not_advertised,
+                    error.HdrUnsupported => .hdr_unsupported,
                     else => unreachable,
                 });
                 continue;
@@ -283,6 +287,10 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         state.position_source = .configuration;
     }
     if (spec.adaptive_sync) |adaptive_sync| state.adaptive_sync = adaptive_sync;
+    if (spec.hdr) |enabled| {
+        if (enabled and !Output.hdr.capable(wlr_output)) return error.HdrUnsupported;
+        state.hdr_enabled = enabled;
+    }
 }
 
 /// Shared with the in-process output service when resolving the configured
@@ -416,6 +424,7 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             });
             const previous = output.scheduled.state;
             var proposed: Output.State = .fromHeadState(&head.state);
+            proposed.hdr_enabled = output.scheduled.hdr_enabled;
             if (repair_initial_overlap) proposed.position_source = .automatic;
             output.scheduled = proposed;
             // Maintain power management state set with wlr-output-power-management-v1
@@ -613,6 +622,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             if (output.sent.state == .enabled) {
                 if (output.sent.scale != wlr_output.scale) break :blk true;
                 if (output.sent.transform != wlr_output.transform) break :blk true;
+                if (!Output.hdr.stateMatches(wlr_output, output.sent.hdr_enabled)) break :blk true;
             }
         }
         break :blk false;
@@ -637,7 +647,11 @@ pub fn commitOutputState(om: *OutputManager) void {
                 state.output = wlr_output;
                 state.base = wlr.Output.State.init();
 
-                output.sent.applyModeset(&state.base);
+                if (!output.sent.applyModeset(wlr_output, &state.base)) {
+                    log.err("failed to prepare HDR/color state for output {s}", .{wlr_output.name});
+                    om.modesetFailed();
+                    return;
+                }
             }
         }
 

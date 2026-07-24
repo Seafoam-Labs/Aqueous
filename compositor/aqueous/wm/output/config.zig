@@ -22,13 +22,14 @@ pub const Spec = struct {
     x: ?i32 = null,
     y: ?i32 = null,
     adaptive_sync: ?bool = null,
+    hdr: ?bool = null,
     /// Preferred output for compositor actions which do not yet have an
     /// explicitly selected output. Optional so later matching specs can clear
     /// a wildcard/default declaration with `primary = false`.
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null;
+        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null;
     }
 };
 
@@ -149,6 +150,10 @@ fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
         spec.valid = false;
         return;
     };
+    if (std.mem.eql(u8, key, "hdr")) spec.hdr = parseBool(value) orelse {
+        spec.valid = false;
+        return;
+    };
     if (std.mem.eql(u8, key, "primary")) spec.primary = parseBool(value) orelse {
         spec.valid = false;
         return;
@@ -237,6 +242,7 @@ test "output config parses display specs and profiles" {
         \\scale = 1.25
         \\transform = "flipped-90"
         \\adaptive_sync = true
+        \\hdr = true
         \\primary = true
         \\[[display.profile]]
         \\name = "safe"
@@ -247,6 +253,7 @@ test "output config parses display specs and profiles" {
     try std.testing.expectEqual(@as(u8, 1), snapshot.output_count);
     try std.testing.expectEqual(@as(i32, 143999), snapshot.outputs[0].mode.?.refresh_mhz.?);
     try std.testing.expectEqual(Transform.flipped_90, snapshot.outputs[0].transform.?);
+    try std.testing.expectEqual(true, snapshot.outputs[0].hdr.?);
     try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profile_count);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profiles[0].output_count);

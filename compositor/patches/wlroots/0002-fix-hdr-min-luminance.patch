@@ -1,0 +1,17 @@
+drm: encode HDR mastering minimum luminance in CTA-861 units
+
+wlr_output_image_description stores luminance in cd/m², while the DRM
+HDR_OUTPUT_METADATA property encodes minimum mastering luminance in units of
+0.0001 cd/m². Multiplying by 0.0001 truncates all normal values to zero; divide
+by the unit (multiply by 10000) instead.
+
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -236,6 +236,6 @@ static bool create_hdr_output_metadata_blob(struct wlr_drm_backend *drm,
+ 			},
+ 			.max_display_mastering_luminance = img_desc->mastering_luminance.max,
+-			.min_display_mastering_luminance = img_desc->mastering_luminance.min * 0.0001,
++			.min_display_mastering_luminance = img_desc->mastering_luminance.min * 10000,
+ 			.max_cll = img_desc->max_cll,
+ 			.max_fall = img_desc->max_fall,
+ 		},

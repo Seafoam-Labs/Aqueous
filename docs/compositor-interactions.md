@@ -397,10 +397,19 @@ matching specs into `Output.State`. `OutputManager.applySpecs()` stages the
 changes; the normal transaction performs output layout updates and an atomic
 backend commit.
 
-On success, output geometry, mode, scale, transform, adaptive sync, and enabled
-state become current together. On failure, Aqueous reverts scheduled state to
-the last working state. An initial modeset failure terminates the session
-instead of running indefinitely without a usable display.
+On success, output geometry, mode, scale, transform, adaptive sync, HDR, and
+enabled state become current together. On failure, Aqueous reverts scheduled
+state to the last working state. An initial modeset failure terminates the
+session instead of running indefinitely without a usable display.
+
+`hdr = true` selects the basic fixed HDR10 profile on a capable DRM output:
+10-bit scanout, BT.2020 primaries, and the ST 2084 PQ transfer function with
+static mastering metadata. The request is rejected unless the connector
+advertises BT.2020 and PQ, the renderer can perform output color transforms,
+and the primary scanout path supports a 10-bit format. Disabling HDR restores
+the normal 8-bit sRGB output profile. Per-surface mastering metadata, HLG,
+display-specific tone mapping, and ICC calibration are outside this basic
+profile.
 
 Hotplug creates or destroys native `Output` objects, reapplies configured
 policy, updates the output protocol, and broadcasts compatibility events.
@@ -424,6 +433,11 @@ a warning is logged.
 The Unix socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock` is hosted inside the
 compositor. It preserves the display-panel JSON contract without a separate
 `aqueous-outputd` process and accepts only same-UID peers.
+
+The output-service `set` and `save_profile` operations accept an optional
+boolean `hdr` field. Listed outputs report `hdr`, `hdr_capable`, `hdr_active`,
+the current DRM `render_format`, and arrays of supported primaries and transfer
+functions.
 
 Output specifications are validated independently. A setting rejected for one
 output (for example, an unavailable mode or a connector absent from the current

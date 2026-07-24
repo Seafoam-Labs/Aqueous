@@ -96,7 +96,10 @@ for _ in $(seq 1 200); do
     [ -S "$OUTPUT_SOCKET" ] && break
     sleep 0.05
 done
-[ -S "$OUTPUT_SOCKET" ] || die "output service did not create its socket"
+[ -S "$OUTPUT_SOCKET" ] || {
+    tail -120 "$COMPOSITOR_LOG" >&2
+    die "output service did not create its socket"
+}
 
 output_request() {
     printf '%s\n' "$1" | nc -U -N -w 3 "$OUTPUT_SOCKET" 2>/dev/null | head -1
@@ -105,6 +108,26 @@ output_request() {
 output_state=$(output_request '{"op":"list"}')
 OUTPUT_NAME=$(jq -r '.outputs[0].name // empty' <<<"$output_state")
 [ -n "$OUTPUT_NAME" ] || die "nested output was not reported"
+jq -e \
+    '.outputs[0] |
+     .hdr == false and
+     .hdr_capable == false and
+     .hdr_active == false and
+     (.render_format | type == "string") and
+     (.supported_primaries | type == "array") and
+     (.supported_transfer_functions | type == "array")' \
+    >/dev/null <<<"$output_state" ||
+    die "output service did not report the expected HDR capability fields"
+
+hdr_response=$(output_request \
+    "{\"op\":\"set\",\"changes\":[{\"name\":\"$OUTPUT_NAME\",\"hdr\":true}]}")
+jq -e \
+    '.ok == false and
+     .applied == 0 and
+     .rejected == 1 and
+     .outputs[0].hdr == false' \
+    >/dev/null <<<"$hdr_response" ||
+    die "non-DRM output did not reject HDR as unsupported: $hdr_response"
 
 mode_response=$(output_request \
     "{\"op\":\"set\",\"changes\":[{\"name\":\"$OUTPUT_NAME\",\"mode\":\"1920x1080\"}]}")
