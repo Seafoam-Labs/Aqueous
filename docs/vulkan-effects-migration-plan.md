@@ -22,15 +22,21 @@ that the stock render-pass API does not provide.
 ## Status
 
 The baseline tooling and Vulkan backend/context foundation are implemented as
-of 2026-07-23. The repository contains a deterministic three-window visual
-fixture, a nested SceneFX capture harness, opt-in scene timing and blur-cache
-event instrumentation, and an exact inventory of the current invalidation
-behavior.
+of 2026-07-23. The repository contains a deterministic effects fixture suite,
+a nested SceneFX capture harness, opt-in scene timing and blur-cache event
+instrumentation, and an exact inventory of the current invalidation behavior.
 
 The harness was validated by producing reference captures at 1920×1080,
 2560×1440, and 3840×2160. Generated artifacts include screencopies,
 output/window state, environment and dependency versions, timing summaries,
 logs, image statistics, and a portable checksum manifest.
+
+The harness also captures isolated square-corner and compositor-clipped
+variants, deterministic backdrop motion, a visible localized-damage control,
+and localized damage wholly behind blur. That final SceneFX capture records the
+known stale-cache behavior for ordinary-window damage. A custom Vulkan metrics
+schema and aggregator are present, but correctly produce no samples until the
+render seam owns real timestamp queries and the blur cache owns real counters.
 
 `-Dvulkan-effects=true` now selects and verifies wlroots' Vulkan renderer,
 borrows its Vulkan handles, reports physical-device capabilities, owns an empty
@@ -237,8 +243,10 @@ Overlapping blurred windows must follow scene order, not a global
 
 Estimate: 3–5 engineer-days.
 
-Status: baseline implementation and validation complete. Three comparison
-extensions remain scheduled before the rendering work that consumes them.
+Status: all baseline fixtures and comparisons that can be implemented before
+the custom render seam are complete. Custom GPU/cache measurement remains
+assigned to the Vulkan rendering and cache implementation that can own the
+underlying timestamp queries and counters.
 
 - [x] Record the exact wlroots, SceneFX, Zig, Wayland, kernel, Vulkan loader,
       Vulkan device, and driver versions.
@@ -256,18 +264,18 @@ extensions remain scheduled before the rendering work that consumes them.
 - [x] Confirm `-Dscenefx=false` remains a clean square/no-blur fallback, is not
       linked to SceneFX, passes unit tests, and passes the XDG fullscreen
       integration regression.
-- [ ] Add explicit square-corner and compositor-clipped visual variants before
+- [x] Add explicit square-corner and compositor-clipped visual variants before
       rounded-pipeline golden comparisons begin.
-- [ ] Add controlled backdrop motion and localized damage before cached-blur
+- [x] Add controlled backdrop motion and localized damage before cached-blur
       correctness work begins.
 - [ ] Capture true GPU duration and cache rebuild/hit counts from the custom
       Vulkan implementation, where timestamp queries and cache counters are
       owned by Aqueous.
 
 Exit condition: repeatable reference captures and timings exist before rendering
-code changes. This condition is met. The remaining visual variants are required
-before rounded-corner comparison, and true GPU/cache measurements are assigned
-to the code that can expose them accurately rather than inferred from SceneFX.
+code changes. This condition is met. The harness accepts real Vulkan GPU/cache
+samples without inventing SceneFX equivalents; populating those samples remains
+dependent on the rendering and cache code introduced in later phases.
 
 ### Phase 1 — Add backend selection and the Vulkan context
 
@@ -495,6 +503,9 @@ Current validation record:
 
 - `zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dscenefx=true`
 - `scripts/capture-effects-baseline.sh` at 1080p, 1440p, and 4K
+- The expanded capture passes at 1080p, 1440p, and 4K with square, clipped,
+  motion, visible localized-control, and behind-blur localized-damage artifacts;
+  every generated checksum verifies
 - `zig build test -Dllvm=true -Dscenefx=false`
 - `zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dscenefx=false`
 - `ldd zig-out/bin/aqueous` confirms no SceneFX dependency in the fallback build

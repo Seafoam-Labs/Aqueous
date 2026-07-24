@@ -30,3 +30,17 @@ x = 1120
 y = 460
 blur = false
 opacity = 0.72
+
+[[window]]
+app_id = "aqueous.effects.square"
+layout = "monocle"
+fullscreen = true
+blur = false
+opacity = 1.0
+
+[[window]]
+app_id = "aqueous.effects.clipped"
+layout = "scrolling"
+floating = false
+blur = true
+opacity = 1.0

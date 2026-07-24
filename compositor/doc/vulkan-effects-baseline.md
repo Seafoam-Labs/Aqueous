@@ -40,7 +40,14 @@ scripts/capture-effects-baseline.sh /tmp/aqueous-effects-reference
 ## Fixture
 
 The harness compiles `visual-effects-reference.c` against the system xdg-shell
-protocol and maps three fixed windows:
+protocol. It first captures two isolated geometry variants:
+
+| App ID | Geometry at 1920×1080 | Purpose | Compositor state |
+|---|---:|---|---|
+| `aqueous.effects.square` | 1920×1080 at 0,0 | Colored corner witnesses and an opaque gradient | Fullscreen, square corners, no blur |
+| `aqueous.effects.clipped` | 4600×1080 at 0,0 | Edge bars and 100-pixel rulers | Scrolling layout, clipped by the output, blur enabled |
+
+It then maps the three-window effects scene:
 
 | App ID | Geometry at 1920×1080 | Content | Compositor state |
 |---|---:|---|---|
@@ -52,9 +59,27 @@ The background has high spatial frequencies so blur errors, stale cache
 regions, clipping, and self-sampling are visually obvious. The alpha fixture
 separately exposes premultiplication and compositor-opacity errors.
 
+The background fixture also accepts sequenced control commands. Each update
+reuses a compositor-released SHM buffer, reports the exact buffer-local damage
+rectangle, and acknowledges only after a Wayland frame callback:
+
+| Command | Damage | Result |
+|---|---:|---|
+| `reset 0` | full 1760×920 | Restores the initial backdrop |
+| `motion 64` | full 1760×920 | Moves the checker/stripe phase deterministically |
+| `localized-control 1` | 160×120 at 120,240 | Visible witness outside the blur footprint |
+| `localized 1` | 160×120 at 360,240 | Patch wholly behind the blurred window |
+
+The SceneFX reference produces no visible difference for the final update.
+That is an intentional baseline result: ordinary-window damage does not dirty
+the optimized backdrop cache. The visible control update proves that buffer
+reuse, damage, frame synchronization, and screencopy are working before the
+stale-cache observation is recorded.
+
 Placement and visual policy come from:
 
 - `scripts/fixtures/visual-effects-wm.toml`
+- `scripts/fixtures/visual-effects-layout.toml`
 - `scripts/fixtures/visual-effects-rules.toml`
 
 ## Artifacts
@@ -64,11 +89,20 @@ Each capture directory contains:
 | Artifact | Contents |
 |---|---|
 | `reference-WIDTHxHEIGHT.png` | Final screencopy for the requested output mode |
+| `square-WIDTHxHEIGHT.png` | Fullscreen square-corner reference |
+| `clipped-WIDTHxHEIGHT.png` | Oversized compositor-clipped reference |
+| `motion-WIDTHxHEIGHT.png` | Deterministically moved backdrop reference |
+| `localized-control-WIDTHxHEIGHT.png` | Visible localized-damage witness |
+| `localized-damage-WIDTHxHEIGHT.png` | Localized update wholly behind blur |
+| `localized-*-diff-WIDTHxHEIGHT.{png,txt}` | Difference image, exact changed-pixel count, and bounds |
 | `image-WIDTHxHEIGHT.txt` | Image dimensions and mean RGBA channels |
 | `render-WIDTHxHEIGHT.log` | Render metrics observed during warmup and capture |
 | `render-summary.tsv` | Minimum, mean, and maximum CPU/GPU timing values |
+| `vulkan-effects-summary.tsv` | Custom GPU timing and cache counters, or explicit no-sample values |
+| `background-controls.log` | Sequenced operations and acknowledged damage rectangles |
 | `output-WIDTHxHEIGHT.json` | Output state at capture time |
 | `windows.json` | Enumerated window identities, geometry, layout, and states |
+| `windows-{square,clipped}-WIDTHxHEIGHT.json` | Geometry and state proof for isolated variants |
 | `environment.txt` | Git state, binary version, dependency versions, kernel, and Vulkan devices |
 | `compositor.log` | Complete compositor log |
 | `clients/*.log` | Per-fixture diagnostics |
@@ -93,6 +127,13 @@ following `blur-cache` events are request-side measurements:
 
 These events are suitable for comparing invalidation behavior, but must not be
 reported as measured GPU cache rebuilds.
+
+The custom implementation will emit `kind=vulkan-effects` only after a valid
+Vulkan timestamp result exists. Each sample owns its cache hit, partial rebuild,
+full rebuild, and processed-pixel counters. The harness already aggregates
+those samples into `vulkan-effects-summary.tsv`; the SceneFX baseline therefore
+contains zero samples and `-1` GPU durations instead of inferred or fabricated
+values.
 
 ## Current blur invalidation behavior
 

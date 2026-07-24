@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -21,12 +22,17 @@ enum role {
     ROLE_BACKGROUND,
     ROLE_BLUR,
     ROLE_ALPHA,
+    ROLE_SQUARE,
+    ROLE_CLIPPED,
 };
 
 struct owned_buffer {
     struct wl_buffer *buffer;
     void *pixels;
     size_t size;
+    int32_t width;
+    int32_t height;
+    bool released;
 };
 
 struct app {
@@ -41,6 +47,17 @@ struct app {
     size_t buffer_count;
     enum role role;
     const char *ready_path;
+    const char *control_dir;
+    struct owned_buffer *active_buffer;
+    struct wl_callback *control_frame;
+    uint64_t last_control_sequence;
+    uint64_t pending_control_sequence;
+    char pending_control_operation[32];
+    int32_t pending_damage_x;
+    int32_t pending_damage_y;
+    int32_t pending_damage_width;
+    int32_t pending_damage_height;
+    int32_t motion_phase;
     int32_t pending_width;
     int32_t pending_height;
     int32_t width;
@@ -57,6 +74,10 @@ static const char *role_name(enum role role) {
             return "blur";
         case ROLE_ALPHA:
             return "alpha";
+        case ROLE_SQUARE:
+            return "square";
+        case ROLE_CLIPPED:
+            return "clipped";
     }
     return "unknown";
 }
@@ -69,6 +90,10 @@ static const char *app_id(enum role role) {
             return "aqueous.effects.blur";
         case ROLE_ALPHA:
             return "aqueous.effects.alpha";
+        case ROLE_SQUARE:
+            return "aqueous.effects.square";
+        case ROLE_CLIPPED:
+            return "aqueous.effects.clipped";
     }
     return "aqueous.effects.unknown";
 }
@@ -87,6 +112,14 @@ static void default_size(enum role role, int32_t *width, int32_t *height) {
             *width = 560;
             *height = 360;
             break;
+        case ROLE_SQUARE:
+            *width = 960;
+            *height = 640;
+            break;
+        case ROLE_CLIPPED:
+            *width = 4600;
+            *height = 900;
+            break;
     }
 }
 
@@ -101,6 +134,14 @@ static bool parse_role(const char *text, enum role *role) {
     }
     if (strcmp(text, "alpha") == 0) {
         *role = ROLE_ALPHA;
+        return true;
+    }
+    if (strcmp(text, "square") == 0) {
+        *role = ROLE_SQUARE;
+        return true;
+    }
+    if (strcmp(text, "clipped") == 0) {
+        *role = ROLE_CLIPPED;
         return true;
     }
     return false;
@@ -135,11 +176,16 @@ static uint32_t argb(uint8_t alpha, uint8_t red, uint8_t green, uint8_t blue) {
     return ((uint32_t)alpha << 24) | (r << 16) | (g << 8) | b;
 }
 
-static void paint_background(uint32_t *pixels, int32_t width, int32_t height) {
+static void paint_background(
+    uint32_t *pixels,
+    int32_t width,
+    int32_t height,
+    int32_t phase) {
     for (int32_t y = 0; y < height; y++) {
         for (int32_t x = 0; x < width; x++) {
-            const int checker = ((x / 32) + (y / 32)) & 1;
-            const int stripe = ((x + y * 2) / 18) & 3;
+            const int shifted_x = x + phase;
+            const int checker = ((shifted_x / 32) + (y / 32)) & 1;
+            const int stripe = ((shifted_x + y * 2) / 18) & 3;
             uint8_t red = checker ? 28 : 220;
             uint8_t green = checker ? 170 : 38;
             uint8_t blue = stripe < 2 ? 235 : 52;
@@ -153,6 +199,26 @@ static void paint_background(uint32_t *pixels, int32_t width, int32_t height) {
             }
             pixels[(size_t)y * (size_t)width + (size_t)x] =
                 argb(255, red, green, blue);
+        }
+    }
+}
+
+static void paint_localized_patch(
+    uint32_t *pixels,
+    int32_t width,
+    int32_t height,
+    int32_t left,
+    int32_t top,
+    int32_t generation) {
+    const int32_t right = left + 160 < width ? left + 160 : width;
+    const int32_t bottom = top + 120 < height ? top + 120 : height;
+    for (int32_t y = top; y < bottom; y++) {
+        for (int32_t x = left; x < right; x++) {
+            const bool alternate = (((x - left) / 8) + ((y - top) / 8) +
+                generation) % 2 == 0;
+            pixels[(size_t)y * (size_t)width + (size_t)x] = alternate
+                ? argb(255, 255, 245, 32)
+                : argb(255, 184, 20, 238);
         }
     }
 }
@@ -190,8 +256,68 @@ static void paint_alpha(uint32_t *pixels, int32_t width, int32_t height) {
     }
 }
 
+static void paint_square(uint32_t *pixels, int32_t width, int32_t height) {
+    for (int32_t y = 0; y < height; y++) {
+        for (int32_t x = 0; x < width; x++) {
+            const bool left = x < 48;
+            const bool right = x >= width - 48;
+            const bool top = y < 48;
+            const bool bottom = y >= height - 48;
+            uint8_t red = (uint8_t)((x * 180) / (width > 1 ? width - 1 : 1));
+            uint8_t green = (uint8_t)((y * 180) / (height > 1 ? height - 1 : 1));
+            uint8_t blue = 72;
+            if (left && top) {
+                red = 255;
+                green = 32;
+                blue = 32;
+            } else if (right && top) {
+                red = 32;
+                green = 255;
+                blue = 32;
+            } else if (left && bottom) {
+                red = 32;
+                green = 96;
+                blue = 255;
+            } else if (right && bottom) {
+                red = 255;
+                green = 240;
+                blue = 32;
+            }
+            pixels[(size_t)y * (size_t)width + (size_t)x] =
+                argb(255, red, green, blue);
+        }
+    }
+}
+
+static void paint_clipped(uint32_t *pixels, int32_t width, int32_t height) {
+    for (int32_t y = 0; y < height; y++) {
+        for (int32_t x = 0; x < width; x++) {
+            const bool edge = x < 36 || y < 36 ||
+                x >= width - 36 || y >= height - 36;
+            const bool ruler = x % 100 < 4 || y % 100 < 4;
+            uint8_t red = edge ? 250 : (ruler ? 240 : 28);
+            uint8_t green = edge ? 110 : (ruler ? 240 : 64);
+            uint8_t blue = edge ? 24 : (ruler ? 240 : 178);
+            pixels[(size_t)y * (size_t)width + (size_t)x] =
+                argb(255, red, green, blue);
+        }
+    }
+}
+
+static void buffer_release(
+    void *data,
+    struct wl_buffer *buffer) {
+    (void)buffer;
+    struct owned_buffer *owned = data;
+    owned->released = true;
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+    .release = buffer_release,
+};
+
 static bool attach_buffer(struct app *app, int32_t width, int32_t height) {
-    if (width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+    if (width <= 0 || height <= 0 || width > 8192 || height > 8192 ||
         app->buffer_count >= sizeof(app->buffers) / sizeof(app->buffers[0])) {
         return false;
     }
@@ -227,7 +353,7 @@ static bool attach_buffer(struct app *app, int32_t width, int32_t height) {
 
     switch (app->role) {
         case ROLE_BACKGROUND:
-            paint_background(pixels, width, height);
+            paint_background(pixels, width, height, app->motion_phase);
             break;
         case ROLE_BLUR:
             paint_blur(pixels, width, height);
@@ -235,19 +361,162 @@ static bool attach_buffer(struct app *app, int32_t width, int32_t height) {
         case ROLE_ALPHA:
             paint_alpha(pixels, width, height);
             break;
+        case ROLE_SQUARE:
+            paint_square(pixels, width, height);
+            break;
+        case ROLE_CLIPPED:
+            paint_clipped(pixels, width, height);
+            break;
     }
 
-    app->buffers[app->buffer_count++] = (struct owned_buffer){
+    struct owned_buffer *owned = &app->buffers[app->buffer_count++];
+    *owned = (struct owned_buffer){
         .buffer = buffer,
         .pixels = pixels,
         .size = size,
+        .width = width,
+        .height = height,
     };
+    wl_buffer_add_listener(buffer, &buffer_listener, owned);
     xdg_surface_set_window_geometry(app->xdg_surface, 0, 0, width, height);
     wl_surface_attach(app->surface, buffer, 0, 0);
     wl_surface_damage_buffer(app->surface, 0, 0, width, height);
     wl_surface_commit(app->surface);
     app->width = width;
     app->height = height;
+    app->active_buffer = owned;
+    return true;
+}
+
+static bool publish_control_ack(
+    struct app *app,
+    uint64_t sequence,
+    const char *operation,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height) {
+    char path[PATH_MAX];
+    const int length = snprintf(path, sizeof(path), "%s/ack", app->control_dir);
+    if (length < 0 || (size_t)length >= sizeof(path)) return false;
+    FILE *file = fopen(path, "w");
+    if (file == NULL) return false;
+    const int written = fprintf(
+        file,
+        "%llu %s %d %d %d %d\n",
+        (unsigned long long)sequence,
+        operation,
+        x,
+        y,
+        width,
+        height);
+    bool ok = written > 0;
+    if (fclose(file) != 0) ok = false;
+    return ok;
+}
+
+static void control_frame_done(
+    void *data,
+    struct wl_callback *callback,
+    uint32_t callback_data) {
+    (void)callback_data;
+    struct app *app = data;
+    wl_callback_destroy(callback);
+    app->control_frame = NULL;
+    app->last_control_sequence = app->pending_control_sequence;
+    if (!publish_control_ack(
+            app,
+            app->pending_control_sequence,
+            app->pending_control_operation,
+            app->pending_damage_x,
+            app->pending_damage_y,
+            app->pending_damage_width,
+            app->pending_damage_height)) {
+        fail(app, "unable to publish control acknowledgement");
+    }
+}
+
+static const struct wl_callback_listener control_frame_listener = {
+    .done = control_frame_done,
+};
+
+static bool process_control(struct app *app) {
+    if (app->control_dir == NULL || app->active_buffer == NULL ||
+        !app->active_buffer->released || app->control_frame != NULL) {
+        return true;
+    }
+
+    char path[PATH_MAX];
+    const int length = snprintf(path, sizeof(path), "%s/command", app->control_dir);
+    if (length < 0 || (size_t)length >= sizeof(path)) return false;
+    FILE *file = fopen(path, "r");
+    if (file == NULL) return errno == ENOENT;
+
+    unsigned long long sequence_value = 0;
+    char operation[32];
+    int32_t value = 0;
+    const int fields = fscanf(file, "%llu %31s %d", &sequence_value, operation, &value);
+    const int close_result = fclose(file);
+    if (fields != 3 || close_result != 0) return false;
+    const uint64_t sequence = (uint64_t)sequence_value;
+    if (sequence <= app->last_control_sequence) return true;
+
+    struct owned_buffer *owned = app->active_buffer;
+    int32_t damage_x = 0;
+    int32_t damage_y = 0;
+    int32_t damage_width = owned->width;
+    int32_t damage_height = owned->height;
+    if (strcmp(operation, "motion") == 0) {
+        app->motion_phase = value;
+        paint_background(
+            owned->pixels,
+            owned->width,
+            owned->height,
+            app->motion_phase);
+    } else if (strcmp(operation, "localized-control") == 0 ||
+        strcmp(operation, "localized") == 0) {
+        damage_x = strcmp(operation, "localized-control") == 0 ? 120 : 360;
+        damage_y = 240;
+        damage_width = 160;
+        damage_height = 120;
+        paint_localized_patch(
+            owned->pixels,
+            owned->width,
+            owned->height,
+            damage_x,
+            damage_y,
+            value);
+    } else if (strcmp(operation, "reset") == 0) {
+        app->motion_phase = 0;
+        paint_background(owned->pixels, owned->width, owned->height, 0);
+    } else {
+        return false;
+    }
+
+    owned->released = false;
+    wl_surface_attach(app->surface, owned->buffer, 0, 0);
+    wl_surface_damage_buffer(
+        app->surface,
+        damage_x,
+        damage_y,
+        damage_width,
+        damage_height);
+    app->control_frame = wl_surface_frame(app->surface);
+    if (app->control_frame == NULL) return false;
+    wl_callback_add_listener(
+        app->control_frame,
+        &control_frame_listener,
+        app);
+    app->pending_control_sequence = sequence;
+    memcpy(
+        app->pending_control_operation,
+        operation,
+        strlen(operation) + 1);
+    app->pending_damage_x = damage_x;
+    app->pending_damage_y = damage_y;
+    app->pending_damage_width = damage_width;
+    app->pending_damage_height = damage_height;
+    wl_surface_commit(app->surface);
     return true;
 }
 
@@ -363,14 +632,21 @@ static const struct xdg_surface_listener surface_listener = {
 };
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s ROLE READY_FILE\n", argv[0]);
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "usage: %s ROLE READY_FILE [CONTROL_DIR]\n", argv[0]);
         return 2;
     }
 
-    struct app app = { .ready_path = argv[2] };
+    struct app app = {
+        .ready_path = argv[2],
+        .control_dir = argc == 4 ? argv[3] : NULL,
+    };
     if (!parse_role(argv[1], &app.role)) {
         fprintf(stderr, "unknown role: %s\n", argv[1]);
+        return 2;
+    }
+    if (app.control_dir != NULL && app.role != ROLE_BACKGROUND) {
+        fputs("CONTROL_DIR is only supported for the background role\n", stderr);
         return 2;
     }
 
@@ -393,6 +669,9 @@ int main(int argc, char **argv) {
     xdg_surface_add_listener(app.xdg_surface, &surface_listener, &app);
     app.toplevel = xdg_surface_get_toplevel(app.xdg_surface);
     xdg_toplevel_add_listener(app.toplevel, &toplevel_listener, &app);
+    if (app.role == ROLE_CLIPPED) {
+        xdg_toplevel_set_min_size(app.toplevel, 4600, 600);
+    }
 
     char title[96];
     const int title_length = snprintf(
@@ -405,12 +684,45 @@ int main(int argc, char **argv) {
     xdg_toplevel_set_app_id(app.toplevel, app_id(app.role));
     wl_surface_commit(app.surface);
 
-    while (!app.failed && wl_display_dispatch(app.display) >= 0) {}
+    if (app.control_dir == NULL) {
+        while (!app.failed && wl_display_dispatch(app.display) >= 0) {}
+    } else {
+        const int display_fd = wl_display_get_fd(app.display);
+        while (!app.failed) {
+            if (wl_display_dispatch_pending(app.display) < 0) {
+                break;
+            }
+            if (wl_display_flush(app.display) < 0 && errno != EAGAIN) break;
+            struct pollfd descriptor = {
+                .fd = display_fd,
+                .events = POLLIN,
+            };
+            const int poll_result = poll(&descriptor, 1, 20);
+            if (poll_result < 0) {
+                if (errno == EINTR) continue;
+                fail(&app, "poll failed");
+                break;
+            }
+            if (poll_result > 0) {
+                if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                    break;
+                }
+                if ((descriptor.revents & POLLIN) != 0 &&
+                    wl_display_dispatch(app.display) < 0) {
+                    break;
+                }
+            }
+            if (!process_control(&app)) {
+                fail(&app, "unable to process control command");
+            }
+        }
+    }
 
     for (size_t index = 0; index < app.buffer_count; index++) {
         wl_buffer_destroy(app.buffers[index].buffer);
         (void)munmap(app.buffers[index].pixels, app.buffers[index].size);
     }
+    if (app.control_frame != NULL) wl_callback_destroy(app.control_frame);
     xdg_toplevel_destroy(app.toplevel);
     xdg_surface_destroy(app.xdg_surface);
     wl_surface_destroy(app.surface);

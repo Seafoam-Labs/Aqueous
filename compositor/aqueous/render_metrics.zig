@@ -66,3 +66,26 @@ pub fn recordBlurCache(event: BlurCacheEvent) void {
     if (!enabled()) return;
     std.log.info("render-metric kind=blur-cache event={s}", .{@tagName(event)});
 }
+
+pub const VulkanEffectsSample = struct {
+    gpu_duration_ns: u64,
+    cache_hits: u32,
+    cache_partial_rebuilds: u32,
+    cache_full_rebuilds: u32,
+    pixels_processed: u64,
+
+    pub fn record(sample: VulkanEffectsSample, output_name: []const u8) void {
+        if (!enabled()) return;
+        std.log.info(
+            "render-metric kind=vulkan-effects output={s} duration_ns={d} cache_hits={d} cache_partial_rebuilds={d} cache_full_rebuilds={d} pixels_processed={d}",
+            .{
+                output_name,
+                sample.gpu_duration_ns,
+                sample.cache_hits,
+                sample.cache_partial_rebuilds,
+                sample.cache_full_rebuilds,
+                sample.pixels_processed,
+            },
+        );
+    }
+};
