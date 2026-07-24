@@ -17,11 +17,8 @@
 #ifdef RIVER_VULKAN_EFFECTS
 #include <vulkan/vulkan_core.h>
 #include <wlr/render/vulkan.h>
-#endif
-
-#ifdef RIVER_VULKAN_RENDER_PROBE
 #include <wlr/types/wlr_scene.h>
-#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 1
-#error "The Vulkan render probe requires the pinned Aqueous wlroots render hook"
+#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 2
+#error "Vulkan effects require the pinned Aqueous wlroots render hook"
 #endif
 #endif

@@ -44,15 +44,12 @@ pipeline cache and fence-backed retirement queue, and follows initial startup,
 normal teardown, and renderer-loss recreation. A nested RTX 5090 run completed
 an atomic 1920×1080 modeset, screencopy, and clean context teardown.
 
-The render-seam decision is accepted and implemented as an opt-in probe. A
-pinned wlroots 0.20.2 patch exposes a narrow scene-buffer callback and the
-active Vulkan pass; Aqueous records its rounded draw into wlroots' command
-buffer without creating a renderer, device, queue, or second submission. The
-full runtime harness recorded 4,110 draws, including 3 through the
-OutputManager swapchain path and 4,107 through ordinary output rendering. All
-4,110 used wlroots' output signal timeline. Screencopy, exact localized damage,
-a 1.25 fractional scale, a 90-degree transform, and 4,096 releases and reuses
-of one SHM buffer passed.
+The render-seam decision is accepted and implemented in the production
+Vulkan-effects build. A pinned wlroots 0.20.2 patch exposes narrow texture and
+rectangle replacement callbacks plus the active Vulkan pass; Aqueous records
+into wlroots' command buffer without creating a renderer, device, queue, or
+second submission. The original probe established synchronization and capture
+behavior before the production pipelines replaced it.
 
 The current workstation still does not expose
 `VK_LAYER_KHRONOS_validation`. The harness rejects validation messages and
@@ -68,6 +65,21 @@ invalidation. The existing `fx.zig` entry points route to either SceneFX or the
 Aqueous registry, while saved and animation snapshot buffers preserve metadata
 through their existing copy path. The metadata registry survives renderer-loss
 context replacement and is torn down after the scene graph.
+
+Rounded corners and decoration outlines are now rendered by Aqueous-owned
+Vulkan pipelines. The production seam replaces wlroots texture and rectangle
+draws after wlroots prepares the source descriptor, sampling state, transform,
+color metadata, clip, and synchronization. CPU-side radii are scale-correct and
+clamped, fragment coverage is premultiplied and antialiased, and one SDF
+subtracts the inner rounded shape from the outer shape for seamless outlines.
+
+The nested RTX 5090 production run passed 4,096 reused-buffer frames at scales
+1, 1.25, 1.5, and 2 with 90°, 180°, and 270° rotations. It recorded 4,116
+rounded-texture draws and 4,116 rounded-rect draws: 8,222 through normal output
+rendering, 10 through OutputManager swapchain rendering, and all 8,232 on
+wlroots' explicit-sync output timeline. The localized update remained exactly
+`160x120+440+320`. A validation-layer rerun and a formal SceneFX golden-image
+tolerance comparison remain open validation items.
 
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
@@ -130,8 +142,8 @@ Call-site replacements are intentionally small:
 |---|---|
 | `Window.zig` | Done: `backdrop_blur` is a typed backend handle and retains the existing geometry and enable logic |
 | `Scene.zig` | Done: saved and animation buffers copy Aqueous effect metadata through `fx.copyBufferFx` |
-| `Output.zig` | Typed `OutputBlurCache` ownership is done; the effect-aware frame builder remains |
-| `OutputManager.zig` | Use the same effect-aware frame builder for atomic modesets |
+| `Output.zig` | Done for rounded effects: installs texture/rect replacement hooks, resolves scale/transform/clip geometry, and shares the pipeline with normal frames |
+| `OutputManager.zig` | Done for rounded effects: atomic modesets use the same hooks and record their swapchain path |
 | `WindowManager.zig` | Done for metadata: store generation-tracked blur configuration and invalidate output caches |
 | `LayerSurface.zig` | Keep the existing background-change invalidation call |
 | `Server.zig` | Done: own metadata across renderer-loss recovery, destroy it after the scene, and independently replace the Vulkan context |
@@ -153,10 +165,11 @@ compositor/
 │       ├── BlurCache.zig              per-output images, damage, generations, and lifetime
 │       ├── DeferredDestroy.zig        fence/timeline-safe Vulkan resource retirement
 │       └── shaders/
-│           ├── fullscreen_triangle.vert
+│           ├── rounded_texture.vert
 │           ├── rounded_texture.frag
-│           ├── rounded_solid.frag
-│           ├── rounded_outline.frag
+│           ├── rounded_rect.vert
+│           ├── rounded_rect.frag
+│           ├── fullscreen_triangle.vert
 │           ├── blur_downsample.frag
 │           ├── blur_horizontal.frag
 │           ├── blur_vertical.frag
@@ -204,7 +217,7 @@ compositor/
         └── exit-session.c
 ```
 
-Render-seam support now present:
+Rounded render-seam support now present:
 
 ```text
 .github/workflows/
@@ -212,10 +225,12 @@ Render-seam support now present:
 compositor/
 ├── aqueous/
 │   └── render/
-│       ├── RenderProbe.zig
+│       ├── RoundedPipeline.zig
 │       └── shaders/
-│           ├── render_probe.vert
-│           └── render_probe.frag
+│           ├── rounded_texture.vert
+│           ├── rounded_texture.frag
+│           ├── rounded_rect.vert
+│           └── rounded_rect.frag
 ├── patches/
 │   └── wlroots/
 │       └── 0001-aqueous-vulkan-render-hook.patch
@@ -352,7 +367,7 @@ Implementation record:
 
 Treat the queried timeline-semaphore and synchronization2 values as physical
 device support only. They do not prove that wlroots enabled those features when
-creating the borrowed logical device. The render-seam probe therefore does not
+creating the borrowed logical device. The effects renderer therefore does not
 issue Aqueous-owned timeline, synchronization2, command-buffer, or queue
 operations. It records into wlroots' active pass, whose output signal timeline
 was present on every tested draw. Fence submission remains the only
@@ -390,9 +405,9 @@ Implementation record:
 
 | Area | Result |
 |---|---|
-| Seam | Scene-buffer callback runs after wlroots' ordinary texture draw while the same Vulkan pass is active |
+| Seam | wlroots prepares the texture descriptor and render state, then a one-shot callback may replace the stock draw in the same active pass; rectangles have a matching replacement hook |
 | Vulkan ownership | Aqueous borrows wlroots handles and records into its command buffer; no second submission is created |
-| Pipeline safety | Requesting pass attributes invalidates wlroots' cached pipeline binding, forcing the next wlroots draw to rebind |
+| Pipeline safety | Custom draws invalidate wlroots' cached pipeline binding, and wlroots retains common texture lifetime, damage, and synchronization bookkeeping |
 | Output paths | Final counters recorded 4,107 normal draws and 3 OutputManager swapchain draws |
 | Coordinates and damage | wlroots supplies the transformed destination and clip; the localized case changed exactly 19,200 pixels in `160x120+440+320` |
 | Synchronization | All 4,110 recorded draws were part of a pass with wlroots' output signal timeline |
@@ -428,19 +443,29 @@ generation rejection, cache invalidation, and forced cleanup coverage.
 
 Estimate: 2–3 weeks.
 
-- [ ] Implement a scale-correct signed-distance rounded-rectangle mask.
-- [ ] Add premultiplied-alpha antialiasing for client textures.
-- [ ] Respect source boxes, destination sizes, transforms, clips, opacity,
+Status: implementation and functional real-GPU validation complete. The
+production pipeline passes normal and swapchain rendering, screencopy, exact
+localized damage, scales 1, 1.25, 1.5, and 2, rotations 90°, 180°, and 270°,
+explicit synchronization, and 4,096 buffer reuse cycles. The Khronos validation
+layer and formal SceneFX golden-image tolerance comparison remain pending.
+
+- [x] Implement a scale-correct signed-distance rounded-rectangle mask.
+- [x] Add premultiplied-alpha antialiasing for client textures.
+- [x] Respect source boxes, destination sizes, transforms, clips, opacity,
       sampling mode, and color metadata.
-- [ ] Clamp radii to half the short side exactly once in CPU-side metadata.
-- [ ] Implement rounded solid rects.
-- [ ] Implement the hollow outline as outer SDF minus inner SDF so no seam appears.
-- [ ] Ensure a clipped window edge becomes square, matching current behavior.
-- [ ] Ensure hit testing and opaque regions remain based on the normal scene graph.
-- [ ] Disable direct scanout only when a visible effect actually requires composition.
+- [x] Clamp radii to half the short side exactly once in CPU-side metadata.
+- [x] Implement rounded solid rects.
+- [x] Implement the hollow outline as outer SDF minus inner SDF so no seam appears.
+- [x] Ensure a clipped window edge becomes square, matching current behavior.
+- [x] Ensure hit testing and client opaque-region metadata remain based on the
+      normal scene graph; only effect-bearing nodes are forced through blending
+      so transparent shader pixels cannot cull content below.
+- [x] Disable direct scanout only when a visible effect actually requires composition.
 
 Exit condition: reference captures match within an agreed pixel tolerance at
-1×, 1.25×, 1.5×, and 2× scale, including rotated outputs.
+1×, 1.25×, 1.5×, and 2× scale, including rotated outputs. The scale/rotation
+matrix and exact pixel assertions pass; closing this condition still requires
+recording the agreed SceneFX comparison tolerance.
 
 ### Phase 5 — Implement correct uncached backdrop blur
 
@@ -577,8 +602,9 @@ Current validation record:
 - `scripts/test-xdg-fullscreen.sh` passes against the fallback build
 - All capture artifacts pass `SHA256SUMS`
 - `zig build test`
-- Phase 3 validation: `zig build test -Dcpu=baseline --summary all` passes
-  157/157 tests, including the four effect-metadata lifecycle tests
+- Phase 4 validation: `zig build test -Dcpu=baseline --summary all` passes
+  158/158 tests, including effect-metadata lifecycle and CPU radius-clamping
+  coverage
 - `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
   -Doptimize=ReleaseSafe`
 - `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline
@@ -594,16 +620,20 @@ Current validation record:
   Vulkan 1.4.341, including a 1920×1080 atomic modeset, screencopy, and clean
   context teardown
 - `scripts/build-wlroots-render-hook.sh` reproduces the patched wlroots 0.20.2
-  library from the pinned official archive and exports both versioned hook
-  symbols
-- the render-probe build succeeds against that reproduced dependency while
-  ordinary Vulkan-effects and effects-disabled builds continue to compile
+  library from the pinned official archive and verifies the texture, rectangle,
+  force-blend, pass-attribute, and direct-scanout hook symbols
+- the wlroots patch applies cleanly in a fresh 0.20.2 source tree, and all four
+  rounded shader binaries reproduce byte-for-byte from their GLSL sources and
+  pass `spirv-val --target-env vulkan1.0`
+- the production Vulkan-effects build succeeds against that reproduced
+  dependency while SceneFX and effects-disabled builds continue to compile
 - `AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION=0
   scripts/test-vulkan-render-seam.sh` passes 4,096 buffer-reuse frames on the
-  RTX 5090, recording 4,107 ordinary draws, 3 swapchain draws, and 4,110
-  explicit-sync draws
-- the rounded, localized-damage, transformed/fractional-scale, and post-stress
-  screencopies pass their assertions and every generated checksum verifies
+  RTX 5090, recording 4,116 texture and 4,116 rectangle draws: 8,222 ordinary,
+  10 swapchain, and 8,232 explicit-sync draws
+- rounded corners, hollow outlines, localized damage, scales 1, 1.25, 1.5, and
+  2, rotations 90°, 180°, and 270°, and post-stress screencopies pass their
+  assertions; every generated checksum verifies
 - The Khronos validation layer was not installed for that run; the harness will
   require it by default and reject validation errors when available
 
@@ -616,6 +646,8 @@ rendering and modesets. Production Vulkan builds remain
 To repeat the functional run:
 
 ```sh
+scripts/build-wlroots-render-hook.sh .deps/wlroots-render-hook
+export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
 zig build -Dvulkan-effects=true -Dexternal-policy=true \
   -Dcpu=baseline -Doptimize=ReleaseSafe
 scripts/test-vulkan-context.sh
@@ -665,11 +697,11 @@ For one engineer familiar with Aqueous, wlroots, and Vulkan:
 | Correct rounded corners and uncached blur | 8–13 weeks |
 | Feature parity with damage-aware cached blur | 12–20 weeks |
 | Production hardening and broad GPU coverage | 20–32 weeks total |
-| Remaining work from the completed context foundation | 15–30 weeks, dominated by the render seam, blur correctness, and hardware coverage |
+| Remaining work after the rounded-effects implementation | 12–23 weeks, dominated by blur correctness, cache invalidation, integration, and hardware coverage |
 
-The render seam and synchronization are the largest schedule uncertainty.
-Rounded corners alone are a modest shader task after that seam exists. Correct,
-damage-aware backdrop blur is most of the implementation and validation effort.
+The render seam, synchronization contract, and rounded pipelines are now
+implemented. Correct scene-ordered, damage-aware backdrop blur remains most of
+the implementation and validation effort.
 
 Two engineers can shorten hardware testing and blur optimization, but the
 render-seam and frame-order design should have one owner to avoid incompatible

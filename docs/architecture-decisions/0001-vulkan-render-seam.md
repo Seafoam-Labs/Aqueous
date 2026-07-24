@@ -25,22 +25,26 @@ Carry a small, versioned downstream patch against wlroots 0.20.2.
 
 The patch adds:
 
-- a scene-output callback immediately after an ordinary scene-buffer texture
-  draw, while the wlroots render pass remains active;
+- a one-shot scene-buffer callback after wlroots prepares the texture
+  descriptor, sampler, transforms, color data, and synchronization, but before
+  the stock texture draw;
+- a return value that lets Aqueous replace that stock texture draw while
+  retaining wlroots' common texture lifetime, damage, and synchronization work;
+- a matching scene-rectangle replacement callback;
 - a Vulkan-only query for the active command buffer, compatible render pass,
   render extent, subpass, and presence of the output signal timeline; and
-- invalidation of wlroots' cached pipeline binding when Aqueous requests those
-  attributes, ensuring the next wlroots draw binds its own pipeline again.
+- explicit force-blend flags for effect-bearing buffers and rectangles, so
+  transparent shader pixels do not incorrectly cull lower scene content.
 
 Aqueous records its effect commands into that same command buffer and render
 pass. It uses wlroots' transformed destination box and damage clip. wlroots
 continues to own the target buffer, image layouts, acquire/release timelines,
 submission, capture, and output commit.
 
-Installing the callback disables direct scanout for that scene output because
-the custom draw must be included in the composited result. The callback is
-installed only in builds with `-Dvulkan-render-probe=true` until production
-effect metadata and pipelines replace the probe.
+The scene output also accepts a needs-composition predicate. Direct scanout is
+disabled only when the sole visible buffer has effect metadata that requires
+the custom draw; fullscreen and effect-free buffers retain the normal scanout
+path.
 
 The dependency is pinned to the official wlroots 0.20.2 source archive with
 SHA-256
@@ -58,24 +62,26 @@ and a CI job that builds Aqueous against the patched library.
 - Aqueous owns only its Vulkan pipeline objects and shaders; it creates no
   second renderer, instance, device, or queue.
 - The wlroots patch must be reviewed and rebased for every wlroots upgrade.
-- Direct scanout remains unavailable while custom effects are active.
+- Direct scanout remains available when no visible custom effect requires
+  composition.
 - Production blur still needs explicit scene-order checkpoints and
   Aqueous-owned metadata; this decision establishes the command-recording seam
   but does not implement blur.
 
 ## Validation
 
-The nested probe renders an antialiased rounded rectangle over one known
-client buffer. On the reference RTX 5090 run it produced a rounded
-screencopy, confined a localized update to exactly
-`160x120+440+320`, survived a 1.25 scale with a 90-degree transform, and
-completed 4,096 single-buffer reuse frames.
+The production nested test renders the client texture through an antialiased
+rounded mask and its decoration as one outer-minus-inner SDF outline. On the
+reference RTX 5090 run it produced rounded screencopies at scales 1, 1.25, 1.5,
+and 2 with 90°, 180°, and 270° output rotations, confined a localized update to
+exactly `160x120+440+320`, and completed 4,096 single-buffer reuse frames.
 
-The final counters recorded 4,110 draws: 4,107 through normal output rendering,
-3 through the OutputManager swapchain path, and all 4,110 with wlroots' output
-signal timeline. No Vulkan error or VUID was logged. The workstation did not
-have `VK_LAYER_KHRONOS_validation` installed, so the required validation-layer
-rerun remains open; the harness requires that layer by default.
+The final counters recorded 4,116 texture draws and 4,116 rectangle draws:
+8,222 through normal output rendering, 10 through the OutputManager swapchain
+path, and all 8,232 with wlroots' output signal timeline. No Vulkan error or
+VUID was logged. The workstation did not have
+`VK_LAYER_KHRONOS_validation` installed, so the required validation-layer rerun
+remains open; the harness requires that layer by default.
 
 ## Rejected alternatives
 

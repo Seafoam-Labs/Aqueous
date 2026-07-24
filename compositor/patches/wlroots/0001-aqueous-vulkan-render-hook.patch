@@ -1,13 +1,32 @@
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -5,6 +5,7 @@
+ #include <string.h>
+ #include <stdbool.h>
+ #include <vulkan/vulkan.h>
++#include <wlr/render/vulkan.h>
+ #include <wlr/render/wlr_renderer.h>
+ #include <wlr/render/wlr_texture.h>
+ #include <wlr/render/color.h>
+@@ -428,6 +429,8 @@ struct wlr_vk_render_pass {
+ 	bool failed;
+ 	bool two_pass; // rendering via intermediate blending buffer
+ 	struct wlr_color_transform *color_transform;
++	wlr_vk_render_texture_hook_func_t texture_hook;
++	void *texture_hook_data;
+ 
+ 	struct wlr_drm_syncobj_timeline *signal_timeline;
+ 	uint64_t signal_point;
 --- a/include/wlr/render/vulkan.h
 +++ b/include/wlr/render/vulkan.h
-@@ -10,14 +10,25 @@
+@@ -10,14 +10,41 @@
  #define WLR_RENDER_VULKAN_H
  
  #include <vulkan/vulkan_core.h>
 +#include <wlr/render/pass.h>
  #include <wlr/render/wlr_renderer.h>
  
-+#define WLR_AQUEOUS_RENDER_HOOK_VERSION 1
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 2
 +
  struct wlr_vk_image_attribs {
  	VkImage image;
@@ -23,10 +42,26 @@
 +	bool has_signal_timeline;
 +};
 +
++struct wlr_vk_render_texture_attribs {
++	struct wlr_vk_render_pass_attribs render_pass;
++	VkPipelineLayout pipeline_layout;
++	VkDescriptorSet descriptor_set;
++	float projection[4][4];
++	float uv_offset[2];
++	float uv_size[2];
++	float color_matrix[4][4];
++	float alpha;
++	float luminance_multiplier;
++	uint32_t texture_transform;
++};
++
++typedef bool (*wlr_vk_render_texture_hook_func_t)(
++	const struct wlr_vk_render_texture_attribs *attribs, void *data);
++
  struct wlr_renderer *wlr_vk_renderer_create_with_drm_fd(int drm_fd);
  
  VkInstance wlr_vk_renderer_get_instance(struct wlr_renderer *renderer);
-@@ -32,5 +43,14 @@
+@@ -32,5 +59,24 @@ void wlr_vk_texture_get_image_attribs(struct wlr_texture *texture,
  	struct wlr_vk_image_attribs *attribs);
  bool wlr_vk_texture_has_alpha(struct wlr_texture *texture);
  
@@ -41,55 +76,88 @@
 +bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *render_pass,
 +	struct wlr_vk_render_pass_attribs *attribs);
  
++/**
++ * Install a callback for the next texture added to this Vulkan render pass.
++ *
++ * The callback receives wlroots' prepared texture descriptor, pipeline layout,
++ * transforms, color data, and active render-pass attributes. Returning true
++ * replaces wlroots' texture draw. Returning false uses the stock draw.
++ */
++bool wlr_vk_render_pass_set_texture_hook(struct wlr_render_pass *render_pass,
++	wlr_vk_render_texture_hook_func_t hook, void *data);
++
 +#endif
 --- a/include/wlr/types/wlr_scene.h
 +++ b/include/wlr/types/wlr_scene.h
-@@ -39,6 +39,8 @@
+@@ -37,8 +37,13 @@ struct wlr_drag_icon;
+ struct wlr_surface;
+ 
  struct wlr_scene_node;
++struct wlr_scene_rect;
  struct wlr_scene_buffer;
  struct wlr_scene_output_layout;
 +struct wlr_render_pass;
 +struct wlr_render_texture_options;
++struct wlr_render_rect_options;
++struct wlr_vk_render_texture_attribs;
  
  struct wlr_presentation;
  struct wlr_linux_dmabuf_v1;
-@@ -49,6 +51,12 @@
+@@ -49,6 +54,18 @@ struct wlr_output_state;
  typedef bool (*wlr_scene_buffer_point_accepts_input_func_t)(
  	struct wlr_scene_buffer *buffer, double *sx, double *sy);
  
-+typedef void (*wlr_scene_buffer_render_hook_func_t)(
-+	struct wlr_render_pass *render_pass,
++typedef bool (*wlr_scene_buffer_render_hook_func_t)(
 +	struct wlr_scene_buffer *scene_buffer,
 +	const struct wlr_render_texture_options *options,
-+	void *data);
++	const struct wlr_vk_render_texture_attribs *attribs, void *data);
++
++typedef bool (*wlr_scene_rect_render_hook_func_t)(
++	struct wlr_render_pass *render_pass, struct wlr_scene_rect *scene_rect,
++	const struct wlr_render_rect_options *options, void *data);
++
++typedef bool (*wlr_scene_buffer_needs_composition_func_t)(
++	struct wlr_scene_buffer *scene_buffer, void *data);
 +
  typedef void (*wlr_scene_buffer_iterator_func_t)(
  	struct wlr_scene_buffer *buffer, int sx, int sy, void *user_data);
  
-@@ -270,6 +278,9 @@
+@@ -270,6 +287,11 @@ struct wlr_scene_output {
  		uint64_t in_point;
  		struct wlr_drm_syncobj_timeline *out_timeline;
  		uint64_t out_point;
 +
-+		wlr_scene_buffer_render_hook_func_t render_hook;
++		wlr_scene_buffer_render_hook_func_t buffer_render_hook;
++		wlr_scene_rect_render_hook_func_t rect_render_hook;
++		wlr_scene_buffer_needs_composition_func_t buffer_needs_composition;
 +		void *render_hook_data;
  	} WLR_PRIVATE;
  };
  
-@@ -595,6 +606,17 @@
+@@ -595,6 +617,27 @@ void wlr_scene_output_destroy(struct wlr_scene_output *scene_output);
  void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
  	int lx, int ly);
  
 +/**
-+ * Set a callback invoked immediately after each ordinary scene buffer draw.
-+ *
-+ * Installing a hook disables direct scan-out. The callback runs while the
-+ * renderer's pass is active and receives the transformed texture options and
-+ * damage clip used by wlroots.
++ * Set a callback which may replace ordinary scene-buffer texture draws.
 + */
 +void wlr_scene_output_set_buffer_render_hook(
 +	struct wlr_scene_output *scene_output,
 +	wlr_scene_buffer_render_hook_func_t hook, void *data);
++
++/**
++ * Set the predicate used to disable direct scanout for affected buffers.
++ */
++void wlr_scene_output_set_buffer_needs_composition(
++	struct wlr_scene_output *scene_output,
++	wlr_scene_buffer_needs_composition_func_t predicate);
++
++/**
++ * Set a callback which may replace ordinary scene-rectangle draws.
++ */
++void wlr_scene_output_set_rect_render_hook(
++	struct wlr_scene_output *scene_output,
++	wlr_scene_rect_render_hook_func_t hook);
 +
  struct wlr_scene_output_state_options {
  	struct wlr_scene_timer *timer;
@@ -104,7 +172,7 @@
  
  #include "render/color.h"
  #include "render/vulkan.h"
-@@ -19,6 +20,29 @@
+@@ -19,6 +20,41 @@ static struct wlr_vk_render_pass *get_render_pass(struct wlr_render_pass *wlr_pa
  	return pass;
  }
  
@@ -131,12 +199,156 @@
 +	return true;
 +}
 +
++bool wlr_vk_render_pass_set_texture_hook(struct wlr_render_pass *wlr_pass,
++		wlr_vk_render_texture_hook_func_t hook, void *data) {
++	if (wlr_pass == NULL || wlr_pass->impl != &render_pass_impl) {
++		return false;
++	}
++
++	struct wlr_vk_render_pass *pass = get_render_pass(wlr_pass);
++	pass->texture_hook = hook;
++	pass->texture_hook_data = data;
++	return true;
++}
++
  static struct wlr_vk_color_transform *get_color_transform(
  		struct wlr_color_transform *c, struct wlr_vk_renderer *renderer) {
  	struct wlr_addon *a = wlr_addon_find(&c->addons, renderer, &vk_color_transform_impl);
+@@ -919,16 +955,50 @@ static void render_pass_add_texture(struct wlr_render_pass *wlr_pass,
+ 	};
+ 	encode_color_matrix(color_matrix, frag_pcr_data.matrix);
+ 
+-	bind_pipeline(pass, pipe->vk);
++	bool custom_draw = false;
++	if (pass->texture_hook != NULL) {
++		struct wlr_buffer *buffer = pass->render_buffer->wlr_buffer;
++		struct wlr_vk_render_texture_attribs attribs = {
++			.render_pass = {
++				.command_buffer = cb,
++				.render_pass = pass->render_setup->render_pass,
++				.extent = {
++					.width = buffer->width,
++					.height = buffer->height,
++				},
++				.subpass = 0,
++				.has_signal_timeline = pass->signal_timeline != NULL,
++			},
++			.pipeline_layout = pipe->layout->vk,
++			.descriptor_set = view->ds,
++			.alpha = frag_pcr_data.alpha,
++			.luminance_multiplier = frag_pcr_data.luminance_multiplier,
++			.texture_transform = tex_transform,
++		};
++		memcpy(attribs.projection, vert_pcr_data.mat4,
++			sizeof(attribs.projection));
++		memcpy(attribs.uv_offset, vert_pcr_data.uv_off,
++			sizeof(attribs.uv_offset));
++		memcpy(attribs.uv_size, vert_pcr_data.uv_size,
++			sizeof(attribs.uv_size));
++		memcpy(attribs.color_matrix, frag_pcr_data.matrix,
++			sizeof(attribs.color_matrix));
++		pass->bound_pipeline = VK_NULL_HANDLE;
++		custom_draw = pass->texture_hook(&attribs, pass->texture_hook_data);
++	}
++
++	if (!custom_draw) {
++		bind_pipeline(pass, pipe->vk);
+ 
+-	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+-		pipe->layout->vk, 0, 1, &view->ds, 0, NULL);
++		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
++			pipe->layout->vk, 0, 1, &view->ds, 0, NULL);
+ 
+-	vkCmdPushConstants(cb, pipe->layout->vk,
+-		VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vert_pcr_data), &vert_pcr_data);
+-	vkCmdPushConstants(cb, pipe->layout->vk,
+-		VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vert_pcr_data),
+-		sizeof(frag_pcr_data), &frag_pcr_data);
++		vkCmdPushConstants(cb, pipe->layout->vk,
++			VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vert_pcr_data), &vert_pcr_data);
++		vkCmdPushConstants(cb, pipe->layout->vk,
++			VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vert_pcr_data),
++			sizeof(frag_pcr_data), &frag_pcr_data);
++	}
+ 
+ 	pixman_region32_t clip;
+ 	get_clip_region(pass, options->clip, &clip);
+@@ -936,10 +1006,12 @@ static void render_pass_add_texture(struct wlr_render_pass *wlr_pass,
+ 	int clip_rects_len;
+ 	const pixman_box32_t *clip_rects = pixman_region32_rectangles(&clip, &clip_rects_len);
+ 	for (int i = 0; i < clip_rects_len; i++) {
+-		VkRect2D rect;
+-		convert_pixman_box_to_vk_rect(&clip_rects[i], &rect);
+-		vkCmdSetScissor(cb, 0, 1, &rect);
+-		vkCmdDraw(cb, 4, 1, 0, 0);
++		if (!custom_draw) {
++			VkRect2D rect;
++			convert_pixman_box_to_vk_rect(&clip_rects[i], &rect);
++			vkCmdSetScissor(cb, 0, 1, &rect);
++			vkCmdDraw(cb, 4, 1, 0, 0);
++		}
+ 
+ 		struct wlr_box clip_box = {
+ 			.x = clip_rects[i].x1,
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
-@@ -1538,7 +1538,7 @@
+@@ -24,6 +24,10 @@
+ 
+ #include <wlr/config.h>
+ 
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#endif
++
+ #if WLR_HAS_XWAYLAND
+ #include <wlr/xwayland/xwayland.h>
+ #endif
+@@ -1443,6 +1447,21 @@ struct render_list_entry {
+ 	int x, y;
+ };
+ 
++#if WLR_HAS_VULKAN_RENDERER
++struct scene_buffer_render_hook_call {
++	struct wlr_scene_output *output;
++	struct wlr_scene_buffer *scene_buffer;
++	const struct wlr_render_texture_options *options;
++};
++
++static bool scene_buffer_render_hook_bridge(
++		const struct wlr_vk_render_texture_attribs *attribs, void *data) {
++	struct scene_buffer_render_hook_call *call = data;
++	return call->output->buffer_render_hook(call->scene_buffer, call->options,
++		attribs, call->output->render_hook_data);
++}
++#endif
++
+ static float get_luminance_multiplier(const struct wlr_color_luminances *src_lum,
+ 		const struct wlr_color_luminances *dst_lum) {
+ 	return (dst_lum->reference / src_lum->reference) * (src_lum->max / dst_lum->max);
+@@ -1485,7 +1504,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
+ 	case WLR_SCENE_NODE_RECT:;
+ 		struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
+ 
+-		wlr_render_pass_add_rect(data->render_pass, &(struct wlr_render_rect_options){
++		struct wlr_render_rect_options rect_options = {
+ 			.box = dst_box,
+ 			.color = {
+ 				.r = scene_rect->color[0],
+@@ -1494,7 +1513,12 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
+ 				.a = scene_rect->color[3],
+ 			},
+ 			.clip = &render_region,
+-		});
++		};
++		if (data->output->rect_render_hook == NULL ||
++				!data->output->rect_render_hook(data->render_pass, scene_rect,
++					&rect_options, data->output->render_hook_data)) {
++			wlr_render_pass_add_rect(data->render_pass, &rect_options);
++		}
+ 		break;
+ 	case WLR_SCENE_NODE_BUFFER:;
+ 		struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
+@@ -1538,7 +1562,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
  			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
  		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
  
@@ -145,34 +357,72 @@
  			.texture = texture,
  			.src_box = scene_buffer->src_box,
  			.dst_box = dst_box,
-@@ -1556,7 +1556,12 @@
+@@ -1556,7 +1580,26 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
  			.luminance_multiplier = &luminance_multiplier,
  			.wait_timeline = scene_buffer->wait_timeline,
  			.wait_point = scene_buffer->wait_point,
 -		});
 +		};
-+		wlr_render_pass_add_texture(data->render_pass, &texture_options);
-+		if (data->output->render_hook != NULL) {
-+			data->output->render_hook(data->render_pass, scene_buffer,
-+				&texture_options, data->output->render_hook_data);
++
++#if WLR_HAS_VULKAN_RENDERER
++		bool texture_hook_installed = false;
++		struct scene_buffer_render_hook_call hook_call = {
++			.output = data->output,
++			.scene_buffer = scene_buffer,
++			.options = &texture_options,
++		};
++		if (data->output->buffer_render_hook != NULL) {
++			texture_hook_installed = wlr_vk_render_pass_set_texture_hook(
++				data->render_pass, scene_buffer_render_hook_bridge, &hook_call);
 +		}
++#endif
++		wlr_render_pass_add_texture(data->render_pass, &texture_options);
++#if WLR_HAS_VULKAN_RENDERER
++		if (texture_hook_installed) {
++			wlr_vk_render_pass_set_texture_hook(data->render_pass, NULL, NULL);
++		}
++#endif
  
  		struct wlr_scene_output_sample_event sample_event = {
  			.output = data->output,
-@@ -1893,6 +1898,20 @@
+@@ -1893,6 +1936,44 @@ void wlr_scene_output_set_position(struct wlr_scene_output *scene_output,
  	scene_output_update_geometry(scene_output, false);
  }
  
 +void wlr_scene_output_set_buffer_render_hook(
 +		struct wlr_scene_output *scene_output,
 +		wlr_scene_buffer_render_hook_func_t hook, void *data) {
-+	if (scene_output->render_hook == hook &&
++	if (scene_output->buffer_render_hook == hook &&
 +			scene_output->render_hook_data == data) {
 +		return;
 +	}
 +
-+	scene_output->render_hook = hook;
++	scene_output->buffer_render_hook = hook;
 +	scene_output->render_hook_data = data;
++	wlr_damage_ring_add_whole(&scene_output->damage_ring);
++	wlr_output_schedule_frame(scene_output->output);
++}
++
++void wlr_scene_output_set_buffer_needs_composition(
++		struct wlr_scene_output *scene_output,
++		wlr_scene_buffer_needs_composition_func_t predicate) {
++	if (scene_output->buffer_needs_composition == predicate) {
++		return;
++	}
++
++	scene_output->buffer_needs_composition = predicate;
++	wlr_damage_ring_add_whole(&scene_output->damage_ring);
++	wlr_output_schedule_frame(scene_output->output);
++}
++
++void wlr_scene_output_set_rect_render_hook(
++		struct wlr_scene_output *scene_output,
++		wlr_scene_rect_render_hook_func_t hook) {
++	if (scene_output->rect_render_hook == hook) {
++		return;
++	}
++
++	scene_output->rect_render_hook = hook;
 +	wlr_damage_ring_add_whole(&scene_output->damage_ring);
 +	wlr_output_schedule_frame(scene_output->output);
 +}
@@ -180,13 +430,119 @@
  static bool scene_node_invisible(struct wlr_scene_node *node) {
  	if (node->type == WLR_SCENE_NODE_TREE) {
  		return true;
-@@ -2443,7 +2462,8 @@
+@@ -2443,7 +2524,18 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  	// - There are no color transforms that need to be applied
  	// - Damage highlight debugging is not enabled
  	enum scene_direct_scanout_result scanout_result = SCANOUT_INELIGIBLE;
 -	if (options->color_transform == NULL && !render_gamma_lut && list_len == 1
-+	if (scene_output->render_hook == NULL &&
++	bool render_hook_needs_composition = false;
++	if (list_len == 1 && scene_output->buffer_render_hook != NULL &&
++			list_data[0].node->type == WLR_SCENE_NODE_BUFFER) {
++		struct wlr_scene_buffer *scene_buffer =
++			wlr_scene_buffer_from_node(list_data[0].node);
++		render_hook_needs_composition =
++			scene_output->buffer_needs_composition == NULL ||
++			scene_output->buffer_needs_composition(scene_buffer,
++				scene_output->render_hook_data);
++	}
++	if (!render_hook_needs_composition &&
 +			options->color_transform == NULL && !render_gamma_lut && list_len == 1
  			&& debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
  		scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data);
  	}
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -143,6 +143,7 @@ struct wlr_scene_rect {
+ 	struct wlr_scene_node node;
+ 	int width, height;
+ 	float color[4];
++	bool force_blend;
+ };
+ 
+ struct wlr_scene_outputs_update_event {
+@@ -188,6 +189,7 @@ struct wlr_scene_buffer {
+ 	float opacity;
+ 	enum wlr_scale_filter_mode filter_mode;
+ 	struct wlr_fbox src_box;
++	bool force_blend;
+ 	int dst_width, dst_height;
+ 	enum wl_output_transform transform;
+ 	pixman_region32_t opaque_region;
+@@ -468,6 +470,12 @@ void wlr_scene_rect_set_size(struct wlr_scene_rect *rect, int width, int height);
+  */
+ void wlr_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[static 4]);
+ 
++/**
++ * Force compositing for a rectangle whose custom shader may produce transparency.
++ */
++void wlr_scene_rect_set_force_blend(struct wlr_scene_rect *rect,
++	bool force_blend);
++
+ /**
+  * Add a node displaying a buffer to the scene-graph.
+  *
+@@ -523,6 +531,12 @@ void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer *scene_buffer,
+ void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer *scene_buffer,
+ 	const pixman_region32_t *region);
+ 
++/**
++ * Force compositing for a buffer whose custom shader may produce transparency.
++ */
++void wlr_scene_buffer_set_force_blend(struct wlr_scene_buffer *scene_buffer,
++	bool force_blend);
++
+ /**
+  * Set the source rectangle describing the region of the buffer which will be
+  * sampled to render this node. This allows cropping the buffer.
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -263,11 +263,14 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
+ 
+ 	if (node->type == WLR_SCENE_NODE_RECT) {
+ 		struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
+-		if (scene_rect->color[3] != 1) {
++		if (scene_rect->force_blend || scene_rect->color[3] != 1) {
+ 			return;
+ 		}
+ 	} else if (node->type == WLR_SCENE_NODE_BUFFER) {
+ 		struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
++		if (scene_buffer->force_blend) {
++			return;
++		}
+ 
+ 		if (!scene_buffer->buffer) {
+ 			return;
+@@ -799,6 +802,16 @@ void wlr_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[stat
+ 	scene_node_update(&rect->node, NULL);
+ }
+ 
++void wlr_scene_rect_set_force_blend(struct wlr_scene_rect *rect,
++		bool force_blend) {
++	if (rect->force_blend == force_blend) {
++		return;
++	}
++
++	rect->force_blend = force_blend;
++	scene_node_update(&rect->node, NULL);
++}
++
+ static void scene_buffer_handle_buffer_release(struct wl_listener *listener,
+ 		void *data) {
+ 	struct wlr_scene_buffer *scene_buffer =
+@@ -1078,6 +1091,16 @@ void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer *scene_buffer,
+ 	pixman_region32_fini(&update_region);
+ }
+ 
++void wlr_scene_buffer_set_force_blend(struct wlr_scene_buffer *scene_buffer,
++		bool force_blend) {
++	if (scene_buffer->force_blend == force_blend) {
++		return;
++	}
++
++	scene_buffer->force_blend = force_blend;
++	scene_node_update(&scene_buffer->node, NULL);
++}
++
+ void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer,
+ 		const struct wlr_fbox *box) {
+ 	if (wlr_fbox_equal(&scene_buffer->src_box, box)) {

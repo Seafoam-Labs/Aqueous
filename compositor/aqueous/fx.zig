@@ -101,7 +101,10 @@ pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
     if (comptime build_options.vulkan_effects) {
         metadata().setBufferRadius(buffer, radius) catch {
             std.log.err("could not store scene-buffer effect metadata: out of memory", .{});
+            return;
         };
+        const c = @import("c");
+        c.wlr_scene_buffer_set_force_blend(@ptrCast(buffer), radius != 0);
     }
 }
 
@@ -115,7 +118,13 @@ pub fn setRectRadius(rect: *wlr.SceneRect, radius: u31) void {
     if (comptime build_options.vulkan_effects) {
         metadata().setRectRadius(rect, radius) catch {
             std.log.err("could not store scene-rect effect metadata: out of memory", .{});
+            return;
         };
+        const c = @import("c");
+        c.wlr_scene_rect_set_force_blend(
+            @ptrCast(rect),
+            metadata().rectData(rect) != null,
+        );
     }
 }
 
@@ -150,7 +159,10 @@ pub fn setRectClippedRegion(
     if (comptime build_options.vulkan_effects) {
         metadata().setRectClippedRegion(rect, area, radii) catch {
             std.log.err("could not store scene-rect clip metadata: out of memory", .{});
+            return;
         };
+        const c = @import("c");
+        c.wlr_scene_rect_set_force_blend(@ptrCast(rect), true);
     }
 }
 
@@ -453,9 +465,16 @@ pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
         return;
     }
     if (comptime build_options.vulkan_effects) {
+        const c = @import("c");
         dst.setOpaqueRegion(&src.opaque_region);
         metadata().copyBufferData(dst, src) catch {
             std.log.err("could not copy scene-buffer effect metadata: out of memory", .{});
+            c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), false);
+            return;
         };
+        c.wlr_scene_buffer_set_force_blend(
+            @ptrCast(dst),
+            metadata().bufferData(dst) != null,
+        );
     }
 }

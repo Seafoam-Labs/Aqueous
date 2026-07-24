@@ -26,6 +26,25 @@ pub const CornerRadii = struct {
     }
 };
 
+pub fn clampedPhysicalRadii(
+    radii: CornerRadii,
+    width: i32,
+    height: i32,
+    scale: f32,
+) [4]f32 {
+    if (width <= 0 or height <= 0 or !(scale > 0)) {
+        return .{ 0, 0, 0, 0 };
+    }
+    const maximum =
+        @as(f32, @floatFromInt(@min(width, height))) * 0.5;
+    return .{
+        @min(@as(f32, @floatFromInt(radii.top_left)) * scale, maximum),
+        @min(@as(f32, @floatFromInt(radii.top_right)) * scale, maximum),
+        @min(@as(f32, @floatFromInt(radii.bottom_right)) * scale, maximum),
+        @min(@as(f32, @floatFromInt(radii.bottom_left)) * scale, maximum),
+    };
+}
+
 pub const RoundedClip = struct {
     area: wlr.Box,
     radii: CornerRadii,
@@ -40,6 +59,13 @@ pub const RectData = struct {
     radii: CornerRadii = .{},
     clipped_region: ?RoundedClip = null,
     generation: u64 = 1,
+};
+
+pub const RectRenderData = struct {
+    outer_radii: [4]f32,
+    inner_rect: [4]f32 = .{ 0, 0, 0, 0 },
+    inner_radii: [4]f32 = .{ 0, 0, 0, 0 },
+    has_inner: bool = false,
 };
 
 pub const BlurConfig = struct {
@@ -587,4 +613,24 @@ test "deinit releases records whose owners are still alive" {
     buffer.node.events.destroy.emit();
     rect.node.events.destroy.emit();
     tree.node.events.destroy.emit();
+}
+
+test "physical corner radii are scaled and clamped on the CPU" {
+    try std.testing.expectEqualDeep(
+        [4]f32{ 18.75, 18.75, 18.75, 18.75 },
+        clampedPhysicalRadii(.uniform(15), 500, 300, 1.25),
+    );
+    try std.testing.expectEqualDeep(
+        [4]f32{ 20, 20, 10, 4 },
+        clampedPhysicalRadii(.{
+            .top_left = 40,
+            .top_right = 20,
+            .bottom_right = 10,
+            .bottom_left = 4,
+        }, 40, 100, 1),
+    );
+    try std.testing.expectEqualDeep(
+        [4]f32{ 0, 0, 0, 0 },
+        clampedPhysicalRadii(.uniform(15), 0, 100, 2),
+    );
 }

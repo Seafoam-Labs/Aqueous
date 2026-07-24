@@ -50,6 +50,11 @@ library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
     wlr_scene_output_set_buffer_render_hook \
+    wlr_scene_output_set_buffer_needs_composition \
+    wlr_scene_output_set_rect_render_hook \
+    wlr_scene_buffer_set_force_blend \
+    wlr_scene_rect_set_force_blend \
+    wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"

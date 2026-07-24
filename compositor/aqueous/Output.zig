@@ -12,10 +12,13 @@ const mem = std.mem;
 const posix = std.posix;
 const fmt = std.fmt;
 const wlr = @import("wlroots");
-const c = if (build_options.vulkan_render_probe) @import("c") else struct {
+const c = if (build_options.vulkan_effects) @import("c") else struct {
     const struct_wlr_render_pass = opaque {};
     const struct_wlr_scene_buffer = opaque {};
+    const struct_wlr_scene_rect = opaque {};
     const struct_wlr_render_texture_options = opaque {};
+    const struct_wlr_render_rect_options = opaque {};
+    const struct_wlr_vk_render_texture_attribs = opaque {};
 };
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
@@ -28,9 +31,9 @@ const scaling = @import("scaling.zig");
 const render_metrics = @import("render_metrics.zig");
 
 const fx = @import("fx.zig");
+const EffectMetadata = @import("render/EffectMetadata.zig");
 const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
-const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const Workspace = @import("Workspace.zig");
 
@@ -230,7 +233,7 @@ anim_last_ns: i64 = 0,
 blur_node: ?fx.OutputBlurCache = null,
 blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
-render_probe_swapchain_path: bool = false,
+effects_swapchain_path: bool = false,
 
 destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
 request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
@@ -429,11 +432,19 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .workspaces = undefined,
     };
     wlr_output.data = output;
-    if (comptime build_options.vulkan_render_probe) {
+    if (comptime build_options.vulkan_effects) {
         c.wlr_scene_output_set_buffer_render_hook(
             @ptrCast(scene_output),
-            renderProbeHook,
+            roundedBufferHook,
             output,
+        );
+        c.wlr_scene_output_set_buffer_needs_composition(
+            @ptrCast(scene_output),
+            roundedBufferNeedsComposition,
+        );
+        c.wlr_scene_output_set_rect_render_hook(
+            @ptrCast(scene_output),
+            roundedRectHook,
         );
     }
 
@@ -466,34 +477,196 @@ pub fn create(wlr_output: *wlr.Output) !void {
     server.wm.dirtyWindowing();
 }
 
-fn renderProbeHook(
-    render_pass: ?*c.struct_wlr_render_pass,
+fn roundedBufferHook(
     c_scene_buffer: ?*c.struct_wlr_scene_buffer,
     options: ?*const c.struct_wlr_render_texture_options,
+    attributes: ?*const c.struct_wlr_vk_render_texture_attribs,
     data: ?*anyopaque,
-) callconv(.c) void {
-    if (comptime !build_options.vulkan_render_probe) return;
-    const output: *Output = @ptrCast(@alignCast(data orelse return));
+) callconv(.c) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    const output: *Output = @ptrCast(@alignCast(data orelse return false));
     const scene_buffer: *wlr.SceneBuffer =
-        @ptrCast(@alignCast(c_scene_buffer orelse return));
-    const scene_surface = wlr.SceneSurface.tryFromBuffer(scene_buffer) orelse
-        return;
-    if (scene_surface.surface.getRootSurface() != scene_surface.surface) return;
-    const owner = SceneNodeData.fromNode(&scene_buffer.node) orelse return;
-    const window = switch (owner.data) {
-        .window => |window| window,
-        else => return,
-    };
-    const app_id = window.getAppId() orelse return;
-    if (!mem.eql(u8, mem.span(app_id), "aqueous.effects.background")) return;
-
-    server.vulkan_context.render_probe.draw(
-        render_pass orelse return,
-        options orelse return,
-        output.render_probe_swapchain_path,
+        @ptrCast(@alignCast(c_scene_buffer orelse return false));
+    const effect = server.effect_metadata.bufferData(scene_buffer) orelse
+        return false;
+    return server.vulkan_context.rounded_pipeline.drawTexture(
+        attributes orelse return false,
+        options orelse return false,
+        effect.radii,
+        output.effectRenderState().scale,
+        output.effects_swapchain_path,
     ) catch |err| {
-        log.err("Vulkan render probe failed: {s}", .{@errorName(err)});
+        log.err("Vulkan rounded texture draw failed: {s}", .{@errorName(err)});
+        return false;
     };
+}
+
+fn roundedBufferNeedsComposition(
+    c_scene_buffer: ?*c.struct_wlr_scene_buffer,
+    _: ?*anyopaque,
+) callconv(.c) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    const scene_buffer: *wlr.SceneBuffer =
+        @ptrCast(@alignCast(c_scene_buffer orelse return false));
+    const effect = server.effect_metadata.bufferData(scene_buffer) orelse
+        return false;
+    return hasRadius(effect.radii);
+}
+
+fn roundedRectHook(
+    render_pass: ?*c.struct_wlr_render_pass,
+    c_scene_rect: ?*c.struct_wlr_scene_rect,
+    options: ?*const c.struct_wlr_render_rect_options,
+    data: ?*anyopaque,
+) callconv(.c) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    const output: *Output = @ptrCast(@alignCast(data orelse return false));
+    const scene_rect: *wlr.SceneRect =
+        @ptrCast(@alignCast(c_scene_rect orelse return false));
+    const effect = server.effect_metadata.rectData(scene_rect) orelse
+        return false;
+    const rect_options = options orelse return false;
+    const geometry = output.rectEffect(scene_rect, rect_options, effect) orelse
+        return false;
+    return server.vulkan_context.rounded_pipeline.drawRect(
+        render_pass orelse return false,
+        rect_options,
+        geometry,
+        output.effects_swapchain_path,
+    ) catch |err| {
+        log.err("Vulkan rounded rect draw failed: {s}", .{@errorName(err)});
+        return false;
+    };
+}
+
+fn effectRenderState(output: *const Output) *const State {
+    return if (output.effects_swapchain_path) &output.sent else &output.current;
+}
+
+fn rectEffect(
+    output: *const Output,
+    rect: *wlr.SceneRect,
+    options: *const c.struct_wlr_render_rect_options,
+    effect: EffectMetadata.RectData,
+) ?EffectMetadata.RectRenderData {
+    const state = output.effectRenderState();
+    const scale = state.scale;
+    const box = options.box;
+    var outer_radii = EffectMetadata.clampedPhysicalRadii(
+        effect.radii,
+        box.width,
+        box.height,
+        scale,
+    );
+    const transform = invertTransform(state.transform);
+    outer_radii = transformRadii(outer_radii, transform);
+
+    var geometry: EffectMetadata.RectRenderData = .{
+        .outer_radii = outer_radii,
+    };
+    if (effect.clipped_region) |clipped| {
+        const inner_box = transformedInnerBox(rect, clipped.area, state) orelse
+            return null;
+        if (inner_box.width <= 0 or inner_box.height <= 0) return null;
+        var inner_radii = EffectMetadata.clampedPhysicalRadii(
+            clipped.radii,
+            inner_box.width,
+            inner_box.height,
+            scale,
+        );
+        inner_radii = transformRadii(inner_radii, transform);
+        geometry.inner_rect = .{
+            @floatFromInt(inner_box.x),
+            @floatFromInt(inner_box.y),
+            @floatFromInt(inner_box.width),
+            @floatFromInt(inner_box.height),
+        };
+        geometry.inner_radii = inner_radii;
+        geometry.has_inner = true;
+    }
+    if (!geometry.has_inner and !hasPhysicalRadius(geometry.outer_radii)) {
+        return null;
+    }
+    return geometry;
+}
+
+fn transformedInnerBox(
+    rect: *wlr.SceneRect,
+    area: wlr.Box,
+    state: *const State,
+) ?wlr.Box {
+    var global_x: i32 = 0;
+    var global_y: i32 = 0;
+    if (!rect.node.coords(&global_x, &global_y)) return null;
+
+    const logical_x = global_x - state.x;
+    const logical_y = global_y - state.y;
+    const outer_left = scaleBoundary(logical_x, state.scale);
+    const outer_top = scaleBoundary(logical_y, state.scale);
+    const outer_right = scaleBoundary(logical_x + rect.width, state.scale);
+    const outer_bottom = scaleBoundary(logical_y + rect.height, state.scale);
+    const outer_width = outer_right - outer_left;
+    const outer_height = outer_bottom - outer_top;
+    if (outer_width <= 0 or outer_height <= 0) return null;
+
+    var inner: wlr.Box = .{
+        .x = scaleBoundary(logical_x + area.x, state.scale) - outer_left,
+        .y = scaleBoundary(logical_y + area.y, state.scale) - outer_top,
+        .width = scaleBoundary(logical_x + area.x + area.width, state.scale) -
+            scaleBoundary(logical_x + area.x, state.scale),
+        .height = scaleBoundary(logical_y + area.y + area.height, state.scale) -
+            scaleBoundary(logical_y + area.y, state.scale),
+    };
+    inner.transform(
+        &inner,
+        invertTransform(state.transform),
+        outer_width,
+        outer_height,
+    );
+    return inner;
+}
+
+fn scaleBoundary(value: i32, scale: f32) i32 {
+    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) * scale));
+}
+
+fn invertTransform(transform: wl.Output.Transform) wl.Output.Transform {
+    return switch (transform) {
+        .@"90" => .@"270",
+        .@"270" => .@"90",
+        else => transform,
+    };
+}
+
+fn transformRadii(
+    radii: [4]f32,
+    transform: wl.Output.Transform,
+) [4]f32 {
+    return switch (transform) {
+        .normal => radii,
+        .@"90" => .{ radii[3], radii[0], radii[1], radii[2] },
+        .@"180" => .{ radii[2], radii[3], radii[0], radii[1] },
+        .@"270" => .{ radii[1], radii[2], radii[3], radii[0] },
+        .flipped => .{ radii[1], radii[0], radii[3], radii[2] },
+        .flipped_90 => .{ radii[0], radii[3], radii[2], radii[1] },
+        .flipped_180 => .{ radii[3], radii[2], radii[1], radii[0] },
+        .flipped_270 => .{ radii[2], radii[1], radii[0], radii[3] },
+        else => radii,
+    };
+}
+
+fn hasRadius(radii: EffectMetadata.CornerRadii) bool {
+    return radii.top_left != 0 or
+        radii.top_right != 0 or
+        radii.bottom_right != 0 or
+        radii.bottom_left != 0;
+}
+
+fn hasPhysicalRadius(radii: [4]f32) bool {
+    for (radii) |radius| {
+        if (radius > 0) return true;
+    }
+    return false;
 }
 
 /// Ensure the output has at least one workspace and an active workspace.

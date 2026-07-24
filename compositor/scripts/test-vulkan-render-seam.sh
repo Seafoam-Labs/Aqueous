@@ -14,6 +14,7 @@ STRESS_FRAMES=${AQUEOUS_VULKAN_PROBE_FRAMES:-4096}
 STRESS_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS:-240}
 REQUIRE_VALIDATION=${AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION:-1}
 REQUIRE_EXPLICIT_SYNC=${AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC:-1}
+TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -27,6 +28,9 @@ have() { command -v "$1" >/dev/null 2>&1; }
     die "AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION must be 0 or 1"
 [[ "$REQUIRE_EXPLICIT_SYNC" = 0 || "$REQUIRE_EXPLICIT_SYNC" = 1 ]] ||
     die "AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC must be 0 or 1"
+[[ "$TEST_BACKEND" = auto || "$TEST_BACKEND" = wayland ||
+    "$TEST_BACKEND" = headless ]] ||
+    die "AQUEOUS_VULKAN_EFFECTS_BACKEND must be auto, wayland, or headless"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] ||
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 for file in \
@@ -58,19 +62,28 @@ wlroots_library=$(
     die "unable to resolve the compositor's wlroots library"
 for symbol in \
     wlr_scene_output_set_buffer_render_hook \
+    wlr_scene_output_set_buffer_needs_composition \
+    wlr_scene_output_set_rect_render_hook \
+    wlr_scene_buffer_set_force_blend \
+    wlr_scene_rect_set_force_blend \
+    wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs; do
     nm -D --defined-only "$wlroots_library" | grep " $symbol$" >/dev/null ||
         die "wlroots is missing the render-seam symbol $symbol"
 done
-grep -a -q 'Vulkan render probe initialized' "$AQUEOUS_COMPOSITOR_BIN" ||
-    die "the compositor was not built with -Dvulkan-render-probe=true"
+grep -a -q 'Vulkan rounded effects pipeline initialized' "$AQUEOUS_COMPOSITOR_BIN" ||
+    die "the compositor was not built with -Dvulkan-effects=true"
 
 HOST_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}
 HOST_WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
-[ -n "$HOST_RUNTIME_DIR" ] && [ -n "$HOST_WAYLAND_DISPLAY" ] ||
-    die "a parent Wayland display is required"
-[ -S "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" ] ||
-    die "the parent Wayland socket is unavailable"
+if [ "$TEST_BACKEND" = auto ]; then
+    if [ -n "$HOST_RUNTIME_DIR" ] && [ -n "$HOST_WAYLAND_DISPLAY" ] &&
+        [ -S "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" ]; then
+        TEST_BACKEND=wayland
+    else
+        TEST_BACKEND=headless
+    fi
+fi
 
 validation_manifest=$(
     find /usr/share/vulkan /etc/vulkan -type f \
@@ -120,8 +133,25 @@ mkdir -p \
     "$BACKGROUND_CONTROL" \
     "$ARTIFACT_DIR"
 chmod 700 "$RUNTIME_DIR"
-ln -s "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" \
-    "$RUNTIME_DIR/aqueous-vulkan-probe-host"
+BACKEND_ENV=()
+if [ "$TEST_BACKEND" = wayland ]; then
+    [ -n "$HOST_RUNTIME_DIR" ] && [ -n "$HOST_WAYLAND_DISPLAY" ] ||
+        die "a parent Wayland display is required"
+    [ -S "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" ] ||
+        die "the parent Wayland socket is unavailable"
+    ln -s "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" \
+        "$RUNTIME_DIR/aqueous-vulkan-effects-host"
+    BACKEND_ENV=(
+        WLR_BACKENDS=wayland
+        WLR_WL_OUTPUTS=1
+        WAYLAND_DISPLAY=aqueous-vulkan-effects-host
+    )
+else
+    BACKEND_ENV=(
+        WLR_BACKENDS=headless
+        WLR_HEADLESS_OUTPUTS=1
+    )
+fi
 
 XDG_SHELL_PROTOCOL="$(
     pkg-config --variable=pkgdatadir wayland-protocols
@@ -148,15 +178,13 @@ cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
 
 env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     "${VALIDATION_ENV[@]}" \
-    WLR_BACKENDS=wayland \
-    WLR_WL_OUTPUTS=1 \
+    "${BACKEND_ENV[@]}" \
     AQUEOUS_CONFIG="$WM_CONFIG" \
     AQUEOUS_LAYOUT="$LAYOUT_CONFIG" \
     AQUEOUS_RULES="$RULES_CONFIG" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     XDG_CONFIG_HOME="$RUNTIME_DIR/config" \
     HOME="$SANDBOX_HOME" \
-    WAYLAND_DISPLAY=aqueous-vulkan-probe-host \
     "$AQUEOUS_COMPOSITOR_BIN" \
         -no-xwayland -policy compare -log-level info -c true \
         >"$COMPOSITOR_LOG" 2>&1 &
@@ -225,6 +253,15 @@ set_output_state() {
     wait_output_state "$width" "$height" "$scale" "$transform"
 }
 
+set_output_mode() {
+    local width=$1 height=$2 response
+    response=$(output_request \
+        "{\"op\":\"set\",\"changes\":[{\"name\":\"$OUTPUT_NAME\",\"mode\":\"${width}x${height}\"}]}")
+    jq -e '.ok == true' >/dev/null <<<"$response" ||
+        die "output service rejected the mode change: $response"
+    wait_output_state "$width" "$height" 1 normal
+}
+
 capture_output() {
     local destination=$1
     env -u LD_PRELOAD \
@@ -234,9 +271,9 @@ capture_output() {
     [ -s "$destination" ] || die "empty capture: $destination"
 }
 
-green_pixel_count() {
+nonblack_pixel_count() {
     magick "$1" -alpha off \
-        -fx 'g > 0.55 && g-r > 0.25 && g-b > 0.20 ? 1 : 0' \
+        -fx 'max(r,max(g,b)) > 0.02 ? 1 : 0' \
         -format '%[fx:mean*w*h]' info:
 }
 
@@ -274,7 +311,7 @@ send_background_command() {
     die "fixture did not complete $operation within $STRESS_TIMEOUT_SECONDS seconds"
 }
 
-set_output_state 1920 1080 1 normal
+set_output_mode 1920 1080
 
 ready="$TEST_ROOT/background.ready"
 env -u LD_PRELOAD \
@@ -301,19 +338,23 @@ send_background_command \
 capture_output "$ARTIFACT_DIR/rounded-normal.png"
 rounded_values=$(
     magick "$ARTIFACT_DIR/rounded-normal.png" \
-        -format '%[fx:p{960,540}.g-p{960,540}.r] %[fx:p{81,81}.g-p{81,81}.r] %[fx:p{144,144}.g-p{144,144}.r]' \
+        -format '%[fx:max(p{78,78}.r,max(p{78,78}.g,p{78,78}.b))] %[fx:max(p{82,82}.r,max(p{82,82}.g,p{82,82}.b))] %[fx:max(p{95,95}.r,max(p{95,95}.g,p{95,95}.b))] %[fx:max(p{960,78}.r,max(p{960,78}.g,p{960,78}.b))] %[fx:max(p{960,540}.r,max(p{960,540}.g,p{960,540}.b))]' \
         info:
 )
-read -r center_green corner_green inset_green <<<"$rounded_values"
+read -r outer_corner antialias_corner inset_content straight_border center_content \
+    <<<"$rounded_values"
 awk \
-    -v center="$center_green" \
-    -v corner="$corner_green" \
-    -v inset="$inset_green" \
+    -v outer="$outer_corner" \
+    -v antialias="$antialias_corner" \
+    -v inset="$inset_content" \
+    -v border="$straight_border" \
+    -v center="$center_content" \
     'BEGIN {
-        exit !(center > 0.30 && inset > 0.30 &&
-            center - corner > 0.35 && inset - corner > 0.35)
+        exit !(outer < 0.02 &&
+            antialias > 0.10 && antialias < 0.60 &&
+            inset > 0.10 && border > 0.30 && center > 0.20)
     }' ||
-    die "screencopy does not contain the expected rounded Vulkan probe"
+    die "screencopy does not contain the expected rounded texture and outline"
 
 send_background_command localized 1 360 240 160 120
 capture_output "$ARTIFACT_DIR/localized-damage.png"
@@ -345,15 +386,23 @@ awk \
             x >= 440 && y >= 320 &&
             x + width <= 600 && y + height <= 440)
     }' ||
-    die "render-probe changes escaped the submitted damage region"
+    die "rounded-effects changes escaped the submitted damage region"
 
 set_output_state 1920 1080 1.25 90
 capture_output "$ARTIFACT_DIR/rounded-scale-1.25-transform-90.png"
-transformed_green=$(green_pixel_count \
-    "$ARTIFACT_DIR/rounded-scale-1.25-transform-90.png")
-awk -v pixels="$transformed_green" \
-    'BEGIN { exit !(pixels > 1000) }' ||
-    die "transformed fractional-scale capture is missing the Vulkan probe"
+set_output_state 1920 1080 1.5 180
+capture_output "$ARTIFACT_DIR/rounded-scale-1.5-transform-180.png"
+set_output_state 1920 1080 2 270
+capture_output "$ARTIFACT_DIR/rounded-scale-2-transform-270.png"
+for capture in \
+    "$ARTIFACT_DIR/rounded-scale-1.25-transform-90.png" \
+    "$ARTIFACT_DIR/rounded-scale-1.5-transform-180.png" \
+    "$ARTIFACT_DIR/rounded-scale-2-transform-270.png"; do
+    transformed_pixels=$(nonblack_pixel_count "$capture")
+    awk -v pixels="$transformed_pixels" \
+        'BEGIN { exit !(pixels > 1000) }' ||
+        die "scaled/rotated capture is missing rounded Vulkan content: $capture"
+done
 
 set_output_state 1920 1080 1 normal
 send_background_command \
@@ -376,27 +425,32 @@ EXIT_PID=""
 [ "$shutdown_status" -eq 0 ] ||
     die "compositor exited with status $shutdown_status"
 
-probe_counts=$(
+rounded_counts=$(
     sed -n \
-        's/.*destroyed Vulkan render probe after \([0-9][0-9]*\) draws (\([0-9][0-9]*\) normal, \([0-9][0-9]*\) swapchain, \([0-9][0-9]*\) explicit-sync).*/\1 \2 \3 \4/p' \
+        's/.*destroyed Vulkan rounded effects after \([0-9][0-9]*\) texture and \([0-9][0-9]*\) rect draws (\([0-9][0-9]*\) normal, \([0-9][0-9]*\) swapchain, \([0-9][0-9]*\) explicit-sync).*/\1 \2 \3 \4 \5/p' \
         "$COMPOSITOR_LOG" |
         tail -1
 )
-[ -n "$probe_counts" ] || {
+[ -n "$rounded_counts" ] || {
     tail -120 "$COMPOSITOR_LOG" >&2
-    die "render-probe teardown counts were not logged"
+    die "rounded-effects teardown counts were not logged"
 }
-read -r total_draws normal_draws swapchain_draws explicit_sync_draws \
-    <<<"$probe_counts"
+read -r texture_draws rect_draws normal_draws swapchain_draws explicit_sync_draws \
+    <<<"$rounded_counts"
+total_draws=$((texture_draws + rect_draws))
 [ "$total_draws" -ge "$STRESS_FRAMES" ] ||
-    die "render probe recorded fewer draws than the reuse stress"
+    die "rounded effects recorded fewer draws than the reuse stress"
+[ "$texture_draws" -gt 0 ] ||
+    die "the rounded-texture pipeline did not draw"
+[ "$rect_draws" -gt 0 ] ||
+    die "the rounded-rect pipeline did not draw"
 [ "$normal_draws" -gt 0 ] ||
-    die "ordinary Output.renderAndCommit did not invoke the render probe"
+    die "ordinary Output.renderAndCommit did not invoke rounded effects"
 [ "$swapchain_draws" -gt 0 ] ||
-    die "OutputManager swapchain rendering did not invoke the render probe"
+    die "OutputManager swapchain rendering did not invoke rounded effects"
 if [ "$REQUIRE_EXPLICIT_SYNC" = 1 ] &&
     [ "$explicit_sync_draws" -ne "$total_draws" ]; then
-    die "not every render-probe draw used wlroots' explicit-sync timeline"
+    die "not every rounded-effects draw used wlroots' explicit-sync timeline"
 fi
 if grep -Eiq \
     'VUID-|validation error|Validation Error|validation layer.*error|UNASSIGNED-' \
@@ -404,9 +458,9 @@ if grep -Eiq \
     tail -160 "$COMPOSITOR_LOG" >&2
     die "Vulkan validation reported an error"
 fi
-if grep -q 'Vulkan render probe failed:' "$COMPOSITOR_LOG"; then
+if grep -Eq 'Vulkan rounded (texture|rect) draw failed:' "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
-    die "the Vulkan render probe reported a runtime failure"
+    die "the Vulkan rounded-effects renderer reported a runtime failure"
 fi
 
 {
@@ -414,15 +468,18 @@ fi
     printf 'validation_layer=%s\n' "${validation_manifest:-not-installed}"
     printf 'stress_frames=%s\n' "$STRESS_FRAMES"
     printf 'total_draws=%s\n' "$total_draws"
+    printf 'texture_draws=%s\n' "$texture_draws"
+    printf 'rect_draws=%s\n' "$rect_draws"
     printf 'normal_draws=%s\n' "$normal_draws"
     printf 'swapchain_draws=%s\n' "$swapchain_draws"
     printf 'explicit_sync_draws=%s\n' "$explicit_sync_draws"
-    printf 'rounded_center_green_delta=%s\n' "$center_green"
-    printf 'rounded_corner_green_delta=%s\n' "$corner_green"
-    printf 'rounded_inset_green_delta=%s\n' "$inset_green"
+    printf 'rounded_outer_corner_max=%s\n' "$outer_corner"
+    printf 'rounded_antialias_corner_max=%s\n' "$antialias_corner"
+    printf 'rounded_inset_content_max=%s\n' "$inset_content"
+    printf 'rounded_straight_border_max=%s\n' "$straight_border"
+    printf 'rounded_center_content_max=%s\n' "$center_content"
     printf 'localized_changed_pixels=%s\n' "$difference_pixels"
     printf 'localized_difference_bounds=%s\n' "$difference_bounds"
-    printf 'transformed_green_pixels=%s\n' "$transformed_green"
 } >"$ARTIFACT_DIR/results.txt"
 (
     cd "$ARTIFACT_DIR"
@@ -431,4 +488,4 @@ fi
         xargs -0 sha256sum >SHA256SUMS
 )
 
-echo "PASS: rounded Vulkan probe survived both render paths, damage, transform, scale, capture, and $STRESS_FRAMES reused-buffer frames"
+echo "PASS: rounded Vulkan effects survived both render paths, damage, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
