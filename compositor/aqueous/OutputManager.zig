@@ -631,6 +631,13 @@ pub fn commitOutputState(om: *OutputManager) void {
     if (need_modeset) {
         log.debug("committing output state requires modeset", .{});
 
+        if (comptime build_options.vulkan_effects) {
+            _ = server.vulkan_context.invalidateBlurRenderTargets() catch {
+                om.modesetFailed();
+                return;
+            };
+        }
+
         var states: std.ArrayList(wlr.Backend.OutputState) = .empty;
         defer states.deinit(util.gpa);
         defer for (states.items) |*s| s.base.finish();

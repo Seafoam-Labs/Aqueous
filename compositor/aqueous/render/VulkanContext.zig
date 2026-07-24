@@ -156,6 +156,30 @@ pub fn deinit(context: *VulkanContext) void {
     std.log.info("destroyed Vulkan effects context", .{});
 }
 
+/// Retire blur resources which contain borrowed wlroots render-buffer views
+/// before a modeset can replace those views. Waiting for the shared queue is
+/// required before freeing scratch images and descriptor sets referenced by
+/// earlier submissions.
+pub fn invalidateBlurRenderTargets(context: *VulkanContext) !usize {
+    const idle_result = c.vkQueueWaitIdle(context.queue);
+    if (idle_result != c.VK_SUCCESS) {
+        std.log.err(
+            "waiting to invalidate Vulkan blur render targets failed: {s}",
+            .{resultName(idle_result)},
+        );
+        return error.VulkanQueueWaitFailed;
+    }
+
+    const count = context.blur_pipeline.clearScratchResources();
+    if (count > 0) {
+        std.log.info(
+            "retired {d} Vulkan blur scratch resource sets before render-target change",
+            .{count},
+        );
+    }
+    return count;
+}
+
 /// Retire a resource after the queue submission containing its final use.
 pub fn deferDestroy(context: *VulkanContext, resource: DeferredResource) !void {
     try context.deferred.ensureUnusedCapacity(util.gpa, 1);

@@ -63,6 +63,12 @@ const Resources = struct {
     pong_descriptor: c.VkDescriptorSet,
 
     fn deinit(resources: *Resources, pipeline: *BlurPipeline) void {
+        const descriptors = [_]c.VkDescriptorSet{
+            resources.source_descriptor,
+            resources.ping_descriptor,
+            resources.pong_descriptor,
+        };
+        pipeline.freeDescriptors(&descriptors);
         destroyImage(pipeline.device, resources.ping);
         destroyImage(pipeline.device, resources.pong);
     }
@@ -277,9 +283,7 @@ pub fn deinit(pipeline: *BlurPipeline) void {
         c.vkDestroyPipeline(pipeline.device, entry.pipeline, null);
     }
     pipeline.composite_pipelines.deinit(util.gpa);
-    for (pipeline.resources.items) |*resources| {
-        resources.deinit(pipeline);
-    }
+    _ = pipeline.clearScratchResources();
     pipeline.resources.deinit(util.gpa);
 
     if (pipeline.separable_pipeline != null) {
@@ -327,6 +331,18 @@ pub fn deinit(pipeline: *BlurPipeline) void {
             composite_pipeline_count,
         },
     );
+}
+
+/// Discard scratch images and descriptors tied to wlroots render-buffer image
+/// views. The caller must ensure that all queue submissions using these
+/// resources have completed before calling this function.
+pub fn clearScratchResources(pipeline: *BlurPipeline) usize {
+    const count = pipeline.resources.items.len;
+    for (pipeline.resources.items) |*resources| {
+        resources.deinit(pipeline);
+    }
+    pipeline.resources.clearRetainingCapacity();
+    return count;
 }
 
 pub fn render(
@@ -898,6 +914,25 @@ fn allocateDescriptor(
     return descriptor_set;
 }
 
+fn freeDescriptors(
+    pipeline: *BlurPipeline,
+    descriptors: []const c.VkDescriptorSet,
+) void {
+    if (descriptors.len == 0) return;
+    const result = c.vkFreeDescriptorSets(
+        pipeline.device,
+        pipeline.descriptor_pool,
+        @intCast(descriptors.len),
+        descriptors.ptr,
+    );
+    if (result != c.VK_SUCCESS and result != c.VK_ERROR_DEVICE_LOST) {
+        std.log.warn(
+            "freeing Vulkan blur descriptors failed with result {d}",
+            .{result},
+        );
+    }
+}
+
 fn createImage(
     pipeline: *BlurPipeline,
     extent: c.VkExtent2D,
@@ -1302,6 +1337,7 @@ fn createDescriptorPool(device: c.VkDevice) !c.VkDescriptorPool {
     };
     var create_info = std.mem.zeroes(c.VkDescriptorPoolCreateInfo);
     create_info.sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    create_info.flags = c.VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     create_info.maxSets = 4096;
     create_info.poolSizeCount = 1;
     create_info.pPoolSizes = &pool_size;
