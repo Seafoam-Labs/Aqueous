@@ -33,7 +33,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
-            base-devel git curl tar xz nodejs \
+            base-devel git curl patch tar xz nodejs \
             clang llvm lld \
             wayland wayland-protocols wayland-utils \
             libxkbcommon libinput \
@@ -42,7 +42,8 @@ jobs:
             libdecor \
             pkgconf ninja meson \
             wlroots0.20 \
-            libdisplay-info libliftoff lcms2 vulkan-icd-loader \
+            libdisplay-info libliftoff lcms2 \
+            glslang vulkan-headers vulkan-icd-loader \
             xcb-util-errors xcb-util-renderutil xcb-util-wm \
             xorg-xwayland
 
@@ -79,9 +80,20 @@ jobs:
       - name: Build Aqueous compositor
         shell: bash
         run: |
+          compositor/scripts/build-wlroots-render-hook.sh \
+            "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
           cd compositor
+          PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
+          cmp "$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so" \
+            "$GITHUB_WORKSPACE/publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so"
+          readelf -d "$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueous" |
+            grep -F '$ORIGIN/../lib/aqueous'
+          if readelf -d "$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueous" |
+              grep -qi 'scenefx'; then
+            exit 1
+          fi
 
       - name: Stage bundle
         shell: bash
@@ -91,6 +103,7 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/share/wayland-sessions
           mkdir -p publish/aqueous-linux-x64/share/aqueous
           mkdir -p publish/aqueous-linux-x64/lib/systemd/user
+          mkdir -p publish/aqueous-linux-x64/lib/aqueous
           mkdir -p publish/aqueous-linux-x64/lib/udev/rules.d
           mkdir -p publish/aqueous-linux-x64/lib/tmpfiles.d
           mkdir -p publish/aqueous-linux-x64/etc/xdg/aqueous
@@ -100,6 +113,8 @@ jobs:
           # Binaries
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
+          cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
+            publish/aqueous-linux-x64/lib/aqueous/
 
           # Compositor share data (man pages and protocol ABI metadata) if present
           if [ -d publish/aqueous-compositor/share ]; then

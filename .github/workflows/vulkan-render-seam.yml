@@ -74,7 +74,6 @@ jobs:
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
             zig build \
-              -Dvulkan-effects=true \
               -Dxwayland=true \
               -Dexternal-policy=true \
               -Dcpu=baseline \
@@ -132,7 +131,12 @@ jobs:
             grep ' wlr_xwayland_create$'
           readelf -d compositor/zig-out/bin/aqueous |
             grep 'libvulkan.so'
+          test -f compositor/zig-out/lib/aqueous/libwlroots-0.20.so
+          cmp "$library" \
+            compositor/zig-out/lib/aqueous/libwlroots-0.20.so
+          readelf -d compositor/zig-out/bin/aqueous |
+            grep -F '$ORIGIN/../lib/aqueous'
           if readelf -d compositor/zig-out/bin/aqueous |
-              grep -q 'libscenefx'; then
+              grep -qi 'scenefx'; then
             exit 1
           fi

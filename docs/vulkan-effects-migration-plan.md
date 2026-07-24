@@ -23,8 +23,10 @@ that the stock render-pass API does not provide.
 
 The baseline tooling and Vulkan backend/context foundation are implemented as
 of 2026-07-23. The repository contains a deterministic effects fixture suite,
-a nested SceneFX capture harness, opt-in scene timing and blur-cache event
-instrumentation, and an exact inventory of the current invalidation behavior.
+opt-in scene timing and blur-cache event instrumentation, and an exact
+inventory of the current invalidation behavior. The original SceneFX captures
+are retained as historical rollout evidence; the obsolete capture executable
+was removed with the dependency.
 
 The harness was validated by producing reference captures at 1920×1080,
 2560×1440, and 3840×2160. Generated artifacts include screencopies,
@@ -35,12 +37,23 @@ The harness also captures isolated square-corner and compositor-clipped
 variants, deterministic backdrop motion, a visible localized-damage control,
 and localized damage wholly behind blur. That final SceneFX capture records the
 known stale-cache behavior for ordinary-window damage. The Vulkan metrics
-schema now receives real blur-cache hit, rebuild, and pixel counters; GPU
-duration remains zero until timestamp-query ownership is implemented.
+schema now receives real blur-cache hit, rebuild, pixel, and resource-creation
+counters; effect-only GPU duration remains explicitly unavailable until
+timestamp-query ownership is implemented.
 
-`-Dvulkan-effects=true` now selects and verifies wlroots' Vulkan renderer,
-borrows its Vulkan handles, reports physical-device capabilities, owns a
-pipeline cache and fence-backed retirement queue, and follows initial startup,
+The 2026-07-24 Phase 8 reuse audit passed cached and uncached 64-frame runs on
+the RTX 5090. The cached run used one rounded-texture pipeline, one rounded-rect
+pipeline, one blur-composite pipeline, five scratch sets, sixteen images, and
+twenty-one descriptors across 1,320 rounded draws and 103 blur checkpoints.
+The uncached oracle used seven scratch sets, fourteen images, and twenty-one
+descriptors across 2,449 rounded draws and 390 checkpoints. The largest
+cached-versus-uncached mean normalized-channel difference was approximately
+`0.0000451`, below the `0.0002` limit.
+
+Vulkan effects are now the default build. They select and verify wlroots'
+Vulkan renderer, borrow its Vulkan handles, report physical-device
+capabilities, own a
+pipeline cache and fence-backed retirement queue, and support initial startup,
 normal teardown, and renderer-loss recreation. A nested RTX 5090 run completed
 an atomic 1920×1080 modeset, screencopy, and clean context teardown.
 
@@ -61,10 +74,10 @@ Effect state is now owned by Aqueous independently of the Vulkan context.
 `EffectMetadata.zig` provides destruction-aware registries for scene buffers
 and rects, generation-safe typed handles for window blur masks and output blur
 caches, and generation counters for global blur configuration and cache
-invalidation. The existing `fx.zig` entry points route to either SceneFX or the
-Aqueous registry, while saved and animation snapshot buffers preserve metadata
-through their existing copy path. The metadata registry survives renderer-loss
-context replacement and is torn down after the scene graph.
+invalidation. The existing `fx.zig` entry points now use only the Aqueous
+registry, while saved and animation snapshot buffers preserve metadata through
+their existing copy path. The metadata registry survives renderer-loss context
+replacement and is torn down after the scene graph.
 
 Rounded corners and decoration outlines are now rendered by Aqueous-owned
 Vulkan pipelines. The production seam replaces wlroots texture and rectangle
@@ -78,8 +91,9 @@ The nested RTX 5090 production run passed 4,096 reused-buffer frames at scales
 rounded-texture draws and 4,116 rounded-rect draws: 8,222 through normal output
 rendering, 10 through OutputManager swapchain rendering, and all 8,232 on
 wlroots' explicit-sync output timeline. The localized update remained exactly
-`160x120+440+320`. A validation-layer rerun and a formal SceneFX golden-image
-tolerance comparison remain open validation items.
+`160x120+440+320`. The retained pre-migration reference review and formal
+cached-versus-uncached oracle tolerance are complete. A validation-layer rerun
+remains open.
 
 Uncached backdrop blur is now implemented in the Vulkan-effects build. The
 wlroots seam pauses its forced linear two-pass target at a scene-node
@@ -137,6 +151,14 @@ forced GPU reset, mixed-scale cross-output blur, and direct-scanout restoration
 still require suitable hardware or deterministic fault injection; the code
 lifecycle for those paths is implemented and audited.
 
+SceneFX has now been removed from source, build detection, translated headers,
+renderer creation, package dependencies, release artifacts, and runtime
+linkage. Vulkan effects are the default. The installed compositor carries the
+exact pinned wlroots render-hook library in `lib/aqueous` behind an
+origin-relative runtime path, preventing accidental fallback to an unpatched
+system library. `-Dvulkan-effects=false` remains the stock-wlroots,
+square/no-blur diagnostic build.
+
 See [Effects reference capture](../compositor/doc/vulkan-effects-baseline.md)
 for commands, fixture geometry, artifact descriptions, timing semantics, and
 the current cache-invalidation inventory. See
@@ -172,8 +194,8 @@ future FP16/HDR path, but HDR is not a completion requirement for this project.
 
 ## Current-to-new replacement map
 
-`compositor/aqueous/fx.zig` remains the public façade during the migration.
-Callers should not import Vulkan or know which effect backend is active.
+`compositor/aqueous/fx.zig` remains the public façade. Callers do not import
+Vulkan and the no-effects build compiles the same calls to inert behavior.
 
 | Current operation | Current implementation | Replacement |
 |---|---|---|
@@ -201,16 +223,16 @@ Call-site replacements are intentionally small:
 | `Output.zig` | Done through cached blur: owns output-local cache lifetime, visibility, damage, generation state, and counters while sharing the pipelines with normal frames |
 | `OutputManager.zig` | Done through cached blur: atomic modesets use the same hooks, cache rebuild rules, expanded damage, and swapchain path |
 | `WindowManager.zig` | Done for metadata: store generation-tracked blur configuration and invalidate output caches |
-| `LayerSurface.zig` | Done: keep the backend-neutral trigger; Vulkan uses wlroots scene damage while SceneFX keeps its explicit invalidation |
+| `LayerSurface.zig` | Done: keep the backend-neutral trigger; Vulkan uses wlroots scene damage |
 | `Server.zig` | Done through cached blur: release output cache ownership before renderer-loss context replacement and rebuild lazily on the new context |
-| `build.zig` | Done: custom-effects option, mutual exclusion, Vulkan translation, and linking; remaining: shader compilation and SceneFX removal after rollout |
+| `build.zig` | Done: Vulkan effects default, diagnostic fallback, Vulkan translation/linking, private render-hook installation, and no SceneFX detection |
 
 ## Proposed source layout
 
 ```text
 compositor/
 ├── aqueous/
-│   ├── fx.zig                         compatibility façade and backend selection
+│   ├── fx.zig                         Aqueous effects façade and backend selection
 │   └── render/
 │       ├── Effects.zig                lifecycle, public API, and frame orchestration
 │       ├── VulkanContext.zig          borrowed wlroots Vulkan handles and capabilities
@@ -251,7 +273,8 @@ compositor/
 ├── aqueous/
 │   └── render_metrics.zig
 ├── scripts/
-│   ├── capture-effects-baseline.sh
+│   ├── test-vulkan-effects.sh
+│   ├── test-vulkan-render-seam.sh
 │   └── fixtures/
 │       ├── visual-effects-reference.c
 │       ├── visual-effects-rules.toml
@@ -379,9 +402,9 @@ underlying timestamp queries and counters.
 - [x] Document all existing blur invalidation paths and explicitly record that
       ordinary window and workspace damage is above the optimized backdrop
       cache rather than a cache-invalidating source.
-- [x] Confirm `-Dscenefx=false` remains a clean square/no-blur fallback, is not
-      linked to SceneFX, passes unit tests, and passes the XDG fullscreen
-      integration regression.
+- [x] Confirm the effects-disabled build remains a clean square/no-blur
+      fallback, passes unit tests, and passes the XDG fullscreen integration
+      regression.
 - [x] Add explicit square-corner and compositor-clipped visual variants before
       rounded-pipeline golden comparisons begin.
 - [x] Add controlled backdrop motion and localized damage before cached-blur
@@ -391,9 +414,8 @@ underlying timestamp queries and counters.
       owned by Aqueous.
 
 Exit condition: repeatable reference captures and timings exist before rendering
-code changes. This condition is met. The harness accepts real Vulkan GPU/cache
-samples without inventing SceneFX equivalents; populating those samples remains
-dependent on the rendering and cache code introduced in later phases.
+code changes. This condition is met. The current harness records real Vulkan
+cache and allocation samples without fabricating effect-only GPU duration.
 
 ### Phase 1 — Add backend selection and the Vulkan context
 
@@ -404,8 +426,8 @@ Khronos-validation-layer rerun remains pending because the layer is not
 installed on the current workstation. Renderer-loss recreation is implemented
 but still needs an injected-reset runtime test.
 
-- [x] Add `-Dvulkan-effects=true|false`; initially make it mutually exclusive
-      with `-Dscenefx=true`.
+- [x] Add `-Dvulkan-effects=true|false`; Vulkan effects are now the default and
+      false selects the diagnostic build.
 - [x] When selected, request or verify a wlroots Vulkan renderer and fail at
       startup with a precise error if it is unavailable.
 - [x] Add Vulkan header translation/linking without creating a second instance,
@@ -419,7 +441,7 @@ Implementation record:
 
 | Area | Result |
 |---|---|
-| Backend selection | `-Dvulkan-effects=true` disables SceneFX auto-selection, forces `WLR_RENDERER=vulkan`, and verifies `wlr_renderer_is_vk` |
+| Backend selection | The default build forces `WLR_RENDERER=vulkan` and verifies `wlr_renderer_is_vk`; `-Dvulkan-effects=false` uses stock renderer selection |
 | Ownership | Instance, physical device, logical device, queue family, and queue are borrowed; Aqueous creates no second Vulkan device or queue |
 | Aqueous-owned state | Pipeline cache, retirement fences, and the deferred-resource list |
 | Capability query | FP16/BGRA8 sampled and color-attachment support, linear filtering, anisotropy support, wlroots timeline support, physical timeline/synchronization2 support, and timestamp availability/period |
@@ -508,8 +530,9 @@ Estimate: 2–3 weeks.
 Status: implementation and functional real-GPU validation complete. The
 production pipeline passes normal and swapchain rendering, screencopy, exact
 localized damage, scales 1, 1.25, 1.5, and 2, rotations 90°, 180°, and 270°,
-explicit synchronization, and 4,096 buffer reuse cycles. The Khronos validation
-layer and formal SceneFX golden-image tolerance comparison remain pending.
+explicit synchronization, and 4,096 buffer reuse cycles. The retained
+pre-migration captures have been reviewed; the Khronos validation-layer rerun
+remains pending.
 
 - [x] Implement a scale-correct signed-distance rounded-rectangle mask.
 - [x] Add premultiplied-alpha antialiasing for client textures.
@@ -526,8 +549,8 @@ layer and formal SceneFX golden-image tolerance comparison remain pending.
 
 Exit condition: reference captures match within an agreed pixel tolerance at
 1×, 1.25×, 1.5×, and 2× scale, including rotated outputs. The scale/rotation
-matrix and exact pixel assertions pass; closing this condition still requires
-recording the agreed SceneFX comparison tolerance.
+matrix and exact pixel assertions pass. Cached and uncached captures use the
+documented `0.0002` mean normalized-channel tolerance.
 
 ### Phase 5 — Implement correct uncached backdrop blur
 
@@ -535,9 +558,8 @@ Estimate: 3–5 weeks.
 
 Status: implementation and single-output functional hardware validation are
 complete. The path deliberately does no content caching: it reprocesses the
-full output at every visible blurred-window checkpoint. A validation-layer run,
-formal SceneFX tolerance comparison, clipped-window capture, and mixed-output
-hardware matrix remain open acceptance work.
+full output at every visible blurred-window checkpoint. A validation-layer run
+and mixed-output hardware matrix remain open acceptance work.
 
 - [x] Start with one output and one blurred window.
 - [x] Capture only the already-rendered background beneath the window.
@@ -565,9 +587,9 @@ Implementation record:
 
 Exit condition: blur is visually correct under moving content, multiple windows,
 alpha, clipping, transforms, and mixed output scales with caching disabled.
-Motion, multiple windows, alpha, transforms, fractional scales, and uncached
-operation pass on the reference hardware. Close the condition after the
-clipped-window, mixed-output, SceneFX-tolerance, and validation-layer runs.
+Motion, multiple windows, alpha, clipping, transforms, fractional scales, and
+uncached operation pass on the reference hardware. Close the remaining hardware
+acceptance work after the mixed-output and validation-layer runs.
 
 ### Phase 6 — Add the per-output blur cache and damage model
 
@@ -638,18 +660,36 @@ direct-scanout restoration remain explicit hardware acceptance runs.
 
 Estimate: 4–8 weeks.
 
-- [ ] Compare GPU time, bandwidth, allocations, and missed frames against the Phase 0 baseline.
-- [ ] Avoid device-idle waits in normal rendering and resource destruction.
-- [ ] Reuse descriptor sets, samplers, pipelines, command resources, and cache images.
+- [x] Audit Vulkan allocation counts under cached and uncached frame stress.
+- [ ] Compare GPU time, bandwidth, and missed frames against the Phase 0 baseline.
+- [x] Avoid device-idle waits in normal rendering and resource destruction.
+- [x] Reuse descriptor sets, samplers, pipelines, command resources, and cache images.
 - [ ] Test AMD, Intel, and NVIDIA; include at least one integrated and one discrete GPU.
 - [ ] Test single-GPU and multi-GPU scanout/import paths.
-- [ ] Run an opt-in A/B period with `scenefx` and `vulkan-effects` builds.
-- [ ] Make Vulkan effects the default only after a full stable test cycle.
-- [ ] Remove SceneFX linking, headers, renderer creation, and build detection.
-- [ ] Keep `-Dvulkan-effects=false` as the square/no-blur diagnostic build.
+- [ ] Complete a rollout comparison against the archived Phase 0 captures and
+      metrics. A dual-backend package is intentionally unavailable after removal.
+- [x] Make Vulkan effects the source, developer-build, package, and release default.
+- [x] Remove SceneFX linking, headers, renderer creation, and build detection.
+- [x] Keep `-Dvulkan-effects=false` as the square/no-blur diagnostic build.
+
+Implementation record:
+
+| Area | Result |
+|---|---|
+| Default | `vulkan-effects` defaults to true; production build scripts, packages, and release CI reproduce the pinned render hook and build the Vulkan compositor without an effects-selection flag |
+| Dependency removal | The `scenefx` option, pkg-config probe, link ordering, translated headers, renderer factory, backend unions, package dependencies, and obsolete capture script are removed |
+| Runtime dependency | The exact patched `libwlroots-0.20.so` is installed under `lib/aqueous`; `$ORIGIN/../lib/aqueous` is in the compositor runpath so packages do not load the stock library by mistake |
+| Fallback | `-Dvulkan-effects=false` builds and installs against stock wlroots, links neither Vulkan nor SceneFX, and does not install the private render-hook library |
+| Synchronization | Production effect teardown contains no `vkDeviceWaitIdle`; one queue-idle boundary protects final context destruction while normal rendering and individual resource retirement remain nonblocking |
+| Reuse | Sampler, descriptor pool, descriptor sets, render-pass-specific pipelines, scratch image sets, and output cache images persist and are keyed for reuse |
+| Allocation audit | Hardware harness teardown reports pipeline, scratch-set, image, descriptor, and cache-image creation counts and rejects one-allocation-per-draw/checkpoint behavior or inconsistent accounting |
+| Packaging | Source, DMS, portable, git, binary, developer-build, release, and Vulkan CI paths ship or verify the private hook library and contain no SceneFX dependency |
+| Validation | Cached and uncached 64-frame RTX 5090 runs pass the full visual matrix and the new reuse assertions; the no-effects install links neither Vulkan nor the private hook and passes the XDG fullscreen regression |
 
 Exit condition: custom effects are the default, SceneFX is absent from the
-runtime dependency graph, and the fallback build still works.
+runtime dependency graph, and the fallback build still works. This removal exit
+condition is met. Cross-vendor timing, bandwidth, missed-frame, and multi-GPU
+acceptance remain open hardware rollout gates.
 
 ## Test plan
 
@@ -666,10 +706,10 @@ runtime dependency graph, and the fallback build still works.
 
 ### Automated visual cases
 
-Use `scripts/capture-effects-baseline.sh` for the current SceneFX reference and
-extend it into the Vulkan golden-image harness. It selects a nested real-pixel
-Wayland backend when available. The current headless tests remain useful for
-protocol behavior but cannot validate pixels.
+Use `scripts/test-vulkan-effects.sh` for the cached Vulkan implementation and
+its uncached oracle. It selects a nested real-pixel Wayland backend when
+available. The current headless tests remain useful for protocol behavior but
+cannot validate pixels.
 
 | Axis | Cases |
 |---|---|
@@ -706,16 +746,14 @@ AQUEOUS_XWAYLAND_RENDER_ONLY=1 scripts/test-xwayland-input.sh
 
 Current validation record:
 
-- `zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dscenefx=true`
-- `scripts/capture-effects-baseline.sh` at 1080p, 1440p, and 4K
-- The expanded capture passes at 1080p, 1440p, and 4K with square, clipped,
-  motion, visible localized-control, and behind-blur localized-damage artifacts;
-  every generated checksum verifies
-- `zig build test -Dllvm=true -Dscenefx=false`
-- `zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dscenefx=false`
-- `ldd zig-out/bin/aqueous` confirms no SceneFX dependency in the fallback build
-- `scripts/test-xdg-fullscreen.sh` passes against the fallback build
-- All capture artifacts pass `SHA256SUMS`
+- The archived Phase 0 reference capture passed at 1080p, 1440p, and 4K with
+  square, clipped, motion, visible localized-control, and
+  behind-blur-localized artifacts; every generated checksum verified
+- `zig build -Dvulkan-effects=false -Dcpu=baseline
+  -Doptimize=ReleaseSafe` succeeds against stock wlroots
+- `readelf -d` confirms the diagnostic build links neither Vulkan nor SceneFX
+  and has no private render-hook runpath or installed private library
+- `scripts/test-xdg-fullscreen.sh` passes against the diagnostic build
 - `zig build test`
 - Phase 4 validation: `zig build test -Dcpu=baseline --summary all` passes
   158/158 tests, including effect-metadata lifecycle and CPU radius-clamping
@@ -729,17 +767,13 @@ Current validation record:
   clipping, and odd-pixel half-resolution coverage
 - Phase 7 validation: `zig build test -Dcpu=baseline --summary all` passes
   163/163 tests, including direct-scanout composition eligibility
-- `zig build -Dscenefx=true -Dvulkan-effects=false -Dcpu=baseline
-  -Doptimize=ReleaseSafe`
-- `zig build -Dscenefx=false -Dvulkan-effects=false -Dcpu=baseline
-  -Doptimize=ReleaseSafe`
-- `zig build -Dvulkan-effects=true -Dexternal-policy=true -Dcpu=baseline
-  -Doptimize=ReleaseSafe`
-- `-Dvulkan-effects=true -Dscenefx=true` fails with the expected mutual-exclusion
-  error
-- `readelf -d` confirms the Vulkan build directly needs `libvulkan` and not
-  SceneFX, while SceneFX and stock fallback builds keep their intended direct
-  dependencies
+- the default `zig build -Dexternal-policy=true -Dcpu=baseline
+  -Doptimize=ReleaseSafe` succeeds against the pinned render-hook library
+- the removed `-Dscenefx=true` option fails as an invalid build option
+- `readelf -d` confirms the default build needs `libvulkan`, contains no
+  SceneFX dependency, and searches `$ORIGIN/../lib/aqueous`
+- the installed private `libwlroots-0.20.so` defines every render-seam and
+  XWayland symbol consumed by the compositor
 - `scripts/test-vulkan-context.sh` passes on an NVIDIA GeForce RTX 5090 with
   Vulkan 1.4.341, including a 1920×1080 atomic modeset, screencopy, and clean
   context teardown
@@ -749,8 +783,8 @@ Current validation record:
 - the wlroots patch applies cleanly in a fresh 0.20.2 source tree, and all four
   rounded shader binaries reproduce byte-for-byte from their GLSL sources and
   pass `spirv-val --target-env vulkan1.0`
-- the production Vulkan-effects build succeeds against that reproduced
-  dependency while SceneFX and effects-disabled builds continue to compile
+- the default production build succeeds against that reproduced dependency
+  while the effects-disabled build continues to compile against stock wlroots
 - `AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION=0
   scripts/test-vulkan-render-seam.sh` passes 4,096 buffer-reuse frames on the
   RTX 5090, recording 4,116 texture and 4,116 rectangle draws: 8,222 ordinary,
@@ -787,8 +821,15 @@ Current validation record:
 - the Vulkan build passes `scripts/test-policy-parity.sh`,
   `scripts/test-scaling.sh`, `scripts/test-scrolling-viewport.sh`,
   `scripts/test-window-lifecycle.sh`, and `scripts/test-xdg-fullscreen.sh`
-- SceneFX and effects-disabled ReleaseSafe compatibility builds continue to
-  compile after the shared frame-builder integration
+- the Phase 8 default build passes 163/163 tests, installs its exact private
+  render-hook library, and contains no SceneFX source/build dependency
+- cached/uncached 64-frame Phase 8 runs record one texture, rect, and
+  blur-composite pipeline; 5/7 scratch sets; 16/14 images; and 21/21
+  descriptors across 103/390 checkpoints, while every reuse assertion passes
+- all selected cached/uncached images remain below the `0.0002` mean tolerance;
+  the largest measured Phase 8 difference is approximately `0.0000451`
+- the Phase 8 diagnostic install contains no private library, Vulkan
+  dependency, or effects runpath and passes `scripts/test-xdg-fullscreen.sh`
 - The Khronos validation layer was not installed for that run; the harness will
   require it by default and reject validation errors when available
 
@@ -803,7 +844,7 @@ To repeat the functional run:
 ```sh
 scripts/build-wlroots-render-hook.sh .deps/wlroots-render-hook
 export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
-zig build -Dvulkan-effects=true -Dexternal-policy=true \
+zig build -Dexternal-policy=true \
   -Dcpu=baseline -Doptimize=ReleaseSafe
 scripts/test-vulkan-context.sh
 ```
@@ -817,15 +858,18 @@ deterministic reset-injection method exists.
 ### Performance gates
 
 The current reference records CPU-side scene preparation on named hardware.
-SceneFX GPU timing is explicitly reported as unavailable when its GLES query
-cannot provide a valid result. Set GPU thresholds after Vulkan timestamp queries
-are operational. Initial gates:
+Aqueous reports effect-only GPU duration as `-1` rather than manufacturing a
+zero-duration sample while Vulkan timestamp-query ownership is unavailable.
+Cache work and resource creation have real counters. Set GPU-time and bandwidth
+thresholds after timestamp queries and a driver-independent bandwidth proxy are
+implemented. Initial gates:
 
 - No continuous cache rebuild on an unchanged frame.
 - No full-output rebuild for localized damage when the partial path is enabled.
-- No per-frame Vulkan allocation in steady state.
+- Pipeline, scratch-set, image, descriptor, and cache-image creation counts stay
+  below draw/checkpoint counts and satisfy the expected ownership accounting.
 - No `vkDeviceWaitIdle` in steady-state rendering.
-- No new missed-frame pattern at 4K60 relative to SceneFX.
+- No new missed-frame pattern at 4K60 relative to the archived Phase 0 baseline.
 - Effects-disabled performance remains within measurement noise of stock wlroots.
 
 ## Risks and mitigations
@@ -854,10 +898,10 @@ For one engineer familiar with Aqueous, wlroots, and Vulkan:
 | Production hardening and broad GPU coverage | 20–32 weeks total |
 | Remaining work after the cached-blur implementation | 5–12 weeks, dominated by broad integration, performance, rollout, and hardware coverage |
 
-The render seam, synchronization contract, rounded pipelines, and correct
-scene-ordered cached blur are now implemented. Broad compositor integration,
-performance hardening, rollout, and validation across more GPU drivers remain
-the largest work items.
+The render seam, synchronization contract, rounded pipelines, correct
+scene-ordered cached blur, compositor integration, default selection, and
+dependency removal are implemented. Cross-vendor performance, rollout, and
+hardware validation remain the largest work items.
 
 Two engineers can shorten hardware testing and blur optimization, but the
 render-seam and frame-order design should have one owner to avoid incompatible
@@ -870,7 +914,7 @@ The first sprint should end with evidence, not production shaders:
 - [x] Add `-Dvulkan-effects` and enforce the backend-selection rules.
 - [x] Add `VulkanContext` and log the borrowed device and queue capabilities.
 - [x] Add empty effects initialization, renderer-loss teardown, and recreation.
-- [x] Create the deterministic visual test client and save SceneFX references.
+- [x] Create the deterministic visual test client and save pre-migration references.
 - [x] Exercise an atomic modeset and screencopy through wlroots Vulkan.
 - [x] Exercise normal context creation and clean teardown on real hardware.
 - [ ] Rerun the context harness with the Khronos validation layer enabled.

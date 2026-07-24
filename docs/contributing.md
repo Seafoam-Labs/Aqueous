@@ -8,8 +8,9 @@ Before submitting a change, run:
 
 ```sh
 cd compositor
-zig build test
-zig build -Dscenefx=false
+scripts/build-wlroots-render-hook.sh
+PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" zig build test
+zig build -Dvulkan-effects=false
 ```
 
 Changes to policy defaults, compositor hooks, output management, or packaging

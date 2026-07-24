@@ -68,7 +68,7 @@ pub fn recordBlurCache(event: BlurCacheEvent) void {
 }
 
 pub const VulkanEffectsSample = struct {
-    gpu_duration_ns: u64,
+    gpu_duration_ns: i64,
     cache_hits: u32,
     cache_partial_rebuilds: u32,
     cache_full_rebuilds: u32,

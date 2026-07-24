@@ -136,14 +136,16 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
 }
 
 pub fn deinit(context: *VulkanContext) void {
+    const idle_result = c.vkQueueWaitIdle(context.queue);
+    if (idle_result != c.VK_SUCCESS and idle_result != c.VK_ERROR_DEVICE_LOST) {
+        std.log.warn(
+            "waiting for the Vulkan effects queue failed during teardown: {s}",
+            .{resultName(idle_result)},
+        );
+    }
+
     context.blur_pipeline.deinit();
     context.rounded_pipeline.deinit();
-    if (context.deferred.items.len != 0) {
-        const idle_result = c.vkDeviceWaitIdle(context.device);
-        if (idle_result != c.VK_SUCCESS and idle_result != c.VK_ERROR_DEVICE_LOST) {
-            std.log.warn("waiting for Vulkan device idle failed during effects teardown: {s}", .{resultName(idle_result)});
-        }
-    }
 
     for (context.deferred.items) |entry| {
         destroyResource(context.device, entry.resource);

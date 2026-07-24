@@ -196,6 +196,10 @@ cache_hit_count: u64 = 0,
 cache_partial_rebuild_count: u64 = 0,
 cache_full_rebuild_count: u64 = 0,
 cache_pixels_processed: u64 = 0,
+scratch_resource_create_count: u64 = 0,
+image_allocation_count: u64 = 0,
+descriptor_allocation_count: u64 = 0,
+cache_image_create_count: u64 = 0,
 
 pub const resolveKernel = EffectMetadata.resolveBlurKernel;
 
@@ -268,18 +272,7 @@ pub fn init(
 }
 
 pub fn deinit(pipeline: *BlurPipeline) void {
-    if (pipeline.resources.items.len != 0 or
-        pipeline.composite_pipelines.items.len != 0)
-    {
-        const result = c.vkDeviceWaitIdle(pipeline.device);
-        if (result != c.VK_SUCCESS and result != c.VK_ERROR_DEVICE_LOST) {
-            std.log.warn(
-                "waiting for Vulkan blur teardown failed: {s}",
-                .{resultName(result)},
-            );
-        }
-    }
-
+    const composite_pipeline_count = pipeline.composite_pipelines.items.len;
     for (pipeline.composite_pipelines.items) |entry| {
         c.vkDestroyPipeline(pipeline.device, entry.pipeline, null);
     }
@@ -322,6 +315,16 @@ pub fn deinit(pipeline: *BlurPipeline) void {
             pipeline.cache_partial_rebuild_count,
             pipeline.cache_full_rebuild_count,
             pipeline.cache_pixels_processed,
+        },
+    );
+    std.log.info(
+        "Vulkan blur resources created: {d} scratch sets, {d} images, {d} descriptors, {d} cache images, {d} composite pipelines",
+        .{
+            pipeline.scratch_resource_create_count,
+            pipeline.image_allocation_count,
+            pipeline.descriptor_allocation_count,
+            pipeline.cache_image_create_count,
+            composite_pipeline_count,
         },
     );
 }
@@ -836,6 +839,7 @@ fn resourcesFor(
         .ping_descriptor = ping_descriptor,
         .pong_descriptor = pong_descriptor,
     });
+    pipeline.scratch_resource_create_count += 1;
     return &pipeline.resources.items[pipeline.resources.items.len - 1];
 }
 
@@ -858,6 +862,7 @@ fn allocateDescriptor(
     if (result != c.VK_SUCCESS) {
         return error.VulkanBlurDescriptorAllocateFailed;
     }
+    pipeline.descriptor_allocation_count += 1;
     const image_info: c.VkDescriptorImageInfo = .{
         .sampler = pipeline.sampler,
         .imageView = view,
@@ -965,6 +970,7 @@ fn createImage(
         &framebuffer,
     );
     if (result != c.VK_SUCCESS) return error.VulkanBlurFramebufferCreateFailed;
+    pipeline.image_allocation_count += 1;
 
     return .{
         .image = image,
@@ -988,6 +994,7 @@ fn createCacheImage(
         .descriptor = try pipeline.allocateDescriptor(image.view),
         .extent = extent,
     };
+    pipeline.cache_image_create_count += 1;
     return resource;
 }
 

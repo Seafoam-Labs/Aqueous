@@ -5,31 +5,29 @@ Wayland compositor with integrated window-management, input, and output policy.
 
 ## Building
 
-Required development libraries include Wayland, wayland-protocols, wlroots
-0.20, libxkbcommon, libinput, libevdev, pixman, and pkg-config. Vulkan-effects
-builds also require Vulkan headers and the loader. Zig 0.16 or newer is
-required; scdoc is optional for man pages.
+Required development libraries include Wayland, wayland-protocols,
+libxkbcommon, libinput, libevdev, pixman, Vulkan headers and loader, and the
+wlroots 0.20 build dependencies. Zig 0.16 or newer is required; scdoc is
+optional for man pages.
 
 ```sh
 zig build -Doptimize=ReleaseSafe -Dxwayland
 zig build test
 ```
 
-SceneFX is auto-detected and can be selected explicitly with
-`-Dscenefx=true|false`. `-Dvulkan-effects=true` disables SceneFX auto-detection,
-links the borrowed Vulkan context, requires wlroots' Vulkan renderer at startup,
-and requires the pinned Aqueous wlroots render hook. Explicitly enabling both
-effects backends is a build error. Production builds run integrated policy by
-default. For legacy protocol compatibility testing only,
+Vulkan effects are enabled by default, borrow wlroots' Vulkan context, require
+wlroots' Vulkan renderer at startup, and use the pinned Aqueous wlroots render
+hook. `-Dvulkan-effects=false` builds the square/no-blur diagnostic compositor
+against stock wlroots. Production builds run integrated policy by default. For
+legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
 
-Build the pinned dependency before a Vulkan-effects build:
+Build the pinned dependency before the default build:
 
 ```sh
 scripts/build-wlroots-render-hook.sh .deps/wlroots-render-hook
 PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
   zig build \
-    -Dvulkan-effects=true \
     -Dexternal-policy=true \
     -Dcpu=baseline \
     -Doptimize=ReleaseSafe
@@ -78,15 +76,15 @@ XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. It verifies active keyboard grabs and pointer confinement for real X11
 clients under the headless backend.
 
-SceneFX visual references and render metadata can be captured from a nested
+The Vulkan effects and uncached blur oracle can be captured from a nested
 session with:
 
 ```sh
-scripts/capture-effects-baseline.sh
+scripts/test-vulkan-effects.sh /tmp/aqueous-vulkan-effects
 ```
 
 See `doc/vulkan-effects-baseline.md` for fixture geometry, artifacts, timing
-semantics, and the current blur-cache invalidation inventory.
+semantics, and the current blur-cache behavior.
 
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.

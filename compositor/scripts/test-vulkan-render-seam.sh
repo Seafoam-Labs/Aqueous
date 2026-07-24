@@ -657,6 +657,18 @@ rounded_counts=$(
 }
 read -r texture_draws rect_draws normal_draws swapchain_draws explicit_sync_draws \
     <<<"$rounded_counts"
+rounded_resource_counts=$(
+    sed -n \
+        's/.*Vulkan rounded resources created: \([0-9][0-9]*\) texture pipelines, \([0-9][0-9]*\) rect pipelines.*/\1 \2/p' \
+        "$COMPOSITOR_LOG" |
+        tail -1
+)
+[ -n "$rounded_resource_counts" ] || {
+    tail -120 "$COMPOSITOR_LOG" >&2
+    die "rounded resource-allocation counts were not logged"
+}
+read -r rounded_texture_pipelines rounded_rect_pipelines \
+    <<<"$rounded_resource_counts"
 blur_counts=$(
     sed -n \
         's/.*destroyed Vulkan blur after \([0-9][0-9]*\) checkpoints, \([0-9][0-9]*\) offscreen draws, and \([0-9][0-9]*\) composites (\([0-9][0-9]*\) cache hits, \([0-9][0-9]*\) partial rebuilds, \([0-9][0-9]*\) full rebuilds, \([0-9][0-9]*\) pixels processed).*/\1 \2 \3 \4 \5 \6 \7/p' \
@@ -671,6 +683,20 @@ read -r blur_checkpoints blur_offscreen_draws blur_composites \
     blur_cache_hits blur_partial_rebuilds blur_full_rebuilds \
     blur_pixels_processed \
     <<<"$blur_counts"
+blur_resource_counts=$(
+    sed -n \
+        's/.*Vulkan blur resources created: \([0-9][0-9]*\) scratch sets, \([0-9][0-9]*\) images, \([0-9][0-9]*\) descriptors, \([0-9][0-9]*\) cache images, \([0-9][0-9]*\) composite pipelines.*/\1 \2 \3 \4 \5/p' \
+        "$COMPOSITOR_LOG" |
+        tail -1
+)
+[ -n "$blur_resource_counts" ] || {
+    tail -120 "$COMPOSITOR_LOG" >&2
+    die "blur resource-allocation counts were not logged"
+}
+read -r blur_scratch_sets blur_image_allocations \
+    blur_descriptor_allocations blur_cache_images \
+    blur_composite_pipelines \
+    <<<"$blur_resource_counts"
 total_draws=$((texture_draws + rect_draws))
 [ "$total_draws" -ge "$STRESS_FRAMES" ] ||
     die "rounded effects recorded fewer draws than the reuse stress"
@@ -678,6 +704,10 @@ total_draws=$((texture_draws + rect_draws))
     die "the rounded-texture pipeline did not draw"
 [ "$rect_draws" -gt 0 ] ||
     die "the rounded-rect pipeline did not draw"
+[ "$rounded_texture_pipelines" -lt "$texture_draws" ] ||
+    die "rounded texture pipelines were created once per draw"
+[ "$rounded_rect_pipelines" -lt "$rect_draws" ] ||
+    die "rounded rect pipelines were created once per draw"
 [ "$normal_draws" -gt 0 ] ||
     die "ordinary Output.renderAndCommit did not invoke rounded effects"
 [ "$swapchain_draws" -gt 0 ] ||
@@ -686,6 +716,16 @@ total_draws=$((texture_draws + rect_draws))
     die "blur recorded fewer checkpoints than the reuse stress"
 [ "$blur_composites" -eq "$blur_checkpoints" ] ||
     die "not every blur checkpoint produced a composite"
+[ "$blur_scratch_sets" -lt "$blur_checkpoints" ] ||
+    die "blur scratch resources were allocated once per checkpoint"
+[ "$blur_image_allocations" -eq \
+    $((blur_scratch_sets * 2 + blur_cache_images)) ] ||
+    die "blur image allocation accounting is inconsistent"
+[ "$blur_descriptor_allocations" -eq \
+    $((blur_scratch_sets * 3 + blur_cache_images)) ] ||
+    die "blur descriptor allocation accounting is inconsistent"
+[ "$blur_composite_pipelines" -lt "$blur_composites" ] ||
+    die "blur composite pipelines were created once per draw"
 if [ "$UNCACHED_ORACLE" = 1 ]; then
     [ "$blur_offscreen_draws" -eq $((blur_checkpoints * 17)) ] ||
         die "the uncached oracle did not rebuild every checkpoint"
@@ -734,6 +774,9 @@ fi
     printf 'total_draws=%s\n' "$total_draws"
     printf 'texture_draws=%s\n' "$texture_draws"
     printf 'rect_draws=%s\n' "$rect_draws"
+    printf 'rounded_texture_pipelines=%s\n' \
+        "$rounded_texture_pipelines"
+    printf 'rounded_rect_pipelines=%s\n' "$rounded_rect_pipelines"
     printf 'normal_draws=%s\n' "$normal_draws"
     printf 'swapchain_draws=%s\n' "$swapchain_draws"
     printf 'explicit_sync_draws=%s\n' "$explicit_sync_draws"
@@ -744,6 +787,12 @@ fi
     printf 'blur_partial_rebuilds=%s\n' "$blur_partial_rebuilds"
     printf 'blur_full_rebuilds=%s\n' "$blur_full_rebuilds"
     printf 'blur_pixels_processed=%s\n' "$blur_pixels_processed"
+    printf 'blur_scratch_sets=%s\n' "$blur_scratch_sets"
+    printf 'blur_image_allocations=%s\n' "$blur_image_allocations"
+    printf 'blur_descriptor_allocations=%s\n' \
+        "$blur_descriptor_allocations"
+    printf 'blur_cache_images=%s\n' "$blur_cache_images"
+    printf 'blur_composite_pipelines=%s\n' "$blur_composite_pipelines"
     printf 'blur_motion_changed_pixels=%s\n' "$motion_difference"
     printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
     printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"

@@ -191,7 +191,7 @@ pub const SaveableSurfaces = struct {
     }
 
     /// Clone the current live surface buffers into an arbitrary target tree,
-    /// reusing the same per-buffer copy (including SceneFX attributes) as `save`.
+    /// reusing the same per-buffer effect-metadata copy as `save`.
     /// Unlike `save`, this neither toggles `saved` nor disables the live tree, so
     /// the clones can be displayed simultaneously with the live surfaces (used by
     /// the cosmetic position-animation overlay).

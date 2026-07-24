@@ -696,11 +696,7 @@ fn effectsNodeRender(
 }
 
 fn windowBlurHandle(window: *Window) ?EffectMetadata.WindowBlurHandle {
-    const blur = window.backdrop_blur orelse return null;
-    return switch (blur) {
-        .aqueous => |handle| handle,
-        .scenefx => null,
-    };
+    return window.backdrop_blur;
 }
 
 fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
@@ -873,7 +869,7 @@ pub fn recordVulkanEffectsMetric(output: *const Output) void {
     }
     const wlr_output = output.wlr_output orelse return;
     (render_metrics.VulkanEffectsSample{
-        .gpu_duration_ns = 0,
+        .gpu_duration_ns = -1,
         .cache_hits = stats.hits,
         .cache_partial_rebuilds = stats.partial_rebuilds,
         .cache_full_rebuilds = stats.full_rebuilds,

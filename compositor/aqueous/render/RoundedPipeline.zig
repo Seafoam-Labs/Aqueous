@@ -108,17 +108,8 @@ pub fn init(
 }
 
 pub fn deinit(pipeline: *RoundedPipeline) void {
-    if (pipeline.texture_pipelines.items.len != 0 or
-        pipeline.rect_pipelines.items.len != 0)
-    {
-        const result = c.vkDeviceWaitIdle(pipeline.device);
-        if (result != c.VK_SUCCESS and result != c.VK_ERROR_DEVICE_LOST) {
-            std.log.warn(
-                "waiting for Vulkan rounded-effects teardown failed: {s}",
-                .{resultName(result)},
-            );
-        }
-    }
+    const texture_pipeline_count = pipeline.texture_pipelines.items.len;
+    const rect_pipeline_count = pipeline.rect_pipelines.items.len;
     for (pipeline.texture_pipelines.items) |entry| {
         c.vkDestroyPipeline(pipeline.device, entry.pipeline, null);
     }
@@ -141,6 +132,10 @@ pub fn deinit(pipeline: *RoundedPipeline) void {
             pipeline.swapchain_draw_count,
             pipeline.explicit_sync_draw_count,
         },
+    );
+    std.log.info(
+        "Vulkan rounded resources created: {d} texture pipelines, {d} rect pipelines",
+        .{ texture_pipeline_count, rect_pipeline_count },
     );
 }
 

@@ -72,7 +72,7 @@ pub const Border = struct {
     g: u32 = 0,
     a: u32 = 0,
     /// Corner radius applied to the border rects and window content. Defaults
-    /// to `fx.corner_radius`, which is 0 (square) unless SceneFX is compiled in.
+    /// to `fx.corner_radius`, which is 0 in the no-effects diagnostic build.
     corner_radius: u31 = fx.corner_radius,
 };
 
@@ -145,7 +145,7 @@ const RenderingRequested = struct {
     content_clip: wlr.Box,
     /// Per-window blur preference retained for policy/protocol compatibility.
     /// It must never be implemented by falsifying scene-buffer opaque regions;
-    /// selective translucent blur requires a real SceneFX mask.
+    /// selective translucent blur requires the compositor's effect mask.
     blur_enabled: bool = true,
     /// Window-content opacity as a 32-bit unsigned fraction (0 = transparent,
     /// 0xffffffff = opaque); null inherits the global default driven by

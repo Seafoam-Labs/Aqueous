@@ -322,8 +322,8 @@
       <description summary="configure backdrop blur">
         Enable or disable compositor backdrop blur and set its parameters.
         When enabled, the compositor draws a blurred backdrop behind window
-        content using its render effects backend (SceneFX). When the effects
-        backend is unavailable this request is accepted but has no visual effect.
+        content using its render effects backend. When the effects backend is
+        unavailable this request is accepted but has no visual effect.
 
         The radius is the blur radius in pixels and passes is the number of
         blur passes; larger values are blurrier but more expensive. A negative
