@@ -8,9 +8,48 @@ const types = @import("../layout/types.zig");
 
 pub const Action = enum { move_floating, resize_floating, swap_tiled };
 
+pub const ResizeEdges = struct {
+    top: bool = false,
+    bottom: bool = false,
+    left: bool = false,
+    right: bool = false,
+
+    pub fn any(edges: ResizeEdges) bool {
+        return edges.top or edges.bottom or edges.left or edges.right;
+    }
+};
+
 pub fn action(button: u32, kind: PolicyState.Kind, active_layout: layout_config.LayoutId) Action {
     if (button == 0x110 and kind == .tiled and active_layout != .floating) return .swap_tiled;
     return if (button == 0x111) .resize_floating else .move_floating;
+}
+
+/// Resolve an edge-anchored interactive resize. Client constraints and output
+/// bounds are intentionally applied by later geometry milestones; this helper
+/// guarantees a valid positive rectangle while preserving the requested edge.
+pub fn resize(start: types.Rect, dx: i32, dy: i32, edges: ResizeEdges) types.Rect {
+    var result = start;
+    if (edges.left) {
+        result.x = start.x + dx;
+        result.width = start.width - dx;
+        if (result.width < 1) {
+            result.x = start.right() - 1;
+            result.width = 1;
+        }
+    } else if (edges.right) {
+        result.width = @max(1, start.width + dx);
+    }
+    if (edges.top) {
+        result.y = start.y + dy;
+        result.height = start.height - dy;
+        if (result.height < 1) {
+            result.y = start.bottom() - 1;
+            result.height = 1;
+        }
+    } else if (edges.bottom) {
+        result.height = @max(1, start.height + dy);
+    }
+    return result;
 }
 
 /// Divide a tiled target into vertical stacking zones and horizontal column
@@ -40,4 +79,20 @@ test "drop zones distinguish vertical stacks from adjacent columns" {
     try std.testing.expectEqual(types.DropZone.stack_after, dropZone(geometry, 250, 220));
     try std.testing.expectEqual(types.DropZone.column_before, dropZone(geometry, 120, 140));
     try std.testing.expectEqual(types.DropZone.column_after, dropZone(geometry, 380, 140));
+}
+
+test "floating resize preserves the requested edge anchors" {
+    const start: types.Rect = .{ .x = 100, .y = 50, .width = 300, .height = 200 };
+    try std.testing.expectEqual(
+        types.Rect{ .x = 80, .y = 40, .width = 320, .height = 210 },
+        resize(start, -20, -10, .{ .top = true, .left = true }),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 100, .y = 50, .width = 340, .height = 230 },
+        resize(start, 40, 30, .{ .bottom = true, .right = true }),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 399, .y = 249, .width = 1, .height = 1 },
+        resize(start, 500, 500, .{ .top = true, .left = true }),
+    );
 }

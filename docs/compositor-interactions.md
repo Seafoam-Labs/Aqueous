@@ -310,6 +310,14 @@ Super+right-click, or dragging a window already in a floating interaction,
 updates remembered floating geometry and requests manage cycles as the pointer
 moves.
 
+Validated `xdg_toplevel.move` and `xdg_toplevel.resize` requests enter the same
+integrated-policy interaction path when the target is already floating. Resize
+requests preserve the client-selected edge or corner. Requests from tiled,
+maximized, or minimized windows are consumed without changing their geometry or
+removing them from layout. Client maximize and minimize requests follow the same
+rule: they may overlay a floating window and round-trip back to floating, but
+they do not alter ordinary tiled windows.
+
 ## Focus, keyboard, and pointer flow
 
 Physical input is queued on a `Seat` so input processing does not interleave

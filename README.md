@@ -203,12 +203,16 @@ cd compositor
 zig build test
 scripts/test-policy-parity.sh
 scripts/test-xdg-fullscreen.sh
+scripts/test-xdg-floating.sh
 scripts/test-scaling.sh
 ```
 
 The xdg fullscreen harness covers application-originated `xdg_toplevel`
 fullscreen requests without relying on rules or compositor keybindings. The
-integration harness maps real Ghostty windows and injects virtual keyboard
+xdg floating harness covers client-side move, edge-aware resize, maximize,
+unmaximize, and minimize requests, and verifies that identical requests do not
+affect tiled windows. The integration harness maps real Ghostty windows and
+injects virtual keyboard
 and pointer input to exercise layouts, rules, focus, fullscreen, keybindings,
 and repeated workspace changes. The scaling harness checks client-side
 `wl_output` events, the embedded output service, and the headless output commit

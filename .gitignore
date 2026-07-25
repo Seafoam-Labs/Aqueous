@@ -15,3 +15,6 @@ compositor/baselines/
 # Aggregated native binaries
 /bin/aqueous
 lib/aqueous/
+
+# Local floating implementation roadmap
+/FLOATING_MILESTONES.md

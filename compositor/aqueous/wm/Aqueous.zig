@@ -63,6 +63,8 @@ const Drag = struct {
     action: pointer_drag.Action,
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
+    resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
+    client_seat: ?usize = null,
 };
 
 pub fn init(aqueous: *Aqueous, mode: Mode) void {
@@ -161,6 +163,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
     }
+    const client_requests = try aqueous.api.takeClientWindowRequests(util.gpa);
+    defer util.gpa.free(client_requests);
+    aqueous.applyClientWindowRequests(client_requests);
+    aqueous.finishInvalidInteractiveDrag(&snapshot);
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
     const selected_output_id = aqueous.api.selectedOutputId();
@@ -374,6 +380,106 @@ fn findPolicyOutput(snapshot: *CompositorApi.PolicySnapshot, id: ?u64) ?*const C
     return null;
 }
 
+/// Client-side decorations and foreign-toplevel controllers feed the same
+/// one-shot request stream. Only windows already participating in floating
+/// policy may act on these requests; tiled windows remain layout-owned.
+fn applyClientWindowRequests(
+    aqueous: *Aqueous,
+    requests: []const CompositorApi.ClientWindowRequest,
+) void {
+    for (requests) |request| switch (request.action) {
+        .move => |pointer| aqueous.startClientPointerDrag(
+            request.handle,
+            pointer,
+            .move_floating,
+            .{},
+        ),
+        .resize => |resize| {
+            const edges: pointer_drag.ResizeEdges = .{
+                .top = resize.edges.top,
+                .bottom = resize.edges.bottom,
+                .left = resize.edges.left,
+                .right = resize.edges.right,
+            };
+            if (edges.any()) aqueous.startClientPointerDrag(
+                request.handle,
+                resize.pointer,
+                .resize_floating,
+                edges,
+            );
+        },
+        .maximize => {
+            aqueous.finishInteractiveDragFor(request.handle);
+            _ = aqueous.window_states.setClientMaximized(request.handle, true);
+        },
+        .unmaximize => {
+            aqueous.finishInteractiveDragFor(request.handle);
+            _ = aqueous.window_states.setClientMaximized(request.handle, false);
+        },
+        .minimize => {
+            aqueous.finishInteractiveDragFor(request.handle);
+            _ = aqueous.window_states.setClientMinimized(request.handle, true) catch {
+                log.err("out of memory recording client minimize request", .{});
+            };
+        },
+        .unminimize => {
+            _ = aqueous.window_states.setClientMinimized(request.handle, false) catch unreachable;
+        },
+    };
+}
+
+fn startClientPointerDrag(
+    aqueous: *Aqueous,
+    handle: layout_types.Handle,
+    pointer: CompositorApi.ClientPointer,
+    action: pointer_drag.Action,
+    edges: pointer_drag.ResizeEdges,
+) void {
+    if (aqueous.drag != null) return;
+    const state = aqueous.window_states.get(handle) orelse return;
+    if (state.kind != .floating) return;
+    const geometry = aqueous.api.windowGeometry(handle) orelse return;
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return;
+    if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
+
+    aqueous.drag = .{
+        .handle = handle,
+        .start = geometry,
+        .pointer_x = pointer.x,
+        .pointer_y = pointer.y,
+        .action = action,
+        .layout_key = .{
+            .output = workspace.output_id,
+            .workspace = workspace.workspace_number,
+        },
+        .resize_edges = edges,
+        .client_seat = pointer.seat,
+    };
+    aqueous.api.beginInteractive(handle, action == .resize_floating);
+    aqueous.api.requestFocus(handle);
+}
+
+fn finishInteractiveDragFor(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.drag) |drag| if (drag.handle == handle) aqueous.finishInteractiveDrag();
+}
+
+fn finishInvalidInteractiveDrag(
+    aqueous: *Aqueous,
+    snapshot: *const CompositorApi.PolicySnapshot,
+) void {
+    const drag = aqueous.drag orelse return;
+    for (snapshot.outputs) |output| {
+        if (output.id != drag.layout_key.output or output.workspace_number != drag.layout_key.workspace) continue;
+        for (output.windows) |window| {
+            if (window.handle != drag.handle) continue;
+            const state = aqueous.window_states.get(drag.handle) orelse break;
+            if (drag.action == .swap_tiled or (state.kind == .floating and !window.fullscreen)) return;
+            break;
+        }
+    }
+    aqueous.finishInteractiveDrag();
+}
+
 /// Apply the compositor's established parent-based popup heuristic on the
 /// null -> parent edge. xdg_toplevel parents and X11 WM_TRANSIENT_FOR both
 /// arrive through this field, covering native dialogs and Xwayland dialogs
@@ -392,9 +498,9 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
 /// Drop policy state before the compositor invalidates a stable window handle.
 pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (!aqueous.started) return;
+    aqueous.finishInteractiveDragFor(handle);
     aqueous.window_states.remove(handle);
     if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
-    if (aqueous.drag != null and aqueous.drag.?.handle == handle) aqueous.drag = null;
 }
 
 /// Input events may be coalesced while an integrated-policy pointer operation
@@ -408,6 +514,7 @@ pub fn interactiveDragActive(aqueous: *const Aqueous) bool {
 fn finishInteractiveDrag(aqueous: *Aqueous) void {
     const drag = aqueous.drag orelse return;
     if (drag.action != .swap_tiled) aqueous.api.endInteractive(drag.handle);
+    if (drag.client_seat) |seat| aqueous.api.endClientPointerOperation(seat);
     aqueous.drag = null;
 }
 
@@ -479,6 +586,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .pointer_x = x,
             .pointer_y = y,
             .action = drag_action,
+            .layout_key = layout_key,
         };
         _ = aqueous.window_states.setFloating(target.handle, target.geometry);
         aqueous.api.beginInteractive(target.handle, drag_action == .resize_floating);
@@ -531,17 +639,15 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     }
     const dx: i32 = @intFromFloat(x - drag.pointer_x);
     const dy: i32 = @intFromFloat(y - drag.pointer_y);
-    const geometry: layout_types.Rect = if (drag.action == .resize_floating) .{
-        .x = drag.start.x,
-        .y = drag.start.y,
-        .width = @max(1, drag.start.width + dx),
-        .height = @max(1, drag.start.height + dy),
-    } else .{
-        .x = drag.start.x + dx,
-        .y = drag.start.y + dy,
-        .width = drag.start.width,
-        .height = drag.start.height,
-    };
+    const geometry: layout_types.Rect = if (drag.action == .resize_floating)
+        pointer_drag.resize(drag.start, dx, dy, drag.resize_edges)
+    else
+        .{
+            .x = drag.start.x + dx,
+            .y = drag.start.y + dy,
+            .width = drag.start.width,
+            .height = drag.start.height,
+        };
     if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
     aqueous.api.requestManageCycle();
 }

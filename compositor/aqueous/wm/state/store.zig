@@ -93,10 +93,41 @@ pub fn toggleMaximized(store: *Store, handle: types.Handle) ?bool {
     return true;
 }
 
+/// Honor a client maximize transition only for a floating window. The matching
+/// unmaximize is accepted only when that overlay originated from floating, so
+/// client requests can never remove an ordinary tiled window from its layout.
+pub fn setClientMaximized(store: *Store, handle: types.Handle, maximized: bool) bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (maximized) {
+        if (entry.kind != .floating) return false;
+        entry.overrideFloating();
+        entry.previous = .floating;
+        entry.kind = .maximized;
+        return true;
+    }
+    if (entry.kind != .maximized or entry.previous != .floating) return false;
+    entry.overrideFloating();
+    entry.kind = .floating;
+    return true;
+}
+
 pub fn restore(store: *Store, handle: types.Handle) bool {
     const entry = store.resolver(handle) orelse return false;
     if (entry.kind != .minimized) return false;
     entry.kind = entry.previous;
+    removeFromList(&store.minimized_mru, handle);
+    return true;
+}
+
+/// Honor client minimize/unminimize only along a floating state lineage.
+pub fn setClientMinimized(store: *Store, handle: types.Handle, minimized: bool) !bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (minimized) {
+        if (entry.kind != .floating) return false;
+        return store.minimize(handle);
+    }
+    if (entry.kind != .minimized or entry.previous != .floating) return false;
+    entry.kind = .floating;
     removeFromList(&store.minimized_mru, handle);
     return true;
 }
@@ -173,6 +204,31 @@ test "rule floating rolls back unless manually overridden" {
     _ = store.toggleFloating(1, .empty) orelse unreachable;
     try std.testing.expect(!store.restoreRuleFloating(1));
     try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+}
+
+test "client state requests are confined to floating windows" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    try std.testing.expect(!store.setClientMaximized(1, true));
+    try std.testing.expect(!(try store.setClientMinimized(1, true)));
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+
+    TestResolver.entries[0].kind = .floating;
+    try std.testing.expect(store.setClientMaximized(1, true));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+    try std.testing.expect(store.setClientMaximized(1, false));
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
+
+    try std.testing.expect(try store.setClientMinimized(1, true));
+    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
+    try std.testing.expect(try store.setClientMinimized(1, false));
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
+
+    TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
+    try std.testing.expect(!store.setClientMaximized(2, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
 }
 
 const TestResolver = struct {

@@ -9,6 +9,7 @@ const server = &@import("../main.zig").server;
 
 const Window = @import("../Window.zig");
 const Output = @import("../Output.zig");
+const Seat = @import("../Seat.zig");
 const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
 const wm_config = @import("config/wm.zig");
@@ -29,6 +30,34 @@ pub const ClientFullscreenRequest = struct {
     action: union(enum) {
         enter: ?u64,
         exit,
+    },
+};
+
+pub const ClientPointer = struct {
+    seat: usize,
+    x: f64,
+    y: f64,
+};
+
+pub const ClientResizeEdges = struct {
+    top: bool = false,
+    bottom: bool = false,
+    left: bool = false,
+    right: bool = false,
+};
+
+pub const ClientWindowRequest = struct {
+    handle: layout.Handle,
+    action: union(enum) {
+        move: ClientPointer,
+        resize: struct {
+            pointer: ClientPointer,
+            edges: ClientResizeEdges,
+        },
+        maximize,
+        unmaximize,
+        minimize,
+        unminimize,
     },
 };
 
@@ -83,6 +112,32 @@ pub fn beginInteractive(_: CompositorApi, handle: layout.Handle, resize: bool) v
 pub fn endInteractive(_: CompositorApi, handle: layout.Handle) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.policyEndInteractive();
+}
+
+/// Take ownership of the validated pointer grab which produced a client-side
+/// move or resize request. Seat.manageFinish() applies the cursor mode change
+/// later in the same management transaction.
+pub fn beginClientPointerOperation(_: CompositorApi, seat_id: usize) bool {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        if (@intFromPtr(seat) != seat_id) continue;
+        if (seat.op != null or seat.wm_requested.op != .none) return false;
+        seat.wm_requested.op = .start_pointer;
+        return true;
+    }
+    return false;
+}
+
+pub fn endClientPointerOperation(_: CompositorApi, seat_id: usize) void {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        if (@intFromPtr(seat) != seat_id) continue;
+        if (seat.op != null or seat.wm_requested.op == .start_pointer) {
+            seat.wm_requested.op = .end;
+            server.wm.dirtyWindowing();
+        }
+        return;
+    }
 }
 
 pub fn applyGlobals(_: CompositorApi, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
@@ -507,6 +562,90 @@ pub fn takeClientFullscreenRequests(_: CompositorApi, allocator: std.mem.Allocat
         }
     }
     return requests;
+}
+
+/// Collect the client-originated operations which are meaningful to the
+/// integrated window policy. Policy decides whether the target's current state
+/// permits each request; collection always consumes the one-shot fields so an
+/// ignored request cannot be replayed on a later state transition.
+pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) ![]ClientWindowRequest {
+    var count: usize = 0;
+    var window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        if (window.wm_scheduled.pointer_move_requested != null) count += 1;
+        if (window.wm_scheduled.pointer_resize_requested != null) count += 1;
+        if (window.wm_scheduled.maximize_requested != .no_request) count += 1;
+        if (window.wm_scheduled.minimize_requested != .no_request) count += 1;
+    }
+
+    const requests = try allocator.alloc(ClientWindowRequest, count);
+    var index: usize = 0;
+    window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        const handle: layout.Handle = @bitCast(window.ref);
+        if (window.wm_scheduled.pointer_move_requested) |seat| {
+            requests[index] = .{
+                .handle = handle,
+                .action = .{ .move = clientPointer(seat) },
+            };
+            index += 1;
+        }
+        if (window.wm_scheduled.pointer_resize_requested) |data| {
+            requests[index] = .{
+                .handle = handle,
+                .action = .{ .resize = .{
+                    .pointer = clientPointer(data.seat),
+                    .edges = .{
+                        .top = data.edges.top,
+                        .bottom = data.edges.bottom,
+                        .left = data.edges.left,
+                        .right = data.edges.right,
+                    },
+                } },
+            };
+            index += 1;
+        }
+        switch (window.wm_scheduled.maximize_requested) {
+            .no_request => {},
+            .maximize => {
+                requests[index] = .{ .handle = handle, .action = .maximize };
+                index += 1;
+            },
+            .unmaximize => {
+                requests[index] = .{ .handle = handle, .action = .unmaximize };
+                index += 1;
+            },
+        }
+        switch (window.wm_scheduled.minimize_requested) {
+            .no_request => {},
+            .minimize => {
+                requests[index] = .{ .handle = handle, .action = .minimize };
+                index += 1;
+            },
+            .unminimize => {
+                requests[index] = .{ .handle = handle, .action = .unminimize };
+                index += 1;
+            },
+        }
+    }
+    std.debug.assert(index == requests.len);
+
+    window_it = server.wm.windows.iterator();
+    while (window_it.next()) |window| {
+        window.wm_scheduled.pointer_move_requested = null;
+        window.wm_scheduled.pointer_resize_requested = null;
+        window.wm_scheduled.maximize_requested = .no_request;
+        window.wm_scheduled.minimize_requested = .no_request;
+    }
+    return requests;
+}
+
+fn clientPointer(seat: *Seat) ClientPointer {
+    return .{
+        .seat = @intFromPtr(seat),
+        .x = seat.cursor.wlr_cursor.x,
+        .y = seat.cursor.wlr_cursor.y,
+    };
 }
 
 fn outputById(output_id: u64) ?*Output {

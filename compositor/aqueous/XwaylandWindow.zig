@@ -451,7 +451,19 @@ fn handleRequestMinimize(
     event: *wlr.XwaylandSurface.event.Minimize,
 ) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("request_minimize", listener);
+    const state = &xwindow.window.policy_state;
+    const allowed = if (event.minimize)
+        state.kind == .floating
+    else
+        state.kind == .minimized and state.previous == .floating;
+    if (!allowed) {
+        // X11 clients may update their iconic state before policy responds.
+        // Explicitly reject it so a tiled window cannot disappear outside the
+        // integrated layout's state machine.
+        xwindow.xsurface.setMinimized(false);
+        return;
+    }
     xwindow.xsurface.setMinimized(event.minimize);
-    xwindow.window.wm_scheduled.minimize_requested = true;
+    xwindow.window.wm_scheduled.minimize_requested = if (event.minimize) .minimize else .unminimize;
     server.wm.dirtyWindowing();
 }

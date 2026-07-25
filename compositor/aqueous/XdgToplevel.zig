@@ -455,7 +455,7 @@ fn handleRequestMaximize(listener: *wl.Listener(void)) void {
 
 fn handleRequestMinimize(listener: *wl.Listener(void)) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("request_minimize", listener);
-    toplevel.window.wm_scheduled.minimize_requested = true;
+    toplevel.window.wm_scheduled.minimize_requested = .minimize;
     server.wm.dirtyWindowing();
 }
 

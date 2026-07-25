@@ -307,7 +307,11 @@ wm_scheduled: struct {
         maximize,
         unmaximize,
     } = .no_request,
-    minimize_requested: bool = false,
+    minimize_requested: enum {
+        no_request,
+        minimize,
+        unminimize,
+    } = .no_request,
     dirty_app_id: bool = false,
     dirty_title: bool = false,
     pointer_move_requested: ?*Seat = null,
@@ -875,10 +879,14 @@ pub fn manageStart(window: *Window) void {
                 .unmaximize => window_v1.sendUnmaximizeRequested(),
             }
             scheduled.maximize_requested = .no_request;
-            if (scheduled.minimize_requested) {
-                window_v1.sendMinimizeRequested();
+            switch (scheduled.minimize_requested) {
+                .no_request => {},
+                .minimize => window_v1.sendMinimizeRequested(),
+                .unminimize => if (window_v1.getVersion() >= 5) {
+                    window_v1.sendUnminimizeRequested();
+                },
             }
-            scheduled.minimize_requested = false;
+            scheduled.minimize_requested = .no_request;
 
             if (window.getParent()) |parent| {
                 if (sent.parent == null or sent.parent.?.get() != parent) {
@@ -2488,17 +2496,13 @@ fn handleFtmRequestMinimize(
     if (event.minimized) {
         // "Please minimize" — schedule it for the next manage sequence; the wm
         // client receives it via river_window_v1.minimize_requested.
-        window.wm_scheduled.minimize_requested = true;
+        window.wm_scheduled.minimize_requested = .minimize;
         server.wm.dirtyWindowing();
     } else {
-        // "Please un-minimize" — forward to the wm via the dedicated
-        // unminimize_requested event (river-window-management-v1 >= 5).
-        // Older wm clients won't see this; they should rely on activate.
-        const window_v1 = window.object orelse return;
-        if (window_v1.getVersion() >= 5) {
-            window_v1.sendUnminimizeRequested();
-            server.wm.dirtyWindowing();
-        }
+        // The integrated policy and protocol compatibility path consume the
+        // same explicit request during the next management transaction.
+        window.wm_scheduled.minimize_requested = .unminimize;
+        server.wm.dirtyWindowing();
     }
 }
 

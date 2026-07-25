@@ -40,10 +40,6 @@ const Mode = union(enum) {
     /// A drag and drop is in progress.
     drag,
     down: struct {
-        // TODO: To handle the surface with pointer focus being moved during
-        // down mode we need to store the starting location of the surface as
-        // well and take that into account. This is currently not at all easy
-        // to do, but moing to the wlroots scene graph will allow us to fix this.
 
         // Initial cursor position in layout coordinates
         lx: f64,
