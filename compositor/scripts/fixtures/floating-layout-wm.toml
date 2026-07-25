@@ -1,0 +1,25 @@
+[layout]
+default = "floating"
+gaps_outer = 0
+gaps_inner = 0
+
+[layout.slots]
+primary = "floating"
+secondary = "tile"
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = false
+
+[keybinds]
+set_layout_primary = "Super+F"
+set_layout_secondary = "Super+T"
+toggle_floating = "Super+V"

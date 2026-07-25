@@ -426,8 +426,9 @@ int main(int argc, char **argv) {
         (strcmp(mode, "sequence") != 0 &&
          strcmp(mode, "idle") != 0 &&
          strcmp(mode, "move-only") != 0 &&
+         strcmp(mode, "move-resize") != 0 &&
          strcmp(mode, "move-hold") != 0)) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-hold]\n", argv[0]);
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -482,15 +483,19 @@ int main(int argc, char **argv) {
 
     if (strcmp(mode, "idle") == 0) {
         if (!wait_for_marker(&app, "finish")) fail(&app, "idle command failed");
-    } else if (strcmp(mode, "move-only") == 0 || strcmp(mode, "move-hold") == 0) {
+    } else if (strcmp(mode, "move-only") == 0 || strcmp(mode, "move-resize") == 0 ||
+               strcmp(mode, "move-hold") == 0) {
         if (!run_pointer_operation(
                 &app,
                 "move",
                 OP_MOVE,
                 strcmp(mode, "move-hold") == 0) ||
             !publish_marker(&app, "move-done") ||
+            (strcmp(mode, "move-resize") == 0 &&
+             (!run_pointer_operation(&app, "resize", OP_RESIZE_TOP_LEFT, false) ||
+              !publish_marker(&app, "resize-done"))) ||
             !wait_for_marker(&app, "finish")) {
-            fail(&app, "move command failed");
+            fail(&app, "move/resize command failed");
         }
     } else {
         if (!run_pointer_operation(&app, "move", OP_MOVE, false) ||

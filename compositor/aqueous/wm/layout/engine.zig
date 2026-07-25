@@ -128,6 +128,18 @@ pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
     };
 }
 
+pub fn setFloatingGeometry(allocator: std.mem.Allocator, state: *State, handle: types.Handle, geometry: types.Rect) !void {
+    try floating.setGeometry(&state.floating, allocator, handle, geometry);
+}
+
+pub fn floatingGeometry(state: *const State, handle: types.Handle) ?types.Rect {
+    return floating.geometry(&state.floating, handle);
+}
+
+pub fn forgetWindow(state: *State, handle: types.Handle) void {
+    floating.remove(&state.floating, handle);
+}
+
 test "dispatcher selects the configured engine" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
@@ -216,4 +228,27 @@ test "all managed layouts advertise tiled placements while floating does not" {
     );
     defer std.testing.allocator.free(floating_placements);
     try std.testing.expect(!floating_placements[0].tiled);
+}
+
+test "floating geometry survives temporary layout switches" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    const windows = [_]types.Window{.{ .handle = 1 }};
+    const remembered: types.Rect = .{ .x = 17, .y = 29, .width = 420, .height = 260 };
+
+    snapshot.default = .floating;
+    try setFloatingGeometry(std.testing.allocator, &state, 1, remembered);
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &windows, 1, .{});
+    try std.testing.expectEqual(remembered, placements[0].geometry);
+    std.testing.allocator.free(placements);
+
+    snapshot.default = .tile;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+
+    snapshot.default = .floating;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &windows, 1, .{});
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(remembered, placements[0].geometry);
 }

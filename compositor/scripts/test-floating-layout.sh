@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Regression for workspace floating-layout ownership. Ordinary policy-tiled
+# windows must cascade, remember client move/resize geometry across layout
+# switches, and only become persistent overlays after an explicit toggle.
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
+AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
+FIXTURE_SOURCE="$here/scripts/fixtures/xdg-floating-request.c"
+CONFIG="$here/scripts/fixtures/floating-layout-wm.toml"
+RULES="$here/scripts/fixtures/floating-layout-rules.toml"
+PROTOCOLS="$(pkg-config --variable=pkgdatadir wayland-protocols)"
+XDG_SHELL_PROTOCOL="$PROTOCOLS/stable/xdg-shell/xdg-shell.xml"
+VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
+
+die() { echo "FAIL: $*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+[ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
+[ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
+for file in "$FIXTURE_SOURCE" "$CONFIG" "$RULES" "$VIRTUAL_POINTER_PROTOCOL"; do
+    [ -r "$file" ] || die "missing fixture input $file"
+done
+for tool in cc jq pkg-config timeout wayland-scanner wlrctl; do
+    have "$tool" || die "$tool is required for floating-layout integration tests"
+done
+pkg-config --exists wayland-client wayland-protocols ||
+    die "Wayland client development files and protocols are required"
+
+TEST_ROOT=$(mktemp -d /tmp/aqueous-floating-layout.XXXXXX)
+RUNTIME="$TEST_ROOT/runtime"
+FIXTURE_BIN="$TEST_ROOT/xdg-floating-request"
+COMPOSITOR_LOG="$TEST_ROOT/compositor.log"
+COMPOSITOR_PID=""
+CLIENT_PIDS=()
+CLIENT_SYNCS=()
+CLIENT_LOGS=()
+STARTED_PID=""
+
+cleanup() {
+    for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish" 2>/dev/null || true; done
+    for pid in "${CLIENT_PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+    for pid in "${CLIENT_PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
+    [ -z "$COMPOSITOR_PID" ] || kill "$COMPOSITOR_PID" 2>/dev/null || true
+    [ -z "$COMPOSITOR_PID" ] || wait "$COMPOSITOR_PID" 2>/dev/null || true
+    rm -rf "$TEST_ROOT"
+}
+trap cleanup EXIT
+
+wayland-scanner client-header "$XDG_SHELL_PROTOCOL" \
+    "$TEST_ROOT/xdg-shell-client-protocol.h"
+wayland-scanner private-code "$XDG_SHELL_PROTOCOL" \
+    "$TEST_ROOT/xdg-shell-protocol.c"
+wayland-scanner client-header "$VIRTUAL_POINTER_PROTOCOL" \
+    "$TEST_ROOT/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+wayland-scanner private-code "$VIRTUAL_POINTER_PROTOCOL" \
+    "$TEST_ROOT/wlr-virtual-pointer-protocol.c"
+cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
+    "$FIXTURE_SOURCE" \
+    "$TEST_ROOT/xdg-shell-protocol.c" \
+    "$TEST_ROOT/wlr-virtual-pointer-protocol.c" \
+    -o "$FIXTURE_BIN" $(pkg-config --cflags --libs wayland-client)
+
+mkdir -p "$RUNTIME/config" "$RUNTIME/home"
+chmod 700 "$RUNTIME"
+WLR_BACKENDS=headless \
+WLR_HEADLESS_OUTPUTS=1 \
+WLR_RENDERER=pixman \
+XDG_RUNTIME_DIR="$RUNTIME" \
+XDG_CONFIG_HOME="$RUNTIME/config" \
+HOME="$RUNTIME/home" \
+AQUEOUS_CONFIG="$CONFIG" \
+AQUEOUS_RULES="$RULES" \
+    "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level debug -c true \
+    >"$COMPOSITOR_LOG" 2>&1 &
+COMPOSITOR_PID=$!
+
+socket=""
+for _ in $(seq 1 200); do
+    kill -0 "$COMPOSITOR_PID" 2>/dev/null || {
+        tail -120 "$COMPOSITOR_LOG" >&2
+        die "compositor failed during startup"
+    }
+    socket=$(find "$RUNTIME" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' | head -1)
+    [ -n "$socket" ] && break
+    sleep 0.05
+done
+[ -n "$socket" ] || die "compositor did not create a Wayland socket"
+
+wayland_env=(env XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket")
+
+window_json() {
+    local app_id=$1
+    "${wayland_env[@]}" "$AQUEOUSCTL_BIN" windows --json |
+        jq -c --arg app_id "$app_id" '.[] | select(.app_id == $app_id)'
+}
+
+geometry() {
+    jq -r '[.geometry.x, .geometry.y, .geometry.width, .geometry.height] | @tsv'
+}
+
+wait_marker() {
+    local pid=$1 sync_dir=$2 marker=$3 log_file=$4
+    for _ in $(seq 1 200); do
+        kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited while waiting for $marker"
+        kill -0 "$pid" 2>/dev/null || {
+            cat "$log_file" >&2
+            die "fixture exited before $marker"
+        }
+        [ -f "$sync_dir/$marker" ] && return 0
+        sleep 0.05
+    done
+    tail -120 "$COMPOSITOR_LOG" >&2
+    cat "$log_file" >&2
+    die "timed out waiting for $marker"
+}
+
+wait_window() {
+    local app_id=$1 json=""
+    for _ in $(seq 1 200); do
+        json=$(window_json "$app_id")
+        [ -n "$json" ] && {
+            printf '%s\n' "$json"
+            return 0
+        }
+        sleep 0.05
+    done
+    "${wayland_env[@]}" "$AQUEOUSCTL_BIN" windows --json >&2 || true
+    tail -120 "$COMPOSITOR_LOG" >&2
+    die "timed out waiting for $app_id"
+}
+
+wait_geometry() {
+    local app_id=$1 expected=$2 json=""
+    for _ in $(seq 1 200); do
+        json=$(window_json "$app_id")
+        [ -n "$json" ] && [ "$(geometry <<<"$json")" = "$expected" ] && return 0
+        sleep 0.05
+    done
+    die "timed out restoring $app_id geometry $expected; got $(geometry <<<"$json")"
+}
+
+wait_floating_state() {
+    local app_id=$1 wanted=$2 json=""
+    for _ in $(seq 1 200); do
+        json=$(window_json "$app_id")
+        if [ "$wanted" = true ]; then
+            jq -e '.states | index("floating") != null' <<<"$json" >/dev/null && return 0
+        else
+            jq -e '.states | index("floating") == null' <<<"$json" >/dev/null && return 0
+        fi
+        sleep 0.05
+    done
+    die "timed out waiting for $app_id floating=$wanted"
+}
+
+start_fixture() {
+    local app_id=$1 mode=$2
+    local sync_dir="$TEST_ROOT/$app_id-sync"
+    local log_file="$TEST_ROOT/$app_id.log"
+    mkdir -p "$sync_dir"
+    "${wayland_env[@]}" timeout 45 "$FIXTURE_BIN" "$sync_dir" "$app_id" "$mode" \
+        >"$log_file" 2>&1 &
+    STARTED_PID=$!
+    CLIENT_PIDS+=("$STARTED_PID")
+    CLIENT_SYNCS+=("$sync_dir")
+    CLIENT_LOGS+=("$log_file")
+    wait_marker "$STARTED_PID" "$sync_dir" ready "$log_file"
+}
+
+press() {
+    "${wayland_env[@]}" wlrctl keyboard type "$1" modifiers "${@:2}"
+}
+
+click_at() {
+    "${wayland_env[@]}" wlrctl pointer move -10000 -10000
+    "${wayland_env[@]}" wlrctl pointer move "$1" "$2"
+    "${wayland_env[@]}" wlrctl pointer click left
+}
+
+APP_ONE=aqueous.layout-one
+APP_TWO=aqueous.layout-two
+APP_THREE=aqueous.layout-three
+
+start_fixture "$APP_ONE" move-resize
+PID_ONE=$STARTED_PID
+SYNC_ONE="${CLIENT_SYNCS[0]}"
+LOG_ONE="${CLIENT_LOGS[0]}"
+wait_window "$APP_ONE" >/dev/null
+start_fixture "$APP_TWO" idle
+wait_window "$APP_TWO" >/dev/null
+start_fixture "$APP_THREE" idle
+wait_window "$APP_THREE" >/dev/null
+
+read -r one_x one_y one_w one_h < <(geometry <<<"$(window_json "$APP_ONE")")
+read -r two_x two_y two_w two_h < <(geometry <<<"$(window_json "$APP_TWO")")
+read -r three_x three_y three_w three_h < <(geometry <<<"$(window_json "$APP_THREE")")
+[ "$two_x" -eq $((one_x + 32)) ] && [ "$two_y" -eq $((one_y + 32)) ] &&
+    [ "$three_x" -eq $((two_x + 32)) ] && [ "$three_y" -eq $((two_y + 32)) ] ||
+    die "new floating-layout windows were not cascaded"
+[ "$one_w $one_h" = "$two_w $two_h" ] && [ "$two_w $two_h" = "$three_w $three_h" ] ||
+    die "cascade unexpectedly changed initial window sizes"
+
+printf '%d %d %d %d\n' \
+    $((one_x + 40)) $((one_y + 40)) \
+    $((one_x + 100)) $((one_y + 80)) >"$SYNC_ONE/move"
+wait_marker "$PID_ONE" "$SYNC_ONE" move-done "$LOG_ONE"
+read -r moved_x moved_y moved_w moved_h < <(geometry <<<"$(window_json "$APP_ONE")")
+[ "$moved_x" -eq $((one_x + 60)) ] && [ "$moved_y" -eq $((one_y + 40)) ] ||
+    die "client move did not update floating-layout geometry"
+
+printf '%d %d %d %d\n' \
+    $((moved_x + 10)) $((moved_y + 10)) \
+    $((moved_x - 10)) $((moved_y - 5)) >"$SYNC_ONE/resize"
+wait_marker "$PID_ONE" "$SYNC_ONE" resize-done "$LOG_ONE"
+read -r final_x final_y final_w final_h < <(geometry <<<"$(window_json "$APP_ONE")")
+[ "$final_x" -eq $((moved_x - 20)) ] &&
+    [ "$final_y" -eq $((moved_y - 15)) ] &&
+    [ "$final_w" -eq $((moved_w + 20)) ] &&
+    [ "$final_h" -eq $((moved_h + 15)) ] ||
+    die "client resize did not update floating-layout geometry"
+
+ONE_FLOAT="$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
+TWO_FLOAT="$two_x"$'\t'"$two_y"$'\t'"$two_w"$'\t'"$two_h"
+THREE_FLOAT="$three_x"$'\t'"$three_y"$'\t'"$three_w"$'\t'"$three_h"
+
+press c SUPER
+press c SUPER
+wait_geometry "$APP_ONE" "$ONE_FLOAT"
+
+press t SUPER
+wait_floating_state "$APP_ONE" false
+wait_floating_state "$APP_TWO" false
+wait_floating_state "$APP_THREE" false
+[ "$(geometry <<<"$(window_json "$APP_ONE")")" != "$ONE_FLOAT" ] ||
+    die "tile switch did not rearrange ordinary workspace-owned window"
+
+press f SUPER
+wait_geometry "$APP_ONE" "$ONE_FLOAT"
+wait_geometry "$APP_TWO" "$TWO_FLOAT"
+wait_geometry "$APP_THREE" "$THREE_FLOAT"
+
+# Toggling on in a floating workspace deliberately promotes the focused
+# window to a persistent per-window overlay.
+click_at $((final_x + 5)) $((final_y + 5))
+press v SUPER
+press t SUPER
+wait_floating_state "$APP_ONE" true
+wait_floating_state "$APP_TWO" false
+wait_floating_state "$APP_THREE" false
+wait_geometry "$APP_ONE" "$ONE_FLOAT"
+
+# Toggling it off returns ownership to the workspace layout while preserving
+# the remembered rectangle for the next floating-layout activation.
+press f SUPER
+wait_geometry "$APP_ONE" "$ONE_FLOAT"
+click_at $((final_x + 5)) $((final_y + 5))
+press v SUPER
+press t SUPER
+wait_floating_state "$APP_ONE" false
+press f SUPER
+wait_geometry "$APP_ONE" "$ONE_FLOAT"
+
+for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
+for index in "${!CLIENT_PIDS[@]}"; do
+    if ! wait "${CLIENT_PIDS[$index]}"; then
+        cat "${CLIENT_LOGS[$index]}" >&2
+        tail -120 "$COMPOSITOR_LOG" >&2
+        die "floating-layout fixture failed"
+    fi
+done
+CLIENT_PIDS=()
+
+echo "PASS: floating layout cascade, ownership, switching, and toggle semantics"

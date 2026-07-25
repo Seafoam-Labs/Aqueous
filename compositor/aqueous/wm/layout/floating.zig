@@ -7,6 +7,7 @@ const types = @import("types.zig");
 
 pub const State = struct {
     rects: std.AutoHashMapUnmanaged(types.Handle, types.Rect) = .empty,
+    next_cascade: u32 = 0,
 
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
         state.rects.deinit(allocator);
@@ -26,7 +27,10 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     const result = try allocator.alloc(types.Placement, windows.len);
     for (result, windows) |*placement, window| {
         const entry = try state.rects.getOrPut(allocator, window.handle);
-        if (!entry.found_existing) entry.value_ptr.* = initial;
+        if (!entry.found_existing) {
+            entry.value_ptr.* = cascade(initial, area, state.next_cascade);
+            state.next_cascade +%= 1;
+        }
         placement.* = .{
             .handle = window.handle,
             .geometry = entry.value_ptr.*,
@@ -36,26 +40,59 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
             .tiled = false,
         };
     }
-    var stale: std.ArrayListUnmanaged(types.Handle) = .empty;
-    defer stale.deinit(allocator);
-    var iterator = state.rects.keyIterator();
-    while (iterator.next()) |handle| if (!contains(windows, handle.*)) try stale.append(allocator, handle.*);
-    for (stale.items) |handle| _ = state.rects.remove(handle);
     return result;
 }
 
-fn contains(windows: []const types.Window, handle: types.Handle) bool {
-    for (windows) |window| if (window.handle == handle) return true;
-    return false;
+pub fn setGeometry(state: *State, allocator: std.mem.Allocator, handle: types.Handle, rect: types.Rect) !void {
+    if (rect.width <= 0 or rect.height <= 0) return;
+    try state.rects.put(allocator, handle, rect);
 }
 
-test "floating remembers centred geometry and collects stale windows" {
+pub fn geometry(state: *const State, handle: types.Handle) ?types.Rect {
+    return state.rects.get(handle);
+}
+
+pub fn remove(state: *State, handle: types.Handle) void {
+    _ = state.rects.remove(handle);
+}
+
+fn cascade(initial: types.Rect, area: types.Rect, index: u32) types.Rect {
+    const step: i32 = 32;
+    const travel_x = @max(0, area.width - initial.width);
+    const travel_y = @max(0, area.height - initial.height);
+    const slots_x: u32 = @intCast(@divTrunc(travel_x, step) + 1);
+    const slots_y: u32 = @intCast(@divTrunc(travel_y, step) + 1);
+    const slots = @max(1, @min(slots_x, slots_y));
+    const offset: i32 = @intCast((index % slots) * @as(u32, @intCast(step)));
+    return .{
+        .x = initial.x + offset,
+        .y = initial.y + offset,
+        .width = initial.width,
+        .height = initial.height,
+    };
+}
+
+test "floating cascades new windows and remembers geometry across absence" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
-    var placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{.{ .handle = 1 }}, 1, .{ .gaps_outer = 0 });
+    var placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, 1, .{ .gaps_outer = 0 });
     try std.testing.expectEqual(types.Rect{ .x = 200, .y = 160, .width = 600, .height = 480 }, placements[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 232, .y = 192, .width = 600, .height = 480 }, placements[1].geometry);
     std.testing.allocator.free(placements);
+
+    try setGeometry(&state, std.testing.allocator, 1, .{ .x = 40, .y = 50, .width = 500, .height = 300 });
     placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{.{ .handle = 2 }}, null, .{ .gaps_outer = 0 });
+    std.testing.allocator.free(placements);
+    placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, null, .{ .gaps_outer = 0 });
     defer std.testing.allocator.free(placements);
-    try std.testing.expect(!state.rects.contains(1));
+    try std.testing.expectEqual(types.Rect{ .x = 40, .y = 50, .width = 500, .height = 300 }, placements[0].geometry);
+}
+
+test "explicit removal collects stale geometry" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    try setGeometry(&state, std.testing.allocator, 7, .{ .x = 1, .y = 2, .width = 3, .height = 4 });
+    try std.testing.expect(geometry(&state, 7) != null);
+    remove(&state, 7);
+    try std.testing.expectEqual(@as(?types.Rect, null), geometry(&state, 7));
 }

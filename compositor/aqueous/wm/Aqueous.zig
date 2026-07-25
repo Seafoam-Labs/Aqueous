@@ -71,6 +71,8 @@ const Drag = struct {
     awaiting_layout: ?layout_types.Handle = null,
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
     client_seat: ?usize = null,
+    /// Geometry belongs to the workspace floating layout, not PolicyState.
+    layout_floating: bool = false,
 };
 
 pub fn init(aqueous: *Aqueous, mode: Mode) void {
@@ -487,9 +489,14 @@ fn startClientPointerDrag(
 ) void {
     if (aqueous.drag != null) return;
     const state = aqueous.window_states.get(handle) orelse return;
-    if (state.kind != .floating) return;
     const geometry = aqueous.api.windowGeometry(handle) orelse return;
     const workspace = aqueous.api.windowWorkspace(handle) orelse return;
+    const layout_key: LayoutStateKey = .{
+        .output = workspace.output_id,
+        .workspace = workspace.workspace_number,
+    };
+    const layout_floating = state.kind == .tiled and aqueous.layoutIsFloating(layout_key);
+    if (state.kind != .floating and !layout_floating) return;
     if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
 
     aqueous.drag = .{
@@ -500,12 +507,10 @@ fn startClientPointerDrag(
         .last_pointer_x = pointer.x,
         .last_pointer_y = pointer.y,
         .action = action,
-        .layout_key = .{
-            .output = workspace.output_id,
-            .workspace = workspace.workspace_number,
-        },
+        .layout_key = layout_key,
         .resize_edges = edges,
         .client_seat = pointer.seat,
+        .layout_floating = layout_floating,
     };
     aqueous.api.beginInteractive(handle, action == .resize_floating);
     aqueous.requestFocus(handle);
@@ -525,7 +530,14 @@ fn finishInvalidInteractiveDrag(
             for (source.windows) |window| {
                 if (window.handle != drag.handle) continue;
                 const state = aqueous.window_states.get(drag.handle) orelse break;
-                if (drag.action == .swap_tiled or (state.kind == .floating and !window.fullscreen)) return false;
+                const layout_floating = drag.layout_floating and
+                    state.kind == .tiled and
+                    aqueous.layoutIsFloating(drag.layout_key);
+                if (drag.action == .swap_tiled or
+                    ((state.kind == .floating or layout_floating) and !window.fullscreen))
+                {
+                    return false;
+                }
                 break;
             }
         }
@@ -583,6 +595,8 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
 pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (!aqueous.started) return;
     aqueous.finishInteractiveDragFor(handle);
+    var layouts = aqueous.layout_states.valueIterator();
+    while (layouts.next()) |state| layout_engine.forgetWindow(state, handle);
     aqueous.window_states.remove(handle);
     if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
 }
@@ -654,6 +668,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     const layout_key: LayoutStateKey = .{ .output = workspace.output_id, .workspace = workspace.workspace_number };
     const active_layout = if (aqueous.layout_states.get(layout_key)) |layout_state| layout_state.active_layout else aqueous.config.layout.default;
     const drag_action = pointer_drag.action(button, state.kind, active_layout);
+    const layout_floating = state.kind == .tiled and active_layout == .floating;
     if (drag_action == .swap_tiled) {
         aqueous.drag = .{
             .handle = target.handle,
@@ -664,6 +679,7 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .last_pointer_y = y,
             .action = drag_action,
             .layout_key = layout_key,
+            .layout_floating = false,
         };
     } else {
         aqueous.drag = .{
@@ -675,8 +691,9 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .last_pointer_y = y,
             .action = drag_action,
             .layout_key = layout_key,
+            .layout_floating = layout_floating,
         };
-        _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+        if (!layout_floating) _ = aqueous.window_states.setFloating(target.handle, target.geometry);
         aqueous.api.beginInteractive(target.handle, drag_action == .resize_floating);
     }
     aqueous.requestFocus(target.handle);
@@ -738,21 +755,37 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             .width = drag.start.width,
             .height = drag.start.height,
         };
-    if (drag.action == .move_floating) aqueous.transferFloatingDrag(drag, x, y);
-    if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
+    if (drag.action == .move_floating) aqueous.transferFloatingDrag(drag, geometry, x, y);
+    if (drag.layout_floating) {
+        const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
+        layout_engine.setFloatingGeometry(util.gpa, layout_state, drag.handle, geometry) catch {
+            log.err("out of memory remembering floating-layout geometry", .{});
+            return;
+        };
+    } else if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
     aqueous.api.requestManageCycle();
 }
 
-fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) void {
+fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, geometry: layout_types.Rect, x: f64, y: f64) void {
     const target = aqueous.api.outputTargetAt(x, y, false) orelse return;
     if (target.id == drag.layout_key.output) return;
+    const target_key: LayoutStateKey = .{ .output = target.id, .workspace = target.workspace_number };
+    if (drag.layout_floating and !aqueous.layoutIsFloating(target_key)) return;
     if (!aqueous.api.moveWindowToWorkspace(drag.handle, target.id, target.workspace_number)) return;
 
-    if (aqueous.window_states.get(drag.handle)) |state| {
+    if (drag.layout_floating) {
+        if (aqueous.layout_states.getPtr(drag.layout_key)) |source_state| {
+            layout_engine.forgetWindow(source_state, drag.handle);
+        }
+        if (aqueous.layout_states.getPtr(target_key)) |target_state| {
+            layout_engine.setFloatingGeometry(util.gpa, target_state, drag.handle, geometry) catch
+                log.err("out of memory transferring floating-layout geometry", .{});
+        }
+    } else if (aqueous.window_states.get(drag.handle)) |state| {
         state.overrideWorkspace();
         state.needs_output_recovery = false;
     }
-    drag.layout_key = .{ .output = target.id, .workspace = target.workspace_number };
+    drag.layout_key = target_key;
     _ = aqueous.api.selectOutput(target.id);
     log.debug("floating drag entered output {} workspace {}", .{ target.id, target.workspace_number });
 }
@@ -1009,8 +1042,19 @@ fn toggleScrollingFullWidth(aqueous: *Aqueous) void {
 
 fn toggleFloating(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const box = context.window.box;
-    _ = aqueous.window_states.toggleFloating(@bitCast(context.window.ref), .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height }) orelse return;
+    const geometry: layout_types.Rect = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
+
+    // In a floating workspace, toggling on creates a deliberate per-window
+    // overlay which remains floating after a later layout switch. Toggling off
+    // returns the window to workspace ownership at its latest rectangle.
+    if (aqueous.layoutIsFloating(key)) {
+        const layout_state = aqueous.layout_states.getPtr(key) orelse return;
+        layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, geometry) catch return;
+    }
+    _ = aqueous.window_states.toggleFloating(handle, geometry) orelse return;
     aqueous.api.requestManageCycle();
 }
 
@@ -1041,6 +1085,12 @@ fn setLayoutId(aqueous: *Aqueous, id: layout_config.LayoutId) void {
     if (aqueous.layout_states.getPtr(key)) |state| state.game_mode.rule_layout_owned = false;
     aqueous.layout_overrides.put(util.gpa, key, id) catch return;
     aqueous.api.requestManageCycle();
+}
+
+fn layoutIsFloating(aqueous: *const Aqueous, key: LayoutStateKey) bool {
+    if (aqueous.layout_overrides.get(key)) |id| return id == .floating;
+    if (aqueous.layout_states.get(key)) |state| return state.active_layout == .floating;
+    return aqueous.config.layout.default == .floating;
 }
 
 fn applyInputConfig(aqueous: *Aqueous) void {
