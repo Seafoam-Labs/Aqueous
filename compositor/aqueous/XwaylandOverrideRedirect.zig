@@ -149,7 +149,9 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
     override_redirect.focusIfDesired();
     if (override_redirect.grab_focused_before_map) {
         override_redirect.grab_focused_before_map = false;
-        server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
+        if (!override_redirect.shouldPreserveOwnerFocus()) {
+            server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
+        }
     }
 }
 
@@ -213,6 +215,25 @@ fn refocusIfMapped(override_redirect: *XwaylandOverrideRedirect) void {
     override_redirect.focusIfDesired();
 }
 
+/// Keep Wayland keyboard focus on an already-focused same-process Xwayland
+/// owner for ordinary override-redirect popups. A pointer constraint identifies
+/// the exceptional game/overlay surface which genuinely needs direct focus.
+fn shouldPreserveOwnerFocus(override_redirect: *XwaylandOverrideRedirect) bool {
+    const surface = override_redirect.xsurface.surface orelse return false;
+    const seat = server.input_manager.defaultSeat();
+    if (seat.focused != .window or
+        seat.focused.window.impl != .xwayland or
+        seat.focused.window.impl.xwayland.xsurface.pid != override_redirect.xsurface.pid)
+    {
+        return false;
+    }
+
+    return server.input_manager.pointer_constraints.constraintForSurface(
+        surface,
+        seat.wlr_seat,
+    ) == null;
+}
+
 pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (server.lock_manager.state != .unlocked) return;
 
@@ -223,29 +244,16 @@ pub fn focusIfDesired(override_redirect: *XwaylandOverrideRedirect) void {
     if (override_redirect.xsurface.overrideRedirectWantsFocus() and
         override_redirect.xsurface.icccmInputModel() != .none)
     {
-        const surface = override_redirect.xsurface.surface orelse return;
-        const seat = server.input_manager.defaultSeat();
         // Override-redirect menus use an X11 grab to receive their keyboard and
         // pointer input. If their top-level owner is already focused, keep the
         // Wayland keyboard focus there: entering the popup sends FocusOut to the
         // owner and clients such as Steam immediately close the menu. This must
         // also cover popups whose type/role hints are incomplete at map time and
         // therefore temporarily pass overrideRedirectWantsFocus().
-        if (seat.focused == .window and
-            seat.focused.window.impl == .xwayland and
-            seat.focused.window.impl.xwayland.xsurface.pid == override_redirect.xsurface.pid)
-        {
-            // A fullscreen Xwayland game can share this same-process topology
-            // with a menu. Its pointer constraint is the unambiguous signal that
-            // the override-redirect surface itself needs focus. This also covers
-            // constraints created before the surface maps.
-            if (server.input_manager.pointer_constraints.constraintForSurface(surface, seat.wlr_seat) != null) {
-                seat.focusFromClient(.{ .override_redirect = override_redirect });
-            }
-            return;
-        } else {
-            seat.focusFromClient(.{ .override_redirect = override_redirect });
-        }
+        if (override_redirect.shouldPreserveOwnerFocus()) return;
+        server.input_manager.defaultSeat().focusFromClient(.{
+            .override_redirect = override_redirect,
+        });
     }
 }
 
@@ -261,19 +269,17 @@ pub fn focusForInteraction(override_redirect: *XwaylandOverrideRedirect) void {
         return;
     }
 
-    const surface = override_redirect.xsurface.surface.?;
-    const seat = server.input_manager.defaultSeat();
-    if (server.input_manager.pointer_constraints.constraintForSurface(surface, seat.wlr_seat) != null) {
-        seat.focusFromClient(.{ .override_redirect = override_redirect });
-    } else {
-        override_redirect.focusIfDesired();
-    }
+    if (override_redirect.shouldPreserveOwnerFocus()) return;
+    server.input_manager.defaultSeat().focusFromClient(.{
+        .override_redirect = override_redirect,
+    });
 }
 
 fn handleFocusIn(listener: *wl.Listener(void)) void {
     const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("focus_in", listener);
     const surface = override_redirect.xsurface.surface orelse return;
     if (!surface.mapped or override_redirect.surface_tree == null) return;
+    if (override_redirect.shouldPreserveOwnerFocus()) return;
 
     const seat = server.input_manager.defaultSeat();
     if (seat.focused.surface() != surface) {
@@ -292,6 +298,7 @@ fn handleGrabFocus(listener: *wl.Listener(void)) void {
         override_redirect.grab_focused_before_map = true;
         return;
     }
+    if (override_redirect.shouldPreserveOwnerFocus()) return;
 
     log.debug(
         "Xwayland grab-focus override-redirect=0x{x} pid={d} title='{?s}' surface=0x{x}",
