@@ -660,20 +660,32 @@ fn finishInteractiveDrag(aqueous: *Aqueous) void {
     aqueous.drag = null;
 }
 
+fn keyBindingVerb(aqueous: *Aqueous, keysym: u32, modifiers: u32) ?[]const u8 {
+    if (!aqueous.mode.runsInternal()) return null;
+    const verb = aqueous.config.actions.find(keysym, modifiers & (1 | 4 | 8 | 64)) orelse return null;
+    if (server.input_manager.defaultSeat().xwaylandKeyboardGrabActive() and
+        !std.mem.eql(u8, verb, "builtin:untrap_pointer"))
+    {
+        return null;
+    }
+    return verb;
+}
+
+/// Report whether a press would be consumed by the direct compositor key path
+/// without running its action. The keyboard group uses this to keep a bound
+/// Caps Lock key from changing the XKB lock state before handleKey sees it.
+pub fn hasKeyBinding(aqueous: *Aqueous, keysym: u32, modifiers: u32) bool {
+    return aqueous.keyBindingVerb(keysym, modifiers) != null;
+}
+
 /// Direct compositor key path. Returning true eats the event before it reaches a client.
 pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) bool {
-    if (!aqueous.mode.runsInternal()) return false;
     if (!pressed and aqueous.untrap_keysym == keysym) {
         aqueous.untrap_keysym = null;
         aqueous.api.suppressPointerConstraints(false);
         return true;
     }
-    const verb = aqueous.config.actions.find(keysym, modifiers & (1 | 4 | 8 | 64)) orelse return false;
-    if (server.input_manager.defaultSeat().xwaylandKeyboardGrabActive() and
-        !std.mem.eql(u8, verb, "builtin:untrap_pointer"))
-    {
-        return false;
-    }
+    const verb = aqueous.keyBindingVerb(keysym, modifiers) orelse return false;
     if (std.mem.eql(u8, verb, "builtin:untrap_pointer")) {
         aqueous.untrap_keysym = if (pressed) keysym else null;
         aqueous.api.suppressPointerConstraints(pressed);

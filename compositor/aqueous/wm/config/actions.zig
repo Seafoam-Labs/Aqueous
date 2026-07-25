@@ -203,18 +203,19 @@ fn primaryMask() u32 {
 
 fn resolveKeysym(token: []const u8) ?u32 {
     const names = .{
-        .{ "return", 0xff0d },                    .{ "enter", 0xff0d },                   .{ "space", 0x20 },                       .{ "tab", 0xff09 },
-        .{ "escape", 0xff1b },                    .{ "esc", 0xff1b },                     .{ "backspace", 0xff08 },                 .{ "delete", 0xffff },
-        .{ "print", 0xff61 },                     .{ "printscreen", 0xff61 },             .{ "left", 0xff51 },                      .{ "up", 0xff52 },
-        .{ "right", 0xff53 },                     .{ "down", 0xff54 },                    .{ "home", 0xff50 },                      .{ "end", 0xff57 },
-        .{ "pageup", 0xff55 },                    .{ "pagedown", 0xff56 },                .{ "comma", 0x2c },                       .{ "period", 0x2e },
-        .{ "semicolon", 0x3b },                   .{ "slash", 0x2f },                     .{ "minus", 0x2d },                       .{ "equal", 0x3d },
-        .{ "plus", 0x2b },                        .{ "bracketleft", 0x5b },               .{ "bracketright", 0x5d },                .{ "grave", 0x60 },
-        .{ "apostrophe", 0x27 },                  .{ "backslash", 0x5c },                 .{ "xf86audioraisevolume", 0x1008ff13 },  .{ "xf86audiolowervolume", 0x1008ff11 },
-        .{ "xf86audiomute", 0x1008ff12 },         .{ "xf86audiomicmute", 0x1008ffb2 },    .{ "xf86audioplay", 0x1008ff14 },         .{ "xf86audiopause", 0x1008ff31 },
-        .{ "xf86audiostop", 0x1008ff15 },         .{ "xf86audionext", 0x1008ff17 },       .{ "xf86audioprev", 0x1008ff16 },         .{ "xf86monbrightnessup", 0x1008ff02 },
-        .{ "xf86monbrightnessdown", 0x1008ff03 }, .{ "xf86kbdbrightnessup", 0x1008ff05 }, .{ "xf86kbdbrightnessdown", 0x1008ff06 }, .{ "xf86display", 0x1008ff59 },
-        .{ "xf86search", 0x1008ff1b },            .{ "xf86launch1", 0x1008ff41 },
+        .{ "return", 0xff0d },                  .{ "enter", 0xff0d },                     .{ "space", 0x20 },                      .{ "tab", 0xff09 },
+        .{ "escape", 0xff1b },                  .{ "esc", 0xff1b },                       .{ "backspace", 0xff08 },                .{ "delete", 0xffff },
+        .{ "capslock", 0xffe5 },                .{ "caps_lock", 0xffe5 },                 .{ "caps", 0xffe5 },                     .{ "print", 0xff61 },
+        .{ "printscreen", 0xff61 },             .{ "left", 0xff51 },                      .{ "up", 0xff52 },                       .{ "right", 0xff53 },
+        .{ "down", 0xff54 },                    .{ "home", 0xff50 },                      .{ "end", 0xff57 },                      .{ "pageup", 0xff55 },
+        .{ "pagedown", 0xff56 },                .{ "comma", 0x2c },                       .{ "period", 0x2e },                     .{ "semicolon", 0x3b },
+        .{ "slash", 0x2f },                     .{ "minus", 0x2d },                       .{ "equal", 0x3d },                      .{ "plus", 0x2b },
+        .{ "bracketleft", 0x5b },               .{ "bracketright", 0x5d },                .{ "grave", 0x60 },                      .{ "apostrophe", 0x27 },
+        .{ "backslash", 0x5c },                 .{ "xf86audioraisevolume", 0x1008ff13 },  .{ "xf86audiolowervolume", 0x1008ff11 }, .{ "xf86audiomute", 0x1008ff12 },
+        .{ "xf86audiomicmute", 0x1008ffb2 },    .{ "xf86audioplay", 0x1008ff14 },         .{ "xf86audiopause", 0x1008ff31 },       .{ "xf86audiostop", 0x1008ff15 },
+        .{ "xf86audionext", 0x1008ff17 },       .{ "xf86audioprev", 0x1008ff16 },         .{ "xf86monbrightnessup", 0x1008ff02 },  .{ "xf86monbrightnessdown", 0x1008ff03 },
+        .{ "xf86kbdbrightnessup", 0x1008ff05 }, .{ "xf86kbdbrightnessdown", 0x1008ff06 }, .{ "xf86display", 0x1008ff59 },          .{ "xf86search", 0x1008ff1b },
+        .{ "xf86launch1", 0x1008ff41 },
     };
     inline for (names) |entry| if (std.ascii.eqlIgnoreCase(token, entry[0])) return entry[1];
     if (token.len >= 2 and token.len <= 3 and (token[0] == 'f' or token[0] == 'F')) {
@@ -236,6 +237,9 @@ test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(@as(u32, 0x1008ff13), parseChord("XF86AudioRaiseVolume").?.keysym);
     try std.testing.expectEqual(@as(u32, 0xff61), parseChord("Print").?.keysym);
     try std.testing.expectEqual(parseChord("Print").?, parseChord("PrintScreen").?);
+    try std.testing.expectEqual(@as(u32, 0xffe5), parseChord("CapsLock").?.keysym);
+    try std.testing.expectEqual(parseChord("CapsLock").?, parseChord("Caps_Lock").?);
+    try std.testing.expectEqual(parseChord("CapsLock").?, parseChord("Caps").?);
     try std.testing.expect(parseChord("Super+Shift") == null);
 }
 

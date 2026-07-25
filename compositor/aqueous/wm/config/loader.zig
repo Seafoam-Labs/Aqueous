@@ -215,6 +215,7 @@ test "actions custom bindings and exec are immutable snapshot data" {
         \\cycle_focus = []
         \\[keybinds.custom]
         \\"Super+E" = "spawn:nemo"
+        \\"CapsLock" = "spawn:wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
         \\[gestures]
         \\swipe_3_left = "builtin:focus_workspace_down"
         \\swipe_3_right = "builtin:focus_workspace_up"
@@ -232,6 +233,11 @@ test "actions custom bindings and exec are immutable snapshot data" {
     const print = actions.parseChord("Print").?;
     try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(print.keysym, print.modifiers).?);
     try std.testing.expectEqualStrings("spawn:nemo", snapshot.find('e', 64).?);
+    const caps_lock = actions.parseChord("CapsLock").?;
+    try std.testing.expectEqualStrings(
+        "spawn:wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        snapshot.find(caps_lock.keysym, caps_lock.modifiers).?,
+    );
     try std.testing.expectEqual(@as(u8, 1), snapshot.exec_count);
     try std.testing.expectEqual(actions.ExecWhen.always, snapshot.exec[0].when);
     try std.testing.expect(snapshot.exec[0].restart);

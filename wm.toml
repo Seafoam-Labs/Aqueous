@@ -185,7 +185,7 @@ screenshot = "grim -g \"$(slurp)\" - | wl-copy"
 # Chord grammar: tokens joined by '+', case-insensitive.
 #   Modifiers: Super (Mod4) | Ctrl | Alt (Mod1) | Shift
 #   Keys:      single letters (A–Z), digits (0–9), F1–F24,
-#              named keys (Return, Space, Tab, Comma, Period, Escape,
+#              named keys (Return, Space, Tab, Comma, Period, Escape, CapsLock,
 #              Left, Right, Up, Down, Home, End, PageUp, PageDown,
 #              Print/PrintScreen, ...)
 #
@@ -309,6 +309,8 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 
 # -----------------------------------------------------------------------------
 # Free-form custom chords. Key = chord string, value = action verb.
+# A bound CapsLock is fully consumed by Aqueous and does not toggle the XKB
+# lock state. With no matching binding, CapsLock retains its normal behavior.
 #
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child

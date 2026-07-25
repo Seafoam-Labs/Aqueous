@@ -188,7 +188,7 @@ pub fn processKey(group: *KeyboardGroup, event: *const wlr.Keyboard.event.Key) v
                 var key_event: wlr.Keyboard.event.Key = .{
                     .time_msec = event.time_msec,
                     .keycode = event.keycode,
-                    .update_state = true,
+                    .update_state = !(key.consumer == .policy and group.keycodeIsCapsLock(event.keycode)),
                     .state = .released,
                 };
                 // Calls handleKey(), which will remove from pressed
@@ -200,7 +200,7 @@ pub fn processKey(group: *KeyboardGroup, event: *const wlr.Keyboard.event.Key) v
             var key_event: wlr.Keyboard.event.Key = .{
                 .time_msec = event.time_msec,
                 .keycode = event.keycode,
-                .update_state = true,
+                .update_state = !group.boundCapsLock(event.keycode),
                 .state = .pressed,
             };
             // Calls handleKey(), which will add to pressed
@@ -208,6 +208,26 @@ pub fn processKey(group: *KeyboardGroup, event: *const wlr.Keyboard.event.Key) v
         }
     }
     // Release events without a prior press event are ignored.
+}
+
+fn keycodeIsCapsLock(group: *KeyboardGroup, keycode: u32) bool {
+    const state = group.state.xkb_state orelse return false;
+    const xkb_keycode = keycode + 8;
+    const keymap = state.getKeymap();
+    const layout = state.keyGetLayout(xkb_keycode);
+    for (keymap.keyGetSymsByLevel(xkb_keycode, layout, 0)) |sym| {
+        if (sym == xkb.Keysym.Caps_Lock) return true;
+    }
+    for (state.keyGetSyms(xkb_keycode)) |sym| {
+        if (sym == xkb.Keysym.Caps_Lock) return true;
+    }
+    return false;
+}
+
+fn boundCapsLock(group: *KeyboardGroup, keycode: u32) bool {
+    if (!group.keycodeIsCapsLock(keycode)) return false;
+    const modifiers: u32 = @bitCast(group.state.getModifiers());
+    return server.aqueous.hasKeyBinding(@intFromEnum(xkb.Keysym.Caps_Lock), modifiers);
 }
 
 fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboard.event.Key) void {
