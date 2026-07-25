@@ -188,9 +188,18 @@ pub const SaveableSurfaces = struct {
         sy: c_int,
         saved_tree: *wlr.SceneTree,
     ) void {
-        const scene_buffer = saved_tree.createSceneBuffer(buffer.buffer) catch {
+        _ = cloneBuffer(saved_tree, buffer, sx, sy);
+    }
+
+    fn cloneBuffer(
+        target: *wlr.SceneTree,
+        buffer: *wlr.SceneBuffer,
+        sx: c_int,
+        sy: c_int,
+    ) ?*wlr.SceneBuffer {
+        const scene_buffer = target.createSceneBuffer(buffer.buffer) catch {
             std.log.err("out of memory", .{});
-            return;
+            return null;
         };
         scene_buffer.node.setPosition(sx, sy);
         scene_buffer.setDestSize(buffer.dst_width, buffer.dst_height);
@@ -198,15 +207,56 @@ pub const SaveableSurfaces = struct {
         scene_buffer.setTransform(buffer.transform);
         scene_buffer.setOpacity(buffer.opacity);
         fx.copyBufferFx(scene_buffer, buffer);
+        return scene_buffer;
+    }
+
+    pub const CloneObserver = *const fn (
+        source: *wlr.SceneBuffer,
+        clone: *wlr.SceneBuffer,
+        sx: c_int,
+        sy: c_int,
+        data: *anyopaque,
+    ) void;
+
+    const CloneContext = struct {
+        target: *wlr.SceneTree,
+        observer: CloneObserver,
+        data: *anyopaque,
+    };
+
+    fn cloneSurfaceTreeIter(
+        buffer: *wlr.SceneBuffer,
+        sx: c_int,
+        sy: c_int,
+        context: *CloneContext,
+    ) void {
+        const clone = cloneBuffer(context.target, buffer, sx, sy) orelse return;
+        context.observer(buffer, clone, sx, sy, context.data);
     }
 
     /// Clone the current live surface buffers into an arbitrary target tree,
     /// reusing the same per-buffer effect-metadata copy as `save`.
     /// Unlike `save`, this neither toggles `saved` nor disables the live tree, so
     /// the clones can be displayed simultaneously with the live surfaces (used by
-    /// the cosmetic position-animation overlay).
-    pub fn cloneInto(surfaces: *const SaveableSurfaces, target: *wlr.SceneTree) void {
-        surfaces.tree.node.forEachBuffer(*wlr.SceneTree, saveSurfaceTreeIter, target);
+    /// the cosmetic position-animation overlay). The observer runs immediately
+    /// after each clone is created, before Vulkan import can release the public
+    /// buffer handle needed to capture its original source geometry.
+    pub fn cloneInto(
+        surfaces: *const SaveableSurfaces,
+        target: *wlr.SceneTree,
+        observer: CloneObserver,
+        data: *anyopaque,
+    ) void {
+        var context: CloneContext = .{
+            .target = target,
+            .observer = observer,
+            .data = data,
+        };
+        surfaces.tree.node.forEachBuffer(
+            *CloneContext,
+            cloneSurfaceTreeIter,
+            &context,
+        );
     }
 
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {

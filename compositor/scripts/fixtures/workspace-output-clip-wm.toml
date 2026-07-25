@@ -1,0 +1,15 @@
+[layout]
+default = "floating"
+gaps_outer = 0
+gaps_inner = 0
+border_width = 0
+
+[workspace_transition]
+enabled = true
+rate = 4.0
+
+[input]
+focus_follows_mouse = false
+
+[keybinds]
+focus_workspace_2 = "Super+2"

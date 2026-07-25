@@ -394,6 +394,9 @@ anim_snapshot: bool = false,
 /// animations recrop these buffers on every frame so the viewport remains
 /// fixed in layout coordinates while the clone moves behind it.
 anim_buffers: std.ArrayListUnmanaged(AnimBuffer) = .empty,
+/// Fixed global viewport for an output-local workspace transition. Ordinary
+/// window moves leave this null so floating windows can still span outputs.
+anim_viewport: ?wlr.Box = null,
 /// Set once a window's clone has been seeded off-screen for the current
 /// workspace-swap slide, so the seeding only happens on the first transition
 /// frame. Reset at the start of each transition in `Output.activateWorkspace`.
@@ -1416,6 +1419,15 @@ pub fn renderFinish(window: *Window) void {
         fx.setTreeRadius(window.surfaces.tree, 0);
         fx.setTreeRadius(window.surfaces.saved_tree, 0);
     } else {
+        // Workspace swaps are local to their owning output. The animation clone
+        // lives in a shared scene layer, so explicitly crop it to that output;
+        // otherwise an off-screen incoming/outgoing clone is also rendered by
+        // an adjacent scene output. Ordinary position animations remain
+        // unclipped here so cross-output floating moves continue to work.
+        window.anim_viewport = if (transitioning)
+            window.workspace.?.output.current.box()
+        else
+            null;
         if (window.interactive != .none) {
             // Pointer-driven move/resize must track the latest policy geometry
             // exactly. Retargetable easing here makes the visible clone trail
@@ -1530,6 +1542,22 @@ fn syncBackdropBlur(
         window.disableBackdropBlur(blur);
         return;
     }
+    if (window.anim_snapshot) {
+        if (window.anim_viewport) |viewport| {
+            const origin_x: i32 = @intFromFloat(@round(window.anim_x));
+            const origin_y: i32 = @intFromFloat(@round(window.anim_y));
+            const local_viewport: wlr.Box = .{
+                .x = viewport.x - origin_x,
+                .y = viewport.y - origin_y,
+                .width = viewport.width,
+                .height = viewport.height,
+            };
+            if (!visible.intersection(&visible, &local_viewport)) {
+                window.disableBackdropBlur(blur);
+                return;
+            }
+        }
+    }
     if (!content_clip.empty() and !visible.intersection(&visible, content_clip)) {
         window.disableBackdropBlur(blur);
         return;
@@ -1627,10 +1655,13 @@ fn armSnapshot(window: *Window) void {
     // tree receives the current requested clip later in renderFinish().
     const no_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     window.applySurfaceClip(&no_clip, &no_clip);
-    window.surfaces.cloneInto(window.anim_tree);
     window.anim_buffers.clearRetainingCapacity();
     var capture: AnimBufferCapture = .{ .window = window };
-    window.anim_tree.node.forEachBuffer(*AnimBufferCapture, captureAnimBuffer, &capture);
+    window.surfaces.cloneInto(
+        window.anim_tree,
+        captureAnimBuffer,
+        &capture,
+    );
     if (capture.failed) {
         log.err("unable to track animation buffers for viewport clipping", .{});
         var it = window.anim_tree.children.safeIterator(.forward);
@@ -1666,6 +1697,7 @@ pub fn raiseSnapshotIfActive(window: *Window) void {
 /// Tear down the cosmetic overlay and restore the live surfaces' opacity, leaving
 /// no positional pop because the live tree has been at the target the whole time.
 fn clearSnapshot(window: *Window) void {
+    window.anim_viewport = null;
     if (!window.anim_snapshot) return;
     var it = window.anim_tree.children.safeIterator(.forward);
     while (it.next()) |node| {
@@ -1770,18 +1802,28 @@ const AnimBufferCapture = struct {
     failed: bool = false,
 };
 
-fn captureAnimBuffer(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, capture: *AnimBufferCapture) void {
+fn captureAnimBuffer(
+    source_buffer: *wlr.SceneBuffer,
+    buffer: *wlr.SceneBuffer,
+    sx: c_int,
+    sy: c_int,
+    data: *anyopaque,
+) void {
+    const capture: *AnimBufferCapture = @ptrCast(@alignCast(data));
     if (capture.failed) return;
-    const source = effectiveSourceBox(buffer) orelse return;
-    const quarter_turn = transformSwapsAxes(buffer.transform);
+    const source = effectiveSourceBox(source_buffer) orelse {
+        capture.failed = true;
+        return;
+    };
+    const quarter_turn = transformSwapsAxes(source_buffer.transform);
     const natural_width = if (quarter_turn) source.height else source.width;
     const natural_height = if (quarter_turn) source.width else source.height;
-    const dest_width = if (buffer.dst_width > 0)
-        buffer.dst_width
+    const dest_width = if (source_buffer.dst_width > 0)
+        source_buffer.dst_width
     else
         @max(1, @as(i32, @intFromFloat(@round(natural_width))));
-    const dest_height = if (buffer.dst_height > 0)
-        buffer.dst_height
+    const dest_height = if (source_buffer.dst_height > 0)
+        source_buffer.dst_height
     else
         @max(1, @as(i32, @intFromFloat(@round(natural_height))));
     capture.window.anim_buffers.append(util.gpa, .{
@@ -1791,7 +1833,7 @@ fn captureAnimBuffer(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, capture: *A
         .source = source,
         .dest_width = dest_width,
         .dest_height = dest_height,
-        .transform = buffer.transform,
+        .transform = source_buffer.transform,
     }) catch {
         capture.failed = true;
     };
@@ -1831,20 +1873,36 @@ fn inverseTransform(transform: wl.Output.Transform) wl.Output.Transform {
 fn updateAnimationClip(window: *Window) void {
     if (!window.anim_snapshot) return;
     const requested = &window.rendering_requested;
-    if (requested.clip.empty()) {
+    var viewport = window.anim_viewport;
+    if (!requested.clip.empty()) {
+        const layout_viewport: wlr.Box = .{
+            .x = requested.x + requested.clip.x,
+            .y = requested.y + requested.clip.y,
+            .width = requested.clip.width,
+            .height = requested.clip.height,
+        };
+        if (viewport) |output_viewport| {
+            var intersection: wlr.Box = undefined;
+            if (!intersection.intersection(&layout_viewport, &output_viewport)) {
+                for (window.anim_buffers.items) |record| {
+                    record.buffer.node.setEnabled(false);
+                }
+                window.refreshBackdropBlur();
+                return;
+            }
+            viewport = intersection;
+        } else {
+            viewport = layout_viewport;
+        }
+    }
+    const fixed_viewport = viewport orelse {
         for (window.anim_buffers.items) |record| restoreAnimBuffer(record);
         window.refreshBackdropBlur();
         return;
-    }
+    };
 
     const origin_x: i32 = @intFromFloat(@round(window.anim_x));
     const origin_y: i32 = @intFromFloat(@round(window.anim_y));
-    const viewport: wlr.Box = .{
-        .x = requested.x + requested.clip.x,
-        .y = requested.y + requested.clip.y,
-        .width = requested.clip.width,
-        .height = requested.clip.height,
-    };
     for (window.anim_buffers.items) |record| {
         const destination: visual_state.Rect = .{
             .x = origin_x + record.x,
@@ -1853,10 +1911,10 @@ fn updateAnimationClip(window: *Window) void {
             .height = record.dest_height,
         };
         const clipped = visual_state.destinationCrop(destination, .{
-            .x = viewport.x,
-            .y = viewport.y,
-            .width = viewport.width,
-            .height = viewport.height,
+            .x = fixed_viewport.x,
+            .y = fixed_viewport.y,
+            .width = fixed_viewport.width,
+            .height = fixed_viewport.height,
         }) orelse {
             record.buffer.node.setEnabled(false);
             continue;
