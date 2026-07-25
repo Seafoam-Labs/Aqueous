@@ -867,3 +867,94 @@
 -		scene_output->render_begin_hook(render_pass,
 -			scene_output->render_hook_data);
 -	}
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -16 +16 @@
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 7
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 8
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -71 +71 @@
+-	const struct wlr_box *damage_bounds, void *data);
++	const pixman_region32_t *content_damage, void *data);
+@@ -268,0 +269 @@
++		pixman_region32_t pending_effect_damage;
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -376,2 +376,2 @@
+-static void scene_output_damage(struct wlr_scene_output *scene_output,
+-		const pixman_region32_t *damage) {
++static void scene_output_damage_internal(struct wlr_scene_output *scene_output,
++		const pixman_region32_t *damage, bool affects_scene) {
+@@ -389,0 +390,4 @@
++		if (affects_scene) {
++			pixman_region32_union(&scene_output->pending_effect_damage,
++				&scene_output->pending_effect_damage, &clipped);
++		}
+@@ -394,0 +399,5 @@
++static void scene_output_damage(struct wlr_scene_output *scene_output,
++		const pixman_region32_t *damage) {
++	scene_output_damage_internal(scene_output, damage, true);
++}
++
+@@ -1796,0 +1806,2 @@
++			pixman_region32_subtract(&scene_output->pending_effect_damage,
++				&scene_output->pending_effect_damage, &state->damage);
+@@ -1799,0 +1811,2 @@
++			pixman_region32_fini(&scene_output->pending_effect_damage);
++			pixman_region32_init(&scene_output->pending_effect_damage);
+@@ -1840 +1853,3 @@
+-	scene_output_damage(scene_output, &damage);
++	// Output-local presentation changes such as software cursor motion need
++	// repainting, but don't invalidate scene-derived effect caches.
++	scene_output_damage_internal(scene_output, &damage, false);
+@@ -1862,0 +1878 @@
++	pixman_region32_init(&scene_output->pending_effect_damage);
+@@ -1935,0 +1952 @@
++	pixman_region32_fini(&scene_output->pending_effect_damage);
+@@ -2682,4 +2698,0 @@
+-	pixman_region32_init(&render_data.damage);
+-	wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,
+-		&render_data.damage);
+-
+@@ -2687,8 +2699,0 @@
+-		const pixman_box32_t *extents =
+-			pixman_region32_extents(&render_data.damage);
+-		struct wlr_box damage_bounds = {
+-			.x = extents->x1,
+-			.y = extents->y1,
+-			.width = extents->x2 - extents->x1,
+-			.height = extents->y2 - extents->y1,
+-		};
+@@ -2696,9 +2701,17 @@
+-			render_pass, &damage_bounds, scene_output->render_hook_data);
+-		if (damage_expansion > 0) {
+-			wlr_region_expand(&render_data.damage, &render_data.damage,
+-				damage_expansion);
+-			pixman_region32_intersect_rect(&render_data.damage,
+-				&render_data.damage, 0, 0, buffer->width, buffer->height);
+-			// Keep backend damage synchronized with every pixel redrawn by
+-			// the render hook, including blur-filter reach.
+-			wlr_output_state_set_damage(state, &render_data.damage);
++			render_pass, &scene_output->pending_effect_damage,
++			scene_output->render_hook_data);
++		if (damage_expansion > 0 &&
++				!pixman_region32_empty(&scene_output->pending_effect_damage)) {
++			pixman_region32_t expanded_effect_damage;
++			pixman_region32_init(&expanded_effect_damage);
++			wlr_region_expand(&expanded_effect_damage,
++				&scene_output->pending_effect_damage, damage_expansion);
++			pixman_region32_intersect_rect(&expanded_effect_damage,
++				&expanded_effect_damage, 0, 0, buffer->width, buffer->height);
++			wlr_damage_ring_add(&scene_output->damage_ring,
++				&expanded_effect_damage);
++			pixman_region32_union(&scene_output->pending_commit_damage,
++				&scene_output->pending_commit_damage, &expanded_effect_damage);
++			wlr_output_state_set_damage(state,
++				&scene_output->pending_commit_damage);
++			pixman_region32_fini(&expanded_effect_damage);
+@@ -2706,0 +2720,4 @@
++
++	pixman_region32_init(&render_data.damage);
++	wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,
++		&render_data.damage);

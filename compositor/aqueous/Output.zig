@@ -608,26 +608,20 @@ fn effectRenderState(output: *const Output) *const State {
 
 fn effectsRenderBegin(
     _: ?*c.struct_wlr_render_pass,
-    damage_bounds: ?*const c.struct_wlr_box,
+    content_damage: ?*const c.pixman_region32_t,
     data: ?*anyopaque,
 ) callconv(.c) u32 {
     if (comptime !build_options.vulkan_effects) return 0;
     const output: *Output = @ptrCast(@alignCast(data orelse return 0));
     output.blur_last_window = null;
     if (uncachedBlurRequested()) return 0;
-    output.blur_cache.beginFrame(
-        if (damage_bounds) |box| box.* else .{ .x = 0, .y = 0, .width = 0, .height = 0 },
-    );
+    output.blur_cache.beginFrame(content_damage);
     const config = server.effect_metadata.blurConfig();
     const kernel = BlurPipeline.resolveKernel(
         config.radius,
         config.passes,
         output.effectRenderState().scale,
     ) orelse return 0;
-    const damage = if (damage_bounds) |box|
-        expandedRenderBox(box.*, kernel.reach)
-    else
-        c.struct_wlr_box{ .x = 0, .y = 0, .width = 0, .height = 0 };
     var preserved: u32 = 0;
     var affected = false;
     var windows = server.wm.windows.iterator();
@@ -640,7 +634,11 @@ fn effectsRenderBegin(
             output.effectRenderState(),
         ) orelse continue;
         const ready = output.blur_cache.markVisible(@bitCast(handle.key));
-        if (renderBoxesIntersect(damage, effect.box)) {
+        if (expandedRenderRegionIntersects(
+            content_damage,
+            effect.box,
+            kernel.reach,
+        )) {
             affected = true;
         } else if (ready) {
             preserved += 1;
@@ -833,6 +831,30 @@ fn expandedRenderBox(
         .width = box.width +| amount *| 2,
         .height = box.height +| amount *| 2,
     };
+}
+
+fn expandedRenderRegionIntersects(
+    region: ?*const c.pixman_region32_t,
+    box: c.struct_wlr_box,
+    reach: u32,
+) bool {
+    const damage = region orelse return false;
+    var count: c_int = 0;
+    const rectangles = c.pixman_region32_rectangles(damage, &count);
+    var index: usize = 0;
+    while (index < @as(usize, @intCast(@max(0, count)))) : (index += 1) {
+        const rectangle = rectangles[index];
+        if (renderBoxesIntersect(
+            expandedRenderBox(.{
+                .x = rectangle.x1,
+                .y = rectangle.y1,
+                .width = rectangle.x2 - rectangle.x1,
+                .height = rectangle.y2 - rectangle.y1,
+            }, reach),
+            box,
+        )) return true;
+    }
+    return false;
 }
 
 fn renderBoxesIntersect(

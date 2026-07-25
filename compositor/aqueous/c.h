@@ -12,7 +12,8 @@ void aqueous_scene_node_set_enabled(struct wlr_scene_node *node, int enabled);
 #include <vulkan/vulkan_core.h>
 #include <wlr/render/vulkan.h>
 #include <wlr/types/wlr_scene.h>
-#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 7
+#include <wlr/util/region.h>
+#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 8
 #error "Vulkan effects require the pinned Aqueous wlroots render hook"
 #endif
 #endif

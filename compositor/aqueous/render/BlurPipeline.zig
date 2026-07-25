@@ -117,17 +117,26 @@ pub const CacheStats = struct {
 
 pub const OutputCache = struct {
     entries: std.ArrayList(CacheEntry) = .empty,
-    damage: c.struct_wlr_box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+    damage: c.pixman_region32_t = std.mem.zeroes(c.pixman_region32_t),
+    damage_initialized: bool = false,
     frame: u64 = 0,
     stats: CacheStats = .{},
 
     pub fn beginFrame(
         cache: *OutputCache,
-        damage: c.struct_wlr_box,
+        damage: ?*const c.pixman_region32_t,
     ) void {
         cache.frame +%= 1;
         if (cache.frame == 0) cache.frame = 1;
-        cache.damage = damage;
+        if (!cache.damage_initialized) {
+            c.pixman_region32_init(&cache.damage);
+            cache.damage_initialized = true;
+        }
+        if (damage) |region| {
+            _ = c.pixman_region32_copy(&cache.damage, region);
+        } else {
+            c.pixman_region32_clear(&cache.damage);
+        }
         cache.stats = .{};
     }
 
@@ -161,11 +170,17 @@ pub const OutputCache = struct {
             pipeline.retireCacheImage(entry.resource);
         }
         cache.entries.clearRetainingCapacity();
-        cache.damage = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+        if (cache.damage_initialized) {
+            c.pixman_region32_clear(&cache.damage);
+        }
     }
 
     pub fn deinit(cache: *OutputCache, pipeline: *BlurPipeline) void {
         cache.clear(pipeline);
+        if (cache.damage_initialized) {
+            c.pixman_region32_fini(&cache.damage);
+            cache.damage_initialized = false;
+        }
         cache.entries.deinit(util.gpa);
     }
 };
@@ -442,41 +457,84 @@ pub fn renderCached(
         full_rebuild = true;
     }
 
-    var update = if (full_rebuild)
-        clippedBox(effect.box, attributes.extent)
-    else
-        clippedBox(expandedBox(cache.damage, kernel.reach), attributes.extent);
-    if (!full_rebuild) {
-        update = intersection(update, effect.box) orelse {
-            cache.stats.hits += 1;
-            pipeline.cache_hit_count += 1;
-            const resource = entry.resource.?;
-            try pipeline.retainForPass(render_pass, resource);
-            if (!try pipeline.composite(
-                render_pass,
-                effect,
-                render_region,
-                resource.descriptor,
-            )) return false;
-            pipeline.checkpoint_count += 1;
-            return true;
-        };
-    }
-    if (update.width <= 0 or update.height <= 0) return false;
-
     const resource = entry.resource.?;
-    var call: CachedOffscreenCall = .{
-        .pipeline = pipeline,
-        .kernel = kernel,
-        .target = resource,
-        .update = update,
-    };
-    if (!c.wlr_vk_render_pass_run_offscreen(
-        render_pass,
-        cachedOffscreenCallback,
-        &call,
-    ) or call.failed) {
-        return error.VulkanBlurOffscreenFailed;
+    const update_clip = clippedBox(effect.box, attributes.extent);
+    if (update_clip.width <= 0 or update_clip.height <= 0) return false;
+
+    var updates: c.pixman_region32_t = undefined;
+    if (full_rebuild) {
+        c.pixman_region32_init_rect(
+            &updates,
+            update_clip.x,
+            update_clip.y,
+            @intCast(update_clip.width),
+            @intCast(update_clip.height),
+        );
+    } else {
+        c.pixman_region32_init(&updates);
+        if (cache.damage_initialized) {
+            c.wlr_region_expand(
+                &updates,
+                &cache.damage,
+                @intCast(@min(
+                    kernel.reach,
+                    @as(u32, std.math.maxInt(c_int)),
+                )),
+            );
+            _ = c.pixman_region32_intersect_rect(
+                &updates,
+                &updates,
+                update_clip.x,
+                update_clip.y,
+                @intCast(update_clip.width),
+                @intCast(update_clip.height),
+            );
+        }
+    }
+    defer c.pixman_region32_fini(&updates);
+
+    var update_count: c_int = 0;
+    const update_rectangles =
+        c.pixman_region32_rectangles(&updates, &update_count);
+    if (update_count <= 0) {
+        cache.stats.hits += 1;
+        pipeline.cache_hit_count += 1;
+        try pipeline.retainForPass(render_pass, resource);
+        if (!try pipeline.composite(
+            render_pass,
+            effect,
+            render_region,
+            resource.descriptor,
+        )) return false;
+        pipeline.checkpoint_count += 1;
+        return true;
+    }
+
+    var pixels_processed: u64 = 0;
+    var update_index: usize = 0;
+    while (update_index < @as(usize, @intCast(update_count))) :
+        (update_index += 1)
+    {
+        const rectangle = update_rectangles[update_index];
+        var call: CachedOffscreenCall = .{
+            .pipeline = pipeline,
+            .kernel = kernel,
+            .target = resource,
+            .update = .{
+                .x = rectangle.x1,
+                .y = rectangle.y1,
+                .width = rectangle.x2 - rectangle.x1,
+                .height = rectangle.y2 - rectangle.y1,
+            },
+        };
+        if (!c.wlr_vk_render_pass_run_offscreen(
+            render_pass,
+            cachedOffscreenCallback,
+            &call,
+        ) or call.failed) {
+            return error.VulkanBlurOffscreenFailed;
+        }
+        pixels_processed += call.pixels_processed;
     }
 
     entry.effect = effect;
@@ -492,8 +550,8 @@ pub fn renderCached(
         cache.stats.partial_rebuilds += 1;
         pipeline.cache_partial_rebuild_count += 1;
     }
-    cache.stats.pixels_processed += call.pixels_processed;
-    pipeline.cache_pixels_processed += call.pixels_processed;
+    cache.stats.pixels_processed += pixels_processed;
+    pipeline.cache_pixels_processed += pixels_processed;
 
     try pipeline.retainForPass(render_pass, resource);
     if (!try pipeline.composite(
@@ -1684,13 +1742,6 @@ fn intersection(
         toCacheBox(b),
     ) orelse return null;
     return fromCacheBox(box);
-}
-
-fn expandedBox(
-    box: c.struct_wlr_box,
-    reach: u32,
-) c.struct_wlr_box {
-    return fromCacheBox(BlurCache.expanded(toCacheBox(box), reach));
 }
 
 fn toCacheBox(box: c.struct_wlr_box) BlurCache.Box {

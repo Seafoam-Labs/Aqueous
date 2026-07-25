@@ -39,9 +39,24 @@ tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 for patch_file in "${patch_files[@]}"; do
     patch -d "$source_dir" -p1 <"$patch_file"
 done
-grep -Fq 'wlr_output_state_set_damage(state, &render_data.damage);' \
-    "$source_dir/types/scene/wlr_scene.c" ||
-    die "patched wlroots does not synchronize expanded render and output damage"
+scene_source="$source_dir/types/scene/wlr_scene.c"
+grep -Fq 'scene_output_damage_internal(scene_output, &damage, false);' \
+    "$scene_source" ||
+    die "patched wlroots does not separate output-only and scene damage"
+grep -Fq 'render_pass, &scene_output->pending_effect_damage,' \
+    "$scene_source" ||
+    die "patched wlroots does not pass full scene damage to the render hook"
+history_line=$(
+    grep -nF 'wlr_damage_ring_add(&scene_output->damage_ring,' \
+        "$scene_source" | tail -1 | cut -d: -f1
+)
+rotate_line=$(
+    grep -nF 'wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,' \
+        "$scene_source" | tail -1 | cut -d: -f1
+)
+[ -n "$history_line" ] && [ -n "$rotate_line" ] &&
+    [ "$history_line" -lt "$rotate_line" ] ||
+    die "expanded effect damage is not recorded before buffer-history rotation"
 
 meson setup "$build_dir" "$source_dir" \
     --prefix="$prefix" \

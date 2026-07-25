@@ -314,6 +314,26 @@ capture_output() {
     [ -s "$destination" ] || die "empty capture: $destination"
 }
 
+capture_output_with_cursor() {
+    local destination=$1
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        grim -c -o "$OUTPUT_NAME" "$destination"
+    [ -s "$destination" ] || die "empty cursor capture: $destination"
+}
+
+move_pointer() {
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        wlrctl pointer move -10000 -10000
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        wlrctl pointer move "$1" "$2"
+}
+
 send_key() {
     env -u LD_PRELOAD \
         XDG_RUNTIME_DIR="$RUNTIME_DIR" \
@@ -497,6 +517,30 @@ awk \
             contrast > 1.0)
     }' ||
     die "backdrop blur was composited over the blur window's client content"
+
+# A screencopy with cursor overlay temporarily forces wlroots' software cursor
+# path. Cursor-only output damage must composite the existing blur cache, not
+# invalidate it or feed the cursor rectangles back into the cached backdrop.
+move_pointer 960 540
+capture_output "$ARTIFACT_DIR/blur-before-software-cursor.png"
+capture_output_with_cursor "$ARTIFACT_DIR/blur-software-cursor.png"
+sleep 0.1
+capture_output "$ARTIFACT_DIR/blur-after-software-cursor.png"
+# Some nested backends retain the actual 16x23 cursor for this first frame.
+# Exclude only a tight cursor footprint; the cache-corruption halo extends
+# beyond it and remains visible to this comparison.
+cursor_damage_difference=$(
+    magick \
+        "$ARTIFACT_DIR/blur-before-software-cursor.png" \
+        "$ARTIFACT_DIR/blur-after-software-cursor.png" \
+        -compose difference -composite \
+        -compose over -fill black -draw 'rectangle 952,532 980,572' \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$cursor_damage_difference" \
+    'BEGIN { exit !(changed <= 64) }' ||
+    die "software cursor damage contaminated the cached backdrop"
 
 # Recreate the nested backend swapchain at a smaller size and then return to
 # the original extent. Drivers commonly recycle the raw VkImageView handles in
@@ -838,6 +882,8 @@ fi
     printf 'blur_content_adjacent=%s\n' "$blur_grid_adjacent"
     printf 'blur_content_frame=%s\n' "$blur_frame"
     printf 'blur_content_contrast=%s\n' "$blur_content_contrast"
+    printf 'blur_cursor_residual_changed_pixels=%s\n' \
+        "$cursor_damage_difference"
     printf 'blur_motion_changed_pixels=%s\n' "$motion_difference"
     printf 'blur_localized_changed_pixels=%s\n' "$blurred_difference_pixels"
     printf 'blur_localized_difference_bounds=%s\n' "$blurred_difference_bounds"
@@ -865,4 +911,4 @@ fi
         xargs -0 sha256sum >SHA256SUMS
 )
 
-echo "PASS: rounded Vulkan effects and blur survived both render paths, popup and subsurface content, damage, motion, overlap, workspace animation, output resume, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
+echo "PASS: rounded Vulkan effects and blur survived both render paths, popup and subsurface content, cursor-only damage, scene damage, motion, overlap, workspace animation, output resume, four scales, rotations, capture, and $STRESS_FRAMES reused-buffer frames"
