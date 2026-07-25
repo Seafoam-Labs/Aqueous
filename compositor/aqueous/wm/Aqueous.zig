@@ -174,7 +174,14 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     }
     const client_requests = try aqueous.api.takeClientWindowRequests(util.gpa);
     defer util.gpa.free(client_requests);
-    aqueous.applyClientWindowRequests(client_requests);
+    if (aqueous.applyClientWindowRequests(&snapshot, client_requests)) {
+        // Activation may select another workspace/output. Continue this
+        // transaction using the newly active workspace so visibility, layout,
+        // and focus are all committed together.
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
     if (aqueous.finishInvalidInteractiveDrag(&snapshot)) {
         const refreshed = try aqueous.api.policySnapshot(util.gpa);
         snapshot.deinit(util.gpa);
@@ -433,12 +440,15 @@ fn findPolicyOutput(snapshot: *const CompositorApi.PolicySnapshot, id: ?u64) ?*c
 }
 
 /// Client-side decorations and foreign-toplevel controllers feed the same
-/// one-shot request stream. Only windows already participating in floating
-/// policy may act on these requests; tiled windows remain layout-owned.
+/// one-shot request stream. Direct move/resize/maximize/minimize requests
+/// remain constrained to floating policy, while activation can restore and
+/// focus any managed window.
 fn applyClientWindowRequests(
     aqueous: *Aqueous,
+    snapshot: *const CompositorApi.PolicySnapshot,
     requests: []const CompositorApi.ClientWindowRequest,
-) void {
+) bool {
+    var snapshot_dirty = false;
     for (requests) |request| switch (request.action) {
         .move => |pointer| aqueous.startClientPointerDrag(
             request.handle,
@@ -477,7 +487,41 @@ fn applyClientWindowRequests(
         .unminimize => {
             _ = aqueous.window_states.setClientMinimized(request.handle, false) catch unreachable;
         },
+        .activate => {
+            snapshot_dirty = aqueous.activateClientWindow(snapshot, request.handle) or snapshot_dirty;
+        },
     };
+    return snapshot_dirty;
+}
+
+/// A foreign-toplevel activation is the compositor-side equivalent of clicking
+/// a dock/taskbar item: reveal its workspace, restore it if minimized, then
+/// raise and focus it.
+fn activateClientWindow(
+    aqueous: *Aqueous,
+    snapshot: *const CompositorApi.PolicySnapshot,
+    handle: layout_types.Handle,
+) bool {
+    _ = aqueous.window_states.get(handle) orelse return false;
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return false;
+
+    aqueous.finishInteractiveDragFor(handle);
+    _ = aqueous.window_states.restore(handle);
+
+    if (findPolicyOutput(snapshot, workspace.output_id)) |output| {
+        if (output.workspace_number != workspace.workspace_number) {
+            aqueous.previous_workspaces.put(
+                util.gpa,
+                workspace.output_id,
+                output.workspace_number,
+            ) catch log.err("out of memory recording previous workspace for dock activation", .{});
+        }
+    }
+
+    _ = aqueous.api.selectOutput(workspace.output_id);
+    if (!aqueous.api.activateWorkspace(workspace.output_id, workspace.workspace_number)) return false;
+    aqueous.requestFocus(handle);
+    return true;
 }
 
 fn startClientPointerDrag(

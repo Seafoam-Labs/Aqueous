@@ -59,6 +59,7 @@ pub const ClientWindowRequest = struct {
         unmaximize,
         minimize,
         unminimize,
+        activate,
     },
 };
 
@@ -629,6 +630,7 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
         if (window.wm_scheduled.pointer_resize_requested != null) count += 1;
         if (window.wm_scheduled.maximize_requested != .no_request) count += 1;
         if (window.wm_scheduled.minimize_requested != .no_request) count += 1;
+        if (window.wm_scheduled.activate_requested) count += 1;
     }
 
     const requests = try allocator.alloc(ClientWindowRequest, count);
@@ -680,6 +682,10 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
                 index += 1;
             },
         }
+        if (window.wm_scheduled.activate_requested) {
+            requests[index] = .{ .handle = handle, .action = .activate };
+            index += 1;
+        }
     }
     std.debug.assert(index == requests.len);
 
@@ -689,6 +695,7 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
         window.wm_scheduled.pointer_resize_requested = null;
         window.wm_scheduled.maximize_requested = .no_request;
         window.wm_scheduled.minimize_requested = .no_request;
+        window.wm_scheduled.activate_requested = false;
     }
     return requests;
 }

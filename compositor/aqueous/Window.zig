@@ -312,6 +312,9 @@ wm_scheduled: struct {
         minimize,
         unminimize,
     } = .no_request,
+    /// Foreign-toplevel controllers use activation for dock/taskbar clicks.
+    /// The integrated policy consumes this as a one-shot focus request.
+    activate_requested: bool = false,
     dirty_app_id: bool = false,
     dirty_title: bool = false,
     pointer_move_requested: ?*Seat = null,
@@ -2571,15 +2574,18 @@ fn handleFtmRequestActivate(
     const window: *Window = @fieldParentPtr("ftm_request_activate", listener);
     _ = event; // seat is informational; the wm picks the focus seat itself.
     if (window.state != .mapped and window.state != .initialized) return;
-    // Forward to the wm client via the dedicated activate_requested event
-    // (river-window-management-v1 >= 5). The wm client decides focus policy
-    // (workspace switching, output following, etc.); the compositor never makes
-    // focus decisions on its own.
-    const window_v1 = window.object orelse return;
-    if (window_v1.getVersion() >= 5) {
-        window_v1.sendActivateRequested();
-        server.wm.dirtyWindowing();
+
+    // Integrated policy must receive activation too: docks generally restore a
+    // minimized item by activating it rather than sending explicit unminimize.
+    if (server.aqueous.mode.runsInternal()) {
+        window.wm_scheduled.activate_requested = true;
     }
+
+    // Preserve the protocol compatibility path for external policy clients.
+    if (window.object) |window_v1| {
+        if (window_v1.getVersion() >= 5) window_v1.sendActivateRequested();
+    }
+    server.wm.dirtyWindowing();
 }
 
 fn handleFtmRequestFullscreen(

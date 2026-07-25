@@ -10,10 +10,12 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/xdg-floating-request.c"
+ACTIVATE_SOURCE="$here/scripts/fixtures/foreign-toplevel-activate.c"
 RULES="$here/scripts/fixtures/xdg-floating-rules.toml"
 PROTOCOLS="$(pkg-config --variable=pkgdatadir wayland-protocols)"
 XDG_SHELL_PROTOCOL="$PROTOCOLS/stable/xdg-shell/xdg-shell.xml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
+FOREIGN_TOPLEVEL_PROTOCOL="$here/protocol/upstream/wlr-foreign-toplevel-management-unstable-v1.xml"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -21,8 +23,10 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
 [ -r "$FIXTURE_SOURCE" ] || die "missing xdg floating fixture"
+[ -r "$ACTIVATE_SOURCE" ] || die "missing foreign-toplevel activation fixture"
 [ -r "$RULES" ] || die "missing xdg floating rules"
 [ -r "$VIRTUAL_POINTER_PROTOCOL" ] || die "wlr virtual pointer protocol XML is unavailable"
+[ -r "$FOREIGN_TOPLEVEL_PROTOCOL" ] || die "wlr foreign-toplevel protocol XML is unavailable"
 for tool in cc jq pkg-config timeout wayland-scanner wlrctl; do
     have "$tool" || die "$tool is required for xdg floating integration tests"
 done
@@ -32,6 +36,7 @@ pkg-config --exists wayland-client wayland-protocols || \
 TEST_ROOT=$(mktemp -d /tmp/aqueous-xdg-floating.XXXXXX)
 RUNTIME="$TEST_ROOT/runtime"
 FIXTURE_BIN="$TEST_ROOT/xdg-floating-request"
+ACTIVATE_BIN="$TEST_ROOT/foreign-toplevel-activate"
 COMPOSITOR_LOG="$TEST_ROOT/compositor.log"
 CLIENT_LOG="$TEST_ROOT/client.log"
 COMPOSITOR_PID=""
@@ -61,11 +66,19 @@ wayland-scanner client-header "$VIRTUAL_POINTER_PROTOCOL" \
     "$TEST_ROOT/wlr-virtual-pointer-unstable-v1-client-protocol.h"
 wayland-scanner private-code "$VIRTUAL_POINTER_PROTOCOL" \
     "$TEST_ROOT/wlr-virtual-pointer-protocol.c"
+wayland-scanner client-header "$FOREIGN_TOPLEVEL_PROTOCOL" \
+    "$TEST_ROOT/wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
+wayland-scanner private-code "$FOREIGN_TOPLEVEL_PROTOCOL" \
+    "$TEST_ROOT/wlr-foreign-toplevel-management-unstable-v1-protocol.c"
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$FIXTURE_SOURCE" \
     "$TEST_ROOT/xdg-shell-protocol.c" \
     "$TEST_ROOT/wlr-virtual-pointer-protocol.c" \
     -o "$FIXTURE_BIN" $(pkg-config --cflags --libs wayland-client)
+cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
+    "$ACTIVATE_SOURCE" \
+    "$TEST_ROOT/wlr-foreign-toplevel-management-unstable-v1-protocol.c" \
+    -o "$ACTIVATE_BIN" $(pkg-config --cflags --libs wayland-client)
 
 mkdir -p "$RUNTIME/config" "$RUNTIME/home"
 chmod 700 "$RUNTIME"
@@ -255,6 +268,20 @@ run_case() {
     touch "$sync_dir/minimize"
     wait_marker "$sync_dir" minimize-done
     wait_state "$app_id" minimized "$floating"
+    if [ "$floating" = true ]; then
+        # Docks restore items through foreign-toplevel activation rather than a
+        # separate unminimize request. The click must restore the prior floating
+        # state and geometry, then raise and focus the target.
+        XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+            "$ACTIVATE_BIN" "$app_id"
+        wait_state "$app_id" minimized false
+        wait_state "$app_id" floating true
+        wait_focused "$app_id"
+        local activated_json
+        activated_json=$(window_json "$app_id")
+        [ "$(geometry <<<"$activated_json")" = "$resized_x"$'\t'"$resized_y"$'\t'"$resized_w"$'\t'"$resized_h" ] ||
+            die "dock activation did not restore floating geometry"
+    fi
     touch "$sync_dir/finish"
     if ! wait "$CLIENT_PID"; then
         CLIENT_PID=""
@@ -318,4 +345,4 @@ for pid in "${STACK_PIDS[@]}"; do
 done
 STACK_PIDS=()
 
-echo "PASS: xdg floating requests are gated and focused floats own overlap hit testing"
+echo "PASS: xdg floating requests, dock restoration, and overlap focus work"
