@@ -8,6 +8,7 @@ archive_url="https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/$version/w
 patch_files=(
     "$here/patches/wlroots/0001-aqueous-vulkan-render-hook.patch"
     "$here/patches/wlroots/0002-fix-hdr-min-luminance.patch"
+    "$here/patches/wlroots/0003-color-management-v1-srgb-compat.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -64,7 +65,7 @@ meson setup "$build_dir" "$source_dir" \
     -Dexamples=false \
     -Dxwayland=enabled \
     -Drenderers=vulkan \
-    -Dbackends=drm,libinput \
+    -Dbackends=drm,libinput,x11 \
     -Dallocators=gbm \
     -Dsession=enabled \
     -Dcolor-management=enabled
@@ -85,6 +86,7 @@ for symbol in \
     wlr_vk_render_pass_add_completion \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs \
+    wlr_backend_is_x11 \
     wlr_xwayland_create; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"

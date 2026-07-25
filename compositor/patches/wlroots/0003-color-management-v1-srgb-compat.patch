@@ -1,0 +1,81 @@
+color-management-v1: expose sRGB alias to version 1 clients
+
+color-management-v1 version 2 replaced the deprecated "srgb" transfer
+function with the less ambiguous "compound_power_2_4" name. wlroots keeps
+only the version 2 name in its renderer capability list, so a version 1
+client never sees an sRGB-capable transfer function and cannot create its
+normal BT.709/sRGB image description.
+
+Translate the two protocol names at the resource boundary. This keeps the
+renderer-facing representation canonical while allowing version 1 clients
+such as Chromium/Electron to submit SDR surfaces instead of falling back to
+the HDR output's BT.2020/PQ description.
+
+--- a/types/wlr_color_management_v1.c
++++ b/types/wlr_color_management_v1.c
+@@ -126,6 +126,15 @@ static void image_desc_handle_get_information(struct wl_client *client,
+ 		return;
+ 	}
+ 
++	enum wp_color_manager_v1_transfer_function tf = image_desc->data.tf_named;
++	if (version < 2 &&
++			tf == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4) {
++		tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB;
++	} else if (version >= 2 &&
++			tf == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB) {
++		tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4;
++	}
++
+ 	struct wlr_color_primaries primaries;
+ 	wlr_color_primaries_from_named(&primaries,
+ 		wlr_color_manager_v1_primaries_to_wlr(image_desc->data.primaries_named));
+@@ -133,7 +142,7 @@ static void image_desc_handle_get_information(struct wl_client *client,
+ 
+ 	struct wlr_color_luminances luminances;
+ 	wlr_color_transfer_function_get_default_luminance(
+-		wlr_color_manager_v1_transfer_function_to_wlr(image_desc->data.tf_named), &luminances);
++		wlr_color_manager_v1_transfer_function_to_wlr(tf), &luminances);
+ 
+ 	wp_image_description_info_v1_send_primaries_named(resource, image_desc->data.primaries_named);
+ 	wp_image_description_info_v1_send_primaries(resource,
+@@ -142,6 +151,6 @@ static void image_desc_handle_get_information(struct wl_client *client,
+ 		encode_cie1931_coord(primaries.blue.x), encode_cie1931_coord(primaries.blue.y),
+ 		encode_cie1931_coord(primaries.white.x), encode_cie1931_coord(primaries.white.y));
+-	wp_image_description_info_v1_send_tf_named(resource, image_desc->data.tf_named);
++	wp_image_description_info_v1_send_tf_named(resource, tf);
+ 	wp_image_description_info_v1_send_luminances(resource,
+ 		round(luminances.min * 10000), round(luminances.max),
+ 		round(luminances.reference));
+@@ -542,7 +551,13 @@ static void image_desc_creator_params_handle_set_tf_named(struct wl_client *client,
+ 
+ 	bool found = false;
+ 	for (size_t i = 0; i < params->manager->transfer_functions_len; i++) {
+-		if (params->manager->transfer_functions[i] == tf) {
++		enum wp_color_manager_v1_transfer_function supported =
++			params->manager->transfer_functions[i];
++		if (supported == tf ||
++				(tf == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB &&
++					supported == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4) ||
++				(tf == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4 &&
++					supported == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB)) {
+ 			found = true;
+ 			break;
+ 		}
+@@ -927,6 +942,10 @@ static void manager_bind(struct wl_client *client, void *data,
+ 	}
+ 	for (size_t i = 0; i < manager->transfer_functions_len; i++) {
+ 		enum wp_color_manager_v1_transfer_function tf = manager->transfer_functions[i];
++		if (version < 2 &&
++				tf == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4) {
++			tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB;
++		}
+ 		if (!wp_color_manager_v1_transfer_function_is_valid(tf, version)) {
+ 			continue;
+ 		}
+@@ -1059,5 +1078,6 @@ enum wlr_color_transfer_function
+ wlr_color_manager_v1_transfer_function_to_wlr(enum wp_color_manager_v1_transfer_function tf) {
+ 	switch (tf) {
++	case WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB:
+ 	case WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4:
+ 		return WLR_COLOR_TRANSFER_FUNCTION_SRGB;
+ 	case WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ:
