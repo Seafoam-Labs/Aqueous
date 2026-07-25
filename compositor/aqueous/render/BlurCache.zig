@@ -79,12 +79,10 @@ pub fn planUpdate(
     update: Box,
     half_extent: Extent,
     passes: u32,
-    sample_step: f32,
+    tap_reach: u32,
 ) UpdatePlan {
     std.debug.assert(passes > 0 and passes <= 16);
-    const tap_reach: u32 = @intFromFloat(@ceil(
-        3.2307692308 * sample_step + 1.0,
-    ));
+    std.debug.assert(tap_reach > 0);
     const final = halfResolution(update, half_extent);
     var plan: UpdatePlan = .{
         .final = final,
@@ -165,7 +163,7 @@ test "partial update walks kernel dependencies backwards" {
         .{ .x = 400, .y = 200, .width = 80, .height = 40 },
         .{ .width = 960, .height = 540 },
         4,
-        1.25,
+        6,
     );
     try std.testing.expectEqualDeep(
         Box{ .x = 200, .y = 100, .width = 40, .height = 20 },

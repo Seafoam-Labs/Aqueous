@@ -702,7 +702,7 @@ fn processCachedOffscreen(
         toCacheBox(update),
         toCacheExtent(resources.half_extent),
         kernel.passes,
-        kernel.sample_step,
+        kernel.tap_reach,
     );
     const final_box = fromCacheBox(plan.final);
     const downsample_box = fromCacheBox(plan.downsample);

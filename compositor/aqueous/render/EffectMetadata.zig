@@ -77,6 +77,7 @@ pub const BlurConfig = struct {
 pub const BlurKernel = struct {
     passes: u32,
     sample_step: f32,
+    tap_reach: u32,
     reach: u32,
 };
 
@@ -94,13 +95,21 @@ pub fn resolveBlurKernel(
         0.125,
         physical_radius / (12.9230769232 * root_passes),
     );
+    // The separable shader samples through a linear sampler. Account for the
+    // adjacent texel footprint at every pass, rather than accumulating only
+    // the continuous offset: at high pass counts that difference is large
+    // enough to leave stale pixels around damaged window edges.
+    const tap_reach: u32 = @intFromFloat(@ceil(
+        3.2307692308 * sample_step + 1.0,
+    ));
     return .{
         .passes = pass_count,
         .sample_step = sample_step,
-        .reach = @intFromFloat(@ceil(
-            6.4615384616 * sample_step *
-                @as(f32, @floatFromInt(pass_count)) + 2.0,
-        )),
+        .tap_reach = tap_reach,
+        // Blur runs at half resolution, so each dependency texel spans two
+        // output pixels. The final two pixels cover downsample/upsample
+        // filtering at the ends of the chain.
+        .reach = 2 * tap_reach * pass_count + 2,
     };
 }
 
@@ -669,10 +678,18 @@ test "blur kernel maps physical radius and bounds pass count" {
     const normal = resolveBlurKernel(10, 8, 1).?;
     try std.testing.expectEqual(@as(u32, 8), normal.passes);
     try std.testing.expect(normal.reach >= 10);
+    try std.testing.expectEqual(
+        2 * normal.tap_reach * normal.passes + 2,
+        normal.reach,
+    );
 
     const scaled = resolveBlurKernel(12, 100, 2).?;
     try std.testing.expectEqual(@as(u32, 16), scaled.passes);
     try std.testing.expect(scaled.reach >= 24);
+
+    const high_pass = resolveBlurKernel(10, 16, 1).?;
+    try std.testing.expectEqual(@as(u32, 2), high_pass.tap_reach);
+    try std.testing.expectEqual(@as(u32, 66), high_pass.reach);
 
     try std.testing.expect(resolveBlurKernel(0, 8, 1) == null);
     try std.testing.expect(resolveBlurKernel(10, 0, 1) == null);
