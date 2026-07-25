@@ -11,6 +11,9 @@ previous: Kind = .tiled,
 floating_geometry: types.Rect = .empty,
 /// Monotonic focus/creation order used to stack overlapping non-tiled windows.
 stack_order: u64 = 0,
+/// Set when the last output vanished without an available recovery target.
+/// The next output which admits this window clamps it back into usable space.
+needs_output_recovery: bool = false,
 /// Scrolling-layout column width override. This is independent of `kind` so
 /// the window remains part of the layout and viewport navigation keeps working.
 scrolling_full_width: bool = false,

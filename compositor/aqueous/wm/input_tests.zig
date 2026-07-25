@@ -4,4 +4,5 @@
 test {
     _ = @import("input/drag.zig");
     _ = @import("input/gestures.zig");
+    _ = @import("input/output_transfer.zig");
 }

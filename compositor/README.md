@@ -63,6 +63,7 @@ The headless cutover and output checks are:
 scripts/test-policy-parity.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
+scripts/test-floating-outputs.sh
 scripts/test-scaling.sh
 scripts/test-xwayland-input.sh
 ```
@@ -75,7 +76,9 @@ confirms that tiled windows ignore those requests. It also maps overlapping
 floats and verifies that focusing either exposed edge raises that window for
 subsequent overlap hit testing. The policy and floating harnesses require
 `wlrctl`; the policy harness also requires Ghostty and maps real windows instead
-of testing an idle compositor.
+of testing an idle compositor. The floating-output harness verifies pointer-led
+workspace transfer across rotated mixed-scale outputs and recovery when the
+source output is disabled during an active move.
 The XWayland harness additionally requires a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. It verifies active keyboard grabs and pointer confinement for real X11

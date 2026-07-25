@@ -104,14 +104,28 @@ static bool read_pointer_command(
     uint32_t *start_x,
     uint32_t *start_y,
     uint32_t *end_x,
-    uint32_t *end_y) {
+    uint32_t *end_y,
+    uint32_t *x_extent,
+    uint32_t *y_extent) {
     char path[PATH_MAX];
     if (!sync_path(path, sizeof(path), app, name)) return false;
     FILE *file = fopen(path, "r");
     if (file == NULL) return false;
-    const int scanned = fscanf(file, "%u %u %u %u", start_x, start_y, end_x, end_y);
+    const int scanned = fscanf(
+        file,
+        "%u %u %u %u %u %u",
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        x_extent,
+        y_extent);
     const bool closed = fclose(file) == 0;
-    return scanned == 4 && closed;
+    if (scanned == 4) {
+        *x_extent = POINTER_WIDTH;
+        *y_extent = POINTER_HEIGHT;
+    }
+    return (scanned == 4 || scanned == 6) && *x_extent > 0 && *y_extent > 0 && closed;
 }
 
 static int create_shm_file(size_t size) {
@@ -324,13 +338,27 @@ static bool roundtrip(struct app *app) {
     return wl_display_roundtrip(app->display) >= 0 && !app->failed;
 }
 
-static bool run_pointer_operation(struct app *app, const char *command, enum operation operation) {
+static bool run_pointer_operation(
+    struct app *app,
+    const char *command,
+    enum operation operation,
+    bool hold_before_release) {
     uint32_t start_x;
     uint32_t start_y;
     uint32_t end_x;
     uint32_t end_y;
+    uint32_t x_extent = POINTER_WIDTH;
+    uint32_t y_extent = POINTER_HEIGHT;
     if (!wait_for_marker(app, command) ||
-        !read_pointer_command(app, command, &start_x, &start_y, &end_x, &end_y)) {
+        !read_pointer_command(
+            app,
+            command,
+            &start_x,
+            &start_y,
+            &end_x,
+            &end_y,
+            &x_extent,
+            &y_extent)) {
         return false;
     }
 
@@ -340,8 +368,8 @@ static bool run_pointer_operation(struct app *app, const char *command, enum ope
         ++app->time_msec,
         start_x,
         start_y,
-        POINTER_WIDTH,
-        POINTER_HEIGHT);
+        x_extent,
+        y_extent);
     zwlr_virtual_pointer_v1_frame(app->virtual_pointer);
     if (!roundtrip(app)) return false;
 
@@ -358,10 +386,14 @@ static bool run_pointer_operation(struct app *app, const char *command, enum ope
         ++app->time_msec,
         end_x,
         end_y,
-        POINTER_WIDTH,
-        POINTER_HEIGHT);
+        x_extent,
+        y_extent);
     zwlr_virtual_pointer_v1_frame(app->virtual_pointer);
     if (!roundtrip(app)) return false;
+    if (hold_before_release &&
+        (!publish_marker(app, "dragging") || !wait_for_marker(app, "release"))) {
+        return false;
+    }
 
     zwlr_virtual_pointer_v1_button(
         app->virtual_pointer,
@@ -389,8 +421,13 @@ static bool request_state(struct app *app, const char *command) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 3 || argc > 4 || (argc == 4 && strcmp(argv[3], "idle") != 0)) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle]\n", argv[0]);
+    const char *mode = argc == 4 ? argv[3] : "sequence";
+    if (argc < 3 || argc > 4 ||
+        (strcmp(mode, "sequence") != 0 &&
+         strcmp(mode, "idle") != 0 &&
+         strcmp(mode, "move-only") != 0 &&
+         strcmp(mode, "move-hold") != 0)) {
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-hold]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -443,12 +480,22 @@ int main(int argc, char **argv) {
     }
     if (app.failed || !publish_marker(&app, "ready")) goto cleanup;
 
-    if (argc == 4) {
+    if (strcmp(mode, "idle") == 0) {
         if (!wait_for_marker(&app, "finish")) fail(&app, "idle command failed");
-    } else {
-        if (!run_pointer_operation(&app, "move", OP_MOVE) ||
+    } else if (strcmp(mode, "move-only") == 0 || strcmp(mode, "move-hold") == 0) {
+        if (!run_pointer_operation(
+                &app,
+                "move",
+                OP_MOVE,
+                strcmp(mode, "move-hold") == 0) ||
             !publish_marker(&app, "move-done") ||
-            !run_pointer_operation(&app, "resize", OP_RESIZE_TOP_LEFT) ||
+            !wait_for_marker(&app, "finish")) {
+            fail(&app, "move command failed");
+        }
+    } else {
+        if (!run_pointer_operation(&app, "move", OP_MOVE, false) ||
+            !publish_marker(&app, "move-done") ||
+            !run_pointer_operation(&app, "resize", OP_RESIZE_TOP_LEFT, false) ||
             !publish_marker(&app, "resize-done") ||
             !request_state(&app, "maximize") ||
             !publish_marker(&app, "maximize-done") ||

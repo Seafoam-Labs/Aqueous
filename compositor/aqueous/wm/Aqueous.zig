@@ -23,6 +23,7 @@ const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const pointer_drag = @import("input/drag.zig");
 const gesture_input = @import("input/gestures.zig");
+const output_transfer = @import("input/output_transfer.zig");
 const StateStore = @import("state/store.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
@@ -63,6 +64,8 @@ const Drag = struct {
     start: layout_types.Rect,
     pointer_x: f64,
     pointer_y: f64,
+    last_pointer_x: f64,
+    last_pointer_y: f64,
     action: pointer_drag.Action,
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
@@ -170,7 +173,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     const client_requests = try aqueous.api.takeClientWindowRequests(util.gpa);
     defer util.gpa.free(client_requests);
     aqueous.applyClientWindowRequests(client_requests);
-    aqueous.finishInvalidInteractiveDrag(&snapshot);
+    if (aqueous.finishInvalidInteractiveDrag(&snapshot)) {
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
     const selected_output_id = aqueous.api.selectedOutputId();
@@ -189,7 +196,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         // Respect both dynamic layer-shell reservations (Noctalia, panels,
         // docks) and the user's static struts. Taking the intersection avoids
         // double-counting when both reserve the same edge.
-        const usable_area = intersectRects(output.usable_area, aqueous.config.wm.struts.apply(output.area));
+        const usable_area = aqueous.effectiveUsableArea(output.area, output.usable_area);
         const workspace_key = workspaceKey(output.id, output.workspace_number);
         const layout_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
         if (aqueous.layout_overrides.get(layout_key)) |override| output_layout.default = override;
@@ -274,6 +281,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (state.kind == .floating) {
                 var geometry = state.floating_geometry;
                 if (geometry.width <= 0 or geometry.height <= 0) geometry = floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
+                if (state.needs_output_recovery) {
+                    geometry = output_transfer.recoverGeometry(geometry, usable_area);
+                    state.floating_geometry = geometry;
+                    state.needs_output_recovery = false;
+                }
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
                     .geometry = geometry,
@@ -412,7 +424,7 @@ fn applyClientFullscreenRequests(
     }
 }
 
-fn findPolicyOutput(snapshot: *CompositorApi.PolicySnapshot, id: ?u64) ?*const CompositorApi.PolicyOutput {
+fn findPolicyOutput(snapshot: *const CompositorApi.PolicySnapshot, id: ?u64) ?*const CompositorApi.PolicyOutput {
     const wanted = id orelse return null;
     for (snapshot.outputs) |*output| if (output.id == wanted) return output;
     return null;
@@ -485,6 +497,8 @@ fn startClientPointerDrag(
         .start = geometry,
         .pointer_x = pointer.x,
         .pointer_y = pointer.y,
+        .last_pointer_x = pointer.x,
+        .last_pointer_y = pointer.y,
         .action = action,
         .layout_key = .{
             .output = workspace.output_id,
@@ -504,18 +518,50 @@ fn finishInteractiveDragFor(aqueous: *Aqueous, handle: layout_types.Handle) void
 fn finishInvalidInteractiveDrag(
     aqueous: *Aqueous,
     snapshot: *const CompositorApi.PolicySnapshot,
-) void {
-    const drag = aqueous.drag orelse return;
-    for (snapshot.outputs) |output| {
-        if (output.id != drag.layout_key.output or output.workspace_number != drag.layout_key.workspace) continue;
-        for (output.windows) |window| {
-            if (window.handle != drag.handle) continue;
-            const state = aqueous.window_states.get(drag.handle) orelse break;
-            if (drag.action == .swap_tiled or (state.kind == .floating and !window.fullscreen)) return;
-            break;
+) bool {
+    const drag = aqueous.drag orelse return false;
+    if (findPolicyOutput(snapshot, drag.layout_key.output)) |source| {
+        if (source.workspace_number == drag.layout_key.workspace) {
+            for (source.windows) |window| {
+                if (window.handle != drag.handle) continue;
+                const state = aqueous.window_states.get(drag.handle) orelse break;
+                if (drag.action == .swap_tiled or (state.kind == .floating and !window.fullscreen)) return false;
+                break;
+            }
         }
+        aqueous.finishInteractiveDrag();
+        return false;
     }
+
+    const recovered = if (drag.action == .move_floating or drag.action == .resize_floating)
+        aqueous.recoverRemovedOutputDrag(drag)
+    else
+        false;
     aqueous.finishInteractiveDrag();
+    return recovered;
+}
+
+fn recoverRemovedOutputDrag(aqueous: *Aqueous, drag: Drag) bool {
+    const state = aqueous.window_states.get(drag.handle) orelse return false;
+    if (state.kind != .floating) return false;
+    const target = aqueous.api.outputTargetAt(drag.last_pointer_x, drag.last_pointer_y, true) orelse {
+        state.needs_output_recovery = true;
+        return false;
+    };
+    const usable_area = aqueous.effectiveUsableArea(target.area, target.usable_area);
+    const geometry = output_transfer.recoverGeometry(state.floating_geometry, usable_area);
+    if (!aqueous.api.moveWindowToWorkspace(drag.handle, target.id, target.workspace_number)) {
+        state.needs_output_recovery = true;
+        return false;
+    }
+
+    state.overrideWorkspace();
+    state.floating_geometry = geometry;
+    state.needs_output_recovery = false;
+    _ = aqueous.api.selectOutput(target.id);
+    aqueous.requestFocus(drag.handle);
+    log.info("recovered floating drag on output {} workspace {}", .{ target.id, target.workspace_number });
+    return true;
 }
 
 /// Apply the compositor's established parent-based popup heuristic on the
@@ -614,6 +660,8 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .start = target.geometry,
             .pointer_x = x,
             .pointer_y = y,
+            .last_pointer_x = x,
+            .last_pointer_y = y,
             .action = drag_action,
             .layout_key = layout_key,
         };
@@ -623,6 +671,8 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .start = target.geometry,
             .pointer_x = x,
             .pointer_y = y,
+            .last_pointer_x = x,
+            .last_pointer_y = y,
             .action = drag_action,
             .layout_key = layout_key,
         };
@@ -652,6 +702,8 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     const drag = &(aqueous.drag orelse return);
+    drag.last_pointer_x = x;
+    drag.last_pointer_y = y;
     if (drag.action == .swap_tiled) {
         const target = aqueous.api.windowAt(x, y) orelse return;
         if (drag.awaiting_layout != null) {
@@ -686,8 +738,23 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             .width = drag.start.width,
             .height = drag.start.height,
         };
+    if (drag.action == .move_floating) aqueous.transferFloatingDrag(drag, x, y);
     if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
     aqueous.api.requestManageCycle();
+}
+
+fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) void {
+    const target = aqueous.api.outputTargetAt(x, y, false) orelse return;
+    if (target.id == drag.layout_key.output) return;
+    if (!aqueous.api.moveWindowToWorkspace(drag.handle, target.id, target.workspace_number)) return;
+
+    if (aqueous.window_states.get(drag.handle)) |state| {
+        state.overrideWorkspace();
+        state.needs_output_recovery = false;
+    }
+    drag.layout_key = .{ .output = target.id, .workspace = target.workspace_number };
+    _ = aqueous.api.selectOutput(target.id);
+    log.debug("floating drag entered output {} workspace {}", .{ target.id, target.workspace_number });
 }
 
 fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
@@ -1270,6 +1337,10 @@ fn intersectRects(a: layout_types.Rect, b: layout_types.Rect) layout_types.Rect 
         .width = @max(1, right - left),
         .height = @max(1, bottom - top),
     };
+}
+
+fn effectiveUsableArea(aqueous: *const Aqueous, area: layout_types.Rect, live_usable_area: layout_types.Rect) layout_types.Rect {
+    return intersectRects(live_usable_area, aqueous.config.wm.struts.apply(area));
 }
 
 fn ruleLayout(id: Rules.Layout) layout_config.LayoutId {

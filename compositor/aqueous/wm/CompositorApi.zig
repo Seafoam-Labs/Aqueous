@@ -12,6 +12,7 @@ const Output = @import("../Output.zig");
 const Seat = @import("../Seat.zig");
 const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
+const output_transfer = @import("input/output_transfer.zig");
 const wm_config = @import("config/wm.zig");
 const xkb = @import("xkbcommon");
 
@@ -288,6 +289,56 @@ pub fn windowWorkspace(_: CompositorApi, handle: layout.Handle) ?struct { output
     };
 }
 
+pub const OutputTarget = struct {
+    id: u64,
+    workspace_number: u32,
+    area: layout.Rect,
+    usable_area: layout.Rect,
+};
+
+/// Resolve the enabled output containing a global logical pointer coordinate.
+/// When `nearest` is true, coordinates left behind by a removed output recover
+/// to the nearest remaining rectangle with output id as a stable tie-break.
+pub fn outputTargetAt(_: CompositorApi, x: f64, y: f64, nearest: bool) ?OutputTarget {
+    var best: ?*Output = null;
+    var best_distance: f64 = std.math.inf(f64);
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (!output.policyTransferTarget()) continue;
+        const box = output.policyFullBox();
+        if (box.width <= 0 or box.height <= 0) continue;
+        const area: layout.Rect = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
+        if (output_transfer.containsPoint(area, x, y)) return outputTarget(output);
+        if (!nearest or !std.math.isFinite(x) or !std.math.isFinite(y)) continue;
+
+        const right: f64 = @floatFromInt(@as(i64, box.x) + box.width);
+        const bottom: f64 = @floatFromInt(@as(i64, box.y) + box.height);
+        const closest_x = std.math.clamp(x, @as(f64, @floatFromInt(box.x)), right);
+        const closest_y = std.math.clamp(y, @as(f64, @floatFromInt(box.y)), bottom);
+        const dx = x - closest_x;
+        const dy = y - closest_y;
+        const distance = dx * dx + dy * dy;
+        if (best == null or distance < best_distance or
+            (distance == best_distance and output.policyId() < best.?.policyId()))
+        {
+            best = output;
+            best_distance = distance;
+        }
+    }
+    return if (best) |output| outputTarget(output) else null;
+}
+
+fn outputTarget(output: *Output) OutputTarget {
+    const box = output.policyFullBox();
+    const usable = output.policyUsableBox();
+    return .{
+        .id = output.policyId(),
+        .workspace_number = output.policyActiveWorkspaceNumber(),
+        .area = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
+        .usable_area = .{ .x = usable.x, .y = usable.y, .width = usable.width, .height = usable.height },
+    };
+}
+
 pub fn directionalNeighbor(_: CompositorApi, handle: layout.Handle, dx: i32, dy: i32) ?layout.Handle {
     const ref: Window.Ref = @bitCast(handle);
     const origin = ref.get() orelse return null;
@@ -434,6 +485,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
     var output_count: usize = 0;
     var output_it = server.om.outputs.iterator(.forward);
     while (output_it.next()) |output| {
+        if (!output.policyExposed()) continue;
         const box = output.policyFullBox();
         if (box.width > 0 and box.height > 0) output_count += 1;
     }
@@ -450,6 +502,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
     output_it = server.om.outputs.iterator(.forward);
     var output_index: usize = 0;
     while (output_it.next()) |output| {
+        if (!output.policyExposed()) continue;
         const box = output.policyFullBox();
         if (box.width <= 0 or box.height <= 0) continue;
         const usable_box = output.policyUsableBox();

@@ -368,6 +368,18 @@ pub fn policyFullBox(output: *const Output) wlr.Box {
     return output.scheduled.box();
 }
 
+/// Hard-disabled and destroyed outputs are absent from integrated-policy
+/// snapshots. Soft-disabled outputs intentionally remain exposed to preserve
+/// their workspace model while powered off.
+pub fn policyExposed(output: *const Output) bool {
+    return output.scheduled.state == .enabled or output.scheduled.state == .disabled_soft;
+}
+
+/// A pointer drag may only enter a visible, powered output.
+pub fn policyTransferTarget(output: *const Output) bool {
+    return output.scheduled.state == .enabled and output.active_workspace != null;
+}
+
 /// Output geometry remaining after layer-shell exclusive zones are reserved.
 pub fn policyUsableBox(output: *const Output) wlr.Box {
     const usable = output.layer_shell.scheduled.non_exclusive_area;

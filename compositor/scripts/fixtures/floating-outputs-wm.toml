@@ -1,0 +1,13 @@
+[layout]
+default = "tile"
+gaps_outer = 0
+gaps_inner = 0
+
+[struts]
+top = 40
+bottom = 24
+left = 24
+right = 32
+
+[workspace_transition]
+enabled = false

@@ -1,0 +1,15 @@
+[[window]]
+app_id = "aqueous.output-cross"
+floating = true
+width = 320
+height = 200
+x = 120
+y = 100
+
+[[window]]
+app_id = "aqueous.output-removal"
+floating = true
+width = 320
+height = 200
+x = 120
+y = 100
