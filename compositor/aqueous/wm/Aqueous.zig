@@ -17,6 +17,7 @@ const config_loader = @import("config/loader.zig");
 const action_config = @import("config/actions.zig");
 const layout_engine = @import("layout/engine.zig");
 const game_mode = @import("layout/game_mode.zig");
+const stacking = @import("layout/stacking.zig");
 const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
@@ -54,6 +55,8 @@ output_service: OutputService,
 started: bool = false,
 drag: ?Drag = null,
 untrap_keysym: ?u32 = null,
+next_stack_order: u64 = 1,
+requested_stack_focus: ?layout_types.Handle = null,
 
 const Drag = struct {
     handle: layout_types.Handle,
@@ -143,6 +146,7 @@ pub fn traceCycle(aqueous: *Aqueous, phase: Trace.Phase, external_active: bool) 
 
 pub fn applyManageCycle(aqueous: *Aqueous) !void {
     if (!aqueous.mode.runsInternal()) return;
+    defer aqueous.requested_stack_focus = null;
 
     if (!aqueous.globals_applied) {
         aqueous.applyGlobalConfig();
@@ -239,21 +243,46 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiled = false });
                 continue;
             }
+            if (effect.fullscreen) {
+                requested.appendAssumeCapacity(.{
+                    .handle = window.handle,
+                    .geometry = output.area,
+                    .z_order = stacking.fullscreen_band,
+                    .stack_order = aqueous.ensureStackOrder(state),
+                    .visible = true,
+                    .border = .none,
+                    .tiled = false,
+                });
+                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                continue;
+            }
             if (state.kind == .maximized) {
                 const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = max_area, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border, .tiled = false, .maximized = true });
+                requested.appendAssumeCapacity(.{
+                    .handle = window.handle,
+                    .geometry = max_area,
+                    .z_order = stacking.maximized_band,
+                    .stack_order = aqueous.ensureStackOrder(state),
+                    .visible = true,
+                    .border = output_layout.layoutOptions(.floating).border,
+                    .tiled = false,
+                    .maximized = true,
+                });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (state.kind == .floating) {
                 var geometry = state.floating_geometry;
                 if (geometry.width <= 0 or geometry.height <= 0) geometry = floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = geometry, .z_order = 1, .visible = true, .border = output_layout.layoutOptions(.floating).border, .tiled = false });
-                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
-                continue;
-            }
-            if (effect.fullscreen) {
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = output.area, .z_order = 2, .visible = true, .border = .none, .tiled = false });
+                requested.appendAssumeCapacity(.{
+                    .handle = window.handle,
+                    .geometry = geometry,
+                    .z_order = stacking.floatingZ(stacking.transientDepth(output.windows, window)),
+                    .stack_order = aqueous.ensureStackOrder(state),
+                    .visible = true,
+                    .border = output_layout.layoutOptions(.floating).border,
+                    .tiled = false,
+                });
                 if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
                 continue;
             }
@@ -288,7 +317,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
             if (target != 0 and target != aqueous.pending_focus.window) {
                 aqueous.pending_focus.setWindow(target, 1);
-                aqueous.api.requestFocus(target);
+                aqueous.requestFocus(target);
                 replacement_focus_requested = true;
             }
         }
@@ -302,8 +331,17 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             gameConfigOptions(aqueous.rules.game_mode),
         );
         defer util.gpa.free(placements);
+        for (placements) |*placement| {
+            if (!placement.tiled) {
+                placement.z_order = stacking.floating_band;
+                if (aqueous.window_states.get(placement.handle)) |state| {
+                    placement.stack_order = aqueous.ensureStackOrder(state);
+                }
+            }
+        }
         try requested.appendSlice(util.gpa, placements);
-        std.mem.sort(layout_types.Placement, requested.items, {}, placementLessThan);
+        aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse focused);
+        std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
         for (requested.items) |placement| aqueous.api.applyPlacement(placement);
     }
 
@@ -456,7 +494,7 @@ fn startClientPointerDrag(
         .client_seat = pointer.seat,
     };
     aqueous.api.beginInteractive(handle, action == .resize_floating);
-    aqueous.api.requestFocus(handle);
+    aqueous.requestFocus(handle);
 }
 
 fn finishInteractiveDragFor(aqueous: *Aqueous, handle: layout_types.Handle) void {
@@ -591,13 +629,13 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         _ = aqueous.window_states.setFloating(target.handle, target.geometry);
         aqueous.api.beginInteractive(target.handle, drag_action == .resize_floating);
     }
-    aqueous.api.requestFocus(target.handle);
+    aqueous.requestFocus(target.handle);
     return true;
 }
 
 pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
     if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_follows_mouse) return;
-    if (handle) |target| if (aqueous.api.focusedWindow() != target) aqueous.api.requestFocus(target);
+    if (handle) |target| if (aqueous.api.focusedWindow() != target) aqueous.requestFocus(target);
 }
 
 /// Focus a window after an explicit, unmodified pointer interaction. The
@@ -609,7 +647,7 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
     if (!aqueous.mode.runsInternal()) return;
     const state = aqueous.window_states.get(handle) orelse return;
     if (state.kind == .minimized) return;
-    if (aqueous.api.focusedWindow() != handle) aqueous.api.requestFocus(handle);
+    if (aqueous.api.focusedWindow() != handle) aqueous.requestFocus(handle);
 }
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
@@ -720,7 +758,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "toggle_minimize")) return aqueous.toggleMinimize();
     if (std.mem.eql(u8, action, "unminimize_last")) {
         const handle = aqueous.window_states.restoreLastMinimized();
-        if (handle != 0) aqueous.api.requestFocus(handle);
+        if (handle != 0) aqueous.requestFocus(handle);
         aqueous.api.requestManageCycle();
         return;
     }
@@ -775,7 +813,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     if (move) {
         moving_window.?.window.policy_state.overrideWorkspace();
         const handle: layout_types.Handle = @bitCast(moving_window.?.window.ref);
-        if (aqueous.api.moveWindowToWorkspace(handle, target.id, target.workspace_number)) aqueous.api.requestFocus(handle);
+        if (aqueous.api.moveWindowToWorkspace(handle, target.id, target.workspace_number)) aqueous.requestFocus(handle);
     } else {
         const candidate_context: OutputFocusContext = .{
             .aqueous = aqueous,
@@ -797,7 +835,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
             }
         }
         if (target_handle != 0) {
-            aqueous.api.requestFocus(target_handle);
+            aqueous.requestFocus(target_handle);
         } else {
             // Surface focus and output selection are deliberately independent:
             // an empty output remains selected after keyboard focus is cleared.
@@ -818,14 +856,14 @@ fn cycleFocus(aqueous: *Aqueous, delta: i32) void {
             continue;
         } else 0;
         const next = if (delta < 0) (index + output.windows.len - 1) % output.windows.len else (index + 1) % output.windows.len;
-        aqueous.api.requestFocus(output.windows[next].handle);
+        aqueous.requestFocus(output.windows[next].handle);
         return;
     }
 }
 
 fn directionalFocus(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const focused = aqueous.api.focusedWindow() orelse return;
-    if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| aqueous.api.requestFocus(target);
+    if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| aqueous.requestFocus(target);
 }
 
 fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
@@ -1176,9 +1214,49 @@ fn applyGlobalConfig(aqueous: *Aqueous) void {
     );
 }
 
-fn placementLessThan(_: void, left: layout_types.Placement, right: layout_types.Placement) bool {
-    if (left.z_order != right.z_order) return left.z_order < right.z_order;
-    return left.handle < right.handle;
+fn ensureFocusedPlacementOnTop(aqueous: *Aqueous, placements: []layout_types.Placement, focused: ?layout_types.Handle) void {
+    const handle = focused orelse return;
+    var target: ?*layout_types.Placement = null;
+    for (placements) |*placement| {
+        if (placement.handle == handle and !placement.tiled and placement.visible) {
+            target = placement;
+            break;
+        }
+    }
+    const focused_placement = target orelse return;
+
+    var greatest_order = focused_placement.stack_order;
+    for (placements) |placement| {
+        if (placement.z_order == focused_placement.z_order) {
+            greatest_order = @max(greatest_order, placement.stack_order);
+        }
+    }
+    if (focused_placement.stack_order >= greatest_order) return;
+
+    const order = aqueous.takeStackOrder();
+    focused_placement.stack_order = order;
+    if (aqueous.window_states.get(handle)) |state| state.stack_order = order;
+}
+
+/// Raise at request time because the compositor applies keyboard focus in
+/// manageFinish(), after policy has already resolved this transaction's scene
+/// order. Waiting to observe the new focus would make click-to-raise lag by one
+/// unrelated manage cycle.
+fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.window_states.get(handle)) |state| state.stack_order = aqueous.takeStackOrder();
+    aqueous.requested_stack_focus = handle;
+    aqueous.api.requestFocus(handle);
+}
+
+fn ensureStackOrder(aqueous: *Aqueous, state: *StateStore.Entry) u64 {
+    if (state.stack_order == 0) state.stack_order = aqueous.takeStackOrder();
+    return state.stack_order;
+}
+
+fn takeStackOrder(aqueous: *Aqueous) u64 {
+    const order = aqueous.next_stack_order;
+    aqueous.next_stack_order += 1;
+    return order;
 }
 
 fn intersectRects(a: layout_types.Rect, b: layout_types.Rect) layout_types.Rect {
@@ -1215,7 +1293,7 @@ fn floatingPlacement(area: layout_types.Rect, handle: layout_types.Handle, place
     return .{
         .handle = handle,
         .geometry = .{ .x = x, .y = y, .width = width, .height = height },
-        .z_order = 1,
+        .z_order = stacking.floating_band,
         .visible = true,
         .border = border,
         .tiled = false,

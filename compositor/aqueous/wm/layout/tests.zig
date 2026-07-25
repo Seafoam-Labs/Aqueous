@@ -4,6 +4,7 @@
 test {
     _ = @import("dwindle.zig");
     _ = @import("floating.zig");
+    _ = @import("stacking.zig");
     _ = @import("game_geometry.zig");
     _ = @import("game_mode.zig");
     _ = @import("grid.zig");

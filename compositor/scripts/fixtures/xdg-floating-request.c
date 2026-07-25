@@ -389,8 +389,8 @@ static bool request_state(struct app *app, const char *command) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID\n", argv[0]);
+    if (argc < 3 || argc > 4 || (argc == 4 && strcmp(argv[3], "idle") != 0)) {
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -443,18 +443,22 @@ int main(int argc, char **argv) {
     }
     if (app.failed || !publish_marker(&app, "ready")) goto cleanup;
 
-    if (!run_pointer_operation(&app, "move", OP_MOVE) ||
-        !publish_marker(&app, "move-done") ||
-        !run_pointer_operation(&app, "resize", OP_RESIZE_TOP_LEFT) ||
-        !publish_marker(&app, "resize-done") ||
-        !request_state(&app, "maximize") ||
-        !publish_marker(&app, "maximize-done") ||
-        !request_state(&app, "unmaximize") ||
-        !publish_marker(&app, "unmaximize-done") ||
-        !request_state(&app, "minimize") ||
-        !publish_marker(&app, "minimize-done") ||
-        !wait_for_marker(&app, "finish")) {
-        fail(&app, "operation command failed");
+    if (argc == 4) {
+        if (!wait_for_marker(&app, "finish")) fail(&app, "idle command failed");
+    } else {
+        if (!run_pointer_operation(&app, "move", OP_MOVE) ||
+            !publish_marker(&app, "move-done") ||
+            !run_pointer_operation(&app, "resize", OP_RESIZE_TOP_LEFT) ||
+            !publish_marker(&app, "resize-done") ||
+            !request_state(&app, "maximize") ||
+            !publish_marker(&app, "maximize-done") ||
+            !request_state(&app, "unmaximize") ||
+            !publish_marker(&app, "unmaximize-done") ||
+            !request_state(&app, "minimize") ||
+            !publish_marker(&app, "minimize-done") ||
+            !wait_for_marker(&app, "finish")) {
+            fail(&app, "operation command failed");
+        }
     }
 
 cleanup:

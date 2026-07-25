@@ -62,6 +62,9 @@ pub const Placement = struct {
     /// viewport without changing the configured window dimensions.
     clip: ?Rect = null,
     z_order: i32,
+    /// Persistent raise order within a semantic stacking band. Layout engines
+    /// may leave this at zero; policy overlays populate it from window state.
+    stack_order: u64 = 0,
     visible: bool,
     border: Border,
     tiled: bool = true,

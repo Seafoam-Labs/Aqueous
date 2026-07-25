@@ -5,3 +5,19 @@ width = 320
 height = 200
 x = 120
 y = 80
+
+[[window]]
+app_id = "aqueous.stack-one"
+floating = true
+width = 320
+height = 200
+x = 120
+y = 80
+
+[[window]]
+app_id = "aqueous.stack-two"
+floating = true
+width = 320
+height = 200
+x = 180
+y = 120

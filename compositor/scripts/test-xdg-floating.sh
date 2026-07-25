@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # Regression for application-originated xdg_toplevel move, resize, maximize,
-# and minimize requests under integrated policy. Every request is exercised
-# against both an explicitly floating window and an ordinary tiled window.
+# and minimize requests under integrated policy, plus overlapping-float
+# stacking and hit testing. Client requests are exercised against both an
+# explicitly floating window and an ordinary tiled window.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
@@ -22,7 +23,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [ -r "$FIXTURE_SOURCE" ] || die "missing xdg floating fixture"
 [ -r "$RULES" ] || die "missing xdg floating rules"
 [ -r "$VIRTUAL_POINTER_PROTOCOL" ] || die "wlr virtual pointer protocol XML is unavailable"
-for tool in cc jq pkg-config timeout wayland-scanner; do
+for tool in cc jq pkg-config timeout wayland-scanner wlrctl; do
     have "$tool" || die "$tool is required for xdg floating integration tests"
 done
 pkg-config --exists wayland-client wayland-protocols || \
@@ -35,6 +36,7 @@ COMPOSITOR_LOG="$TEST_ROOT/compositor.log"
 CLIENT_LOG="$TEST_ROOT/client.log"
 COMPOSITOR_PID=""
 CLIENT_PID=""
+STACK_PIDS=()
 
 cleanup_client() {
     [ -z "$CLIENT_PID" ] || kill "$CLIENT_PID" 2>/dev/null || true
@@ -43,6 +45,8 @@ cleanup_client() {
 }
 cleanup() {
     cleanup_client
+    for pid in "${STACK_PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+    for pid in "${STACK_PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
     [ -z "$COMPOSITOR_PID" ] || kill "$COMPOSITOR_PID" 2>/dev/null || true
     [ -z "$COMPOSITOR_PID" ] || wait "$COMPOSITOR_PID" 2>/dev/null || true
     rm -rf "$TEST_ROOT"
@@ -142,6 +146,38 @@ wait_state() {
     die "timed out waiting for $app_id state $state=$wanted"
 }
 
+wait_focused() {
+    local app_id=$1 json=""
+    for _ in $(seq 1 160); do
+        json=$(window_json "$app_id")
+        jq -e '.states | index("focused") != null' <<<"$json" >/dev/null && return 0
+        sleep 0.05
+    done
+    die "timed out waiting for focus on $app_id"
+}
+
+expect_focused() {
+    local app_id=$1 json=""
+    sleep 0.2
+    json=$(window_json "$app_id")
+    if ! jq -e '.states | index("focused") != null' <<<"$json" >/dev/null; then
+        XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+            "$AQUEOUSCTL_BIN" windows --json >&2 || true
+        tail -120 "$COMPOSITOR_LOG" >&2
+        die "overlap click did not stay on raised float $app_id"
+    fi
+}
+
+click_at() {
+    local x=$1 y=$2
+    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+        wlrctl pointer move -10000 -10000
+    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+        wlrctl pointer move "$x" "$y"
+    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+        wlrctl pointer click left
+}
+
 geometry() {
     jq -r '[.geometry.x, .geometry.y, .geometry.width, .geometry.height] | @tsv'
 }
@@ -232,4 +268,54 @@ run_case() {
 run_case aqueous.floating-request true
 run_case aqueous.tiled-request false
 
-echo "PASS: xdg client operations affect floating windows only"
+start_idle_fixture() {
+    local app_id=$1 sync_dir=$2 log_file=$3 pid=""
+    mkdir -p "$sync_dir"
+    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+        timeout 30 "$FIXTURE_BIN" "$sync_dir" "$app_id" idle >"$log_file" 2>&1 &
+    pid=$!
+    STACK_PIDS+=("$pid")
+    for _ in $(seq 1 200); do
+        kill -0 "$pid" 2>/dev/null || {
+            cat "$log_file" >&2
+            die "$app_id idle fixture exited before ready"
+        }
+        [ -f "$sync_dir/ready" ] && return 0
+        sleep 0.05
+    done
+    die "timed out waiting for $app_id idle fixture"
+}
+
+STACK_ONE_SYNC="$TEST_ROOT/stack-one-sync"
+STACK_TWO_SYNC="$TEST_ROOT/stack-two-sync"
+start_idle_fixture aqueous.stack-one "$STACK_ONE_SYNC" "$TEST_ROOT/stack-one.log"
+start_idle_fixture aqueous.stack-two "$STACK_TWO_SYNC" "$TEST_ROOT/stack-two.log"
+
+stack_one=$(wait_window aqueous.stack-one)
+stack_two=$(wait_window aqueous.stack-two)
+read -r one_x one_y one_w one_h < <(geometry <<<"$stack_one")
+read -r two_x two_y two_w two_h < <(geometry <<<"$stack_two")
+
+overlap_x=$(( (one_x > two_x ? one_x : two_x) + 30 ))
+overlap_y=$(( (one_y > two_y ? one_y : two_y) + 30 ))
+
+# Focus the lower-left-only portion of the first float. The following overlap
+# click must still hit it after the focus-triggered raise.
+click_at $((one_x + 20)) $((one_y + 20))
+wait_focused aqueous.stack-one
+click_at "$overlap_x" "$overlap_y"
+expect_focused aqueous.stack-one
+
+# Repeat in the opposite direction from the second float's exposed right edge.
+click_at $((two_x + two_w - 20)) $((two_y + 20))
+wait_focused aqueous.stack-two
+click_at "$overlap_x" "$overlap_y"
+expect_focused aqueous.stack-two
+
+touch "$STACK_ONE_SYNC/finish" "$STACK_TWO_SYNC/finish"
+for pid in "${STACK_PIDS[@]}"; do
+    wait "$pid" || die "idle stacking fixture failed"
+done
+STACK_PIDS=()
+
+echo "PASS: xdg floating requests are gated and focused floats own overlap hit testing"
