@@ -258,6 +258,11 @@ fullscreen_background: *wlr.SceneRect,
 /// surface and decoration belonging to this window.
 blur_marker: *wlr.SceneRect,
 
+/// Animation-local counterpart of `blur_marker`. The live marker stays at the
+/// settled input position while this one moves with `anim_tree`, keeping the
+/// frozen animation snapshot's backdrop blur aligned with its visible content.
+anim_blur_marker: *wlr.SceneRect,
+
 decorations_below: wl.list.Head(Decoration, .link),
 decorations_below_tree: *wlr.SceneTree,
 
@@ -602,6 +607,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .backdrop_blur = backdrop_blur,
         .fullscreen_background = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1 }),
         .blur_marker = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 }),
+        .anim_blur_marker = try anim_tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 }),
         .decorations_below = undefined,
         .decorations_below_tree = try tree.createSceneTree(),
         .surfaces = try Scene.SaveableSurfaces.init(tree),
@@ -631,6 +637,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.anim_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
     window.blur_marker.node.setEnabled(false);
+    window.anim_blur_marker.node.setEnabled(false);
     if (window.backdrop_blur) |blur| {
         fx.configureWindowBlur(blur, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 0, false);
     }
@@ -1488,7 +1495,6 @@ fn syncBackdropBlur(
         server.wm.blur.radius > 0 and
         server.wm.blur.passes > 0 and
         requested.blur_enabled and
-        !window.anim_snapshot and
         window.box.width > 0 and
         window.box.height > 0;
     if (!active) {
@@ -1503,7 +1509,16 @@ fn syncBackdropBlur(
         .height = window.box.height,
     };
     var visible = full;
-    if (!clip.empty() and !visible.intersection(&visible, clip)) {
+    var effective_clip = clip.*;
+    if (window.anim_snapshot and !effective_clip.empty()) {
+        // Layout clips describe a fixed viewport at the settled target. Convert
+        // that viewport back into the moving snapshot's local coordinates.
+        const origin_x: i32 = @intFromFloat(@round(window.anim_x));
+        const origin_y: i32 = @intFromFloat(@round(window.anim_y));
+        effective_clip.x += requested.x - origin_x;
+        effective_clip.y += requested.y - origin_y;
+    }
+    if (!effective_clip.empty() and !visible.intersection(&visible, &effective_clip)) {
         window.disableBackdropBlur(blur);
         return;
     }
@@ -1514,14 +1529,20 @@ fn syncBackdropBlur(
 
     const clipped = visible.x != full.x or visible.y != full.y or
         visible.width != full.width or visible.height != full.height;
-    window.blur_marker.node.setPosition(visible.x, visible.y);
-    window.blur_marker.setSize(visible.width, visible.height);
-    window.blur_marker.node.setEnabled(true);
+    const marker = if (window.anim_snapshot)
+        window.anim_blur_marker
+    else
+        window.blur_marker;
+    window.blur_marker.node.setEnabled(marker == window.blur_marker);
+    window.anim_blur_marker.node.setEnabled(marker == window.anim_blur_marker);
+    marker.node.setPosition(visible.x, visible.y);
+    marker.setSize(visible.width, visible.height);
     fx.configureWindowBlur(blur, visible, if (clipped) 0 else radius, true);
 }
 
 fn disableBackdropBlur(window: *Window, blur: fx.WindowBlur) void {
     window.blur_marker.node.setEnabled(false);
+    window.anim_blur_marker.node.setEnabled(false);
     fx.configureWindowBlur(
         blur,
         .{ .x = 0, .y = 0, .width = 0, .height = 0 },
@@ -1605,7 +1626,9 @@ fn armSnapshot(window: *Window) void {
     if (capture.failed) {
         log.err("unable to track animation buffers for viewport clipping", .{});
         var it = window.anim_tree.children.safeIterator(.forward);
-        while (it.next()) |node| node.destroy();
+        while (it.next()) |node| {
+            if (node != &window.anim_blur_marker.node) node.destroy();
+        }
         window.anim_buffers.clearRetainingCapacity();
         return;
     }
@@ -1637,7 +1660,9 @@ pub fn raiseSnapshotIfActive(window: *Window) void {
 fn clearSnapshot(window: *Window) void {
     if (!window.anim_snapshot) return;
     var it = window.anim_tree.children.safeIterator(.forward);
-    while (it.next()) |node| node.destroy();
+    while (it.next()) |node| {
+        if (node != &window.anim_blur_marker.node) node.destroy();
+    }
     window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
@@ -1800,6 +1825,7 @@ fn updateAnimationClip(window: *Window) void {
     const requested = &window.rendering_requested;
     if (requested.clip.empty()) {
         for (window.anim_buffers.items) |record| restoreAnimBuffer(record);
+        window.refreshBackdropBlur();
         return;
     }
 
@@ -1853,6 +1879,7 @@ fn updateAnimationClip(window: *Window) void {
         source_crop.y += record.source.y;
         record.buffer.setSourceBox(&source_crop);
     }
+    window.refreshBackdropBlur();
 }
 
 fn restoreAnimBuffer(record: AnimBuffer) void {

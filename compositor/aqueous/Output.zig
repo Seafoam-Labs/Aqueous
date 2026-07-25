@@ -557,13 +557,7 @@ fn roundedBufferNeedsComposition(
 }
 
 fn bufferWindowNeedsBlur(scene_buffer: *wlr.SceneBuffer) bool {
-    const owner = SceneNodeData.fromNode(&scene_buffer.node) orelse return false;
-    const window = switch (owner.data) {
-        .window => |window| window,
-        else => return false,
-    };
-    if (!nodeInTree(&scene_buffer.node, window.tree)) return false;
-    return windowBlurData(window) != null;
+    return blurWindowForNode(&scene_buffer.node) != null;
 }
 
 fn roundedRectHook(
@@ -594,12 +588,17 @@ fn roundedRectHook(
 }
 
 fn isBlurMarker(scene_rect: *wlr.SceneRect) bool {
-    const owner = SceneNodeData.fromNode(&scene_rect.node) orelse return false;
-    const window = switch (owner.data) {
-        .window => |window| window,
-        else => return false,
-    };
-    return scene_rect == window.blur_marker;
+    if (SceneNodeData.fromNode(&scene_rect.node)) |owner| {
+        return switch (owner.data) {
+            .window => |window| scene_rect == windowBlurMarker(window),
+            else => false,
+        };
+    }
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (scene_rect == windowBlurMarker(window)) return true;
+    }
+    return false;
 }
 
 fn effectRenderState(output: *const Output) *const State {
@@ -664,13 +663,8 @@ fn effectsNodeRender(
     const output: *Output = @ptrCast(@alignCast(data orelse return));
     const node: *wlr.SceneNode =
         @ptrCast(@alignCast(c_node orelse return));
-    const owner = SceneNodeData.fromNode(node) orelse return;
-    const window = switch (owner.data) {
-        .window => |window| window,
-        else => return,
-    };
-    if (!nodeInTree(node, window.tree)) return;
-    if (node != &window.blur_marker.node) return;
+    const window = blurWindowForNode(node) orelse return;
+    if (node != &windowBlurMarker(window).node) return;
     if (output.blur_last_window == window) return;
     output.blur_last_window = window;
 
@@ -719,6 +713,42 @@ fn windowBlurHandle(window: *Window) ?EffectMetadata.WindowBlurHandle {
     return window.backdrop_blur;
 }
 
+fn windowBlurTree(window: *Window) *wlr.SceneTree {
+    return if (window.anim_snapshot) window.anim_tree else window.tree;
+}
+
+fn windowBlurMarker(window: *Window) *wlr.SceneRect {
+    return if (window.anim_snapshot)
+        window.anim_blur_marker
+    else
+        window.blur_marker;
+}
+
+/// Animation snapshots are deliberately input-inert and therefore carry no
+/// SceneNodeData. Fall back to the small window registry when resolving their
+/// buffers and blur marker during rendering.
+fn blurWindowForNode(node: *wlr.SceneNode) ?*Window {
+    if (SceneNodeData.fromNode(node)) |owner| {
+        return switch (owner.data) {
+            .window => |window| if (nodeInTree(node, windowBlurTree(window)) and
+                windowBlurData(window) != null)
+                window
+            else
+                null,
+            else => null,
+        };
+    }
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (windowBlurData(window) != null and
+            nodeInTree(node, windowBlurTree(window)))
+        {
+            return window;
+        }
+    }
+    return null;
+}
+
 fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
     const handle = windowBlurHandle(window) orelse return null;
     const data = server.effect_metadata.windowBlurData(handle) orelse
@@ -756,7 +786,7 @@ fn windowBlurEffect(
 ) ?BlurPipeline.Effect {
     var global_x: i32 = 0;
     var global_y: i32 = 0;
-    if (!window.tree.node.coords(&global_x, &global_y)) return null;
+    if (!windowBlurTree(window).node.coords(&global_x, &global_y)) return null;
 
     const logical_x = global_x + blur.box.x - state.x;
     const logical_y = global_y + blur.box.y - state.y;

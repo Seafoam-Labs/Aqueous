@@ -191,6 +191,7 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
     }
     if (node == &window.popup_tree.node) return "window popups";
     if (node == &window.anim_tree.node) return "window animation snapshot";
+    if (node == &window.anim_blur_marker.node) return "animation backdrop blur marker";
     if (node == &window.fullscreen_background.node) return "fullscreen background";
     if (node == &window.blur_marker.node) return "backdrop blur marker";
     if (node == &window.decorations_below_tree.node) return "decorations below";
