@@ -45,6 +45,7 @@ for feature in (
     "ui.dropZone",
     "noctalia.outputs()",
     "monitor_changes",
+    'field.category == "keybinds" and 1',
 ):
     assert feature in panel, feature
 PY

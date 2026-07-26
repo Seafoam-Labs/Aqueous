@@ -827,6 +827,8 @@ local function fieldControl(field)
 		ui.input({
 			key = "text-" .. field.id .. "-" .. revision,
 			value = tostring(value or ""),
+			flexGrow = field.category == "keybinds" and 1 or nil,
+			controlSize = field.category == "keybinds" and "lg" or nil,
 			onChange = function(text)
 				setDraft(field, text)
 			end,
