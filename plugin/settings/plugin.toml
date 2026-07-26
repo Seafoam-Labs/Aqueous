@@ -1,0 +1,31 @@
+id = "aqueous/settings"
+name = "Aqueous Settings"
+version = "0.1.0"
+plugin_api = 9
+author = "Seafoam Labs"
+license = "GPL-3.0-only"
+icon = "adjustments-horizontal"
+description = "Configure the Aqueous compositor from a native Noctalia flyout."
+tags = ["aqueous", "compositor", "settings"]
+dependencies = ["aqueous-config"]
+
+[[setting]]
+key = "helper_path"
+type = "string"
+label_key = "settings.helper_path.label"
+description_key = "settings.helper_path.description"
+default = "aqueous-config"
+advanced = true
+
+[[widget]]
+id = "widget"
+entry = "widget.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 860
+height = 720
+placement = "attached"
+position = "auto"
+open_near_click = true

@@ -1,0 +1,568 @@
+const std = @import("std");
+const config = @import("aqueous_config_document");
+const schema = @import("schema.zig");
+
+const Allocator = std.mem.Allocator;
+const Json = std.json.Value;
+const max_request_bytes = 4 * 1024 * 1024;
+
+const Command = enum { version, snapshot, validate, apply, raw };
+
+pub fn main(init: std.process.Init.Minimal) !void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+    const args = try init.args.toSlice(allocator);
+
+    var response: std.Io.Writer.Allocating = .init(allocator);
+    defer response.deinit();
+
+    var exit_code: u8 = 0;
+    run(allocator, args, &response.writer) catch |err| {
+        response.clearRetainingCapacity();
+        writeError(&response.writer, errorCode(err), @errorName(err)) catch {};
+        exit_code = 1;
+    };
+
+    const io = std.Io.Threaded.global_single_threaded.io();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    try stdout_writer.interface.writeAll(response.written());
+    try stdout_writer.interface.writeByte('\n');
+    try stdout_writer.interface.flush();
+    if (exit_code != 0) std.process.exit(exit_code);
+}
+
+fn run(allocator: Allocator, args: []const []const u8, writer: *std.Io.Writer) !void {
+    if (args.len < 2) return error.MissingCommand;
+    const command = parseCommand(args[1]) orelse return error.UnknownCommand;
+    switch (command) {
+        .version => try writeVersion(writer),
+        .snapshot => {
+            var files = try config.ConfigFiles.init(allocator);
+            defer files.deinit();
+            try writeSnapshot(writer, &files);
+        },
+        .raw => {
+            const wanted = option(args, "--file") orelse return error.MissingFile;
+            const file_id = schema.FileId.fromName(wanted) orelse return error.UnknownFile;
+            var files = try config.ConfigFiles.init(allocator);
+            defer files.deinit();
+            try writeRaw(writer, &files, file_id);
+        },
+        .validate, .apply => {
+            const request_path = option(args, "--request") orelse return error.MissingRequest;
+            try handleRequest(allocator, writer, request_path, command == .apply);
+        },
+    }
+}
+
+fn parseCommand(value: []const u8) ?Command {
+    inline for (std.meta.fields(Command)) |command_field| {
+        if (std.mem.eql(u8, value, command_field.name)) return @enumFromInt(command_field.value);
+    }
+    return null;
+}
+
+fn option(args: []const []const u8, name: []const u8) ?[]const u8 {
+    for (args[0..args.len -| 1], 0..) |arg, index| {
+        if (std.mem.eql(u8, arg, name)) return args[index + 1];
+    }
+    return null;
+}
+
+fn writeVersion(writer: *std.Io.Writer) !void {
+    var json: std.json.Stringify = .{ .writer = writer };
+    try json.beginObject();
+    try field(&json, "ok", true);
+    try field(&json, "protocol", schema.protocol_version);
+    try field(&json, "version", schema.helper_version);
+    try json.endObject();
+}
+
+fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void {
+    var generation_buffer: [16]u8 = undefined;
+    const generation = generationText(files, &generation_buffer);
+    var json: std.json.Stringify = .{ .writer = writer };
+    try json.beginObject();
+    try field(&json, "ok", true);
+    try field(&json, "protocol", schema.protocol_version);
+    try field(&json, "helper_version", schema.helper_version);
+    try field(&json, "generation", generation);
+
+    try json.objectField("files");
+    try json.beginObject();
+    for (files.items, 0..) |file_item, index| {
+        const file_id: schema.FileId = @enumFromInt(index);
+        try json.objectField(file_id.name());
+        try json.beginObject();
+        try field(&json, "path", file_item.path);
+        try field(&json, "writable", !std.mem.startsWith(u8, file_item.path, "/etc/xdg/"));
+        try field(&json, "exists", pathExists(file_item.path));
+        try field(&json, "size", file_item.document.source.len);
+        try json.endObject();
+    }
+    try json.endObject();
+
+    try json.objectField("categories");
+    try json.beginArray();
+    inline for (std.meta.fields(schema.Category)) |category| try json.write(category.name);
+    try json.endArray();
+
+    try json.objectField("fields");
+    try json.beginArray();
+    for (&schema.fields) |*schema_field| try writeSchemaField(&json, files, schema_field);
+    try json.endArray();
+
+    try json.objectField("raw_files");
+    try json.beginObject();
+    for (files.items, 0..) |file_item, index| {
+        const file_id: schema.FileId = @enumFromInt(index);
+        try field(&json, file_id.name(), file_item.document.source);
+    }
+    try json.endObject();
+
+    try json.objectField("warnings");
+    try json.beginArray();
+    if (files.items[@intFromEnum(schema.FileId.outputs)].document.source.len > 0) {
+        try json.write("outputs.toml is output-service persisted state; declarative output policy in wm.toml takes precedence when it declares a primary output.");
+    }
+    try json.endArray();
+    try json.endObject();
+}
+
+fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: schema.FileId) !void {
+    const file_item = files.items[@intFromEnum(file_id)];
+    var generation_buffer: [16]u8 = undefined;
+    var json: std.json.Stringify = .{ .writer = writer };
+    try json.beginObject();
+    try field(&json, "ok", true);
+    try field(&json, "protocol", schema.protocol_version);
+    try field(&json, "generation", generationText(files, &generation_buffer));
+    try field(&json, "file", file_id.name());
+    try field(&json, "path", file_item.path);
+    try field(&json, "source", file_item.document.source);
+    try json.endObject();
+}
+
+fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles, schema_field: *const schema.Field) !void {
+    const file_item = files.items[@intFromEnum(schema_field.file)];
+    const configured_raw = file_item.document.getRaw(schema_field.section, schema_field.key);
+    const raw = configured_raw orelse schema_field.default_raw;
+    try json.beginObject();
+    try field(json, "id", schema_field.id);
+    try field(json, "category", schema_field.category.name());
+    try field(json, "label", schema_field.label);
+    try field(json, "description", schema_field.description);
+    try field(json, "file", schema_field.file.name());
+    try field(json, "section", schema_field.section);
+    try field(json, "key", schema_field.key);
+    try field(json, "type", schema_field.kind.name());
+    try field(json, "configured", configured_raw != null);
+    try field(json, "advanced", schema_field.advanced);
+    try json.objectField("value");
+    try writeTomlValue(json, schema_field, raw);
+    try json.objectField("default");
+    try writeTomlValue(json, schema_field, schema_field.default_raw);
+    try json.objectField("raw");
+    try json.write(raw);
+    if (schema_field.min) |value| try field(json, "min", value);
+    if (schema_field.max) |value| try field(json, "max", value);
+    if (schema_field.options.len > 0) {
+        try json.objectField("options");
+        try json.beginArray();
+        for (schema_field.options) |value| try json.write(value);
+        try json.endArray();
+    }
+    try json.endObject();
+}
+
+fn writeTomlValue(json: *std.json.Stringify, schema_field: *const schema.Field, raw: []const u8) !void {
+    switch (schema_field.kind) {
+        .boolean => try json.write(std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "true")),
+        .integer => try json.write(std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch 0),
+        .double => try json.write(std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 0),
+        .string, .select => try json.write(unquoteToml(raw)),
+        .color => try json.write(std.mem.trim(u8, raw, " \t\r")),
+    }
+}
+
+fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool) !void {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const source = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, request_path, allocator, .limited(max_request_bytes));
+    var parsed = try std.json.parseFromSlice(Json, allocator, source, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidRequest;
+    const request = parsed.value.object;
+    const protocol = jsonInteger(request.get("protocol")) orelse return error.MissingProtocol;
+    if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
+    const expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
+
+    var files = try config.ConfigFiles.init(allocator);
+    defer files.deinit();
+    var generation_buffer: [16]u8 = undefined;
+    if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) return error.ExternalChange;
+
+    var originals: [5][]u8 = undefined;
+    for (files.items, 0..) |file_item, index| originals[index] = try allocator.dupe(u8, file_item.document.source);
+    defer for (originals) |original| allocator.free(original);
+
+    var dirty = [_]bool{false} ** 5;
+    if (request.get("raw_files")) |raw_files| {
+        if (raw_files != .object) return error.InvalidRawFiles;
+        var iterator = raw_files.object.iterator();
+        while (iterator.next()) |entry| {
+            const file_id = schema.FileId.fromName(entry.key_ptr.*) orelse return error.UnknownFile;
+            if (entry.value_ptr.* != .string) return error.InvalidRawFile;
+            const file_index = @intFromEnum(file_id);
+            try validateBasicToml(entry.value_ptr.string);
+            try replaceDocumentSource(&files.items[file_index].document, entry.value_ptr.string);
+            dirty[file_index] = true;
+        }
+    }
+
+    if (request.get("changes")) |changes| {
+        if (changes != .array) return error.InvalidChanges;
+        for (changes.array.items) |change| {
+            if (change != .object) return error.InvalidChange;
+            const id = jsonString(change.object.get("id")) orelse return error.MissingFieldId;
+            const schema_field = schema.find(id) orelse return error.UnknownField;
+            const value = change.object.get("value") orelse return error.MissingValue;
+            const encoded = try encodeTomlValue(allocator, schema_field, value);
+            try files.items[@intFromEnum(schema_field.file)].document.setRaw(schema_field.section, schema_field.key, encoded);
+            dirty[@intFromEnum(schema_field.file)] = true;
+        }
+    }
+
+    var changed_count: usize = 0;
+    for (dirty, 0..) |is_dirty, index| {
+        if (!is_dirty) continue;
+        changed_count += 1;
+        if (std.mem.startsWith(u8, files.items[index].path, "/etc/xdg/")) {
+            const create_override = request.get("create_user_override") orelse return error.SystemConfigReadOnly;
+            if (jsonBool(create_override) != true) return error.SystemConfigReadOnly;
+            try retargetUserOverride(allocator, &files.items[index], @enumFromInt(index));
+        }
+        try validateBasicToml(files.items[index].document.source);
+    }
+    try validateKnownFields(&files);
+
+    if (do_apply and changed_count > 0) {
+        if (changed_count > 1) {
+            const backup_dir = jsonString(request.get("backup_dir")) orelse return error.BackupDirRequired;
+            try backupOriginals(allocator, backup_dir, expected, &files, originals, dirty);
+        }
+        for (&files.items, 0..) |*file_item, index| file_item.dirty = dirty[index];
+        files.save() catch |save_error| {
+            rollbackOriginals(allocator, &files, originals, dirty);
+            return save_error;
+        };
+    }
+
+    try writeSnapshot(writer, &files);
+}
+
+fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, value: Json) ![]const u8 {
+    switch (schema_field.kind) {
+        .boolean => {
+            const boolean = jsonBool(value) orelse return error.InvalidBoolean;
+            return if (boolean) "true" else "false";
+        },
+        .integer => {
+            const integer = jsonInteger(value) orelse return error.InvalidInteger;
+            const number: f64 = @floatFromInt(integer);
+            try validateRange(schema_field, number);
+            return std.fmt.allocPrint(allocator, "{d}", .{integer});
+        },
+        .double => {
+            const number = jsonNumber(value) orelse return error.InvalidNumber;
+            try validateRange(schema_field, number);
+            return std.fmt.allocPrint(allocator, "{d}", .{number});
+        },
+        .string => {
+            const text = jsonString(value) orelse return error.InvalidString;
+            return try jsonStringLiteral(allocator, text);
+        },
+        .select => {
+            const text = jsonString(value) orelse return error.InvalidSelection;
+            var valid = false;
+            for (schema_field.options) |option_value| {
+                if (std.mem.eql(u8, option_value, text)) {
+                    valid = true;
+                    break;
+                }
+            }
+            if (!valid) return error.InvalidSelection;
+            return try jsonStringLiteral(allocator, text);
+        },
+        .color => {
+            const text = jsonString(value) orelse return error.InvalidColor;
+            if (!validColor(text)) return error.InvalidColor;
+            return allocator.dupe(u8, text);
+        },
+    }
+}
+
+fn validateRange(schema_field: *const schema.Field, value: f64) !void {
+    if (!std.math.isFinite(value)) return error.InvalidNumber;
+    if (schema_field.min) |minimum| if (value < minimum) return error.ValueTooSmall;
+    if (schema_field.max) |maximum| if (value > maximum) return error.ValueTooLarge;
+}
+
+fn validateKnownFields(files: *const config.ConfigFiles) !void {
+    for (&schema.fields) |*schema_field| {
+        const raw = files.items[@intFromEnum(schema_field.file)].document.getRaw(schema_field.section, schema_field.key) orelse continue;
+        switch (schema_field.kind) {
+            .boolean => if (!std.mem.eql(u8, raw, "true") and !std.mem.eql(u8, raw, "false")) return error.InvalidBoolean,
+            .integer => {
+                const value = std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch return error.InvalidInteger;
+                try validateRange(schema_field, @floatFromInt(value));
+            },
+            .double => {
+                const value = std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch return error.InvalidNumber;
+                try validateRange(schema_field, value);
+            },
+            .select => {
+                const text = unquoteToml(raw);
+                var valid = false;
+                for (schema_field.options) |option_value| if (std.mem.eql(u8, text, option_value)) {
+                    valid = true;
+                    break;
+                };
+                if (!valid) return error.InvalidSelection;
+            },
+            .color => if (!validColor(std.mem.trim(u8, raw, " \t\r"))) return error.InvalidColor,
+            .string => {},
+        }
+    }
+}
+
+fn validateBasicToml(source: []const u8) !void {
+    if (source.len > 1024 * 1024) return error.ConfigTooLarge;
+    var lines = std.mem.splitScalar(u8, source, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, withoutComment(raw_line), " \t\r");
+        if (line.len == 0) continue;
+        if (line[0] == '[') {
+            const ordinary = line.len >= 3 and line[line.len - 1] == ']' and line[1] != '[';
+            const repeated = line.len >= 5 and std.mem.startsWith(u8, line, "[[") and std.mem.endsWith(u8, line, "]]");
+            if (!ordinary and !repeated) return error.InvalidTableHeader;
+            continue;
+        }
+        const equal = indexUnquoted(line, '=') orelse return error.InvalidAssignment;
+        if (std.mem.trim(u8, line[0..equal], " \t").len == 0 or std.mem.trim(u8, line[equal + 1 ..], " \t").len == 0) return error.InvalidAssignment;
+    }
+}
+
+fn replaceDocumentSource(document: *config.Document, source: []const u8) !void {
+    const replacement = try document.allocator.dupe(u8, source);
+    document.allocator.free(document.source);
+    document.source = replacement;
+}
+
+fn retargetUserOverride(allocator: Allocator, file_item: *config.ConfigFiles.File, file_id: schema.FileId) !void {
+    const filename = try std.fmt.allocPrint(allocator, "{s}.toml", .{file_id.name()});
+    const replacement = if (getenv("XDG_CONFIG_HOME")) |xdg|
+        try std.fmt.allocPrint(allocator, "{s}/aqueous/{s}", .{ xdg, filename })
+    else if (getenv("HOME")) |home|
+        try std.fmt.allocPrint(allocator, "{s}/.config/aqueous/{s}", .{ home, filename })
+    else
+        return error.ConfigPathUnavailable;
+    file_item.document.allocator.free(file_item.path);
+    file_item.path = replacement;
+}
+
+fn backupOriginals(
+    allocator: Allocator,
+    backup_dir: []const u8,
+    generation: []const u8,
+    files: *const config.ConfigFiles,
+    originals: [5][]u8,
+    dirty: [5]bool,
+) !void {
+    for (dirty, 0..) |is_dirty, index| {
+        if (!is_dirty) continue;
+        const backup_path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}.toml", .{ backup_dir, generation, @as(schema.FileId, @enumFromInt(index)).name() });
+        var document = try config.Document.init(allocator, originals[index]);
+        defer document.deinit();
+        try document.write(backup_path);
+        _ = files;
+    }
+}
+
+fn rollbackOriginals(allocator: Allocator, files: *const config.ConfigFiles, originals: [5][]u8, dirty: [5]bool) void {
+    for (dirty, 0..) |is_dirty, index| {
+        if (!is_dirty or std.mem.startsWith(u8, files.items[index].path, "/etc/xdg/")) continue;
+        var document = config.Document.init(allocator, originals[index]) catch continue;
+        defer document.deinit();
+        document.write(files.items[index].path) catch {};
+    }
+}
+
+fn generationText(files: *const config.ConfigFiles, buffer: *[16]u8) []const u8 {
+    var state = std.hash.Wyhash.init(0x415155454f5553);
+    for (files.items) |file_item| {
+        state.update(file_item.path);
+        state.update(&.{0});
+        state.update(file_item.document.source);
+        state.update(&.{0xff});
+    }
+    return std.fmt.bufPrint(buffer, "{x:0>16}", .{state.final()}) catch unreachable;
+}
+
+fn jsonStringLiteral(allocator: Allocator, text: []const u8) ![]u8 {
+    return std.json.Stringify.valueAlloc(allocator, text, .{});
+}
+
+fn unquoteToml(raw_value: []const u8) []const u8 {
+    const value = std.mem.trim(u8, raw_value, " \t\r");
+    if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or (value[0] == '\'' and value[value.len - 1] == '\''))) {
+        return value[1 .. value.len - 1];
+    }
+    return value;
+}
+
+fn validColor(raw_value: []const u8) bool {
+    var value = unquoteToml(raw_value);
+    if (std.mem.startsWith(u8, value, "0x") or std.mem.startsWith(u8, value, "0X")) value = value[2..];
+    if (value.len != 8) return false;
+    for (value) |byte| if (!std.ascii.isHex(byte)) return false;
+    return true;
+}
+
+fn jsonString(value: ?Json) ?[]const u8 {
+    const actual = value orelse return null;
+    return if (actual == .string) actual.string else null;
+}
+
+fn jsonBool(value: Json) ?bool {
+    return switch (value) {
+        .bool => |boolean| boolean,
+        .string => |text| if (std.mem.eql(u8, text, "true")) true else if (std.mem.eql(u8, text, "false")) false else null,
+        else => null,
+    };
+}
+
+fn jsonInteger(value: ?Json) ?i64 {
+    const actual = value orelse return null;
+    return switch (actual) {
+        .integer => |integer| integer,
+        .float => |number| if (std.math.isFinite(number) and @floor(number) == number) @intFromFloat(number) else null,
+        .number_string, .string => |text| std.fmt.parseInt(i64, text, 10) catch null,
+        else => null,
+    };
+}
+
+fn jsonNumber(value: Json) ?f64 {
+    return switch (value) {
+        .integer => |integer| @floatFromInt(integer),
+        .float => |number| number,
+        .number_string, .string => |text| std.fmt.parseFloat(f64, text) catch null,
+        else => null,
+    };
+}
+
+fn pathExists(path: []const u8) bool {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    return true;
+}
+
+fn getenv(name: [*:0]const u8) ?[]const u8 {
+    const raw = std.c.getenv(name) orelse return null;
+    const value = std.mem.span(raw);
+    return if (value.len == 0) null else value;
+}
+
+fn withoutComment(line: []const u8) []const u8 {
+    return line[0 .. indexUnquoted(line, '#') orelse line.len];
+}
+
+fn indexUnquoted(text: []const u8, needle: u8) ?usize {
+    var quote: ?u8 = null;
+    var escaped = false;
+    for (text, 0..) |byte, index| {
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (quote == '"' and byte == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (byte == '"' or byte == '\'') {
+            if (quote == byte) quote = null else if (quote == null) quote = byte;
+            continue;
+        }
+        if (quote == null and byte == needle) return index;
+    }
+    return null;
+}
+
+fn field(json: *std.json.Stringify, name: []const u8, value: anytype) !void {
+    try json.objectField(name);
+    try json.write(value);
+}
+
+fn writeError(writer: *std.Io.Writer, code: []const u8, message: []const u8) !void {
+    var json: std.json.Stringify = .{ .writer = writer };
+    try json.beginObject();
+    try field(&json, "ok", false);
+    try field(&json, "protocol", schema.protocol_version);
+    try field(&json, "code", code);
+    try field(&json, "message", message);
+    try json.endObject();
+}
+
+fn errorCode(err: anyerror) []const u8 {
+    return switch (err) {
+        error.ExternalChange => "external_change",
+        error.SystemConfigReadOnly => "system_config_read_only",
+        error.BackupDirRequired => "backup_dir_required",
+        error.InvalidBoolean,
+        error.InvalidInteger,
+        error.InvalidNumber,
+        error.InvalidString,
+        error.InvalidSelection,
+        error.InvalidColor,
+        error.ValueTooSmall,
+        error.ValueTooLarge,
+        error.InvalidAssignment,
+        error.InvalidTableHeader,
+        error.ConfigTooLarge,
+        => "invalid_value",
+        error.UnknownField => "unknown_field",
+        error.UnknownFile => "unknown_file",
+        error.UnsupportedProtocol => "unsupported_protocol",
+        error.AccessDenied, error.PermissionDenied => "permission_denied",
+        else => "helper_error",
+    };
+}
+
+test "basic TOML validation respects quoted comments and equals" {
+    try validateBasicToml(
+        \\# keep
+        \\[actions]
+        \\screenshot = "grim -g \"$(slurp)\" - | wl-copy" # comment
+        \\[[window]]
+        \\title = "Dialog #1 = ready"
+    );
+    try std.testing.expectError(error.InvalidAssignment, validateBasicToml("[blur]\nenabled\n"));
+}
+
+test "schema ids are unique and defaults validate" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for (&schema.fields, 0..) |*left, index| {
+        for (schema.fields[index + 1 ..]) |right| {
+            try std.testing.expect(!std.mem.eql(u8, left.id, right.id));
+        }
+        const json_value: Json = switch (left.kind) {
+            .boolean => .{ .bool = std.mem.eql(u8, left.default_raw, "true") },
+            .integer => .{ .integer = try std.fmt.parseInt(i64, left.default_raw, 10) },
+            .double => .{ .float = try std.fmt.parseFloat(f64, left.default_raw) },
+            .string, .select, .color => .{ .string = @constCast(left.default_raw) },
+        };
+        _ = try encodeTomlValue(arena.allocator(), left, json_value);
+    }
+}

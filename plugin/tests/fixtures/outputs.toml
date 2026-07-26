@@ -1,0 +1,9 @@
+# Output-service persisted state.
+[[display.profile]]
+name = "desk"
+
+[[display.profile.output]]
+name = "DP-1"
+enabled = true
+mode = "2560x1440@144"
+

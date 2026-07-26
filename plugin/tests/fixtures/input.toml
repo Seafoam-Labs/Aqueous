@@ -1,0 +1,15 @@
+[input]
+focus_follows_mouse = false
+xkb_layout = "us"
+repeat_rate = 40
+repeat_delay = 400
+
+[input.touchpad]
+accel_profile = "adaptive"
+accel_speed = 0.0
+natural_scroll = true
+tap = true
+dwt = true
+click_method = "clickfinger"
+scroll_method = "two-finger"
+

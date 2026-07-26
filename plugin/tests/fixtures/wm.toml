@@ -1,0 +1,21 @@
+# fixture comment must survive
+[blur]
+enabled = true # keep inline
+radius = 10
+passes = 4
+
+[opacity]
+enabled = false
+value = 0.9
+
+[actions]
+screenshot = "grim -g \"$(slurp)\" - | wl-copy"
+
+[[output]]
+name = "DP-1"
+scale = 1.0
+
+[[workspace]]
+workspace = 2
+layout = "scrolling"
+

@@ -1,0 +1,17 @@
+[game_mode]
+remainder_layout = "grid"
+fallback_layout = "grid"
+gaps_inner = 8
+
+[[window]]
+app_id = "steam_app_*"
+layout = "game-mode"
+blur = false
+opacity = 1.0
+
+[[window]]
+title = "Dialog #1 = ready"
+layout = "float"
+width = 900
+height = 640
+

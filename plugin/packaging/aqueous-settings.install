@@ -1,0 +1,22 @@
+post_install() {
+    cat <<'EOF'
+Aqueous Settings for Noctalia v5 was installed.
+
+Add and enable its Noctalia source as your desktop user:
+
+  noctalia msg plugins source add aqueous path /usr/share/aqueous/noctalia-plugins
+  noctalia msg plugins enable aqueous/settings
+
+Then add "Aqueous Settings" from Noctalia's bar widget picker.
+EOF
+}
+
+post_upgrade() {
+    cat <<'EOF'
+Aqueous Settings for Noctalia v5 was upgraded.
+Run this as your desktop user to reload the source:
+
+  noctalia msg plugins update aqueous
+EOF
+}
+
