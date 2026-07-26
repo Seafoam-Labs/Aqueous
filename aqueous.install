@@ -47,6 +47,12 @@ post_install() {
     GUI changes Noctalia makes itself land in
     ~/.local/state/noctalia/settings.toml and are independent of this seed.
 
+    The native Aqueous Settings plugin and its aqueous-config helper are
+    installed with the package. After Noctalia starts, the packaged path source
+    is registered and aqueous/settings is enabled once for each user. A marker
+    under ~/.local/state/aqueous prevents later sessions from overriding an
+    intentional user disable.
+
     If tray icons are still missing after login, check that no KDE tray daemon
     (kded6) is squatting the watcher:
         busctl --user list | grep -i StatusNotifier
@@ -69,6 +75,8 @@ post_upgrade() {
     echo "    and restart the graphical session:"
     echo "        systemctl --user daemon-reload"
     echo "    The session target takes effect on your next login."
+    echo "    The packaged Aqueous Settings plugin will be registered and enabled"
+    echo "    once after Noctalia starts in that session."
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/aqueous.conf >/dev/null 2>&1 || true
 }
 

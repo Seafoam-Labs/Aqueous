@@ -112,7 +112,11 @@ noctalia msg plugins source add aqueous path /usr/share/aqueous/noctalia-plugins
 noctalia msg plugins enable aqueous/settings
 ```
 
-Installation deliberately does not enable the plugin or alter the user's bar.
+The standalone installer deliberately does not enable the plugin or alter the
+user's bar. The root Aqueous `PKGBUILD` additionally installs a one-time
+per-user Noctalia registration hook, so the plugin is enabled automatically
+after the packaged `noctalia.service` starts. It does not add the widget to a
+bar or re-enable the plugin after a user intentionally disables it.
 
 ## Safety model
 
