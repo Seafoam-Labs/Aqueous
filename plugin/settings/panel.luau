@@ -17,6 +17,7 @@ local snapshot = nil
 local drafts = {}
 local rawDrafts = {}
 local rawDirty = {}
+local monitorDrafts = {}
 local inputRevisions = {}
 local activeCategory = "overview"
 local activeFile = "wm"
@@ -27,6 +28,8 @@ local dataDir = nil
 local requestSerial = 0
 
 local render
+local sectionTitle
+local fieldCard
 
 local function tr(key)
 	return noctalia.tr(key)
@@ -98,6 +101,9 @@ local function hasDrafts()
 			return true
 		end
 	end
+	for _id, _monitor in pairs(monitorDrafts) do
+		return true
+	end
 	return false
 end
 
@@ -110,6 +116,9 @@ local function draftCount()
 		if dirty then
 			count += 1
 		end
+	end
+	for _id, _monitor in pairs(monitorDrafts) do
+		count += 1
 	end
 	return count
 end
@@ -127,6 +136,9 @@ local function needsUserOverride()
 		if dirty and snapshot.files[file] and snapshot.files[file].writable == false then
 			return true
 		end
+	end
+	if next(monitorDrafts) ~= nil and snapshot.files.wm and snapshot.files.wm.writable == false then
+		return true
 	end
 	return false
 end
@@ -157,6 +169,7 @@ local function resetFromSnapshot(newSnapshot)
 	drafts = {}
 	rawDrafts = {}
 	rawDirty = {}
+	monitorDrafts = {}
 	inputRevisions = {}
 	for file, source in pairs(snapshot.raw_files or {}) do
 		rawDrafts[file] = source
@@ -214,11 +227,25 @@ local function writeRequest(mode)
 			rawFiles[file] = rawDrafts[file]
 		end
 	end
+	local monitorChanges = {}
+	for _id, monitor in pairs(monitorDrafts) do
+		table.insert(monitorChanges, {
+			id = monitor.id,
+			name = monitor.name,
+			x = monitor.x,
+			y = monitor.y,
+			transform = monitor.transform,
+		})
+	end
+	table.sort(monitorChanges, function(a, b)
+		return a.id < b.id
+	end)
 	local request = {
 		protocol = PROTOCOL,
 		expected_generation = snapshot.generation,
 		changes = changes,
 		raw_files = rawFiles,
+		monitor_changes = monitorChanges,
 		backup_dir = dataDir .. "/backups",
 		create_user_override = true,
 	}
@@ -267,6 +294,440 @@ local function writeRequest(mode)
 	end)
 end
 
+local function configuredMonitorByName()
+	local result = {}
+	for _, monitor in ipairs(snapshot.monitors or {}) do
+		result[monitor.name] = monitor
+	end
+	return result
+end
+
+local function monitorLayout()
+	local result = {}
+	local seen = {}
+	local configured = configuredMonitorByName()
+	for _, live in ipairs(noctalia.outputs() or {}) do
+		local saved = configured[live.name]
+		local monitor = {
+			id = saved and saved.id or "live:" .. live.name,
+			name = live.name,
+			description = live.description or "",
+			x = saved and saved.positioned and saved.x or live.x or 0,
+			y = saved and saved.positioned and saved.y or live.y or 0,
+			width = live.width or (saved and saved.width) or 1920,
+			height = live.height or (saved and saved.height) or 1080,
+			transform = saved and saved.transform or "normal",
+			configured = saved ~= nil,
+			connected = true,
+			focused = live.focused == true,
+		}
+		if monitorDrafts[monitor.id] then
+			monitor.x = monitorDrafts[monitor.id].x
+			monitor.y = monitorDrafts[monitor.id].y
+			monitor.transform = monitorDrafts[monitor.id].transform
+		end
+		table.insert(result, monitor)
+		seen[live.name] = true
+	end
+	for _, saved in ipairs(snapshot.monitors or {}) do
+		if not seen[saved.name] then
+			local monitor = {
+				id = saved.id,
+				name = saved.name,
+				description = "",
+				x = saved.positioned and saved.x or 0,
+				y = saved.positioned and saved.y or 0,
+				width = saved.width or 1920,
+				height = saved.height or 1080,
+				transform = saved.transform or "normal",
+				configured = true,
+				connected = false,
+				focused = false,
+			}
+			if monitorDrafts[monitor.id] then
+				monitor.x = monitorDrafts[monitor.id].x
+				monitor.y = monitorDrafts[monitor.id].y
+				monitor.transform = monitorDrafts[monitor.id].transform
+			end
+			table.insert(result, monitor)
+		end
+	end
+	table.sort(result, function(a, b)
+		if a.y == b.y then
+			return a.x < b.x
+		end
+		return a.y < b.y
+	end)
+	return result
+end
+
+local function setMonitorDraft(monitor, x, y, transform)
+	monitorDrafts[monitor.id] = {
+		id = monitor.id,
+		name = monitor.name,
+		x = math.floor((tonumber(x) or monitor.x) + 0.5),
+		y = math.floor((tonumber(y) or monitor.y) + 0.5),
+		transform = transform or monitor.transform or "normal",
+	}
+	status = "dirty"
+	statusMessage = ""
+	render()
+end
+
+local function monitorDimensions(monitor)
+	local transform = monitor.transform or "normal"
+	local rotated = transform == "90" or transform == "270" or transform == "flipped-90" or transform == "flipped-270"
+	if rotated then
+		return monitor.height, monitor.width
+	end
+	return monitor.width, monitor.height
+end
+
+local function monitorCanvasGeometry(monitors)
+	local canvasWidth = 550
+	local canvasHeight = 250
+	local minX, minY = monitors[1].x, monitors[1].y
+	local firstWidth, firstHeight = monitorDimensions(monitors[1])
+	local maxX = monitors[1].x + firstWidth
+	local maxY = monitors[1].y + firstHeight
+	for _, monitor in ipairs(monitors) do
+		local width, height = monitorDimensions(monitor)
+		minX = math.min(minX, monitor.x)
+		minY = math.min(minY, monitor.y)
+		maxX = math.max(maxX, monitor.x + width)
+		maxY = math.max(maxY, monitor.y + height)
+	end
+	local layoutWidth = math.max(1, maxX - minX)
+	local layoutHeight = math.max(1, maxY - minY)
+	local horizontalReserve = 24 + (#monitors * 8)
+	local scale = math.min((canvasWidth - horizontalReserve) / layoutWidth, (canvasHeight - 30) / layoutHeight)
+	return {
+		width = canvasWidth,
+		height = canvasHeight,
+		scale = scale,
+		minX = minX,
+		minY = minY,
+		maxX = maxX,
+		maxY = maxY,
+	}
+end
+
+local function findMonitor(id)
+	for _, monitor in ipairs(monitorLayout()) do
+		if monitor.id == id then
+			return monitor
+		end
+	end
+	return nil
+end
+
+local function dropMonitorRelative(payload, target)
+	local relation, targetId = tostring(target):match("^(%a+):(.+)$")
+	local moved = findMonitor(payload)
+	local anchor = findMonitor(targetId)
+	if moved == nil or anchor == nil or moved.id == anchor.id then
+		return
+	end
+	local movedWidth, movedHeight = monitorDimensions(moved)
+	local anchorWidth, anchorHeight = monitorDimensions(anchor)
+	local x, y = anchor.x, anchor.y
+	if relation == "before" then
+		x = anchor.x - movedWidth
+	elseif relation == "after" then
+		x = anchor.x + anchorWidth
+	elseif relation == "above" then
+		y = anchor.y - movedHeight
+	elseif relation == "below" then
+		y = anchor.y + anchorHeight
+	else
+		return
+	end
+	setMonitorDraft(moved, x, y, moved.transform)
+end
+
+local function relativeDropZone(key, value, width, height, children)
+	return ui.dropZone({
+		key = key,
+		accepts = { "monitor" },
+		value = value,
+		onDrop = dropMonitorRelative,
+		enabled = not busy,
+		expandOnDrag = false,
+		hitSlop = 3,
+		width = width,
+		height = height,
+		align = "center",
+		justify = "center",
+		radius = 7,
+	}, children or {})
+end
+
+local function monitorCard(monitor, scale)
+	local width, height = monitorDimensions(monitor)
+	local cardWidth = math.max(72, math.floor(width * scale + 0.5))
+	local cardHeight = math.max(46, math.floor(height * scale + 0.5))
+	local contents = {
+		ui.label({ text = monitor.name, fontSize = 12, fontWeight = "bold", maxLines = 1 }),
+	}
+	if cardHeight >= 62 and cardWidth >= 100 then
+		table.insert(contents, ui.label({
+			text = tostring(width) .. "×" .. tostring(height),
+			fontSize = 10,
+			color = "on_surface_variant",
+			maxLines = 1,
+		}))
+	end
+	local card = ui.dragSource({
+		key = "monitor-drag-" .. monitor.id,
+		dragType = "monitor",
+		payload = monitor.id,
+		enabled = not busy,
+		tooltip = tr("display.drag_hint"),
+		previewAncestor = 0,
+		liftFromLayout = true,
+		width = cardWidth,
+		height = cardHeight,
+		padding = 5,
+		gap = 2,
+		align = "center",
+		justify = "center",
+		radius = 7,
+		fill = monitor.focused and "secondary" or "surface_variant",
+		border = monitorDrafts[monitor.id] and "primary" or "outline",
+		borderWidth = monitorDrafts[monitor.id] and 2 or 1,
+	}, contents)
+	return relativeDropZone(
+		"monitor-target-" .. monitor.id,
+		"after:" .. monitor.id,
+		cardWidth,
+		cardHeight,
+		{ card }
+	)
+end
+
+local function monitorBands(monitors)
+	local sorted = {}
+	for _, monitor in ipairs(monitors) do
+		table.insert(sorted, monitor)
+	end
+	table.sort(sorted, function(a, b)
+		if a.y == b.y then
+			return a.x < b.x
+		end
+		return a.y < b.y
+	end)
+	local bands = {}
+	for _, monitor in ipairs(sorted) do
+		local _width, height = monitorDimensions(monitor)
+		local bottom = monitor.y + height
+		local band = bands[#bands]
+		if band == nil or monitor.y >= band.maxY then
+			band = { minY = monitor.y, maxY = bottom, monitors = {} }
+			table.insert(bands, band)
+		else
+			band.minY = math.min(band.minY, monitor.y)
+			band.maxY = math.max(band.maxY, bottom)
+		end
+		table.insert(band.monitors, monitor)
+	end
+	for _, band in ipairs(bands) do
+		table.sort(band.monitors, function(a, b)
+			return a.x < b.x
+		end)
+	end
+	return bands
+end
+
+local function monitorBand(band, geometry)
+	local rowHeight = math.max(46, math.floor((band.maxY - band.minY) * geometry.scale + 0.5))
+	local children = {}
+	local cursorX = geometry.minX
+	for _, monitor in ipairs(band.monitors) do
+		local width, _height = monitorDimensions(monitor)
+		local logicalGap = math.max(0, monitor.x - cursorX)
+		local gapWidth = math.max(8, math.floor(logicalGap * geometry.scale + 0.5))
+		table.insert(children, relativeDropZone(
+			"monitor-before-" .. monitor.id,
+			"before:" .. monitor.id,
+			gapWidth,
+			rowHeight
+		))
+		local topOffset = math.max(0, math.floor((monitor.y - band.minY) * geometry.scale + 0.5))
+		local monitorChildren = {}
+		if topOffset > 0 then
+			table.insert(monitorChildren, ui.box({ width = 1, height = topOffset }))
+		end
+		table.insert(monitorChildren, monitorCard(monitor, geometry.scale))
+		table.insert(children, ui.column({
+			key = "monitor-position-" .. monitor.id,
+			width = math.max(72, math.floor(width * geometry.scale + 0.5)),
+			height = rowHeight,
+			align = "center",
+			justify = "start",
+		}, monitorChildren))
+		cursorX = math.max(cursorX, monitor.x + width)
+	end
+	local last = band.monitors[#band.monitors]
+	table.insert(children, relativeDropZone(
+		"monitor-after-" .. last.id,
+		"after:" .. last.id,
+		math.max(12, geometry.width - math.floor((cursorX - geometry.minX) * geometry.scale + 0.5) - 30),
+		rowHeight
+	))
+	return ui.row({
+		key = "monitor-band-" .. tostring(band.minY),
+		width = geometry.width,
+		height = rowHeight,
+		align = "start",
+		justify = "start",
+	}, children)
+end
+
+local function monitorCanvas(monitors)
+	if #monitors == 0 then
+		return ui.column({
+			padding = 22,
+			gap = 8,
+			align = "center",
+			radius = 12,
+			fill = "surface_variant",
+		}, {
+			ui.glyph({ name = "device-desktop-off", size = 30, color = "on_surface_variant" }),
+			ui.label({ text = tr("display.empty"), color = "on_surface_variant" }),
+		})
+	end
+	local geometry = monitorCanvasGeometry(monitors)
+	local bands = monitorBands(monitors)
+	local children = {}
+	local previousMaxY = geometry.minY
+	for _, band in ipairs(bands) do
+		local anchor = band.monitors[1]
+		local logicalGap = math.max(0, band.minY - previousMaxY)
+		local gapHeight = math.max(8, math.floor(logicalGap * geometry.scale + 0.5))
+		table.insert(children, relativeDropZone(
+			"monitor-above-" .. anchor.id,
+			"above:" .. anchor.id,
+			geometry.width,
+			gapHeight
+		))
+		table.insert(children, monitorBand(band, geometry))
+		previousMaxY = band.maxY
+	end
+	local lastBand = bands[#bands]
+	local lastAnchor = lastBand.monitors[1]
+	table.insert(children, relativeDropZone(
+		"monitor-below-" .. lastAnchor.id,
+		"below:" .. lastAnchor.id,
+		geometry.width,
+		12
+	))
+	return ui.column({
+		width = geometry.width + 20,
+		minHeight = geometry.height + 20,
+		padding = 10,
+		align = "center",
+		justify = "center",
+		radius = 12,
+		fill = "surface_variant",
+		border = "outline",
+		borderWidth = 1,
+	}, children)
+end
+
+local function monitorDetails(monitor)
+	local transforms = { "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" }
+	local selected = 0
+	for index, value in ipairs(transforms) do
+		if value == monitor.transform then
+			selected = index - 1
+			break
+		end
+	end
+	return ui.column({
+		key = "monitor-details-" .. monitor.id,
+		gap = 8,
+		padding = 10,
+		radius = 9,
+		fill = "surface_variant",
+		border = monitorDrafts[monitor.id] and "primary" or "outline",
+		borderWidth = 1,
+		align = "stretch",
+	}, {
+		ui.row({ gap = 8, align = "center" }, {
+			ui.glyph({ name = "device-desktop", color = monitor.connected and "primary" or "on_surface_variant" }),
+			ui.label({ text = monitor.name, fontWeight = "bold", flexGrow = 1 }),
+			ui.label({
+				text = monitor.connected and tr("display.connected") or tr("display.offline"),
+				fontSize = 11,
+				color = monitor.connected and "primary" or "on_surface_variant",
+			}),
+		}),
+		ui.label({
+			text = tostring(monitor.width) .. "×" .. tostring(monitor.height) .. "  ·  "
+				.. tostring(monitor.x) .. ", " .. tostring(monitor.y),
+			fontSize = 11,
+			color = "on_surface_variant",
+		}),
+		ui.row({ gap = 8, align = "center" }, {
+			ui.label({ text = "X", fontSize = 11 }),
+			ui.input({
+				key = "monitor-x-" .. monitor.id .. "-" .. tostring(monitor.x),
+				value = tostring(monitor.x),
+				width = 88,
+				controlSize = "sm",
+				onSubmit = function(value)
+					setMonitorDraft(monitor, tonumber(value), monitor.y, monitor.transform)
+				end,
+			}),
+			ui.label({ text = "Y", fontSize = 11 }),
+			ui.input({
+				key = "monitor-y-" .. monitor.id .. "-" .. tostring(monitor.y),
+				value = tostring(monitor.y),
+				width = 88,
+				controlSize = "sm",
+				onSubmit = function(value)
+					setMonitorDraft(monitor, monitor.x, tonumber(value), monitor.transform)
+				end,
+			}),
+			ui.label({ text = tr("display.rotation"), fontSize = 11 }),
+			ui.select({
+				key = "monitor-transform-" .. monitor.id,
+				options = transforms,
+				selectedIndex = selected,
+				flexGrow = 1,
+				controlSize = "sm",
+				onChange = function(index, _text)
+					local wanted = (tonumber(index) or 0) + 1
+					setMonitorDraft(monitor, monitor.x, monitor.y, transforms[wanted] or monitor.transform)
+				end,
+			}),
+		}),
+	})
+end
+
+local function displaysView()
+	local monitors = monitorLayout()
+	local children = {
+		sectionTitle(tr("display.title"), tr("display.description")),
+		ui.row({ gap = 8, align = "center" }, {
+			ui.glyph({ name = "drag-drop", color = "primary" }),
+			ui.label({ text = tr("display.drag_hint"), color = "on_surface_variant", flexGrow = 1, maxLines = 2 }),
+		}),
+		monitorCanvas(monitors),
+	}
+	for _, monitor in ipairs(monitors) do
+		table.insert(children, monitorDetails(monitor))
+	end
+	table.insert(children, ui.separator({}))
+	table.insert(children, ui.label({ text = tr("display.policy"), fontWeight = "bold" }))
+	for _, field in ipairs(snapshot.fields or {}) do
+		if field.category == "displays" then
+			table.insert(children, fieldCard(field))
+		end
+	end
+	return ui.scroll({ flexGrow = 1, gap = 12, align = "stretch" }, children)
+end
+
 local function categoryButton(category)
 	return ui.button({
 		key = "category-" .. category.id,
@@ -282,7 +743,7 @@ local function categoryButton(category)
 	})
 end
 
-local function sectionTitle(title, description)
+sectionTitle = function(title, description)
 	return ui.column({ gap = 4, align = "stretch" }, {
 		ui.label({ text = title, fontSize = 20, fontWeight = "bold", color = "on_surface" }),
 		ui.label({ text = description, color = "on_surface_variant", maxLines = 3 }),
@@ -387,14 +848,14 @@ local function fieldControl(field)
 	return ui.row({ gap = 10, align = "center" }, children)
 end
 
-local function fieldCard(field)
+fieldCard = function(field)
 	return ui.column({
 		key = "field-" .. field.id,
 		gap = 8,
 		padding = 12,
 		radius = 10,
-		fill = "surface_container",
-		border = drafts[field.id] ~= nil and "primary" or "outline_variant",
+		fill = "surface_variant",
+		border = drafts[field.id] ~= nil and "primary" or "outline",
 		borderWidth = 1,
 		align = "stretch",
 	}, {
@@ -452,7 +913,7 @@ local function overviewView()
 			gap = 8,
 			padding = 10,
 			radius = 8,
-			fill = "surface_container_high",
+			fill = "surface_variant",
 		}, {
 			ui.glyph({ name = "alert-triangle", color = "tertiary" }),
 			ui.label({ text = warning, color = "on_surface_variant", flexGrow = 1, maxLines = 4 }),
@@ -461,17 +922,17 @@ local function overviewView()
 	local children = {
 		sectionTitle(tr("overview.title"), tr("overview.description")),
 		ui.row({ gap = 16 }, {
-			ui.column({ gap = 2, padding = 12, radius = 10, fill = "surface_container", flexGrow = 1 }, {
+			ui.column({ gap = 2, padding = 12, radius = 10, fill = "surface_variant", flexGrow = 1 }, {
 				ui.label({ text = tostring(#(snapshot.fields or {})), fontSize = 26, fontWeight = "bold", color = "primary" }),
 				ui.label({ text = tr("overview.typed_fields"), color = "on_surface_variant" }),
 			}),
-			ui.column({ gap = 2, padding = 12, radius = 10, fill = "surface_container", flexGrow = 1 }, {
+			ui.column({ gap = 2, padding = 12, radius = 10, fill = "surface_variant", flexGrow = 1 }, {
 				ui.label({ text = snapshot.helper_version or "?", fontSize = 26, fontWeight = "bold", color = "primary" }),
 				ui.label({ text = tr("overview.helper_version"), color = "on_surface_variant" }),
 			}),
 		}),
 		ui.label({ text = tr("overview.resolved_files"), fontWeight = "bold" }),
-		ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_container", align = "stretch" }, fileRows),
+		ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, fileRows),
 	}
 	for _, row in ipairs(warningRows) do
 		table.insert(children, row)
@@ -615,6 +1076,8 @@ render = function()
 	local body
 	if activeCategory == "overview" then
 		body = overviewView()
+	elseif activeCategory == "displays" then
+		body = displaysView()
 	elseif activeCategory == "advanced" then
 		body = advancedView()
 	else
@@ -661,10 +1124,18 @@ function onClose()
 	-- Draft state intentionally remains in memory and is restored on the next open.
 end
 
-function onIpc(event, _payload)
+function onIpc(event, payload)
 	if event == "reload" then
 		loadSnapshot(true)
 	elseif event == "apply" then
 		writeRequest("apply")
+	elseif event == "category" then
+		for _, category in ipairs(categories) do
+			if category.id == payload then
+				activeCategory = payload
+				render()
+				return
+			end
+		end
 	end
 end

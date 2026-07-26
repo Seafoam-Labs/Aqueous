@@ -29,6 +29,8 @@ for key in (
     "settings.helper_path.description",
     "action.apply",
     "error.external_change",
+    "display.drag_hint",
+    "display.rotation",
 ):
     assert key in translations, key
 
@@ -36,6 +38,15 @@ for entry in ("widget.luau", "panel.luau"):
     text = (root / entry).read_text()
     assert "import Qt" not in text
     assert "Quickshell" not in text
+
+panel = (root / "panel.luau").read_text()
+for feature in (
+    "ui.dragSource",
+    "ui.dropZone",
+    "noctalia.outputs()",
+    "monitor_changes",
+):
+    assert feature in panel, feature
 PY
 
 python3 - "$plugin_root/catalog.toml" <<'PY'

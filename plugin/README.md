@@ -4,10 +4,17 @@ A native Noctalia v5 flyout for configuring the Aqueous compositor.
 
 The plugin adds an **Aqueous** bar widget. Clicking it opens an attached,
 theme-native panel with typed controls for effects, layouts, input, display
-policy, Game Mode, and built-in action commands. The Advanced page exposes the
-complete `wm.toml`, `layout.toml`, `input.toml`, `outputs.toml`, and
-`rules.toml` files, so ordered output blocks, workspace mappings, window rules,
-custom keybindings, gestures, and startup commands are all editable.
+policy, Game Mode, and built-in action commands. The Displays page includes a
+visual monitor canvas: drag monitor cards relative to one another, select
+their rotation or flipped orientation, and use exact X/Y fields when needed.
+The canvas uses a common scale, so monitor rectangles reflect their relative
+logical resolutions and expand to use the available preview area. Connected
+monitors appear even before they have an `[[output]]` block. Changes remain
+drafts until **Apply**, which updates the corresponding output entries in
+`wm.toml`. The Advanced page exposes the complete `wm.toml`, `layout.toml`,
+`input.toml`, `outputs.toml`, and `rules.toml` files, so ordered output blocks,
+workspace mappings, window rules, custom keybindings, gestures, and startup
+commands are all editable.
 
 This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 `ui.*` controls. It does not contain the v4 QML plugin API.
@@ -68,6 +75,11 @@ Open the panel without a widget:
 noctalia msg panel-toggle aqueous/settings:panel
 ```
 
+Open the **Displays** page to arrange outputs. Drag monitors relative to one
+another, choose their orientation below the canvas, then select **Apply**. The
+X/Y controls allow precise coordinates. Offline configured outputs remain
+visible and are labeled.
+
 The plugin's helper path is configurable under Settings → Plugins → Aqueous
 Settings → Advanced.
 
@@ -106,6 +118,8 @@ Installation deliberately does not enable the plugin or alter the user's bar.
 - Raw files receive structural validation and the 1 MiB Aqueous size limit.
 - Existing comments, ordering, whitespace, and unknown keys survive typed
   edits.
+- Monitor positions and transforms are staged together with other settings;
+  dragging never writes directly to disk.
 - Multiple changed files are copied to the plugin's persistent backup directory
   before the first write.
 - Aqueous's normal hot reload applies the result; the plugin never restarts the

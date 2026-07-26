@@ -28,6 +28,8 @@ jq -e '
   .ok == true and
   .protocol == 1 and
   (.fields | length) >= 70 and
+  (.monitors | length) == 2 and
+  (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
   .files.wm.path != "" and
   (.raw_files.wm | contains("fixture comment"))
 ' "$snapshot" >/dev/null
@@ -72,9 +74,34 @@ if run_helper apply --request "$request" >"$test_root/stale.json"; then
 fi
 jq -e '.ok == false and .code == "external_change"' "$test_root/stale.json" >/dev/null
 
-new_generation=$(jq -r .generation "$applied")
+monitor_generation=$(jq -r .generation "$applied")
+monitor_id=$(jq -r '.monitors[] | select(.name == "DP-1") | .id' "$applied")
+monitor_request="$test_root/monitor-request.json"
+jq -n \
+    --arg generation "$monitor_generation" \
+    --arg monitor_id "$monitor_id" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [],
+      raw_files: {},
+      monitor_changes: [
+        {id: $monitor_id, name: "DP-1", x: -1440, y: 200, transform: "90"},
+        {id: "live:DP-9", name: "DP-9", x: 0, y: 0, transform: "270"}
+      ]
+    }' >"$monitor_request"
+run_helper apply --request "$monitor_request" >"$test_root/monitor-applied.json"
+jq -e '
+  (.monitors[] | select(.name == "DP-1") | .x == -1440 and .y == 200 and .transform == "90") and
+  (.monitors[] | select(.name == "DP-9") | .x == 0 and .transform == "270")
+' "$test_root/monitor-applied.json" >/dev/null
+rg -q '^position = \[-1440, 200\]$' "$config_root/wm.toml"
+rg -q '^transform = "90"$' "$config_root/wm.toml"
+rg -q '^name = "DP-9"$' "$config_root/wm.toml"
+
+new_generation=$(jq -r .generation "$test_root/monitor-applied.json")
 raw_request="$test_root/raw-request.json"
-raw_source=$(jq -r .raw_files.rules "$applied")
+raw_source=$(jq -r .raw_files.rules "$test_root/monitor-applied.json")
 jq -n \
     --arg generation "$new_generation" \
     --arg backups "$test_root/backups" \

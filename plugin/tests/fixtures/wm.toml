@@ -13,9 +13,17 @@ screenshot = "grim -g \"$(slurp)\" - | wl-copy"
 
 [[output]]
 name = "DP-1"
+mode = "2560x1440@144"
 scale = 1.0
+position = [0, 0]
+transform = "normal"
+
+[[output]]
+name = "HDMI-A-1"
+mode = "1920x1080@60"
+position = [2560, 0]
+transform = "normal"
 
 [[workspace]]
 workspace = 2
 layout = "scrolling"
-

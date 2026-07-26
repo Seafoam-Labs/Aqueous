@@ -114,6 +114,9 @@ fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void
     for (&schema.fields) |*schema_field| try writeSchemaField(&json, files, schema_field);
     try json.endArray();
 
+    try json.objectField("monitors");
+    try writeConfiguredMonitors(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
+
     try json.objectField("raw_files");
     try json.beginObject();
     for (files.items, 0..) |file_item, index| {
@@ -234,6 +237,21 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
         }
     }
 
+    if (request.get("monitor_changes")) |monitor_changes| {
+        if (monitor_changes != .array) return error.InvalidMonitorChanges;
+        if (monitor_changes.array.items.len > 0) {
+            if (request.get("raw_files")) |raw_files| {
+                if (raw_files == .object and raw_files.object.get("wm") != null) return error.ConflictingEdits;
+            }
+            try applyMonitorChanges(
+                allocator,
+                &files.items[@intFromEnum(schema.FileId.wm)].document,
+                monitor_changes.array.items,
+            );
+            dirty[@intFromEnum(schema.FileId.wm)] = true;
+        }
+    }
+
     var changed_count: usize = 0;
     for (dirty, 0..) |is_dirty, index| {
         if (!is_dirty) continue;
@@ -260,6 +278,173 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
     }
 
     try writeSnapshot(writer, &files);
+}
+
+fn writeConfiguredMonitors(json: *std.json.Stringify, document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+
+    try json.beginArray();
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
+        const raw_name = tableEntryRaw(entries, table.index, "name") orelse continue;
+        const name = unquoteToml(raw_name);
+        if (name.len == 0) continue;
+        const raw_position = tableEntryRaw(entries, table.index, "position");
+        const position = if (raw_position) |raw| parsePosition(raw) else null;
+        const transform = if (tableEntryRaw(entries, table.index, "transform")) |raw|
+            unquoteToml(raw)
+        else
+            "normal";
+        const dimensions = if (tableEntryRaw(entries, table.index, "mode")) |raw|
+            parseModeDimensions(unquoteToml(raw))
+        else
+            null;
+        const scale = if (tableEntryRaw(entries, table.index, "scale")) |raw|
+            std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 1.0
+        else
+            1.0;
+        var id_buffer: [32]u8 = undefined;
+        const id = std.fmt.bufPrint(&id_buffer, "output:{d}", .{table.index}) catch unreachable;
+
+        try json.beginObject();
+        try field(json, "id", id);
+        try field(json, "name", name);
+        try field(json, "configured", true);
+        try field(json, "positioned", position != null);
+        if (position) |point| {
+            try field(json, "x", point[0]);
+            try field(json, "y", point[1]);
+        }
+        try field(json, "transform", transform);
+        try field(json, "scale", scale);
+        if (dimensions) |size| {
+            try field(json, "width", size[0]);
+            try field(json, "height", size[1]);
+        }
+        try json.endObject();
+    }
+    try json.endArray();
+}
+
+fn applyMonitorChanges(
+    allocator: Allocator,
+    document: *config.Document,
+    monitor_changes: []const Json,
+) !void {
+    for (monitor_changes) |change| {
+        if (change != .object) return error.InvalidMonitorChange;
+        const id = jsonString(change.object.get("id")) orelse return error.MissingMonitorId;
+        const name = jsonString(change.object.get("name")) orelse return error.MissingMonitorName;
+        if (name.len == 0 or name.len > 128) return error.InvalidMonitorName;
+        const x = jsonInteger(change.object.get("x")) orelse return error.InvalidMonitorPosition;
+        const y = jsonInteger(change.object.get("y")) orelse return error.InvalidMonitorPosition;
+        if (x < -100_000 or x > 100_000 or y < -100_000 or y > 100_000) return error.InvalidMonitorPosition;
+        const transform = jsonString(change.object.get("transform")) orelse return error.InvalidMonitorTransform;
+        if (!validMonitorTransform(transform)) return error.InvalidMonitorTransform;
+
+        var table_index: ?usize = null;
+        if (std.mem.startsWith(u8, id, "output:")) {
+            table_index = std.fmt.parseInt(usize, id["output:".len..], 10) catch return error.InvalidMonitorId;
+            if (!isOutputTable(document, table_index.?)) return error.UnknownMonitor;
+        } else if (std.mem.startsWith(u8, id, "live:")) {
+            if (!std.mem.eql(u8, id["live:".len..], name)) return error.InvalidMonitorId;
+            table_index = try outputTableByName(document, name);
+            if (table_index == null) {
+                const encoded_name = try jsonStringLiteral(allocator, name);
+                try document.appendTable("[[output]]", "name", encoded_name);
+                table_index = try lastOutputTable(document);
+            }
+        } else return error.InvalidMonitorId;
+
+        const encoded_position = try std.fmt.allocPrint(allocator, "[{d}, {d}]", .{ x, y });
+        const encoded_transform = try jsonStringLiteral(allocator, transform);
+        try setTableRaw(document, table_index.?, "position", encoded_position);
+        try setTableRaw(document, table_index.?, "transform", encoded_transform);
+    }
+}
+
+fn tableEntryRaw(entries: []const config.Document.Entry, table_index: usize, key: []const u8) ?[]const u8 {
+    var result: ?[]const u8 = null;
+    for (entries) |entry| {
+        if (entry.table_index == table_index and std.mem.eql(u8, entry.key, key)) result = entry.value;
+    }
+    return result;
+}
+
+fn isOutputTable(document: *const config.Document, wanted: usize) bool {
+    const tables = document.tables(document.allocator) catch return false;
+    defer document.allocator.free(tables);
+    for (tables) |table| {
+        if (table.index == wanted) return table.repeated and std.mem.eql(u8, table.name, "output");
+    }
+    return false;
+}
+
+fn outputTableByName(document: *const config.Document, name: []const u8) !?usize {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
+        const raw = tableEntryRaw(entries, table.index, "name") orelse continue;
+        if (std.mem.eql(u8, unquoteToml(raw), name)) return table.index;
+    }
+    return null;
+}
+
+fn lastOutputTable(document: *const config.Document) !usize {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    var result: ?usize = null;
+    for (tables) |table| {
+        if (table.repeated and std.mem.eql(u8, table.name, "output")) result = table.index;
+    }
+    return result orelse error.UnknownMonitor;
+}
+
+fn setTableRaw(document: *config.Document, table_index: usize, key: []const u8, encoded: []const u8) !void {
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    var entry_index: ?usize = null;
+    for (entries) |entry| {
+        if (entry.table_index == table_index and std.mem.eql(u8, entry.key, key)) entry_index = entry.index;
+    }
+    if (entry_index) |wanted| {
+        try document.setEntryRaw(wanted, encoded);
+    } else {
+        try document.addToTable(table_index, key, encoded);
+    }
+}
+
+fn parsePosition(raw_value: []const u8) ?[2]i64 {
+    const value = std.mem.trim(u8, raw_value, " \t\r");
+    if (value.len < 5 or value[0] != '[' or value[value.len - 1] != ']') return null;
+    const comma = std.mem.indexOfScalar(u8, value, ',') orelse return null;
+    return .{
+        std.fmt.parseInt(i64, std.mem.trim(u8, value[1..comma], " \t"), 10) catch return null,
+        std.fmt.parseInt(i64, std.mem.trim(u8, value[comma + 1 .. value.len - 1], " \t"), 10) catch return null,
+    };
+}
+
+fn parseModeDimensions(value: []const u8) ?[2]i64 {
+    const x = std.mem.indexOfScalar(u8, value, 'x') orelse return null;
+    const at = std.mem.indexOfScalarPos(u8, value, x + 1, '@') orelse value.len;
+    const width = std.fmt.parseInt(i64, value[0..x], 10) catch return null;
+    const height = std.fmt.parseInt(i64, value[x + 1 .. at], 10) catch return null;
+    if (width <= 0 or height <= 0) return null;
+    return .{ width, height };
+}
+
+fn validMonitorTransform(value: []const u8) bool {
+    const transforms = [_][]const u8{
+        "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270",
+    };
+    for (transforms) |transform| if (std.mem.eql(u8, value, transform)) return true;
+    return false;
 }
 
 fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, value: Json) ![]const u8 {
@@ -527,6 +712,16 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidColor,
         error.ValueTooSmall,
         error.ValueTooLarge,
+        error.InvalidMonitorChanges,
+        error.InvalidMonitorChange,
+        error.MissingMonitorId,
+        error.MissingMonitorName,
+        error.InvalidMonitorName,
+        error.InvalidMonitorPosition,
+        error.InvalidMonitorTransform,
+        error.InvalidMonitorId,
+        error.UnknownMonitor,
+        error.ConflictingEdits,
         error.InvalidAssignment,
         error.InvalidTableHeader,
         error.ConfigTooLarge,

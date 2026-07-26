@@ -1,6 +1,6 @@
 # Aqueous Settings Flyout — Noctalia v5 Plan
 
-Status: implemented as `0.1.0`  
+Status: implemented as `0.1.0`, including a visual output layout editor
 Target: Noctalia v5 native Luau plugin system  
 Provisional plugin id: `aqueous/settings`  
 Provisional entries: `aqueous/settings:widget` and
@@ -33,6 +33,8 @@ noctalia msg panel-toggle aqueous/settings:panel
 
 - A Noctalia v5 bar widget and declarative panel written in Luau.
 - Typed controls for every recognized Aqueous configuration family.
+- A visual output canvas for dragging connected/configured monitors into place,
+  choosing rotations and flips, and entering exact coordinates.
 - Draft, validation, apply, reload, and conflict handling.
 - Comment- and formatting-preserving updates.
 - A bundled native helper that shares Aqueous-compatible path discovery and
