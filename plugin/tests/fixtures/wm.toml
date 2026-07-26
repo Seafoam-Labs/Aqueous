@@ -11,6 +11,14 @@ value = 0.9
 [actions]
 screenshot = "grim -g \"$(slurp)\" - | wl-copy"
 
+[keybinds]
+spawn_terminal = ["Super+Return", "Super+T"]
+reload_rules = "Super+Shift+R"
+
+[keybinds.custom]
+"Super+E" = "spawn:nemo"
+"XF86AudioMute" = "spawn:wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+
 [[output]]
 name = "DP-1"
 mode = "2560x1440@144"

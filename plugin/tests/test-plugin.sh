@@ -31,6 +31,8 @@ for key in (
     "error.external_change",
     "display.drag_hint",
     "display.rotation",
+    "keybind.builtin",
+    "keybind.custom",
 ):
     assert key in translations, key
 
@@ -45,6 +47,8 @@ for feature in (
     "ui.dropZone",
     "noctalia.outputs()",
     "monitor_changes",
+    "custom_keybind_changes",
+    "keybindsView",
     'field.category == "keybinds" and 1',
 ):
     assert feature in panel, feature

@@ -27,7 +27,11 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  (.fields | length) >= 70 and
+  (.fields | length) >= 130 and
+  (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
+  (.fields[] | select(.id == "reload_rules") | .value == ["Super+Shift+R"]) and
+  (.custom_keybinds | length) == 2 and
+  (.custom_keybinds[] | select(.chord == "Super+E") | .command == "spawn:nemo") and
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
   .files.wm.path != "" and
@@ -47,7 +51,8 @@ jq -n \
       changes: [
         {id: "blur.enabled", value: false},
         {id: "layout.gaps_outer", value: 18},
-        {id: "input.touchpad.tap", value: false}
+        {id: "input.touchpad.tap", value: false},
+        {id: "spawn_terminal", value: "Super+Return, Super+Enter"}
       ],
       raw_files: {}
     }' >"$request"
@@ -64,6 +69,7 @@ rg -q '^# fixture comment must survive$' "$config_root/wm.toml"
 rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
 rg -q '^gaps_outer = 18$' "$config_root/layout.toml"
 rg -q '^tap = false$' "$config_root/input.toml"
+rg -Fq 'spawn_terminal = ["Super+Return", "Super+Enter"]' "$config_root/wm.toml"
 test -f "$test_root/backups/$generation/wm.toml"
 test -f "$test_root/backups/$generation/layout.toml"
 test -f "$test_root/backups/$generation/input.toml"
@@ -100,8 +106,32 @@ rg -q '^transform = "90"$' "$config_root/wm.toml"
 rg -q '^name = "DP-9"$' "$config_root/wm.toml"
 
 new_generation=$(jq -r .generation "$test_root/monitor-applied.json")
+custom_id=$(jq -r '.custom_keybinds[] | select(.chord == "Super+E") | .id' "$test_root/monitor-applied.json")
+custom_request="$test_root/custom-request.json"
+jq -n \
+    --arg generation "$new_generation" \
+    --arg custom_id "$custom_id" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [
+        {id: "set_layout_primary", value: "Super+P"}
+      ],
+      raw_files: {},
+      custom_keybind_changes: [
+        {id: $custom_id, chord: "Super+F", command: "spawn:thunar"}
+      ]
+    }' >"$custom_request"
+run_helper apply --request "$custom_request" >"$test_root/custom-applied.json"
+jq -e '
+  (.custom_keybinds[] | select(.chord == "Super+F") | .command == "spawn:thunar")
+' "$test_root/custom-applied.json" >/dev/null
+rg -Fq '"Super+F" = "spawn:thunar"' "$config_root/wm.toml"
+rg -Fq 'set_layout_primary = ["Super+P"]' "$config_root/wm.toml"
+
+new_generation=$(jq -r .generation "$test_root/custom-applied.json")
 raw_request="$test_root/raw-request.json"
-raw_source=$(jq -r .raw_files.rules "$test_root/monitor-applied.json")
+raw_source=$(jq -r .raw_files.rules "$test_root/custom-applied.json")
 jq -n \
     --arg generation "$new_generation" \
     --arg backups "$test_root/backups" \

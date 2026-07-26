@@ -18,6 +18,7 @@ local drafts = {}
 local rawDrafts = {}
 local rawDirty = {}
 local monitorDrafts = {}
+local customKeybindDrafts = {}
 local inputRevisions = {}
 local activeCategory = "overview"
 local activeFile = "wm"
@@ -104,6 +105,9 @@ local function hasDrafts()
 	for _id, _monitor in pairs(monitorDrafts) do
 		return true
 	end
+	for _id, _keybind in pairs(customKeybindDrafts) do
+		return true
+	end
 	return false
 end
 
@@ -118,6 +122,9 @@ local function draftCount()
 		end
 	end
 	for _id, _monitor in pairs(monitorDrafts) do
+		count += 1
+	end
+	for _id, _keybind in pairs(customKeybindDrafts) do
 		count += 1
 	end
 	return count
@@ -138,6 +145,9 @@ local function needsUserOverride()
 		end
 	end
 	if next(monitorDrafts) ~= nil and snapshot.files.wm and snapshot.files.wm.writable == false then
+		return true
+	end
+	if next(customKeybindDrafts) ~= nil and snapshot.files.wm and snapshot.files.wm.writable == false then
 		return true
 	end
 	return false
@@ -170,6 +180,7 @@ local function resetFromSnapshot(newSnapshot)
 	rawDrafts = {}
 	rawDirty = {}
 	monitorDrafts = {}
+	customKeybindDrafts = {}
 	inputRevisions = {}
 	for file, source in pairs(snapshot.raw_files or {}) do
 		rawDrafts[file] = source
@@ -240,12 +251,24 @@ local function writeRequest(mode)
 	table.sort(monitorChanges, function(a, b)
 		return a.id < b.id
 	end)
+	local customKeybindChanges = {}
+	for _id, keybind in pairs(customKeybindDrafts) do
+		table.insert(customKeybindChanges, {
+			id = keybind.id,
+			chord = keybind.chord,
+			command = keybind.command,
+		})
+	end
+	table.sort(customKeybindChanges, function(a, b)
+		return a.id < b.id
+	end)
 	local request = {
 		protocol = PROTOCOL,
 		expected_generation = snapshot.generation,
 		changes = changes,
 		raw_files = rawFiles,
 		monitor_changes = monitorChanges,
+		custom_keybind_changes = customKeybindChanges,
 		backup_dir = dataDir .. "/backups",
 		create_user_override = true,
 	}
@@ -870,6 +893,153 @@ fieldCard = function(field)
 	})
 end
 
+local function keybindText(value)
+	if type(value) == "table" then
+		return table.concat(value, ", ")
+	end
+	return tostring(value or "")
+end
+
+local function keybindLabel(action)
+	local label = tostring(action):gsub("_", " ")
+	return label:sub(1, 1):upper() .. label:sub(2)
+end
+
+local function setBuiltinKeybindDraft(field, value)
+	if value == keybindText(field.value) then
+		drafts[field.id] = nil
+	else
+		drafts[field.id] = value
+	end
+	status = hasDrafts() and "dirty" or "ready"
+	statusMessage = ""
+end
+
+local function builtinKeybindCard(field)
+	local value = drafts[field.id] ~= nil and tostring(drafts[field.id]) or keybindText(field.value)
+	return ui.row({
+		key = "keybind-" .. field.id,
+		gap = 12,
+		padding = 10,
+		align = "center",
+		radius = 9,
+		fill = "surface_variant",
+		border = drafts[field.id] ~= nil and "primary" or "outline",
+		borderWidth = 1,
+	}, {
+		ui.column({ width = 210, gap = 2, align = "stretch" }, {
+			ui.label({ text = keybindLabel(field.key), fontWeight = "medium", maxLines = 1 }),
+			ui.label({
+				text = field.configured and tr("keybind.configured") or tr("keybind.default"),
+				fontSize = 10,
+				color = "on_surface_variant",
+			}),
+		}),
+		ui.input({
+			key = "keybind-input-" .. field.id,
+			value = value,
+			flexGrow = 1,
+			controlSize = "lg",
+			placeholder = tr("keybind.unbound"),
+			onChange = function(text)
+				setBuiltinKeybindDraft(field, text)
+				render()
+			end,
+			onSubmit = function(text)
+				setBuiltinKeybindDraft(field, text)
+				render()
+			end,
+		}),
+	})
+end
+
+local function setCustomKeybindDraft(keybind, chord, command)
+	if chord == keybind.chord and command == keybind.command then
+		customKeybindDrafts[keybind.id] = nil
+	else
+		customKeybindDrafts[keybind.id] = {
+			id = keybind.id,
+			chord = chord,
+			command = command,
+		}
+	end
+	status = hasDrafts() and "dirty" or "ready"
+	statusMessage = ""
+end
+
+local function customKeybindCard(keybind)
+	local draft = customKeybindDrafts[keybind.id]
+	local chord = draft and draft.chord or keybind.chord
+	local command = draft and draft.command or keybind.command
+	return ui.column({
+		key = "custom-keybind-" .. keybind.id,
+		gap = 7,
+		padding = 10,
+		align = "stretch",
+		radius = 9,
+		fill = "surface_variant",
+		border = draft and "primary" or "outline",
+		borderWidth = 1,
+	}, {
+		ui.row({ gap = 12, align = "center" }, {
+			ui.input({
+				key = "custom-chord-" .. keybind.id,
+				value = chord,
+				width = 220,
+				controlSize = "lg",
+				placeholder = tr("keybind.shortcut"),
+				onChange = function(text)
+					local current = customKeybindDrafts[keybind.id]
+					setCustomKeybindDraft(keybind, text, current and current.command or keybind.command)
+					render()
+				end,
+			}),
+			ui.input({
+				key = "custom-command-" .. keybind.id,
+				value = command,
+				flexGrow = 1,
+				controlSize = "lg",
+				placeholder = tr("keybind.command"),
+				onChange = function(text)
+					local current = customKeybindDrafts[keybind.id]
+					setCustomKeybindDraft(keybind, current and current.chord or keybind.chord, text)
+					render()
+				end,
+			}),
+		}),
+	})
+end
+
+local function keybindsView()
+	local children = {
+		sectionTitle(tr("keybind.title"), tr("keybind.description")),
+		ui.label({ text = tr("keybind.builtin"), fontWeight = "bold" }),
+		ui.label({ text = tr("keybind.multiple_hint"), fontSize = 11, color = "on_surface_variant", maxLines = 2 }),
+	}
+	for _, field in ipairs(snapshot.fields or {}) do
+		if field.category == "keybinds" and field.section == "keybinds" then
+			table.insert(children, builtinKeybindCard(field))
+		end
+	end
+	table.insert(children, ui.separator({}))
+	table.insert(children, ui.label({ text = tr("keybind.custom"), fontWeight = "bold" }))
+	if #(snapshot.custom_keybinds or {}) == 0 then
+		table.insert(children, ui.label({ text = tr("keybind.custom_empty"), color = "on_surface_variant" }))
+	else
+		for _, keybind in ipairs(snapshot.custom_keybinds) do
+			table.insert(children, customKeybindCard(keybind))
+		end
+	end
+	table.insert(children, ui.separator({}))
+	table.insert(children, ui.label({ text = tr("keybind.commands"), fontWeight = "bold" }))
+	for _, field in ipairs(snapshot.fields or {}) do
+		if field.category == "keybinds" and field.section == "actions" then
+			table.insert(children, fieldCard(field))
+		end
+	end
+	return ui.scroll({ flexGrow = 1, gap = 10, align = "stretch" }, children)
+end
+
 local function categoryView()
 	local children = {
 		sectionTitle(activeCategory:sub(1, 1):upper() .. activeCategory:sub(2), tr("category." .. activeCategory)),
@@ -1080,6 +1250,8 @@ render = function()
 		body = overviewView()
 	elseif activeCategory == "displays" then
 		body = displaysView()
+	elseif activeCategory == "keybinds" then
+		body = keybindsView()
 	elseif activeCategory == "advanced" then
 		body = advancedView()
 	else

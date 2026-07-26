@@ -117,6 +117,9 @@ fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void
     try json.objectField("monitors");
     try writeConfiguredMonitors(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
 
+    try json.objectField("custom_keybinds");
+    try writeCustomKeybinds(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
+
     try json.objectField("raw_files");
     try json.beginObject();
     for (files.items, 0..) |file_item, index| {
@@ -186,8 +189,31 @@ fn writeTomlValue(json: *std.json.Stringify, schema_field: *const schema.Field, 
         .integer => try json.write(std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch 0),
         .double => try json.write(std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 0),
         .string, .select => try json.write(unquoteToml(raw)),
+        .string_list => try writeStringList(json, raw),
         .color => try json.write(std.mem.trim(u8, raw, " \t\r")),
     }
+}
+
+fn writeStringList(json: *std.json.Stringify, raw_value: []const u8) !void {
+    const raw = std.mem.trim(u8, raw_value, " \t\r");
+    try json.beginArray();
+    if (raw.len == 0 or std.mem.eql(u8, raw, "[]")) {
+        try json.endArray();
+        return;
+    }
+    if (raw[0] != '[') {
+        try json.write(unquoteToml(raw));
+        try json.endArray();
+        return;
+    }
+    if (raw.len < 2 or raw[raw.len - 1] != ']') return error.InvalidStringList;
+    var parts = std.mem.splitScalar(u8, raw[1 .. raw.len - 1], ',');
+    while (parts.next()) |part| {
+        const item = std.mem.trim(u8, part, " \t\r");
+        if (item.len == 0) continue;
+        try json.write(unquoteToml(item));
+    }
+    try json.endArray();
 }
 
 fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool) !void {
@@ -221,6 +247,24 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
             try validateBasicToml(entry.value_ptr.string);
             try replaceDocumentSource(&files.items[file_index].document, entry.value_ptr.string);
             dirty[file_index] = true;
+        }
+    }
+
+    // Custom binding IDs are document entry indices. Apply them before ordinary
+    // keybind edits, which may insert a new key into [keybinds] and shift every
+    // later [keybinds.custom] entry.
+    if (request.get("custom_keybind_changes")) |custom_changes| {
+        if (custom_changes != .array) return error.InvalidCustomKeybindChanges;
+        if (custom_changes.array.items.len > 0) {
+            if (request.get("raw_files")) |raw_files| {
+                if (raw_files == .object and raw_files.object.get("wm") != null) return error.ConflictingEdits;
+            }
+            try applyCustomKeybindChanges(
+                allocator,
+                &files.items[@intFromEnum(schema.FileId.wm)].document,
+                custom_changes.array.items,
+            );
+            dirty[@intFromEnum(schema.FileId.wm)] = true;
         }
     }
 
@@ -327,6 +371,93 @@ fn writeConfiguredMonitors(json: *std.json.Stringify, document: *const config.Do
         try json.endObject();
     }
     try json.endArray();
+}
+
+fn writeCustomKeybinds(json: *std.json.Stringify, document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    try json.beginArray();
+    for (entries) |entry| {
+        if (entry.table_index >= tables.len or
+            !std.mem.eql(u8, tables[entry.table_index].name, "keybinds.custom")) continue;
+        var id_buffer: [40]u8 = undefined;
+        const id = try std.fmt.bufPrint(&id_buffer, "custom:{d}", .{entry.index});
+        try json.beginObject();
+        try field(json, "id", id);
+        try field(json, "chord", entry.key);
+        try field(json, "command", unquoteToml(entry.value));
+        try json.endObject();
+    }
+    try json.endArray();
+}
+
+const CustomKeybindChange = struct {
+    entry_index: usize,
+    table_index: usize,
+    old_chord: []const u8,
+    chord: []const u8,
+    command: []const u8,
+};
+
+fn applyCustomKeybindChanges(
+    allocator: Allocator,
+    document: *config.Document,
+    requested: []const Json,
+) !void {
+    const tables = try document.tables(allocator);
+    defer allocator.free(tables);
+    const entries = try document.entries(allocator);
+    defer allocator.free(entries);
+    var changes = std.ArrayList(CustomKeybindChange).empty;
+    defer changes.deinit(allocator);
+    for (requested) |raw_change| {
+        if (raw_change != .object) return error.InvalidCustomKeybindChange;
+        const id = jsonString(raw_change.object.get("id")) orelse return error.InvalidCustomKeybindChange;
+        if (!std.mem.startsWith(u8, id, "custom:")) return error.InvalidCustomKeybindId;
+        const entry_index = std.fmt.parseInt(usize, id["custom:".len..], 10) catch return error.InvalidCustomKeybindId;
+        const chord = jsonString(raw_change.object.get("chord")) orelse return error.InvalidCustomKeybindChord;
+        const command = jsonString(raw_change.object.get("command")) orelse return error.InvalidCustomKeybindCommand;
+        if (chord.len == 0 or chord.len > 128 or command.len == 0 or command.len > 1024) {
+            return error.InvalidCustomKeybindChange;
+        }
+        var found: ?config.Document.Entry = null;
+        for (entries) |entry| if (entry.index == entry_index) {
+            found = entry;
+            break;
+        };
+        const entry = found orelse return error.UnknownCustomKeybind;
+        if (entry.table_index >= tables.len or
+            !std.mem.eql(u8, tables[entry.table_index].name, "keybinds.custom"))
+            return error.UnknownCustomKeybind;
+        for (entries) |other| {
+            if (other.index != entry.index and other.table_index == entry.table_index and
+                std.mem.eql(u8, other.key, chord)) return error.DuplicateCustomKeybind;
+        }
+        try changes.append(allocator, .{
+            .entry_index = entry_index,
+            .table_index = entry.table_index,
+            .old_chord = try allocator.dupe(u8, entry.key),
+            .chord = chord,
+            .command = command,
+        });
+    }
+    std.mem.sort(CustomKeybindChange, changes.items, {}, struct {
+        fn lessThan(_: void, left: CustomKeybindChange, right: CustomKeybindChange) bool {
+            return left.entry_index > right.entry_index;
+        }
+    }.lessThan);
+    for (changes.items) |change| {
+        const encoded_command = try jsonStringLiteral(allocator, change.command);
+        if (std.mem.eql(u8, change.old_chord, change.chord)) {
+            try document.setEntryRaw(change.entry_index, encoded_command);
+        } else {
+            try document.deleteEntry(change.entry_index);
+            const encoded_chord = try jsonStringLiteral(allocator, change.chord);
+            try document.addToTable(change.table_index, encoded_chord, encoded_command);
+        }
+    }
 }
 
 fn applyMonitorChanges(
@@ -468,6 +599,7 @@ fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, valu
             const text = jsonString(value) orelse return error.InvalidString;
             return try jsonStringLiteral(allocator, text);
         },
+        .string_list => return try encodeStringList(allocator, value),
         .select => {
             const text = jsonString(value) orelse return error.InvalidSelection;
             var valid = false;
@@ -486,6 +618,38 @@ fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, valu
             return allocator.dupe(u8, text);
         },
     }
+}
+
+fn encodeStringList(allocator: Allocator, value: Json) ![]const u8 {
+    var result = std.ArrayList(u8).empty;
+    errdefer result.deinit(allocator);
+    try result.append(allocator, '[');
+    var count: usize = 0;
+    switch (value) {
+        .array => |items| for (items.items) |item| {
+            const text = jsonString(item) orelse return error.InvalidStringList;
+            const trimmed = std.mem.trim(u8, text, " \t\r");
+            if (trimmed.len == 0) continue;
+            if (count > 0) try result.appendSlice(allocator, ", ");
+            const encoded = try jsonStringLiteral(allocator, trimmed);
+            try result.appendSlice(allocator, encoded);
+            count += 1;
+        },
+        .string => |text| {
+            var parts = std.mem.splitScalar(u8, text, ',');
+            while (parts.next()) |part| {
+                const trimmed = std.mem.trim(u8, part, " \t\r");
+                if (trimmed.len == 0) continue;
+                if (count > 0) try result.appendSlice(allocator, ", ");
+                const encoded = try jsonStringLiteral(allocator, trimmed);
+                try result.appendSlice(allocator, encoded);
+                count += 1;
+            }
+        },
+        else => return error.InvalidStringList,
+    }
+    try result.append(allocator, ']');
+    return result.toOwnedSlice(allocator);
 }
 
 fn validateRange(schema_field: *const schema.Field, value: f64) !void {
@@ -518,6 +682,12 @@ fn validateKnownFields(files: *const config.ConfigFiles) !void {
             },
             .color => if (!validColor(std.mem.trim(u8, raw, " \t\r"))) return error.InvalidColor,
             .string => {},
+            .string_list => {
+                var buffer: [256]u8 = undefined;
+                var sink: std.Io.Writer.Discarding = .init(&buffer);
+                var json: std.json.Stringify = .{ .writer = &sink.writer };
+                try writeStringList(&json, raw);
+            },
         }
     }
 }
@@ -708,6 +878,7 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidInteger,
         error.InvalidNumber,
         error.InvalidString,
+        error.InvalidStringList,
         error.InvalidSelection,
         error.InvalidColor,
         error.ValueTooSmall,
@@ -721,6 +892,13 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidMonitorTransform,
         error.InvalidMonitorId,
         error.UnknownMonitor,
+        error.InvalidCustomKeybindChanges,
+        error.InvalidCustomKeybindChange,
+        error.InvalidCustomKeybindId,
+        error.InvalidCustomKeybindChord,
+        error.InvalidCustomKeybindCommand,
+        error.UnknownCustomKeybind,
+        error.DuplicateCustomKeybind,
         error.ConflictingEdits,
         error.InvalidAssignment,
         error.InvalidTableHeader,
@@ -757,6 +935,7 @@ test "schema ids are unique and defaults validate" {
             .integer => .{ .integer = try std.fmt.parseInt(i64, left.default_raw, 10) },
             .double => .{ .float = try std.fmt.parseFloat(f64, left.default_raw) },
             .string, .select, .color => .{ .string = @constCast(left.default_raw) },
+            .string_list => .{ .string = @constCast(left.default_raw) },
         };
         _ = try encodeTomlValue(arena.allocator(), left, json_value);
     }

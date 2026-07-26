@@ -16,6 +16,12 @@ drafts until **Apply**, which updates the corresponding output entries in
 workspace mappings, window rules, custom keybindings, gestures, and startup
 commands are all editable.
 
+The **Keybinds** page lists all built-in Aqueous shortcuts, including actions
+that are currently unbound. A shortcut field accepts comma-separated chords.
+Configured `[keybinds.custom]` entries expose both their chord and command, and
+the action-command section controls the commands invoked by launcher, terminal,
+screenshot, and lock bindings.
+
 This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 `ui.*` controls. It does not contain the v4 QML plugin API.
 
