@@ -5,7 +5,7 @@ AQUEOUSCTL(1)
 
 # NAME
 
-aqueousctl - inspect Aqueous windows and outputs and author window rules
+aqueousctl - inspect Aqueous state and control workspace layouts
 
 # SYNOPSIS
 
@@ -17,12 +17,15 @@ aqueousctl - inspect Aqueous windows and outputs and author window rules
 
 *aqueousctl outputs*
 
+*aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
+
 # DESCRIPTION
 
-*aqueousctl* is a read-only Wayland client for Aqueous's window information
-protocol. It enumerates mapped windows through ext_foreign_toplevel_list_v1 and
-uses their stable identifiers to request compositor-owned state. Output mode
-information is read from the standard wl_output protocol.
+*aqueousctl* is a Wayland client for Aqueous's window information protocol. It
+enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
+stable identifiers to request compositor-owned state. Output mode information
+is read from the standard wl_output protocol. Its only mutating operation is an
+output-scoped active-workspace layout change.
 
 # COMMANDS
 
@@ -47,12 +50,22 @@ information is read from the standard wl_output protocol.
 	physical resolution and refresh rate; the current and preferred modes are
 	marked explicitly.
 
+*layout --output NAME --json*
+	Print the active workspace number and effective runtime layout for _NAME_ as
+	a JSON object.
+
+*layout --output NAME --set LAYOUT --json*
+	Immediately change that output's active workspace to *tile*, *monocle*,
+	*grid*, *rows*, *dwindle*, *scrolling*, *float*, or *game-mode*, then print
+	the resulting state. This creates a runtime override and does not edit
+	configuration files.
+
 # SECURITY
 
-The Aqueous introspection protocol is read-only and is hidden from clients
-running through a Wayland security context, along with the foreign-toplevel
-protocols it extends. The *outputs* command uses the standard read-only
-wl_output interface.
+The Aqueous protocol is hidden from clients running through a Wayland security
+context, along with the foreign-toplevel protocols it extends. The *outputs*
+command uses the standard read-only wl_output interface. Layout mutation is
+limited to the active workspace of an explicitly named output.
 
 # SEE ALSO
 

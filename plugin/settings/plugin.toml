@@ -7,7 +7,7 @@ license = "GPL-3.0-only"
 icon = "adjustments-horizontal"
 description = "Configure the Aqueous compositor from a native Noctalia flyout."
 tags = ["aqueous", "compositor", "settings"]
-dependencies = ["aqueous-config"]
+dependencies = ["aqueous-config", "aqueousctl"]
 
 [[setting]]
 key = "helper_path"

@@ -125,22 +125,27 @@ See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.
 
-### Inspecting windows and outputs
+### Inspecting windows, outputs, and workspace layouts
 
-The build installs `aqueousctl`, a read-only Wayland client for discovering the
-exact identities used by window rules and the modes advertised by each output:
+The build installs `aqueousctl`, a Wayland client for discovering the exact
+identities used by window rules, the modes advertised by each output, and the
+active workspace layout:
 
 ```sh
 aqueousctl windows
 aqueousctl windows --json
 aqueousctl inspect --rule
 aqueousctl outputs
+aqueousctl layout --output DP-1 --json
+aqueousctl layout --output DP-1 --set grid --json
 ```
 
 The rule command emits ready-to-paste `[[window]]` entries. Native Wayland
 windows use `app_id`; XWayland windows use their `WM_CLASS` as `class`.
 The outputs command lists available resolutions and refresh rates and marks the
 current and preferred modes.
+The layout command targets the explicitly named output and can apply an
+immediate runtime override without editing configuration files.
 `wlrctl toplevel list` remains supported through the legacy foreign-toplevel
 management protocol for compatibility.
 
@@ -224,8 +229,8 @@ output commit pipeline.
 ## Packaging
 
 The reference `PKGBUILD`, `PKGBUILD-bin`, and generic-CPU `PKGBUILD-intel`
-install `/usr/bin/aqueous` and its read-only `/usr/bin/aqueousctl` inspection
-client. Packages also provide the session launcher, environment hook, default
+install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection and
+workspace-layout client. Packages also provide the session launcher, environment hook, default
 TOML configuration, desktop entry, systemd user units, and Noctalia integration. Aqueous has no
 .NET, `aqueous-wm-client`, `aqueous-outputd`, `wlr-randr`, or
 `xwayland-satellite` runtime dependency.

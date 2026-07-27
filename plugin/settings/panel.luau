@@ -27,6 +27,21 @@ local status = "loading"
 local statusMessage = ""
 local dataDir = nil
 local requestSerial = 0
+local workspaceLayouts = {
+	{ value = "tile", label = "Tile" },
+	{ value = "monocle", label = "Monocle" },
+	{ value = "grid", label = "Grid" },
+	{ value = "rows", label = "Rows" },
+	{ value = "dwindle", label = "Dwindle" },
+	{ value = "scrolling", label = "Scrolling" },
+	{ value = "float", label = "Float" },
+	{ value = "game-mode", label = "Game Mode" },
+}
+local panelOutput = ""
+local workspaceLayout = ""
+local workspaceNumber = 0
+local workspaceLayoutBusy = false
+local workspaceLayoutMessage = ""
 
 local render
 local sectionTitle
@@ -91,6 +106,78 @@ local function runHelper(arguments, callback)
 	if not accepted then
 		callback(nil, { code = "launch_failed", message = tr("error.launch_failed") })
 	end
+end
+
+local function runAqueousctl(arguments, callback)
+	if not noctalia.commandExists("aqueousctl") then
+		callback(nil, { message = tr("overview.workspace_layout.missing") })
+		return
+	end
+	local accepted = noctalia.runAsync("aqueousctl " .. arguments, function(result)
+		local stdout, stderr, exitCode = resultText(result)
+		local decoded = noctalia.json.decode(stdout)
+		if type(decoded) ~= "table" then
+			callback(nil, { message = stderr ~= "" and stderr or tr("error.invalid_response") })
+			return
+		end
+		if decoded.ok ~= true or exitCode ~= 0 then
+			callback(nil, {
+				message = decoded.status or stderr or tr("overview.workspace_layout.unavailable"),
+			})
+			return
+		end
+		callback(decoded, nil)
+	end)
+	if not accepted then
+		callback(nil, { message = tr("error.launch_failed") })
+	end
+end
+
+local function queryWorkspaceLayout()
+	workspaceLayout = ""
+	workspaceNumber = 0
+	if panelOutput == "" then
+		workspaceLayoutMessage = tr("overview.workspace_layout.no_output")
+		render()
+		return
+	end
+	workspaceLayoutBusy = true
+	workspaceLayoutMessage = tr("overview.workspace_layout.loading")
+	render()
+	runAqueousctl("layout --output " .. shellQuote(panelOutput) .. " --json", function(response, err)
+		workspaceLayoutBusy = false
+		if err then
+			workspaceLayoutMessage = err.message or tr("overview.workspace_layout.unavailable")
+		else
+			workspaceLayout = response.layout or ""
+			workspaceNumber = tonumber(response.workspace) or 0
+			workspaceLayoutMessage = ""
+		end
+		render()
+	end)
+end
+
+local function setWorkspaceLayout(layout)
+	if workspaceLayoutBusy or panelOutput == "" or layout == workspaceLayout then
+		return
+	end
+	workspaceLayoutBusy = true
+	workspaceLayoutMessage = tr("overview.workspace_layout.changing")
+	render()
+	runAqueousctl(
+		"layout --output " .. shellQuote(panelOutput) .. " --set " .. shellQuote(layout) .. " --json",
+		function(response, err)
+			workspaceLayoutBusy = false
+			if err then
+				workspaceLayoutMessage = err.message or tr("overview.workspace_layout.unavailable")
+			else
+				workspaceLayout = response.layout or layout
+				workspaceNumber = tonumber(response.workspace) or workspaceNumber
+				workspaceLayoutMessage = tr("overview.workspace_layout.changed")
+			end
+			render()
+		end
+	)
 end
 
 local function hasDrafts()
@@ -1100,6 +1187,26 @@ local function overviewView()
 			ui.label({ text = warning, color = "on_surface_variant", flexGrow = 1, maxLines = 4 }),
 		}))
 	end
+	local layoutOptions = {}
+	local selectedLayout = 0
+	for index, layout in ipairs(workspaceLayouts) do
+		table.insert(layoutOptions, layout.label)
+		if layout.value == workspaceLayout then
+			selectedLayout = index - 1
+		end
+	end
+	local workspaceDetail = ""
+	if workspaceNumber > 0 then
+		workspaceDetail = tr("overview.workspace_layout.workspace") .. " " .. tostring(workspaceNumber) .. " · " .. panelOutput
+	end
+	local layoutDetail = workspaceLayoutMessage
+	if layoutDetail ~= "" and workspaceDetail ~= "" then
+		layoutDetail = layoutDetail .. " · " .. workspaceDetail
+	elseif layoutDetail == "" and workspaceDetail ~= "" then
+		layoutDetail = workspaceDetail
+	elseif layoutDetail == "" then
+		layoutDetail = panelOutput
+	end
 	local children = {
 		sectionTitle(tr("overview.title"), tr("overview.description")),
 		ui.row({ gap = 16 }, {
@@ -1110,6 +1217,38 @@ local function overviewView()
 			ui.column({ gap = 2, padding = 12, radius = 10, fill = "surface_variant", flexGrow = 1 }, {
 				ui.label({ text = snapshot.helper_version or "?", fontSize = 26, fontWeight = "bold", color = "primary" }),
 				ui.label({ text = tr("overview.helper_version"), color = "on_surface_variant" }),
+			}),
+		}),
+		ui.column({ gap = 8, padding = 12, radius = 10, fill = "surface_variant", align = "stretch" }, {
+			ui.row({ gap = 10, align = "center" }, {
+				ui.glyph({ name = "layout-grid", color = "primary", size = 22 }),
+				ui.column({ gap = 2, flexGrow = 1 }, {
+					ui.label({ text = tr("overview.workspace_layout"), fontWeight = "bold" }),
+					ui.label({
+						text = tr("overview.workspace_layout.description"),
+						color = "on_surface_variant",
+						maxLines = 2,
+					}),
+				}),
+				ui.select({
+					key = "active-workspace-layout-" .. panelOutput,
+					width = 190,
+					options = layoutOptions,
+					selectedIndex = selectedLayout,
+					enabled = not workspaceLayoutBusy and workspaceNumber > 0,
+					onChange = function(index, _text)
+						local wanted = workspaceLayouts[(tonumber(index) or 0) + 1]
+						if wanted then
+							setWorkspaceLayout(wanted.value)
+						end
+					end,
+				}),
+			}),
+			ui.label({
+				text = layoutDetail,
+				color = workspaceLayoutMessage == "" and "on_surface_variant" or "tertiary",
+				fontSize = 11,
+				maxLines = 2,
 			}),
 		}),
 		ui.label({ text = tr("overview.resolved_files"), fontWeight = "bold" }),
@@ -1295,6 +1434,11 @@ render = function()
 end
 
 function onOpen(_context)
+	panelOutput = noctalia.state.get("panel_output") or ""
+	if panelOutput == "" then
+		panelOutput = noctalia.focusedOutputName() or ""
+	end
+	queryWorkspaceLayout()
 	if snapshot ~= nil and hasDrafts() then
 		status = "dirty"
 		render()

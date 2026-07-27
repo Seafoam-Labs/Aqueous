@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Read-only Aqueous-specific extension of ext_foreign_toplevel_handle_v1.
-//! Each request returns a one-shot snapshot and retains no Window pointer.
+//! Aqueous-specific extension of ext_foreign_toplevel_handle_v1.
+//! Snapshot requests retain no Window pointer; layout control is output-scoped.
 
 const WindowInfoManager = @This();
 
@@ -15,6 +15,7 @@ const wlr = @import("wlroots");
 const server = &@import("main.zig").server;
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
+const Aqueous = @import("wm/Aqueous.zig");
 const util = @import("util.zig");
 
 const log = std.log.scoped(.wm);
@@ -27,7 +28,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            2,
+            3,
             *WindowInfoManager,
             manager,
             bind,
@@ -57,8 +58,41 @@ fn handleManagerRequest(
     switch (request) {
         .get_window_info => |args| sendSnapshot(resource, args.id, args.toplevel),
         .get_scene_snapshot => |args| sendSceneSnapshot(resource, args.id),
+        .get_active_workspace_layout => |args| sendActiveWorkspaceLayout(resource, std.mem.span(args.output)),
+        .set_active_workspace_layout => |args| {
+            const output = std.mem.span(args.output);
+            const status = server.aqueous.setActiveWorkspaceLayout(output, std.mem.span(args.layout));
+            if (status == .success) {
+                sendActiveWorkspaceLayout(resource, output);
+            } else {
+                resource.sendActiveWorkspaceLayout(
+                    @enumFromInt(@intFromEnum(status)),
+                    args.output,
+                    0,
+                    "",
+                );
+            }
+        },
         .destroy => {},
     }
+}
+
+fn sendActiveWorkspaceLayout(manager: *aqueous.WindowInfoManagerV1, output: []const u8) void {
+    const output_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{output}, 0) catch {
+        manager.getClient().postNoMemory();
+        return;
+    };
+    defer std.heap.c_allocator.free(output_z);
+    const current = server.aqueous.activeWorkspaceLayout(output) orelse {
+        manager.sendActiveWorkspaceLayout(.output_not_found, output_z.ptr, 0, "");
+        return;
+    };
+    manager.sendActiveWorkspaceLayout(
+        .success,
+        output_z.ptr,
+        current.workspace,
+        Aqueous.layoutName(current.layout).ptr,
+    );
 }
 
 fn sendSceneSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void {

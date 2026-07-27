@@ -18,14 +18,15 @@ const usage =
     \\       aqueousctl inspect --rule
     \\       aqueousctl scene [--dot]
     \\       aqueousctl outputs
+    \\       aqueousctl layout --output NAME [--set LAYOUT] --json
     \\
-    \\Inspect mapped windows and outputs, author rules, or visualize the compositor scene graph.
+    \\Inspect compositor state or change the active workspace layout on one output.
     \\
 ;
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
 
-const Mode = enum { windows, json, rules, scene, scene_dot, outputs };
+const Mode = enum { windows, json, rules, scene, scene_dot, outputs, layout_query, layout_set };
 
 const OutputMode = struct {
     width: i32,
@@ -124,6 +125,11 @@ const State = struct {
     outputs: std.ArrayListUnmanaged(*DisplayOutput) = .empty,
     list_finished: bool = false,
     windows: std.ArrayListUnmanaged(*Window) = .empty,
+    layout_done: bool = false,
+    layout_status: aqueous.WindowInfoManagerV1.LayoutStatus = .unavailable,
+    layout_output: ?[]u8 = null,
+    layout_workspace: u32 = 0,
+    layout_name: ?[]u8 = null,
 
     fn deinit(state: *State) void {
         for (state.windows.items) |window| window.deinit();
@@ -132,6 +138,8 @@ const State = struct {
         state.scene_nodes.deinit(allocator);
         for (state.outputs.items) |output| output.deinit();
         state.outputs.deinit(allocator);
+        if (state.layout_output) |value| allocator.free(value);
+        if (state.layout_name) |value| allocator.free(value);
         state.registry.destroy();
     }
 
@@ -197,6 +205,34 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     state.info_manager = try registry.bind(state.info_name, aqueous.WindowInfoManagerV1, state.info_version);
+    if (mode == .layout_query or mode == .layout_set) {
+        if (state.info_version < 3) {
+            try stderr.writeAll("aqueousctl: compositor does not expose workspace layout control\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        state.info_manager.?.setListener(*State, managerListener, &state);
+        const output = layoutOutput(args) orelse unreachable;
+        const output_z = try allocator.dupeZ(u8, output);
+        if (mode == .layout_set) {
+            const layout = layoutValue(args) orelse unreachable;
+            const layout_z = try allocator.dupeZ(u8, layout);
+            state.info_manager.?.setActiveWorkspaceLayout(output_z.ptr, layout_z.ptr);
+        } else {
+            state.info_manager.?.getActiveWorkspaceLayout(output_z.ptr);
+        }
+        var layout_rounds: usize = 0;
+        while (!state.layout_done and layout_rounds < 8) : (layout_rounds += 1) tryRoundtrip(display, stderr);
+        if (!state.layout_done) {
+            try stderr.writeAll("aqueousctl: timed out waiting for workspace layout state\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        try writeLayoutJson(stdout, &state);
+        try stdout.flush();
+        if (state.layout_status != .success) std.process.exit(1);
+        return;
+    }
     if (scene_mode) {
         if (state.info_version < 2) {
             try stderr.writeAll("aqueousctl: compositor does not expose scene graph snapshots\n");
@@ -236,7 +272,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot, .outputs => unreachable,
+        .scene, .scene_dot, .outputs, .layout_query, .layout_set => unreachable,
     }
     try stdout.flush();
 }
@@ -248,7 +284,20 @@ fn parseMode(args: anytype) ?Mode {
     if (args.len == 2 and mem.eql(u8, args[1], "scene")) return .scene;
     if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) return .scene_dot;
     if (args.len == 2 and mem.eql(u8, args[1], "outputs")) return .outputs;
+    if (args.len == 5 and mem.eql(u8, args[1], "layout") and
+        mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--json")) return .layout_query;
+    if (args.len == 7 and mem.eql(u8, args[1], "layout") and
+        mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--set") and
+        mem.eql(u8, args[6], "--json")) return .layout_set;
     return null;
+}
+
+fn layoutOutput(args: []const []const u8) ?[]const u8 {
+    return if (args.len >= 4) args[3] else null;
+}
+
+fn layoutValue(args: []const []const u8) ?[]const u8 {
+    return if (args.len >= 6) args[5] else null;
 }
 
 fn tryRoundtrip(display: *wl.Display, stderr: *Io.Writer) void {
@@ -290,6 +339,34 @@ fn registryListener(_: *wl.Registry, event: wl.Registry.Event, state: *State) vo
             }
         },
     }
+}
+
+fn managerListener(
+    _: *aqueous.WindowInfoManagerV1,
+    event: aqueous.WindowInfoManagerV1.Event,
+    state: *State,
+) void {
+    switch (event) {
+        .active_workspace_layout => |value| {
+            state.layout_status = value.status;
+            state.layout_workspace = value.workspace;
+            replaceString(&state.layout_output, mem.span(value.output));
+            replaceString(&state.layout_name, mem.span(value.layout));
+            state.layout_done = true;
+        },
+    }
+}
+
+fn writeLayoutJson(writer: *Io.Writer, state: *const State) !void {
+    try writer.writeAll("{\"ok\":");
+    try writer.writeAll(if (state.layout_status == .success) "true" else "false");
+    try writer.writeAll(",\"status\":");
+    try jsonString(writer, @tagName(state.layout_status));
+    try writer.writeAll(",\"output\":");
+    try jsonString(writer, state.layout_output orelse "");
+    try writer.print(",\"workspace\":{d},\"layout\":", .{state.layout_workspace});
+    try jsonString(writer, state.layout_name orelse "");
+    try writer.writeAll("}\n");
 }
 
 fn outputListener(_: *wl.Output, event: wl.Output.Event, output: *DisplayOutput) void {
@@ -706,12 +783,15 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.scene, parseMode(&.{ "aqueousctl", "scene" }).?);
     try testing.expectEqual(Mode.scene_dot, parseMode(&.{ "aqueousctl", "scene", "--dot" }).?);
     try testing.expectEqual(Mode.outputs, parseMode(&.{ "aqueousctl", "outputs" }).?);
+    try testing.expectEqual(Mode.layout_query, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--json" }).?);
+    try testing.expectEqual(Mode.layout_set, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--set", "grid", "--json" }).?);
 
     try testing.expect(parseMode(&.{"aqueousctl"}) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "windows", "--dot" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "scene", "--json" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "outputs", "--json" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "inspect" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1" }) == null);
 }
 
 test "outputs render advertised refresh rates and mode flags" {

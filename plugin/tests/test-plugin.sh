@@ -20,6 +20,7 @@ assert manifest["panel"][0]["entry"] == "panel.luau"
 assert manifest["panel"][0]["placement"] == "attached"
 assert manifest["panel"][0]["open_near_click"] is True
 assert "aqueous-config" in manifest["dependencies"]
+assert "aqueousctl" in manifest["dependencies"]
 
 logo = root / "aqueous.png"
 assert logo.is_file()
@@ -37,6 +38,8 @@ for key in (
     "display.rotation",
     "keybind.builtin",
     "keybind.custom",
+    "overview.workspace_layout",
+    "overview.workspace_layout.changed",
 ):
     assert key in translations, key
 
@@ -48,6 +51,8 @@ for entry in ("widget.luau", "panel.luau"):
 widget = (root / "widget.luau").read_text()
 assert 'barWidget.setImage("aqueous.png")' in widget
 assert 'barWidget.setText("Aqueous")' not in widget
+assert 'barWidget.outputName()' in widget
+assert 'noctalia.state.set("panel_output"' in widget
 
 panel = (root / "panel.luau").read_text()
 for feature in (
@@ -58,6 +63,10 @@ for feature in (
     "custom_keybind_changes",
     "keybindsView",
     'field.category == "keybinds" and 1',
+    'noctalia.state.get("panel_output")',
+    'layout --output ',
+    'setWorkspaceLayout',
+    'ui.select',
 ):
     assert feature in panel, feature
 PY

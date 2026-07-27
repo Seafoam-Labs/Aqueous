@@ -1125,7 +1125,7 @@ fn toggleMinimize(aqueous: *Aqueous) void {
 }
 
 fn setLayout(aqueous: *Aqueous, name: []const u8) void {
-    const id = std.meta.stringToEnum(layout_config.LayoutId, if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else name) orelse {
+    const id = parseLayoutName(name) orelse {
         if (std.mem.eql(u8, name, "primary")) return aqueous.setLayoutId(aqueous.config.layout.slots[0]);
         if (std.mem.eql(u8, name, "secondary")) return aqueous.setLayoutId(aqueous.config.layout.slots[1]);
         if (std.mem.eql(u8, name, "tertiary")) return aqueous.setLayoutId(aqueous.config.layout.slots[2]);
@@ -1133,6 +1133,79 @@ fn setLayout(aqueous: *Aqueous, name: []const u8) void {
         return;
     };
     aqueous.setLayoutId(id);
+}
+
+fn parseLayoutName(name: []const u8) ?layout_config.LayoutId {
+    return std.meta.stringToEnum(
+        layout_config.LayoutId,
+        if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else name,
+    );
+}
+
+pub fn layoutName(id: layout_config.LayoutId) [:0]const u8 {
+    return switch (id) {
+        .floating => "float",
+        .game_mode => "game-mode",
+        else => @tagName(id),
+    };
+}
+
+pub const ActiveWorkspaceLayout = struct {
+    workspace: u32,
+    layout: layout_config.LayoutId,
+};
+
+fn outputByName(name: []const u8) ?*@import("../Output.zig") {
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (std.mem.eql(u8, output.policyName(), name)) return output;
+    }
+    return null;
+}
+
+pub fn activeWorkspaceLayout(aqueous: *Aqueous, output_name: []const u8) ?ActiveWorkspaceLayout {
+    if (!aqueous.mode.runsInternal()) return null;
+    const output = outputByName(output_name) orelse return null;
+    const workspace = output.policyActiveWorkspaceNumber();
+    if (workspace == 0) return null;
+    const key: LayoutStateKey = .{ .output = output.policyId(), .workspace = workspace };
+    if (aqueous.layout_overrides.get(key)) |id| return .{ .workspace = workspace, .layout = id };
+    if (aqueous.layout_states.get(key)) |state| return .{ .workspace = workspace, .layout = state.active_layout };
+
+    var id = aqueous.config.layout.default;
+    const identity = output.policyIdentity();
+    if (aqueous.config.wm.resolveOutput(.{
+        .name = identity.name,
+        .make = identity.make,
+        .model = identity.model,
+        .serial = identity.serial,
+    })) |configured| id = configured;
+    if (aqueous.config.wm.resolveWorkspace(output_name, workspace)) |configured| id = configured;
+    return .{ .workspace = workspace, .layout = id };
+}
+
+pub const SetActiveWorkspaceLayoutStatus = enum {
+    success,
+    output_not_found,
+    invalid_layout,
+    unavailable,
+};
+
+pub fn setActiveWorkspaceLayout(
+    aqueous: *Aqueous,
+    output_name: []const u8,
+    layout_name: []const u8,
+) SetActiveWorkspaceLayoutStatus {
+    if (!aqueous.mode.runsInternal()) return .unavailable;
+    const id = parseLayoutName(layout_name) orelse return .invalid_layout;
+    const output = outputByName(output_name) orelse return .output_not_found;
+    const workspace = output.policyActiveWorkspaceNumber();
+    if (workspace == 0) return .unavailable;
+    const key: LayoutStateKey = .{ .output = output.policyId(), .workspace = workspace };
+    if (aqueous.layout_states.getPtr(key)) |state| state.game_mode.rule_layout_owned = false;
+    aqueous.layout_overrides.put(util.gpa, key, id) catch return .unavailable;
+    aqueous.api.requestManageCycle();
+    return .success;
 }
 
 fn setLayoutId(aqueous: *Aqueous, id: layout_config.LayoutId) void {

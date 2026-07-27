@@ -56,6 +56,8 @@ focus, workspaces, bindings, startup commands, screencopy, and outputs.
 The same build produces `zig-out/bin/aqueousctl`. While running inside an
 Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
 `aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
+`aqueousctl layout --output DP-1 --json` reports an output's active workspace
+layout; add `--set grid` before `--json` to change it immediately.
 
 The headless cutover and output checks are:
 

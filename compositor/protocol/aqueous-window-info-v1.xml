@@ -5,15 +5,16 @@
     SPDX-License-Identifier: MIT
   </copyright>
 
-  <description summary="read-only Aqueous window introspection">
+  <description summary="Aqueous window introspection and workspace layout control">
     This protocol augments ext_foreign_toplevel_handle_v1 with compositor
     policy information useful to diagnostics and window-rule authoring.
 
-    It is intentionally read-only. Enumeration and stable identifiers remain
-    owned by ext_foreign_toplevel_list_v1.
+    Enumeration and stable identifiers remain owned by
+    ext_foreign_toplevel_list_v1. Version 3 adds narrowly scoped control of the
+    active workspace layout on a named output.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="2">
+  <interface name="aqueous_window_info_manager_v1" version="3">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -21,6 +22,13 @@
     <enum name="error">
       <entry name="invalid_toplevel" value="0"
              summary="the foreign toplevel handle is not owned by Aqueous"/>
+    </enum>
+
+    <enum name="layout_status">
+      <entry name="success" value="0"/>
+      <entry name="output_not_found" value="1"/>
+      <entry name="invalid_layout" value="2"/>
+      <entry name="unavailable" value="3"/>
     </enum>
 
     <request name="get_window_info">
@@ -44,6 +52,29 @@
       </description>
       <arg name="id" type="new_id" interface="aqueous_scene_snapshot_v1"/>
     </request>
+
+    <request name="get_active_workspace_layout" since="3">
+      <description summary="query the active workspace layout on an output"/>
+      <arg name="output" type="string" summary="output connector name"/>
+    </request>
+
+    <request name="set_active_workspace_layout" since="3">
+      <description summary="change the active workspace layout on an output">
+        The layout change is applied immediately and remains a runtime override
+        until the compositor exits.
+      </description>
+      <arg name="output" type="string" summary="output connector name"/>
+      <arg name="layout" type="string"
+           summary="tile, monocle, grid, rows, dwindle, scrolling, float, or game-mode"/>
+    </request>
+
+    <event name="active_workspace_layout" since="3">
+      <description summary="result of a layout query or change"/>
+      <arg name="status" type="uint" enum="layout_status"/>
+      <arg name="output" type="string"/>
+      <arg name="workspace" type="uint" summary="one-based active workspace, or zero"/>
+      <arg name="layout" type="string" summary="effective layout, or empty on failure"/>
+    </event>
   </interface>
 
   <interface name="aqueous_window_info_v1" version="1">

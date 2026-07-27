@@ -17,7 +17,7 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
          'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff'
-         'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-renderutil')
+         'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
 makedepends=('clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols' 'pkgconf'
              'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
@@ -121,7 +121,7 @@ check() {
 }
 
 package() {
-    # Install the compositor/window-manager and read-only inspection client.
+    # Install the compositor/window-manager and inspection/layout client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueousctl" "$pkgdir/usr/bin/aqueousctl"
     install -Dm755 "$srcdir/aqueous-plugin-dist/bin/aqueous-config" \
