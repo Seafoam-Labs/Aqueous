@@ -678,6 +678,7 @@ pub fn commitOutputState(om: *OutputManager) void {
                 &state.base,
                 swapchain_manager.getSwapchain(state.output),
                 false,
+                false,
             );
             if (!built) {
                 log.err("failed to render scene for {s}", .{state.output.name});

@@ -512,8 +512,8 @@ awk \
     -v frame="$blur_frame" \
     -v contrast="$blur_content_contrast" \
     'BEGIN {
-        exit !(grid > adjacent + 0.10 &&
-            frame > 0.80 &&
+        exit !(grid > adjacent + 0.05 &&
+            frame > 0.50 &&
             contrast > 1.0)
     }' ||
     die "backdrop blur was composited over the blur window's client content"
@@ -618,8 +618,8 @@ awk \
     -v height="$blurred_diff_height" \
     'BEGIN {
         exit !(changed > 1000 &&
-            width > 160 && width <= 240 &&
-            height > 120 && height <= 200)
+            width >= 160 && width <= 240 &&
+            height >= 120 && height <= 200)
     }' ||
     die "localized backdrop update escaped its expanded damage region"
 

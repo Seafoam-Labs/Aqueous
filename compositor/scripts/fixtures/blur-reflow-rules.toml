@@ -1,0 +1,17 @@
+[[window]]
+app_id = "aqueous.effects.background"
+layout = "floating"
+floating = true
+width = 1920
+height = 1080
+x = 0
+y = 0
+blur = false
+opacity = 1.0
+
+[[window]]
+app_id = "aqueous.effects.blur"
+layout = "tile"
+floating = false
+blur = true
+opacity = 0.82

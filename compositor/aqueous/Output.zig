@@ -919,13 +919,27 @@ fn hasVisibleBlur(output: *const Output) bool {
     return false;
 }
 
-pub fn prepareUncachedBlurDamage(output: *Output) bool {
-    if (!uncachedBlurRequested() or !output.hasVisibleBlur()) return false;
+/// Animation moves both the blur source and decorations drawn above it. Repaint
+/// the complete output so the offscreen blur pass cannot sample decoration
+/// pixels retained at a window's previous position. Static cached blur keeps
+/// using normal partial damage.
+pub fn prepareFullBlurDamage(
+    output: *Output,
+    animation_changed_scene: bool,
+) bool {
+    if ((!uncachedBlurRequested() and !animation_changed_scene) or
+        !output.hasVisibleBlur())
+    {
+        return false;
+    }
+    if (animation_changed_scene) {
+        log.debug("forcing full output damage for blurred animation", .{});
+    }
     output.scene_output.?.damage_ring.addWhole();
     return true;
 }
 
-pub fn setUncachedBlurDamage(
+pub fn setFullBlurDamage(
     output: *const Output,
     state: *wlr.Output.State,
 ) void {
@@ -1637,6 +1651,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         &state,
         null,
         render_metrics.enabled() and output.render_metric_sample == null,
+        force,
     )) {
         return error.CommitFailed;
     }
@@ -1701,12 +1716,14 @@ pub fn buildSceneState(
     state: *wlr.Output.State,
     swapchain: ?*wlr.Swapchain,
     collect_metrics: bool,
+    animation_changed_scene: bool,
 ) bool {
     output.syncWindowVisualState();
     output.effects_swapchain_path = swapchain != null;
     defer output.effects_swapchain_path = false;
 
-    const uncached_blur_damage = output.prepareUncachedBlurDamage();
+    const full_blur_damage =
+        output.prepareFullBlurDamage(animation_changed_scene);
     var scene_options: wlr.SceneOutput.StateOptions = .{
         .swapchain = swapchain,
     };
@@ -1723,7 +1740,7 @@ pub fn buildSceneState(
         return false;
     }
     output.recordVulkanEffectsMetric();
-    if (uncached_blur_damage) output.setUncachedBlurDamage(state);
+    if (full_blur_damage) output.setFullBlurDamage(state);
     return true;
 }
 

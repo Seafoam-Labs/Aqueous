@@ -1,0 +1,26 @@
+[layout]
+default = "tile"
+gaps_outer = 24
+gaps_inner = 12
+force_ssd = true
+
+[blur]
+enabled = true
+radius = 10
+passes = 8
+
+[opacity]
+enabled = false
+value = 1.0
+focus_sensitive = false
+focused = 1.0
+unfocused = 1.0
+
+[workspace_transition]
+enabled = false
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0
