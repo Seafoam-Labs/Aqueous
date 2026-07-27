@@ -3,7 +3,7 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.1.0
-pkgrel=5
+pkgrel=6
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -41,8 +41,15 @@ check() {
     local required=(
         bin/aqueous
         bin/aqueousctl
+        bin/aqueous-config
         lib/aqueous/libwlroots-0.20.so
+        lib/aqueous/enable-noctalia-plugin
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+        share/aqueous/noctalia-plugins/catalog.toml
+        share/aqueous/noctalia-plugins/settings/plugin.toml
+        share/aqueous/noctalia-plugins/settings/widget.luau
+        share/aqueous/noctalia-plugins/settings/panel.luau
+        share/aqueous/noctalia-plugins/settings/translations/en.json
         bin/aqueous-init
         bin/aqueous-wm
         share/wayland-sessions/aqueous.desktop
@@ -95,6 +102,7 @@ package() {
     install -d "$pkgdir/usr/bin"
     install -Dm755 "$srcdir/bin/aqueous"      "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/bin/aqueousctl"   "$pkgdir/usr/bin/aqueousctl"
+    install -Dm755 "$srcdir/bin/aqueous-config" "$pkgdir/usr/bin/aqueous-config"
     install -Dm755 "$srcdir/bin/aqueous-init" "$pkgdir/usr/bin/aqueous-init"
     install -Dm755 "$srcdir/bin/aqueous-wm"   "$pkgdir/usr/bin/aqueous-wm"
 

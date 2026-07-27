@@ -95,6 +95,14 @@ jobs:
             exit 1
           fi
 
+      - name: Build Aqueous Settings helper
+        shell: bash
+        run: |
+          set -euxo pipefail
+          zig build --build-file plugin/helper/build.zig \
+            -Dcpu=baseline -Doptimize=ReleaseSafe \
+            --prefix "$GITHUB_WORKSPACE/publish/aqueous-plugin" install
+
       - name: Stage bundle
         shell: bash
         run: |
@@ -113,6 +121,7 @@ jobs:
           # Binaries
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
+          cp publish/aqueous-plugin/bin/aqueous-config publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
             publish/aqueous-linux-x64/lib/aqueous/
 
@@ -137,6 +146,8 @@ jobs:
           # tarball/binary install also brings up the SNI tray watcher before the
           # autostart target (mirrors PKGBUILD package()).
           cp packaging/noctalia.service publish/aqueous-linux-x64/lib/systemd/user/
+          cp packaging/enable-noctalia-plugin.sh \
+             publish/aqueous-linux-x64/lib/aqueous/enable-noctalia-plugin
           mkdir -p publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants
           ln -sf ../noctalia.service \
              publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
@@ -148,6 +159,15 @@ jobs:
             mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia
             cp packaging/noctalia/*.toml publish/aqueous-linux-x64/share/aqueous/noctalia/ 2>/dev/null || true
           fi
+          mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations
+          cp plugin/catalog.toml \
+             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/
+          cp plugin/settings/plugin.toml \
+             plugin/settings/widget.luau \
+             plugin/settings/panel.luau \
+             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/
+          cp plugin/settings/translations/en.json \
+             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations/
           if [ -d packaging/wallpapers ]; then
             mkdir -p publish/aqueous-linux-x64/share/aqueous/wallpapers
             cp packaging/wallpapers/*.avif publish/aqueous-linux-x64/share/aqueous/wallpapers/ 2>/dev/null || true
