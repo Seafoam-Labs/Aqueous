@@ -21,6 +21,10 @@ assert manifest["panel"][0]["placement"] == "attached"
 assert manifest["panel"][0]["open_near_click"] is True
 assert "aqueous-config" in manifest["dependencies"]
 
+logo = root / "aqueous.png"
+assert logo.is_file()
+assert logo.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
 translations = json.loads((root / "translations/en.json").read_text())
 for key in (
     "title",
@@ -40,6 +44,10 @@ for entry in ("widget.luau", "panel.luau"):
     text = (root / entry).read_text()
     assert "import Qt" not in text
     assert "Quickshell" not in text
+
+widget = (root / "widget.luau").read_text()
+assert 'barWidget.setImage("aqueous.png")' in widget
+assert 'barWidget.setText("Aqueous")' not in widget
 
 panel = (root / "panel.luau").read_text()
 for feature in (

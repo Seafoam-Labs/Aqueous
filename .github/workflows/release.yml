@@ -165,6 +165,7 @@ jobs:
           cp plugin/settings/plugin.toml \
              plugin/settings/widget.luau \
              plugin/settings/panel.luau \
+             plugin/settings/aqueous.png \
              publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/
           cp plugin/settings/translations/en.json \
              publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations/

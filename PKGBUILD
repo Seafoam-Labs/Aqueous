@@ -209,6 +209,8 @@ package() {
         "$plugin_runtime/widget.luau"
     install -m644 "$srcdir/aqueous/plugin/settings/panel.luau" \
         "$plugin_runtime/panel.luau"
+    install -m644 "$srcdir/aqueous/plugin/settings/aqueous.png" \
+        "$plugin_runtime/aqueous.png"
     install -m644 "$srcdir/aqueous/plugin/settings/translations/en.json" \
         "$plugin_runtime/translations/en.json"
 

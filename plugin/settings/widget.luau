@@ -3,8 +3,7 @@
 local PANEL_ID = "aqueous/settings:panel"
 
 local function render()
-	barWidget.setGlyph("adjustments-horizontal")
-	barWidget.setText("Aqueous")
+	barWidget.setImage("aqueous.png")
 	barWidget.setTooltip(noctalia.tr("widget.tooltip"))
 end
 

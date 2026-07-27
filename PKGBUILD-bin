@@ -49,6 +49,7 @@ check() {
         share/aqueous/noctalia-plugins/settings/plugin.toml
         share/aqueous/noctalia-plugins/settings/widget.luau
         share/aqueous/noctalia-plugins/settings/panel.luau
+        share/aqueous/noctalia-plugins/settings/aqueous.png
         share/aqueous/noctalia-plugins/settings/translations/en.json
         bin/aqueous-init
         bin/aqueous-wm
