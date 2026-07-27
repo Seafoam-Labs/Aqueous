@@ -119,6 +119,7 @@ pub const fields = [_]Field{
     b("layout.options.monocle.show_borders", .layouts, "Monocle border", "Draw the configured border in monocle.", .layout, "layout.options.monocle", "show_borders", false),
 
     b("input.focus_follows_mouse", .input, "Focus follows pointer", "Focus a window when the pointer enters it.", .input, "input", "focus_follows_mouse", false),
+    b("input.focus_new_windows", .input, "Focus new windows", "Give keyboard focus to a newly opened focusable window.", .input, "input", "focus_new_windows", false),
     b("input.pointer_acceleration", .input, "Pointer acceleration", "Select adaptive pointer acceleration globally.", .input, "input", "pointer_acceleration", false),
     f("input.pointer_acceleration_factor", .input, "Pointer speed", "Global libinput pointer speed.", .input, "input", "pointer_acceleration_factor", .double, "0.0", -1, 1),
     t("input.xkb_layout", .input, "Keyboard layout", "Comma-separated XKB layout names.", .input, "input", "xkb_layout", "us"),

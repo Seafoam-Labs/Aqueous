@@ -538,6 +538,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
                 .parent = window_snapshot.parent_handle,
                 .app_id = app_id,
                 .title = title,
+                .accepts_focus = window_snapshot.accepts_focus,
                 .fullscreen = window_snapshot.fullscreen,
                 .scrolling_full_width = window.policy_state.scrolling_full_width,
                 .min_width = window_snapshot.min_width,

@@ -180,6 +180,7 @@ pub const PolicySnapshot = struct {
     active: bool,
     app_id: ?[*:0]const u8,
     title: ?[*:0]const u8,
+    accepts_focus: bool,
     fullscreen: bool,
     min_width: i32,
     min_height: i32,
@@ -468,6 +469,7 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         // filtered by the caller anyway.
         .app_id = if (active) window.getAppId() else null,
         .title = if (active) window.getTitle() else null,
+        .accepts_focus = window.wm_scheduled.accepts_focus,
         .fullscreen = window.wm_requested.fullscreen != null,
         .min_width = @intCast(window.wm_scheduled.dimensions_hint.min_width),
         .min_height = @intCast(window.wm_scheduled.dimensions_hint.min_height),

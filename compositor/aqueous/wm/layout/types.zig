@@ -28,6 +28,7 @@ pub const Window = struct {
     parent: ?Handle = null,
     app_id: ?[]u8 = null,
     title: ?[]u8 = null,
+    accepts_focus: bool = true,
     min_width: i32 = 0,
     min_height: i32 = 0,
     max_width: i32 = 0,

@@ -353,6 +353,13 @@ hit-testing. Modifier drags are intercepted before client delivery. Holding
 the configured pointer-untrap binding temporarily suppresses pointer
 constraints and restores them on key release.
 
+New windows preserve the current keyboard target by default. Enabling
+`focus_new_windows` makes the integrated policy focus the newest admitted
+focusable window after its workspace rules are resolved. Windows routed to an
+inactive workspace and X11 surfaces which reject keyboard focus do not steal
+focus; admission waits while a layer-shell or other non-window surface owns
+the keyboard.
+
 ## Workspaces
 
 Each output creates nine pinned workspaces and has exactly one active

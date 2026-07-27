@@ -90,6 +90,7 @@ rollback_seconds = 0
 # [input]
 # path = "~/.config/aqueous/input.toml"
 # focus_follows_mouse = false
+# focus_new_windows = false
 # pointer_acceleration = false
 # pointer_acceleration_factor = 0.0
 # repeat_rate = 40       # characters per second; 0 disables repeat

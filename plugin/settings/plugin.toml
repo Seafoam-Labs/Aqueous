@@ -1,6 +1,7 @@
 id = "aqueous/settings"
 name = "Aqueous Settings"
 version = "0.1.0"
+min_noctalia = "5.0.0"
 plugin_api = 9
 author = "Seafoam Labs"
 license = "GPL-3.0-only"

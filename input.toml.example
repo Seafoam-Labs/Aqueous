@@ -27,6 +27,7 @@ pinch_4_in = "builtin:toggle_start_menu"
 [input]
 # Focus a window when the pointer enters it.
 focus_follows_mouse = false
+focus_new_windows = false
 
 # Legacy global mouse acceleration controls. Per-device accel_profile and
 # accel_speed below take precedence. pointer_acceleration=true selects the

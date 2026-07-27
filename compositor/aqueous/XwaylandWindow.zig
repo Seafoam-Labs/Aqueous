@@ -243,6 +243,7 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
     xwindow.updateFocusHint();
 
     window.state = .initialized;
+    server.aqueous.noteWindowAdmission(@bitCast(window.ref));
     window.map() catch {
         log.err("out of memory", .{});
         surface.resource.getClient().postNoMemory();

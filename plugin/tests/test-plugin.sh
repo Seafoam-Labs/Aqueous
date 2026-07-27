@@ -14,6 +14,7 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 manifest = tomllib.loads((root / "plugin.toml").read_text())
 assert manifest["id"] == "aqueous/settings"
+assert manifest["min_noctalia"] == "5.0.0"
 assert manifest["plugin_api"] == 9
 assert manifest["widget"][0]["entry"] == "widget.luau"
 assert manifest["panel"][0]["entry"] == "panel.luau"

@@ -405,6 +405,10 @@ fn applyInputSource(snapshot: *Snapshot, source: []const u8) void {
 fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
     const defaults: wm.Input = .{};
     if (overlay.focus_follows_mouse != defaults.focus_follows_mouse) base.focus_follows_mouse = overlay.focus_follows_mouse;
+    if (overlay.focus_new_windows_set) {
+        base.focus_new_windows = overlay.focus_new_windows;
+        base.focus_new_windows_set = true;
+    }
     if (overlay.pointer_acceleration != defaults.pointer_acceleration) base.pointer_acceleration = overlay.pointer_acceleration;
     if (overlay.pointer_acceleration_factor != defaults.pointer_acceleration_factor) base.pointer_acceleration_factor = overlay.pointer_acceleration_factor;
     if (overlay.repeat_rate_set) {
@@ -453,6 +457,21 @@ test "input sidecar repeat settings override inherited values including defaults
 
     try std.testing.expectEqual(@as(u31, 40), base.repeat_rate);
     try std.testing.expectEqual(@as(u31, 400), base.repeat_delay);
+}
+
+test "input sidecar can explicitly disable new-window focus" {
+    var base: wm.Input = .{ .focus_new_windows = true, .focus_new_windows_set = true };
+    var overlay_wm: wm.Snapshot = .{};
+    var ignored_layout: layout.Snapshot = .{};
+    wm.apply(&overlay_wm, &ignored_layout,
+        \\[input]
+        \\focus_new_windows = false
+    );
+
+    mergeInput(&base, overlay_wm.input);
+
+    try std.testing.expect(!base.focus_new_windows);
+    try std.testing.expect(base.focus_new_windows_set);
 }
 
 test "input sidecar applies gestures and overrides matching wm bindings" {

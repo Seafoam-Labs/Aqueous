@@ -355,6 +355,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     if (toplevel.wlr_toplevel.base.initial_commit) {
         assert(window.state != .ready);
         window.state = .ready;
+        server.aqueous.noteWindowAdmission(@bitCast(window.ref));
         server.wm.dirtyWindowing();
         return;
     }

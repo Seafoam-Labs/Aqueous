@@ -51,6 +51,10 @@ reload_timer: ?*wl.EventSource = null,
 globals_applied: bool = false,
 focus_history: FocusHistory,
 pending_focus: PendingFocus,
+/// Most recently admitted toplevel waiting for the opt-in new-window focus
+/// policy. A single handle is sufficient: coalesced admissions focus the
+/// newest window, matching the compositor's creation-event order.
+pending_new_focus: layout_types.Handle = 0,
 window_states: StateStore,
 output_service: OutputService,
 started: bool = false,
@@ -129,6 +133,7 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 
 pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.config = config_loader.load(util.gpa);
+    if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
@@ -189,7 +194,16 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     }
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
-    const selected_output_id = aqueous.api.selectedOutputId();
+    var cycle_focus = focused;
+    var cycle_selected_output_id = aqueous.api.selectedOutputId();
+    // Direct pointer, keybinding, or client activation requests are newer and
+    // more intentional than admission focus. Never overwrite one which was
+    // coalesced into this management transaction.
+    if (!aqueous.config.wm.input.focus_new_windows or aqueous.requested_stack_focus != null) {
+        aqueous.pending_new_focus = 0;
+    }
+    const pending_new_focus = aqueous.pending_new_focus;
+    var pending_new_focus_seen = false;
     var focused_is_focusable = focused == null;
     var replacement_focus_requested = false;
     if ((focused != null and focused == aqueous.pending_focus.window) or
@@ -227,10 +241,6 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .class = window.app_id,
                 .title = window.title,
             });
-            const focus_opacity: ?f64 = if (aqueous.config.wm.opacity_enabled and aqueous.config.wm.opacity_focus_sensitive)
-                (if (focused == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)
-            else
-                null;
             aqueous.reconcileTransientParent(window, usable_area);
             aqueous.api.ensureWorkspace(window.handle, output.id);
             const effect = aqueous.reconcileWindowRule(
@@ -242,12 +252,17 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 output_layout.layoutOptions(.floating).border,
                 rule,
             );
-            aqueous.api.applyRuleVisual(
-                window.handle,
-                if (rule) |matched| matched.blur else null,
-                if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
-                aqueous.config.wm.force_ssd,
-            );
+            if (pending_new_focus != 0 and window.handle == pending_new_focus) {
+                pending_new_focus_seen = true;
+                if (!admissionFocusEligible(window.accepts_focus, state.kind, effect.workspace_visible)) {
+                    aqueous.pending_new_focus = 0;
+                } else if (!non_window_keyboard_focus) {
+                    if (cycle_focus != window.handle) aqueous.requestFocus(window.handle);
+                    cycle_focus = window.handle;
+                    cycle_selected_output_id = output.id;
+                    aqueous.pending_new_focus = 0;
+                }
+            }
             if (effect.fullscreen) {
                 if (fullscreen_owner) |prior| if (prior != window.handle) {
                     if (aqueous.window_states.get(prior)) |prior_state| prior_state.overrideFullscreen();
@@ -269,7 +284,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .border = .none,
                     .tiled = false,
                 });
-                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (state.kind == .maximized) {
@@ -284,7 +299,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .tiled = false,
                     .maximized = true,
                 });
-                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (state.kind == .floating) {
@@ -304,20 +319,40 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .border = output_layout.layoutOptions(.floating).border,
                     .tiled = false,
                 });
-                if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (rule) |matched| {
                 if (matched.layout) |id| output_layout.default = ruleLayout(id);
-                if (matched.layout == .game_mode and (game_anchor == null or focused == window.handle)) {
+                if (matched.layout == .game_mode and (game_anchor == null or cycle_focus == window.handle)) {
                     game_anchor = .{ .handle = window.handle, .rule = matched };
                 }
             }
             managed.appendAssumeCapacity(window);
-            if (effect.workspace_visible) focusable.appendAssumeCapacity(window);
+            if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
             if (rule != null and rule.?.layout == .game_mode and managed.items.len > 1) {
                 std.mem.swap(layout_types.Window, &managed.items[0], &managed.items[managed.items.len - 1]);
             }
+        }
+        // Admission focus is resolved only after workspace/focusability rules,
+        // so apply focus-sensitive visuals in a second pass using the focus
+        // target which Seat.manageFinish() will commit this transaction.
+        for (output.windows) |window| {
+            const rule = aqueous.rules.resolve(.{
+                .app_id = window.app_id,
+                .class = window.app_id,
+                .title = window.title,
+            });
+            const focus_opacity: ?f64 = if (aqueous.config.wm.opacity_enabled and aqueous.config.wm.opacity_focus_sensitive)
+                (if (cycle_focus == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)
+            else
+                null;
+            aqueous.api.applyRuleVisual(
+                window.handle,
+                if (rule) |matched| matched.blur else null,
+                if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
+                aqueous.config.wm.force_ssd,
+            );
         }
         const entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
@@ -325,20 +360,20 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         if (entry.value_ptr.game_mode.rule_layout_owned) output_layout.default = .game_mode;
         entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
         if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area);
-        if (focused) |handle| {
+        if (cycle_focus) |handle| {
             if (containsWindow(focusable.items, handle)) {
                 focused_is_focusable = true;
                 try aqueous.focus_history.record(workspace_key, handle);
             }
         }
-        const focus_valid = if (focused) |handle| containsWindow(focusable.items, handle) else false;
-        if (!focus_valid and !non_window_keyboard_focus and selected_output_id == output.id) {
+        const focus_valid = if (cycle_focus) |handle| containsWindow(focusable.items, handle) else false;
+        if (!focus_valid and !non_window_keyboard_focus and cycle_selected_output_id == output.id) {
             var target = aqueous.focus_history.pick(workspace_key, focusable.items, focusCandidateValid);
-            if (target == 0 and managed.items.len > 0) target = managed.items[0].handle;
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
             if (target != 0 and target != aqueous.pending_focus.window) {
                 aqueous.pending_focus.setWindow(target, 1);
                 aqueous.requestFocus(target);
+                cycle_focus = target;
                 replacement_focus_requested = true;
             }
         }
@@ -348,7 +383,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             &output_layout,
             usable_area,
             managed.items,
-            focused,
+            cycle_focus,
             gameConfigOptions(aqueous.rules.game_mode),
         );
         defer util.gpa.free(placements);
@@ -361,9 +396,18 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         try requested.appendSlice(util.gpa, placements);
-        aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse focused);
+        aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse cycle_focus);
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
         for (requested.items) |placement| aqueous.api.applyPlacement(placement);
+    }
+
+    // A newly admitted window which cannot appear on any active output (for
+    // example, a transient owned by an inactive workspace) must not steal
+    // focus when that workspace is visited much later.
+    if (pending_new_focus != 0 and !pending_new_focus_seen and snapshot.outputs.len > 0 and
+        aqueous.pending_new_focus == pending_new_focus)
+    {
+        aqueous.pending_new_focus = 0;
     }
 
     // A closing, minimized, or workspace-removed window may still be the
@@ -643,6 +687,15 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     while (layouts.next()) |state| layout_engine.forgetWindow(state, handle);
     aqueous.window_states.remove(handle);
     if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
+    if (aqueous.pending_new_focus == handle) aqueous.pending_new_focus = 0;
+}
+
+/// Record a newly admitted normal toplevel for the integrated focus policy.
+/// Native windows call this before their initial configure; XWayland calls it
+/// once the associated surface and ICCCM focus hint are available.
+pub fn noteWindowAdmission(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_new_windows) return;
+    aqueous.pending_new_focus = handle;
 }
 
 /// Input events may be coalesced while an integrated-policy pointer operation
@@ -1301,6 +1354,10 @@ fn focusCandidateValid(windows: []const layout_types.Window, handle: layout_type
     return containsWindow(windows, handle);
 }
 
+fn admissionFocusEligible(accepts_focus: bool, kind: StateStore.Kind, workspace_visible: bool) bool {
+    return accepts_focus and kind != .minimized and workspace_visible;
+}
+
 const OutputFocusContext = struct {
     aqueous: *Aqueous,
     windows: []const layout_types.Window,
@@ -1434,7 +1491,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
     const output_changed = aqueous.output_service.pollReload();
     if (!config_changed and !rules_changed and !output_changed) return 0;
 
-    if (config_changed) aqueous.config = replacement;
+    if (config_changed) {
+        aqueous.config = replacement;
+        if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
+    }
     if (config_changed or rules_changed) rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
@@ -1621,4 +1681,12 @@ test "usable area combines layer-shell zones and static struts without double co
         layout_types.Rect{ .x = 48, .y = 32, .width = 1872, .height = 1048 },
         intersectRects(dock, configured),
     );
+}
+
+test "new-window focus eligibility rejects hidden, minimized, and input-inert windows" {
+    try std.testing.expect(admissionFocusEligible(true, .tiled, true));
+    try std.testing.expect(admissionFocusEligible(true, .floating, true));
+    try std.testing.expect(!admissionFocusEligible(false, .tiled, true));
+    try std.testing.expect(!admissionFocusEligible(true, .minimized, true));
+    try std.testing.expect(!admissionFocusEligible(true, .tiled, false));
 }

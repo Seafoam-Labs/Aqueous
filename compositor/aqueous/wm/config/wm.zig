@@ -56,6 +56,8 @@ pub const Device = struct {
 
 pub const Input = struct {
     focus_follows_mouse: bool = false,
+    focus_new_windows: bool = false,
+    focus_new_windows_set: bool = false,
     pointer_acceleration: bool = false,
     pointer_acceleration_factor: f64 = 0,
     /// Keyboard repeat rate in characters per second. Zero disables repeat.
@@ -261,6 +263,10 @@ fn applyOpacity(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
 
 fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "focus_follows_mouse")) input.focus_follows_mouse = parseBool(value) orelse input.focus_follows_mouse;
+    if (std.mem.eql(u8, key, "focus_new_windows")) if (parseBool(value)) |parsed| {
+        input.focus_new_windows = parsed;
+        input.focus_new_windows_set = true;
+    };
     if (std.mem.eql(u8, key, "pointer_acceleration")) input.pointer_acceleration = parseBool(value) orelse input.pointer_acceleration;
     if (std.mem.eql(u8, key, "pointer_acceleration_factor")) input.pointer_acceleration_factor = parseSpeed(value) orelse input.pointer_acceleration_factor;
     if (std.mem.eql(u8, key, "repeat_rate") or std.mem.eql(u8, key, "repeat-rate")) if (parseU31(value)) |parsed| {
@@ -419,6 +425,7 @@ test "wm and input config validates mappings, struts, and device settings" {
         \\left = -2
         \\[input]
         \\focus_follows_mouse = true
+        \\focus_new_windows = true
         \\repeat_rate = 30
         \\repeat_delay = 275
         \\xkb_layout = "us,de"
@@ -436,12 +443,20 @@ test "wm and input config validates mappings, struts, and device settings" {
     try std.testing.expectEqual(@as(i32, 32), wm_snapshot.struts.top);
     try std.testing.expectEqual(@as(i32, 0), wm_snapshot.struts.left);
     try std.testing.expect(wm_snapshot.input.focus_follows_mouse);
+    try std.testing.expect(wm_snapshot.input.focus_new_windows);
+    try std.testing.expect(wm_snapshot.input.focus_new_windows_set);
     try std.testing.expectEqual(@as(u31, 30), wm_snapshot.input.repeat_rate);
     try std.testing.expectEqual(@as(u31, 275), wm_snapshot.input.repeat_delay);
     try std.testing.expectEqualStrings("us,de", wm_snapshot.input.xkb_layout.slice());
     try std.testing.expectEqual(@as(?f64, 0.5), wm_snapshot.input.touchpad.accel_speed);
     try std.testing.expectEqual(layout.LayoutId.grid, wm_snapshot.resolveOutput(.{ .name = "DP-1" }).?);
     try std.testing.expectEqual(layout.LayoutId.monocle, wm_snapshot.resolveWorkspace("DP-1", 2).?);
+}
+
+test "new-window focus defaults to disabled" {
+    const snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.input.focus_new_windows);
+    try std.testing.expect(!snapshot.input.focus_new_windows_set);
 }
 
 test "comments inside quoted values are preserved" {
