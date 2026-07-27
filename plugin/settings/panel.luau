@@ -265,13 +265,22 @@ local function writeRequest(mode)
 	local request = {
 		protocol = PROTOCOL,
 		expected_generation = snapshot.generation,
-		changes = changes,
 		raw_files = rawFiles,
-		monitor_changes = monitorChanges,
-		custom_keybind_changes = customKeybindChanges,
 		backup_dir = dataDir .. "/backups",
 		create_user_override = true,
 	}
+	-- Empty Luau tables are encoded as JSON objects by Noctalia. Only include
+	-- list-valued request members when they contain an item, otherwise the
+	-- helper would receive `{}` where the protocol expects `[]`.
+	if #changes > 0 then
+		request.changes = changes
+	end
+	if #monitorChanges > 0 then
+		request.monitor_changes = monitorChanges
+	end
+	if #customKeybindChanges > 0 then
+		request.custom_keybind_changes = customKeybindChanges
+	end
 	local encoded = noctalia.json.encode(request)
 	if encoded == nil then
 		status = "error"

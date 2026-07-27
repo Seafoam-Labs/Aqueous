@@ -254,8 +254,14 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
     // keybind edits, which may insert a new key into [keybinds] and shift every
     // later [keybinds.custom] entry.
     if (request.get("custom_keybind_changes")) |custom_changes| {
-        if (custom_changes != .array) return error.InvalidCustomKeybindChanges;
-        if (custom_changes.array.items.len > 0) {
+        // Noctalia's Luau JSON bridge represents an empty table as `{}`.
+        // Accept only that empty-object form as the equivalent of an empty
+        // array; populated objects remain malformed requests.
+        if (custom_changes == .object and custom_changes.object.count() == 0) {
+            // Nothing to apply.
+        } else if (custom_changes != .array) {
+            return error.InvalidCustomKeybindChanges;
+        } else if (custom_changes.array.items.len > 0) {
             if (request.get("raw_files")) |raw_files| {
                 if (raw_files == .object and raw_files.object.get("wm") != null) return error.ConflictingEdits;
             }
@@ -269,21 +275,29 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
     }
 
     if (request.get("changes")) |changes| {
-        if (changes != .array) return error.InvalidChanges;
-        for (changes.array.items) |change| {
-            if (change != .object) return error.InvalidChange;
-            const id = jsonString(change.object.get("id")) orelse return error.MissingFieldId;
-            const schema_field = schema.find(id) orelse return error.UnknownField;
-            const value = change.object.get("value") orelse return error.MissingValue;
-            const encoded = try encodeTomlValue(allocator, schema_field, value);
-            try files.items[@intFromEnum(schema_field.file)].document.setRaw(schema_field.section, schema_field.key, encoded);
-            dirty[@intFromEnum(schema_field.file)] = true;
+        if (changes == .object and changes.object.count() == 0) {
+            // Nothing to apply.
+        } else if (changes != .array) {
+            return error.InvalidChanges;
+        } else {
+            for (changes.array.items) |change| {
+                if (change != .object) return error.InvalidChange;
+                const id = jsonString(change.object.get("id")) orelse return error.MissingFieldId;
+                const schema_field = schema.find(id) orelse return error.UnknownField;
+                const value = change.object.get("value") orelse return error.MissingValue;
+                const encoded = try encodeTomlValue(allocator, schema_field, value);
+                try files.items[@intFromEnum(schema_field.file)].document.setRaw(schema_field.section, schema_field.key, encoded);
+                dirty[@intFromEnum(schema_field.file)] = true;
+            }
         }
     }
 
     if (request.get("monitor_changes")) |monitor_changes| {
-        if (monitor_changes != .array) return error.InvalidMonitorChanges;
-        if (monitor_changes.array.items.len > 0) {
+        if (monitor_changes == .object and monitor_changes.object.count() == 0) {
+            // Nothing to apply.
+        } else if (monitor_changes != .array) {
+            return error.InvalidMonitorChanges;
+        } else if (monitor_changes.array.items.len > 0) {
             if (request.get("raw_files")) |raw_files| {
                 if (raw_files == .object and raw_files.object.get("wm") != null) return error.ConflictingEdits;
             }

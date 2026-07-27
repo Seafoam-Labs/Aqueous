@@ -39,6 +39,24 @@ jq -e '
 ' "$snapshot" >/dev/null
 
 generation=$(jq -r .generation "$snapshot")
+
+# Noctalia encodes empty Luau tables as JSON objects. Older panel builds sent
+# these members unconditionally, so keep the helper compatible with that
+# representation while still rejecting populated objects.
+empty_table_request="$test_root/empty-table-request.json"
+jq -n \
+    --arg generation "$generation" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: {},
+      raw_files: {},
+      monitor_changes: {},
+      custom_keybind_changes: {}
+    }' >"$empty_table_request"
+run_helper validate --request "$empty_table_request" |
+    jq -e '.ok == true and .generation == "'"$generation"'"' >/dev/null
+
 request="$test_root/request.json"
 jq -n \
     --arg generation "$generation" \
