@@ -123,6 +123,7 @@ opacity = 1.0
 [[layer]]
 namespace = "waybar"
 blur = true
+blur_popups = true
 ```
 
 See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and

@@ -22,6 +22,7 @@ const Output = @import("Output.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
 const SlotMap = @import("slotmap").SlotMap;
+const XdgPopup = @import("XdgPopup.zig");
 
 const log = std.log.scoped(.wm);
 
@@ -32,6 +33,7 @@ wlr_shell: *wlr.LayerShellV1,
 objects: wl.list.Head(river.LayerShellV1, null),
 
 surfaces: SlotMap(*LayerSurface) = .empty,
+popups: SlotMap(*XdgPopup) = .empty,
 
 new_surface: wl.Listener(*wlr.LayerSurfaceV1) = .init(handleNewSurface),
 

@@ -191,6 +191,9 @@ fn applyLayerValue(rule: *Engine.LayerRule, key: []const u8, value: []const u8) 
     if (std.mem.eql(u8, key, "blur")) {
         rule.blur = parseBool(value) orelse rule.blur;
     }
+    if (std.mem.eql(u8, key, "blur_popups")) {
+        rule.blur_popups = parseBool(value) orelse rule.blur_popups;
+    }
 }
 
 fn parseLayout(value: []const u8) ?Engine.Layout {
@@ -283,6 +286,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\[[layer]]
         \\namespace = "panel-*"
         \\blur = true
+        \\blur_popups = true
         \\[[layer]]
         \\blur = true
     );
@@ -298,5 +302,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expect(dialog.placement.floating);
     try std.testing.expectEqual(@as(i32, 800), dialog.placement.width);
     try std.testing.expectEqual(@as(usize, 1), engine.layer_rules.len);
-    try std.testing.expect(engine.resolveLayer("panel-main").?.blur);
+    const panel = engine.resolveLayer("panel-main").?;
+    try std.testing.expect(panel.blur);
+    try std.testing.expect(panel.blur_popups);
 }

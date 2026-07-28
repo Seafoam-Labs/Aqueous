@@ -79,18 +79,24 @@ order matters.
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
 | `namespace` | string (glob) | yes | Match the layer-shell namespace. |
-| `blur` | bool | no (default `false`) | Blur the rectangular surface bounds. This stage does not blur popups or use the surface alpha as a mask. |
+| `blur` | bool | no (default `false`) | Blur the rectangular bounds of the main layer surface. |
+| `blur_popups` | bool | no (default `false`) | When `blur` is also true, blur the rectangular bounds of every XDG popup and nested popup owned by the layer surface. |
 
 Global backdrop blur must also be enabled under `[blur]` in `wm.toml`.
+Main surfaces and popups currently use rectangular bounds; their pixel alpha
+is not used as a blur mask.
 
 ```toml
 [[layer]]
 namespace = "waybar"
 blur = true
+blur_popups = true
 ```
 
 Run `aqueousctl scene` while the surface is mapped to discover its namespace;
-layer roots are labeled `layer surface: NAMESPACE`.
+layer roots are labeled `layer surface: NAMESPACE`. Layer-owned popup roots and
+blur checkpoints are labeled `layer XDG popup` and
+`layer popup backdrop blur marker`.
 
 ## Game-mode layout pattern
 

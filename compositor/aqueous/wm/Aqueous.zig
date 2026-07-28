@@ -1551,6 +1551,15 @@ pub fn layerBlurEnabled(aqueous: *const Aqueous, namespace: []const u8) bool {
     return rule.blur;
 }
 
+pub fn layerPopupBlurEnabled(
+    aqueous: *const Aqueous,
+    namespace: []const u8,
+) bool {
+    if (!aqueous.mode.runsInternal()) return false;
+    const rule = aqueous.rules.resolveLayer(namespace) orelse return false;
+    return rule.blur and rule.blur_popups;
+}
+
 pub fn hasLayerBlurRules(aqueous: *const Aqueous) bool {
     if (!aqueous.mode.runsInternal()) return false;
     for (aqueous.rules.layer_rules) |rule| {
@@ -1563,9 +1572,11 @@ fn applyLayerRules(aqueous: *Aqueous) void {
     if (!aqueous.mode.runsInternal()) return;
     var surfaces = server.layer_shell.surfaces.iterator();
     while (surfaces.next()) |surface| {
-        surface.applyBlurRule(aqueous.layerBlurEnabled(
-            std.mem.span(surface.wlr_layer_surface.namespace),
-        ));
+        const namespace = std.mem.span(surface.wlr_layer_surface.namespace);
+        surface.applyBlurRule(
+            aqueous.layerBlurEnabled(namespace),
+            aqueous.layerPopupBlurEnabled(namespace),
+        );
     }
 }
 

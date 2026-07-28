@@ -43,6 +43,7 @@ const LockSurface = @import("LockSurface.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const Workspace = @import("Workspace.zig");
+const XdgPopup = @import("XdgPopup.zig");
 
 const log = std.log.scoped(.output);
 
@@ -656,6 +657,17 @@ fn effectsRenderBegin(
             &affected,
         );
     }
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        prepareBlurOwner(
+            output,
+            .{ .popup = popup },
+            content_damage,
+            kernel,
+            &preserved,
+            &affected,
+        );
+    }
     output.blur_cache.removeInvisible(
         &server.vulkan_context.blur_pipeline,
     );
@@ -755,12 +767,14 @@ fn effectsNodeRender(
 const BlurOwner = union(enum) {
     window: *Window,
     layer_surface: *LayerSurface,
+    popup: *XdgPopup,
 };
 
 fn blurOwnerHandle(owner: BlurOwner) ?EffectMetadata.WindowBlurHandle {
     return switch (owner) {
         .window => |window| window.backdrop_blur,
         .layer_surface => |surface| surface.backdrop_blur,
+        .popup => |popup| popup.backdrop_blur,
     };
 }
 
@@ -771,6 +785,7 @@ fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
         else
             window.tree,
         .layer_surface => |surface| surface.scene_layer_surface.tree,
+        .popup => |popup| popup.tree,
     };
 }
 
@@ -781,6 +796,7 @@ fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
         else
             window.blur_marker,
         .layer_surface => |surface| surface.blur_marker,
+        .popup => |popup| popup.blur_marker,
     };
 }
 
@@ -788,22 +804,30 @@ fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
 /// SceneNodeData. Fall back to the window registry only for those snapshots.
 fn blurOwnerForNode(node: *wlr.SceneNode) ?BlurOwner {
     if (SceneNodeData.fromNode(node)) |owner| {
-        return switch (owner.data) {
+        switch (owner.data) {
             .window => |window| if (nodeInTree(node, windowBlurTree(window)) and
                 windowBlurData(window) != null)
-                .{ .window = window }
-            else
-                null,
+                return .{ .window = window },
             .layer_surface => |surface| if (nodeInTree(
                 node,
                 surface.scene_layer_surface.tree,
             ) and blurOwnerData(.{ .layer_surface = surface }) != null)
-                .{ .layer_surface = surface }
-            else
-                null,
-            else => null,
-        };
+                return .{ .layer_surface = surface },
+            else => {},
+        }
     }
+    var popup_match: ?BlurOwner = null;
+    var popup_distance: usize = math.maxInt(usize);
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        const popup_owner: BlurOwner = .{ .popup = popup };
+        if (blurOwnerData(popup_owner) == null) continue;
+        const distance = nodeDistanceInTree(node, popup.tree) orelse continue;
+        if (distance >= popup_distance) continue;
+        popup_match = popup_owner;
+        popup_distance = distance;
+    }
+    if (popup_match) |owner| return owner;
     var windows = server.wm.windows.iterator();
     while (windows.next()) |window| {
         if (windowBlurData(window) != null and
@@ -845,11 +869,20 @@ fn uncachedBlurRequested() bool {
 }
 
 fn nodeInTree(node: *wlr.SceneNode, tree: *wlr.SceneTree) bool {
+    return nodeDistanceInTree(node, tree) != null;
+}
+
+fn nodeDistanceInTree(
+    node: *wlr.SceneNode,
+    tree: *wlr.SceneTree,
+) ?usize {
     var current = node;
+    var distance: usize = 0;
     while (true) {
-        if (current == &tree.node) return true;
-        const parent = current.parent orelse return false;
+        if (current == &tree.node) return distance;
+        const parent = current.parent orelse return null;
         current = &parent.node;
+        distance += 1;
     }
 }
 
@@ -985,6 +1018,14 @@ fn hasVisibleBlur(output: *const Output) bool {
     var layers = server.layer_shell.surfaces.iterator();
     while (layers.next()) |surface| {
         const owner: BlurOwner = .{ .layer_surface = surface };
+        const blur = blurOwnerData(owner) orelse continue;
+        if (blurOwnerEffect(owner, blur, output.effectRenderState()) != null) {
+            return true;
+        }
+    }
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        const owner: BlurOwner = .{ .popup = popup };
         const blur = blurOwnerData(owner) orelse continue;
         if (blurOwnerEffect(owner, blur, output.effectRenderState()) != null) {
             return true;

@@ -6,6 +6,8 @@ AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 WM_CONFIG="$here/scripts/fixtures/visual-effects-wm.toml"
 RULES_CONFIG="$here/scripts/fixtures/layer-blur-rules.toml"
+POPUP_FIXTURE_SOURCE="$here/scripts/fixtures/layer-popup-reference.c"
+LAYER_SHELL_PROTOCOL="$here/protocol/upstream/wlr-layer-shell-unstable-v1.xml"
 TEST_LAYER=${AQUEOUS_TEST_LAYER:-background}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -16,9 +18,12 @@ have() { command -v "$1" >/dev/null 2>&1; }
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] ||
     die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
-for tool in grim gtk4-layer-demo magick readelf swaylock; do
+for tool in cc grim gtk4-layer-demo magick pkg-config readelf swaylock \
+    wayland-scanner; do
     have "$tool" || die "$tool is required"
 done
+pkg-config --exists wayland-client wayland-protocols ||
+    die "Wayland client and protocol development files are required"
 readelf -d "$AQUEOUS_COMPOSITOR_BIN" | grep 'libvulkan.so' >/dev/null ||
     die "the compositor is not linked directly to Vulkan"
 
@@ -37,13 +42,19 @@ fi
 compositor_log="$artifacts/compositor.log"
 layer_log="$artifacts/layer.log"
 lock_log="$artifacts/lock.log"
+popup_log="$artifacts/layer-popup.log"
+popup_ready="$test_root/layer-popup.ready"
+popup_fixture="$test_root/layer-popup-reference"
 compositor_pid=""
 layer_pid=""
+popup_pid=""
 lock_pid=""
 
 cleanup() {
     [ -z "$lock_pid" ] || kill "$lock_pid" 2>/dev/null || true
     [ -z "$lock_pid" ] || wait "$lock_pid" 2>/dev/null || true
+    [ -z "$popup_pid" ] || kill "$popup_pid" 2>/dev/null || true
+    [ -z "$popup_pid" ] || wait "$popup_pid" 2>/dev/null || true
     [ -z "$layer_pid" ] || kill "$layer_pid" 2>/dev/null || true
     [ -z "$layer_pid" ] || wait "$layer_pid" 2>/dev/null || true
     [ -z "$compositor_pid" ] || kill "$compositor_pid" 2>/dev/null || true
@@ -55,6 +66,23 @@ trap cleanup EXIT
 mkdir -p "$runtime/config" "$test_home" "$artifacts"
 chmod 700 "$runtime"
 cp "$RULES_CONFIG" "$runtime_rules"
+xdg_shell_protocol="$(
+    pkg-config --variable=pkgdatadir wayland-protocols
+)/stable/xdg-shell/xdg-shell.xml"
+wayland-scanner client-header "$xdg_shell_protocol" \
+    "$test_root/xdg-shell-client-protocol.h"
+wayland-scanner private-code "$xdg_shell_protocol" \
+    "$test_root/xdg-shell-protocol.c"
+wayland-scanner client-header "$LAYER_SHELL_PROTOCOL" \
+    "$test_root/wlr-layer-shell-unstable-v1-client-protocol.h"
+wayland-scanner private-code "$LAYER_SHELL_PROTOCOL" \
+    "$test_root/wlr-layer-shell-unstable-v1-protocol.c"
+cc -std=c11 -Wall -Wextra -Werror -O2 -I"$test_root" \
+    "$POPUP_FIXTURE_SOURCE" \
+    "$test_root/xdg-shell-protocol.c" \
+    "$test_root/wlr-layer-shell-unstable-v1-protocol.c" \
+    -o "$popup_fixture" \
+    $(pkg-config --cflags --libs wayland-client)
 env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     WLR_BACKENDS=headless \
     WLR_HEADLESS_OUTPUTS=1 \
@@ -178,6 +206,111 @@ layer_difference=$(
 awk -v changed="$layer_difference" \
     'BEGIN { exit !(changed > 1000) }' ||
     die "output capture did not include the layer-shell surface"
+
+env -u LD_PRELOAD \
+    XDG_RUNTIME_DIR="$runtime" \
+    WAYLAND_DISPLAY="$socket" \
+    "$popup_fixture" "$popup_ready" \
+    >"$popup_log" 2>&1 &
+popup_pid=$!
+for _ in $(seq 1 240); do
+    kill -0 "$popup_pid" 2>/dev/null ||
+        die "layer-popup fixture exited before mapping"
+    [ -s "$popup_ready" ] && break
+    sleep 0.05
+done
+[ -s "$popup_ready" ] || die "layer-popup fixture did not become ready"
+
+scene_snapshot=$(
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$runtime" \
+        WAYLAND_DISPLAY="$socket" \
+        "$AQUEOUSCTL_BIN" scene
+)
+grep -Fq 'layer surface: aqueous-popup-test' <<<"$scene_snapshot" ||
+    die "layer-popup fixture namespace is absent from scene inspection"
+popup_marker_count=$(
+    grep -Fc 'layer popup backdrop blur marker [rect]' <<<"$scene_snapshot"
+)
+[ "$popup_marker_count" -eq 2 ] ||
+    die "expected two recursive layer-popup blur markers, found $popup_marker_count"
+popup_enabled_count=$(
+    grep -F 'layer popup backdrop blur marker [rect]' <<<"$scene_snapshot" |
+        grep -Fvc ' disabled'
+)
+[ "$popup_enabled_count" -eq 2 ] ||
+    die "recursive layer-popup blur markers are not enabled"
+
+sed -i 's/blur_popups = true/blur_popups = false/' "$runtime_rules"
+for _ in $(seq 1 30); do
+    sleep 0.1
+    scene_snapshot=$(
+        env -u LD_PRELOAD \
+            XDG_RUNTIME_DIR="$runtime" \
+            WAYLAND_DISPLAY="$socket" \
+            "$AQUEOUSCTL_BIN" scene
+    )
+    popup_disabled_count=$(
+        awk '
+            /layer popup backdrop blur marker \[rect\]/ &&
+                / disabled/ { count++ }
+            END { print count + 0 }
+        ' <<<"$scene_snapshot"
+    )
+    [ "$popup_disabled_count" -eq 2 ] && break
+done
+[ "$popup_disabled_count" -eq 2 ] ||
+    die "layer-popup blur rule removal did not hot-reload"
+capture "$artifacts/layer-popup-blur-disabled.png"
+
+sed -i 's/blur_popups = false/blur_popups = true/' "$runtime_rules"
+for _ in $(seq 1 30); do
+    sleep 0.1
+    scene_snapshot=$(
+        env -u LD_PRELOAD \
+            XDG_RUNTIME_DIR="$runtime" \
+            WAYLAND_DISPLAY="$socket" \
+            "$AQUEOUSCTL_BIN" scene
+    )
+    popup_enabled_count=$(
+        awk '
+            /layer popup backdrop blur marker \[rect\]/ &&
+                !/ disabled/ { count++ }
+            END { print count + 0 }
+        ' <<<"$scene_snapshot"
+    )
+    [ "$popup_enabled_count" -eq 2 ] && break
+done
+[ "$popup_enabled_count" -eq 2 ] ||
+    die "layer-popup blur rule addition did not hot-reload"
+
+capture "$artifacts/layer-popup.png"
+popup_blur_difference=$(
+    magick \
+        "$artifacts/layer-popup-blur-disabled.png" \
+        "$artifacts/layer-popup.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$popup_blur_difference" \
+    'BEGIN { exit !(changed > 100) }' ||
+    die "enabling popup blur did not visibly change the captured popup bounds"
+popup_difference=$(
+    magick \
+        "$artifacts/layer-shell.png" \
+        "$artifacts/layer-popup.png" \
+        -compose difference -composite \
+        -alpha off -colorspace gray -threshold 0 \
+        -format '%[fx:mean*w*h]' info:
+)
+awk -v changed="$popup_difference" \
+    'BEGIN { exit !(changed > 1000) }' ||
+    die "output capture did not include the layer popup fixture"
+kill "$popup_pid" 2>/dev/null || true
+wait "$popup_pid" 2>/dev/null || true
+popup_pid=""
+
 kill "$layer_pid" 2>/dev/null || true
 wait "$layer_pid" 2>/dev/null || true
 layer_pid=""
@@ -209,8 +342,13 @@ fi
     printf 'layer_changed_pixels=%s\n' "$layer_difference"
     printf 'layer_blur_marker_enabled=true\n'
     printf 'layer_blur_hot_reload=true\n'
+    printf 'layer_popup_changed_pixels=%s\n' "$popup_difference"
+    printf 'layer_popup_blur_changed_pixels=%s\n' "$popup_blur_difference"
+    printf 'layer_popup_markers=%s\n' "$popup_marker_count"
+    printf 'layer_popup_nested=true\n'
+    printf 'layer_popup_blur_hot_reload=true\n'
     printf 'session_lock_presented=true\n'
 } >"$artifacts/results.txt"
 
-echo "PASS: layer-shell capture and session-lock presentation use the Vulkan output path"
+echo "PASS: layer-shell and recursive popup blur use the Vulkan output path"
 echo "artifacts: $artifacts"

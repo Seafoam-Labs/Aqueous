@@ -118,6 +118,7 @@ pub const Rule = struct {
 pub const LayerRule = struct {
     namespace: ?[]const u8 = null,
     blur: bool = false,
+    blur_popups: bool = false,
 };
 
 pub const GameMode = struct {
@@ -294,11 +295,14 @@ test "layer rules are first-match-wins namespace globs" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     try engine.reloadSnapshot(&.{}, &.{
-        .{ .namespace = "panel-*", .blur = true },
+        .{ .namespace = "panel-*", .blur = true, .blur_popups = true },
         .{ .namespace = "*", .blur = false },
     }, .{});
-    try std.testing.expect(engine.resolveLayer("panel-main").?.blur);
+    const panel = engine.resolveLayer("panel-main").?;
+    try std.testing.expect(panel.blur);
+    try std.testing.expect(panel.blur_popups);
     try std.testing.expect(!engine.resolveLayer("launcher").?.blur);
+    try std.testing.expect(!engine.resolveLayer("launcher").?.blur_popups);
 }
 
 test "rule fingerprints are semantic and detect behavior changes" {

@@ -38,6 +38,7 @@ popup_tree: *wlr.SceneTree,
 blur_marker: *wlr.SceneRect,
 backdrop_blur: ?fx.WindowBlur,
 blur_requested: bool,
+blur_popups_requested: bool,
 /// Last scene layer used by this surface. The protocol's current layer has
 /// already changed by the commit callback, so retaining the prior value lets us
 /// invalidate blur when a surface moves into or out of a backdrop layer.
@@ -81,6 +82,9 @@ pub fn create(wlr_layer_surface: *wlr.LayerSurfaceV1) error{OutOfMemory}!void {
         .blur_marker = blur_marker,
         .backdrop_blur = backdrop_blur,
         .blur_requested = server.aqueous.layerBlurEnabled(
+            std.mem.span(wlr_layer_surface.namespace),
+        ),
+        .blur_popups_requested = server.aqueous.layerPopupBlurEnabled(
             std.mem.span(wlr_layer_surface.namespace),
         ),
         .scene_layer = wlr_layer_surface.current.layer,
@@ -255,14 +259,42 @@ fn invalidateBlur(layer_surface: *LayerSurface, layer: zwlr.LayerShellV1.Layer) 
     output.markBlurDirty();
 }
 
-pub fn applyBlurRule(layer_surface: *LayerSurface, enabled: bool) void {
-    if (layer_surface.blur_requested == enabled) return;
+pub fn applyBlurRule(
+    layer_surface: *LayerSurface,
+    enabled: bool,
+    blur_popups: bool,
+) void {
+    const main_changed = layer_surface.blur_requested != enabled;
+    const popups_changed =
+        layer_surface.blur_popups_requested != blur_popups;
+    if (!main_changed and !popups_changed) return;
     layer_surface.blur_requested = enabled;
-    layer_surface.syncBackdropBlur();
+    layer_surface.blur_popups_requested = blur_popups;
+    if (main_changed) layer_surface.syncBackdropBlur();
+    if (popups_changed) layer_surface.syncPopupBlurRules();
     if (layer_surface.wlr_layer_surface.output) |wlr_output| {
         const output: *Output =
             @ptrCast(@alignCast(wlr_output.data orelse return));
         output.markBlurDirty();
+    }
+}
+
+pub fn syncBlurEffects(layer_surface: *LayerSurface) void {
+    layer_surface.syncBackdropBlur();
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        if (popup.layer_owner == @as(?*anyopaque, @ptrCast(layer_surface))) {
+            popup.syncBackdropBlur();
+        }
+    }
+}
+
+fn syncPopupBlurRules(layer_surface: *LayerSurface) void {
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        if (popup.layer_owner == @as(?*anyopaque, @ptrCast(layer_surface))) {
+            popup.applyBlurRule(layer_surface.blur_popups_requested);
+        }
     }
 }
 
@@ -311,6 +343,8 @@ fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_xdg_popup: *wlr.Xdg
         layer_surface.popup_tree,
         null,
         null,
+        @ptrCast(layer_surface),
+        layer_surface.blur_popups_requested,
     ) catch {
         wlr_xdg_popup.resource.postNoMemory();
         return;

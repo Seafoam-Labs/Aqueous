@@ -217,6 +217,15 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         },
     };
 
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        if (popup.layer_owner == null or !popup.ownsNode(node)) continue;
+        if (node == &popup.tree.node) return "layer XDG popup";
+        if (node == &popup.blur_marker.node) {
+            return "layer popup backdrop blur marker";
+        }
+    }
+
     return switch (node.type) {
         .tree => "tree",
         .rect => "rect",
