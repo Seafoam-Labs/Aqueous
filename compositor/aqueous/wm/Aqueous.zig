@@ -123,6 +123,7 @@ pub fn start(aqueous: *Aqueous) void {
     aqueous.started = true;
     aqueous.output_service.start();
     if (!aqueous.mode.runsInternal()) return;
+    aqueous.applyLayerRules();
     aqueous.applyInputConfig();
     aqueous.runExec(.startup);
 }
@@ -135,6 +136,7 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.config = config_loader.load(util.gpa);
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
+    aqueous.applyLayerRules();
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     aqueous.applyInputConfig();
@@ -934,6 +936,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "reload_config")) return aqueous.reloadConfig();
     if (std.mem.eql(u8, action, "reload_rules")) {
         rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
+        aqueous.applyLayerRules();
         aqueous.api.requestManageCycle();
         aqueous.notify("Aqueous rules reloaded", null, false);
         return;
@@ -1527,7 +1530,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
         aqueous.config = replacement;
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     }
-    if (config_changed or rules_changed) rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
+    if (config_changed or rules_changed) {
+        rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
+        aqueous.applyLayerRules();
+    }
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     log.info("configuration hot-reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});
@@ -1537,6 +1543,30 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
         aqueous.notify("Aqueous configuration reloaded", null, false);
     }
     return 0;
+}
+
+pub fn layerBlurEnabled(aqueous: *const Aqueous, namespace: []const u8) bool {
+    if (!aqueous.mode.runsInternal()) return false;
+    const rule = aqueous.rules.resolveLayer(namespace) orelse return false;
+    return rule.blur;
+}
+
+pub fn hasLayerBlurRules(aqueous: *const Aqueous) bool {
+    if (!aqueous.mode.runsInternal()) return false;
+    for (aqueous.rules.layer_rules) |rule| {
+        if (rule.blur) return true;
+    }
+    return false;
+}
+
+fn applyLayerRules(aqueous: *Aqueous) void {
+    if (!aqueous.mode.runsInternal()) return;
+    var surfaces = server.layer_shell.surfaces.iterator();
+    while (surfaces.next()) |surface| {
+        surface.applyBlurRule(aqueous.layerBlurEnabled(
+            std.mem.span(surface.wlr_layer_surface.namespace),
+        ));
+    }
 }
 
 fn applyGlobalConfig(aqueous: *Aqueous) void {

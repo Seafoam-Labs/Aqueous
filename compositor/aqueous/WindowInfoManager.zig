@@ -198,7 +198,16 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         },
         .lock_surface => |surface| if (node == &surface.tree.node) return "lock surface",
         .layer_surface => |surface| {
-            if (node == &surface.scene_layer_surface.tree.node) return "layer surface";
+            if (node == &surface.scene_layer_surface.tree.node) {
+                return std.fmt.bufPrintZ(
+                    buffer,
+                    "layer surface: {s}",
+                    .{surface.wlr_layer_surface.namespace},
+                ) catch "layer surface";
+            }
+            if (node == &surface.blur_marker.node) {
+                return "layer backdrop blur marker";
+            }
             if (node == &surface.popup_tree.node) return "layer surface popups";
         },
         .override_redirect => |surface| if (build_options.xwayland) {

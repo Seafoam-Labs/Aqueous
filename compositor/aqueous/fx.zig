@@ -181,6 +181,11 @@ pub fn configureWindowBlur(
     _ = metadata().configureWindowBlur(blur_node, box, radius, enabled);
 }
 
+pub fn destroyWindowBlur(blur_node: WindowBlur) void {
+    if (comptime !blur_available) return;
+    metadata().destroyWindowBlur(blur_node);
+}
+
 /// Create an output-sized blur-cache record in logical output dimensions.
 pub fn createOptimizedBlur(
     tree: *wlr.SceneTree,

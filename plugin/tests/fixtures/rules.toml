@@ -15,3 +15,6 @@ layout = "float"
 width = 900
 height = 640
 
+[[layer]]
+namespace = "waybar"
+blur = true

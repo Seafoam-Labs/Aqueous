@@ -10,6 +10,7 @@ const wl = @import("wayland").server.wl;
 const zwlr = @import("wayland").server.zwlr;
 
 const server = &@import("main.zig").server;
+const fx = @import("fx.zig");
 const util = @import("util.zig");
 
 const Output = @import("Output.zig");
@@ -33,6 +34,10 @@ ref: Ref,
 wlr_layer_surface: *wlr.LayerSurfaceV1,
 scene_layer_surface: *wlr.SceneLayerSurfaceV1,
 popup_tree: *wlr.SceneTree,
+/// Transparent checkpoint below the layer surface's own buffers.
+blur_marker: *wlr.SceneRect,
+backdrop_blur: ?fx.WindowBlur,
+blur_requested: bool,
 /// Last scene layer used by this surface. The protocol's current layer has
 /// already changed by the commit callback, so retaining the prior value lets us
 /// invalidate blur when a surface moves into or out of a backdrop layer.
@@ -53,13 +58,41 @@ pub fn create(wlr_layer_surface: *wlr.LayerSurfaceV1) error{OutOfMemory}!void {
 
     const layer_tree = server.scene.layerSurfaceTree(wlr_layer_surface.current.layer);
 
+    const scene_layer_surface =
+        try layer_tree.createSceneLayerSurfaceV1(wlr_layer_surface);
+    errdefer scene_layer_surface.tree.node.destroy();
+    const popup_tree = try server.scene.layers.popups.createSceneTree();
+    errdefer popup_tree.node.destroy();
+    const blur_marker = try scene_layer_surface.tree.createSceneRect(
+        0,
+        0,
+        &.{ 0, 0, 0, 1.0 / 255.0 },
+    );
+    blur_marker.node.lowerToBottom();
+    blur_marker.node.setEnabled(false);
+    fx.setRectInputEnabled(blur_marker, false);
+    const backdrop_blur = fx.createWindowBlur(scene_layer_surface.tree);
+
     layer_surface.* = .{
         .ref = .{ .key = key },
         .wlr_layer_surface = wlr_layer_surface,
-        .scene_layer_surface = try layer_tree.createSceneLayerSurfaceV1(wlr_layer_surface),
-        .popup_tree = try server.scene.layers.popups.createSceneTree(),
+        .scene_layer_surface = scene_layer_surface,
+        .popup_tree = popup_tree,
+        .blur_marker = blur_marker,
+        .backdrop_blur = backdrop_blur,
+        .blur_requested = server.aqueous.layerBlurEnabled(
+            std.mem.span(wlr_layer_surface.namespace),
+        ),
         .scene_layer = wlr_layer_surface.current.layer,
     };
+    if (backdrop_blur) |blur| {
+        fx.configureWindowBlur(
+            blur,
+            .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+            0,
+            false,
+        );
+    }
 
     try SceneNodeData.attach(&layer_surface.scene_layer_surface.tree.node, .{ .layer_surface = layer_surface });
     try SceneNodeData.attach(&layer_surface.popup_tree.node, .{ .layer_surface = layer_surface });
@@ -128,6 +161,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), _: *wlr.LayerSurfa
 
     layer_surface.destroyPopups();
     layer_surface.invalidateBlur(layer_surface.scene_layer);
+    if (layer_surface.backdrop_blur) |blur| fx.destroyWindowBlur(blur);
 
     // Defensively clear any seat focus/scheduled/sent focus still pointing at
     // this surface, in case destroy arrives without a preceding matching unmap.
@@ -157,6 +191,7 @@ fn handleMap(listener: *wl.Listener(void)) void {
         }
     }
 
+    layer_surface.syncBackdropBlur();
     // Beware: it is possible for arrange() to destroy this LayerSurface!
     const output: *Output = @ptrCast(@alignCast(layer_surface.wlr_layer_surface.output.?.data));
     layer_surface.invalidateBlur(wlr_layer_surface.current.layer);
@@ -171,6 +206,7 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
     log.debug("layer surface '{s}' unmapped", .{layer_surface.wlr_layer_surface.namespace});
 
     layer_surface.clearSeatFocus();
+    layer_surface.disableBackdropBlur();
 
     // Beware: it is possible for arrange() to destroy this LayerSurface!
     const output: *Output = @ptrCast(@alignCast(layer_surface.wlr_layer_surface.output.?.data));
@@ -195,6 +231,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     }
 
     layer_surface.invalidateBlur(wlr_layer_surface.current.layer);
+    layer_surface.syncBackdropBlur();
 
     if (wlr_layer_surface.initial_commit or
         @as(u32, @bitCast(wlr_layer_surface.current.committed)) != 0)
@@ -210,11 +247,60 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
 fn invalidateBlur(layer_surface: *LayerSurface, layer: zwlr.LayerShellV1.Layer) void {
     switch (layer) {
         .background, .bottom => {},
+        .top, .overlay => if (!server.aqueous.hasLayerBlurRules()) return,
         else => return,
     }
     const wlr_output = layer_surface.wlr_layer_surface.output orelse return;
     const output: *Output = @ptrCast(@alignCast(wlr_output.data orelse return));
     output.markBlurDirty();
+}
+
+pub fn applyBlurRule(layer_surface: *LayerSurface, enabled: bool) void {
+    if (layer_surface.blur_requested == enabled) return;
+    layer_surface.blur_requested = enabled;
+    layer_surface.syncBackdropBlur();
+    if (layer_surface.wlr_layer_surface.output) |wlr_output| {
+        const output: *Output =
+            @ptrCast(@alignCast(wlr_output.data orelse return));
+        output.markBlurDirty();
+    }
+}
+
+pub fn syncBackdropBlur(layer_surface: *LayerSurface) void {
+    const blur = layer_surface.backdrop_blur orelse return;
+    const surface = layer_surface.wlr_layer_surface.surface;
+    const active = layer_surface.blur_requested and
+        surface.mapped and
+        server.wm.blur.enabled and
+        server.wm.blur.radius > 0 and
+        server.wm.blur.passes > 0 and
+        surface.current.width > 0 and
+        surface.current.height > 0;
+    if (!active) {
+        layer_surface.disableBackdropBlur();
+        return;
+    }
+    const box: wlr.Box = .{
+        .x = 0,
+        .y = 0,
+        .width = @intCast(surface.current.width),
+        .height = @intCast(surface.current.height),
+    };
+    layer_surface.blur_marker.node.setPosition(0, 0);
+    layer_surface.blur_marker.setSize(box.width, box.height);
+    layer_surface.blur_marker.node.setEnabled(true);
+    fx.configureWindowBlur(blur, box, 0, true);
+}
+
+fn disableBackdropBlur(layer_surface: *LayerSurface) void {
+    layer_surface.blur_marker.node.setEnabled(false);
+    const blur = layer_surface.backdrop_blur orelse return;
+    fx.configureWindowBlur(
+        blur,
+        .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+        0,
+        false,
+    );
 }
 
 fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_xdg_popup: *wlr.XdgPopup) void {

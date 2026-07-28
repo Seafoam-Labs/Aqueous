@@ -147,6 +147,7 @@ fn sendConfigures(
                 .width = output_width,
                 .height = output_height,
             });
+            layer_surface.syncBackdropBlur();
         }
     }
 }

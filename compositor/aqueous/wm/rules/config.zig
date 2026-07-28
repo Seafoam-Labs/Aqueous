@@ -18,14 +18,14 @@ pub fn reloadDiscovered(allocator: std.mem.Allocator, engine: *Engine, configure
     const xdg = getenv("XDG_CONFIG_HOME");
     const home = getenv("HOME");
     const path = resolveDiscoveredPath(&buffer, env_override, configured_path, xdg, home) orelse {
-        engine.reloadSnapshot(&.{}, .{}) catch {};
+        engine.reloadSnapshot(&.{}, &.{}, .{}) catch {};
         engine.source_fingerprint = 0;
         return;
     };
     const io = std.Io.Threaded.global_single_threaded.io();
     const source = std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, allocator, .limited(max_config_bytes)) catch |err| switch (err) {
         error.FileNotFound => {
-            engine.reloadSnapshot(&.{}, .{}) catch {};
+            engine.reloadSnapshot(&.{}, &.{}, .{}) catch {};
             engine.source_fingerprint = 0;
             return;
         },
@@ -71,19 +71,31 @@ pub fn resolveDiscoveredPath(buffer: []u8, env_override: ?[]const u8, configured
 pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []const u8) !void {
     var parsed: std.ArrayListUnmanaged(Engine.Rule) = .empty;
     defer parsed.deinit(allocator);
+    var parsed_layers: std.ArrayListUnmanaged(Engine.LayerRule) = .empty;
+    defer parsed_layers.deinit(allocator);
     var current: ?Engine.Rule = null;
+    var current_layer: ?Engine.LayerRule = null;
     var game_mode: Engine.GameMode = .{};
-    var section: enum { none, game_mode, window } = .none;
+    var section: enum { none, game_mode, window, layer } = .none;
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
         const line = toml.cleanLine(raw_line);
         if (line.len == 0) continue;
         if (line[0] == '[') {
             if (current) |rule| try appendValid(allocator, &parsed, rule);
+            if (current_layer) |rule| try appendValidLayer(
+                allocator,
+                &parsed_layers,
+                rule,
+            );
             current = null;
+            current_layer = null;
             if (std.mem.eql(u8, line, "[[window]]")) {
                 current = .{};
                 section = .window;
+            } else if (std.mem.eql(u8, line, "[[layer]]")) {
+                current_layer = .{};
+                section = .layer;
             } else if (std.mem.eql(u8, line, "[game_mode]")) {
                 section = .game_mode;
             } else section = .none;
@@ -94,12 +106,22 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
         const value = toml.unquote(std.mem.trim(u8, line[equal + 1 ..], " \t"));
         switch (section) {
             .window => if (current) |*rule| applyValue(rule, key, value),
+            .layer => if (current_layer) |*rule| applyLayerValue(
+                rule,
+                key,
+                value,
+            ),
             .game_mode => applyGameMode(&game_mode, key, value),
             .none => {},
         }
     }
     if (current) |rule| try appendValid(allocator, &parsed, rule);
-    try engine.reloadSnapshot(parsed.items, game_mode);
+    if (current_layer) |rule| try appendValidLayer(
+        allocator,
+        &parsed_layers,
+        rule,
+    );
+    try engine.reloadSnapshot(parsed.items, parsed_layers.items, game_mode);
     engine.source_fingerprint = hash(source);
 }
 
@@ -120,6 +142,15 @@ fn hash(source: []const u8) u64 {
 
 fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
     if (rule.app_id == null and rule.class == null and rule.title == null) return;
+    try rules.append(allocator, rule);
+}
+
+fn appendValidLayer(
+    allocator: std.mem.Allocator,
+    rules: *std.ArrayListUnmanaged(Engine.LayerRule),
+    rule: Engine.LayerRule,
+) !void {
+    if (rule.namespace == null or rule.namespace.?.len == 0) return;
     try rules.append(allocator, rule);
 }
 
@@ -153,6 +184,13 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "ignore_struts")) rule.ignore_struts = parseBool(value) orelse rule.ignore_struts;
     if (std.mem.eql(u8, key, "blur")) rule.blur = parseBool(value) orelse rule.blur;
     if (std.mem.eql(u8, key, "opacity")) rule.opacity = parseOpacity(value) orelse rule.opacity;
+}
+
+fn applyLayerValue(rule: *Engine.LayerRule, key: []const u8, value: []const u8) void {
+    if (std.mem.eql(u8, key, "namespace")) rule.namespace = value;
+    if (std.mem.eql(u8, key, "blur")) {
+        rule.blur = parseBool(value) orelse rule.blur;
+    }
 }
 
 fn parseLayout(value: []const u8) ?Engine.Layout {
@@ -242,6 +280,11 @@ test "rules parser preserves order and parses native placement behavior" {
         \\layout = "float"
         \\width = 800
         \\height = bad
+        \\[[layer]]
+        \\namespace = "panel-*"
+        \\blur = true
+        \\[[layer]]
+        \\blur = true
     );
     try std.testing.expectEqual(@as(usize, 2), engine.rules.len);
     const game = engine.resolve(.{ .app_id = "game-one" }).?;
@@ -254,4 +297,6 @@ test "rules parser preserves order and parses native placement behavior" {
     const dialog = engine.resolve(.{ .title = "Dialog #1" }).?;
     try std.testing.expect(dialog.placement.floating);
     try std.testing.expectEqual(@as(i32, 800), dialog.placement.width);
+    try std.testing.expectEqual(@as(usize, 1), engine.layer_rules.len);
+    try std.testing.expect(engine.resolveLayer("panel-main").?.blur);
 }

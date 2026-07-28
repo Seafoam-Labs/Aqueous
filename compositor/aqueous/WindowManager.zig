@@ -287,6 +287,9 @@ fn applyBlur(wm: *WindowManager) void {
     else
         fx.setBlurParams(scene, 0, 0, wm.blur.appearance);
 
+    var layer_surfaces = server.layer_shell.surfaces.iterator();
+    while (layer_surfaces.next()) |surface| surface.syncBackdropBlur();
+
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| {
         output.syncBlur(update.kernel_changed);

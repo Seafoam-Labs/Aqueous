@@ -93,7 +93,7 @@ Aqueous discovers four compatible files in `~/.config/aqueous/`:
 - `wm.toml` — bindings, actions, workspaces, struts, outputs, and global policy.
 - `layout.toml` — layout defaults, slots, options, and workspace/output overrides.
 - `input.toml` — XKB and libinput policy, plus optional gesture bindings.
-- `rules.toml` — application matching, placement, state, and visual behavior.
+- `rules.toml` — window and layer-shell matching, placement, state, and visual behavior.
 
 Configuration changes are parsed into validated immutable snapshots and
 hot-reloaded on the Wayland event loop. Invalid updates do not require a
@@ -119,13 +119,17 @@ app_id = "com.example.Game"
 layout = "game-mode"
 blur = false
 opacity = 1.0
+
+[[layer]]
+namespace = "waybar"
+blur = true
 ```
 
 See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.
 
-### Inspecting windows, outputs, and workspace layouts
+### Inspecting windows, layers, outputs, and workspace layouts
 
 The build installs `aqueousctl`, a Wayland client for discovering the exact
 identities used by window rules, the modes advertised by each output, and the
@@ -133,6 +137,7 @@ active workspace layout:
 
 ```sh
 aqueousctl windows
+aqueousctl scene
 aqueousctl windows --json
 aqueousctl inspect --rule
 aqueousctl outputs

@@ -4,6 +4,9 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
+WM_CONFIG="$here/scripts/fixtures/visual-effects-wm.toml"
+RULES_CONFIG="$here/scripts/fixtures/layer-blur-rules.toml"
+TEST_LAYER=${AQUEOUS_TEST_LAYER:-background}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -22,6 +25,7 @@ readelf -d "$AQUEOUS_COMPOSITOR_BIN" | grep 'libvulkan.so' >/dev/null ||
 test_root=$(mktemp -d /tmp/aqueous-vulkan-shell-paths.XXXXXX)
 runtime="$test_root/runtime"
 test_home="$test_root/home"
+runtime_rules="$runtime/layer-blur-rules.toml"
 if [ "$#" -eq 1 ]; then
     artifacts=$(readlink -m "$1")
     mkdir -p "$artifacts"
@@ -50,12 +54,15 @@ trap cleanup EXIT
 
 mkdir -p "$runtime/config" "$test_home" "$artifacts"
 chmod 700 "$runtime"
+cp "$RULES_CONFIG" "$runtime_rules"
 env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     WLR_BACKENDS=headless \
     WLR_HEADLESS_OUTPUTS=1 \
     XDG_RUNTIME_DIR="$runtime" \
     XDG_CONFIG_HOME="$runtime/config" \
     HOME="$test_home" \
+    AQUEOUS_CONFIG="$WM_CONFIG" \
+    AQUEOUS_RULES="$runtime_rules" \
     "$AQUEOUS_COMPOSITOR_BIN" \
         -no-xwayland -policy internal -log-level debug -c true \
         >"$compositor_log" 2>&1 &
@@ -95,7 +102,7 @@ capture "$artifacts/before-layer.png"
 env -u LD_PRELOAD \
     XDG_RUNTIME_DIR="$runtime" \
     WAYLAND_DISPLAY="$socket" \
-    gtk4-layer-demo -l background -a lrtb -k none \
+    gtk4-layer-demo -l "$TEST_LAYER" -a lrtb -k none \
     >"$layer_log" 2>&1 &
 layer_pid=$!
 for _ in $(seq 1 240); do
@@ -106,6 +113,59 @@ for _ in $(seq 1 240); do
 done
 grep -q "layer surface.*mapped" "$compositor_log" ||
     die "layer-shell surface did not map"
+scene_snapshot=$(
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$runtime" \
+        WAYLAND_DISPLAY="$socket" \
+        "$AQUEOUSCTL_BIN" scene
+)
+grep -Fq 'layer surface: demo' <<<"$scene_snapshot" ||
+    die "scene inspection did not expose the layer namespace"
+blur_marker=$(
+    grep -F 'layer backdrop blur marker [rect]' <<<"$scene_snapshot" |
+        head -1
+)
+[ -n "$blur_marker" ] ||
+    die "matched layer surface has no backdrop blur marker"
+grep -Fq ' disabled' <<<"$blur_marker" &&
+    die "matched layer surface backdrop blur marker is disabled"
+
+sed -i 's/blur = true/blur = false/' "$runtime_rules"
+for _ in $(seq 1 30); do
+    sleep 0.1
+    scene_snapshot=$(
+        env -u LD_PRELOAD \
+            XDG_RUNTIME_DIR="$runtime" \
+            WAYLAND_DISPLAY="$socket" \
+            "$AQUEOUSCTL_BIN" scene
+    )
+    blur_marker=$(
+        grep -F 'layer backdrop blur marker [rect]' <<<"$scene_snapshot" |
+            head -1
+    )
+    grep -Fq ' disabled' <<<"$blur_marker" && break
+done
+grep -Fq ' disabled' <<<"$blur_marker" ||
+    die "layer blur rule removal did not hot-reload"
+
+sed -i 's/blur = false/blur = true/' "$runtime_rules"
+for _ in $(seq 1 30); do
+    sleep 0.1
+    scene_snapshot=$(
+        env -u LD_PRELOAD \
+            XDG_RUNTIME_DIR="$runtime" \
+            WAYLAND_DISPLAY="$socket" \
+            "$AQUEOUSCTL_BIN" scene
+    )
+    blur_marker=$(
+        grep -F 'layer backdrop blur marker [rect]' <<<"$scene_snapshot" |
+            head -1
+    )
+    if ! grep -Fq ' disabled' <<<"$blur_marker"; then break; fi
+done
+grep -Fq ' disabled' <<<"$blur_marker" &&
+    die "layer blur rule addition did not hot-reload"
+
 capture "$artifacts/layer-shell.png"
 layer_difference=$(
     magick \
@@ -145,7 +205,10 @@ fi
 
 {
     printf 'output=%s\n' "$output_name"
+    printf 'layer=%s\n' "$TEST_LAYER"
     printf 'layer_changed_pixels=%s\n' "$layer_difference"
+    printf 'layer_blur_marker_enabled=true\n'
+    printf 'layer_blur_hot_reload=true\n'
     printf 'session_lock_presented=true\n'
 } >"$artifacts/results.txt"
 

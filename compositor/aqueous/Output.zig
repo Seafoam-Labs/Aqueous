@@ -37,6 +37,7 @@ pub const hdr = @import("output_hdr.zig");
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
 const EffectMetadata = @import("render/EffectMetadata.zig");
+const LayerSurface = @import("LayerSurface.zig");
 const LayerShellOutput = @import("LayerShellOutput.zig");
 const LockSurface = @import("LockSurface.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
@@ -246,7 +247,7 @@ blur_node: ?fx.OutputBlurCache = null,
 blur_box: ?wlr.Box = null,
 render_metric_sample: ?render_metrics.SceneSample = null,
 effects_swapchain_path: bool = false,
-blur_last_window: ?*Window = null,
+blur_last_key: ?u64 = null,
 blur_cache: if (build_options.vulkan_effects) BlurPipeline.OutputCache else void =
     if (build_options.vulkan_effects) .{} else {},
 
@@ -571,12 +572,12 @@ fn roundedBufferNeedsComposition(
         false;
     return visual_state.effectsRequireComposition(
         rounded,
-        bufferWindowNeedsBlur(scene_buffer),
+        bufferNeedsBackdropBlur(scene_buffer),
     );
 }
 
-fn bufferWindowNeedsBlur(scene_buffer: *wlr.SceneBuffer) bool {
-    return blurWindowForNode(&scene_buffer.node) != null;
+fn bufferNeedsBackdropBlur(scene_buffer: *wlr.SceneBuffer) bool {
+    return blurOwnerForNode(&scene_buffer.node) != null;
 }
 
 fn roundedRectHook(
@@ -607,17 +608,8 @@ fn roundedRectHook(
 }
 
 fn isBlurMarker(scene_rect: *wlr.SceneRect) bool {
-    if (SceneNodeData.fromNode(&scene_rect.node)) |owner| {
-        return switch (owner.data) {
-            .window => |window| scene_rect == windowBlurMarker(window),
-            else => false,
-        };
-    }
-    var windows = server.wm.windows.iterator();
-    while (windows.next()) |window| {
-        if (scene_rect == windowBlurMarker(window)) return true;
-    }
-    return false;
+    const owner = blurOwnerForNode(&scene_rect.node) orelse return false;
+    return scene_rect == blurOwnerMarker(owner);
 }
 
 fn effectRenderState(output: *const Output) *const State {
@@ -631,7 +623,7 @@ fn effectsRenderBegin(
 ) callconv(.c) u32 {
     if (comptime !build_options.vulkan_effects) return 0;
     const output: *Output = @ptrCast(@alignCast(data orelse return 0));
-    output.blur_last_window = null;
+    output.blur_last_key = null;
     if (uncachedBlurRequested()) return 0;
     output.blur_cache.beginFrame(content_damage);
     const config = server.effect_metadata.blurConfig();
@@ -644,23 +636,25 @@ fn effectsRenderBegin(
     var affected = false;
     var windows = server.wm.windows.iterator();
     while (windows.next()) |window| {
-        const handle = windowBlurHandle(window) orelse continue;
-        const blur = windowBlurData(window) orelse continue;
-        const effect = windowBlurEffect(
-            window,
-            blur,
-            output.effectRenderState(),
-        ) orelse continue;
-        const ready = output.blur_cache.markVisible(@bitCast(handle.key));
-        if (expandedRenderRegionIntersects(
+        prepareBlurOwner(
+            output,
+            .{ .window = window },
             content_damage,
-            effect.box,
-            kernel.reach,
-        )) {
-            affected = true;
-        } else if (ready) {
-            preserved += 1;
-        }
+            kernel,
+            &preserved,
+            &affected,
+        );
+    }
+    var layer_surfaces = server.layer_shell.surfaces.iterator();
+    while (layer_surfaces.next()) |layer_surface| {
+        prepareBlurOwner(
+            output,
+            .{ .layer_surface = layer_surface },
+            content_damage,
+            kernel,
+            &preserved,
+            &affected,
+        );
     }
     output.blur_cache.removeInvisible(
         &server.vulkan_context.blur_pipeline,
@@ -670,6 +664,33 @@ fn effectsRenderBegin(
         preserved,
     );
     return if (affected) kernel.reach else 0;
+}
+
+fn prepareBlurOwner(
+    output: *Output,
+    owner: BlurOwner,
+    content_damage: ?*const c.pixman_region32_t,
+    kernel: BlurPipeline.Kernel,
+    preserved: *u32,
+    affected: *bool,
+) void {
+    const handle = blurOwnerHandle(owner) orelse return;
+    const blur = blurOwnerData(owner) orelse return;
+    const effect = blurOwnerEffect(
+        owner,
+        blur,
+        output.effectRenderState(),
+    ) orelse return;
+    const ready = output.blur_cache.markVisible(@bitCast(handle.key));
+    if (expandedRenderRegionIntersects(
+        content_damage,
+        effect.box,
+        kernel.reach,
+    )) {
+        affected.* = true;
+    } else if (ready) {
+        preserved.* += 1;
+    }
 }
 
 fn effectsNodeRender(
@@ -682,14 +703,16 @@ fn effectsNodeRender(
     const output: *Output = @ptrCast(@alignCast(data orelse return));
     const node: *wlr.SceneNode =
         @ptrCast(@alignCast(c_node orelse return));
-    const window = blurWindowForNode(node) orelse return;
-    if (node != &windowBlurMarker(window).node) return;
-    if (output.blur_last_window == window) return;
-    output.blur_last_window = window;
+    const owner = blurOwnerForNode(node) orelse return;
+    if (node != &blurOwnerMarker(owner).node) return;
+    const handle = blurOwnerHandle(owner) orelse return;
+    const key: u64 = @bitCast(handle.key);
+    if (output.blur_last_key == key) return;
+    output.blur_last_key = key;
 
-    const blur = windowBlurData(window) orelse return;
+    const blur = blurOwnerData(owner) orelse return;
     const state = output.effectRenderState();
-    const effect = windowBlurEffect(window, blur, state) orelse return;
+    const effect = blurOwnerEffect(owner, blur, state) orelse return;
     const config = server.effect_metadata.blurConfig();
     const pass = render_pass orelse return;
     const clip = render_region orelse return;
@@ -708,11 +731,10 @@ fn effectsNodeRender(
             fx.outputBlurCacheData(cache_node)
         else
             null;
-        const handle = windowBlurHandle(window) orelse break :blk false;
         break :blk server.vulkan_context.blur_pipeline.renderCached(
             &output.blur_cache,
             pass,
-            @bitCast(handle.key),
+            key,
             effect,
             clip,
             blur.generation,
@@ -730,30 +752,53 @@ fn effectsNodeRender(
     };
 }
 
-fn windowBlurHandle(window: *Window) ?EffectMetadata.WindowBlurHandle {
-    return window.backdrop_blur;
+const BlurOwner = union(enum) {
+    window: *Window,
+    layer_surface: *LayerSurface,
+};
+
+fn blurOwnerHandle(owner: BlurOwner) ?EffectMetadata.WindowBlurHandle {
+    return switch (owner) {
+        .window => |window| window.backdrop_blur,
+        .layer_surface => |surface| surface.backdrop_blur,
+    };
 }
 
-fn windowBlurTree(window: *Window) *wlr.SceneTree {
-    return if (window.anim_snapshot) window.anim_tree else window.tree;
+fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
+    return switch (owner) {
+        .window => |window| if (window.anim_snapshot)
+            window.anim_tree
+        else
+            window.tree,
+        .layer_surface => |surface| surface.scene_layer_surface.tree,
+    };
 }
 
-fn windowBlurMarker(window: *Window) *wlr.SceneRect {
-    return if (window.anim_snapshot)
-        window.anim_blur_marker
-    else
-        window.blur_marker;
+fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
+    return switch (owner) {
+        .window => |window| if (window.anim_snapshot)
+            window.anim_blur_marker
+        else
+            window.blur_marker,
+        .layer_surface => |surface| surface.blur_marker,
+    };
 }
 
 /// Animation snapshots are deliberately input-inert and therefore carry no
-/// SceneNodeData. Fall back to the small window registry when resolving their
-/// buffers and blur marker during rendering.
-fn blurWindowForNode(node: *wlr.SceneNode) ?*Window {
+/// SceneNodeData. Fall back to the window registry only for those snapshots.
+fn blurOwnerForNode(node: *wlr.SceneNode) ?BlurOwner {
     if (SceneNodeData.fromNode(node)) |owner| {
         return switch (owner.data) {
             .window => |window| if (nodeInTree(node, windowBlurTree(window)) and
                 windowBlurData(window) != null)
-                window
+                .{ .window = window }
+            else
+                null,
+            .layer_surface => |surface| if (nodeInTree(
+                node,
+                surface.scene_layer_surface.tree,
+            ) and blurOwnerData(.{ .layer_surface = surface }) != null)
+                .{ .layer_surface = surface }
             else
                 null,
             else => null,
@@ -764,14 +809,22 @@ fn blurWindowForNode(node: *wlr.SceneNode) ?*Window {
         if (windowBlurData(window) != null and
             nodeInTree(node, windowBlurTree(window)))
         {
-            return window;
+            return .{ .window = window };
         }
     }
     return null;
 }
 
+fn windowBlurTree(window: *Window) *wlr.SceneTree {
+    return blurOwnerTree(.{ .window = window });
+}
+
 fn windowBlurData(window: *Window) ?EffectMetadata.WindowBlurData {
-    const handle = windowBlurHandle(window) orelse return null;
+    return blurOwnerData(.{ .window = window });
+}
+
+fn blurOwnerData(owner: BlurOwner) ?EffectMetadata.WindowBlurData {
+    const handle = blurOwnerHandle(owner) orelse return null;
     const data = server.effect_metadata.windowBlurData(handle) orelse
         return null;
     const config = server.effect_metadata.blurConfig();
@@ -800,14 +853,14 @@ fn nodeInTree(node: *wlr.SceneNode, tree: *wlr.SceneTree) bool {
     }
 }
 
-fn windowBlurEffect(
-    window: *Window,
+fn blurOwnerEffect(
+    owner: BlurOwner,
     blur: EffectMetadata.WindowBlurData,
     state: *const State,
 ) ?BlurPipeline.Effect {
     var global_x: i32 = 0;
     var global_y: i32 = 0;
-    if (!windowBlurTree(window).node.coords(&global_x, &global_y)) return null;
+    if (!blurOwnerTree(owner).node.coords(&global_x, &global_y)) return null;
 
     const logical_x = global_x + blur.box.x - state.x;
     const logical_y = global_y + blur.box.y - state.y;
@@ -921,7 +974,19 @@ fn hasVisibleBlur(output: *const Output) bool {
     var it = server.wm.windows.iterator();
     while (it.next()) |window| {
         const blur = windowBlurData(window) orelse continue;
-        if (windowBlurEffect(window, blur, output.effectRenderState()) != null) {
+        if (blurOwnerEffect(
+            .{ .window = window },
+            blur,
+            output.effectRenderState(),
+        ) != null) {
+            return true;
+        }
+    }
+    var layers = server.layer_shell.surfaces.iterator();
+    while (layers.next()) |surface| {
+        const owner: BlurOwner = .{ .layer_surface = surface };
+        const blur = blurOwnerData(owner) orelse continue;
+        if (blurOwnerEffect(owner, blur, output.effectRenderState()) != null) {
             return true;
         }
     }

@@ -115,6 +115,11 @@ pub const Rule = struct {
     }
 };
 
+pub const LayerRule = struct {
+    namespace: ?[]const u8 = null,
+    blur: bool = false,
+};
+
 pub const GameMode = struct {
     remainder_layout: Layout = .grid,
     gaps_inner: i32 = 8,
@@ -123,6 +128,7 @@ pub const GameMode = struct {
 
 allocator: std.mem.Allocator,
 rules: []Rule = &.{},
+layer_rules: []LayerRule = &.{},
 game_mode: GameMode = .{},
 source_fingerprint: u64 = 0,
 
@@ -140,10 +146,18 @@ pub fn reload(engine: *Engine, rules: []const Rule) !void {
     engine.rules = replacement;
 }
 
-pub fn reloadSnapshot(engine: *Engine, rules: []const Rule, game_mode: GameMode) !void {
+pub fn reloadSnapshot(
+    engine: *Engine,
+    rules: []const Rule,
+    layer_rules: []const LayerRule,
+    game_mode: GameMode,
+) !void {
     const replacement = try cloneRules(engine.allocator, rules);
+    errdefer freeRules(engine.allocator, replacement);
+    const layer_replacement = try cloneLayerRules(engine.allocator, layer_rules);
     engine.clear();
     engine.rules = replacement;
+    engine.layer_rules = layer_replacement;
     engine.game_mode = game_mode;
 }
 
@@ -158,14 +172,28 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     return null;
 }
 
-fn clear(engine: *Engine) void {
-    for (engine.rules) |rule| {
-        if (rule.app_id) |value| engine.allocator.free(value);
-        if (rule.class) |value| engine.allocator.free(value);
-        if (rule.title) |value| engine.allocator.free(value);
+pub fn resolveLayer(engine: *const Engine, namespace: []const u8) ?LayerRule {
+    for (engine.layer_rules) |rule| {
+        const pattern = rule.namespace orelse continue;
+        if (glob.matches(pattern, namespace)) return rule;
     }
-    if (engine.rules.len > 0) engine.allocator.free(engine.rules);
+    return null;
+}
+
+fn clear(engine: *Engine) void {
+    freeRules(engine.allocator, engine.rules);
+    freeLayerRules(engine.allocator, engine.layer_rules);
     engine.rules = &.{};
+    engine.layer_rules = &.{};
+}
+
+fn freeRules(allocator: std.mem.Allocator, rules: []Rule) void {
+    for (rules) |rule| {
+        if (rule.app_id) |value| allocator.free(value);
+        if (rule.class) |value| allocator.free(value);
+        if (rule.title) |value| allocator.free(value);
+    }
+    if (rules.len > 0) allocator.free(rules);
 }
 
 fn cloneRules(allocator: std.mem.Allocator, rules: []const Rule) ![]Rule {
@@ -194,6 +222,33 @@ fn cloneRule(allocator: std.mem.Allocator, source: Rule) !Rule {
     errdefer if (result.class) |value| allocator.free(value);
     result.title = if (source.title) |value| try allocator.dupe(u8, value) else null;
     return result;
+}
+
+fn cloneLayerRules(allocator: std.mem.Allocator, rules: []const LayerRule) ![]LayerRule {
+    const result = try allocator.alloc(LayerRule, rules.len);
+    var initialized: usize = 0;
+    errdefer {
+        for (result[0..initialized]) |rule| {
+            if (rule.namespace) |value| allocator.free(value);
+        }
+        allocator.free(result);
+    }
+    for (rules, result) |source, *destination| {
+        destination.* = source;
+        destination.namespace = if (source.namespace) |value|
+            try allocator.dupe(u8, value)
+        else
+            null;
+        initialized += 1;
+    }
+    return result;
+}
+
+fn freeLayerRules(allocator: std.mem.Allocator, rules: []LayerRule) void {
+    for (rules) |rule| {
+        if (rule.namespace) |value| allocator.free(value);
+    }
+    if (rules.len > 0) allocator.free(rules);
 }
 
 fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
@@ -233,6 +288,17 @@ test "rules are first-match-wins and require every present matcher" {
     try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.workspace);
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.workspace);
     try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
+}
+
+test "layer rules are first-match-wins namespace globs" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reloadSnapshot(&.{}, &.{
+        .{ .namespace = "panel-*", .blur = true },
+        .{ .namespace = "*", .blur = false },
+    }, .{});
+    try std.testing.expect(engine.resolveLayer("panel-main").?.blur);
+    try std.testing.expect(!engine.resolveLayer("launcher").?.blur);
 }
 
 test "rule fingerprints are semantic and detect behavior changes" {

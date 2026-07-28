@@ -1,4 +1,4 @@
-# Window rules (`rules.toml`)
+# Window and layer rules (`rules.toml`)
 
 Aqueous reads per-application placement rules from a sibling file to `wm.toml`:
 `~/.config/aqueous/rules.toml`. The file is optional - if it's missing, rules
@@ -23,8 +23,8 @@ and 4 are only returned when the file is present on disk.
 ## Reload semantics
 
 - Aqueous monitors `rules.toml` on the Wayland event loop. A changed file is
-  parsed into a replacement snapshot and every managed window is re-evaluated
-  in one batched layout pass.
+  parsed into a replacement snapshot. Every managed window and existing layer
+  surface is re-evaluated without restarting the compositor.
 - `Super+R` (the existing `reload_config` builtin) requests the same reload
   immediately for `wm.toml`, `layout.toml`, `input.toml`, and `rules.toml`.
 - `reload_rules` is a standalone builtin verb that reloads **only** rules.toml.
@@ -70,6 +70,27 @@ matters.
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
+
+### `[[layer]]`
+
+An array-of-tables for layer-shell surfaces. First match wins and declaration
+order matters.
+
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `namespace` | string (glob) | yes | Match the layer-shell namespace. |
+| `blur` | bool | no (default `false`) | Blur the rectangular surface bounds. This stage does not blur popups or use the surface alpha as a mask. |
+
+Global backdrop blur must also be enabled under `[blur]` in `wm.toml`.
+
+```toml
+[[layer]]
+namespace = "waybar"
+blur = true
+```
+
+Run `aqueousctl scene` while the surface is mapped to discover its namespace;
+layer roots are labeled `layer surface: NAMESPACE`.
 
 ## Game-mode layout pattern
 
@@ -124,6 +145,8 @@ Two-release deprecation window - after which the warning becomes an error.
 - **Rule didn't apply.** Run `aqueousctl inspect --rule` for ready-to-paste
   matchers, or `aqueousctl windows --json` for the complete window snapshot.
   Wayland app IDs and XWayland classes are case-sensitive.
+- **Layer rule didn't apply.** Run `aqueousctl scene` and use the namespace
+  shown in the `layer surface: ...` label. Namespace globs are case-sensitive.
 - **Anchor doesn't update when I edit `rules.toml`.** Check the compositor log
   for a parse warning, or press `Super+R` to request an immediate reload.
 - **Game mode disappears when I close the game.** Expected - with no
