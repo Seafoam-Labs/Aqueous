@@ -443,21 +443,16 @@ fn handleRequestFullscreen(listener: *wl.Listener(void)) void {
     server.wm.dirtyWindowing();
 }
 
-/// Some X11 clients will minimize themselves regardless of how we respond.
-/// Therefore to ensure they don't get stuck in this minimized state we tell
-/// them their request has been honored without actually doing anything and
-/// unminimize them if they gain focus while minimized.
+/// Some X11 clients enter their iconic state before compositor policy
+/// responds. Validate synchronously so rejected requests can be reverted before
+/// the client gets stuck minimized outside the integrated state machine.
 fn handleRequestMinimize(
     listener: *wl.Listener(*wlr.XwaylandSurface.event.Minimize),
     event: *wlr.XwaylandSurface.event.Minimize,
 ) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("request_minimize", listener);
-    const state = &xwindow.window.policy_state;
-    const allowed = if (event.minimize)
-        state.kind == .floating
-    else
-        state.kind == .minimized and state.previous == .floating;
-    if (!allowed) {
+    const handle: @import("wm/layout/types.zig").Handle = @bitCast(xwindow.window.ref);
+    if (!server.aqueous.clientMinimizeAllowed(handle, event.minimize)) {
         // X11 clients may update their iconic state before policy responds.
         // Explicitly reject it so a tiled window cannot disappear outside the
         // integrated layout's state machine.

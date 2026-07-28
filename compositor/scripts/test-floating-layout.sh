@@ -156,6 +156,20 @@ wait_floating_state() {
     die "timed out waiting for $app_id floating=$wanted"
 }
 
+wait_minimized_state() {
+    local app_id=$1 wanted=$2 json=""
+    for _ in $(seq 1 200); do
+        json=$(window_json "$app_id")
+        if [ "$wanted" = true ]; then
+            jq -e '.states | index("minimized") != null' <<<"$json" >/dev/null && return 0
+        else
+            jq -e '.states | index("minimized") == null' <<<"$json" >/dev/null && return 0
+        fi
+        sleep 0.05
+    done
+    die "timed out waiting for $app_id minimized=$wanted"
+}
+
 start_fixture() {
     local app_id=$1 mode=$2
     local sync_dir="$TEST_ROOT/$app_id-sync"
@@ -262,6 +276,19 @@ press t SUPER
 wait_floating_state "$APP_ONE" false
 press f SUPER
 wait_geometry "$APP_ONE" "$ONE_FLOAT"
+
+# Workspace-owned floating windows retain tiled policy state. Their titlebar
+# minimize request must still be honored because the active layout presents
+# them as floating windows.
+APP_MINIMIZE=aqueous.layout-minimize
+start_fixture "$APP_MINIMIZE" minimize
+PID_MINIMIZE=$STARTED_PID
+SYNC_MINIMIZE="${CLIENT_SYNCS[3]}"
+LOG_MINIMIZE="${CLIENT_LOGS[3]}"
+wait_window "$APP_MINIMIZE" >/dev/null
+touch "$SYNC_MINIMIZE/minimize"
+wait_marker "$PID_MINIMIZE" "$SYNC_MINIMIZE" minimize-done "$LOG_MINIMIZE"
+wait_minimized_state "$APP_MINIMIZE" true
 
 for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
 for index in "${!CLIENT_PIDS[@]}"; do

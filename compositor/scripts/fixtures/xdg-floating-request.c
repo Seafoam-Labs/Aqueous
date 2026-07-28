@@ -427,8 +427,9 @@ int main(int argc, char **argv) {
          strcmp(mode, "idle") != 0 &&
          strcmp(mode, "move-only") != 0 &&
          strcmp(mode, "move-resize") != 0 &&
-         strcmp(mode, "move-hold") != 0)) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold]\n", argv[0]);
+         strcmp(mode, "move-hold") != 0 &&
+         strcmp(mode, "minimize") != 0)) {
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold|minimize]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -483,6 +484,12 @@ int main(int argc, char **argv) {
 
     if (strcmp(mode, "idle") == 0) {
         if (!wait_for_marker(&app, "finish")) fail(&app, "idle command failed");
+    } else if (strcmp(mode, "minimize") == 0) {
+        if (!request_state(&app, "minimize") ||
+            !publish_marker(&app, "minimize-done") ||
+            !wait_for_marker(&app, "finish")) {
+            fail(&app, "minimize command failed");
+        }
     } else if (strcmp(mode, "move-only") == 0 || strcmp(mode, "move-resize") == 0 ||
                strcmp(mode, "move-hold") == 0) {
         if (!run_pointer_operation(

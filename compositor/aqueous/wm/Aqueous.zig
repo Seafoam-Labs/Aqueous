@@ -524,12 +524,20 @@ fn applyClientWindowRequests(
         },
         .minimize => {
             aqueous.finishInteractiveDragFor(request.handle);
-            _ = aqueous.window_states.setClientMinimized(request.handle, true) catch {
+            _ = aqueous.window_states.setClientMinimized(
+                request.handle,
+                true,
+                aqueous.clientWindowUsesFloatingLayout(request.handle),
+            ) catch {
                 log.err("out of memory recording client minimize request", .{});
             };
         },
         .unminimize => {
-            _ = aqueous.window_states.setClientMinimized(request.handle, false) catch unreachable;
+            _ = aqueous.window_states.setClientMinimized(
+                request.handle,
+                false,
+                aqueous.clientWindowUsesFloatingLayout(request.handle),
+            ) catch unreachable;
         },
         .activate => {
             snapshot_dirty = aqueous.activateClientWindow(snapshot, request.handle) or snapshot_dirty;
@@ -1273,6 +1281,30 @@ fn layoutIsFloating(aqueous: *const Aqueous, key: LayoutStateKey) bool {
     if (aqueous.layout_overrides.get(key)) |id| return id == .floating;
     if (aqueous.layout_states.get(key)) |state| return state.active_layout == .floating;
     return aqueous.config.layout.default == .floating;
+}
+
+fn clientWindowUsesFloatingLayout(
+    aqueous: *const Aqueous,
+    handle: layout_types.Handle,
+) bool {
+    if (!aqueous.mode.runsInternal()) return false;
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return false;
+    return aqueous.layoutIsFloating(.{
+        .output = workspace.output_id,
+        .workspace = workspace.workspace_number,
+    });
+}
+
+pub fn clientMinimizeAllowed(
+    aqueous: *Aqueous,
+    handle: layout_types.Handle,
+    minimized: bool,
+) bool {
+    return aqueous.window_states.clientMinimizeAllowed(
+        handle,
+        minimized,
+        aqueous.clientWindowUsesFloatingLayout(handle),
+    );
 }
 
 fn applyInputConfig(aqueous: *Aqueous) void {

@@ -119,17 +119,33 @@ pub fn restore(store: *Store, handle: types.Handle) bool {
     return true;
 }
 
-/// Honor client minimize/unminimize only along a floating state lineage.
-pub fn setClientMinimized(store: *Store, handle: types.Handle, minimized: bool) !bool {
+/// Honor client minimize/unminimize only when the window is explicitly
+/// floating or is an ordinary tiled-state window presented by the workspace
+/// floating layout.
+pub fn setClientMinimized(
+    store: *Store,
+    handle: types.Handle,
+    minimized: bool,
+    layout_floating: bool,
+) !bool {
+    if (!store.clientMinimizeAllowed(handle, minimized, layout_floating)) return false;
+    return if (minimized) store.minimize(handle) else store.restore(handle);
+}
+
+pub fn clientMinimizeAllowed(
+    store: *Store,
+    handle: types.Handle,
+    minimized: bool,
+    layout_floating: bool,
+) bool {
     const entry = store.resolver(handle) orelse return false;
     if (minimized) {
-        if (entry.kind != .floating) return false;
-        return store.minimize(handle);
+        return entry.kind == .floating or
+            (layout_floating and entry.kind == .tiled);
     }
-    if (entry.kind != .minimized or entry.previous != .floating) return false;
-    entry.kind = .floating;
-    removeFromList(&store.minimized_mru, handle);
-    return true;
+    return entry.kind == .minimized and
+        (entry.previous == .floating or
+            (layout_floating and entry.previous == .tiled));
 }
 
 pub fn minimize(store: *Store, handle: types.Handle) !bool {
@@ -206,13 +222,18 @@ test "rule floating rolls back unless manually overridden" {
     try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
 }
 
-test "client state requests are confined to floating windows" {
+test "client state requests are confined to floating presentations" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
     try std.testing.expect(!store.setClientMaximized(1, true));
-    try std.testing.expect(!(try store.setClientMinimized(1, true)));
+    try std.testing.expect(!(try store.setClientMinimized(1, true, false)));
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+
+    try std.testing.expect(try store.setClientMinimized(1, true, true));
+    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
+    try std.testing.expect(try store.setClientMinimized(1, false, true));
     try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
 
     TestResolver.entries[0].kind = .floating;
@@ -221,9 +242,9 @@ test "client state requests are confined to floating windows" {
     try std.testing.expect(store.setClientMaximized(1, false));
     try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
 
-    try std.testing.expect(try store.setClientMinimized(1, true));
+    try std.testing.expect(try store.setClientMinimized(1, true, false));
     try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
-    try std.testing.expect(try store.setClientMinimized(1, false));
+    try std.testing.expect(try store.setClientMinimized(1, false, false));
     try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
 
     TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
