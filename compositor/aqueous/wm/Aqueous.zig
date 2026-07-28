@@ -1546,6 +1546,13 @@ fn applyGlobalConfig(aqueous: *Aqueous) void {
         config.blur_enabled,
         config.blur_radius,
         config.blur_passes,
+        .{
+            .noise = @floatCast(config.blur_noise),
+            .contrast = @floatCast(config.blur_contrast),
+            .brightness = @floatCast(config.blur_brightness),
+            .vibrancy = @floatCast(config.blur_vibrancy),
+            .vibrancy_darkness = @floatCast(config.blur_vibrancy_darkness),
+        },
         opacity,
         config.workspace_transition_enabled,
         config.workspace_transition_rate,

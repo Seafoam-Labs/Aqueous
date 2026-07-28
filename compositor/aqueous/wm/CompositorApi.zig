@@ -142,8 +142,25 @@ pub fn endClientPointerOperation(_: CompositorApi, seat_id: usize) void {
     }
 }
 
-pub fn applyGlobals(_: CompositorApi, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
-    server.wm.policyApplyGlobals(blur_enabled, blur_radius, blur_passes, opacity, transition_enabled, transition_rate);
+pub fn applyGlobals(
+    _: CompositorApi,
+    blur_enabled: bool,
+    blur_radius: i32,
+    blur_passes: i32,
+    blur_appearance: @import("../fx.zig").BlurAppearance,
+    opacity: f64,
+    transition_enabled: bool,
+    transition_rate: f64,
+) void {
+    server.wm.policyApplyGlobals(
+        blur_enabled,
+        blur_radius,
+        blur_passes,
+        blur_appearance,
+        opacity,
+        transition_enabled,
+        transition_rate,
+    );
 }
 
 pub fn focusedWindow(_: CompositorApi) ?layout.Handle {

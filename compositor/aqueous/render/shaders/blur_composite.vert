@@ -4,6 +4,7 @@ layout(push_constant) uniform PushConstants {
     vec4 box;
     vec4 radii;
     vec4 output_data;
+    vec4 appearance_data;
 } push_data;
 
 layout(location = 0) out vec2 uv;

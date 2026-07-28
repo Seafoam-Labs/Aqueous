@@ -332,6 +332,13 @@ pub fn markBlurDirty(output: *Output) void {
     if (output.blur_node) |node| fx.markOptimizedBlurDirty(node);
 }
 
+/// Repaint appearance-only blur changes while retaining the cached blur source.
+pub fn damageBlurAppearance(output: *Output) void {
+    if (comptime !fx.blur_available) return;
+    const scene_output = output.scene_output orelse return;
+    scene_output.damage_ring.addWhole();
+}
+
 fn destroyBlur(output: *Output) void {
     if (comptime build_options.vulkan_effects) {
         output.blur_cache.deinit(&server.vulkan_context.blur_pipeline);
@@ -694,6 +701,7 @@ fn effectsNodeRender(
             config.radius,
             config.passes,
             state.scale,
+            config.appearance,
         )
     else blk: {
         const output_cache = if (output.blur_node) |cache_node|
@@ -713,6 +721,7 @@ fn effectsNodeRender(
             config.radius,
             config.passes,
             state.scale,
+            config.appearance,
         );
     };
     _ = rendered catch |err| {

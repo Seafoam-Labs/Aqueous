@@ -17,6 +17,8 @@ pub const corner_radius: u31 =
     if (build_options.vulkan_effects) 15 else 0;
 
 pub const CornerRadii = EffectMetadata.CornerRadii;
+pub const BlurAppearance = EffectMetadata.BlurAppearance;
+pub const BlurUpdate = EffectMetadata.BlurUpdate;
 pub const WindowBlur = EffectMetadata.WindowBlurHandle;
 pub const OutputBlurCache = EffectMetadata.OutputBlurCacheHandle;
 
@@ -149,11 +151,12 @@ pub const blur_available: bool = build_options.vulkan_effects;
 
 /// Apply the scene-wide blur parameters. Setting radius or passes to 0 disables
 /// blur, so the global on/off toggle is expressed by passing 0 when disabled.
-pub fn setBlurParams(scene: *wlr.Scene, radius: c_int, passes: c_int) void {
+pub fn setBlurParams(scene: *wlr.Scene, radius: c_int, passes: c_int, appearance: BlurAppearance) BlurUpdate {
     _ = scene;
     if (comptime build_options.vulkan_effects) {
-        _ = metadata().setBlurConfig(radius, passes);
+        return metadata().setBlurConfig(radius, passes, appearance);
     }
+    return .{ .kernel_changed = false, .appearance_changed = false };
 }
 
 /// Create the metadata that describes blur directly behind one window.

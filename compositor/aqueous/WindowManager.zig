@@ -81,6 +81,7 @@ blur: struct {
     enabled: bool = false,
     radius: i32 = 0,
     passes: i32 = 0,
+    appearance: fx.BlurAppearance = .{},
 } = .{},
 
 /// Default window-content opacity driven by river_window_manager_v1.set_opacity,
@@ -109,7 +110,7 @@ pub fn init(wm: *WindowManager) !void {
     errdefer timeout.remove();
 
     wm.* = .{
-        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 9, *WindowManager, wm, bind),
+        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 10, *WindowManager, wm, bind),
         .sent = .{
             .outputs = undefined,
             .seats = undefined,
@@ -244,6 +245,17 @@ fn handleRequest(
             wm.blur.passes = if (args.passes > 0) args.passes else 0;
             wm.applyBlur();
         },
+        .set_blur_appearance => |args| {
+            if (!wm.ensureRendering()) return;
+            wm.blur.appearance = .{
+                .noise = clampAppearance(args.noise.toDouble(), 0, 1),
+                .contrast = clampAppearance(args.contrast.toDouble(), 0, 2),
+                .brightness = clampAppearance(args.brightness.toDouble(), 0, 2),
+                .vibrancy = clampAppearance(args.vibrancy.toDouble(), 0, 1),
+                .vibrancy_darkness = clampAppearance(args.vibrancy_darkness.toDouble(), 0, 1),
+            };
+            wm.applyBlur();
+        },
         .set_opacity => |args| {
             if (!wm.ensureRendering()) return;
             wm.default_opacity = args.value;
@@ -265,20 +277,44 @@ fn handleRequest(
 fn applyBlur(wm: *WindowManager) void {
     if (comptime !fx.blur_available) return;
     const scene = server.scene.wlr_scene;
-    if (wm.blur.enabled) {
-        fx.setBlurParams(scene, @intCast(wm.blur.radius), @intCast(wm.blur.passes));
-    } else {
-        fx.setBlurParams(scene, 0, 0);
-    }
+    const update = if (wm.blur.enabled)
+        fx.setBlurParams(
+            scene,
+            @intCast(wm.blur.radius),
+            @intCast(wm.blur.passes),
+            wm.blur.appearance,
+        )
+    else
+        fx.setBlurParams(scene, 0, 0, wm.blur.appearance);
 
     var outputs = server.om.outputs.iterator(.forward);
-    while (outputs.next()) |output| output.syncBlur(true);
+    while (outputs.next()) |output| {
+        output.syncBlur(update.kernel_changed);
+        if (wm.blur.enabled and update.appearance_changed) {
+            output.damageBlurAppearance();
+        }
+    }
 }
 
-pub fn policyApplyGlobals(wm: *WindowManager, blur_enabled: bool, blur_radius: i32, blur_passes: i32, opacity: f64, transition_enabled: bool, transition_rate: f64) void {
+fn clampAppearance(value: f64, minimum: f64, maximum: f64) f32 {
+    if (!std.math.isFinite(value)) return @floatCast(minimum);
+    return @floatCast(std.math.clamp(value, minimum, maximum));
+}
+
+pub fn policyApplyGlobals(
+    wm: *WindowManager,
+    blur_enabled: bool,
+    blur_radius: i32,
+    blur_passes: i32,
+    blur_appearance: fx.BlurAppearance,
+    opacity: f64,
+    transition_enabled: bool,
+    transition_rate: f64,
+) void {
     wm.blur.enabled = blur_enabled;
     wm.blur.radius = @max(0, blur_radius);
     wm.blur.passes = @max(0, blur_passes);
+    wm.blur.appearance = blur_appearance;
     wm.applyBlur();
     const clamped_opacity = std.math.clamp(opacity, 0, 1);
     wm.default_opacity = @intFromFloat(clamped_opacity * @as(f64, @floatFromInt(std.math.maxInt(u32))));

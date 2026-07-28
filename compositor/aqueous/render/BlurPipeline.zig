@@ -29,14 +29,16 @@ const CompositePush = extern struct {
     box: [4]f32,
     radii: [4]f32,
     output_data: [4]f32,
+    appearance_data: [4]f32,
 };
 
 comptime {
     std.debug.assert(@sizeOf(OffscreenPush) == 16);
-    std.debug.assert(@sizeOf(CompositePush) == 48);
+    std.debug.assert(@sizeOf(CompositePush) == 64);
 }
 
 pub const Kernel = EffectMetadata.BlurKernel;
+pub const Appearance = EffectMetadata.BlurAppearance;
 
 pub const Effect = struct {
     box: c.struct_wlr_box,
@@ -368,6 +370,7 @@ pub fn render(
     radius: c_int,
     passes: c_int,
     scale: f32,
+    appearance: Appearance,
 ) !bool {
     const kernel = resolveKernel(radius, passes, scale) orelse return false;
     if (effect.box.width <= 0 or effect.box.height <= 0) return false;
@@ -391,6 +394,7 @@ pub fn render(
         effect,
         render_region,
         resources.ping_descriptor,
+        appearance,
     )) return false;
     pipeline.checkpoint_count += 1;
     return true;
@@ -409,6 +413,7 @@ pub fn renderCached(
     radius: c_int,
     passes: c_int,
     scale: f32,
+    appearance: Appearance,
 ) !bool {
     const kernel = resolveKernel(radius, passes, scale) orelse return false;
     if (effect.box.width <= 0 or effect.box.height <= 0) return false;
@@ -505,6 +510,7 @@ pub fn renderCached(
             effect,
             render_region,
             resource.descriptor,
+            appearance,
         )) return false;
         pipeline.checkpoint_count += 1;
         return true;
@@ -512,9 +518,7 @@ pub fn renderCached(
 
     var pixels_processed: u64 = 0;
     var update_index: usize = 0;
-    while (update_index < @as(usize, @intCast(update_count))) :
-        (update_index += 1)
-    {
+    while (update_index < @as(usize, @intCast(update_count))) : (update_index += 1) {
         const rectangle = update_rectangles[update_index];
         var call: CachedOffscreenCall = .{
             .pipeline = pipeline,
@@ -559,6 +563,7 @@ pub fn renderCached(
         effect,
         render_region,
         resource.descriptor,
+        appearance,
     )) return false;
     pipeline.checkpoint_count += 1;
     return true;
@@ -570,6 +575,7 @@ fn composite(
     effect: Effect,
     render_region: *const c.pixman_region32_t,
     descriptor: c.VkDescriptorSet,
+    appearance: Appearance,
 ) !bool {
     var attributes = std.mem.zeroes(c.struct_wlr_vk_render_pass_attribs);
     if (!c.wlr_vk_render_pass_get_attribs(render_pass, &attributes)) {
@@ -587,8 +593,14 @@ fn composite(
         .output_data = .{
             @floatFromInt(attributes.extent.width),
             @floatFromInt(attributes.extent.height),
+            appearance.noise,
             0,
-            0,
+        },
+        .appearance_data = .{
+            appearance.contrast,
+            appearance.brightness,
+            appearance.vibrancy,
+            appearance.vibrancy_darkness,
         },
     };
 

@@ -71,7 +71,21 @@ pub const RectRenderData = struct {
 pub const BlurConfig = struct {
     radius: c_int = 0,
     passes: c_int = 0,
+    appearance: BlurAppearance = .{},
     generation: u64 = 1,
+};
+
+pub const BlurAppearance = struct {
+    noise: f32 = 0,
+    contrast: f32 = 1,
+    brightness: f32 = 1,
+    vibrancy: f32 = 0,
+    vibrancy_darkness: f32 = 0,
+};
+
+pub const BlurUpdate = struct {
+    kernel_changed: bool,
+    appearance_changed: bool,
 };
 
 pub const BlurKernel = struct {
@@ -374,14 +388,25 @@ fn removeRectRecord(metadata: *EffectMetadata, record: *RectRecord) void {
     metadata.allocator.destroy(record);
 }
 
-pub fn setBlurConfig(metadata: *EffectMetadata, radius: c_int, passes: c_int) bool {
-    if (metadata.blur_config.radius == radius and metadata.blur_config.passes == passes) {
-        return false;
-    }
+/// Update scene-wide blur state. Kernel changes advance the cache generation;
+/// appearance changes are reported separately because they only need a new
+/// composite and deliberately do not invalidate cached blur sources.
+pub fn setBlurConfig(metadata: *EffectMetadata, radius: c_int, passes: c_int, appearance: BlurAppearance) BlurUpdate {
+    const kernel_changed =
+        metadata.blur_config.radius != radius or
+        metadata.blur_config.passes != passes;
+    const appearance_changed =
+        !std.meta.eql(metadata.blur_config.appearance, appearance);
     metadata.blur_config.radius = radius;
     metadata.blur_config.passes = passes;
-    metadata.blur_config.generation = nextGeneration(metadata.blur_config.generation);
-    return true;
+    metadata.blur_config.appearance = appearance;
+    if (kernel_changed) {
+        metadata.blur_config.generation = nextGeneration(metadata.blur_config.generation);
+    }
+    return .{
+        .kernel_changed = kernel_changed,
+        .appearance_changed = appearance_changed,
+    };
 }
 
 pub fn blurConfig(metadata: *const EffectMetadata) BlurConfig {
@@ -611,8 +636,18 @@ test "blur handles reject stale generations and track invalidation" {
 
     const cache = try metadata.createOutputBlurCache(&tree, 1920, 1080);
     const first = metadata.outputBlurCacheData(cache).?;
-    try std.testing.expect(!metadata.setBlurConfig(0, 0));
-    try std.testing.expect(metadata.setBlurConfig(12, 2));
+    const unchanged = metadata.setBlurConfig(0, 0, .{});
+    try std.testing.expect(!unchanged.kernel_changed);
+    try std.testing.expect(!unchanged.appearance_changed);
+    const initial_generation = metadata.blurConfig().generation;
+    const appearance_update = metadata.setBlurConfig(0, 0, .{ .noise = 0.25 });
+    try std.testing.expect(!appearance_update.kernel_changed);
+    try std.testing.expect(appearance_update.appearance_changed);
+    try std.testing.expectEqual(initial_generation, metadata.blurConfig().generation);
+    try std.testing.expectEqual(@as(f32, 0.25), metadata.blurConfig().appearance.noise);
+    const kernel_update = metadata.setBlurConfig(12, 2, .{ .noise = 0.25 });
+    try std.testing.expect(kernel_update.kernel_changed);
+    try std.testing.expect(!kernel_update.appearance_changed);
     try std.testing.expect(metadata.configureOutputBlurCache(
         cache,
         .{ .x = 0, .y = 0, .width = 1920, .height = 1080 },

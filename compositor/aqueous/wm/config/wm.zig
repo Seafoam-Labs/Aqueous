@@ -125,6 +125,11 @@ pub const Snapshot = struct {
     blur_enabled: bool = false,
     blur_radius: i32 = 5,
     blur_passes: i32 = 3,
+    blur_noise: f64 = 0,
+    blur_contrast: f64 = 1,
+    blur_brightness: f64 = 1,
+    blur_vibrancy: f64 = 0,
+    blur_vibrancy_darkness: f64 = 0,
     opacity_enabled: bool = false,
     opacity: f64 = 0.9,
     opacity_focus_sensitive: bool = false,
@@ -205,6 +210,11 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "enabled")) snapshot.blur_enabled = parseBool(value) orelse snapshot.blur_enabled;
                 if (std.mem.eql(u8, key, "radius")) snapshot.blur_radius = parseNonNegative(value) orelse snapshot.blur_radius;
                 if (std.mem.eql(u8, key, "passes")) snapshot.blur_passes = parseNonNegative(value) orelse snapshot.blur_passes;
+                if (std.mem.eql(u8, key, "noise")) snapshot.blur_noise = parseUnit(value) orelse snapshot.blur_noise;
+                if (std.mem.eql(u8, key, "contrast")) snapshot.blur_contrast = parseRange(value, 0, 2) orelse snapshot.blur_contrast;
+                if (std.mem.eql(u8, key, "brightness")) snapshot.blur_brightness = parseRange(value, 0, 2) orelse snapshot.blur_brightness;
+                if (std.mem.eql(u8, key, "vibrancy")) snapshot.blur_vibrancy = parseUnit(value) orelse snapshot.blur_vibrancy;
+                if (std.mem.eql(u8, key, "vibrancy_darkness")) snapshot.blur_vibrancy_darkness = parseUnit(value) orelse snapshot.blur_vibrancy_darkness;
             },
             .opacity => applyOpacity(snapshot, key, value),
             .workspace_transition => {
@@ -405,8 +415,11 @@ fn parseU31(value: []const u8) ?u31 {
     return std.fmt.parseInt(u31, value, 10) catch null;
 }
 fn parseUnit(value: []const u8) ?f64 {
+    return parseRange(value, 0, 1);
+}
+fn parseRange(value: []const u8, minimum: f64, maximum: f64) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;
-    return if (std.math.isFinite(result) and result >= 0 and result <= 1) result else null;
+    return if (std.math.isFinite(result) and result >= minimum and result <= maximum) result else null;
 }
 fn parseSpeed(value: []const u8) ?f64 {
     const result = std.fmt.parseFloat(f64, value) catch return null;
@@ -457,6 +470,44 @@ test "new-window focus defaults to disabled" {
     const snapshot: Snapshot = .{};
     try std.testing.expect(!snapshot.input.focus_new_windows);
     try std.testing.expect(!snapshot.input.focus_new_windows_set);
+}
+
+test "blur appearance validates ranges and preserves neutral defaults" {
+    var wm_snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expectEqual(@as(f64, 0), wm_snapshot.blur_noise);
+    try std.testing.expectEqual(@as(f64, 1), wm_snapshot.blur_contrast);
+    try std.testing.expectEqual(@as(f64, 1), wm_snapshot.blur_brightness);
+    try std.testing.expectEqual(@as(f64, 0), wm_snapshot.blur_vibrancy);
+    try std.testing.expectEqual(@as(f64, 0), wm_snapshot.blur_vibrancy_darkness);
+
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[blur]
+        \\noise = 0.125
+        \\contrast = 1.5
+        \\brightness = 0.75
+        \\vibrancy = 0.4
+        \\vibrancy_darkness = 0.6
+    );
+    try std.testing.expectEqual(@as(f64, 0.125), wm_snapshot.blur_noise);
+    try std.testing.expectEqual(@as(f64, 1.5), wm_snapshot.blur_contrast);
+    try std.testing.expectEqual(@as(f64, 0.75), wm_snapshot.blur_brightness);
+    try std.testing.expectEqual(@as(f64, 0.4), wm_snapshot.blur_vibrancy);
+    try std.testing.expectEqual(@as(f64, 0.6), wm_snapshot.blur_vibrancy_darkness);
+
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[blur]
+        \\noise = -0.1
+        \\contrast = 2.1
+        \\brightness = nan
+        \\vibrancy = 1.1
+        \\vibrancy_darkness = -1
+    );
+    try std.testing.expectEqual(@as(f64, 0.125), wm_snapshot.blur_noise);
+    try std.testing.expectEqual(@as(f64, 1.5), wm_snapshot.blur_contrast);
+    try std.testing.expectEqual(@as(f64, 0.75), wm_snapshot.blur_brightness);
+    try std.testing.expectEqual(@as(f64, 0.4), wm_snapshot.blur_vibrancy);
+    try std.testing.expectEqual(@as(f64, 0.6), wm_snapshot.blur_vibrancy_darkness);
 }
 
 test "comments inside quoted values are preserved" {

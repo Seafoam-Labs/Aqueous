@@ -148,6 +148,11 @@ right  = 0
 enabled = true  # set true to enable compositor backdrop blur
 radius  = 10      # blur radius in pixels
 passes  = 8      # number of blur passes (higher = blurrier, costlier)
+noise = 0.0                # stable screen-space noise, 0.0–1.0
+contrast = 1.0             # backdrop contrast, 0.0–2.0; 1.0 is neutral
+brightness = 1.0           # backdrop brightness, 0.0–2.0; 1.0 is neutral
+vibrancy = 0.0             # saturation boost, 0.0–1.0
+vibrancy_darkness = 0.0    # vibrancy applied to dark colors, 0.0–1.0
 
 # Default window-content opacity (requires Aqueous with opacity support).
 # Per-window overrides live in rules.toml as `opacity = 0.85`.
