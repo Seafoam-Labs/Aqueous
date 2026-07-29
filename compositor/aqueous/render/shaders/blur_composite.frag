@@ -7,6 +7,7 @@ layout(push_constant) uniform PushConstants {
     vec4 radii;
     vec4 output_data;
     vec4 appearance_data;
+    vec4 sample_bounds;
 } push_data;
 
 layout(location = 0) in vec2 uv;
@@ -70,7 +71,10 @@ void main() {
         antialias_width,
         signed_distance
     );
-    vec4 color = texture(blurred_texture, uv);
+    vec4 color = texture(
+        blurred_texture,
+        clamp(uv, push_data.sample_bounds.xy, push_data.sample_bounds.zw)
+    );
     float contrast = push_data.appearance_data.x;
     float brightness = push_data.appearance_data.y;
     float vibrancy = push_data.appearance_data.z;

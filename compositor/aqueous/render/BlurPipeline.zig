@@ -23,6 +23,7 @@ const composite_fragment_shader align(4) =
 
 const OffscreenPush = extern struct {
     data: [4]f32,
+    sample_bounds: [4]f32,
 };
 
 const CompositePush = extern struct {
@@ -30,11 +31,12 @@ const CompositePush = extern struct {
     radii: [4]f32,
     output_data: [4]f32,
     appearance_data: [4]f32,
+    sample_bounds: [4]f32,
 };
 
 comptime {
-    std.debug.assert(@sizeOf(OffscreenPush) == 16);
-    std.debug.assert(@sizeOf(CompositePush) == 64);
+    std.debug.assert(@sizeOf(OffscreenPush) == 32);
+    std.debug.assert(@sizeOf(CompositePush) == 80);
 }
 
 pub const Kernel = EffectMetadata.BlurKernel;
@@ -85,6 +87,7 @@ const CompositePipeline = struct {
 const OffscreenCall = struct {
     pipeline: *BlurPipeline,
     kernel: Kernel,
+    domain: c.struct_wlr_box,
     resources: ?*Resources = null,
     failed: bool = false,
 };
@@ -192,6 +195,7 @@ const CachedOffscreenCall = struct {
     kernel: Kernel,
     target: *CacheImage,
     update: c.struct_wlr_box,
+    domain: c.struct_wlr_box,
     pixels_processed: u64 = 0,
     failed: bool = false,
 };
@@ -378,6 +382,7 @@ pub fn render(
     var call: OffscreenCall = .{
         .pipeline = pipeline,
         .kernel = kernel,
+        .domain = effect.box,
     };
     if (!c.wlr_vk_render_pass_run_offscreen(
         render_pass,
@@ -524,6 +529,7 @@ pub fn renderCached(
             .pipeline = pipeline,
             .kernel = kernel,
             .target = resource,
+            .domain = effect.box,
             .update = .{
                 .x = rectangle.x1,
                 .y = rectangle.y1,
@@ -602,6 +608,10 @@ fn composite(
             appearance.vibrancy,
             appearance.vibrancy_darkness,
         },
+        .sample_bounds = normalizedSampleBounds(
+            halfResolutionBox(effect.box, attributes.extent),
+            halfExtent(attributes.extent),
+        ),
     };
 
     c.vkCmdBindPipeline(
@@ -651,6 +661,7 @@ fn offscreenCallback(
     const resources = call.pipeline.processOffscreen(
         attribs,
         call.kernel,
+        call.domain,
     ) catch |err| {
         call.failed = true;
         std.log.err(
@@ -674,6 +685,7 @@ fn cachedOffscreenCallback(
         call.kernel,
         call.target,
         call.update,
+        call.domain,
     ) catch |err| {
         call.failed = true;
         std.log.err(
@@ -691,6 +703,7 @@ fn processCachedOffscreen(
     kernel: Kernel,
     target: *CacheImage,
     update: c.struct_wlr_box,
+    domain: c.struct_wlr_box,
 ) !u64 {
     if (attributes.command_buffer == null or
         attributes.source_image_view == null or
@@ -716,6 +729,20 @@ fn processCachedOffscreen(
         kernel.passes,
         kernel.tap_reach,
     );
+    const clipped_domain = clippedBox(domain, attributes.extent);
+    if (clipped_domain.width <= 0 or clipped_domain.height <= 0) return 0;
+    const half_domain = halfResolutionBox(
+        clipped_domain,
+        attributes.extent,
+    );
+    const source_bounds = normalizedSampleBounds(
+        clipped_domain,
+        attributes.extent,
+    );
+    const half_bounds = normalizedSampleBounds(
+        half_domain,
+        resources.half_extent,
+    );
     const final_box = fromCacheBox(plan.final);
     const downsample_box = fromCacheBox(plan.downsample);
 
@@ -724,7 +751,7 @@ fn processCachedOffscreen(
         @floatFromInt(attributes.extent.height),
         0,
         0,
-    } };
+    }, .sample_bounds = source_bounds };
     pipeline.drawOffscreen(
         attributes.command_buffer,
         resources,
@@ -752,7 +779,7 @@ fn processCachedOffscreen(
                 0,
                 kernel.sample_step,
                 0,
-            } },
+            }, .sample_bounds = half_bounds },
             fromCacheBox(plan.horizontal[iteration]),
         );
         pipeline.drawOffscreen(
@@ -766,7 +793,7 @@ fn processCachedOffscreen(
                 inverse_height,
                 kernel.sample_step,
                 0,
-            } },
+            }, .sample_bounds = half_bounds },
             fromCacheBox(plan.vertical[iteration]),
         );
     }
@@ -783,6 +810,7 @@ fn processOffscreen(
     pipeline: *BlurPipeline,
     attributes: *const c.struct_wlr_vk_render_offscreen_attribs,
     kernel: Kernel,
+    domain: c.struct_wlr_box,
 ) !*Resources {
     if (attributes.command_buffer == null or
         attributes.source_image_view == null or
@@ -796,13 +824,29 @@ fn processOffscreen(
         attributes.extent,
         attributes.source_image_view,
     );
+    const clipped_domain = clippedBox(domain, attributes.extent);
+    if (clipped_domain.width <= 0 or clipped_domain.height <= 0) {
+        return error.VulkanBlurOffscreenAttributesInvalid;
+    }
+    const half_domain = halfResolutionBox(
+        clipped_domain,
+        attributes.extent,
+    );
+    const source_bounds = normalizedSampleBounds(
+        clipped_domain,
+        attributes.extent,
+    );
+    const half_bounds = normalizedSampleBounds(
+        half_domain,
+        resources.half_extent,
+    );
 
     const downsample_push: OffscreenPush = .{ .data = .{
         @floatFromInt(attributes.extent.width),
         @floatFromInt(attributes.extent.height),
         0,
         0,
-    } };
+    }, .sample_bounds = source_bounds };
     pipeline.drawOffscreen(
         attributes.command_buffer,
         resources,
@@ -830,7 +874,7 @@ fn processOffscreen(
                 0,
                 kernel.sample_step,
                 0,
-            } },
+            }, .sample_bounds = half_bounds },
             fullBox(resources.half_extent),
         );
         pipeline.drawOffscreen(
@@ -844,7 +888,7 @@ fn processOffscreen(
                 inverse_height,
                 kernel.sample_step,
                 0,
-            } },
+            }, .sample_bounds = half_bounds },
             fullBox(resources.half_extent),
         );
     }
@@ -1735,6 +1779,48 @@ fn fullBox(extent: c.VkExtent2D) c.struct_wlr_box {
     return fromCacheBox(BlurCache.fullBox(toCacheExtent(extent)));
 }
 
+fn halfExtent(extent: c.VkExtent2D) c.VkExtent2D {
+    return .{
+        .width = @max(1, (extent.width + 1) / 2),
+        .height = @max(1, (extent.height + 1) / 2),
+    };
+}
+
+fn halfResolutionBox(
+    box: c.struct_wlr_box,
+    full_extent: c.VkExtent2D,
+) c.struct_wlr_box {
+    return fromCacheBox(BlurCache.halfResolution(
+        toCacheBox(box),
+        toCacheExtent(halfExtent(full_extent)),
+    ));
+}
+
+/// Normalized pixel-center limits for sampling one isolated blur domain.
+/// Explicit shader clamps are required because the Vulkan sampler only clamps
+/// at the output texture edge, not at an individual window's edge.
+fn normalizedSampleBounds(
+    box: c.struct_wlr_box,
+    extent: c.VkExtent2D,
+) [4]f32 {
+    std.debug.assert(
+        box.width > 0 and box.height > 0 and
+            extent.width > 0 and extent.height > 0,
+    );
+    const inverse_width =
+        1.0 / @as(f32, @floatFromInt(extent.width));
+    const inverse_height =
+        1.0 / @as(f32, @floatFromInt(extent.height));
+    return .{
+        (@as(f32, @floatFromInt(box.x)) + 0.5) * inverse_width,
+        (@as(f32, @floatFromInt(box.y)) + 0.5) * inverse_height,
+        (@as(f32, @floatFromInt(box.x + box.width)) - 0.5) *
+            inverse_width,
+        (@as(f32, @floatFromInt(box.y + box.height)) - 0.5) *
+            inverse_height,
+    };
+}
+
 fn clippedBox(
     box: c.struct_wlr_box,
     extent: c.VkExtent2D,
@@ -1776,6 +1862,24 @@ fn fromCacheBox(box: BlurCache.Box) c.struct_wlr_box {
 
 fn toCacheExtent(extent: c.VkExtent2D) BlurCache.Extent {
     return .{ .width = extent.width, .height = extent.height };
+}
+
+test "blur sample bounds stop at domain pixel centers" {
+    const bounds = normalizedSampleBounds(
+        .{ .x = 4, .y = 2, .width = 8, .height = 4 },
+        .{ .width = 16, .height = 8 },
+    );
+    try std.testing.expectEqualDeep(
+        [4]f32{ 4.5 / 16.0, 2.5 / 8.0, 11.5 / 16.0, 5.5 / 8.0 },
+        bounds,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 2, .y = 1, .width = 4, .height = 2 },
+        halfResolutionBox(
+            .{ .x = 4, .y = 2, .width = 8, .height = 4 },
+            .{ .width = 16, .height = 8 },
+        ),
+    );
 }
 
 fn findMemoryType(
