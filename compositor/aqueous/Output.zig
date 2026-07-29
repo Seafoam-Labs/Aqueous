@@ -357,6 +357,50 @@ pub fn releaseVulkanBlurCache(output: *Output) void {
     }
 }
 
+/// Scene-order changes alter which previously rendered windows are present at
+/// each blur checkpoint even when every blur box is unchanged. Advance the
+/// shared source generation so a focus-driven restack cannot reuse a cache
+/// image captured under the old ordering.
+pub fn invalidateBlurSources(output: *Output) void {
+    if (comptime !fx.blur_available) return;
+    if (!server.wm.blur.enabled or output.current.state != .enabled) return;
+    const node = output.blur_node orelse return;
+
+    // A generation mismatch rebuilds each complete cache domain. Damage those
+    // same domains so the offscreen source is reconstructed under the new
+    // scene order instead of sampling untouched pixels from the prior frame.
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        output.damageBlurOwnerDomain(.{ .window = window });
+    }
+    var layers = server.layer_shell.surfaces.iterator();
+    while (layers.next()) |surface| {
+        output.damageBlurOwnerDomain(.{ .layer_surface = surface });
+    }
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        output.damageBlurOwnerDomain(.{ .popup = popup });
+    }
+
+    fx.markOptimizedBlurDirty(node);
+}
+
+fn damageBlurOwnerDomain(output: *Output, owner: BlurOwner) void {
+    const blur = blurOwnerData(owner) orelse return;
+    const effect = blurOwnerEffect(
+        owner,
+        blur,
+        output.effectRenderState(),
+    ) orelse return;
+    var box: wlr.Box = .{
+        .x = effect.box.x,
+        .y = effect.box.y,
+        .width = effect.box.width,
+        .height = effect.box.height,
+    };
+    output.scene_output.?.damage_ring.addBox(&box);
+}
+
 fn finishRenderMetric(output: *Output) void {
     const wlr_output = output.wlr_output orelse return;
     if (output.render_metric_sample) |*sample| {

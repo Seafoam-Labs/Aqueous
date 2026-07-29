@@ -804,10 +804,14 @@ fn freeWindowStrings(allocator: std.mem.Allocator, windows: []const layout.Windo
     }
 }
 
-pub fn applyPlacement(_: CompositorApi, placement: layout.Placement) void {
+pub fn applyPlacement(
+    _: CompositorApi,
+    placement: layout.Placement,
+    focused: bool,
+) void {
     const ref: Window.Ref = @bitCast(placement.handle);
     const window = ref.get() orelse return;
-    const border_color = if ((CompositorApi{}).focusedWindow() == placement.handle)
+    const border_color = if (focused)
         placement.border.focused
     else
         placement.border.normal;

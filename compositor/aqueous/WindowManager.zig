@@ -682,6 +682,13 @@ fn renderFinish(wm: *WindowManager) void {
                     .shell_surface => {},
                 }
             }
+
+            // A blur checkpoint depends on every scene node below its marker,
+            // not just on the marker's geometry. Focus changes can reorder
+            // otherwise stationary windows, so invalidate cached checkpoints
+            // before this transaction is rendered.
+            var outputs = server.om.outputs.iterator(.forward);
+            while (outputs.next()) |output| output.invalidateBlurSources();
         }
     }
 

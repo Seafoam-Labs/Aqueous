@@ -109,6 +109,11 @@ pub fn arrange(
     }
 
     var write: usize = 0;
+    // Outward borders only need focus-driven stacking when they can overlap.
+    // With enough inner gap, keep scene order stable so a focus change is just
+    // a decoration update and does not invalidate backdrop-blur checkpoints.
+    const focus_raises =
+        options.gaps_inner < options.border.width *| 2;
     for (state.columns.items, widths, offsets) |column, width, offset| {
         const rows = try math.splitAxis(allocator, area.height, @intCast(column.windows.items.len), options.gaps_inner);
         defer allocator.free(rows);
@@ -130,7 +135,7 @@ pub fn arrange(
                     .width = area.width,
                     .height = area.height,
                 } else null,
-                .z_order = if (focused == handle) 1 else 0,
+                .z_order = if (focus_raises and focused == handle) 1 else 0,
                 .visible = visible,
                 .border = options.border,
             };
@@ -471,6 +476,59 @@ test "focus change recentres the containing column" {
     const focused = try arrange(std.testing.allocator, &state, area, &windows, 2, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
     defer std.testing.allocator.free(focused);
     try std.testing.expectEqual(@as(i32, 25), focused[1].geometry.x);
+}
+
+test "focus only raises scrolling windows whose outward borders overlap" {
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+
+    var separated_state: State = .{};
+    defer separated_state.deinit(std.testing.allocator);
+    const separated = try arrange(
+        std.testing.allocator,
+        &separated_state,
+        area,
+        &windows,
+        2,
+        .{
+            .gaps_outer = 0,
+            .gaps_inner = 4,
+            .border = .{
+                .width = 2,
+                .focused = 0,
+                .normal = 0,
+                .urgent = 0,
+            },
+        },
+        .{},
+    );
+    defer std.testing.allocator.free(separated);
+    try std.testing.expectEqual(@as(i32, 0), separated[0].z_order);
+    try std.testing.expectEqual(@as(i32, 0), separated[1].z_order);
+
+    var overlapping_state: State = .{};
+    defer overlapping_state.deinit(std.testing.allocator);
+    const overlapping = try arrange(
+        std.testing.allocator,
+        &overlapping_state,
+        area,
+        &windows,
+        2,
+        .{
+            .gaps_outer = 0,
+            .gaps_inner = 3,
+            .border = .{
+                .width = 2,
+                .focused = 0,
+                .normal = 0,
+                .urgent = 0,
+            },
+        },
+        .{},
+    );
+    defer std.testing.allocator.free(overlapping);
+    try std.testing.expectEqual(@as(i32, 0), overlapping[0].z_order);
+    try std.testing.expectEqual(@as(i32, 1), overlapping[1].z_order);
 }
 
 test "column pan clamps at both ends" {

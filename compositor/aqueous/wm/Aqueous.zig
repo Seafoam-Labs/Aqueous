@@ -196,7 +196,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     }
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
-    var cycle_focus = focused;
+    // A direct focus request is committed by Seat.manageFinish() after policy
+    // resolves this transaction. Use that newer target now so placement order
+    // and focus-sensitive visuals do not render one management cycle behind.
+    var cycle_focus = transactionFocus(aqueous.requested_stack_focus, focused);
     var cycle_selected_output_id = aqueous.api.selectedOutputId();
     // Direct pointer, keybinding, or client activation requests are newer and
     // more intentional than admission focus. Never overwrite one which was
@@ -400,7 +403,12 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         try requested.appendSlice(util.gpa, placements);
         aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse cycle_focus);
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
-        for (requested.items) |placement| aqueous.api.applyPlacement(placement);
+        for (requested.items) |placement| {
+            aqueous.api.applyPlacement(
+                placement,
+                cycle_focus == placement.handle,
+            );
+        }
     }
 
     // A newly admitted window which cannot appear on any active output (for
@@ -1634,6 +1642,13 @@ fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
     aqueous.api.requestFocus(handle);
 }
 
+fn transactionFocus(
+    requested: ?layout_types.Handle,
+    committed: ?layout_types.Handle,
+) ?layout_types.Handle {
+    return requested orelse committed;
+}
+
 fn ensureStackOrder(aqueous: *Aqueous, state: *StateStore.Entry) u64 {
     if (state.stack_order == 0) state.stack_order = aqueous.takeStackOrder();
     return state.stack_order;
@@ -1769,4 +1784,15 @@ test "new-window focus eligibility rejects hidden, minimized, and input-inert wi
     try std.testing.expect(!admissionFocusEligible(false, .tiled, true));
     try std.testing.expect(!admissionFocusEligible(true, .minimized, true));
     try std.testing.expect(!admissionFocusEligible(true, .tiled, false));
+}
+
+test "pending focus drives the transaction before seat focus commits" {
+    try std.testing.expectEqual(
+        @as(?layout_types.Handle, 22),
+        transactionFocus(22, 11),
+    );
+    try std.testing.expectEqual(
+        @as(?layout_types.Handle, 11),
+        transactionFocus(null, 11),
+    );
 }
