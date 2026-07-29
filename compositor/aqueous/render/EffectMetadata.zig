@@ -127,6 +127,17 @@ pub fn resolveBlurKernel(
     };
 }
 
+/// Cached blur first expands content damage to cover every changed output
+/// pixel, then reconstructs those pixels from the scene prefix. That
+/// reconstruction needs the same kernel reach again so its source never falls
+/// back to retained, fully composited output pixels.
+pub fn cachedBlurRenderReach(kernel: BlurKernel) u32 {
+    return @min(
+        kernel.reach *| 2,
+        @as(u32, @intCast(std.math.maxInt(c_int))),
+    );
+}
+
 pub const WindowBlurData = struct {
     box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
     radius: u31 = 0,
@@ -725,6 +736,16 @@ test "blur kernel maps physical radius and bounds pass count" {
     const high_pass = resolveBlurKernel(10, 16, 1).?;
     try std.testing.expectEqual(@as(u32, 2), high_pass.tap_reach);
     try std.testing.expectEqual(@as(u32, 66), high_pass.reach);
+    try std.testing.expectEqual(
+        @as(u32, 132),
+        cachedBlurRenderReach(high_pass),
+    );
+    var saturated = high_pass;
+    saturated.reach = std.math.maxInt(u32);
+    try std.testing.expectEqual(
+        @as(u32, @intCast(std.math.maxInt(c_int))),
+        cachedBlurRenderReach(saturated),
+    );
 
     try std.testing.expect(resolveBlurKernel(0, 8, 1) == null);
     try std.testing.expect(resolveBlurKernel(10, 0, 1) == null);

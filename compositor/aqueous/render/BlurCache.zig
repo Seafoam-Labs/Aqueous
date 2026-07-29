@@ -187,3 +187,196 @@ test "odd pixel bounds cover every half-resolution texel" {
         ),
     );
 }
+
+test "half resolution preserves parity-sensitive and tiny domains" {
+    const Case = struct {
+        input: Box,
+        expected: Box,
+    };
+    const cases = [_]Case{
+        // Even origins and dimensions map exactly onto half-resolution texels.
+        .{
+            .input = .{ .x = 4, .y = 6, .width = 4, .height = 2 },
+            .expected = .{ .x = 2, .y = 3, .width = 2, .height = 1 },
+        },
+        // Odd dimensions conservatively include the partially covered texel.
+        .{
+            .input = .{ .x = 4, .y = 6, .width = 3, .height = 3 },
+            .expected = .{ .x = 2, .y = 3, .width = 2, .height = 2 },
+        },
+        // An odd origin with an even size straddles one extra half texel.
+        .{
+            .input = .{ .x = 3, .y = 5, .width = 4, .height = 2 },
+            .expected = .{ .x = 1, .y = 2, .width = 3, .height = 2 },
+        },
+        .{
+            .input = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+            .expected = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        },
+        .{
+            .input = .{ .x = 1, .y = 1, .width = 1, .height = 1 },
+            .expected = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        },
+        .{
+            .input = .{ .x = 2, .y = 2, .width = 2, .height = 2 },
+            .expected = .{ .x = 1, .y = 1, .width = 1, .height = 1 },
+        },
+        .{
+            .input = .{ .x = 1, .y = 1, .width = 2, .height = 2 },
+            .expected = .{ .x = 0, .y = 0, .width = 2, .height = 2 },
+        },
+    };
+
+    for (cases) |case| {
+        try std.testing.expectEqualDeep(
+            case.expected,
+            halfResolution(case.input, .{ .width = 16, .height = 16 }),
+        );
+    }
+}
+
+test "clipped output-edge domains map inside the half extent" {
+    const full_extent: Extent = .{ .width = 7, .height = 5 };
+    const half_extent: Extent = .{ .width = 4, .height = 3 };
+    const Case = struct {
+        input: Box,
+        expected_clipped: Box,
+        expected_half: Box,
+    };
+    const cases = [_]Case{
+        .{
+            .input = .{ .x = 0, .y = 0, .width = 7, .height = 5 },
+            .expected_clipped = .{ .x = 0, .y = 0, .width = 7, .height = 5 },
+            .expected_half = .{ .x = 0, .y = 0, .width = 4, .height = 3 },
+        },
+        .{
+            .input = .{ .x = -3, .y = -2, .width = 5, .height = 4 },
+            .expected_clipped = .{ .x = 0, .y = 0, .width = 2, .height = 2 },
+            .expected_half = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        },
+        .{
+            .input = .{ .x = 5, .y = 3, .width = 5, .height = 5 },
+            .expected_clipped = .{ .x = 5, .y = 3, .width = 2, .height = 2 },
+            .expected_half = .{ .x = 2, .y = 1, .width = 2, .height = 2 },
+        },
+        .{
+            .input = .{ .x = 7, .y = 0, .width = 2, .height = 2 },
+            .expected_clipped = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+            .expected_half = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+        },
+    };
+
+    for (cases) |case| {
+        const domain = clipped(case.input, full_extent);
+        try std.testing.expectEqualDeep(case.expected_clipped, domain);
+        try std.testing.expectEqualDeep(
+            case.expected_half,
+            halfResolution(domain, half_extent),
+        );
+    }
+}
+
+test "adjacent domains share at most one boundary half texel" {
+    const half_extent: Extent = .{ .width = 4, .height = 2 };
+
+    const even_left = halfResolution(
+        .{ .x = 0, .y = 0, .width = 4, .height = 4 },
+        half_extent,
+    );
+    const even_right = halfResolution(
+        .{ .x = 4, .y = 0, .width = 4, .height = 4 },
+        half_extent,
+    );
+    try std.testing.expectEqualDeep(
+        Box{ .x = 0, .y = 0, .width = 2, .height = 2 },
+        even_left,
+    );
+    try std.testing.expectEqualDeep(
+        Box{ .x = 2, .y = 0, .width = 2, .height = 2 },
+        even_right,
+    );
+    try std.testing.expect(intersection(even_left, even_right) == null);
+
+    // An odd full-resolution split runs through one half-resolution texel.
+    // Each blur owner has a separate cache image, so both domains must retain
+    // that texel while their source sample bounds keep its contents isolated.
+    const odd_left = halfResolution(
+        .{ .x = 0, .y = 0, .width = 3, .height = 4 },
+        half_extent,
+    );
+    const odd_right = halfResolution(
+        .{ .x = 3, .y = 0, .width = 5, .height = 4 },
+        half_extent,
+    );
+    try std.testing.expectEqualDeep(
+        Box{ .x = 0, .y = 0, .width = 2, .height = 2 },
+        odd_left,
+    );
+    try std.testing.expectEqualDeep(
+        Box{ .x = 1, .y = 0, .width = 3, .height = 2 },
+        odd_right,
+    );
+    try std.testing.expectEqualDeep(
+        Box{ .x = 1, .y = 0, .width = 1, .height = 2 },
+        intersection(odd_left, odd_right).?,
+    );
+
+    const one_pixel_left = halfResolution(
+        .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        half_extent,
+    );
+    const one_pixel_right = halfResolution(
+        .{ .x = 1, .y = 0, .width = 1, .height = 1 },
+        half_extent,
+    );
+    try std.testing.expectEqualDeep(one_pixel_left, one_pixel_right);
+}
+
+test "partial update plans contain tiny edge finals" {
+    const half_extent: Extent = .{ .width = 4, .height = 3 };
+    const Case = struct {
+        update: Box,
+        expected_final: Box,
+    };
+    const cases = [_]Case{
+        .{
+            .update = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+            .expected_final = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        },
+        .{
+            .update = .{ .x = 1, .y = 1, .width = 1, .height = 1 },
+            .expected_final = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+        },
+        .{
+            .update = .{ .x = 6, .y = 4, .width = 1, .height = 1 },
+            .expected_final = .{ .x = 3, .y = 2, .width = 1, .height = 1 },
+        },
+    };
+
+    for (cases) |case| {
+        const plan = planUpdate(case.update, half_extent, 2, 1);
+        try std.testing.expectEqualDeep(case.expected_final, plan.final);
+        try std.testing.expectEqualDeep(
+            plan.downsample,
+            clipped(plan.downsample, half_extent),
+        );
+        try std.testing.expect(
+            plan.downsample.x <= plan.final.x and
+                plan.downsample.y <= plan.final.y and
+                plan.downsample.x + plan.downsample.width >=
+                    plan.final.x + plan.final.width and
+                plan.downsample.y + plan.downsample.height >=
+                    plan.final.y + plan.final.height,
+        );
+        for (0..plan.passes) |index| {
+            try std.testing.expectEqualDeep(
+                plan.horizontal[index],
+                clipped(plan.horizontal[index], half_extent),
+            );
+            try std.testing.expectEqualDeep(
+                plan.vertical[index],
+                clipped(plan.vertical[index], half_extent),
+            );
+        }
+    }
+}

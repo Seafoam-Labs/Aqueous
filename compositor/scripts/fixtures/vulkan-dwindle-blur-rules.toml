@@ -1,0 +1,13 @@
+[[window]]
+app_id = "aqueous.effects.blur-probe-left"
+layout = "dwindle"
+floating = false
+blur = true
+opacity = 1.0
+
+[[window]]
+app_id = "aqueous.effects.blur-probe-right"
+layout = "dwindle"
+floating = false
+blur = true
+opacity = 1.0

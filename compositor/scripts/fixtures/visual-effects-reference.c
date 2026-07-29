@@ -21,6 +21,8 @@
 enum role {
     ROLE_BACKGROUND,
     ROLE_BLUR,
+    ROLE_BLUR_PROBE_LEFT,
+    ROLE_BLUR_PROBE_RIGHT,
     ROLE_ALPHA,
     ROLE_SQUARE,
     ROLE_CLIPPED,
@@ -82,6 +84,10 @@ static const char *role_name(enum role role) {
             return "background";
         case ROLE_BLUR:
             return "blur";
+        case ROLE_BLUR_PROBE_LEFT:
+            return "blur-probe-left";
+        case ROLE_BLUR_PROBE_RIGHT:
+            return "blur-probe-right";
         case ROLE_ALPHA:
             return "alpha";
         case ROLE_SQUARE:
@@ -98,6 +104,10 @@ static const char *app_id(enum role role) {
             return "aqueous.effects.background";
         case ROLE_BLUR:
             return "aqueous.effects.blur";
+        case ROLE_BLUR_PROBE_LEFT:
+            return "aqueous.effects.blur-probe-left";
+        case ROLE_BLUR_PROBE_RIGHT:
+            return "aqueous.effects.blur-probe-right";
         case ROLE_ALPHA:
             return "aqueous.effects.alpha";
         case ROLE_SQUARE:
@@ -117,6 +127,11 @@ static void default_size(enum role role, int32_t *width, int32_t *height) {
         case ROLE_BLUR:
             *width = 760;
             *height = 520;
+            break;
+        case ROLE_BLUR_PROBE_LEFT:
+        case ROLE_BLUR_PROBE_RIGHT:
+            *width = 760;
+            *height = 860;
             break;
         case ROLE_ALPHA:
             *width = 560;
@@ -140,6 +155,14 @@ static bool parse_role(const char *text, enum role *role) {
     }
     if (strcmp(text, "blur") == 0) {
         *role = ROLE_BLUR;
+        return true;
+    }
+    if (strcmp(text, "blur-probe-left") == 0) {
+        *role = ROLE_BLUR_PROBE_LEFT;
+        return true;
+    }
+    if (strcmp(text, "blur-probe-right") == 0) {
+        *role = ROLE_BLUR_PROBE_RIGHT;
         return true;
     }
     if (strcmp(text, "alpha") == 0) {
@@ -256,6 +279,43 @@ static void paint_blur(uint32_t *pixels, int32_t width, int32_t height) {
             uint8_t blue = 255;
             pixels[(size_t)y * (size_t)width + (size_t)x] =
                 argb(alpha, red, green, blue);
+        }
+    }
+}
+
+static void paint_blur_probe(
+    uint32_t *pixels,
+    int32_t width,
+    int32_t height,
+    bool left) {
+    const uint32_t neutral = argb(32, 232, 232, 232);
+    const uint32_t identity = left
+        ? argb(255, 32, 232, 112)
+        : argb(255, 255, 184, 32);
+    for (int32_t y = 0; y < height; y++) {
+        for (int32_t x = 0; x < width; x++) {
+            // Keep the analysis band entirely uniform. The small opaque patch
+            // identifies which probe occupies each dwindle half without
+            // affecting the seam-facing blur samples.
+            const bool identity_patch =
+                x >= 24 && x < 56 && y >= 24 && y < 56;
+            // The left tile is below its right sibling in scene order. Put an
+            // opaque, saturated client witness against that lower sibling's
+            // seam so a blur that samples outside the right tile's domain
+            // imports an unmistakable magenta/cyan fringe. The right probe is
+            // deliberately flat all the way to the seam: its first 128 pixels
+            // are the independent cross-window-bleed measurement band.
+            const bool seam_witness =
+                left && x >= width - 8 && y >= 96 && y < height - 96;
+            if (seam_witness) {
+                const bool alternate = ((y - 96) / 8) % 2 == 0;
+                pixels[(size_t)y * (size_t)width + (size_t)x] = alternate
+                    ? argb(255, 0, 0, 255)
+                    : argb(255, 20, 40, 255);
+            } else {
+                pixels[(size_t)y * (size_t)width + (size_t)x] =
+                    identity_patch ? identity : neutral;
+            }
         }
     }
 }
@@ -377,6 +437,12 @@ static bool attach_buffer(struct app *app, int32_t width, int32_t height) {
             break;
         case ROLE_BLUR:
             paint_blur(pixels, width, height);
+            break;
+        case ROLE_BLUR_PROBE_LEFT:
+            paint_blur_probe(pixels, width, height, true);
+            break;
+        case ROLE_BLUR_PROBE_RIGHT:
+            paint_blur_probe(pixels, width, height, false);
             break;
         case ROLE_ALPHA:
             paint_alpha(pixels, width, height);

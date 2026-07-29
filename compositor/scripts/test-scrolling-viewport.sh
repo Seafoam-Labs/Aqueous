@@ -134,4 +134,65 @@ done
 sleep 1
 assert_output_clean "$TEST_ROOT/settled.png"
 
-echo "scrolling viewport containment passed: $OTHER_OUTPUT stayed clean during animation and at rest"
+# Return focus to the right. This is the direction in which the newly focused
+# window has a lower/left sibling. Its compositor border must travel inside the
+# animation snapshot instead of remaining at the settled target while the
+# sibling slides across it.
+wlrctl keyboard type l modifiers SUPER
+
+observed_animation=0
+for _ in $(seq 1 30); do
+    scene=$("$AQUEOUSCTL_BIN" scene 2>/dev/null || true)
+    active_snapshots=$(grep -F 'window animation snapshot [tree]' <<<"$scene" |
+        grep -vc ' disabled' || true)
+    [ "$active_snapshots" -gt 0 ] || {
+        sleep 0.01
+        continue
+    }
+
+    disabled_live_borders=$(grep -F 'border: left [rect] disabled' <<<"$scene" |
+        grep -vc 'animation border' || true)
+    active_animation_borders=$(grep -F 'animation border [tree]' <<<"$scene" |
+        grep -vc ' disabled' || true)
+    active_animation_left=$(grep -F 'animation border: left [rect]' <<<"$scene" |
+        grep -vc ' disabled' || true)
+    [ "$disabled_live_borders" -ge "$active_snapshots" ] ||
+        die "live destination borders remained enabled during animation"
+    [ "$active_animation_borders" -ge "$active_snapshots" ] ||
+        die "animation snapshots did not own an enabled border subtree"
+    [ "$active_animation_left" -ge "$active_snapshots" ] ||
+        die "animation border edges were not enabled with their snapshots"
+
+    snapshot_line=$(grep -nF 'window animation snapshot [tree]' <<<"$scene" |
+        grep -v ' disabled' | head -1 | cut -d: -f1)
+    snapshot_tail=$(tail -n +"$snapshot_line" <<<"$scene")
+    marker_line=$(grep -nF 'animation backdrop blur marker [rect]' <<<"$snapshot_tail" |
+        head -1 | cut -d: -f1)
+    surfaces_line=$(grep -nF 'animation surfaces [tree]' <<<"$snapshot_tail" |
+        head -1 | cut -d: -f1)
+    border_line=$(grep -nF 'animation border [tree]' <<<"$snapshot_tail" |
+        head -1 | cut -d: -f1)
+    [ "$marker_line" -lt "$surfaces_line" ] &&
+        [ "$surfaces_line" -lt "$border_line" ] ||
+        die "animation scene order was not blur marker, surfaces, border"
+
+    observed_animation=1
+    break
+done
+[ "$observed_animation" = 1 ] ||
+    die "right-focus transition never exposed an animation snapshot"
+
+sleep 1
+settled_scene=$("$AQUEOUSCTL_BIN" scene)
+active_snapshots=$(grep -F 'window animation snapshot [tree]' <<<"$settled_scene" |
+    grep -vc ' disabled' || true)
+[ "$active_snapshots" = 0 ] ||
+    die "animation snapshot remained enabled after settling"
+grep -F 'animation border [tree] disabled' <<<"$settled_scene" >/dev/null ||
+    die "animation border remained enabled after settling"
+grep -F 'border: left [rect]' <<<"$settled_scene" |
+    grep -v 'animation border' |
+    grep -v ' disabled' >/dev/null ||
+    die "live border was not restored after animation"
+
+echo "scrolling viewport and animated border containment passed"

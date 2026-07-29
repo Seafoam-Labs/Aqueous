@@ -1,8 +1,10 @@
 [layout]
 default = "scrolling"
 gaps_outer = 0
-gaps_inner = 0
-border_width = 0
+gaps_inner = 12
+border_width = 4
+border_focused = 0xFF00D9FF
+border_normal = 0xFF424852
 
 [layout.options.scrolling]
 column_fraction = 0.5
@@ -20,3 +22,4 @@ focus_follows_mouse = false
 
 [keybinds]
 focus_left = "Super+H"
+focus_right = "Super+L"

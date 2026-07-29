@@ -1865,14 +1865,53 @@ fn toCacheExtent(extent: c.VkExtent2D) BlurCache.Extent {
 }
 
 test "blur sample bounds stop at domain pixel centers" {
-    const bounds = normalizedSampleBounds(
-        .{ .x = 4, .y = 2, .width = 8, .height = 4 },
-        .{ .width = 16, .height = 8 },
-    );
-    try std.testing.expectEqualDeep(
-        [4]f32{ 4.5 / 16.0, 2.5 / 8.0, 11.5 / 16.0, 5.5 / 8.0 },
-        bounds,
-    );
+    const Case = struct {
+        box: c.struct_wlr_box,
+        extent: c.VkExtent2D,
+        expected: [4]f32,
+    };
+    const cases = [_]Case{
+        .{
+            .box = .{ .x = 4, .y = 2, .width = 8, .height = 4 },
+            .extent = .{ .width = 16, .height = 8 },
+            .expected = .{
+                4.5 / 16.0,
+                2.5 / 8.0,
+                11.5 / 16.0,
+                5.5 / 8.0,
+            },
+        },
+        // A one-pixel domain clamps both axes to its sole pixel center.
+        .{
+            .box = .{ .x = 0, .y = 0, .width = 1, .height = 1 },
+            .extent = .{ .width = 8, .height = 6 },
+            .expected = .{ 0.5 / 8.0, 0.5 / 6.0, 0.5 / 8.0, 0.5 / 6.0 },
+        },
+        // The last two pixels remain half a pixel inside the output edge.
+        .{
+            .box = .{ .x = 6, .y = 4, .width = 2, .height = 2 },
+            .extent = .{ .width = 8, .height = 6 },
+            .expected = .{ 6.5 / 8.0, 4.5 / 6.0, 7.5 / 8.0, 5.5 / 6.0 },
+        },
+        .{
+            .box = .{ .x = 3, .y = 1, .width = 2, .height = 1 },
+            .extent = .{ .width = 8, .height = 6 },
+            .expected = .{ 3.5 / 8.0, 1.5 / 6.0, 4.5 / 8.0, 1.5 / 6.0 },
+        },
+        .{
+            .box = .{ .x = 5, .y = 3, .width = 1, .height = 2 },
+            .extent = .{ .width = 8, .height = 6 },
+            .expected = .{ 5.5 / 8.0, 3.5 / 6.0, 5.5 / 8.0, 4.5 / 6.0 },
+        },
+    };
+
+    for (cases) |case| {
+        try std.testing.expectEqualDeep(
+            case.expected,
+            normalizedSampleBounds(case.box, case.extent),
+        );
+    }
+
     try std.testing.expectEqualDeep(
         c.struct_wlr_box{ .x = 2, .y = 1, .width = 4, .height = 2 },
         halfResolutionBox(
@@ -1880,6 +1919,101 @@ test "blur sample bounds stop at domain pixel centers" {
             .{ .width = 16, .height = 8 },
         ),
     );
+}
+
+test "clipped edge domains retain valid pixel-center bounds" {
+    const extent: c.VkExtent2D = .{ .width = 8, .height = 6 };
+    const clipped = clippedBox(
+        .{ .x = -2, .y = 4, .width = 5, .height = 5 },
+        extent,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 0, .y = 4, .width = 3, .height = 2 },
+        clipped,
+    );
+    try std.testing.expectEqualDeep(
+        [4]f32{ 0.5 / 8.0, 4.5 / 6.0, 2.5 / 8.0, 5.5 / 6.0 },
+        normalizedSampleBounds(clipped, extent),
+    );
+
+    const odd_extent: c.VkExtent2D = .{ .width = 7, .height = 5 };
+    const bottom_right = clippedBox(
+        .{ .x = 5, .y = 3, .width = 5, .height = 5 },
+        odd_extent,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 5, .y = 3, .width = 2, .height = 2 },
+        bottom_right,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 2, .y = 1, .width = 2, .height = 2 },
+        halfResolutionBox(bottom_right, odd_extent),
+    );
+}
+
+test "adjacent blur domains keep their pixel-center limits" {
+    const full_extent: c.VkExtent2D = .{ .width = 8, .height = 4 };
+    const half_extent = halfExtent(full_extent);
+
+    const even_left: c.struct_wlr_box =
+        .{ .x = 0, .y = 0, .width = 4, .height = 4 };
+    const even_right: c.struct_wlr_box =
+        .{ .x = 4, .y = 0, .width = 4, .height = 4 };
+    const even_left_bounds = normalizedSampleBounds(even_left, full_extent);
+    const even_right_bounds = normalizedSampleBounds(even_right, full_extent);
+    try std.testing.expectEqual(3.5 / 8.0, even_left_bounds[2]);
+    try std.testing.expectEqual(4.5 / 8.0, even_right_bounds[0]);
+    try std.testing.expect(even_left_bounds[2] < even_right_bounds[0]);
+
+    const even_left_half = halfResolutionBox(even_left, full_extent);
+    const even_right_half = halfResolutionBox(even_right, full_extent);
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 0, .y = 0, .width = 2, .height = 2 },
+        even_left_half,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 2, .y = 0, .width = 2, .height = 2 },
+        even_right_half,
+    );
+    const even_left_half_bounds =
+        normalizedSampleBounds(even_left_half, half_extent);
+    const even_right_half_bounds =
+        normalizedSampleBounds(even_right_half, half_extent);
+    try std.testing.expectEqual(1.5 / 4.0, even_left_half_bounds[2]);
+    try std.testing.expectEqual(2.5 / 4.0, even_right_half_bounds[0]);
+    try std.testing.expect(
+        even_left_half_bounds[2] < even_right_half_bounds[0],
+    );
+
+    const odd_left: c.struct_wlr_box =
+        .{ .x = 0, .y = 0, .width = 3, .height = 4 };
+    const odd_right: c.struct_wlr_box =
+        .{ .x = 3, .y = 0, .width = 5, .height = 4 };
+    const odd_left_bounds = normalizedSampleBounds(odd_left, full_extent);
+    const odd_right_bounds = normalizedSampleBounds(odd_right, full_extent);
+    try std.testing.expectEqual(2.5 / 8.0, odd_left_bounds[2]);
+    try std.testing.expectEqual(3.5 / 8.0, odd_right_bounds[0]);
+    try std.testing.expect(odd_left_bounds[2] < odd_right_bounds[0]);
+
+    const odd_left_half = halfResolutionBox(odd_left, full_extent);
+    const odd_right_half = halfResolutionBox(odd_right, full_extent);
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 0, .y = 0, .width = 2, .height = 2 },
+        odd_left_half,
+    );
+    try std.testing.expectEqualDeep(
+        c.struct_wlr_box{ .x = 1, .y = 0, .width = 3, .height = 2 },
+        odd_right_half,
+    );
+
+    // An odd split crosses one half-resolution texel. The two per-owner cache
+    // images retain that texel independently and clamp to the same center.
+    const odd_left_half_bounds =
+        normalizedSampleBounds(odd_left_half, half_extent);
+    const odd_right_half_bounds =
+        normalizedSampleBounds(odd_right_half, half_extent);
+    try std.testing.expectEqual(1.5 / 4.0, odd_left_half_bounds[2]);
+    try std.testing.expectEqual(1.5 / 4.0, odd_right_half_bounds[0]);
 }
 
 fn findMemoryType(

@@ -719,7 +719,10 @@ fn effectsRenderBegin(
         &output.blur_cache,
         preserved,
     );
-    return if (affected) kernel.reach else 0;
+    return if (affected)
+        EffectMetadata.cachedBlurRenderReach(kernel)
+    else
+        0;
 }
 
 fn prepareBlurOwner(

@@ -1,0 +1,44 @@
+[layout]
+default = "dwindle"
+force_ssd = true
+gaps_outer = 8
+gaps_inner = 4
+
+[layout.options.dwindle]
+gaps_outer = 8
+gaps_inner = 4
+border_width = 2
+border_focused = 0xFF00D9FF
+border_normal = 0xFF424852
+master_ratio = 0.5
+split_ratio = 0.5
+start_axis = "vertical"
+
+[blur]
+enabled = true
+radius = 50
+passes = 16
+
+[opacity]
+enabled = false
+value = 1.0
+focus_sensitive = false
+focused = 1.0
+unfocused = 1.0
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = false
+focus_new_windows = true
+
+[keybinds]
+focus_left = "Super+H"
+focus_right = "Super+L"
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0

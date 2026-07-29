@@ -76,6 +76,14 @@ pub const Border = struct {
     corner_radius: u31 = fx.corner_radius,
 };
 
+const BorderNodes = struct {
+    rounded_outline: *wlr.SceneRect,
+    left: *wlr.SceneRect,
+    right: *wlr.SceneRect,
+    top: *wlr.SceneRect,
+    bottom: *wlr.SceneRect,
+};
+
 /// Windowing state requested by the wm.
 const WmRequested = struct {
     dimensions: ?Dimensions,
@@ -269,13 +277,7 @@ decorations_below_tree: *wlr.SceneTree,
 
 surfaces: Scene.SaveableSurfaces,
 
-border: struct {
-    rounded_outline: *wlr.SceneRect,
-    left: *wlr.SceneRect,
-    right: *wlr.SceneRect,
-    top: *wlr.SceneRect,
-    bottom: *wlr.SceneRect,
-},
+border: BorderNodes,
 
 decorations_above: wl.list.Head(Decoration, .link),
 decorations_above_tree: *wlr.SceneTree,
@@ -288,6 +290,15 @@ popup_tree: *wlr.SceneTree,
 /// scene hit-testing) stay pinned at the final target. No `SceneNodeData` is
 /// attached, so it is input-inert. Empty/disabled when not animating.
 anim_tree: *wlr.SceneTree,
+/// Stable child receiving cloned client buffers for each snapshot. Keeping
+/// these buffers in their own subtree gives `anim_tree` a fixed ordering:
+/// blur marker, surfaces, then compositor border.
+anim_surfaces_tree: *wlr.SceneTree,
+/// Persistent compositor-owned border overlay within `anim_tree`. Surface
+/// snapshots are inserted below this tree, keeping the moving border above
+/// client content and after the animation blur checkpoint.
+anim_border_tree: *wlr.SceneTree,
+anim_border: BorderNodes,
 
 capture_scene: *wlr.Scene,
 capture_source: ?*wlr.ExtImageCaptureSourceV1 = null,
@@ -591,6 +602,16 @@ pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {
     hasher.update(std.mem.asBytes(&workspace_id));
 }
 
+fn createBorderNodes(tree: *wlr.SceneTree) !BorderNodes {
+    return .{
+        .rounded_outline = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+        .left = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+        .right = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+        .top = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+        .bottom = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 0 }),
+    };
+}
+
 pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     assert(impl != .destroying);
 
@@ -609,6 +630,12 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const anim_tree = try server.scene.hidden_tree.createSceneTree();
     errdefer anim_tree.node.destroy();
 
+    const anim_blur_marker =
+        try anim_tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 });
+    const anim_surfaces_tree = try anim_tree.createSceneTree();
+    const anim_border_tree = try anim_tree.createSceneTree();
+    const anim_border = try createBorderNodes(anim_border_tree);
+
     const backdrop_blur = fx.createWindowBlur(tree);
 
     window.* = .{
@@ -619,7 +646,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .backdrop_blur = backdrop_blur,
         .fullscreen_background = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1 }),
         .blur_marker = try tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 }),
-        .anim_blur_marker = try anim_tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 }),
+        .anim_blur_marker = anim_blur_marker,
         .decorations_below = undefined,
         .decorations_below_tree = try tree.createSceneTree(),
         .surfaces = try Scene.SaveableSurfaces.init(tree),
@@ -634,6 +661,9 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_above_tree = try tree.createSceneTree(),
         .popup_tree = popup_tree,
         .anim_tree = anim_tree,
+        .anim_surfaces_tree = anim_surfaces_tree,
+        .anim_border_tree = anim_border_tree,
+        .anim_border = anim_border,
         .capture_scene = try wlr.Scene.create(),
         .workspace_link = undefined,
     };
@@ -647,6 +677,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.tree.node.setEnabled(false);
     window.popup_tree.node.setEnabled(false);
     window.anim_tree.node.setEnabled(false);
+    window.anim_border_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
     window.blur_marker.node.setEnabled(false);
     window.anim_blur_marker.node.setEnabled(false);
@@ -658,6 +689,15 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     // by the effects shader. Exclude it from hit-testing so the shader-only
     // transparent area cannot block pointer focus on the client surface.
     fx.setRectInputEnabled(window.border.rounded_outline, false);
+    inline for (.{
+        "rounded_outline",
+        "left",
+        "right",
+        "top",
+        "bottom",
+    }) |part| {
+        fx.setRectInputEnabled(@field(window.anim_border, part), false);
+    }
 
     window.capture_scene.restack_xwayland_surfaces = false;
 
@@ -1642,10 +1682,11 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
     window.updateAnimationClip();
 }
 
-/// Capture a frozen clone of the live surfaces into `anim_tree`, positioned at the
-/// window's current on-screen origin, so it can be eased toward the target while
-/// the live surfaces are pinned (and kept invisible) at the target. No-op if a
-/// snapshot is already armed (a re-target reuses the existing clone).
+/// Capture a frozen clone of the live surfaces into `anim_surfaces_tree`,
+/// positioned at the window's current on-screen origin, so it can be eased
+/// toward the target while the live surfaces are pinned (and kept invisible) at
+/// the target. No-op if a snapshot is already armed (a re-target reuses the
+/// existing clone).
 fn armSnapshot(window: *Window) void {
     if (comptime !fx.anim_enabled) return;
     if (window.anim_snapshot) return;
@@ -1663,16 +1704,13 @@ fn armSnapshot(window: *Window) void {
     window.anim_buffers.clearRetainingCapacity();
     var capture: AnimBufferCapture = .{ .window = window };
     window.surfaces.cloneInto(
-        window.anim_tree,
+        window.anim_surfaces_tree,
         captureAnimBuffer,
         &capture,
     );
     if (capture.failed) {
         log.err("unable to track animation buffers for viewport clipping", .{});
-        var it = window.anim_tree.children.safeIterator(.forward);
-        while (it.next()) |node| {
-            if (node != &window.anim_blur_marker.node) node.destroy();
-        }
+        window.clearAnimationSurfaceNodes();
         window.anim_buffers.clearRetainingCapacity();
         return;
     }
@@ -1704,15 +1742,18 @@ pub fn raiseSnapshotIfActive(window: *Window) void {
 fn clearSnapshot(window: *Window) void {
     window.anim_viewport = null;
     if (!window.anim_snapshot) return;
-    var it = window.anim_tree.children.safeIterator(.forward);
-    while (it.next()) |node| {
-        if (node != &window.anim_blur_marker.node) node.destroy();
-    }
+    window.clearAnimationSurfaceNodes();
     window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
     window.applyOpacity();
+    window.drawBorders();
     window.refreshBackdropBlur();
+}
+
+fn clearAnimationSurfaceNodes(window: *Window) void {
+    var it = window.anim_surfaces_tree.children.safeIterator(.forward);
+    while (it.next()) |node| node.destroy();
 }
 
 /// Begin a slide whose eased clone starts at (start_x, start_y) and animates to
@@ -1877,6 +1918,10 @@ fn inverseTransform(transform: wl.Output.Transform) wl.Output.Transform {
 /// and flipped client buffers remain correct.
 fn updateAnimationClip(window: *Window) void {
     if (!window.anim_snapshot) return;
+    // Border geometry shares the moving snapshot origin but the layout clip is
+    // expressed relative to the settled target. Recompute its local
+    // intersections on every animation frame alongside the cloned buffers.
+    window.drawBorders();
     const requested = &window.rendering_requested;
     var viewport = window.anim_viewport;
     if (!requested.clip.empty()) {
@@ -1960,8 +2005,62 @@ fn restoreAnimBuffer(record: AnimBuffer) void {
     record.buffer.setSourceBox(&record.source);
 }
 
+const BorderClip = struct {
+    box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+    visible: bool = true,
+};
+
 fn drawBorders(window: *Window) void {
+    if (window.anim_snapshot) {
+        disableBorderNodes(&window.border);
+        window.anim_border_tree.node.setEnabled(true);
+        const clip = window.animationBorderClip();
+        if (!clip.visible) {
+            disableBorderNodes(&window.anim_border);
+            return;
+        }
+        window.drawBorderNodes(&window.anim_border, &clip.box);
+    } else {
+        window.anim_border_tree.node.setEnabled(false);
+        window.drawBorderNodes(
+            &window.border,
+            &window.rendering_requested.clip,
+        );
+    }
+}
+
+fn animationBorderClip(window: *const Window) BorderClip {
     const requested = &window.rendering_requested;
+    var viewport = window.anim_viewport;
+    if (!requested.clip.empty()) {
+        const layout_viewport: wlr.Box = .{
+            .x = requested.x + requested.clip.x,
+            .y = requested.y + requested.clip.y,
+            .width = requested.clip.width,
+            .height = requested.clip.height,
+        };
+        if (viewport) |output_viewport| {
+            var clipped: wlr.Box = undefined;
+            if (!clipped.intersection(&layout_viewport, &output_viewport)) {
+                return .{ .visible = false };
+            }
+            viewport = clipped;
+        } else {
+            viewport = layout_viewport;
+        }
+    }
+    const fixed_viewport = viewport orelse return .{};
+    const origin_x: i32 = @intFromFloat(@round(window.anim_x));
+    const origin_y: i32 = @intFromFloat(@round(window.anim_y));
+    return .{ .box = .{
+        .x = fixed_viewport.x - origin_x,
+        .y = fixed_viewport.y - origin_y,
+        .width = fixed_viewport.width,
+        .height = fixed_viewport.height,
+    } };
+}
+
+fn disableBorderNodes(nodes: *const BorderNodes) void {
     inline for (.{
         "rounded_outline",
         "left",
@@ -1969,9 +2068,17 @@ fn drawBorders(window: *Window) void {
         "top",
         "bottom",
     }) |part| {
-        @field(window.border, part).node.setEnabled(false);
+        @field(nodes, part).node.setEnabled(false);
     }
+}
 
+fn drawBorderNodes(
+    window: *Window,
+    nodes: *const BorderNodes,
+    clip: *const wlr.Box,
+) void {
+    const requested = &window.rendering_requested;
+    disableBorderNodes(nodes);
     var content: wlr.Box = .{
         .x = 0,
         .y = 0,
@@ -1998,7 +2105,7 @@ fn drawBorders(window: *Window) void {
     // clipped ring also represents all four edges, so selective borders use the
     // edge-node fallback below.
     const rounded = border.corner_radius > 0 and
-        requested.clip.empty() and
+        clip.empty() and
         border.edges.top and
         border.edges.right and
         border.edges.bottom and
@@ -2045,10 +2152,10 @@ fn drawBorders(window: *Window) void {
             .{ .name = "top", .box = &top },
             .{ .name = "bottom", .box = &bottom },
         }) |edge| {
-            if (!requested.clip.empty()) {
-                _ = edge.box.intersection(edge.box, &requested.clip);
+            if (!clip.empty()) {
+                _ = edge.box.intersection(edge.box, clip);
             }
-            const rect = @field(window.border, edge.name);
+            const rect = @field(nodes, edge.name);
             rect.node.setEnabled(@field(border.edges, edge.name));
             rect.node.setPosition(edge.box.x, edge.box.y);
             rect.setSize(edge.box.width, edge.box.height);
@@ -2072,7 +2179,7 @@ fn drawBorders(window: *Window) void {
         .width = content.width + 2 * bw,
         .height = content.height + 2 * bw,
     };
-    const rect = window.border.rounded_outline;
+    const rect = nodes.rounded_outline;
     rect.node.setEnabled(true);
     rect.node.setPosition(outline.x, outline.y);
     rect.setSize(outline.width, outline.height);

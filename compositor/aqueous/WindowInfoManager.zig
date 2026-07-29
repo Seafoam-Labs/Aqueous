@@ -217,6 +217,14 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         },
     };
 
+    // Animation snapshots deliberately have no SceneNodeData so they remain
+    // input-inert after being reparented into the normal window layer. Match
+    // their persistent compositor-owned nodes by identity for diagnostics.
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (animationNodeLabel(window, node)) |label| return label;
+    }
+
     var popups = server.layer_shell.popups.iterator();
     while (popups.next()) |popup| {
         if (popup.layer_owner == null or !popup.ownsNode(node)) continue;
@@ -234,6 +242,34 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         else
             "buffer",
     };
+}
+
+fn animationNodeLabel(
+    window: *Window,
+    node: *wlr.SceneNode,
+) ?[:0]const u8 {
+    if (node == &window.anim_tree.node) return "window animation snapshot";
+    if (node == &window.anim_blur_marker.node) {
+        return "animation backdrop blur marker";
+    }
+    if (node == &window.anim_surfaces_tree.node) return "animation surfaces";
+    if (node == &window.anim_border_tree.node) return "animation border";
+    if (node == &window.anim_border.rounded_outline.node) {
+        return "animation border: rounded outline";
+    }
+    if (node == &window.anim_border.left.node) {
+        return "animation border: left";
+    }
+    if (node == &window.anim_border.right.node) {
+        return "animation border: right";
+    }
+    if (node == &window.anim_border.top.node) {
+        return "animation border: top";
+    }
+    if (node == &window.anim_border.bottom.node) {
+        return "animation border: bottom";
+    }
+    return null;
 }
 
 fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
