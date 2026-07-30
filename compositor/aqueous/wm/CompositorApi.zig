@@ -12,6 +12,7 @@ const Output = @import("../Output.zig");
 const Seat = @import("../Seat.zig");
 const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
+const overview_model = @import("overview/model.zig");
 const output_transfer = @import("input/output_transfer.zig");
 const wm_config = @import("config/wm.zig");
 const xkb = @import("xkbcommon");
@@ -297,6 +298,16 @@ pub fn windowOnWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64
     return workspace.output.policyId() == output_id and workspace.policyNumber() == workspace_number;
 }
 
+pub fn overviewWindowDisappearing(_: CompositorApi, handle: layout.Handle) bool {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return true;
+    // Window.manageStart() advances closing windows back to .init before the
+    // integrated policy receives its snapshot. A card can only have reached
+    // .init from .closing, since overview membership is frozen from mapped
+    // windows and newly admitted windows cancel the overview separately.
+    return window.state == .closing or window.state == .init;
+}
+
 pub fn windowWorkspace(_: CompositorApi, handle: layout.Handle) ?struct { output_id: u64, workspace_number: u32 } {
     const ref: Window.Ref = @bitCast(handle);
     const window = ref.get() orelse return null;
@@ -388,6 +399,7 @@ pub fn activateWorkspace(_: CompositorApi, output_id: u64, number: u32) bool {
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| if (output.policyId() == output_id) {
         const workspace = output.policyWorkspaceAt(number) orelse return false;
+        server.aqueous.forgetOutput(output_id);
         output.activateWorkspace(workspace);
         return true;
     };
@@ -409,6 +421,52 @@ pub fn moveWindowToWorkspace(_: CompositorApi, handle: layout.Handle, output_id:
 pub fn suppressPointerConstraints(_: CompositorApi, suppressed: bool) void {
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| seat.cursor.setConstraintsSuppressed(suppressed);
+}
+
+/// Construct the compositor visual and compact cards which could not be
+/// cloned. The policy retains only the returned prefix.
+pub fn showOverview(
+    _: CompositorApi,
+    output_id: u64,
+    cards: []overview_model.Card,
+    selected: *layout.Handle,
+) !usize {
+    const output = outputById(output_id) orelse return error.OutputUnavailable;
+    if (!output.policyTransferTarget()) return error.OutputUnavailable;
+    output.prepareOverview();
+    const accepted = try server.overview.show(
+        output_id,
+        output.policyFullBox(),
+        cards,
+        selected,
+    );
+    if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
+    return accepted;
+}
+
+pub fn updateOverviewSelection(_: CompositorApi, handle: layout.Handle) void {
+    server.overview.setSelected(handle);
+}
+
+pub fn removeOverviewWindow(_: CompositorApi, handle: layout.Handle) void {
+    server.overview.remove(handle);
+}
+
+pub fn hideOverview(_: CompositorApi) void {
+    server.overview.hide();
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
+    }
+}
+
+pub fn refreshPointerFocus(_: CompositorApi) void {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| seat.cursor.updateState();
+}
+
+pub fn sessionUnlocked(_: CompositorApi) bool {
+    return server.lock_manager.state == .unlocked;
 }
 
 pub fn windowAt(_: CompositorApi, x: f64, y: f64) ?struct { handle: layout.Handle, geometry: layout.Rect } {

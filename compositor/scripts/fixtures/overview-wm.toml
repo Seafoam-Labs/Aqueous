@@ -1,0 +1,27 @@
+[layout]
+default = "scrolling"
+gaps_outer = 8
+gaps_inner = 8
+
+[layout.options.scrolling]
+column_fraction = 0.5
+center_focused = true
+follow_new_windows = false
+snap_to_columns = true
+allow_overscroll = false
+
+[struts]
+top = 0
+bottom = 0
+left = 0
+right = 0
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = false
+focus_new_windows = false
+
+[keybinds]
+toggle_overview = "Super+W"

@@ -24,6 +24,7 @@ const InputManager = @import("InputManager.zig");
 const LockManager = @import("LockManager.zig");
 const Output = @import("Output.zig");
 const OutputManager = @import("OutputManager.zig");
+const Overview = @import("Overview.zig");
 const Scene = @import("Scene.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
@@ -122,6 +123,7 @@ toplevel_capture_source_manager: *wlr.ExtForeignToplevelImageCaptureSourceManage
 tearing_control_manager: *wlr.TearingControlManagerV1,
 
 scene: Scene,
+overview: Overview,
 input_manager: InputManager,
 libinput_config: LibinputConfig,
 xkb_config: XkbConfig,
@@ -435,6 +437,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         .tearing_control_manager = try wlr.TearingControlManagerV1.create(wl_server, 1),
 
         .scene = undefined,
+        .overview = undefined,
         .om = undefined,
         .input_manager = undefined,
         .libinput_config = undefined,
@@ -494,6 +497,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
     try server.xkb_bindings.init();
     try server.layer_shell.init();
     try server.scene.init();
+    try server.overview.init();
     try server.om.init();
     try server.input_manager.init();
     try server.libinput_config.init();
@@ -535,6 +539,7 @@ pub fn deinit(server: *Server) void {
 
     server.wl_server.destroyClients();
     server.aqueous.deinit();
+    server.overview.deinit();
 
     server.backend.destroy();
 

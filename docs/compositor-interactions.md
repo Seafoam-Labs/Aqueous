@@ -234,6 +234,42 @@ When a window closes, `Aqueous.forgetWindow()` removes it from cross-window
 indexes and cancels any pending focus or drag that references it before its
 stable handle is invalidated.
 
+## Active-workspace overview
+
+`Super+W` opens a compositor-owned overview for the active workspace on the
+focused output. Policy filters the output snapshot, preserves its window order,
+arranges aspect-fitted cards in the usable output rectangle, and retains only
+stable handles and value rectangles. It does not change layout, workspace
+membership, client dimensions, or keyboard focus while the overview is open.
+
+The compositor temporarily removes viewport/content clips, clones each
+window's complete committed buffer tree, and immediately restores the live
+clips. These frozen buffers live under a topmost, output-local scene tree with
+a dim input-blocking backdrop. Thumbnail nodes have no `SceneNodeData`, so
+normal client hit-testing cannot mistake them for live surfaces. Entry zoom and
+backdrop fade run from the output frame loop; builds with
+`-Danimations=false` place the same cards immediately.
+
+While active, input is modal:
+
+- Arrow keys and H/J/K/L choose a spatial neighbor; Tab and Shift+Tab wrap in
+  snapshot order.
+- Enter or Space confirms, while Escape or `Super+W` cancels.
+- Pointer motion hit-tests policy card rectangles and left-click confirms the
+  hovered card. Other pointer buttons and unrelated non-modifier keys are
+  consumed.
+
+Cancellation destroys the visual, restores pointer constraints and pointer
+focus, and leaves keyboard focus unchanged. Confirmation first performs the
+same cleanup, then validates the selected handle and focuses it through the
+ordinary policy path. This is what reveals an off-screen scrolling window and
+keeps normal raise order and focus history intact.
+
+Membership stays frozen until exit. A window close removes one card and chooses
+the nearest replacement; a new window, workspace change, output
+reconfiguration/removal, configuration reload, or session lock cancels the
+overview. Compositor shutdown destroys overview clones before the scene root.
+
 ## Rules and manual overrides
 
 Rules use first-match-wins semantics. Every matcher present in one rule must

@@ -73,34 +73,34 @@ pub const Snapshot = struct {
 };
 
 const defaults = [_]struct { []const u8, []const u8 }{
-    .{ "toggle_start_menu", "Super+Space" },                   .{ "spawn_terminal", "Super+Return" },
-    .{ "screenshot", "Print" },                                .{ "close_focused", "Super+Q" },
-    .{ "cycle_focus", "Super+Tab" },                           .{ "focus_left", "Super+H" },
-    .{ "focus_right", "Super+L" },                             .{ "focus_up", "Super+K" },
-    .{ "focus_down", "Super+J" },                              .{ "scroll_viewport_left", "Super+Comma" },
-    .{ "scroll_viewport_right", "Super+Period" },              .{ "scroll_viewport_left_arrow", "Super+Left" },
-    .{ "scroll_viewport_right_arrow", "Super+Right" },         .{ "consume_window_into_column", "Super+Ctrl+J" },
-    .{ "expel_window_from_column", "Super+Ctrl+K" },           .{ "move_window_left", "Super+Shift+Left" },
-    .{ "move_window_right", "Super+Shift+Right" },             .{ "move_window_up", "Super+Shift+Up" },
-    .{ "move_window_down", "Super+Shift+Down" },               .{ "reload_config", "Super+R" },
-    .{ "focus_workspace_1", "Super+1" },                       .{ "focus_workspace_2", "Super+2" },
-    .{ "focus_workspace_3", "Super+3" },                       .{ "focus_workspace_4", "Super+4" },
-    .{ "focus_workspace_5", "Super+5" },                       .{ "focus_workspace_6", "Super+6" },
-    .{ "focus_workspace_7", "Super+7" },                       .{ "focus_workspace_8", "Super+8" },
-    .{ "focus_workspace_9", "Super+9" },                       .{ "move_to_workspace_1", "Super+Shift+1" },
-    .{ "move_to_workspace_2", "Super+Shift+2" },               .{ "move_to_workspace_3", "Super+Shift+3" },
-    .{ "move_to_workspace_4", "Super+Shift+4" },               .{ "move_to_workspace_5", "Super+Shift+5" },
-    .{ "move_to_workspace_6", "Super+Shift+6" },               .{ "move_to_workspace_7", "Super+Shift+7" },
-    .{ "move_to_workspace_8", "Super+Shift+8" },               .{ "move_to_workspace_9", "Super+Shift+9" },
-    .{ "focus_workspace_up", "Super+Bracketleft" },            .{ "focus_workspace_down", "Super+Bracketright" },
-    .{ "focus_previous_workspace", "Super+BackSpace" },        .{ "move_to_workspace_up", "Super+Shift+Bracketleft" },
-    .{ "move_to_workspace_down", "Super+Shift+Bracketright" }, .{ "focus_output_left", "Super+Ctrl+Comma" },
-    .{ "focus_output_right", "Super+Ctrl+Period" },            .{ "move_to_output_left", "Super+Shift+Comma" },
-    .{ "move_to_output_right", "Super+Shift+Period" },         .{ "toggle_fullscreen", "Super+Shift+F" },
-    .{ "toggle_maximize", "Super+Shift+M" },                   .{ "toggle_scrolling_full_width", "Super+Shift+Z" },
-    .{ "toggle_floating", "Super+Shift+Space" },               .{ "toggle_minimize", "Super+N" },
-    .{ "unminimize_last", "Super+Shift+N" },                   .{ "lock_screen", "Super+Ctrl+L" },
-    .{ "untrap_pointer", "Super+grave" },
+    .{ "toggle_start_menu", "Super+Space" },                .{ "spawn_terminal", "Super+Return" },
+    .{ "screenshot", "Print" },                             .{ "toggle_overview", "Super+W" },
+    .{ "close_focused", "Super+Q" },                        .{ "cycle_focus", "Super+Tab" },
+    .{ "focus_left", "Super+H" },                           .{ "focus_right", "Super+L" },
+    .{ "focus_up", "Super+K" },                             .{ "focus_down", "Super+J" },
+    .{ "scroll_viewport_left", "Super+Comma" },             .{ "scroll_viewport_right", "Super+Period" },
+    .{ "scroll_viewport_left_arrow", "Super+Left" },        .{ "scroll_viewport_right_arrow", "Super+Right" },
+    .{ "consume_window_into_column", "Super+Ctrl+J" },      .{ "expel_window_from_column", "Super+Ctrl+K" },
+    .{ "move_window_left", "Super+Shift+Left" },            .{ "move_window_right", "Super+Shift+Right" },
+    .{ "move_window_up", "Super+Shift+Up" },                .{ "move_window_down", "Super+Shift+Down" },
+    .{ "reload_config", "Super+R" },                        .{ "focus_workspace_1", "Super+1" },
+    .{ "focus_workspace_2", "Super+2" },                    .{ "focus_workspace_3", "Super+3" },
+    .{ "focus_workspace_4", "Super+4" },                    .{ "focus_workspace_5", "Super+5" },
+    .{ "focus_workspace_6", "Super+6" },                    .{ "focus_workspace_7", "Super+7" },
+    .{ "focus_workspace_8", "Super+8" },                    .{ "focus_workspace_9", "Super+9" },
+    .{ "move_to_workspace_1", "Super+Shift+1" },            .{ "move_to_workspace_2", "Super+Shift+2" },
+    .{ "move_to_workspace_3", "Super+Shift+3" },            .{ "move_to_workspace_4", "Super+Shift+4" },
+    .{ "move_to_workspace_5", "Super+Shift+5" },            .{ "move_to_workspace_6", "Super+Shift+6" },
+    .{ "move_to_workspace_7", "Super+Shift+7" },            .{ "move_to_workspace_8", "Super+Shift+8" },
+    .{ "move_to_workspace_9", "Super+Shift+9" },            .{ "focus_workspace_up", "Super+Bracketleft" },
+    .{ "focus_workspace_down", "Super+Bracketright" },      .{ "focus_previous_workspace", "Super+BackSpace" },
+    .{ "move_to_workspace_up", "Super+Shift+Bracketleft" }, .{ "move_to_workspace_down", "Super+Shift+Bracketright" },
+    .{ "focus_output_left", "Super+Ctrl+Comma" },           .{ "focus_output_right", "Super+Ctrl+Period" },
+    .{ "move_to_output_left", "Super+Shift+Comma" },        .{ "move_to_output_right", "Super+Shift+Period" },
+    .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
+    .{ "toggle_scrolling_full_width", "Super+Shift+Z" },    .{ "toggle_floating", "Super+Shift+Space" },
+    .{ "toggle_minimize", "Super+N" },                      .{ "unminimize_last", "Super+Shift+N" },
+    .{ "lock_screen", "Super+Ctrl+L" },                     .{ "untrap_pointer", "Super+grave" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {
@@ -271,6 +271,7 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const untrap_pointer = parseChord("Super+grave").?;
     const scrolling_full_width = parseChord("Super+Shift+Z").?;
     const screenshot = parseChord("Print").?;
+    const overview = parseChord("Super+W").?;
     const consume_window = parseChord("Super+Ctrl+J").?;
     const expel_window = parseChord("Super+Ctrl+K").?;
 
@@ -286,5 +287,6 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:consume_window_into_column", snapshot.find(consume_window.keysym, consume_window.modifiers).?);
     try std.testing.expectEqualStrings("builtin:expel_window_from_column", snapshot.find(expel_window.keysym, expel_window.modifiers).?);
     try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(screenshot.keysym, screenshot.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:toggle_overview", snapshot.find(overview.keysym, overview.modifiers).?);
     try std.testing.expectEqualStrings(default_screenshot_command, snapshot.screenshot.slice());
 }

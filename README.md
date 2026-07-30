@@ -47,6 +47,10 @@ model; they do not replace it.
 - **Motion owned by the compositor.** Window placement animates at render time,
   scrolling layouts move as a viewport, and workspace changes can slide without
   making the layout engine or clients produce intermediate geometry.
+- **Workspace-local window overview.** Press `Super+W` to inspect frozen
+  thumbnails of every focusable window on the active workspace—including
+  scrolling windows outside the current viewport—then navigate with arrows,
+  H/J/K/L, or Tab and confirm without reconfiguring clients.
 - **Eight in-process layouts.** Choose from master/stack `tile`, `monocle`,
   `grid`, `rows`, recursive `dwindle`, column-based `scrolling`, `floating`, and
   `game-mode`. Layout selection can vary by output and workspace.

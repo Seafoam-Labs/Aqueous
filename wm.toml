@@ -203,6 +203,7 @@ toggle_start_menu     = "Super+Space"      # default
 spawn_terminal        = "Super+Return"     # default
 screenshot            = "Print"            # default; select a region and copy it
 close_focused         = "Super+Q"          # default
+toggle_overview       = "Super+W"          # default; active-workspace window overview
 cycle_focus           = "Super+Tab"        # default
 lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
 

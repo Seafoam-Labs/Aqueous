@@ -1289,6 +1289,7 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
     assert(workspace.output == output);
     const prev = output.active_workspace;
     if (prev == workspace) return;
+    server.aqueous.forgetOutput(output.policyId());
 
     if (comptime fx.anim_enabled) {
         if (server.wm.workspace_transition.enabled) {
@@ -1349,6 +1350,18 @@ pub fn cancelTransition(output: *Output) void {
     output.prev_workspace = null;
     output.transition_dir = 0;
     output.transition_armed = false;
+}
+
+/// Settle cosmetic window/workspace animation overlays before the overview
+/// clones live content. Authoritative geometry, layout, and focus are untouched.
+pub fn prepareOverview(output: *Output) void {
+    output.cancelTransition();
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output) continue;
+        window.cancelSlide();
+    }
 }
 
 /// If a workspace-swap slide is in flight and every participating window has
@@ -1467,6 +1480,7 @@ fn handleCommit(
     const output: *Output = @fieldParentPtr("commit", listener);
     const committed = event.state.committed;
     if (!(committed.scale or committed.mode or committed.transform or committed.enabled)) return;
+    server.aqueous.forgetOutput(output.policyId());
     const wlr_output = output.wlr_output orelse return;
     log.debug("output {s}: commit affects layout (scale={} mode={} transform={} enabled={})", .{
         wlr_output.name,
@@ -1516,6 +1530,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     const output: *Output = @fieldParentPtr("destroy", listener);
 
     log.debug("wlr_output '{s}' destroyed", .{wlr_output.name});
+    server.aqueous.forgetOutput(output.policyId());
 
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| seat.policyForgetOutput(output);
@@ -1783,6 +1798,7 @@ fn stepAnimations(output: *Output) bool {
         if (ws.output != output) continue;
         if (window.stepAnimation(dt_s)) changed = true;
     }
+    if (server.overview.step(output, dt_s)) changed = true;
     return changed;
 }
 
@@ -1795,7 +1811,7 @@ fn hasActiveAnimations(output: *Output) bool {
         if (ws.output != output) continue;
         if (window.anim_active) return true;
     }
-    return false;
+    return server.overview.animatingOn(output.policyId());
 }
 
 fn renderAndCommit(output: *Output, force: bool) !void {

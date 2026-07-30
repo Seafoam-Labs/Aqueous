@@ -1703,7 +1703,7 @@ fn armSnapshot(window: *Window) void {
     window.applySurfaceClip(&no_clip, &no_clip);
     window.anim_buffers.clearRetainingCapacity();
     var capture: AnimBufferCapture = .{ .window = window };
-    window.surfaces.cloneInto(
+    _ = window.surfaces.cloneInto(
         window.anim_surfaces_tree,
         captureAnimBuffer,
         &capture,
@@ -1847,6 +1847,85 @@ const AnimBufferCapture = struct {
     window: *Window,
     failed: bool = false,
 };
+
+pub const OverviewBuffer = struct {
+    buffer: *wlr.SceneBuffer,
+    x: i32,
+    y: i32,
+    source: wlr.FBox,
+    dest_width: i32,
+    dest_height: i32,
+    transform: wl.Output.Transform,
+};
+
+const OverviewBufferCapture = struct {
+    allocator: std.mem.Allocator,
+    records: *std.ArrayListUnmanaged(OverviewBuffer),
+    failed: bool = false,
+};
+
+/// Clone the complete, current toplevel surface tree for a compositor-owned
+/// overview card. Layout/content clips are removed only for the duration of
+/// the synchronous clone walk and restored before this function returns.
+pub fn cloneOverviewInto(
+    window: *Window,
+    allocator: std.mem.Allocator,
+    target: *wlr.SceneTree,
+    records: *std.ArrayListUnmanaged(OverviewBuffer),
+) !void {
+    const no_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    window.applySurfaceClip(&no_clip, &no_clip);
+    defer window.applySurfaceClip(
+        &window.rendering_requested.clip,
+        &window.rendering_requested.content_clip,
+    );
+
+    records.clearRetainingCapacity();
+    var capture: OverviewBufferCapture = .{
+        .allocator = allocator,
+        .records = records,
+    };
+    const cloned = window.surfaces.cloneInto(target, captureOverviewBuffer, &capture);
+    if (!cloned or capture.failed) return error.OutOfMemory;
+    if (records.items.len == 0) return error.NoBuffers;
+}
+
+fn captureOverviewBuffer(
+    source_buffer: *wlr.SceneBuffer,
+    buffer: *wlr.SceneBuffer,
+    sx: c_int,
+    sy: c_int,
+    data: *anyopaque,
+) void {
+    const capture: *OverviewBufferCapture = @ptrCast(@alignCast(data));
+    if (capture.failed) return;
+    const source = effectiveSourceBox(source_buffer) orelse {
+        capture.failed = true;
+        return;
+    };
+    const quarter_turn = transformSwapsAxes(source_buffer.transform);
+    const natural_width = if (quarter_turn) source.height else source.width;
+    const natural_height = if (quarter_turn) source.width else source.height;
+    const dest_width = if (source_buffer.dst_width > 0)
+        source_buffer.dst_width
+    else
+        @max(1, @as(i32, @intFromFloat(@round(natural_width))));
+    const dest_height = if (source_buffer.dst_height > 0)
+        source_buffer.dst_height
+    else
+        @max(1, @as(i32, @intFromFloat(@round(natural_height))));
+    capture.records.append(capture.allocator, .{
+        .buffer = buffer,
+        .x = sx,
+        .y = sy,
+        .source = source,
+        .dest_width = dest_width,
+        .dest_height = dest_height,
+        .transform = source_buffer.transform,
+    }) catch {
+        capture.failed = true;
+    };
+}
 
 fn captureAnimBuffer(
     source_buffer: *wlr.SceneBuffer,

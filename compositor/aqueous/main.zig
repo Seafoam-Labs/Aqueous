@@ -364,6 +364,7 @@ const LogScope = enum {
     input,
     lock,
     wm,
+    overview,
     aqueous,
     output_service,
     workspace,

@@ -161,6 +161,7 @@ pub const fields = [_]Field{
     k("spawn_terminal", "Super+Return"),
     k("screenshot", "Print"),
     k("close_focused", "Super+Q"),
+    k("toggle_overview", "Super+W"),
     k("cycle_focus", "Super+Tab"),
     k("focus_left", "Super+H"),
     k("focus_right", "Super+L"),

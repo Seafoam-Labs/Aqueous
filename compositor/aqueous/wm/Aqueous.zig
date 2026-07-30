@@ -28,6 +28,7 @@ const StateStore = @import("state/store.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
+const overview_model = @import("overview/model.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
 const util = @import("../util.zig");
@@ -62,6 +63,7 @@ drag: ?Drag = null,
 untrap_keysym: ?u32 = null,
 next_stack_order: u64 = 1,
 requested_stack_focus: ?layout_types.Handle = null,
+overview: ?overview_model.State = null,
 
 const Drag = struct {
     handle: layout_types.Handle,
@@ -102,6 +104,7 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
 
 pub fn deinit(aqueous: *Aqueous) void {
     aqueous.started = false;
+    aqueous.cancelOverview();
     aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
@@ -133,6 +136,7 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 }
 
 pub fn reloadConfig(aqueous: *Aqueous) void {
+    aqueous.cancelOverview();
     aqueous.config = config_loader.load(util.gpa);
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
@@ -194,6 +198,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
     }
+    aqueous.validateOverviewSnapshot(&snapshot);
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
     // A direct focus request is committed by Seat.manageFinish() after policy
@@ -700,6 +705,18 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
 /// Drop policy state before the compositor invalidates a stable window handle.
 pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (!aqueous.started) return;
+    var close_overview = false;
+    if (aqueous.overview) |*overview| {
+        if (overview_model.remove(overview, handle)) {
+            aqueous.api.removeOverviewWindow(handle);
+            if (overview.cards.items.len == 0) {
+                close_overview = true;
+            } else {
+                aqueous.api.updateOverviewSelection(overview.selected);
+            }
+        }
+    }
+    if (close_overview) aqueous.cancelOverview();
     aqueous.finishInteractiveDragFor(handle);
     var layouts = aqueous.layout_states.valueIterator();
     while (layouts.next()) |state| layout_engine.forgetWindow(state, handle);
@@ -712,6 +729,7 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
 /// Native windows call this before their initial configure; XWayland calls it
 /// once the associated surface and ICCCM focus hint are available.
 pub fn noteWindowAdmission(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    aqueous.cancelOverview();
     if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_new_windows) return;
     aqueous.pending_new_focus = handle;
 }
@@ -751,6 +769,7 @@ pub fn hasKeyBinding(aqueous: *Aqueous, keysym: u32, modifiers: u32) bool {
 
 /// Direct compositor key path. Returning true eats the event before it reaches a client.
 pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) bool {
+    if (aqueous.overview != null) return aqueous.handleOverviewKey(keysym, modifiers, pressed);
     if (!pressed and aqueous.untrap_keysym == keysym) {
         aqueous.untrap_keysym = null;
         aqueous.api.suppressPointerConstraints(false);
@@ -779,6 +798,12 @@ pub fn handleGesture(aqueous: *Aqueous, gesture: gesture_input.Completed) void {
 
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64) bool {
     if (!aqueous.mode.runsInternal()) return false;
+    if (aqueous.overview != null) {
+        if (button == 0x110 and pressed) { // BTN_LEFT
+            if (aqueous.updateOverviewHover(x, y)) aqueous.confirmOverview();
+        }
+        return true;
+    }
     if (!pressed and aqueous.drag != null) {
         aqueous.finishInteractiveDrag();
         return true;
@@ -845,6 +870,10 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
 }
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
+    if (aqueous.overview != null) {
+        _ = aqueous.updateOverviewHover(x, y);
+        return;
+    }
     const drag = &(aqueous.drag orelse return);
     drag.last_pointer_x = x;
     drag.last_pointer_y = y;
@@ -937,6 +966,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "spawn_terminal")) return aqueous.spawn(aqueous.config.actions.spawn_terminal.slice());
     if (std.mem.eql(u8, action, "screenshot")) return aqueous.spawn(aqueous.config.actions.screenshot.slice());
     if (std.mem.eql(u8, action, "lock_screen")) return aqueous.spawn(aqueous.config.actions.lock_screen.slice());
+    if (std.mem.eql(u8, action, "toggle_overview")) return aqueous.toggleOverview();
     if (std.mem.eql(u8, action, "close_focused")) {
         if (aqueous.api.focusedWindow()) |handle| aqueous.api.closeWindow(handle);
         return;
@@ -997,6 +1027,221 @@ fn parseIndexed(action: []const u8, prefix: []const u8) ?u32 {
     if (!std.mem.startsWith(u8, action, prefix)) return null;
     const number = std.fmt.parseInt(u32, action[prefix.len..], 10) catch return null;
     return if (number >= 1 and number <= 9) number else null;
+}
+
+pub fn toggleOverview(aqueous: *Aqueous) void {
+    if (aqueous.overview != null) {
+        aqueous.cancelOverview();
+    } else {
+        aqueous.openOverview();
+    }
+}
+
+fn openOverview(aqueous: *Aqueous) void {
+    if (!aqueous.mode.runsInternal() or !aqueous.api.sessionUnlocked()) return;
+    if (aqueous.drag != null or aqueous.api.hasNonWindowKeyboardFocus()) return;
+
+    var snapshot = aqueous.api.policySnapshot(util.gpa) catch |err| {
+        log.err("unable to snapshot windows for overview: {}", .{err});
+        return;
+    };
+    defer snapshot.deinit(util.gpa);
+
+    const focused = aqueous.api.focusedWindow();
+    var target: ?*const CompositorApi.PolicyOutput = null;
+    if (focused) |handle| {
+        for (snapshot.outputs) |*output| {
+            if (containsWindow(output.windows, handle)) {
+                target = output;
+                break;
+            }
+        }
+    }
+    if (target == null) {
+        const selected_output = aqueous.api.selectedOutputId() orelse return;
+        for (snapshot.outputs) |*output| {
+            if (output.id == selected_output) {
+                target = output;
+                break;
+            }
+        }
+    }
+    const output = target orelse return;
+    const usable_area = aqueous.effectiveUsableArea(output.area, output.usable_area);
+
+    var state: overview_model.State = .{
+        .output_id = output.id,
+        .workspace_number = output.workspace_number,
+        .original_focus = focused,
+        .selected = 0,
+    };
+    errdefer state.cards.deinit(util.gpa);
+    state.cards.ensureTotalCapacity(util.gpa, output.windows.len) catch {
+        log.err("out of memory building overview", .{});
+        return;
+    };
+    for (output.windows) |window| {
+        if (!window.accepts_focus) continue;
+        const window_state = aqueous.window_states.get(window.handle) orelse continue;
+        if (window_state.kind == .minimized) continue;
+        const geometry = aqueous.api.windowGeometry(window.handle) orelse continue;
+        if (geometry.width <= 0 or geometry.height <= 0) continue;
+        state.cards.appendAssumeCapacity(.{
+            .handle = window.handle,
+            .source = geometry,
+        });
+    }
+    if (state.cards.items.len == 0) return;
+    overview_model.arrange(state.cards.items, usable_area);
+    state.selected = if (focused) |handle|
+        if (overview_model.contains(state.cards.items, handle)) handle else state.cards.items[0].handle
+    else
+        state.cards.items[0].handle;
+
+    const accepted = aqueous.api.showOverview(
+        state.output_id,
+        state.cards.items,
+        &state.selected,
+    ) catch |err| {
+        log.warn("unable to show overview: {}", .{err});
+        return;
+    };
+    state.cards.items.len = accepted;
+    aqueous.overview = state;
+    aqueous.api.suppressPointerConstraints(true);
+    aqueous.api.refreshPointerFocus();
+}
+
+pub fn cancelOverview(aqueous: *Aqueous) void {
+    var state = aqueous.overview orelse return;
+    aqueous.overview = null;
+    aqueous.api.hideOverview();
+    state.deinit(util.gpa);
+    aqueous.api.suppressPointerConstraints(false);
+    aqueous.api.refreshPointerFocus();
+}
+
+fn confirmOverview(aqueous: *Aqueous) void {
+    const state = aqueous.overview orelse return;
+    const selected = state.selected;
+    const output_id = state.output_id;
+    const workspace_number = state.workspace_number;
+    aqueous.cancelOverview();
+    if (!aqueous.api.windowOnWorkspace(selected, output_id, workspace_number)) return;
+    const window_state = aqueous.window_states.get(selected) orelse return;
+    if (window_state.kind == .minimized) return;
+    aqueous.requestFocus(selected);
+}
+
+fn moveOverviewSelection(aqueous: *Aqueous, direction: overview_model.Direction) void {
+    const state = &(aqueous.overview orelse return);
+    const selected = overview_model.neighbor(state.cards.items, state.selected, direction) orelse return;
+    if (selected == state.selected) return;
+    state.selected = selected;
+    aqueous.api.updateOverviewSelection(selected);
+}
+
+fn cycleOverviewSelection(aqueous: *Aqueous, delta: i32) void {
+    const state = &(aqueous.overview orelse return);
+    const selected = overview_model.cycle(state.cards.items, state.selected, delta) orelse return;
+    if (selected == state.selected) return;
+    state.selected = selected;
+    aqueous.api.updateOverviewSelection(selected);
+}
+
+fn updateOverviewHover(aqueous: *Aqueous, x: f64, y: f64) bool {
+    const state = &(aqueous.overview orelse return false);
+    const selected = overview_model.hitTest(state.cards.items, x, y) orelse return false;
+    if (selected != state.selected) {
+        state.selected = selected;
+        aqueous.api.updateOverviewSelection(selected);
+    }
+    return true;
+}
+
+fn handleOverviewKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) bool {
+    const modifier_mask = modifiers & (1 | 4 | 8 | 64);
+    const toggle = if (aqueous.mode.runsInternal())
+        aqueous.config.actions.find(keysym, modifier_mask)
+    else
+        null;
+    if (toggle) |verb| {
+        if (std.mem.eql(u8, verb, "builtin:toggle_overview")) {
+            if (pressed) aqueous.cancelOverview();
+            return true;
+        }
+    }
+    if (!pressed) return !isModifierKeysym(keysym);
+    switch (keysym) {
+        0xff51, 'h', 'H' => aqueous.moveOverviewSelection(.left),
+        0xff53, 'l', 'L' => aqueous.moveOverviewSelection(.right),
+        0xff52, 'k', 'K' => aqueous.moveOverviewSelection(.up),
+        0xff54, 'j', 'J' => aqueous.moveOverviewSelection(.down),
+        0xff09 => aqueous.cycleOverviewSelection(if (modifier_mask & 1 != 0) -1 else 1),
+        0xff0d, 0x20 => aqueous.confirmOverview(),
+        0xff1b => aqueous.cancelOverview(),
+        else => return !isModifierKeysym(keysym),
+    }
+    return true;
+}
+
+fn isModifierKeysym(keysym: u32) bool {
+    return switch (keysym) {
+        0xffe1...0xffee => true, // Shift, Control, Meta, Alt, Super, Hyper
+        else => false,
+    };
+}
+
+fn validateOverviewSnapshot(aqueous: *Aqueous, snapshot: *const CompositorApi.PolicySnapshot) void {
+    const state = if (aqueous.overview) |*value| value else return;
+    var owner: ?*const CompositorApi.PolicyOutput = null;
+    for (snapshot.outputs) |*output| {
+        if (output.id == state.output_id) {
+            owner = output;
+            break;
+        }
+    }
+    const output = owner orelse {
+        aqueous.cancelOverview();
+        return;
+    };
+    if (output.workspace_number != state.workspace_number) {
+        aqueous.cancelOverview();
+        return;
+    }
+    var index: usize = 0;
+    while (index < state.cards.items.len) {
+        const card = state.cards.items[index];
+        const window_state = aqueous.window_states.get(card.handle);
+        if (window_state == null or window_state.?.kind == .minimized) {
+            aqueous.cancelOverview();
+            return;
+        }
+        if (!containsWindow(output.windows, card.handle)) {
+            if (!aqueous.api.overviewWindowDisappearing(card.handle)) {
+                aqueous.cancelOverview();
+                return;
+            }
+            _ = overview_model.remove(state, card.handle);
+            aqueous.api.removeOverviewWindow(card.handle);
+            if (state.cards.items.len == 0) {
+                aqueous.cancelOverview();
+                return;
+            }
+            aqueous.api.updateOverviewSelection(state.selected);
+            continue;
+        }
+        if (!aqueous.api.windowOnWorkspace(card.handle, state.output_id, state.workspace_number)) {
+            aqueous.cancelOverview();
+            return;
+        }
+        index += 1;
+    }
+}
+
+pub fn forgetOutput(aqueous: *Aqueous, output_id: u64) void {
+    const state = aqueous.overview orelse return;
+    if (state.output_id == output_id) aqueous.cancelOverview();
 }
 
 fn focusWorkspace(aqueous: *Aqueous, number: u32) void {
@@ -1534,6 +1779,7 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
     const output_changed = aqueous.output_service.pollReload();
     if (!config_changed and !rules_changed and !output_changed) return 0;
 
+    aqueous.cancelOverview();
     if (config_changed) {
         aqueous.config = replacement;
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;

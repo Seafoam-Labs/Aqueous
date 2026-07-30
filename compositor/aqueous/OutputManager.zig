@@ -567,6 +567,9 @@ pub fn commitOutputState(om: *OutputManager) void {
         var it = wm.sent.outputs.iterator(.forward);
         while (it.next()) |output| {
             assert(output.sent.state != .destroying);
+            if (!std.meta.eql(output.sent, output.current)) {
+                server.aqueous.forgetOutput(output.policyId());
+            }
             output.rendering_current = output.rendering_requested;
             // This may be null even when the state is not .destroying if the
             // output is destroyed between manage start and render finish.

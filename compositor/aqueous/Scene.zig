@@ -222,6 +222,7 @@ pub const SaveableSurfaces = struct {
         target: *wlr.SceneTree,
         observer: CloneObserver,
         data: *anyopaque,
+        failed: bool = false,
     };
 
     fn cloneSurfaceTreeIter(
@@ -230,7 +231,10 @@ pub const SaveableSurfaces = struct {
         sy: c_int,
         context: *CloneContext,
     ) void {
-        const clone = cloneBuffer(context.target, buffer, sx, sy) orelse return;
+        const clone = cloneBuffer(context.target, buffer, sx, sy) orelse {
+            context.failed = true;
+            return;
+        };
         context.observer(buffer, clone, sx, sy, context.data);
     }
 
@@ -246,7 +250,7 @@ pub const SaveableSurfaces = struct {
         target: *wlr.SceneTree,
         observer: CloneObserver,
         data: *anyopaque,
-    ) void {
+    ) bool {
         var context: CloneContext = .{
             .target = target,
             .observer = observer,
@@ -257,6 +261,7 @@ pub const SaveableSurfaces = struct {
             cloneSurfaceTreeIter,
             &context,
         );
+        return !context.failed;
     }
 
     pub fn dropSaved(surfaces: *SaveableSurfaces) void {

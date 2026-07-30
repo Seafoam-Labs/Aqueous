@@ -461,6 +461,17 @@ pub fn build(b: *Build) !void {
         });
         const run_layout_test = b.addRunArtifact(layout_test);
 
+        const overview_model_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/overview_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_overview_model_test = b.addRunArtifact(overview_model_test);
+
         const rules_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/wm/rules/tests.zig"),
@@ -543,6 +554,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_trace_test.step);
         test_step.dependOn(&run_config_test.step);
         test_step.dependOn(&run_layout_test.step);
+        test_step.dependOn(&run_overview_model_test.step);
         test_step.dependOn(&run_rules_test.step);
         test_step.dependOn(&run_focus_test.step);
         test_step.dependOn(&run_output_navigation_test.step);

@@ -270,6 +270,49 @@ test "actions custom bindings and exec are immutable snapshot data" {
     try std.testing.expectEqual(@as(u8, 4), snapshot.gestures[2].fingers);
 }
 
+test "overview binding supports defaults overrides unbinds and duplicate chords" {
+    var snapshot: actions.Snapshot = .{};
+    actions.initDefaults(&snapshot);
+    const default = actions.parseChord("Super+W").?;
+    try std.testing.expectEqualStrings(
+        "builtin:toggle_overview",
+        snapshot.find(default.keysym, default.modifiers).?,
+    );
+
+    applyActions(&snapshot,
+        \\[keybinds]
+        \\toggle_overview = ["Alt+W", "Super+O"]
+    );
+    try std.testing.expect(snapshot.find(default.keysym, default.modifiers) == null);
+    const alternate = actions.parseChord("Alt+W").?;
+    const second = actions.parseChord("Super+O").?;
+    try std.testing.expectEqualStrings(
+        "builtin:toggle_overview",
+        snapshot.find(alternate.keysym, alternate.modifiers).?,
+    );
+    try std.testing.expectEqualStrings(
+        "builtin:toggle_overview",
+        snapshot.find(second.keysym, second.modifiers).?,
+    );
+
+    applyActions(&snapshot,
+        \\[keybinds]
+        \\toggle_overview = []
+    );
+    try std.testing.expect(snapshot.find(alternate.keysym, alternate.modifiers) == null);
+    try std.testing.expect(snapshot.find(second.keysym, second.modifiers) == null);
+
+    applyActions(&snapshot,
+        \\[keybinds]
+        \\toggle_overview = "Super+W"
+        \\close_focused = "Super+W"
+    );
+    try std.testing.expectEqualStrings(
+        "builtin:close_focused",
+        snapshot.find(default.keysym, default.modifiers).?,
+    );
+}
+
 test "gesture parser rejects malformed and incompatible keys" {
     try std.testing.expect(parseGestureKey("swipe_3_left") != null);
     try std.testing.expect(parseGestureKey("pinch_4_in") != null);
