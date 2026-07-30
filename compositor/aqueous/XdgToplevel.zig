@@ -355,7 +355,13 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     });
 
     if (toplevel.wlr_toplevel.base.initial_commit) {
-        assert(window.state != .ready);
+        // The unmap and the next bufferless initial commit can arrive in the
+        // same Wayland event-loop dispatch, before the scheduled manage cycle
+        // has reset the old policy object and requested state. Finish that
+        // teardown synchronously so the remap is admitted as a fresh window
+        // and receives its required initial configure.
+        if (window.state == .closing) window.finishUnmap();
+        assert(window.state == .init);
         window.state = .ready;
         server.aqueous.noteWindowAdmission(@bitCast(window.ref));
         server.wm.dirtyWindowing();

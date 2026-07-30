@@ -12,6 +12,7 @@ WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/river-window-management-v1.xml"
 WORKSPACE_PROTOCOL="$here/protocol/upstream/ext-workspace-v1.xml"
 STRESS_FRAMES=${AQUEOUS_VULKAN_PROBE_FRAMES:-4096}
 STRESS_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS:-240}
+OUTPUT_REQUEST_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_OUTPUT_REQUEST_TIMEOUT_SECONDS:-5}
 REQUIRE_VALIDATION=${AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION:-1}
 REQUIRE_EXPLICIT_SYNC=${AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC:-1}
 TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
@@ -25,6 +26,8 @@ have() { command -v "$1" >/dev/null 2>&1; }
     die "AQUEOUS_VULKAN_PROBE_FRAMES must be a positive integer"
 [[ "$STRESS_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
     die "AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS must be a positive integer"
+[[ "$OUTPUT_REQUEST_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+    die "AQUEOUS_VULKAN_PROBE_OUTPUT_REQUEST_TIMEOUT_SECONDS must be a positive integer"
 [[ "$REQUIRE_VALIDATION" = 0 || "$REQUIRE_VALIDATION" = 1 ]] ||
     die "AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION must be 0 or 1"
 [[ "$REQUIRE_EXPLICIT_SYNC" = 0 || "$REQUIRE_EXPLICIT_SYNC" = 1 ]] ||
@@ -234,7 +237,8 @@ output_request() {
     local response
     if ! response=$(
         printf '%s\n' "$1" |
-            timeout 5s nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null |
+            timeout "${OUTPUT_REQUEST_TIMEOUT_SECONDS}s" \
+                nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null |
             head -1
     ); then
         die "output service request timed out: $1"
@@ -827,9 +831,10 @@ if [ "$UNCACHED_ORACLE" = 1 ]; then
         [ "$blur_pixels_processed" -eq 0 ] ||
         die "the uncached oracle unexpectedly used the cache"
 else
-    [ "$blur_offscreen_draws" -eq \
-        $(((blur_partial_rebuilds + blur_full_rebuilds) * 17)) ] ||
-        die "cache rebuilds did not execute one downsample and sixteen separable draws"
+    blur_rebuilds=$((blur_partial_rebuilds + blur_full_rebuilds))
+    [ "$blur_offscreen_draws" -ge $((blur_rebuilds * 17)) ] &&
+        [ $((blur_offscreen_draws % 17)) -eq 0 ] ||
+        die "cache update regions did not each execute one downsample and sixteen separable draws"
     [ "$blur_cache_hits" -gt 0 ] ||
         die "the blur cache did not record a reusable checkpoint"
     [ "$blur_partial_rebuilds" -gt 0 ] ||

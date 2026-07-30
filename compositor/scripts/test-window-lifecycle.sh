@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Regression for a configured XDG toplevel destroyed before its first map.
-# Such windows can already belong to a workspace but never emit unmap.
+# Regressions for XDG toplevel teardown before map and immediate remapping.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 FIXTURE_SOURCE="$here/scripts/fixtures/xdg-destroy-before-map.c"
+REMAP_FIXTURE_SOURCE="$here/scripts/fixtures/xdg-immediate-remap.c"
 XDG_SHELL_PROTOCOL="$(pkg-config --variable=pkgdatadir wayland-protocols)/stable/xdg-shell/xdg-shell.xml"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -14,6 +14,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -r "$FIXTURE_SOURCE" ] || die "missing destroy-before-map fixture"
+[ -r "$REMAP_FIXTURE_SOURCE" ] || die "missing immediate-remap fixture"
 for tool in cc pkg-config timeout wayland-scanner; do
     have "$tool" || die "$tool is required for window lifecycle integration tests"
 done
@@ -23,8 +24,10 @@ pkg-config --exists wayland-client wayland-protocols || \
 TEST_ROOT=$(mktemp -d /tmp/aqueous-window-lifecycle.XXXXXX)
 RUNTIME="$TEST_ROOT/runtime"
 FIXTURE_BIN="$TEST_ROOT/xdg-destroy-before-map"
+REMAP_FIXTURE_BIN="$TEST_ROOT/xdg-immediate-remap"
 COMPOSITOR_LOG="$TEST_ROOT/compositor.log"
 CLIENT_LOG="$TEST_ROOT/client.log"
+REMAP_CLIENT_LOG="$TEST_ROOT/remap-client.log"
 COMPOSITOR_PID=""
 
 cleanup() {
@@ -41,6 +44,9 @@ wayland-scanner private-code "$XDG_SHELL_PROTOCOL" \
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$FIXTURE_SOURCE" "$TEST_ROOT/xdg-shell-protocol.c" \
     -o "$FIXTURE_BIN" $(pkg-config --cflags --libs wayland-client)
+cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
+    "$REMAP_FIXTURE_SOURCE" "$TEST_ROOT/xdg-shell-protocol.c" \
+    -o "$REMAP_FIXTURE_BIN" $(pkg-config --cflags --libs wayland-client)
 
 mkdir -p "$RUNTIME/config" "$RUNTIME/home"
 chmod 700 "$RUNTIME"
@@ -79,9 +85,19 @@ kill -0 "$COMPOSITOR_PID" 2>/dev/null || {
 }
 grep -q 'PASS: configured XDG toplevels destroyed before map' "$CLIENT_LOG" || \
     die "fixture did not complete"
+
+XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
+    timeout 20 "$REMAP_FIXTURE_BIN" >"$REMAP_CLIENT_LOG" 2>&1 || {
+        tail -120 "$COMPOSITOR_LOG" >&2
+        cat "$REMAP_CLIENT_LOG" >&2
+        die "immediate-remap fixture failed"
+    }
+grep -q 'PASS: immediate XDG remap received a fresh configure' \
+    "$REMAP_CLIENT_LOG" || die "immediate-remap fixture did not complete"
+
 if grep -q 'destroying window still attached to a workspace' "$COMPOSITOR_LOG"; then
     tail -120 "$COMPOSITOR_LOG" >&2
     die "final Window.destroy guard had to repair an early-destroy lifecycle"
 fi
 
-echo "PASS: pre-map XDG destruction leaves no dangling workspace links"
+echo "PASS: XDG lifecycle handles pre-map destruction and immediate remapping"

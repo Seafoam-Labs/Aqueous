@@ -243,7 +243,8 @@ state: enum {
     initialized,
     /// The window is mapped.
     mapped,
-    /// The closed event will be sent in the next manage sequence.
+    /// The old policy object will be closed in the next manage sequence, or
+    /// synchronously if an XDG client immediately starts a new mapping.
     closing,
 } = .init,
 
@@ -837,19 +838,7 @@ pub fn setAcceptsFocus(window: *Window, accepts_focus: bool) void {
 pub fn manageStart(window: *Window) void {
     switch (window.state) {
         .init => {},
-        .closing => {
-            window.state = .init;
-            window.wm_sent = .{};
-            window.wm_requested = .init;
-            window.force_configure = false;
-            window.rendering_sent = .{};
-            window.rendering_requested = .init;
-
-            window.node.link.remove();
-            window.node.link.init();
-
-            window.makeInert();
-        },
+        .closing => window.finishUnmap(),
         .ready, .initialized, .mapped => {
             const wm_v1 = server.wm.object orelse return;
             const new = window.object == null;
@@ -986,6 +975,30 @@ pub fn makeInert(window: *Window) void {
     } else {
         assert(window.node.object == null);
     }
+}
+
+/// Complete the policy-side teardown of an unmapped window.
+///
+/// This normally runs from manageStart(), but an xdg_surface may unmap and
+/// immediately make its next bufferless initial commit in the same Wayland
+/// event-loop dispatch. In that case the idle manage cycle has not run yet,
+/// and XdgToplevel must complete this transition before admitting the remap.
+pub fn finishUnmap(window: *Window) void {
+    assert(window.state == .closing);
+
+    window.state = .init;
+    window.wm_sent = .{};
+    window.wm_requested = .init;
+    window.configure_scheduled = .init;
+    window.configure_sent = .init;
+    window.force_configure = false;
+    window.rendering_sent = .{};
+    window.rendering_requested = .init;
+
+    window.node.link.remove();
+    window.node.link.init();
+
+    window.makeInert();
 }
 
 fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {

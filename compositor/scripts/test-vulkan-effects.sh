@@ -26,6 +26,10 @@ env AQUEOUS_VULKAN_BLUR_UNCACHED=1 "$seam" "$uncached"
 
 comparisons="$output/comparisons.txt"
 : >"$comparisons"
+# Each seam run separately verifies that the in-flight workspace captures
+# moved and contain rendered content. Their wall-clock animation progress is
+# intentionally not compared across cached and uncached compositor processes;
+# only the stable endpoints are a deterministic visual oracle.
 for name in \
     blur-static.png \
     blur-motion.png \
@@ -34,8 +38,6 @@ for name in \
     after-buffer-reuse.png \
     blur-overlap.png \
     workspace-animation-before.png \
-    workspace-animation-outgoing.png \
-    workspace-animation-incoming.png \
     workspace-animation-after.png \
     before-output-resume.png \
     after-output-resume.png; do
