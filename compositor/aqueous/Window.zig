@@ -391,6 +391,11 @@ box: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 /// clients can use their interactive-resize rendering path.
 interactive: enum { none, move, resize } = .none,
 
+/// The compositor-owned overview has already captured this window and is
+/// presenting its frozen clone. Keep every live scene path suppressed across
+/// intervening render transactions until overview teardown restores it.
+overview_hidden: bool = false,
+
 /// Position animation state. `anim_target_{x,y}` is the destination requested by
 /// the window manager; `anim_{x,y}` is the eased value actually written to the
 /// scene node each frame. `renderFinish` feeds the target in and snaps on the
@@ -1424,7 +1429,8 @@ pub fn renderFinish(window: *Window) void {
     }
     const workspace_visible = (window.workspace == null) or is_incoming or is_outgoing;
     const transitioning = (is_incoming or is_outgoing) and transition_dir != 0;
-    const enabled = workspace_visible and !requested.hidden and (window.state == .mapped or window.state == .closing);
+    const enabled = workspace_visible and !requested.hidden and !window.overview_hidden and
+        (window.state == .mapped or window.state == .closing);
     window.tree.node.setEnabled(enabled);
     window.popup_tree.node.setEnabled(enabled);
 

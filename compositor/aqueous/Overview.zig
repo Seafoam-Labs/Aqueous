@@ -10,6 +10,7 @@ const wl = @import("wayland").server.wl;
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const fx = @import("fx.zig");
+const LayerSurface = @import("LayerSurface.zig");
 const Window = @import("Window.zig");
 const Output = @import("Output.zig");
 const model = @import("wm/overview/model.zig");
@@ -27,6 +28,22 @@ output_id: ?u64 = null,
 backdrop: ?*wlr.SceneRect = null,
 entries: std.ArrayListUnmanaged(Entry) = .empty,
 progress: f64 = 1,
+hidden_windows: std.ArrayListUnmanaged(HiddenWindow) = .empty,
+hidden_layer_surfaces: std.ArrayListUnmanaged(HiddenLayerSurface) = .empty,
+
+const HiddenWindow = struct {
+    ref: Window.Ref,
+    tree_enabled: bool,
+    popup_enabled: bool,
+    animation_enabled: bool,
+    overview_hidden: bool,
+};
+
+const HiddenLayerSurface = struct {
+    ref: LayerSurface.Ref,
+    tree_enabled: bool,
+    popup_enabled: bool,
+};
 
 const Borders = struct {
     left: *wlr.SceneRect,
@@ -179,6 +196,8 @@ pub fn deinit(overview: *Overview) void {
     overview.hide();
     overview.tree.node.destroy();
     overview.entries.deinit(util.gpa);
+    overview.hidden_windows.deinit(util.gpa);
+    overview.hidden_layer_surfaces.deinit(util.gpa);
     overview.* = undefined;
 }
 
@@ -187,7 +206,7 @@ pub fn deinit(overview: *Overview) void {
 /// skipped. The returned length is the visual/logical membership to retain.
 pub fn show(
     overview: *Overview,
-    output_id: u64,
+    output: *Output,
     output_box: wlr.Box,
     cards: []model.Card,
     selected: *layout.Handle,
@@ -247,10 +266,11 @@ pub fn show(
     if (accepted == 0) return error.NoUsableWindows;
     if (!containsEntry(overview.entries.items, selected.*)) selected.* = overview.entries.items[0].handle;
 
-    overview.output_id = output_id;
+    overview.output_id = output.policyId();
     overview.progress = if (fx.anim_enabled) 0 else 1;
     overview.setSelected(selected.*);
     overview.tree.node.raiseToTop();
+    try overview.hideOutputScene(output);
     overview.tree.node.setEnabled(true);
     return accepted;
 }
@@ -274,12 +294,71 @@ pub fn remove(overview: *Overview, handle: layout.Handle) void {
 
 pub fn hide(overview: *Overview) void {
     overview.tree.node.setEnabled(false);
+    overview.restoreOutputScene();
     for (overview.entries.items) |*entry| entry.deinit();
     overview.entries.clearRetainingCapacity();
     if (overview.backdrop) |backdrop| backdrop.node.destroy();
     overview.backdrop = null;
     overview.output_id = null;
     overview.progress = 1;
+}
+
+/// Hide only content owned by the overview output. Scene layer roots span all
+/// outputs, so disabling those roots would incorrectly blank a second monitor.
+/// Background layer surfaces remain visible; their popups do not.
+fn hideOutputScene(overview: *Overview, output: *Output) !void {
+    std.debug.assert(overview.hidden_windows.items.len == 0);
+    std.debug.assert(overview.hidden_layer_surfaces.items.len == 0);
+
+    if (output.active_workspace) |active_workspace| {
+        var windows = active_workspace.windows.iterator(.forward);
+        while (windows.next()) |window| {
+            try overview.hidden_windows.append(util.gpa, .{
+                .ref = window.ref,
+                .tree_enabled = window.tree.node.enabled,
+                .popup_enabled = window.popup_tree.node.enabled,
+                .animation_enabled = window.anim_tree.node.enabled,
+                .overview_hidden = window.overview_hidden,
+            });
+            window.overview_hidden = true;
+            window.tree.node.setEnabled(false);
+            window.popup_tree.node.setEnabled(false);
+            window.anim_tree.node.setEnabled(false);
+        }
+    }
+
+    const wlr_output = output.wlr_output orelse return error.OutputUnavailable;
+    var layer_surfaces = server.layer_shell.surfaces.iterator();
+    while (layer_surfaces.next()) |layer_surface| {
+        if (layer_surface.wlr_layer_surface.output != wlr_output) continue;
+        try overview.hidden_layer_surfaces.append(util.gpa, .{
+            .ref = layer_surface.ref,
+            .tree_enabled = layer_surface.scene_layer_surface.tree.node.enabled,
+            .popup_enabled = layer_surface.popup_tree.node.enabled,
+        });
+        if (layer_surface.wlr_layer_surface.current.layer != .background) {
+            layer_surface.scene_layer_surface.tree.node.setEnabled(false);
+        }
+        layer_surface.popup_tree.node.setEnabled(false);
+    }
+}
+
+fn restoreOutputScene(overview: *Overview) void {
+    for (overview.hidden_windows.items) |hidden| {
+        const window = hidden.ref.get() orelse continue;
+        window.overview_hidden = hidden.overview_hidden;
+        window.tree.node.setEnabled(hidden.tree_enabled);
+        window.popup_tree.node.setEnabled(hidden.popup_enabled);
+        window.anim_tree.node.setEnabled(hidden.animation_enabled);
+    }
+    overview.hidden_windows.clearRetainingCapacity();
+
+    for (overview.hidden_layer_surfaces.items) |hidden| {
+        const layer_surface = hidden.ref.get() orelse continue;
+        layer_surface.scene_layer_surface.tree.node.setEnabled(hidden.tree_enabled);
+        layer_surface.popup_tree.node.setEnabled(hidden.popup_enabled);
+    }
+    overview.hidden_layer_surfaces.clearRetainingCapacity();
 }
 
 pub fn step(overview: *Overview, output: *Output, dt_s: f64) bool {

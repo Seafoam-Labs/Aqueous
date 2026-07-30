@@ -435,7 +435,7 @@ pub fn showOverview(
     if (!output.policyTransferTarget()) return error.OutputUnavailable;
     output.prepareOverview();
     const accepted = try server.overview.show(
-        output_id,
+        output,
         output.policyFullBox(),
         cards,
         selected,

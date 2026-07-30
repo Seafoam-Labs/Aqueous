@@ -250,6 +250,11 @@ normal client hit-testing cannot mistake them for live surfaces. Entry zoom and
 backdrop fade run from the output frame loop; builds with
 `-Danimations=false` place the same cards immediately.
 
+Once capture succeeds, the compositor suppresses the live window trees and
+non-background layer surfaces belonging to the overview's output. The
+wallpaper remains beneath the frozen cards, and content on other outputs stays
+enabled. Teardown restores every affected scene node to its exact prior state.
+
 While active, input is modal:
 
 - Arrow keys and H/J/K/L choose a spatial neighbor; Tab and Shift+Tab wrap in

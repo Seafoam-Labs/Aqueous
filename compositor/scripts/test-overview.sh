@@ -12,6 +12,7 @@ AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURES="$here/scripts/fixtures"
 TEST_BACKEND=${AQUEOUS_TEST_BACKEND:-headless}
 TEST_RENDERER=${AQUEOUS_TEST_RENDERER:-pixman}
+TEST_OUTPUTS=${AQUEOUS_TEST_OUTPUTS:-1}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -36,7 +37,7 @@ BACKEND_ENV=(
 )
 case "$TEST_BACKEND" in
     headless)
-        BACKEND_ENV+=("WLR_HEADLESS_OUTPUTS=1")
+        BACKEND_ENV+=("WLR_HEADLESS_OUTPUTS=$TEST_OUTPUTS")
         ;;
     wayland)
         HOST_RUNTIME=${XDG_RUNTIME_DIR:-}
@@ -45,7 +46,7 @@ case "$TEST_BACKEND" in
             [ -S "$HOST_RUNTIME/$HOST_DISPLAY" ] ||
             die "the nested Vulkan overview test requires a parent Wayland display"
         ln -s "$HOST_RUNTIME/$HOST_DISPLAY" "$RUNTIME/overview-host"
-        BACKEND_ENV+=("WLR_WL_OUTPUTS=1" "WAYLAND_DISPLAY=overview-host")
+        BACKEND_ENV+=("WLR_WL_OUTPUTS=$TEST_OUTPUTS" "WAYLAND_DISPLAY=overview-host")
         ;;
     *)
         die "unsupported overview test backend: $TEST_BACKEND"
@@ -132,6 +133,29 @@ offscreen_id=$(jq -r --argjson edge "$OWNER_RIGHT" '
 ' <<<"$windows_json")
 [ -n "$offscreen_id" ] || die "scrolling fixture did not create an off-screen window"
 
+# Optional multi-output coverage leaves a live window on a second output. Its
+# scene tree must remain enabled while the owning output enters overview.
+if [ "$TEST_OUTPUTS" -gt 1 ]; then
+    read -r other_x other_y <<<"$(jq -r --arg owner "$OWNER_OUTPUT" '
+        .outputs[] | select(.name != $owner) |
+        "\(.x + 100) \(.y + 100)"
+    ' <<<"$output_state" | head -1)"
+    [ -n "${other_x:-}" ] && [ -n "${other_y:-}" ] ||
+        die "could not resolve a second output"
+    wlrctl pointer move -10000 -10000
+    wlrctl pointer move "$other_x" "$other_y"
+    launch_window aq-other-output "$FIXTURES/overview-green-ghostty.conf"
+    for _ in $(seq 1 200); do
+        windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+        [ "$(jq 'length' <<<"$windows_json")" = 4 ] && break
+        sleep 0.05
+    done
+    [ "$(jq 'length' <<<"$windows_json")" = 4 ] ||
+        die "second-output overview fixture did not map"
+    wlrctl pointer move -10000 -10000
+    wlrctl pointer move 100 100
+fi
+
 stable_snapshot() {
     "$AQUEOUSCTL_BIN" windows --json |
         jq -S '[.[] | {id, output, workspace, geometry, layout, states}]'
@@ -169,6 +193,24 @@ sleep 0.5
     die "opening overview changed window geometry, workspace, or output"
 [ "$(focused_id)" = "$before_focus" ] ||
     die "opening overview changed keyboard focus"
+scene=$("$AQUEOUSCTL_BIN" scene)
+grep -F 'layer: background [tree]' <<<"$scene" | grep -vq ' disabled' ||
+    die "overview hid the background layer"
+for layer in bottom windows top fullscreen overlay popups; do
+    grep -F "layer: $layer [tree]" <<<"$scene" | grep -vq ' disabled' ||
+        die "overview disabled the global $layer layer"
+done
+hidden_windows=$(grep -F 'window: aq-overview-' <<<"$scene" |
+    grep -cF '[tree] disabled' || true)
+[ "$hidden_windows" = 3 ] || {
+    printf '%s\n' "$scene" >&2
+    die "overview did not hide all live windows on its output"
+}
+if [ "$TEST_OUTPUTS" -gt 1 ]; then
+    grep -F 'window: aq-other-output [tree]' <<<"$scene" |
+        grep -vq ' disabled' ||
+        die "overview hid a window on the other output"
+fi
 
 grim "$TEST_ROOT/overview.png"
 for channel in red green blue; do
@@ -201,6 +243,9 @@ revealed=$(jq --arg id "$offscreen_id" --argjson edge "$OWNER_RIGHT" '
 [ "$revealed" = 1 ] || die "normal scrolling focus path did not reveal the selection"
 
 # Escape cancels without disturbing the now-focused window.
+pre_cancel_scene=$("$AQUEOUSCTL_BIN" scene)
+pre_cancel_disabled=$(grep -F 'window: aq-overview-' <<<"$pre_cancel_scene" |
+    grep -cF '[tree] disabled' || true)
 open_overview
 cancel_focus=$(focused_id)
 wlrctl keyboard type $'\e'
@@ -208,6 +253,17 @@ sleep 0.1
 scene=$("$AQUEOUSCTL_BIN" scene)
 grep -F 'workspace overview [tree] disabled' <<<"$scene" >/dev/null ||
     die "Escape left the overview enabled"
+for layer in bottom windows top fullscreen overlay popups; do
+    grep -F "layer: $layer [tree]" <<<"$scene" | grep -vq ' disabled' ||
+        die "Escape did not restore the $layer layer"
+done
+restored_windows=$(grep -F 'window: aq-overview-' <<<"$scene" |
+    grep -cF '[tree]' || true)
+disabled_windows=$(grep -F 'window: aq-overview-' <<<"$scene" |
+    grep -cF '[tree] disabled' || true)
+[ "$restored_windows" = 3 ] &&
+    [ "$disabled_windows" = "$pre_cancel_disabled" ] ||
+    die "Escape did not restore all live windows"
 [ "$(focused_id)" = "$cancel_focus" ] || die "Escape changed focus"
 
 # Hover the first card's first thumbnail buffer, then confirm with a click.
