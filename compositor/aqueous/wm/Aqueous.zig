@@ -369,7 +369,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         if (game_anchor != null) entry.value_ptr.game_mode.rule_layout_owned = true;
         if (entry.value_ptr.game_mode.rule_layout_owned) output_layout.default = .game_mode;
         entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
-        if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area);
+        if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area, &output_layout);
         if (cycle_focus) |handle| {
             if (containsWindow(focusable.items, handle)) {
                 focused_is_focusable = true;
@@ -394,7 +394,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             usable_area,
             managed.items,
             cycle_focus,
-            gameConfigOptions(aqueous.rules.game_mode),
+            gameConfigOptions(aqueous.rules.game_mode, &output_layout),
         );
         defer util.gpa.free(placements);
         for (placements) |*placement| {
@@ -1970,7 +1970,7 @@ fn floatingRulePlacement(area: layout_types.Rect, window: layout_types.Window, r
     return floatingPlacement(area, window.handle, placement, border);
 }
 
-fn gameOptions(rule: Rules.Rule, config: Rules.GameMode, output_area: layout_types.Rect) game_mode.Options {
+fn gameOptions(rule: Rules.Rule, config: Rules.GameMode, output_area: layout_types.Rect, layout_snapshot: *const layout_config.Snapshot) game_mode.Options {
     return .{
         .size = switch (rule.size) {
             .native => .native,
@@ -1989,14 +1989,28 @@ fn gameOptions(rule: Rules.Rule, config: Rules.GameMode, output_area: layout_typ
         .fallback = ruleRemainder(config.fallback_layout),
         .gaps_inner = config.gaps_inner,
         .anchor_area = if (rule.ignore_struts) output_area else null,
+        .scrolling_options = game_mode.ScrollingOptions{
+            .center_focused = layout_snapshot.scrolling_center_focused,
+            .column_fraction = layout_snapshot.scrolling_column_fraction,
+            .follow_new = layout_snapshot.scrolling_follow_new,
+            .overscroll = layout_snapshot.scrolling_overscroll,
+            .snap = layout_snapshot.scrolling_snap,
+        },
     };
 }
 
-fn gameConfigOptions(config: Rules.GameMode) game_mode.Options {
+fn gameConfigOptions(config: Rules.GameMode, layout_snapshot: *const layout_config.Snapshot) game_mode.Options {
     return .{
         .remainder = ruleRemainder(config.remainder_layout),
         .fallback = ruleRemainder(config.fallback_layout),
         .gaps_inner = config.gaps_inner,
+        .scrolling_options = game_mode.ScrollingOptions{
+            .column_fraction = layout_snapshot.scrolling_column_fraction,
+            .center_focused = layout_snapshot.scrolling_center_focused,
+            .follow_new = layout_snapshot.scrolling_follow_new,
+            .snap = layout_snapshot.scrolling_snap,
+            .overscroll = layout_snapshot.scrolling_overscroll,
+        },
     };
 }
 

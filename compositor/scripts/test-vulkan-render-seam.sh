@@ -46,7 +46,7 @@ for file in \
     "$WORKSPACE_PROTOCOL"; do
     [ -r "$file" ] || die "missing test input: $file"
 done
-for tool in cc grim jq ldd magick nc nm pkg-config readelf sha256sum wayland-scanner wlrctl; do
+for tool in cc grim jq ldd magick nc nm pkg-config readelf sha256sum timeout wayland-scanner wlrctl; do
     have "$tool" || die "$tool is required"
 done
 pkg-config --exists wayland-client wayland-protocols ||
@@ -231,9 +231,17 @@ done
 [ -S "$OUTPUT_SOCKET" ] || die "output service did not create its socket"
 
 output_request() {
-    printf '%s\n' "$1" |
-        nc -U -N -w 3 "$OUTPUT_SOCKET" 2>/dev/null |
-        head -1
+    local response
+    if ! response=$(
+        printf '%s\n' "$1" |
+            timeout 5s nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null |
+            head -1
+    ); then
+        die "output service request timed out: $1"
+    fi
+    [ -n "$response" ] ||
+        die "output service returned no response: $1"
+    printf '%s\n' "$response"
 }
 
 output_state=$(output_request '{"op":"list"}')

@@ -65,6 +65,14 @@ pub const State = struct {
     }
 };
 
+pub const ScrollingOptions = struct {
+    column_fraction: f64 = 0.5,
+    center_focused: bool = true,
+    follow_new: bool = true,
+    snap: bool = false,
+    overscroll: bool = true,
+};
+
 pub const Options = struct {
     size: geometry.Size = .{ .fraction = .{ .width = 0.5, .height = 1.0 } },
     anchor: geometry.Anchor = .center,
@@ -73,6 +81,7 @@ pub const Options = struct {
     fallback: Remainder = .grid,
     gaps_inner: ?i32 = null,
     anchor_area: ?types.Rect = null,
+    scrolling_options: ScrollingOptions = .{},
 };
 
 pub const Remainder = enum { tile, monocle, grid, rows, dwindle, scrolling, floating };
@@ -87,7 +96,7 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     if (state.rule_anchor == null) {
         state.anchor = null;
         state.active_remainder = effective.fallback;
-        const placements = try arrangeRemainder(allocator, &state.fallback, effective.fallback, usable_area, windows, focused, options);
+        const placements = try arrangeRemainder(allocator, &state.fallback, effective.fallback, usable_area, windows, focused, options, game_options.scrolling_options);
         defer allocator.free(placements);
         @memcpy(result, placements);
         return result;
@@ -141,11 +150,11 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     remainder_options.gaps_outer = 0;
     remainder_options.gaps_inner = effective.gaps_inner orelse options.gaps_inner;
     var write: usize = 1;
-    const left_placements = try arrangeRemainder(allocator, &state.left, effective.remainder, columns.left, left_windows.items, focused, remainder_options);
+    const left_placements = try arrangeRemainder(allocator, &state.left, effective.remainder, columns.left, left_windows.items, focused, remainder_options, game_options.scrolling_options);
     defer allocator.free(left_placements);
     @memcpy(result[write .. write + left_placements.len], left_placements);
     write += left_placements.len;
-    const right_placements = try arrangeRemainder(allocator, &state.right, effective.remainder, columns.right, right_windows.items, focused, remainder_options);
+    const right_placements = try arrangeRemainder(allocator, &state.right, effective.remainder, columns.right, right_windows.items, focused, remainder_options, game_options.scrolling_options);
     defer allocator.free(right_placements);
     @memcpy(result[write .. write + right_placements.len], right_placements);
     write += right_placements.len;
@@ -153,14 +162,20 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     return result;
 }
 
-fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: Remainder, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, options: types.Options) ![]types.Placement {
+fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: Remainder, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, options: types.Options, scrolling_options: ScrollingOptions) ![]types.Placement {
     return switch (kind) {
         .tile => tile.arrange(allocator, &state.tile, area, windows, options),
         .monocle => monocle.arrange(allocator, &state.monocle, area, windows, focused, options, .{}),
         .grid => grid.arrange(allocator, &state.grid, area, windows, options),
         .rows => rows.arrange(allocator, &state.rows, area, windows, options),
         .dwindle => dwindle.arrange(allocator, &state.dwindle, area, windows, options, .{}),
-        .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{}),
+        .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{
+            .allow_overscroll = scrolling_options.overscroll,
+            .center_focused = scrolling_options.center_focused,
+            .column_width = scrolling_options.column_fraction,
+            .follow_new_windows = scrolling_options.follow_new,
+            .snap_to_columns = scrolling_options.snap,
+        }),
         .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),
     };
 }
