@@ -141,6 +141,43 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bo
     };
 }
 
+pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.containsHandle(&state.scrolling, handle),
+        .game_mode => game_mode.canResizeScrolling(&state.game_mode, handle),
+        else => false,
+    };
+}
+
+pub fn isGameAnchor(state: *const State, handle: types.Handle) bool {
+    return state.active_layout == .game_mode and game_mode.isAnchor(&state.game_mode, handle);
+}
+
+pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.Handle {
+    return switch (state.active_layout) {
+        .scrolling => if (scrolling.containsHandle(&state.scrolling, handle))
+            scrolling.expandedOwner(&state.scrolling, handle)
+        else
+            null,
+        .game_mode => game_mode.scrollingExpandedOwner(&state.game_mode, handle),
+        else => null,
+    };
+}
+
+pub fn resizeScrolling(
+    allocator: std.mem.Allocator,
+    state: *State,
+    handle: types.Handle,
+    width: i32,
+    height: i32,
+) !bool {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.resize(&state.scrolling, allocator, handle, width, height),
+        .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, width, height),
+        else => false,
+    };
+}
+
 pub fn setFloatingGeometry(allocator: std.mem.Allocator, state: *State, handle: types.Handle, geometry: types.Rect) !void {
     try floating.setGeometry(&state.floating, allocator, handle, geometry);
 }

@@ -347,9 +347,12 @@ This separation lets all layout algorithms remain testable without wlroots.
    copied into initialized dormant layout orders, so the order survives layout
    switches.
 
-Super+right-click, or dragging a window already in a floating interaction,
-updates remembered floating geometry and requests manage cycles as the pointer
-moves.
+Super+right-drag on an ordinary tiled window promotes it to floating and
+updates remembered floating geometry. In a scrolling layout it instead keeps
+the member tiled: horizontal motion resizes the whole column and vertical
+motion resizes that member. Game mode delegates this operation to an active
+scrolling remainder or fallback and rejects its anchor. Every pointer update
+requests a manage cycle.
 
 Validated `xdg_toplevel.move` and `xdg_toplevel.resize` requests enter the same
 integrated-policy interaction path when the target is already floating. Resize

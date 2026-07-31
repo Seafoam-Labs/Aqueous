@@ -76,6 +76,9 @@ const Drag = struct {
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
+    /// A manual size overrides the full-width preset. Defer clearing its
+    /// per-window owner until the pointer actually moves.
+    scrolling_expanded_owner: ?layout_types.Handle = null,
     client_seat: ?usize = null,
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
@@ -645,6 +648,13 @@ fn finishInvalidInteractiveDrag(
                     state.kind == .tiled and
                     aqueous.layoutIsFloating(drag.layout_key);
                 if (drag.action == .swap_tiled or
+                    (drag.action == .resize_scrolling and
+                        state.kind == .tiled and
+                        !window.fullscreen and
+                        if (aqueous.layout_states.get(drag.layout_key)) |layout_state|
+                            layout_engine.canResizeScrolling(&layout_state, drag.handle)
+                        else
+                            false) or
                     ((state.kind == .floating or layout_floating) and !window.fullscreen))
                 {
                     return false;
@@ -821,8 +831,21 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     const state = aqueous.window_states.get(target.handle) orelse return false;
     const workspace = aqueous.api.windowWorkspace(target.handle) orelse return false;
     const layout_key: LayoutStateKey = .{ .output = workspace.output_id, .workspace = workspace.workspace_number };
-    const active_layout = if (aqueous.layout_states.get(layout_key)) |layout_state| layout_state.active_layout else aqueous.config.layout.default;
-    const drag_action = pointer_drag.action(button, state.kind, active_layout);
+    const layout_state = aqueous.layout_states.getPtr(layout_key);
+    const active_layout = if (layout_state) |value| value.active_layout else aqueous.config.layout.default;
+    if (button == 0x111 and state.kind == .tiled and if (layout_state) |value|
+        layout_engine.isGameAnchor(value, target.handle)
+    else
+        false)
+    {
+        aqueous.requestFocus(target.handle);
+        return true;
+    }
+    const scrolling_resizable = state.kind == .tiled and if (layout_state) |value|
+        layout_engine.canResizeScrolling(value, target.handle)
+    else
+        false;
+    const drag_action = pointer_drag.action(button, state.kind, active_layout, scrolling_resizable);
     const layout_floating = state.kind == .tiled and active_layout == .floating;
     if (drag_action == .swap_tiled) {
         aqueous.drag = .{
@@ -847,9 +870,18 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
             .layout_floating = layout_floating,
+            .scrolling_expanded_owner = if (drag_action == .resize_scrolling)
+                layout_engine.scrollingExpandedOwner(layout_state.?, target.handle)
+            else
+                null,
         };
-        if (!layout_floating) _ = aqueous.window_states.setFloating(target.handle, target.geometry);
-        aqueous.api.beginInteractive(target.handle, drag_action == .resize_floating);
+        if (!layout_floating and drag_action != .resize_scrolling) {
+            _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+        }
+        aqueous.api.beginInteractive(
+            target.handle,
+            drag_action == .resize_floating or drag_action == .resize_scrolling,
+        );
     }
     aqueous.requestFocus(target.handle);
     return true;
@@ -905,6 +937,26 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     }
     const dx: i32 = @intFromFloat(x - drag.pointer_x);
     const dy: i32 = @intFromFloat(y - drag.pointer_y);
+    if (drag.action == .resize_scrolling) {
+        if (drag.scrolling_expanded_owner) |owner| {
+            if (aqueous.window_states.get(owner)) |owner_state| owner_state.scrolling_full_width = false;
+            drag.scrolling_expanded_owner = null;
+        }
+        const geometry = pointer_drag.resize(drag.start, dx, dy, drag.resize_edges);
+        const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
+        if (!(layout_engine.resizeScrolling(
+            util.gpa,
+            layout_state,
+            drag.handle,
+            geometry.width,
+            geometry.height,
+        ) catch {
+            log.err("out of memory resizing scrolling member", .{});
+            return;
+        })) return;
+        aqueous.api.requestManageCycle();
+        return;
+    }
     const geometry: layout_types.Rect = if (drag.action == .resize_floating)
         pointer_drag.resize(drag.start, dx, dy, drag.resize_edges)
     else

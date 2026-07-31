@@ -45,9 +45,10 @@ reload binding can also request an immediate reload.
 ## Scrolling columns
 
 The scrolling engine owns an ordered list of columns. New windows begin in
-their own column. Every member retains at least the full column viewport
+their own column. By default every member retains the full column viewport
 height, so multi-window columns form vertical stacks instead of shrinking
-members to fit. Each column keeps an independent vertical viewport.
+members to fit. A manually resized member may use a shorter or taller explicit
+height. Each column keeps an independent vertical viewport.
 Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.
@@ -73,3 +74,9 @@ another window to stack it before or after that window. Dropping over the
 middle-left or middle-right creates an adjacent column. A full-width flag is
 owned by the window that triggered it, but all members share their column's
 horizontal width.
+
+`Super`+right-drag resizes a scrolling member without making it floating.
+Horizontal motion changes the whole column's width; vertical motion changes
+only the selected member's height. This works identically in a scrolling game
+mode remainder or fallback, while the game anchor remains fixed. Beginning an
+actual resize replaces the column's full-width preset with the dragged size.

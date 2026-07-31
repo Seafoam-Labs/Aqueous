@@ -6,7 +6,7 @@ const layout_config = @import("../config/layout.zig");
 const PolicyState = @import("../state/PolicyState.zig");
 const types = @import("../layout/types.zig");
 
-pub const Action = enum { move_floating, resize_floating, swap_tiled };
+pub const Action = enum { move_floating, resize_floating, resize_scrolling, swap_tiled };
 
 pub const ResizeEdges = struct {
     top: bool = false,
@@ -19,8 +19,14 @@ pub const ResizeEdges = struct {
     }
 };
 
-pub fn action(button: u32, kind: PolicyState.Kind, active_layout: layout_config.LayoutId) Action {
+pub fn action(
+    button: u32,
+    kind: PolicyState.Kind,
+    active_layout: layout_config.LayoutId,
+    scrolling_resizable: bool,
+) Action {
     if (button == 0x110 and kind == .tiled and active_layout != .floating) return .swap_tiled;
+    if (button == 0x111 and kind == .tiled and scrolling_resizable) return .resize_scrolling;
     return if (button == 0x111) .resize_floating else .move_floating;
 }
 
@@ -66,11 +72,17 @@ pub fn dropZone(geometry: types.Rect, x: f64, y: f64) types.DropZone {
 }
 
 test "modified left drag swaps tiled windows without forcing floating" {
-    try std.testing.expectEqual(Action.swap_tiled, action(0x110, .tiled, .tile));
-    try std.testing.expectEqual(Action.swap_tiled, action(0x110, .tiled, .rows));
-    try std.testing.expectEqual(Action.move_floating, action(0x110, .floating, .tile));
-    try std.testing.expectEqual(Action.move_floating, action(0x110, .tiled, .floating));
-    try std.testing.expectEqual(Action.resize_floating, action(0x111, .tiled, .tile));
+    try std.testing.expectEqual(Action.swap_tiled, action(0x110, .tiled, .tile, false));
+    try std.testing.expectEqual(Action.swap_tiled, action(0x110, .tiled, .rows, false));
+    try std.testing.expectEqual(Action.move_floating, action(0x110, .floating, .tile, false));
+    try std.testing.expectEqual(Action.move_floating, action(0x110, .tiled, .floating, false));
+    try std.testing.expectEqual(Action.resize_floating, action(0x111, .tiled, .tile, false));
+}
+
+test "modified right drag keeps scrolling members tiled" {
+    try std.testing.expectEqual(Action.resize_scrolling, action(0x111, .tiled, .scrolling, true));
+    try std.testing.expectEqual(Action.resize_scrolling, action(0x111, .tiled, .game_mode, true));
+    try std.testing.expectEqual(Action.resize_floating, action(0x111, .floating, .scrolling, true));
 }
 
 test "drop zones distinguish vertical stacks from adjacent columns" {

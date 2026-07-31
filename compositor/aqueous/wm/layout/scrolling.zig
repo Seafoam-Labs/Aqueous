@@ -7,6 +7,9 @@ const types = @import("types.zig");
 
 pub const Column = struct {
     windows: std.ArrayListUnmanaged(types.Handle) = .empty,
+    /// Pointer resizing records an explicit logical-pixel width for the whole
+    /// column. Null follows the configured column fraction.
+    width_override: ?i32 = null,
     /// The member whose per-window flag currently expands this column. All
     /// members necessarily share the column width.
     expanded_owner: ?types.Handle = null,
@@ -25,6 +28,10 @@ pub const Column = struct {
 
 pub const State = struct {
     columns: std.ArrayListUnmanaged(Column) = .empty,
+    /// Vertical sizing belongs to a member rather than its column. Keeping the
+    /// overrides keyed by stable handle lets them follow reorders and stacking
+    /// operations inside this scrolling state.
+    height_overrides: std.AutoHashMapUnmanaged(types.Handle, i32) = .empty,
     viewport_x: i32 = 0,
     focused_column: usize = 0,
     viewport_column: usize = 0,
@@ -34,6 +41,7 @@ pub const State = struct {
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
         for (state.columns.items) |*column| column.deinit(allocator);
         state.columns.deinit(allocator);
+        state.height_overrides.deinit(allocator);
     }
 };
 
@@ -78,12 +86,25 @@ pub fn arrange(
     var cursor: i32 = 0;
     for (state.columns.items, widths, offsets) |column, *width, *offset| {
         var minimum_width: i32 = 0;
+        var maximum_width: i32 = 0;
         for (column.windows.items) |handle| {
             const window = findWindow(windows, handle).?;
             minimum_width = @max(minimum_width, window.min_width);
+            if (window.max_width > 0) {
+                maximum_width = if (maximum_width == 0)
+                    window.max_width
+                else
+                    @min(maximum_width, window.max_width);
+            }
         }
-        const requested_width = if (column.expanded_owner != null) area.width else base_width;
-        width.* = @max(requested_width, minimum_width);
+        const requested_width = if (column.expanded_owner != null)
+            area.width
+        else
+            column.width_override orelse base_width;
+        width.* = if (column.expanded_owner == null and column.width_override != null)
+            clampRequestedSize(requested_width, minimum_width, maximum_width)
+        else
+            @max(requested_width, minimum_width);
         offset.* = cursor;
         cursor += width.* + options.gaps_inner;
     }
@@ -125,7 +146,7 @@ pub fn arrange(
     const focus_raises =
         options.gaps_inner < options.border.width *| 2;
     for (state.columns.items, widths, offsets, 0..) |*column, width, offset, column_index| {
-        const rows = try splitColumnRows(allocator, column.windows.items, windows, area.height, options.gaps_inner);
+        const rows = try splitColumnRows(allocator, state, column.windows.items, windows, area.height, options.gaps_inner);
         defer allocator.free(rows);
         const total_height = rows[rows.len - 1].offset + rows[rows.len - 1].size;
         column.viewport_max_y = @max(0, total_height - area.height);
@@ -353,6 +374,9 @@ pub fn drop(
             }
             var new_column = try singleWindowColumn(allocator, dragged);
             errdefer new_column.deinit(allocator);
+            if (source_is_single) {
+                new_column.width_override = state.columns.items[dragged_location.column].width_override;
+            }
             try state.columns.ensureUnusedCapacity(allocator, 1);
             detach(state, dragged_location, allocator);
             const current_target = locate(state, target) orelse unreachable;
@@ -379,6 +403,32 @@ pub fn containsHandle(state: *const State, handle: types.Handle) bool {
     return locate(state, handle) != null;
 }
 
+pub fn expandedOwner(state: *const State, handle: types.Handle) ?types.Handle {
+    const location = locate(state, handle) orelse return null;
+    return state.columns.items[location.column].expanded_owner;
+}
+
+/// Resize a tiled scrolling member without removing it from the layout. Width
+/// is shared by every member in the column; height belongs only to `handle`.
+pub fn resize(
+    state: *State,
+    allocator: std.mem.Allocator,
+    handle: types.Handle,
+    width: i32,
+    height: i32,
+) !bool {
+    const location = locate(state, handle) orelse return false;
+    const requested_width = @max(1, width);
+    const requested_height = @max(1, height);
+    const column = &state.columns.items[location.column];
+    const old_width = column.width_override;
+    const old_height = state.height_overrides.get(handle);
+    if (old_width == requested_width and old_height == requested_height) return false;
+    try state.height_overrides.put(allocator, handle, requested_height);
+    column.width_override = requested_width;
+    return true;
+}
+
 fn sync(state: *State, allocator: std.mem.Allocator, windows: []const types.Window) !void {
     var column_index: usize = 0;
     while (column_index < state.columns.items.len) {
@@ -388,6 +438,7 @@ fn sync(state: *State, allocator: std.mem.Allocator, windows: []const types.Wind
             if (findWindow(windows, column.windows.items[row]) == null) {
                 const removed_handle = column.windows.orderedRemove(row);
                 if (column.viewport_anchor == removed_handle) column.viewport_anchor = null;
+                _ = state.height_overrides.remove(removed_handle);
             } else {
                 row += 1;
             }
@@ -467,11 +518,12 @@ fn contains(handles: []const types.Handle, handle: types.Handle) bool {
     return std.mem.indexOfScalar(types.Handle, handles, handle) != null;
 }
 
-/// Give every member a full vertical viewport while respecting larger client
-/// minimum heights. Members never shrink to share the available height; a
-/// multi-window column is always a vertically scrollable stack.
+/// Unmodified members retain a full vertical viewport. Pointer-sized members
+/// use their requested height, allowing a deliberately shortened stack to show
+/// more than one member while preserving the existing default behavior.
 fn splitColumnRows(
     allocator: std.mem.Allocator,
+    state: *const State,
     handles: []const types.Handle,
     windows: []const types.Window,
     length: i32,
@@ -483,11 +535,23 @@ fn splitColumnRows(
 
     var cursor: i32 = 0;
     for (handles, rows) |handle, *row| {
+        const window = findWindow(windows, handle).?;
         row.offset = cursor;
-        row.size = @max(1, length, findWindow(windows, handle).?.min_height);
+        row.size = if (state.height_overrides.get(handle)) |requested|
+            clampRequestedSize(requested, window.min_height, window.max_height)
+        else
+            @max(1, length, window.min_height);
         cursor += row.size + gap;
     }
     return rows;
+}
+
+fn clampRequestedSize(requested: i32, minimum: i32, maximum: i32) i32 {
+    const lower = @max(1, minimum);
+    // Contradictory client hints are resolved in favor of the minimum, matching
+    // the existing scrolling behavior for windows larger than their viewport.
+    const upper = if (maximum > 0) @max(lower, maximum) else std.math.maxInt(i32);
+    return std.math.clamp(requested, lower, upper);
 }
 
 fn centeredRowOffset(row: math.AxisCell, viewport_height: i32, maximum: i32) i32 {
@@ -549,6 +613,34 @@ test "column members retain full viewport height" {
     defer std.testing.allocator.free(scrolled);
     try std.testing.expectEqual(@as(i32, -84), findPlacement(scrolled, 1).geometry.y);
     try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 2).geometry.y);
+}
+
+test "pointer resize changes a whole column width and one member height" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .min_width = 40, .max_width = 70, .min_height = 20, .max_height = 60 },
+        .{ .handle = 2, .max_width = 65 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(initial);
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
+    try std.testing.expect(try resize(&state, std.testing.allocator, 1, 90, 10));
+
+    const resized = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(resized);
+    const first = findPlacement(resized, 1);
+    const second = findPlacement(resized, 2);
+    // The tightest column maximum applies to every member; the selected
+    // member's independent height is clamped to its own minimum.
+    try std.testing.expectEqual(@as(i32, 65), first.geometry.width);
+    try std.testing.expectEqual(@as(i32, 65), second.geometry.width);
+    try std.testing.expectEqual(@as(i32, 20), first.geometry.height);
+    try std.testing.expectEqual(@as(i32, 80), second.geometry.height);
+    try std.testing.expectEqual(@as(i32, 20), second.geometry.y);
+    try std.testing.expect(!try resize(&state, std.testing.allocator, 99, 50, 50));
 }
 
 test "minimum heights overflow and the focused column scrolls by member" {

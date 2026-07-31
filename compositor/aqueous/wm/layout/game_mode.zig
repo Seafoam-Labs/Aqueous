@@ -243,6 +243,43 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bo
     return false;
 }
 
+pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
+    if (state.active_remainder != .scrolling or state.anchor == handle) return false;
+    for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.containsHandle(&side.scrolling, handle)) return true;
+    }
+    return false;
+}
+
+pub fn isAnchor(state: *const State, handle: types.Handle) bool {
+    return state.anchor == handle;
+}
+
+pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.Handle {
+    if (!canResizeScrolling(state, handle)) return null;
+    for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.containsHandle(&side.scrolling, handle)) {
+            return scrolling.expandedOwner(&side.scrolling, handle);
+        }
+    }
+    return null;
+}
+
+pub fn resizeScrolling(
+    state: *State,
+    allocator: std.mem.Allocator,
+    handle: types.Handle,
+    width: i32,
+    height: i32,
+) !bool {
+    if (state.active_remainder != .scrolling or state.anchor == handle) return false;
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (!scrolling.containsHandle(&side.scrolling, handle)) continue;
+        return scrolling.resize(&side.scrolling, allocator, handle, width, height);
+    }
+    return false;
+}
+
 fn contains(windows: []const types.Window, handle: types.Handle) bool {
     return find(windows, handle) != null;
 }
@@ -297,6 +334,24 @@ test "game mode routes viewport movement to a scrolling fallback" {
     try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_column);
 }
 
+test "game mode resizes a tiled member in a scrolling fallback" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const game_options: Options = .{ .fallback = .scrolling };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    std.testing.allocator.free(initial);
+
+    try std.testing.expect(canResizeScrolling(&state, 1));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 1, 70, 30));
+    const resized = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    defer std.testing.allocator.free(resized);
+    try std.testing.expectEqual(@as(i32, 70), findPlacement(resized, 1).geometry.width);
+    try std.testing.expectEqual(@as(i32, 30), findPlacement(resized, 1).geometry.height);
+}
+
 test "game mode joins windows across columns in a scrolling fallback" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
@@ -347,6 +402,32 @@ test "game mode joins windows within an anchored scrolling remainder" {
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 4 }, state.left.scrolling.columns.items[0].windows.items);
     try std.testing.expectEqual(@as(usize, 2), state.right.scrolling.columns.items.len);
     try std.testing.expect(!try moveWindow(&state, std.testing.allocator, 1, 1, 0));
+}
+
+test "game mode routes resize to a side remainder and rejects its anchor" {
+    var state: State = .{
+        .rule_anchor = 1,
+        .rule_options = .{
+            .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+            .remainder = .scrolling,
+            .gaps_inner = 0,
+        },
+    };
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    std.testing.allocator.free(initial);
+
+    try std.testing.expect(!canResizeScrolling(&state, 1));
+    try std.testing.expect(!(try resizeScrolling(&state, std.testing.allocator, 1, 40, 40)));
+    try std.testing.expect(canResizeScrolling(&state, 2));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 2, 40, 35));
+    const resized = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(resized);
+    try std.testing.expectEqual(@as(i32, 40), findPlacement(resized, 2).geometry.width);
+    try std.testing.expectEqual(@as(i32, 35), findPlacement(resized, 2).geometry.height);
 }
 
 test "game mode routes vertical movement to the focused scrolling column" {
