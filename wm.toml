@@ -235,8 +235,8 @@ reload_config         = "Super+R"          # immediately reload all TOML snapsho
 #   tile/grid/dwindle → swap with neighbour at (row±1, col)/(row, col±1)
 #   scrolling         → join the adjacent column (L/R) or reorder within the column (U/D)
 #   monocle           → reorder in z-stack
-#   game-mode         → reorder within the non-anchor band (anchor immovable;
-#                       use rules.toml to change which window is the anchor)
+#   game-mode         → delegate to the active remainder engine; a scrolling
+#                       remainder joins columns like scrolling (anchor immovable)
 #   float             → no-op (use rules.toml / future nudge_floating_*)
 move_window_left      = "Super+Shift+Left"   # default
 move_window_right     = "Super+Shift+Right"  # default

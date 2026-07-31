@@ -1,0 +1,3 @@
+[game_mode]
+remainder_layout = "scrolling"
+fallback_layout = "scrolling"

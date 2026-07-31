@@ -277,6 +277,8 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const overview = parseChord("Super+W").?;
     const consume_window = parseChord("Super+Ctrl+J").?;
     const expel_window = parseChord("Super+Ctrl+K").?;
+    const move_window_left = parseChord("Super+Shift+Left").?;
+    const move_window_right = parseChord("Super+Shift+Right").?;
 
     try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:scroll_viewport_right_arrow", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
@@ -291,6 +293,8 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:toggle_scrolling_full_width", snapshot.find(scrolling_full_width.keysym, scrolling_full_width.modifiers).?);
     try std.testing.expectEqualStrings("builtin:consume_window_into_column", snapshot.find(consume_window.keysym, consume_window.modifiers).?);
     try std.testing.expectEqualStrings("builtin:expel_window_from_column", snapshot.find(expel_window.keysym, expel_window.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:move_window_left", snapshot.find(move_window_left.keysym, move_window_left.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:move_window_right", snapshot.find(move_window_right.keysym, move_window_right.modifiers).?);
     try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(screenshot.keysym, screenshot.modifiers).?);
     try std.testing.expectEqualStrings("builtin:toggle_overview", snapshot.find(overview.keysym, overview.modifiers).?);
     try std.testing.expectEqualStrings(default_screenshot_command, snapshot.screenshot.slice());

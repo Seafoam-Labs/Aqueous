@@ -10,15 +10,24 @@ AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/scrolling-vertical-reference.c"
 WM_CONFIG="$here/scripts/fixtures/scrolling-vertical-wm.toml"
+RULES_CONFIG="$here/scripts/fixtures/scrolling-vertical-rules.toml"
 XDG_SHELL_PROTOCOL="$(pkg-config --variable=pkgdatadir wayland-protocols)/stable/xdg-shell/xdg-shell.xml"
+TEST_MOD=${AQUEOUS_TEST_MOD:-Super}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+case "$TEST_MOD" in
+    Super) INPUT_MOD=SUPER ;;
+    Alt) INPUT_MOD=ALT ;;
+    *) die "AQUEOUS_TEST_MOD must be Super or Alt" ;;
+esac
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
 [ -r "$FIXTURE_SOURCE" ] || die "missing vertical scrolling fixture"
 [ -r "$WM_CONFIG" ] || die "missing vertical scrolling configuration"
+[ -r "$RULES_CONFIG" ] || die "missing vertical scrolling game-mode rules"
 for tool in cc grim jq magick nc pkg-config wayland-scanner wlrctl; do
     have "$tool" || die "$tool is required"
 done
@@ -57,6 +66,8 @@ XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
 AQUEOUS_CONFIG="$WM_CONFIG" \
+AQUEOUS_RULES="$RULES_CONFIG" \
+AQUEOUS_MOD="$TEST_MOD" \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level info -c true \
     >"$LOG" 2>&1 &
 COMPOSITOR_PID=$!
@@ -106,19 +117,21 @@ done
 
 # Focus the blue window, move only that window left into the red window's
 # column, then focus red to reveal the top of the new vertical stack.
-wlrctl keyboard type l modifiers SUPER
-wlrctl keyboard type m modifiers SUPER
-wlrctl keyboard type k modifiers SUPER
+wlrctl keyboard type l modifiers "$INPUT_MOD"
+wlrctl keyboard type m modifiers "$INPUT_MOD,SHIFT"
+wlrctl keyboard type k modifiers "$INPUT_MOD"
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    red_column_x=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.x' <<<"$windows_json")
+    blue_column_x=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.x' <<<"$windows_json")
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")
     blue_y=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.y' <<<"$windows_json")
-    [ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] && break
+    [ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] && break
     sleep 0.05
 done
-[ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] || {
+[ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] || {
     printf '%s\n' "$windows_json" >&2
-    die "column did not overflow at client minimum heights"
+    die "horizontal window movement passed the adjacent column instead of joining it"
 }
 
 red_x=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.x + (.geometry.width / 2) | floor' <<<"$windows_json")
@@ -128,7 +141,7 @@ top_pixel=$(magick "$TEST_ROOT/top.png" -format "%[fx:p{$red_x,20}.r] %[fx:p{$re
 awk '{ exit !($1 > 0.9 && $2 < 0.1) }' <<<"$top_pixel" || die "upper red member was not rendered at the top of the column"
 
 # Pan to blue. The action must not alter keyboard focus.
-wlrctl keyboard type v modifiers SUPER
+wlrctl keyboard type v modifiers "$INPUT_MOD"
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")
@@ -147,8 +160,8 @@ bottom_pixel=$(magick "$TEST_ROOT/bottom.png" -format "%[fx:p{$red_x,20}.r] %[fx
 awk '{ exit !($1 < 0.1 && $2 > 0.9) }' <<<"$bottom_pixel" || die "lower blue member was not clipped into the output viewport (pixel=$bottom_pixel)"
 
 # Normal focus navigation must retain the lower position, then reveal red again.
-wlrctl keyboard type j modifiers SUPER
-wlrctl keyboard type k modifiers SUPER
+wlrctl keyboard type j modifiers "$INPUT_MOD"
+wlrctl keyboard type k modifiers "$INPUT_MOD"
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")

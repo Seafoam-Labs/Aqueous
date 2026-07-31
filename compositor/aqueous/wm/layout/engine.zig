@@ -100,13 +100,16 @@ pub fn expelWindowFromColumn(allocator: std.mem.Allocator, state: *State, focuse
 }
 
 pub fn moveScrolling(allocator: std.mem.Allocator, state: *State, focused: types.Handle, dx: i32, dy: i32) !bool {
-    if (state.active_layout != .scrolling) return false;
-    const changed = if (dx != 0)
-        try scrolling.moveToAdjacentColumn(&state.scrolling, allocator, focused, dx)
-    else
-        scrolling.moveWithinColumn(&state.scrolling, focused, dy);
+    const changed = switch (state.active_layout) {
+        .scrolling => if (dx != 0)
+            try scrolling.moveToAdjacentColumn(&state.scrolling, allocator, focused, dx)
+        else
+            scrolling.moveWithinColumn(&state.scrolling, focused, dy),
+        .game_mode => try game_mode.moveWindow(&state.game_mode, allocator, focused, dx, dy),
+        else => return false,
+    };
     if (!changed) return false;
-    try projectScrollingOrder(allocator, state);
+    if (state.active_layout == .scrolling) try projectScrollingOrder(allocator, state);
     return true;
 }
 

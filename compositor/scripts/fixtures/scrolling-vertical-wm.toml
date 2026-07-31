@@ -1,5 +1,5 @@
 [layout]
-default = "scrolling"
+default = "game-mode"
 gaps_outer = 0
 gaps_inner = 0
 border_width = 0
@@ -21,5 +21,7 @@ focus_follows_mouse = false
 [keybinds]
 focus_right = "Super+L"
 focus_up = "Super+K"
-move_window_left = "Super+M"
+# wlrctl can type text keys but not named arrow keys. Retain the full
+# Primary+Shift modifier path while exercising the move_window_left action.
+move_window_left = "Super+Shift+M"
 scroll_viewport_down = "Super+V"

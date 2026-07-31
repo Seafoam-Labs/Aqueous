@@ -204,6 +204,32 @@ pub fn moveAdjacent(state: *State, focused: types.Handle, delta: i32) bool {
     return false;
 }
 
+/// Apply ordinary move-window semantics inside the active remainder engine.
+/// The game anchor never belongs to a remainder state and is therefore
+/// immovable. A scrolling remainder joins adjacent columns horizontally and
+/// reorders members vertically, matching the standalone scrolling layout.
+pub fn moveWindow(
+    state: *State,
+    allocator: std.mem.Allocator,
+    focused: types.Handle,
+    dx: i32,
+    dy: i32,
+) !bool {
+    if (dx == 0 and dy == 0) return false;
+    if (state.anchor == focused) return false;
+    if (state.active_remainder != .scrolling) {
+        return moveAdjacent(state, focused, if (dx != 0) dx else dy);
+    }
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (!scrolling.containsHandle(&side.scrolling, focused)) continue;
+        return if (dx != 0)
+            try scrolling.moveToAdjacentColumn(&side.scrolling, allocator, focused, dx)
+        else
+            scrolling.moveWithinColumn(&side.scrolling, focused, dy);
+    }
+    return false;
+}
+
 pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bool {
     if (state.active_remainder != .scrolling) return false;
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
@@ -269,6 +295,58 @@ test "game mode routes viewport movement to a scrolling fallback" {
 
     try std.testing.expect(scrollViewport(&state, 1, 1, 0));
     try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_column);
+}
+
+test "game mode joins windows across columns in a scrolling fallback" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const placements = try arrange(
+        std.testing.allocator,
+        &state,
+        .{ .x = 0, .y = 0, .width = 100, .height = 80 },
+        &windows,
+        2,
+        .{ .gaps_outer = 0, .gaps_inner = 0 },
+        .{ .fallback = .scrolling },
+    );
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(try moveWindow(&state, std.testing.allocator, 2, -1, 0));
+    try std.testing.expectEqual(@as(usize, 2), state.fallback.scrolling.columns.items.len);
+    try std.testing.expectEqualSlices(types.Handle, &.{ 1, 2 }, state.fallback.scrolling.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{3}, state.fallback.scrolling.columns.items[1].windows.items);
+}
+
+test "game mode joins windows within an anchored scrolling remainder" {
+    var state: State = .{
+        .rule_anchor = 1,
+        .rule_options = .{
+            .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+            .remainder = .scrolling,
+            .gaps_inner = 0,
+        },
+    };
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 }, .{ .handle = 5 },
+    };
+    const placements = try arrange(
+        std.testing.allocator,
+        &state,
+        .{ .x = 0, .y = 0, .width = 300, .height = 100 },
+        &windows,
+        4,
+        .{ .gaps_outer = 0, .gaps_inner = 0 },
+        .{},
+    );
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(try moveWindow(&state, std.testing.allocator, 4, -1, 0));
+    try std.testing.expectEqual(@as(usize, 1), state.left.scrolling.columns.items.len);
+    try std.testing.expectEqualSlices(types.Handle, &.{ 2, 4 }, state.left.scrolling.columns.items[0].windows.items);
+    try std.testing.expectEqual(@as(usize, 2), state.right.scrolling.columns.items.len);
+    try std.testing.expect(!try moveWindow(&state, std.testing.allocator, 1, 1, 0));
 }
 
 test "game mode routes vertical movement to the focused scrolling column" {

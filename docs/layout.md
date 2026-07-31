@@ -60,6 +60,8 @@ The default column-management bindings are:
 - `Super+Shift+Z` toggles full viewport width for the focused window's column.
 - `Super+Shift+Left/Right` moves the focused window into the adjacent column,
   creating a vertical stack; `Super+Shift+Up/Down` reorders it within a stack.
+- The same window-movement semantics apply when `game-mode` uses a scrolling
+  remainder or scrolling fallback; the game anchor itself remains immovable.
 - `Super+Shift+H/L` moves the whole focused column without merging it.
 - `Super+Up/Down` scrolls the focused column by one member without changing
   keyboard focus.

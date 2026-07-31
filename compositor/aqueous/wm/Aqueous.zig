@@ -781,7 +781,10 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
         aqueous.api.suppressPointerConstraints(pressed);
         return true;
     }
-    if (pressed) aqueous.runVerb(verb);
+    if (pressed) {
+        log.debug("key binding keysym=0x{x} modifiers=0x{x} verb={s}", .{ keysym, modifiers & (1 | 4 | 8 | 64), verb });
+        aqueous.runVerb(verb);
+    }
     return true;
 }
 
@@ -1347,11 +1350,15 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
-    if (state.active_layout == .scrolling) {
+    if (state.active_layout == .scrolling or state.active_layout == .game_mode) {
         if (!(layout_engine.moveScrolling(util.gpa, state, handle, dx, dy) catch {
-            log.err("out of memory moving scrolling column member", .{});
+            log.err("out of memory moving layout member", .{});
             return;
-        })) return;
+        })) {
+            log.debug("window move ignored layout={s} handle={} dx={} dy={}", .{ @tagName(state.active_layout), handle, dx, dy });
+            return;
+        }
+        log.debug("window moved layout={s} handle={} dx={} dy={}", .{ @tagName(state.active_layout), handle, dx, dy });
         aqueous.api.requestManageCycle();
         return;
     }
