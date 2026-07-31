@@ -454,9 +454,9 @@ fn contains(handles: []const types.Handle, handle: types.Handle) bool {
     return std.mem.indexOfScalar(types.Handle, handles, handle) != null;
 }
 
-/// Split a column into equal rows while respecting client minimum heights.
-/// When the minimums cannot fit, their sum becomes the scrollable content
-/// height. Otherwise unconstrained rows share all remaining space.
+/// Give every member a full vertical viewport while respecting larger client
+/// minimum heights. Members never shrink to share the available height; a
+/// multi-window column is always a vertically scrollable stack.
 fn splitColumnRows(
     allocator: std.mem.Allocator,
     handles: []const types.Handle,
@@ -465,52 +465,13 @@ fn splitColumnRows(
     gap: i32,
 ) ![]math.AxisCell {
     if (handles.len == 0) return allocator.alloc(math.AxisCell, 0);
-    const minimums = try allocator.alloc(i32, handles.len);
-    defer allocator.free(minimums);
     const rows = try allocator.alloc(math.AxisCell, handles.len);
     errdefer allocator.free(rows);
-    @memset(rows, .{ .offset = 0, .size = 0 });
-
-    var minimum_total: i32 = 0;
-    for (handles, minimums) |handle, *minimum| {
-        minimum.* = @max(1, findWindow(windows, handle).?.min_height);
-        minimum_total += minimum.*;
-    }
-    const count: i32 = @intCast(handles.len);
-    const content_height = @max(count, length - gap * (count - 1));
-    if (minimum_total >= content_height) {
-        for (rows, minimums) |*row, minimum| row.size = minimum;
-    } else {
-        var height_left = content_height;
-        var rows_left = handles.len;
-        while (rows_left > 0) {
-            const share = @divTrunc(height_left, @as(i32, @intCast(rows_left)));
-            var constrained = false;
-            for (rows, minimums) |*row, minimum| {
-                if (row.size != 0 or minimum <= share) continue;
-                row.size = minimum;
-                height_left -= minimum;
-                rows_left -= 1;
-                constrained = true;
-            }
-            if (constrained) continue;
-
-            var unresolved = rows_left;
-            for (rows) |*row| {
-                if (row.size != 0) continue;
-                unresolved -= 1;
-                row.size = share + if (unresolved == 0)
-                    height_left - share * @as(i32, @intCast(rows_left))
-                else
-                    0;
-            }
-            break;
-        }
-    }
 
     var cursor: i32 = 0;
-    for (rows) |*row| {
+    for (handles, rows) |handle, *row| {
         row.offset = cursor;
+        row.size = @max(1, length, findWindow(windows, handle).?.min_height);
         cursor += row.size + gap;
     }
     return rows;
@@ -553,7 +514,7 @@ test "scrolling centres focus and hides off-screen columns" {
     try std.testing.expect(placements[2].visible);
 }
 
-test "a column splits its members vertically" {
+test "column members retain full viewport height" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
@@ -565,10 +526,16 @@ test "a column splits its members vertically" {
     try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
     const stacked = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(stacked);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 38 }, stacked[0].geometry);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 42, .width = 50, .height = 38 }, stacked[1].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, stacked[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 84, .width = 50, .height = 80 }, stacked[1].geometry);
+    try std.testing.expectEqual(@as(i32, 84), state.columns.items[0].viewport_max_y);
     try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
-    try std.testing.expect(!scrollColumn(&state, 1, 1));
+    try std.testing.expect(scrollColumn(&state, 1, 1));
+
+    const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(scrolled);
+    try std.testing.expectEqual(@as(i32, -84), findPlacement(scrolled, 1).geometry.y);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 2).geometry.y);
 }
 
 test "minimum heights overflow and the focused column scrolls by member" {
@@ -587,17 +554,17 @@ test "minimum heights overflow and the focused column scrolls by member" {
     try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
     const overflow = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(overflow);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 60 }, overflow[0].geometry);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 64, .width = 50, .height = 60 }, overflow[1].geometry);
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 16 }, overflow[1].clip.?);
-    try std.testing.expectEqual(@as(i32, 44), state.columns.items[0].viewport_max_y);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, overflow[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 84, .width = 50, .height = 80 }, overflow[1].geometry);
+    try std.testing.expectEqual(@as(?types.Rect, null), overflow[1].clip);
+    try std.testing.expectEqual(@as(i32, 84), state.columns.items[0].viewport_max_y);
 
     try std.testing.expect(scrollColumn(&state, 1, 1));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(scrolled);
-    try std.testing.expectEqual(@as(i32, -44), scrolled[0].geometry.y);
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 44, .width = 50, .height = 16 }, scrolled[0].clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 20, .width = 50, .height = 60 }, scrolled[1].geometry);
+    try std.testing.expectEqual(@as(i32, -84), scrolled[0].geometry.y);
+    try std.testing.expectEqual(@as(?types.Rect, null), scrolled[0].clip);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, scrolled[1].geometry);
     try std.testing.expect(!scrollColumn(&state, 1, 1));
 
     const after_removal = try arrange(std.testing.allocator, &state, area, &.{
@@ -631,10 +598,10 @@ test "vertical viewport positions are independent per column" {
     try std.testing.expect(scrollColumn(&state, 1, 1));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(scrolled);
-    try std.testing.expectEqual(@as(i32, -40), findPlacement(scrolled, 1).geometry.y);
-    try std.testing.expectEqual(@as(i32, 20), findPlacement(scrolled, 2).geometry.y);
+    try std.testing.expectEqual(@as(i32, -80), findPlacement(scrolled, 1).geometry.y);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 2).geometry.y);
     try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 3).geometry.y);
-    try std.testing.expectEqual(@as(i32, 60), findPlacement(scrolled, 4).geometry.y);
+    try std.testing.expectEqual(@as(i32, 80), findPlacement(scrolled, 4).geometry.y);
 }
 
 test "focus changes reveal vertically clipped members" {
@@ -655,8 +622,8 @@ test "focus changes reveal vertically clipped members" {
 
     const bottom = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
     defer std.testing.allocator.free(bottom);
-    try std.testing.expectEqual(@as(i32, -40), findPlacement(bottom, 1).geometry.y);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 20, .width = 50, .height = 60 }, findPlacement(bottom, 2).geometry);
+    try std.testing.expectEqual(@as(i32, -80), findPlacement(bottom, 1).geometry.y);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, findPlacement(bottom, 2).geometry);
 }
 
 test "consume and expel preserve exactly one membership per window" {

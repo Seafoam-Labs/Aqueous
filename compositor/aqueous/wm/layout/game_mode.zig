@@ -369,8 +369,8 @@ test "game mode routes vertical movement to the focused scrolling column" {
     try std.testing.expect(scrollViewport(&state, 1, 0, 1));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
     defer std.testing.allocator.free(scrolled);
-    try std.testing.expectEqual(@as(i32, -40), findPlacement(scrolled, 1).geometry.y);
-    try std.testing.expectEqual(@as(i32, 20), findPlacement(scrolled, 2).geometry.y);
+    try std.testing.expectEqual(@as(i32, -80), findPlacement(scrolled, 1).geometry.y);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 2).geometry.y);
 }
 
 test "game mode preserves each scrolling side column as its own viewport" {

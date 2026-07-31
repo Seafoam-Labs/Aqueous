@@ -45,9 +45,9 @@ reload binding can also request an immediate reload.
 ## Scrolling columns
 
 The scrolling engine owns an ordered list of columns. New windows begin in
-their own column, while a column with multiple windows divides its height
-equally between them. If client minimum heights no longer fit, that column
-becomes vertically scrollable without affecting neighboring columns.
+their own column. Every member retains at least the full column viewport
+height, so multi-window columns form vertical stacks instead of shrinking
+members to fit. Each column keeps an independent vertical viewport.
 Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.

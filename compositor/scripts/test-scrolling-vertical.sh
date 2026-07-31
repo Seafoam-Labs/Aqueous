@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Render-level regression for minimum-height overflow inside one scrolling
-# column. The manual viewport action must reveal the lower member without
-# changing focus, and ordinary vertical focus must reveal the upper member.
+# Render-level regression for full-height members inside one scrolling column
+# used as a game-mode remainder. The manual viewport action must reveal the
+# lower member without changing focus, and vertical focus must reveal the upper
+# member. Clients deliberately advertise a tiny minimum height so this catches
+# accidental shrink-to-fit behavior.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
@@ -94,17 +96,17 @@ done
 [ -n "$output_state" ] || die "output daemon did not report the headless output"
 OUTPUT=$(jq -r '.outputs[0].name' <<<"$output_state")
 OUTPUT_HEIGHT=$(jq -r '.outputs[0].current_mode.height / .outputs[0].scale | floor' <<<"$output_state")
-MINIMUM_HEIGHT=$((OUTPUT_HEIGHT + 100))
+CLIENT_MINIMUM_HEIGHT=1
 
 wlrctl pointer move 100 100
-"$FIXTURE_BIN" aq-scroll-red ffff0000 "$MINIMUM_HEIGHT" >"$TEST_ROOT/red.log" 2>&1 &
+"$FIXTURE_BIN" aq-scroll-red ffff0000 "$CLIENT_MINIMUM_HEIGHT" >"$TEST_ROOT/red.log" 2>&1 &
 CLIENT_PIDS+=("$!")
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     [ "$(jq '[.[] | select(.app_id == "aq-scroll-red")] | length' <<<"$windows_json")" = 1 ] && break
     sleep 0.05
 done
-"$FIXTURE_BIN" aq-scroll-blue ff0000ff "$MINIMUM_HEIGHT" >"$TEST_ROOT/blue.log" 2>&1 &
+"$FIXTURE_BIN" aq-scroll-blue ff0000ff "$CLIENT_MINIMUM_HEIGHT" >"$TEST_ROOT/blue.log" 2>&1 &
 CLIENT_PIDS+=("$!")
 
 windows_json="[]"
@@ -126,10 +128,10 @@ for _ in $(seq 1 120); do
     blue_column_x=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.x' <<<"$windows_json")
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")
     blue_y=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.y' <<<"$windows_json")
-    [ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] && break
+    [ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$OUTPUT_HEIGHT" ] && break
     sleep 0.05
 done
-[ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$MINIMUM_HEIGHT" ] || {
+[ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$OUTPUT_HEIGHT" ] || {
     printf '%s\n' "$windows_json" >&2
     die "horizontal window movement passed the adjacent column instead of joining it"
 }
