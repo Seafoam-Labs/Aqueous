@@ -10,6 +10,13 @@ pub const Column = struct {
     /// The member whose per-window flag currently expands this column. All
     /// members necessarily share the column width.
     expanded_owner: ?types.Handle = null,
+    /// Vertical viewport state is kept on the column so moving between columns
+    /// restores each stack to its previous position.
+    viewport_y: i32 = 0,
+    viewport_max_y: i32 = 0,
+    viewport_anchor: ?types.Handle = null,
+    viewport_dirty: bool = false,
+    reveal_focused: bool = false,
 
     fn deinit(column: *Column, allocator: std.mem.Allocator) void {
         column.windows.deinit(allocator);
@@ -84,10 +91,13 @@ pub fn arrange(
 
     const focus_changed = focused != state.last_focused;
     var resolved_focus = false;
+    var focused_location: ?Location = null;
+    var focused_column_changed = false;
     if (focused) |handle| {
         if (locate(state, handle)) |location| {
             resolved_focus = true;
-            const focused_column_changed = location.column != state.focused_column;
+            focused_location = location;
+            focused_column_changed = location.column != state.focused_column;
             state.focused_column = location.column;
             if (focus_changed or focused_column_changed) state.viewport_column = location.column;
         }
@@ -114,26 +124,54 @@ pub fn arrange(
     // a decoration update and does not invalidate backdrop-blur checkpoints.
     const focus_raises =
         options.gaps_inner < options.border.width *| 2;
-    for (state.columns.items, widths, offsets) |column, width, offset| {
-        const rows = try math.splitAxis(allocator, area.height, @intCast(column.windows.items.len), options.gaps_inner);
+    for (state.columns.items, widths, offsets, 0..) |*column, width, offset, column_index| {
+        const rows = try splitColumnRows(allocator, column.windows.items, windows, area.height, options.gaps_inner);
         defer allocator.free(rows);
+        const total_height = rows[rows.len - 1].offset + rows[rows.len - 1].size;
+        column.viewport_max_y = @max(0, total_height - area.height);
+        column.viewport_y = std.math.clamp(column.viewport_y, 0, column.viewport_max_y);
+        if (column.viewport_anchor != null and
+            std.mem.indexOfScalar(types.Handle, column.windows.items, column.viewport_anchor.?) == null)
+        {
+            column.viewport_anchor = null;
+        }
+
+        const reveal_location = if (focused_location) |location|
+            if (location.column == column_index and (focus_changed or focused_column_changed or column.reveal_focused)) location.row else null
+        else
+            null;
+        if (column.viewport_dirty) {
+            if (column.viewport_anchor) |anchor| {
+                if (std.mem.indexOfScalar(types.Handle, column.windows.items, anchor)) |row_index| {
+                    column.viewport_y = centeredRowOffset(rows[row_index], area.height, column.viewport_max_y);
+                }
+            }
+            column.viewport_dirty = false;
+        } else if (reveal_location) |row_index| {
+            column.viewport_anchor = column.windows.items[row_index];
+            column.viewport_y = revealRow(rows[row_index], column.viewport_y, area.height, column.viewport_max_y);
+        }
+        column.reveal_focused = false;
+        if (column.viewport_max_y == 0) column.viewport_y = 0;
+
         const x = area.x + offset - state.viewport_x;
         for (column.windows.items, rows) |handle, row| {
             const geometry: types.Rect = .{
                 .x = x,
-                .y = area.y + row.offset,
+                .y = area.y + row.offset - column.viewport_y,
                 .width = width,
                 .height = row.size,
             };
-            const visible = math.intersect(geometry, area).width > 0;
+            const intersection = math.intersect(geometry, area);
+            const visible = intersection.width > 0 and intersection.height > 0;
             result[write] = .{
                 .handle = handle,
                 .geometry = geometry,
                 .clip = if (visible) .{
-                    .x = area.x - geometry.x,
-                    .y = area.y - geometry.y,
-                    .width = area.width,
-                    .height = area.height,
+                    .x = intersection.x - geometry.x,
+                    .y = intersection.y - geometry.y,
+                    .width = intersection.width,
+                    .height = intersection.height,
                 } else null,
                 .z_order = if (focus_raises and focused == handle) 1 else 0,
                 .visible = visible,
@@ -160,6 +198,32 @@ pub fn scrollViewport(state: *State, delta_columns: i32) bool {
     return true;
 }
 
+/// Pan the focused column vertically by whole members without changing focus.
+/// The cached overflow bound is refreshed by arrange(), so this is a no-op for
+/// columns whose members fit in the viewport.
+pub fn scrollColumn(state: *State, focused: types.Handle, delta_rows: i32) bool {
+    if (delta_rows == 0) return false;
+    const location = locate(state, focused) orelse return false;
+    const column = &state.columns.items[location.column];
+    if (column.viewport_max_y == 0) return false;
+    const current_row = if (column.viewport_anchor) |anchor|
+        std.mem.indexOfScalar(types.Handle, column.windows.items, anchor) orelse location.row
+    else
+        location.row;
+    const last: i64 = @intCast(column.windows.items.len - 1);
+    const requested = std.math.clamp(
+        @as(i64, @intCast(current_row)) + @as(i64, delta_rows),
+        0,
+        last,
+    );
+    const next: usize = @intCast(requested);
+    if (next == current_row) return false;
+    column.viewport_anchor = column.windows.items[next];
+    column.viewport_dirty = true;
+    column.reveal_focused = false;
+    return true;
+}
+
 pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (a == b) return false;
     const a_location = locate(state, a) orelse return false;
@@ -181,6 +245,30 @@ pub fn moveColumn(state: *State, focused: types.Handle, delta: i32) bool {
     return true;
 }
 
+/// Move the focused member into the adjacent column in the requested
+/// direction. This is distinct from moveColumn(): window movement builds a
+/// vertical stack, while explicit column movement swaps whole columns.
+pub fn moveToAdjacentColumn(
+    state: *State,
+    allocator: std.mem.Allocator,
+    focused: types.Handle,
+    delta: i32,
+) !bool {
+    if (delta == 0) return false;
+    const location = locate(state, focused) orelse return false;
+    const destination = @as(i64, @intCast(location.column)) + @as(i64, delta);
+    if (destination < 0 or destination >= state.columns.items.len) return false;
+    const target_handle = state.columns.items[@intCast(destination)].windows.items[0];
+    try state.columns.items[@intCast(destination)].windows.ensureUnusedCapacity(allocator, 1);
+    detach(state, location, allocator);
+    const current_target = locate(state, target_handle) orelse unreachable;
+    const target_column = &state.columns.items[current_target.column];
+    target_column.windows.appendAssumeCapacity(focused);
+    target_column.viewport_anchor = focused;
+    target_column.reveal_focused = true;
+    return true;
+}
+
 pub fn moveWithinColumn(state: *State, focused: types.Handle, delta: i32) bool {
     if (delta == 0) return false;
     const location = locate(state, focused) orelse return false;
@@ -188,6 +276,7 @@ pub fn moveWithinColumn(state: *State, focused: types.Handle, delta: i32) bool {
     const destination = @as(i64, @intCast(location.row)) + @as(i64, delta);
     if (destination < 0 or destination >= windows.len) return false;
     std.mem.swap(types.Handle, &windows[location.row], &windows[@intCast(destination)]);
+    state.columns.items[location.column].reveal_focused = true;
     return true;
 }
 
@@ -200,6 +289,7 @@ pub fn consumeFromRight(state: *State, allocator: std.mem.Allocator, focused: ty
     const consumed = state.columns.items[location.column + 1].windows.items[0];
     detach(state, .{ .column = location.column + 1, .row = 0 }, allocator);
     state.columns.items[location.column].windows.appendAssumeCapacity(consumed);
+    state.columns.items[location.column].reveal_focused = true;
     return true;
 }
 
@@ -213,6 +303,8 @@ pub fn expelToRight(state: *State, allocator: std.mem.Allocator, focused: types.
     try state.columns.ensureUnusedCapacity(allocator, 1);
     detach(state, location, allocator);
     state.columns.insert(allocator, location.column + 1, new_column) catch unreachable;
+    state.columns.items[location.column + 1].viewport_anchor = focused;
+    state.columns.items[location.column + 1].reveal_focused = true;
     return true;
 }
 
@@ -238,6 +330,7 @@ pub fn drop(
             const current_target = locate(state, target) orelse unreachable;
             const insert_at = current_target.row + @intFromBool(zone == .stack_after);
             state.columns.items[current_target.column].windows.insert(allocator, insert_at, dragged) catch unreachable;
+            state.columns.items[current_target.column].reveal_focused = true;
         },
         .column_before, .column_after => {
             const source_is_single = state.columns.items[dragged_location.column].windows.items.len == 1;
@@ -252,6 +345,8 @@ pub fn drop(
             const current_target = locate(state, target) orelse unreachable;
             const insert_at = current_target.column + @intFromBool(zone == .column_after);
             state.columns.insert(allocator, insert_at, new_column) catch unreachable;
+            state.columns.items[insert_at].viewport_anchor = dragged;
+            state.columns.items[insert_at].reveal_focused = true;
         },
     }
     return true;
@@ -278,7 +373,8 @@ fn sync(state: *State, allocator: std.mem.Allocator, windows: []const types.Wind
         var row: usize = 0;
         while (row < column.windows.items.len) {
             if (findWindow(windows, column.windows.items[row]) == null) {
-                _ = column.windows.orderedRemove(row);
+                const removed_handle = column.windows.orderedRemove(row);
+                if (column.viewport_anchor == removed_handle) column.viewport_anchor = null;
             } else {
                 row += 1;
             }
@@ -324,7 +420,10 @@ fn singleWindowColumn(allocator: std.mem.Allocator, handle: types.Handle) !Colum
 }
 
 fn detach(state: *State, location: Location, allocator: std.mem.Allocator) void {
-    _ = state.columns.items[location.column].windows.orderedRemove(location.row);
+    const removed_handle = state.columns.items[location.column].windows.orderedRemove(location.row);
+    if (state.columns.items[location.column].viewport_anchor == removed_handle) {
+        state.columns.items[location.column].viewport_anchor = null;
+    }
     if (state.columns.items[location.column].windows.items.len == 0) {
         var removed = state.columns.orderedRemove(location.column);
         removed.deinit(allocator);
@@ -355,6 +454,92 @@ fn contains(handles: []const types.Handle, handle: types.Handle) bool {
     return std.mem.indexOfScalar(types.Handle, handles, handle) != null;
 }
 
+/// Split a column into equal rows while respecting client minimum heights.
+/// When the minimums cannot fit, their sum becomes the scrollable content
+/// height. Otherwise unconstrained rows share all remaining space.
+fn splitColumnRows(
+    allocator: std.mem.Allocator,
+    handles: []const types.Handle,
+    windows: []const types.Window,
+    length: i32,
+    gap: i32,
+) ![]math.AxisCell {
+    if (handles.len == 0) return allocator.alloc(math.AxisCell, 0);
+    const minimums = try allocator.alloc(i32, handles.len);
+    defer allocator.free(minimums);
+    const rows = try allocator.alloc(math.AxisCell, handles.len);
+    errdefer allocator.free(rows);
+    @memset(rows, .{ .offset = 0, .size = 0 });
+
+    var minimum_total: i32 = 0;
+    for (handles, minimums) |handle, *minimum| {
+        minimum.* = @max(1, findWindow(windows, handle).?.min_height);
+        minimum_total += minimum.*;
+    }
+    const count: i32 = @intCast(handles.len);
+    const content_height = @max(count, length - gap * (count - 1));
+    if (minimum_total >= content_height) {
+        for (rows, minimums) |*row, minimum| row.size = minimum;
+    } else {
+        var height_left = content_height;
+        var rows_left = handles.len;
+        while (rows_left > 0) {
+            const share = @divTrunc(height_left, @as(i32, @intCast(rows_left)));
+            var constrained = false;
+            for (rows, minimums) |*row, minimum| {
+                if (row.size != 0 or minimum <= share) continue;
+                row.size = minimum;
+                height_left -= minimum;
+                rows_left -= 1;
+                constrained = true;
+            }
+            if (constrained) continue;
+
+            var unresolved = rows_left;
+            for (rows) |*row| {
+                if (row.size != 0) continue;
+                unresolved -= 1;
+                row.size = share + if (unresolved == 0)
+                    height_left - share * @as(i32, @intCast(rows_left))
+                else
+                    0;
+            }
+            break;
+        }
+    }
+
+    var cursor: i32 = 0;
+    for (rows) |*row| {
+        row.offset = cursor;
+        cursor += row.size + gap;
+    }
+    return rows;
+}
+
+fn centeredRowOffset(row: math.AxisCell, viewport_height: i32, maximum: i32) i32 {
+    const requested = if (row.size >= viewport_height)
+        row.offset
+    else
+        row.offset + @divTrunc(row.size, 2) - @divTrunc(viewport_height, 2);
+    return std.math.clamp(requested, 0, maximum);
+}
+
+fn revealRow(row: math.AxisCell, current: i32, viewport_height: i32, maximum: i32) i32 {
+    if (row.size >= viewport_height) return std.math.clamp(row.offset, 0, maximum);
+    var requested = std.math.clamp(current, 0, maximum);
+    if (row.offset < requested) {
+        requested = row.offset;
+    } else if (row.offset + row.size > requested + viewport_height) {
+        requested = row.offset + row.size - viewport_height;
+    }
+    return std.math.clamp(requested, 0, maximum);
+}
+
+fn findPlacement(placements: []const types.Placement, handle: types.Handle) types.Placement {
+    for (placements) |placement| if (placement.handle == handle) return placement;
+    unreachable;
+}
+
 test "scrolling centres focus and hides off-screen columns" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
@@ -383,6 +568,95 @@ test "a column splits its members vertically" {
     try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 38 }, stacked[0].geometry);
     try std.testing.expectEqual(types.Rect{ .x = 25, .y = 42, .width = 50, .height = 38 }, stacked[1].geometry);
     try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
+    try std.testing.expect(!scrollColumn(&state, 1, 1));
+}
+
+test "minimum heights overflow and the focused column scrolls by member" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .min_height = 60 },
+        .{ .handle = 2, .min_height = 60 },
+        .{ .handle = 3 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 4 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(initial);
+
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
+    const overflow = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(overflow);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 60 }, overflow[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 64, .width = 50, .height = 60 }, overflow[1].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 16 }, overflow[1].clip.?);
+    try std.testing.expectEqual(@as(i32, 44), state.columns.items[0].viewport_max_y);
+
+    try std.testing.expect(scrollColumn(&state, 1, 1));
+    const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(scrolled);
+    try std.testing.expectEqual(@as(i32, -44), scrolled[0].geometry.y);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 44, .width = 50, .height = 16 }, scrolled[0].clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 20, .width = 50, .height = 60 }, scrolled[1].geometry);
+    try std.testing.expect(!scrollColumn(&state, 1, 1));
+
+    const after_removal = try arrange(std.testing.allocator, &state, area, &.{
+        .{ .handle = 1, .min_height = 60 },
+        .{ .handle = 3 },
+    }, 1, options, .{});
+    defer std.testing.allocator.free(after_removal);
+    try std.testing.expectEqual(@as(i32, 0), state.columns.items[0].viewport_y);
+    try std.testing.expectEqual(@as(i32, 0), state.columns.items[0].viewport_max_y);
+    try std.testing.expectEqual(@as(?types.Handle, null), state.columns.items[0].viewport_anchor);
+}
+
+test "vertical viewport positions are independent per column" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .min_height = 60 },
+        .{ .handle = 2, .min_height = 60 },
+        .{ .handle = 3, .min_height = 60 },
+        .{ .handle = 4, .min_height = 60 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(initial);
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 3));
+    const stacked = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(stacked);
+
+    try std.testing.expect(scrollColumn(&state, 1, 1));
+    const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(scrolled);
+    try std.testing.expectEqual(@as(i32, -40), findPlacement(scrolled, 1).geometry.y);
+    try std.testing.expectEqual(@as(i32, 20), findPlacement(scrolled, 2).geometry.y);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(scrolled, 3).geometry.y);
+    try std.testing.expectEqual(@as(i32, 60), findPlacement(scrolled, 4).geometry.y);
+}
+
+test "focus changes reveal vertically clipped members" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .min_height = 60 },
+        .{ .handle = 2, .min_height = 60 },
+        .{ .handle = 3 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(initial);
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
+    const stacked = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    std.testing.allocator.free(stacked);
+
+    const bottom = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(bottom);
+    try std.testing.expectEqual(@as(i32, -40), findPlacement(bottom, 1).geometry.y);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 20, .width = 50, .height = 60 }, findPlacement(bottom, 2).geometry);
 }
 
 test "consume and expel preserve exactly one membership per window" {
@@ -419,6 +693,25 @@ test "horizontal movement swaps a whole column and vertical movement reorders a 
     try std.testing.expect(moveColumn(&state, 2, 1));
     try std.testing.expectEqualSlices(types.Handle, &.{3}, state.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.columns.items[1].windows.items);
+}
+
+test "horizontal window movement joins adjacent columns" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 2, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(try moveToAdjacentColumn(&state, std.testing.allocator, 2, -1));
+    try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
+    try std.testing.expectEqualSlices(types.Handle, &.{ 1, 2 }, state.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{3}, state.columns.items[1].windows.items);
+
+    try std.testing.expect(try moveToAdjacentColumn(&state, std.testing.allocator, 2, 1));
+    try std.testing.expectEqualSlices(types.Handle, &.{1}, state.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{ 3, 2 }, state.columns.items[1].windows.items);
+    try std.testing.expectEqual(@as(?types.Handle, 2), state.columns.items[1].viewport_anchor);
+    try std.testing.expect(!try moveToAdjacentColumn(&state, std.testing.allocator, 2, 1));
 }
 
 test "drop zones stack and detach windows" {

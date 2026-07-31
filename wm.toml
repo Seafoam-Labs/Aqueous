@@ -218,6 +218,8 @@ scroll_viewport_left        = "Super+Comma"   # legacy alias
 scroll_viewport_right       = "Super+Period"  # legacy alias
 scroll_viewport_left_arrow  = "Super+Left"    # default
 scroll_viewport_right_arrow = "Super+Right"   # default
+scroll_viewport_up          = "Super+Up"      # scroll the focused column without changing focus
+scroll_viewport_down        = "Super+Down"    # scroll the focused column without changing focus
 move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 toggle_scrolling_full_width = "Super+Shift+Z" # expand only the focused column; press again to restore
@@ -231,7 +233,7 @@ reload_config         = "Super+R"          # immediately reload all TOML snapsho
 
 # Per-engine semantics:
 #   tile/grid/dwindle → swap with neighbour at (row±1, col)/(row, col±1)
-#   scrolling         → swap columns (L/R) or intra-column reorder (U/D)
+#   scrolling         → join the adjacent column (L/R) or reorder within the column (U/D)
 #   monocle           → reorder in z-stack
 #   game-mode         → reorder within the non-anchor band (anchor immovable;
 #                       use rules.toml to change which window is the anchor)

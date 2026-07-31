@@ -46,8 +46,11 @@ reload binding can also request an immediate reload.
 
 The scrolling engine owns an ordered list of columns. New windows begin in
 their own column, while a column with multiple windows divides its height
-equally between them. Horizontal viewport movement operates on columns;
-left/right focus moves between columns and up/down focus moves within a column.
+equally between them. If client minimum heights no longer fit, that column
+becomes vertically scrollable without affecting neighboring columns.
+Horizontal viewport movement operates on columns; left/right focus moves
+between columns and up/down focus moves within a column. Focusing a clipped
+member automatically reveals it.
 
 The default column-management bindings are:
 
@@ -55,8 +58,11 @@ The default column-management bindings are:
   the bottom of the focused column.
 - `Super+Ctrl+K` expels the focused member into a new column on the right.
 - `Super+Shift+Z` toggles full viewport width for the focused window's column.
-- `Super+Shift+H/L` moves the whole focused column; `Super+Shift+Up/Down`
-  reorders the focused member inside a stacked column.
+- `Super+Shift+Left/Right` moves the focused window into the adjacent column,
+  creating a vertical stack; `Super+Shift+Up/Down` reorders it within a stack.
+- `Super+Shift+H/L` moves the whole focused column without merging it.
+- `Super+Up/Down` scrolls the focused column by one member without changing
+  keyboard focus.
 
 With `Super` held, left-drag a tiled window over the top or bottom third of
 another window to stack it before or after that window. Dropping over the

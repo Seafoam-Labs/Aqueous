@@ -1003,12 +1003,14 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_window_right")) return aqueous.moveFocused(1, 0);
     if (std.mem.eql(u8, action, "move_window_up")) return aqueous.moveFocused(0, -1);
     if (std.mem.eql(u8, action, "move_window_down")) return aqueous.moveFocused(0, 1);
-    if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocused(-1, 0);
-    if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocused(1, 0);
+    if (std.mem.eql(u8, action, "move_column_left")) return aqueous.moveFocusedColumn(-1);
+    if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocusedColumn(1);
     if (std.mem.eql(u8, action, "consume_window_into_column")) return aqueous.consumeWindowIntoColumn();
     if (std.mem.eql(u8, action, "expel_window_from_column")) return aqueous.expelWindowFromColumn();
-    if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1);
-    if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1);
+    if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1, 0);
+    if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1, 0);
+    if (std.mem.eql(u8, action, "scroll_viewport_up")) return aqueous.scrollViewport(0, -1);
+    if (std.mem.eql(u8, action, "scroll_viewport_down")) return aqueous.scrollViewport(0, 1);
     if (std.mem.eql(u8, action, "toggle_scrolling_full_width")) return aqueous.toggleScrollingFullWidth();
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
@@ -1359,10 +1361,23 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     if (layout_engine.swap(state, handle, target)) aqueous.api.requestManageCycle();
 }
 
-fn scrollViewport(aqueous: *Aqueous, delta: i32) void {
+fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const state = aqueous.layout_states.getPtr(key) orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    if (!(layout_engine.moveScrollingColumn(util.gpa, state, handle, delta) catch {
+        log.err("out of memory moving scrolling column", .{});
+        return;
+    })) return;
+    aqueous.api.requestManageCycle();
+}
+
+fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
-    if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), delta)) aqueous.api.requestManageCycle();
+    if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy)) aqueous.api.requestManageCycle();
 }
 
 fn consumeWindowIntoColumn(aqueous: *Aqueous) void {

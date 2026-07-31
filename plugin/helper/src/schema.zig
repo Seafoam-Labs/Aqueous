@@ -171,6 +171,8 @@ pub const fields = [_]Field{
     k("scroll_viewport_right", "Super+Period"),
     k("scroll_viewport_left_arrow", "Super+Left"),
     k("scroll_viewport_right_arrow", "Super+Right"),
+    k("scroll_viewport_up", "Super+Up"),
+    k("scroll_viewport_down", "Super+Down"),
     k("consume_window_into_column", "Super+Ctrl+J"),
     k("expel_window_from_column", "Super+Ctrl+K"),
     k("move_window_left", "Super+Shift+Left"),

@@ -204,11 +204,14 @@ pub fn moveAdjacent(state: *State, focused: types.Handle, delta: i32) bool {
     return false;
 }
 
-pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
+pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bool {
     if (state.active_remainder != .scrolling) return false;
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
         if (scrolling.containsHandle(&side.scrolling, focused)) {
-            return scrolling.scrollViewport(&side.scrolling, delta);
+            return if (dx != 0)
+                scrolling.scrollViewport(&side.scrolling, dx)
+            else
+                scrolling.scrollColumn(&side.scrolling, focused, dy);
         }
     }
     return false;
@@ -264,8 +267,32 @@ test "game mode routes viewport movement to a scrolling fallback" {
     }, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{ .fallback = .scrolling });
     std.testing.allocator.free(placements);
 
-    try std.testing.expect(scrollViewport(&state, 1, 1));
+    try std.testing.expect(scrollViewport(&state, 1, 1, 0));
     try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_column);
+}
+
+test "game mode routes vertical movement to the focused scrolling column" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .min_height = 60 },
+        .{ .handle = 2, .min_height = 60 },
+        .{ .handle = 3 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const game_options: Options = .{ .fallback = .scrolling };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    std.testing.allocator.free(initial);
+    try std.testing.expect(try scrolling.consumeFromRight(&state.fallback.scrolling, std.testing.allocator, 1));
+    const stacked = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    std.testing.allocator.free(stacked);
+
+    try std.testing.expect(scrollViewport(&state, 1, 0, 1));
+    const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    defer std.testing.allocator.free(scrolled);
+    try std.testing.expectEqual(@as(i32, -40), findPlacement(scrolled, 1).geometry.y);
+    try std.testing.expectEqual(@as(i32, 20), findPlacement(scrolled, 2).geometry.y);
 }
 
 test "game mode preserves each scrolling side column as its own viewport" {
@@ -283,10 +310,10 @@ test "game mode preserves each scrolling side column as its own viewport" {
     }, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
     defer std.testing.allocator.free(placements);
 
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 2).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 3).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 4).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 5).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 25, .height = 100 }, findPlacement(placements, 2).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 25, .height = 100 }, findPlacement(placements, 3).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 100 }, findPlacement(placements, 4).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 100 }, findPlacement(placements, 5).clip.?);
 }
 
 test "game mode applies rows independently to both side columns" {

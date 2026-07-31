@@ -102,10 +102,17 @@ pub fn expelWindowFromColumn(allocator: std.mem.Allocator, state: *State, focuse
 pub fn moveScrolling(allocator: std.mem.Allocator, state: *State, focused: types.Handle, dx: i32, dy: i32) !bool {
     if (state.active_layout != .scrolling) return false;
     const changed = if (dx != 0)
-        scrolling.moveColumn(&state.scrolling, focused, dx)
+        try scrolling.moveToAdjacentColumn(&state.scrolling, allocator, focused, dx)
     else
         scrolling.moveWithinColumn(&state.scrolling, focused, dy);
     if (!changed) return false;
+    try projectScrollingOrder(allocator, state);
+    return true;
+}
+
+pub fn moveScrollingColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle, delta: i32) !bool {
+    if (state.active_layout != .scrolling) return false;
+    if (!scrolling.moveColumn(&state.scrolling, focused, delta)) return false;
     try projectScrollingOrder(allocator, state);
     return true;
 }
@@ -120,10 +127,13 @@ fn projectScrollingOrder(allocator: std.mem.Allocator, state: *State) !void {
     state.dwindle.order.reorder(projection);
 }
 
-pub fn scrollViewport(state: *State, focused: types.Handle, delta: i32) bool {
+pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bool {
     return switch (state.active_layout) {
-        .scrolling => scrolling.scrollViewport(&state.scrolling, delta),
-        .game_mode => game_mode.scrollViewport(&state.game_mode, focused, delta),
+        .scrolling => if (dx != 0)
+            scrolling.scrollViewport(&state.scrolling, dx)
+        else
+            scrolling.scrollColumn(&state.scrolling, focused, dy),
+        .game_mode => game_mode.scrollViewport(&state.game_mode, focused, dx, dy),
         else => false,
     };
 }
