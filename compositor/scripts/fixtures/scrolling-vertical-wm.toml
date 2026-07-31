@@ -24,4 +24,5 @@ focus_up = "Super+K"
 # wlrctl can type text keys but not named arrow keys. Retain the full
 # Primary+Shift modifier path while exercising the move_window_left action.
 move_window_left = "Super+Shift+M"
+move_window_right = "Super+Shift+N"
 scroll_viewport_down = "Super+V"

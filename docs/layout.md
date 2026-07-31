@@ -59,7 +59,9 @@ The default column-management bindings are:
 - `Super+Ctrl+K` expels the focused member into a new column on the right.
 - `Super+Shift+Z` toggles full viewport width for the focused window's column.
 - `Super+Shift+Left/Right` moves the focused window into the adjacent column,
-  creating a vertical stack; `Super+Shift+Up/Down` reorders it within a stack.
+  creating a vertical stack. At an edge with no adjacent column, a stacked
+  member is expelled into a new column in that direction. `Super+Shift+Up/Down`
+  reorders it within a stack.
 - The same window-movement semantics apply when `game-mode` uses a scrolling
   remainder or scrolling fallback; the game anchor itself remains immovable.
 - `Super+Shift+H/L` moves the whole focused column without merging it.

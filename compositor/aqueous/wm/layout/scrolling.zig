@@ -257,7 +257,20 @@ pub fn moveToAdjacentColumn(
     if (delta == 0) return false;
     const location = locate(state, focused) orelse return false;
     const destination = @as(i64, @intCast(location.column)) + @as(i64, delta);
-    if (destination < 0 or destination >= state.columns.items.len) return false;
+    if (destination < 0 or destination >= state.columns.items.len) {
+        // A stacked member can leave its column at either horizontal edge.
+        // Do not move a single-window edge column: it is already expelled.
+        if (state.columns.items[location.column].windows.items.len == 1) return false;
+        var new_column = try singleWindowColumn(allocator, focused);
+        errdefer new_column.deinit(allocator);
+        try state.columns.ensureUnusedCapacity(allocator, 1);
+        detach(state, location, allocator);
+        const insert_at = if (delta < 0) location.column else location.column + 1;
+        state.columns.insert(allocator, insert_at, new_column) catch unreachable;
+        state.columns.items[insert_at].viewport_anchor = focused;
+        state.columns.items[insert_at].reveal_focused = true;
+        return true;
+    }
     const target_handle = state.columns.items[@intCast(destination)].windows.items[0];
     try state.columns.items[@intCast(destination)].windows.ensureUnusedCapacity(allocator, 1);
     detach(state, location, allocator);
@@ -678,7 +691,34 @@ test "horizontal window movement joins adjacent columns" {
     try std.testing.expectEqualSlices(types.Handle, &.{1}, state.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{ 3, 2 }, state.columns.items[1].windows.items);
     try std.testing.expectEqual(@as(?types.Handle, 2), state.columns.items[1].viewport_anchor);
+    try std.testing.expect(try moveToAdjacentColumn(&state, std.testing.allocator, 2, 1));
+    try std.testing.expectEqualSlices(types.Handle, &.{1}, state.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{3}, state.columns.items[1].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{2}, state.columns.items[2].windows.items);
     try std.testing.expect(!try moveToAdjacentColumn(&state, std.testing.allocator, 2, 1));
+}
+
+test "edge movement expels a stacked member in the requested direction" {
+    var left_state: State = .{};
+    defer left_state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const left_placements = try arrange(std.testing.allocator, &left_state, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 2, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
+    std.testing.allocator.free(left_placements);
+    try std.testing.expect(try moveToAdjacentColumn(&left_state, std.testing.allocator, 2, -1));
+    try std.testing.expect(try moveToAdjacentColumn(&left_state, std.testing.allocator, 2, -1));
+    try std.testing.expectEqualSlices(types.Handle, &.{2}, left_state.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{1}, left_state.columns.items[1].windows.items);
+    try std.testing.expect(!try moveToAdjacentColumn(&left_state, std.testing.allocator, 2, -1));
+
+    var right_state: State = .{};
+    defer right_state.deinit(std.testing.allocator);
+    const right_placements = try arrange(std.testing.allocator, &right_state, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
+    std.testing.allocator.free(right_placements);
+    try std.testing.expect(try moveToAdjacentColumn(&right_state, std.testing.allocator, 1, 1));
+    try std.testing.expect(try moveToAdjacentColumn(&right_state, std.testing.allocator, 1, 1));
+    try std.testing.expectEqualSlices(types.Handle, &.{2}, right_state.columns.items[0].windows.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{1}, right_state.columns.items[1].windows.items);
+    try std.testing.expect(!try moveToAdjacentColumn(&right_state, std.testing.allocator, 1, 1));
 }
 
 test "drop zones stack and detach windows" {

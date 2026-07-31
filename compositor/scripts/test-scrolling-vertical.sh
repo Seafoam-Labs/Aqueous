@@ -173,4 +173,21 @@ for _ in $(seq 1 120); do
 done
 [ "$red_y" = 0 ] && [ "$red_focused" = true ] || die "focus navigation did not reveal the upper member"
 
+# With no column to the right, moving the focused member right must expel it
+# from the vertical stack into a newly-created edge column.
+wlrctl keyboard type n modifiers "$INPUT_MOD,SHIFT"
+for _ in $(seq 1 120); do
+    windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    red_x=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.x' <<<"$windows_json")
+    blue_x=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.x' <<<"$windows_json")
+    red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")
+    blue_y=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.y' <<<"$windows_json")
+    [ "$red_x" -gt "$blue_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" = 0 ] && break
+    sleep 0.05
+done
+[ "$red_x" -gt "$blue_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" = 0 ] || {
+    printf '%s\n' "$windows_json" >&2
+    die "edge movement did not create a new column for the stacked member"
+}
+
 echo "scrolling column vertical viewport passed"
