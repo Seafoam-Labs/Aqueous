@@ -19,6 +19,18 @@ pub const ResizeEdges = struct {
     }
 };
 
+pub const double_click_msec: u32 = 400;
+pub const click_motion_tolerance: f64 = 4;
+
+pub fn stayedClick(pointer_x: f64, pointer_y: f64, last_x: f64, last_y: f64) bool {
+    return @abs(last_x - pointer_x) <= click_motion_tolerance and
+        @abs(last_y - pointer_y) <= click_motion_tolerance;
+}
+
+pub fn withinDoubleClick(previous_msec: u32, current_msec: u32) bool {
+    return current_msec -% previous_msec <= double_click_msec;
+}
+
 pub fn action(
     button: u32,
     kind: PolicyState.Kind,
@@ -83,6 +95,14 @@ test "modified right drag keeps scrolling members tiled" {
     try std.testing.expectEqual(Action.resize_scrolling, action(0x111, .tiled, .scrolling, true));
     try std.testing.expectEqual(Action.resize_scrolling, action(0x111, .tiled, .game_mode, true));
     try std.testing.expectEqual(Action.resize_floating, action(0x111, .floating, .scrolling, true));
+}
+
+test "double click timing and motion reject drags" {
+    try std.testing.expect(stayedClick(100, 50, 103, 54));
+    try std.testing.expect(!stayedClick(100, 50, 105, 50));
+    try std.testing.expect(withinDoubleClick(1000, 1400));
+    try std.testing.expect(!withinDoubleClick(1000, 1401));
+    try std.testing.expect(withinDoubleClick(std.math.maxInt(u32) - 10, 20));
 }
 
 test "drop zones distinguish vertical stacks from adjacent columns" {

@@ -80,3 +80,5 @@ Horizontal motion changes the whole column's width; vertical motion changes
 only the selected member's height. This works identically in a scrolling game
 mode remainder or fallback, while the game anchor remains fixed. Beginning an
 actual resize replaces the column's full-width preset with the dragged size.
+`Super`+double-left-click restores the configured column width and the selected
+member's default full-viewport height.

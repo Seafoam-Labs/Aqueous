@@ -265,6 +265,14 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
     return null;
 }
 
+pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
+    if (!canResizeScrolling(state, handle)) return null;
+    for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.columnMembers(&side.scrolling, handle)) |members| return members;
+    }
+    return null;
+}
+
 pub fn resizeScrolling(
     state: *State,
     allocator: std.mem.Allocator,
@@ -276,6 +284,15 @@ pub fn resizeScrolling(
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
         if (!scrolling.containsHandle(&side.scrolling, handle)) continue;
         return scrolling.resize(&side.scrolling, allocator, handle, width, height);
+    }
+    return false;
+}
+
+pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {
+    if (state.active_remainder != .scrolling or state.anchor == handle) return false;
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (!scrolling.containsHandle(&side.scrolling, handle)) continue;
+        return scrolling.resetSize(&side.scrolling, handle);
     }
     return false;
 }
@@ -350,6 +367,12 @@ test "game mode resizes a tiled member in a scrolling fallback" {
     defer std.testing.allocator.free(resized);
     try std.testing.expectEqual(@as(i32, 70), findPlacement(resized, 1).geometry.width);
     try std.testing.expectEqual(@as(i32, 30), findPlacement(resized, 1).geometry.height);
+
+    try std.testing.expect(resetScrollingSize(&state, 1));
+    const reset = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
+    defer std.testing.allocator.free(reset);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(reset, 1).geometry.width);
+    try std.testing.expectEqual(@as(i32, 80), findPlacement(reset, 1).geometry.height);
 }
 
 test "game mode joins windows across columns in a scrolling fallback" {
@@ -428,6 +451,7 @@ test "game mode routes resize to a side remainder and rejects its anchor" {
     defer std.testing.allocator.free(resized);
     try std.testing.expectEqual(@as(i32, 40), findPlacement(resized, 2).geometry.width);
     try std.testing.expectEqual(@as(i32, 35), findPlacement(resized, 2).geometry.height);
+    try std.testing.expect(resetScrollingSize(&state, 2));
 }
 
 test "game mode routes vertical movement to the focused scrolling column" {

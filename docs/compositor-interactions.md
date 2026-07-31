@@ -354,6 +354,11 @@ motion resizes that member. Game mode delegates this operation to an active
 scrolling remainder or fallback and rejects its anchor. Every pointer update
 requests a manage cycle.
 
+A `Super`+double-left-click with no drag restores a scrolling member's standard
+size: the configured width for its column and full viewport height for that
+member. The click tracker uses release timestamps and a small motion tolerance,
+so tiled reorder drags never trigger the reset.
+
 Validated `xdg_toplevel.move` and `xdg_toplevel.resize` requests enter the same
 integrated-policy interaction path when the target is already floating. Resize
 requests preserve the client-selected edge or corner. Requests from tiled,

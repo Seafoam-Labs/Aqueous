@@ -408,6 +408,11 @@ pub fn expandedOwner(state: *const State, handle: types.Handle) ?types.Handle {
     return state.columns.items[location.column].expanded_owner;
 }
 
+pub fn columnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
+    const location = locate(state, handle) orelse return null;
+    return state.columns.items[location.column].windows.items;
+}
+
 /// Resize a tiled scrolling member without removing it from the layout. Width
 /// is shared by every member in the column; height belongs only to `handle`.
 pub fn resize(
@@ -427,6 +432,17 @@ pub fn resize(
     try state.height_overrides.put(allocator, handle, requested_height);
     column.width_override = requested_width;
     return true;
+}
+
+/// Restore the configured column width and the selected member's default full
+/// viewport height. Other members retain their independent height overrides.
+pub fn resetSize(state: *State, handle: types.Handle) bool {
+    const location = locate(state, handle) orelse return false;
+    const column = &state.columns.items[location.column];
+    const changed = column.width_override != null or state.height_overrides.contains(handle);
+    column.width_override = null;
+    _ = state.height_overrides.remove(handle);
+    return changed;
 }
 
 fn sync(state: *State, allocator: std.mem.Allocator, windows: []const types.Window) !void {
@@ -641,6 +657,13 @@ test "pointer resize changes a whole column width and one member height" {
     try std.testing.expectEqual(@as(i32, 80), second.geometry.height);
     try std.testing.expectEqual(@as(i32, 20), second.geometry.y);
     try std.testing.expect(!try resize(&state, std.testing.allocator, 99, 50, 50));
+
+    try std.testing.expect(resetSize(&state, 1));
+    const reset = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(reset);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(reset, 1).geometry.width);
+    try std.testing.expectEqual(@as(i32, 80), findPlacement(reset, 1).geometry.height);
+    try std.testing.expect(!resetSize(&state, 1));
 }
 
 test "minimum heights overflow and the focused column scrolls by member" {

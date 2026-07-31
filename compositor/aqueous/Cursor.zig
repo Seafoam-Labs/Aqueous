@@ -667,7 +667,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
         }
 
         const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
-        if (server.aqueous.handlePointerButton(event.button, modifiers, true, cursor.wlr_cursor.x, cursor.wlr_cursor.y)) {
+        if (server.aqueous.handlePointerButton(event.button, modifiers, true, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec)) {
             result.value_ptr.* = null;
             cursor.mode = .ignore;
             cursor.clearFocus();
@@ -737,7 +737,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
     } else {
         assert(event.state == .released);
         const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
-        _ = server.aqueous.handlePointerButton(event.button, modifiers, false, cursor.wlr_cursor.x, cursor.wlr_cursor.y);
+        _ = server.aqueous.handlePointerButton(event.button, modifiers, false, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec);
         const result = cursor.pressed.fetchRemove(event.button);
         if (result) |kv| {
             if (kv.value) |binding| {

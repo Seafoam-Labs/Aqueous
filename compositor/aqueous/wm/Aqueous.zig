@@ -60,6 +60,7 @@ window_states: StateStore,
 output_service: OutputService,
 started: bool = false,
 drag: ?Drag = null,
+last_scrolling_click: ?ScrollingClick = null,
 untrap_keysym: ?u32 = null,
 next_stack_order: u64 = 1,
 requested_stack_focus: ?layout_types.Handle = null,
@@ -75,6 +76,7 @@ const Drag = struct {
     action: pointer_drag.Action,
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
+    click_eligible: bool = true,
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
     /// A manual size overrides the full-width preset. Defer clearing its
     /// per-window owner until the pointer actually moves.
@@ -82,6 +84,11 @@ const Drag = struct {
     client_seat: ?usize = null,
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
+};
+
+const ScrollingClick = struct {
+    handle: layout_types.Handle,
+    time_msec: u32,
 };
 
 pub fn init(aqueous: *Aqueous, mode: Mode) void {
@@ -731,6 +738,9 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     var layouts = aqueous.layout_states.valueIterator();
     while (layouts.next()) |state| layout_engine.forgetWindow(state, handle);
     aqueous.window_states.remove(handle);
+    if (aqueous.last_scrolling_click) |click| {
+        if (click.handle == handle) aqueous.last_scrolling_click = null;
+    }
     if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
     if (aqueous.pending_new_focus == handle) aqueous.pending_new_focus = 0;
 }
@@ -809,7 +819,7 @@ pub fn handleGesture(aqueous: *Aqueous, gesture: gesture_input.Completed) void {
     aqueous.runVerb(verb);
 }
 
-pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64) bool {
+pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64, time_msec: u32) bool {
     if (!aqueous.mode.runsInternal()) return false;
     if (aqueous.overview != null) {
         if (button == 0x110 and pressed) { // BTN_LEFT
@@ -817,8 +827,23 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         }
         return true;
     }
+    if (pressed and (button != 0x110 or
+        modifiers & (1 | 4 | 8 | 64) != aqueous.config.actions.primary_modifier))
+    {
+        aqueous.last_scrolling_click = null;
+    }
     if (!pressed and aqueous.drag != null) {
+        const drag = aqueous.drag.?;
+        const scrolling_click = button == 0x110 and
+            drag.action == .swap_tiled and
+            drag.click_eligible and
+            pointer_drag.stayedClick(drag.pointer_x, drag.pointer_y, drag.last_pointer_x, drag.last_pointer_y);
         aqueous.finishInteractiveDrag();
+        if (scrolling_click) {
+            aqueous.handleScrollingClick(drag, time_msec);
+        } else {
+            aqueous.last_scrolling_click = null;
+        }
         return true;
     }
     if (modifiers & (1 | 4 | 8 | 64) != aqueous.config.actions.primary_modifier) return false;
@@ -887,6 +912,38 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     return true;
 }
 
+fn handleScrollingClick(aqueous: *Aqueous, drag: Drag, time_msec: u32) void {
+    const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse {
+        aqueous.last_scrolling_click = null;
+        return;
+    };
+    if (!layout_engine.canResizeScrolling(layout_state, drag.handle)) {
+        aqueous.last_scrolling_click = null;
+        return;
+    }
+    const previous = aqueous.last_scrolling_click;
+    if (previous == null or
+        previous.?.handle != drag.handle or
+        !pointer_drag.withinDoubleClick(previous.?.time_msec, time_msec))
+    {
+        aqueous.last_scrolling_click = .{ .handle = drag.handle, .time_msec = time_msec };
+        return;
+    }
+
+    var changed = false;
+    if (layout_engine.scrollingColumnMembers(layout_state, drag.handle)) |members| {
+        for (members) |handle| {
+            const state = aqueous.window_states.get(handle) orelse continue;
+            if (!state.scrolling_full_width) continue;
+            state.scrolling_full_width = false;
+            changed = true;
+        }
+    }
+    changed = layout_engine.resetScrollingSize(layout_state, drag.handle) or changed;
+    aqueous.last_scrolling_click = null;
+    if (changed) aqueous.api.requestManageCycle();
+}
+
 pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
     if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_follows_mouse) return;
     if (handle) |target| if (aqueous.api.focusedWindow() != target) aqueous.requestFocus(target);
@@ -913,6 +970,9 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     drag.last_pointer_x = x;
     drag.last_pointer_y = y;
     if (drag.action == .swap_tiled) {
+        if (!pointer_drag.stayedClick(drag.pointer_x, drag.pointer_y, x, y)) {
+            drag.click_eligible = false;
+        }
         const target = aqueous.api.windowAt(x, y) orelse return;
         if (drag.awaiting_layout != null) {
             // Do not swap back while the scene still exposes the old geometry.
@@ -931,6 +991,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             log.err("out of memory updating pointer drop target", .{});
             return;
         })) return;
+        drag.click_eligible = false;
         drag.awaiting_layout = target.handle;
         aqueous.api.requestManageCycle();
         return;

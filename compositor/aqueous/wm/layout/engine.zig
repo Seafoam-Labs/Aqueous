@@ -164,6 +164,14 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
     };
 }
 
+pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.columnMembers(&state.scrolling, handle),
+        .game_mode => game_mode.scrollingColumnMembers(&state.game_mode, handle),
+        else => null,
+    };
+}
+
 pub fn resizeScrolling(
     allocator: std.mem.Allocator,
     state: *State,
@@ -174,6 +182,14 @@ pub fn resizeScrolling(
     return switch (state.active_layout) {
         .scrolling => scrolling.resize(&state.scrolling, allocator, handle, width, height),
         .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, width, height),
+        else => false,
+    };
+}
+
+pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.resetSize(&state.scrolling, handle),
+        .game_mode => game_mode.resetScrollingSize(&state.game_mode, handle),
         else => false,
     };
 }
