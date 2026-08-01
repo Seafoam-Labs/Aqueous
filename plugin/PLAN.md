@@ -59,7 +59,7 @@ Do not parse and rewrite Aqueous TOML directly in the panel script.
 Noctalia v5 gives trusted Luau plugins filesystem and subprocess access, but its
 generic `writeFile` replaces a whole file. Aqueous already has a
 comment-preserving document editor, atomic replacement, and non-trivial path
-discovery in `settings/src/config.zig`. Reimplementing those rules in the UI
+discovery in `plugin/helper/src/config_document.zig`. Reimplementing those rules in the UI
 would create two sources of truth and make external-edit conflicts difficult to
 handle.
 

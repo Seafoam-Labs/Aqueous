@@ -3,7 +3,7 @@
 pkgname=aqueous-git
 pkgbase=aqueous-git
 pkgver=0.4.0 # Will be updated by pkgver()
-pkgrel=3
+pkgrel=4
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -92,11 +92,16 @@ build() {
     msg2 "Building Aqueous Settings helper..."
     cd "$srcdir/aqueous/plugin/helper"
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local-v2" \
     zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
         --prefix "$srcdir/aqueous-plugin-dist" install
 
     msg2 "Building Welcome to Aqueous..."
+    # The source directory was renamed from settings/ to welcome/. Zig's
+    # persistent local manifests retain absolute source paths, so discard only
+    # this component's local cache in reused repo-manager worktrees. Keep the
+    # global cache so fetched dependencies remain available to offline builds.
+    rm -rf -- "$srcdir/aqueous-welcome-zig-local"
     cd "$srcdir/aqueous/welcome"
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-local" \
