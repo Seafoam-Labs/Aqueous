@@ -188,12 +188,19 @@ pub fn arrange(
             result[write] = .{
                 .handle = handle,
                 .geometry = geometry,
-                .clip = if (visible) .{
-                    .x = intersection.x - geometry.x,
-                    .y = intersection.y - geometry.y,
-                    .width = intersection.width,
-                    .height = intersection.height,
-                } else null,
+                // Keep the complete viewport, including for placements whose
+                // settled geometry is off-screen. The compositor intersects
+                // this box with the live surface, while position animations
+                // use it as the fixed aperture that entering and leaving
+                // members move behind. Reducing this to the final intersection
+                // truncates that motion and makes viewport changes look like
+                // windows appearing/disappearing instead of one smooth strip.
+                .clip = .{
+                    .x = area.x - geometry.x,
+                    .y = area.y - geometry.y,
+                    .width = area.width,
+                    .height = area.height,
+                },
                 .z_order = if (focus_raises and focused == handle) 1 else 0,
                 .visible = visible,
                 .border = options.border,
@@ -603,7 +610,7 @@ test "scrolling centres focus and hides off-screen columns" {
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(@as(i32, 25), placements[2].geometry.x);
     try std.testing.expect(!placements[0].visible);
-    try std.testing.expectEqual(@as(?types.Rect, null), placements[0].clip);
+    try std.testing.expectEqual(types.Rect{ .x = 75, .y = 0, .width = 100, .height = 80 }, placements[0].clip.?);
     try std.testing.expect(placements[2].visible);
 }
 
@@ -684,14 +691,14 @@ test "minimum heights overflow and the focused column scrolls by member" {
     defer std.testing.allocator.free(overflow);
     try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, overflow[0].geometry);
     try std.testing.expectEqual(types.Rect{ .x = 25, .y = 84, .width = 50, .height = 80 }, overflow[1].geometry);
-    try std.testing.expectEqual(@as(?types.Rect, null), overflow[1].clip);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = -84, .width = 100, .height = 80 }, overflow[1].clip.?);
     try std.testing.expectEqual(@as(i32, 84), state.columns.items[0].viewport_max_y);
 
     try std.testing.expect(scrollColumn(&state, 1, 1));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(scrolled);
     try std.testing.expectEqual(@as(i32, -84), scrolled[0].geometry.y);
-    try std.testing.expectEqual(@as(?types.Rect, null), scrolled[0].clip);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 84, .width = 100, .height = 80 }, scrolled[0].clip.?);
     try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 50, .height = 80 }, scrolled[1].geometry);
     try std.testing.expect(!scrollColumn(&state, 1, 1));
 

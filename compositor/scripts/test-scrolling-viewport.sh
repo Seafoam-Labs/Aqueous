@@ -76,7 +76,15 @@ launch_window() {
 }
 
 launch_window aq-scroll-clip-one
+for _ in $(seq 1 120); do
+    [ "$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null | jq 'length' 2>/dev/null)" = 1 ] && break
+    sleep 0.05
+done
 launch_window aq-scroll-clip-two
+for _ in $(seq 1 120); do
+    [ "$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null | jq 'length' 2>/dev/null)" = 2 ] && break
+    sleep 0.05
+done
 launch_window aq-scroll-clip-three
 
 windows_json="[]"
@@ -86,6 +94,11 @@ for _ in $(seq 1 200); do
     sleep 0.05
 done
 [ "$(jq 'length' <<<"$windows_json")" = 3 ] || { tail -80 "$LOG" >&2; die "three windows did not map"; }
+sleep 0.2
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+initial_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$initial_focus" = aq-scroll-clip-three ] ||
+    die "stationary pointer stole initial scrolling focus (focused=$initial_focus)"
 OWNER_OUTPUT=$(jq -r 'map(.output) | unique | join(" ")' <<<"$windows_json")
 case "$OWNER_OUTPUT" in
     HEADLESS-1) OTHER_OUTPUT=HEADLESS-2 ;;
@@ -133,6 +146,10 @@ for frame in $(seq 1 12); do
 done
 sleep 1
 assert_output_clean "$TEST_ROOT/settled.png"
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+left_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$left_focus" = aq-scroll-clip-two ] ||
+    die "focus-follows-mouse snapped past the requested left column (focused=$left_focus)"
 
 # Return focus to the right. This is the direction in which the newly focused
 # window has a lower/left sibling. Its compositor border must travel inside the
@@ -183,6 +200,10 @@ done
     die "right-focus transition never exposed an animation snapshot"
 
 sleep 1
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+right_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$right_focus" = aq-scroll-clip-three ] ||
+    die "focus-follows-mouse snapped past the requested right column (focused=$right_focus)"
 settled_scene=$("$AQUEOUSCTL_BIN" scene)
 active_snapshots=$(grep -F 'window animation snapshot [tree]' <<<"$settled_scene" |
     grep -vc ' disabled' || true)
@@ -194,5 +215,19 @@ grep -F 'border: left [rect]' <<<"$settled_scene" |
     grep -v 'animation border' |
     grep -v ' disabled' >/dev/null ||
     die "live border was not restored after animation"
+
+# Layout movement left the stationary pointer over the second column without
+# changing keyboard focus. A real pointer event, even within that same hovered
+# surface, must still apply focus-follows-mouse.
+wlrctl pointer move 1 0
+motion_focus=""
+for _ in $(seq 1 100); do
+    windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    motion_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+    [ "$motion_focus" = aq-scroll-clip-two ] && break
+    sleep 0.02
+done
+[ "$motion_focus" = aq-scroll-clip-two ] ||
+    die "real pointer motion did not apply focus-follows-mouse (focused=$motion_focus)"
 
 echo "scrolling viewport and animated border containment passed"

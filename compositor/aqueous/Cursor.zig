@@ -550,7 +550,7 @@ fn processMotionRelativeInternal(
 
             switch (cursor.mode) {
                 .passthrough, .drag => {
-                    cursor.updateHovered();
+                    cursor.updateHovered(true);
                     cursor.passthrough(event.time_msec);
                 },
                 .ignore => {},
@@ -592,7 +592,12 @@ fn move(cursor: *const Cursor, mapping: *const wlr.Box, dx: f64, dy: f64) void {
     cursor.wlr_cursor.warpClosest(null, lx, ly);
 }
 
-fn updateHovered(cursor: *Cursor) void {
+/// Refresh the compositor's pointer target. `allow_focus_follow` is true only
+/// for real pointer-motion events. Layout/render transactions also need to
+/// update Wayland pointer focus after moving live input nodes, but must not
+/// reinterpret a stationary pointer as user intent and focus/recenter another
+/// scrolling column while its cosmetic animation is still in flight.
+fn updateHovered(cursor: *Cursor, allow_focus_follow: bool) void {
     const old = cursor.seat.wm_scheduled.hovered;
     // Start from no hovered window. Scene nodes without a client surface are
     // compositor decorations (most notably SSD borders), and must not become
@@ -627,8 +632,10 @@ fn updateHovered(cursor: *Cursor) void {
         };
     }
 
-    if (cursor.seat.wm_scheduled.hovered != old) {
+    if (allow_focus_follow) {
         server.aqueous.handleHover(if (cursor.seat.wm_scheduled.hovered) |ref| @bitCast(ref) else null);
+    }
+    if (cursor.seat.wm_scheduled.hovered != old) {
         server.wm.dirtyWindowing();
     }
 }
@@ -969,7 +976,7 @@ pub fn updateState(cursor: *Cursor) void {
 
     switch (cursor.mode) {
         .passthrough, .drag => {
-            cursor.updateHovered();
+            cursor.updateHovered(false);
             cursor.passthrough(util.msecTimestamp());
         },
         .ignore, .down, .op => {},

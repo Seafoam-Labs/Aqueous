@@ -19,6 +19,20 @@ TEST_MOD=${AQUEOUS_TEST_MOD:-Super}
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+wait_for_animation_snapshots() {
+    local scene active
+    for _ in $(seq 1 40); do
+        scene=$("$AQUEOUSCTL_BIN" scene 2>/dev/null || true)
+        active=$(grep -F 'window animation snapshot [tree]' <<<"$scene" |
+            grep -vc ' disabled' || true)
+        # Both members must move as one continuous strip: the newly visible
+        # member enters while the previously visible member leaves.
+        [ "$active" -ge 2 ] && return 0
+        sleep 0.01
+    done
+    die "vertical viewport motion did not animate both stacked members"
+}
+
 case "$TEST_MOD" in
     Super) INPUT_MOD=SUPER ;;
     Alt) INPUT_MOD=ALT ;;
@@ -144,6 +158,7 @@ awk '{ exit !($1 > 0.9 && $2 < 0.1) }' <<<"$top_pixel" || die "upper red member 
 
 # Pan to blue. The action must not alter keyboard focus.
 wlrctl keyboard type v modifiers "$INPUT_MOD"
+wait_for_animation_snapshots
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")

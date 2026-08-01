@@ -18,7 +18,8 @@ left = 0
 right = 0
 
 [input]
-focus_follows_mouse = false
+focus_follows_mouse = true
+focus_new_windows = true
 
 [keybinds]
 focus_left = "Super+H"

@@ -493,10 +493,10 @@ test "game mode preserves each scrolling side column as its own viewport" {
     }, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
     defer std.testing.allocator.free(placements);
 
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 25, .height = 100 }, findPlacement(placements, 2).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 25, .height = 100 }, findPlacement(placements, 3).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 100 }, findPlacement(placements, 4).clip.?);
-    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 100 }, findPlacement(placements, 5).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 2).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = 25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 3).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 4).clip.?);
+    try std.testing.expectEqual(types.Rect{ .x = -25, .y = 0, .width = 100, .height = 100 }, findPlacement(placements, 5).clip.?);
 }
 
 test "game mode applies rows independently to both side columns" {

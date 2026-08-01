@@ -1442,6 +1442,11 @@ pub fn renderFinish(window: *Window) void {
     }
     const workspace_visible = (window.workspace == null) or is_incoming or is_outgoing;
     const transitioning = (is_incoming or is_outgoing) and transition_dir != 0;
+    // Capture the prior settled visibility before applying this transaction.
+    // Scrolling layouts keep a fixed clip even for off-screen placements, so a
+    // previously visible member can animate out through that aperture instead
+    // of disappearing on the first frame of the viewport change.
+    const was_enabled = window.tree.node.enabled;
     const enabled = workspace_visible and !requested.hidden and !window.overview_hidden and
         (window.state == .mapped or window.state == .closing);
     window.tree.node.setEnabled(enabled);
@@ -1520,10 +1525,19 @@ pub fn renderFinish(window: *Window) void {
             window.setAnimationTarget(requested.x, requested.y, true);
             window.cur_anim_rate = server.wm.workspace_transition.rate;
         } else {
-            // Only animate when the window is actually on-screen; snap otherwise
-            // so a hidden/closing window does not visibly "catch up" when it
-            // reappears.
-            window.setAnimationTarget(requested.x, requested.y, enabled);
+            // Animate settled-visible windows and scrolling members which have
+            // just left their fixed viewport. Other hidden/closing windows snap
+            // so they cannot visibly "catch up" when they reappear.
+            const leaving_scrolling_viewport = was_enabled and
+                workspace_visible and
+                !window.overview_hidden and
+                window.state == .mapped and
+                !requested.clip.empty();
+            window.setAnimationTarget(
+                requested.x,
+                requested.y,
+                enabled or leaving_scrolling_viewport,
+            );
         }
         window.fullscreen_background.node.setEnabled(false);
         window.drawBorders();
