@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Welcome to Aqueous
+Comment=Finish setting up your Aqueous desktop
+Exec=aqueous-welcome --first-run
+TryExec=aqueous-welcome
+Icon=system-software-install
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

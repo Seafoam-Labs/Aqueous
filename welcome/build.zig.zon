@@ -1,7 +1,7 @@
 .{
-    .name = .aqueous_settings,
-    .version = "0.1.0",
-    .fingerprint = 0x5c64203a5172efda,
+    .name = .aqueous_welcome,
+    .version = "1.0.0",
+    .fingerprint = 0x709f97c586187a8e,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .quark = .{

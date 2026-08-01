@@ -43,7 +43,7 @@ jobs:
             pkgconf ninja meson \
             wlroots0.20 \
             libdisplay-info libliftoff lcms2 \
-            glslang vulkan-headers vulkan-icd-loader \
+            glslang shaderc vulkan-headers vulkan-icd-loader freetype2 \
             xcb-util-errors xcb-util-renderutil xcb-util-wm \
             xorg-xwayland
 
@@ -103,18 +103,30 @@ jobs:
             -Dcpu=baseline -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-plugin" install
 
+      - name: Build Welcome to Aqueous
+        shell: bash
+        run: |
+          set -euxo pipefail
+          zig build --build-file welcome/build.zig \
+            -Dcpu=baseline -Doptimize=ReleaseSafe test
+          zig build --build-file welcome/build.zig \
+            -Dcpu=baseline -Doptimize=ReleaseSafe \
+            --prefix "$GITHUB_WORKSPACE/publish/aqueous-welcome" install
+
       - name: Stage bundle
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p publish/aqueous-linux-x64/bin
           mkdir -p publish/aqueous-linux-x64/share/wayland-sessions
+          mkdir -p publish/aqueous-linux-x64/share/applications
           mkdir -p publish/aqueous-linux-x64/share/aqueous
           mkdir -p publish/aqueous-linux-x64/lib/systemd/user
           mkdir -p publish/aqueous-linux-x64/lib/aqueous
           mkdir -p publish/aqueous-linux-x64/lib/udev/rules.d
           mkdir -p publish/aqueous-linux-x64/lib/tmpfiles.d
           mkdir -p publish/aqueous-linux-x64/etc/xdg/aqueous
+          mkdir -p publish/aqueous-linux-x64/etc/xdg/autostart
           mkdir -p publish/aqueous-linux-x64/etc/uwsm
           mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal
 
@@ -122,6 +134,7 @@ jobs:
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
           cp publish/aqueous-plugin/bin/aqueous-config publish/aqueous-linux-x64/bin/
+          cp publish/aqueous-welcome/bin/aqueous-welcome publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
             publish/aqueous-linux-x64/lib/aqueous/
 
@@ -135,6 +148,10 @@ jobs:
           cp packaging/aqueous-wm.sh  publish/aqueous-linux-x64/bin/aqueous-wm
           chmod +x publish/aqueous-linux-x64/bin/aqueous-init publish/aqueous-linux-x64/bin/aqueous-wm
           cp aqueous.desktop publish/aqueous-linux-x64/share/wayland-sessions/
+          cp packaging/aqueous-welcome.desktop \
+             publish/aqueous-linux-x64/share/applications/org.aqueous.Welcome.desktop
+          cp packaging/aqueous-welcome-autostart.desktop \
+             publish/aqueous-linux-x64/etc/xdg/autostart/org.aqueous.Welcome.desktop
           cp wm.toml         publish/aqueous-linux-x64/etc/xdg/aqueous/
           cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
           cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/uwsm/

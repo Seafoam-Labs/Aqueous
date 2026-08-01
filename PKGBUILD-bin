@@ -111,6 +111,7 @@ package() {
     if [ -d "$srcdir/share" ]; then
         install -d "$pkgdir/usr/share"
         cp -dr --no-preserve=ownership "$srcdir/share/." "$pkgdir/usr/share/"
+        rm -f "$pkgdir/usr/share/applications/org.aqueous.Welcome.desktop"
     fi
 
     # systemd user units, tmpfiles configuration, and udev rules
@@ -123,5 +124,6 @@ package() {
     if [ -d "$srcdir/etc" ]; then
         install -d "$pkgdir/etc"
         cp -dr --no-preserve=ownership "$srcdir/etc/." "$pkgdir/etc/"
+        rm -f "$pkgdir/etc/xdg/autostart/org.aqueous.Welcome.desktop"
     fi
 }

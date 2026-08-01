@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Welcome to Aqueous
+Comment=Choose and install applications for your Aqueous desktop
+Exec=aqueous-welcome
+TryExec=aqueous-welcome
+Icon=system-software-install
+Terminal=false
+Categories=Settings;
+Keywords=welcome;setup;applications;install;
