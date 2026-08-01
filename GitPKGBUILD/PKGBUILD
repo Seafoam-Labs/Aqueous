@@ -92,7 +92,7 @@ build() {
     msg2 "Building Aqueous Settings helper..."
     cd "$srcdir/aqueous/plugin/helper"
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local-v2" \
     zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
         --prefix "$srcdir/aqueous-plugin-dist" install
 
