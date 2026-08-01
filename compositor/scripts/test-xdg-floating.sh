@@ -159,6 +159,16 @@ wait_state() {
     die "timed out waiting for $app_id state $state=$wanted"
 }
 
+wait_geometry_changed() {
+    local app_id=$1 prior=$2 json=""
+    for _ in $(seq 1 160); do
+        json=$(window_json "$app_id")
+        [ -n "$json" ] && [ "$(geometry <<<"$json")" != "$prior" ] && return 0
+        sleep 0.05
+    done
+    die "timed out waiting for $app_id geometry to change from $prior"
+}
+
 wait_focused() {
     local app_id=$1 json=""
     for _ in $(seq 1 160); do
@@ -253,6 +263,11 @@ run_case() {
     touch "$sync_dir/maximize"
     wait_marker "$sync_dir" maximize-done
     wait_state "$app_id" maximized "$floating"
+    if [ "$floating" = true ]; then
+        local prior_geometry
+        prior_geometry="$resized_x"$'\t'"$resized_y"$'\t'"$resized_w"$'\t'"$resized_h"
+        wait_geometry_changed "$app_id" "$prior_geometry"
+    fi
 
     touch "$sync_dir/unmaximize"
     wait_marker "$sync_dir" unmaximize-done

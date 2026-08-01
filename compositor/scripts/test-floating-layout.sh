@@ -142,6 +142,20 @@ wait_geometry() {
     die "timed out restoring $app_id geometry $expected; got $(geometry <<<"$json")"
 }
 
+wait_maximized_state() {
+    local app_id=$1 wanted=$2 json=""
+    for _ in $(seq 1 200); do
+        json=$(window_json "$app_id")
+        if [ "$wanted" = true ]; then
+            jq -e '.states | index("maximized") != null' <<<"$json" >/dev/null && return 0
+        else
+            jq -e '.states | index("maximized") == null' <<<"$json" >/dev/null && return 0
+        fi
+        sleep 0.05
+    done
+    die "timed out waiting for $app_id maximized=$wanted"
+}
+
 wait_floating_state() {
     local app_id=$1 wanted=$2 json=""
     for _ in $(seq 1 200); do
@@ -289,6 +303,28 @@ wait_window "$APP_MINIMIZE" >/dev/null
 touch "$SYNC_MINIMIZE/minimize"
 wait_marker "$PID_MINIMIZE" "$SYNC_MINIMIZE" minimize-done "$LOG_MINIMIZE"
 wait_minimized_state "$APP_MINIMIZE" true
+
+# A workspace-owned floating window retains tiled policy ownership, but its
+# titlebar maximize request must temporarily cover the usable output and then
+# restore the floating layout's exact remembered rectangle.
+APP_MAXIMIZE=aqueous.layout-maximize
+MAXIMIZE_INDEX=${#CLIENT_PIDS[@]}
+start_fixture "$APP_MAXIMIZE" maximize
+PID_MAXIMIZE=$STARTED_PID
+SYNC_MAXIMIZE="${CLIENT_SYNCS[$MAXIMIZE_INDEX]}"
+LOG_MAXIMIZE="${CLIENT_LOGS[$MAXIMIZE_INDEX]}"
+MAXIMIZE_FLOAT=$(geometry <<<"$(window_json "$APP_MAXIMIZE")")
+touch "$SYNC_MAXIMIZE/maximize"
+wait_marker "$PID_MAXIMIZE" "$SYNC_MAXIMIZE" maximize-done "$LOG_MAXIMIZE"
+wait_maximized_state "$APP_MAXIMIZE" true
+wait_geometry "$APP_MAXIMIZE" $'0\t0\t1280\t720'
+touch "$SYNC_MAXIMIZE/unmaximize"
+wait_marker "$PID_MAXIMIZE" "$SYNC_MAXIMIZE" unmaximize-done "$LOG_MAXIMIZE"
+wait_maximized_state "$APP_MAXIMIZE" false
+wait_geometry "$APP_MAXIMIZE" "$MAXIMIZE_FLOAT"
+jq -e '.layout == "tiled" and (.states | index("floating") == null)' \
+    <<<"$(window_json "$APP_MAXIMIZE")" >/dev/null ||
+    die "unmaximize did not return workspace-floating window to layout ownership"
 
 for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
 for index in "${!CLIENT_PIDS[@]}"; do

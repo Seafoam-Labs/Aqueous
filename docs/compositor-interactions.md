@@ -220,7 +220,7 @@ State is deliberately divided by ownership:
   state are compositor-owned truth.
 - `Window.policy_state` stores policy metadata with exactly the same lifetime
   as the window: tiled/floating/maximized/minimized kind, remembered floating
-  geometry, and rule ownership/override flags.
+  geometry, client-maximize origin, and rule ownership/override flags.
 - `StateStore` does not duplicate per-window state. It resolves embedded
   `policy_state` and only retains the cross-window minimized MRU list needed by
   `unminimize_last`.
@@ -360,12 +360,15 @@ member. The click tracker uses release timestamps and a small motion tolerance,
 so tiled reorder drags never trigger the reset.
 
 Validated `xdg_toplevel.move` and `xdg_toplevel.resize` requests enter the same
-integrated-policy interaction path when the target is already floating. Resize
-requests preserve the client-selected edge or corner. Requests from tiled,
-maximized, or minimized windows are consumed without changing their geometry or
-removing them from layout. Client maximize and minimize requests follow the same
-rule: they may overlay a floating window and round-trip back to floating, but
-they do not alter ordinary tiled windows.
+integrated-policy interaction path when the target is a persistent floating
+overlay or an ordinary window presented by the workspace floating layout.
+Resize requests preserve the client-selected edge or corner. Requests from
+ordinary windows in non-floating layouts, maximized windows, or minimized
+windows are consumed without changing their geometry or removing them from
+layout. Client maximize and minimize requests follow the same presentation
+rule. Maximize records whether the window came from a persistent overlay or the
+workspace floating layout, so unmaximize restores floating or tiled policy
+ownership respectively and the appropriate remembered rectangle is reused.
 
 ## Focus, keyboard, and pointer flow
 

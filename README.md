@@ -226,8 +226,9 @@ scripts/test-scaling.sh
 The xdg fullscreen harness covers application-originated `xdg_toplevel`
 fullscreen requests without relying on rules or compositor keybindings. The
 xdg floating harness covers client-side move, edge-aware resize, maximize,
-unmaximize, and minimize requests, and verifies that identical requests do not
-affect tiled windows. It also verifies persistent focus raising and hit testing
+unmaximize, and minimize requests for persistent floats and workspace-floating
+windows, and verifies that identical requests do not affect ordinary windows in
+non-floating layouts. It also verifies persistent focus raising and hit testing
 with overlapping floats. The floating-output harness covers active-workspace
 transfer across mixed scale/transform output geometry and source-output removal
 during a drag. The integration harness maps real Ghostty windows and injects

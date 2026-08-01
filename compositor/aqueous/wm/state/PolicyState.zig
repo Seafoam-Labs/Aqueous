@@ -5,9 +5,19 @@ const types = @import("../layout/types.zig");
 const PolicyState = @This();
 
 pub const Kind = enum { tiled, floating, maximized, minimized };
+pub const ClientMaximizeOrigin = enum {
+    none,
+    floating_overlay,
+    workspace_floating,
+};
 
 kind: Kind = .tiled,
 previous: Kind = .tiled,
+/// Records only maximizes accepted from a client request. This distinguishes a
+/// workspace-floating presentation (whose policy kind remains tiled) from a
+/// persistent floating overlay and prevents client unmaximize from undoing a
+/// compositor/keybinding-owned maximize.
+client_maximize_origin: ClientMaximizeOrigin = .none,
 floating_geometry: types.Rect = .empty,
 /// Monotonic focus/creation order used to stack overlapping non-tiled windows.
 stack_order: u64 = 0,

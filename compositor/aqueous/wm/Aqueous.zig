@@ -510,8 +510,8 @@ fn findPolicyOutput(snapshot: *const CompositorApi.PolicySnapshot, id: ?u64) ?*c
 
 /// Client-side decorations and foreign-toplevel controllers feed the same
 /// one-shot request stream. Direct move/resize/maximize/minimize requests
-/// remain constrained to floating policy, while activation can restore and
-/// focus any managed window.
+/// remain constrained to floating presentations, while activation can restore
+/// and focus any managed window.
 fn applyClientWindowRequests(
     aqueous: *Aqueous,
     snapshot: *const CompositorApi.PolicySnapshot,
@@ -541,11 +541,19 @@ fn applyClientWindowRequests(
         },
         .maximize => {
             aqueous.finishInteractiveDragFor(request.handle);
-            _ = aqueous.window_states.setClientMaximized(request.handle, true);
+            _ = aqueous.window_states.setClientMaximized(
+                request.handle,
+                true,
+                aqueous.clientWindowUsesFloatingLayout(request.handle),
+            );
         },
         .unmaximize => {
             aqueous.finishInteractiveDragFor(request.handle);
-            _ = aqueous.window_states.setClientMaximized(request.handle, false);
+            _ = aqueous.window_states.setClientMaximized(
+                request.handle,
+                false,
+                aqueous.clientWindowUsesFloatingLayout(request.handle),
+            );
         },
         .minimize => {
             aqueous.finishInteractiveDragFor(request.handle);
