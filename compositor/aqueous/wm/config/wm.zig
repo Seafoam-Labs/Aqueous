@@ -395,6 +395,7 @@ fn parseLayout(value: []const u8) ?layout.LayoutId {
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
+    if (std.mem.eql(u8, value, "composable")) return .composable;
     return null;
 }
 
@@ -452,6 +453,9 @@ test "wm and input config validates mappings, struts, and device settings" {
         \\output = "DP-1"
         \\workspace = 2
         \\layout = "monocle"
+        \\[[workspace]]
+        \\workspace = 3
+        \\layout = "composable"
     );
     try std.testing.expectEqual(@as(i32, 32), wm_snapshot.struts.top);
     try std.testing.expectEqual(@as(i32, 0), wm_snapshot.struts.left);
@@ -464,6 +468,7 @@ test "wm and input config validates mappings, struts, and device settings" {
     try std.testing.expectEqual(@as(?f64, 0.5), wm_snapshot.input.touchpad.accel_speed);
     try std.testing.expectEqual(layout.LayoutId.grid, wm_snapshot.resolveOutput(.{ .name = "DP-1" }).?);
     try std.testing.expectEqual(layout.LayoutId.monocle, wm_snapshot.resolveWorkspace("DP-1", 2).?);
+    try std.testing.expectEqual(layout.LayoutId.composable, wm_snapshot.resolveWorkspace(null, 3).?);
 }
 
 test "new-window focus defaults to disabled" {

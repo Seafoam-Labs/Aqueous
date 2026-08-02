@@ -8,6 +8,8 @@ while preserving Aqueous's current tiled-drag behavior:
 - `tile`, `monocle`, `grid`, `rows`, `dwindle`, and `game-mode` show a
   full-window swap target.
 - `scrolling` shows its top, bottom, left, or right insertion zone.
+- `composable` delegates same-region behavior to the window's child layout;
+  crossing a region boundary exchanges region membership.
 - A committed reorder continues to use Aqueous's existing compositor-owned
   window animation.
 - The preview eases between targets and fades out on release or cancellation.
@@ -64,7 +66,8 @@ Before editing, read these paths:
 
 Do not replace the current tiled drag with a floating move. The existing
 `pointer_drag.action()` deliberately returns `.swap_tiled` when the window is
-tiled and the active layout is not `.floating`.
+tiled and its effective standalone or composable child layout is not
+`.floating`.
 
 ## 2. Add pure drop-preview geometry
 
@@ -629,6 +632,8 @@ Check each non-floating layout:
 9. Switch workspaces or disable the source output mid-drag and confirm cleanup.
 10. Repeat with `scrolling`; verify all four insertion zones and an already
     stacked column.
+11. Repeat with `composable`; verify same-region child behavior and a
+    cross-region membership exchange.
 
 Also run the renderer regression:
 

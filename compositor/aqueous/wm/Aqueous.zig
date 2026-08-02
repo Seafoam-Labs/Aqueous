@@ -385,10 +385,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         }
         const entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
-        if (game_anchor != null) entry.value_ptr.game_mode.rule_layout_owned = true;
-        if (entry.value_ptr.game_mode.rule_layout_owned) output_layout.default = .game_mode;
-        entry.value_ptr.game_mode.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
-        if (game_anchor) |anchor| entry.value_ptr.game_mode.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area, &output_layout);
+        const game_state = layout_engine.gameModeState(entry.value_ptr);
+        if (game_anchor != null) game_state.rule_layout_owned = true;
+        if (game_state.rule_layout_owned) output_layout.default = .game_mode;
+        game_state.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
+        if (game_anchor) |anchor| game_state.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area, &output_layout);
         if (cycle_focus) |handle| {
             if (containsWindow(focusable.items, handle)) {
                 focused_is_focusable = true;
@@ -633,7 +634,7 @@ fn startClientPointerDrag(
         .output = workspace.output_id,
         .workspace = workspace.workspace_number,
     };
-    const layout_floating = state.kind == .tiled and aqueous.layoutIsFloating(layout_key);
+    const layout_floating = state.kind == .tiled and aqueous.windowUsesFloatingLayout(layout_key, handle);
     if (state.kind != .floating and !layout_floating) return;
     if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
 
@@ -670,7 +671,7 @@ fn finishInvalidInteractiveDrag(
                 const state = aqueous.window_states.get(drag.handle) orelse break;
                 const layout_floating = drag.layout_floating and
                     state.kind == .tiled and
-                    aqueous.layoutIsFloating(drag.layout_key);
+                    aqueous.windowUsesFloatingLayout(drag.layout_key, drag.handle);
                 if (drag.action == .swap_tiled or
                     (drag.action == .resize_scrolling and
                         state.kind == .tiled and
@@ -887,8 +888,11 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         layout_engine.canResizeScrolling(value, target.handle)
     else
         false;
-    const drag_action = pointer_drag.action(button, state.kind, active_layout, scrolling_resizable);
-    const layout_floating = state.kind == .tiled and active_layout == .floating;
+    const layout_floating = state.kind == .tiled and if (layout_state) |value|
+        layout_engine.usesFloatingLayout(value, target.handle)
+    else
+        active_layout == .floating;
+    const drag_action = pointer_drag.action(button, state.kind, layout_floating, scrolling_resizable);
     if (drag_action == .swap_tiled) {
         aqueous.drag = .{
             .handle = target.handle,
@@ -1083,14 +1087,20 @@ fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, geometry: layout_types.R
     const target = aqueous.api.outputTargetAt(x, y, false) orelse return;
     if (target.id == drag.layout_key.output) return;
     const target_key: LayoutStateKey = .{ .output = target.id, .workspace = target.workspace_number };
-    if (drag.layout_floating and !aqueous.layoutIsFloating(target_key)) return;
+    const target_layout_state = aqueous.layout_states.getPtr(target_key);
+    if (drag.layout_floating) {
+        if (target_layout_state) |layout_state| {
+            if (!(layout_engine.prepareFloatingTransfer(layout_state, util.gpa) catch {
+                log.err("out of memory preparing floating-layout transfer", .{});
+                return;
+            })) return;
+        } else if (!aqueous.layoutIsFloating(target_key)) return;
+    }
     if (!aqueous.api.moveWindowToWorkspace(drag.handle, target.id, target.workspace_number)) return;
 
     if (drag.layout_floating) {
-        if (aqueous.layout_states.getPtr(drag.layout_key)) |source_state| {
-            layout_engine.forgetWindow(source_state, drag.handle);
-        }
-        if (aqueous.layout_states.getPtr(target_key)) |target_state| {
+        if (target_layout_state) |target_state| {
+            layout_engine.commitFloatingTransfer(target_state, drag.handle);
             layout_engine.setFloatingGeometry(util.gpa, target_state, drag.handle, geometry) catch
                 log.err("out of memory transferring floating-layout geometry", .{});
         }
@@ -1119,6 +1129,7 @@ fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
 fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     const colon = std.mem.indexOfScalar(u8, value, ':');
     const action = if (colon) |index| value[0..index] else value;
+    const argument = if (colon) |index| std.mem.trim(u8, value[index + 1 ..], " \t") else "";
     if (std.mem.eql(u8, action, "toggle_start_menu")) return aqueous.spawn(aqueous.config.actions.toggle_start_menu.slice());
     if (std.mem.eql(u8, action, "spawn_terminal")) return aqueous.spawn(aqueous.config.actions.spawn_terminal.slice());
     if (std.mem.eql(u8, action, "screenshot")) return aqueous.spawn(aqueous.config.actions.screenshot.slice());
@@ -1151,6 +1162,14 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "focus_output_right")) return aqueous.focusOutput(1, false);
     if (std.mem.eql(u8, action, "move_to_output_left")) return aqueous.focusOutput(-1, true);
     if (std.mem.eql(u8, action, "move_to_output_right")) return aqueous.focusOutput(1, true);
+    if (std.mem.eql(u8, action, "focus_composable")) {
+        if (parseComposableSlot(argument)) |slot| aqueous.focusComposableSlot(slot);
+        return;
+    }
+    if (std.mem.eql(u8, action, "move_to_composable")) {
+        if (parseComposableSlot(argument)) |slot| aqueous.moveToComposableSlot(slot);
+        return;
+    }
     if (std.mem.eql(u8, action, "cycle_focus")) return aqueous.cycleFocus(1);
     if (std.mem.eql(u8, action, "focus_left")) return aqueous.directionalFocus(-1, 0);
     if (std.mem.eql(u8, action, "focus_right")) return aqueous.directionalFocus(1, 0);
@@ -1186,6 +1205,13 @@ fn parseIndexed(action: []const u8, prefix: []const u8) ?u32 {
     if (!std.mem.startsWith(u8, action, prefix)) return null;
     const number = std.fmt.parseInt(u32, action[prefix.len..], 10) catch return null;
     return if (number >= 1 and number <= 9) number else null;
+}
+
+fn parseComposableSlot(value: []const u8) ?u8 {
+    if (value.len != 1) return null;
+    if (value[0] >= 'a' and value[0] <= 'd') return value[0] - 'a';
+    if (value[0] >= '1' and value[0] <= '4') return value[0] - '1';
+    return null;
 }
 
 pub fn toggleOverview(aqueous: *Aqueous) void {
@@ -1498,13 +1524,35 @@ fn directionalFocus(aqueous: *Aqueous, dx: i32, dy: i32) void {
     if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| aqueous.requestFocus(target);
 }
 
+fn focusComposableSlot(aqueous: *Aqueous, slot: u8) void {
+    const context = aqueous.api.workspaceContext() orelse return;
+    const state = aqueous.layout_states.getPtr(.{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    }) orelse return;
+    const target = layout_engine.focusComposableSlot(state, slot) orelse return;
+    aqueous.requestFocus(target);
+}
+
+fn moveToComposableSlot(aqueous: *Aqueous, slot: u8) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    if (context.window.policy_state.kind != .tiled) return;
+    const state = aqueous.layout_states.getPtr(.{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    }) orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    if (!layout_engine.moveToComposableSlot(state, handle, slot)) return;
+    aqueous.api.requestManageCycle();
+}
+
 fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     if (context.window.policy_state.kind != .tiled) return;
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
-    if (state.active_layout == .scrolling or state.active_layout == .game_mode) {
+    if (layout_engine.usesSpecialMove(state, handle)) {
         if (!(layout_engine.moveScrolling(util.gpa, state, handle, dx, dy) catch {
             log.err("out of memory moving layout member", .{});
             return;
@@ -1601,10 +1649,11 @@ fn toggleFloating(aqueous: *Aqueous) void {
     const box = context.window.box;
     const geometry: layout_types.Rect = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
 
-    // In a floating workspace, toggling on creates a deliberate per-window
-    // overlay which remains floating after a later layout switch. Toggling off
-    // returns the window to workspace ownership at its latest rectangle.
-    if (aqueous.layoutIsFloating(key)) {
+    // In a standalone or composable-child floating layout, toggling on creates
+    // a deliberate per-window overlay which remains floating after a later
+    // layout switch. Toggling off returns the window to workspace ownership at
+    // its latest rectangle.
+    if (aqueous.windowUsesFloatingLayout(key, handle)) {
         const layout_state = aqueous.layout_states.getPtr(key) orelse return;
         layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, geometry) catch return;
     }
@@ -1700,7 +1749,7 @@ pub fn setActiveWorkspaceLayout(
     const workspace = output.policyActiveWorkspaceNumber();
     if (workspace == 0) return .unavailable;
     const key: LayoutStateKey = .{ .output = output.policyId(), .workspace = workspace };
-    if (aqueous.layout_states.getPtr(key)) |state| state.game_mode.rule_layout_owned = false;
+    if (aqueous.layout_states.getPtr(key)) |state| layout_engine.gameModeState(state).rule_layout_owned = false;
     aqueous.layout_overrides.put(util.gpa, key, id) catch return .unavailable;
     aqueous.api.requestManageCycle();
     return .success;
@@ -1709,7 +1758,7 @@ pub fn setActiveWorkspaceLayout(
 fn setLayoutId(aqueous: *Aqueous, id: layout_config.LayoutId) void {
     const context = aqueous.api.focusedContext() orelse return;
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
-    if (aqueous.layout_states.getPtr(key)) |state| state.game_mode.rule_layout_owned = false;
+    if (aqueous.layout_states.getPtr(key)) |state| layout_engine.gameModeState(state).rule_layout_owned = false;
     aqueous.layout_overrides.put(util.gpa, key, id) catch return;
     aqueous.api.requestManageCycle();
 }
@@ -1720,16 +1769,21 @@ fn layoutIsFloating(aqueous: *const Aqueous, key: LayoutStateKey) bool {
     return aqueous.config.layout.default == .floating;
 }
 
+fn windowUsesFloatingLayout(aqueous: *const Aqueous, key: LayoutStateKey, handle: layout_types.Handle) bool {
+    if (aqueous.layout_states.get(key)) |state| return layout_engine.usesFloatingLayout(&state, handle);
+    return aqueous.layoutIsFloating(key);
+}
+
 fn clientWindowUsesFloatingLayout(
     aqueous: *const Aqueous,
     handle: layout_types.Handle,
 ) bool {
     if (!aqueous.mode.runsInternal()) return false;
     const workspace = aqueous.api.windowWorkspace(handle) orelse return false;
-    return aqueous.layoutIsFloating(.{
+    return aqueous.windowUsesFloatingLayout(.{
         .output = workspace.output_id,
         .workspace = workspace.workspace_number,
-    });
+    }, handle);
 }
 
 pub fn clientMinimizeAllowed(
@@ -2155,6 +2209,7 @@ fn ruleLayout(id: Rules.Layout) layout_config.LayoutId {
         .scrolling => .scrolling,
         .floating => .floating,
         .game_mode => .game_mode,
+        .composable => .composable,
     };
 }
 
@@ -2240,7 +2295,7 @@ fn ruleRemainder(id: Rules.Layout) game_mode.Remainder {
     return switch (id) {
         .tile => .tile,
         .monocle => .monocle,
-        .grid, .game_mode => .grid,
+        .grid, .game_mode, .composable => .grid,
         .rows => .rows,
         .dwindle => .dwindle,
         .scrolling => .scrolling,
@@ -2277,4 +2332,15 @@ test "pending focus drives the transaction before seat focus commits" {
         @as(?layout_types.Handle, 11),
         transactionFocus(null, 11),
     );
+}
+
+test "composable action slots accept names and numeric aliases" {
+    try std.testing.expectEqual(layout_config.LayoutId.composable, parseLayoutName("composable").?);
+    try std.testing.expectEqualStrings("composable", layoutName(.composable));
+    try std.testing.expectEqual(@as(?u8, 0), parseComposableSlot("a"));
+    try std.testing.expectEqual(@as(?u8, 3), parseComposableSlot("d"));
+    try std.testing.expectEqual(@as(?u8, 0), parseComposableSlot("1"));
+    try std.testing.expectEqual(@as(?u8, 3), parseComposableSlot("4"));
+    try std.testing.expectEqual(@as(?u8, null), parseComposableSlot("e"));
+    try std.testing.expectEqual(@as(?u8, null), parseComposableSlot("10"));
 }

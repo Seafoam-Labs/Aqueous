@@ -38,6 +38,7 @@ pub const Layout = enum {
     scrolling,
     floating,
     game_mode,
+    composable,
 };
 
 pub const Rule = struct {

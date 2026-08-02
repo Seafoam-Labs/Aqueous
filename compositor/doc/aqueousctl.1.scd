@@ -56,9 +56,9 @@ output-scoped active-workspace layout change.
 
 *layout --output NAME --set LAYOUT --json*
 	Immediately change that output's active workspace to *tile*, *monocle*,
-	*grid*, *rows*, *dwindle*, *scrolling*, *float*, or *game-mode*, then print
-	the resulting state. This creates a runtime override and does not edit
-	configuration files.
+	*grid*, *rows*, *dwindle*, *scrolling*, *float*, *game-mode*, or
+	*composable*, then print the resulting state. This creates a runtime override
+	and does not edit configuration files.
 
 # SECURITY
 

@@ -36,6 +36,7 @@ local workspaceLayouts = {
 	{ value = "scrolling", label = "Scrolling" },
 	{ value = "float", label = "Float" },
 	{ value = "game-mode", label = "Game Mode" },
+	{ value = "composable", label = "Composable" },
 }
 local panelOutput = ""
 local workspaceLayout = ""

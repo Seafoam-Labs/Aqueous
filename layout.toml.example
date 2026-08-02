@@ -29,7 +29,7 @@
 [layout]
 # Layout used when there is no runtime, output, or workspace override.
 # Accepted: tile | monocle | grid | rows | dwindle | scrolling | float |
-#           floating | game-mode | game_mode
+#           floating | game-mode | game_mode | composable
 default = "tile"
 
 # Common geometry applied to every layout. Layout-specific sections below can
@@ -64,10 +64,50 @@ tertiary   = "monocle"
 quaternary = "grid"
 
 # -----------------------------------------------------------------------------
+# Composable regions
+# -----------------------------------------------------------------------------
+# Optional. Select `composable` as the default, a slot, or a workspace/output
+# layout to divide that workspace into as many as four independent layouts.
+# Region names are fixed: a, b, c, and d. Unconfigured regions are disabled.
+#
+# Points are normalized [x, y] coordinates in the strut-adjusted usable output:
+# p1 = top-left, p2 = top-right, p3 = bottom-right, p4 = bottom-left. The four
+# points must describe a non-zero, axis-aligned rectangle in clockwise order.
+# Regions may touch and may leave unused space, but must not overlap. Invalid or
+# incomplete region configuration makes `composable` fall back to full-area
+# `tile` placement.
+#
+# Child layouts may be tile, monocle, grid, rows, dwindle, scrolling, or float.
+# game-mode and composable cannot be nested. Each child retains independent
+# ordering, scrolling, and floating state. A region is active whenever one of
+# its windows has focus, and newly managed windows join that active region.
+
+[layout.composable.a]
+layout = "tile"
+p1 = [0.0, 0.0]
+p2 = [0.5, 0.0]
+p3 = [0.5, 1.0]
+p4 = [0.0, 1.0]
+
+[layout.composable.b]
+layout = "scrolling"
+p1 = [0.5, 0.0]
+p2 = [1.0, 0.0]
+p3 = [1.0, 1.0]
+p4 = [0.5, 1.0]
+
+# Optional custom actions in wm.toml can target a region directly:
+# [keybinds.custom]
+# "Super+Alt+1"       = "builtin:focus_composable:a"
+# "Super+Alt+Shift+1" = "builtin:move_to_composable:a"
+# Region arguments also accept b/c/d or their numeric aliases 1/2/3/4.
+
+# -----------------------------------------------------------------------------
 # Per-layout options
 # -----------------------------------------------------------------------------
-# Every [layout.options.<id>] section accepts the eight common geometry/border
-# keys from [layout]: gaps_outer, gaps_inner, master_ratio, master_count,
+# Every [layout.options.<leaf-id>] section accepts the eight common
+# geometry/border keys from [layout]: gaps_outer, gaps_inner, master_ratio,
+# master_count,
 # border_width, border_focused, border_normal, and border_urgent.
 # Unknown options are ignored; there is no generic Extra option map.
 

@@ -155,8 +155,12 @@ fn appendValidLayer(
 }
 
 fn applyGameMode(options: *Engine.GameMode, key: []const u8, value: []const u8) void {
-    if (std.mem.eql(u8, key, "remainder_layout")) options.remainder_layout = parseLayout(value) orelse options.remainder_layout;
-    if (std.mem.eql(u8, key, "fallback_layout")) options.fallback_layout = parseLayout(value) orelse options.fallback_layout;
+    if (std.mem.eql(u8, key, "remainder_layout")) if (parseLayout(value)) |layout| {
+        if (layout != .game_mode and layout != .composable) options.remainder_layout = layout;
+    };
+    if (std.mem.eql(u8, key, "fallback_layout")) if (parseLayout(value)) |layout| {
+        if (layout != .game_mode and layout != .composable) options.fallback_layout = layout;
+    };
     if (std.mem.eql(u8, key, "gaps_inner")) {
         const parsed = std.fmt.parseInt(i32, value, 10) catch return;
         if (parsed >= 0) options.gaps_inner = parsed;
@@ -205,6 +209,7 @@ fn parseLayout(value: []const u8) ?Engine.Layout {
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
+    if (std.mem.eql(u8, value, "composable")) return .composable;
     return null;
 }
 
@@ -305,4 +310,21 @@ test "rules parser preserves order and parses native placement behavior" {
     const panel = engine.resolveLayer("panel-main").?;
     try std.testing.expect(panel.blur);
     try std.testing.expect(panel.blur_popups);
+}
+
+test "rules accept composable workspaces but reject it as a game-mode child" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[game_mode]
+        \\remainder_layout = "composable"
+        \\fallback_layout = "game-mode"
+        \\[[window]]
+        \\app_id = "editor"
+        \\layout = "composable"
+    );
+
+    try std.testing.expectEqual(Engine.Layout.composable, engine.resolve(.{ .app_id = "editor" }).?.layout.?);
+    try std.testing.expectEqual(Engine.Layout.grid, engine.game_mode.remainder_layout);
+    try std.testing.expectEqual(Engine.Layout.grid, engine.game_mode.fallback_layout);
 }

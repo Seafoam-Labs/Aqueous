@@ -1,6 +1,6 @@
 # Layouts
 
-Aqueous ships eight in-process layout engines:
+Aqueous ships nine in-process layout modes:
 
 - `tile` — master/stack tiling.
 - `monocle` — one window fills the usable area.
@@ -10,6 +10,8 @@ Aqueous ships eight in-process layout engines:
 - `scrolling` — horizontally scrolling columns.
 - `float` — free placement using remembered/native geometry.
 - `game-mode` — an anchor window with remaining windows arranged beside it.
+- `composable` — up to four independently stateful layouts assigned to fixed
+  monitor regions.
 
 The global default and shared options can be placed in `wm.toml` or the
 optional `layout.toml` overlay. `layout.toml.example` documents discovery,
@@ -42,6 +44,66 @@ are applied by the native manage cycle.
 The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
+
+## Composable layouts
+
+The composable layout divides the strut-adjusted usable monitor area into one
+to four named regions, `a` through `d`. Each region selects a leaf layout and a
+rectangle described by four normalized `[x, y]` points:
+
+```toml
+[layout]
+default = "composable"
+
+[layout.composable.a]
+layout = "tile"
+p1 = [0.0, 0.0] # top-left
+p2 = [0.5, 0.0] # top-right
+p3 = [0.5, 1.0] # bottom-right
+p4 = [0.0, 1.0] # bottom-left
+
+[layout.composable.b]
+layout = "scrolling"
+p1 = [0.5, 0.0]
+p2 = [1.0, 0.0]
+p3 = [1.0, 1.0]
+p4 = [0.5, 1.0]
+```
+
+Coordinates range from `0.0` to `1.0` relative to the usable area, so the
+configuration follows output resolution and scale changes. Points must be in
+clockwise top-left, top-right, bottom-right, bottom-left order and describe a
+non-zero axis-aligned rectangle. Regions may touch or leave gaps, but cannot
+overlap. Arbitrary quadrilaterals are not accepted because Aqueous placement
+and clipping operate on rectangles. If any configured region is incomplete or
+invalid, composable mode safely falls back to `tile` over the whole usable
+area.
+
+A region may use `tile`, `monocle`, `grid`, `rows`, `dwindle`, `scrolling`, or
+`float`. Recursive `composable` children and `game-mode` children are rejected.
+Each region owns independent order, scrolling viewport, and floating geometry.
+Child gaps and borders come from that child layout's existing
+`[layout.options.<id>]` section.
+
+A composable region is considered focused whenever any window assigned to it
+has keyboard focus. That region becomes active, and newly managed windows join
+it. Membership persists across rearrangement and focus changes. Pointer and
+scrolling operations are delegated to the member's child layout; dropping a
+window on a different region exchanges the two windows' region membership.
+Floating child windows are constrained to their region.
+
+Custom bindings can focus the last-focused window in a region or move the
+focused tiled window into one:
+
+```toml
+[keybinds.custom]
+"Super+Alt+1"       = "builtin:focus_composable:a"
+"Super+Alt+Shift+1" = "builtin:move_to_composable:a"
+```
+
+The action argument accepts `a` through `d`, with `1` through `4` as aliases.
+An empty region has no focus target. Moving a window into a region makes that
+region active and requests an immediate rearrangement.
 
 ## Scrolling columns
 
