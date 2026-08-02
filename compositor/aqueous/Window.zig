@@ -2211,13 +2211,16 @@ fn drawBorderNodes(
         @floatCast(@as(f64, @floatFromInt(border.a)) / math.maxInt(u32)),
     };
 
-    // A set_clip_box can cut through any side of the outline. Keep that path
-    // square: rounding the newly clipped edge would create a corner at the clip
-    // boundary rather than preserve the window's original corner. A single
-    // clipped ring also represents all four edges, so selective borders use the
-    // edge-node fallback below.
+    // A clip which contains the complete outline is only a viewport aperture;
+    // it must not disable the window's real rounded corners. When the aperture
+    // cuts the outline, keep the new cut edge square rather than inventing a
+    // corner there. Selective borders also use the edge-node fallback below.
     const rounded = border.corner_radius > 0 and
-        clip.empty() and
+        visual_state.clipContainsOutline(
+            .{ .x = content.x, .y = content.y, .width = content.width, .height = content.height },
+            .{ .x = clip.x, .y = clip.y, .width = clip.width, .height = clip.height },
+            border.width,
+        ) and
         border.edges.top and
         border.edges.right and
         border.edges.bottom and
