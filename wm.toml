@@ -242,6 +242,8 @@ reload_config         = "Super+R"          # immediately reload all TOML snapsho
 #   monocle           → reorder in z-stack
 #   game-mode         → delegate to the active remainder engine; a scrolling
 #                       remainder joins columns like scrolling (anchor immovable)
+#   composable        → delegate to the focused window's configured child;
+#                       cross-region drops exchange region membership
 #   float             → no-op (use rules.toml / future nudge_floating_*)
 move_window_left      = "Super+Shift+Left"   # default
 move_window_right     = "Super+Shift+Right"  # default
@@ -329,9 +331,13 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child
 #   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
-#                             dwindle, scrolling, float/floating, game-mode;
+#                             dwindle, scrolling, float/floating, game-mode,
+#                             composable;
 #                             slots are primary..quaternary
 #   builtin:<action_name>   — invoke any canonical [keybinds] action name
+#   builtin:focus_composable:<a-d>   — focus the last-focused member of a region
+#   builtin:move_to_composable:<a-d> — move the focused tiled window to a region
+#                                      (1-4 are aliases for a-d)
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
@@ -359,6 +365,9 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # "Super+Alt+R"        = "set_layout:rows"
 # "Super+Alt+D"        = "set_layout:dwindle"
 # "Super+Alt+V"        = "set_layout:game-mode"
+# "Super+Alt+C"        = "set_layout:composable"
+# "Super+Alt+1"        = "builtin:focus_composable:a"
+# "Super+Alt+Shift+1"  = "builtin:move_to_composable:a"
 
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"

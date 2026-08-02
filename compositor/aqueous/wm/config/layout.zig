@@ -13,17 +13,58 @@ pub const LayoutId = enum {
     scrolling,
     floating,
     game_mode,
+    composable,
+};
+
+pub const layout_count = std.meta.fields(LayoutId).len;
+pub const max_composable_regions = 4;
+
+/// Normalized coordinate in the strut-adjusted usable output area.
+pub const Point = struct {
+    x: f64 = 0,
+    y: f64 = 0,
+};
+
+pub const CompositeRegion = struct {
+    layout: LayoutId = .tile,
+    layout_set: bool = false,
+    /// Clockwise top-left, top-right, bottom-right, and bottom-left corners.
+    points: [4]Point = .{ .{}, .{}, .{}, .{} },
+    point_set: [4]bool = .{ false, false, false, false },
+
+    pub fn configured(region: *const CompositeRegion) bool {
+        if (region.layout_set) return true;
+        for (region.point_set) |set| if (set) return true;
+        return false;
+    }
+
+    pub fn valid(region: *const CompositeRegion) bool {
+        if (!region.layout_set or region.layout == .composable or region.layout == .game_mode) return false;
+        for (region.point_set) |set| if (!set) return false;
+        const p1 = region.points[0];
+        const p2 = region.points[1];
+        const p3 = region.points[2];
+        const p4 = region.points[3];
+        for (region.points) |point| {
+            if (!std.math.isFinite(point.x) or !std.math.isFinite(point.y)) return false;
+            if (point.x < 0 or point.x > 1 or point.y < 0 or point.y > 1) return false;
+        }
+        return p1.x < p2.x and p1.y < p4.y and
+            approximatelyEqual(p1.y, p2.y) and approximatelyEqual(p2.x, p3.x) and
+            approximatelyEqual(p3.y, p4.y) and approximatelyEqual(p4.x, p1.x);
+    }
 };
 
 pub const Snapshot = struct {
     default: LayoutId = .tile,
     slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
-    options: [8]types.Options = [_]types.Options{.{ .border = .{
+    options: [layout_count]types.Options = [_]types.Options{.{ .border = .{
         .width = 2,
         .focused = 0xFF88C0D0,
         .normal = 0xFF3B4252,
         .urgent = 0xFFBF616A,
-    } }} ** 8,
+    } }} ** layout_count,
+    composable: [max_composable_regions]CompositeRegion = .{ .{}, .{}, .{}, .{} },
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
@@ -38,6 +79,27 @@ pub const Snapshot = struct {
     pub fn layoutOptions(snapshot: *const Snapshot, id: LayoutId) types.Options {
         return snapshot.options[@intFromEnum(id)];
     }
+
+    pub fn composableValid(snapshot: *const Snapshot) bool {
+        var count: usize = 0;
+        for (snapshot.composable, 0..) |region, index| {
+            if (!region.configured()) continue;
+            if (!region.valid()) return false;
+            count += 1;
+            for (snapshot.composable[0..index]) |prior| {
+                if (prior.configured() and regionsOverlap(prior, region)) return false;
+            }
+        }
+        return count > 0;
+    }
+
+    pub fn firstComposableRegion(snapshot: *const Snapshot) ?u8 {
+        if (!snapshot.composableValid()) return null;
+        for (snapshot.composable, 0..) |region, index| {
+            if (region.configured()) return @intCast(index);
+        }
+        return null;
+    }
 };
 
 const Section = union(enum) {
@@ -45,6 +107,7 @@ const Section = union(enum) {
     layout,
     slots,
     options: LayoutId,
+    composable: usize,
 };
 
 /// Apply a validated TOML overlay to a snapshot. Unknown sections and keys are
@@ -68,6 +131,7 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
             .layout => applyLayout(snapshot, key, value),
             .slots => applySlot(snapshot, key, value),
             .options => |id| applyOptions(snapshot, id, key, value),
+            .composable => |index| applyComposable(&snapshot.composable[index], key, value),
         }
     }
 }
@@ -75,11 +139,33 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
 fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "layout")) return .layout;
     if (std.mem.eql(u8, name, "layout.slots")) return .slots;
+    const composable_prefix = "layout.composable.";
+    if (std.mem.startsWith(u8, name, composable_prefix)) {
+        const slot = name[composable_prefix.len..];
+        if (slot.len == 1 and slot[0] >= 'a' and slot[0] <= 'd') {
+            return .{ .composable = slot[0] - 'a' };
+        }
+    }
     const prefix = "layout.options.";
     if (std.mem.startsWith(u8, name, prefix)) {
         if (parseLayoutId(name[prefix.len..])) |id| return .{ .options = id };
     }
     return .none;
+}
+
+fn applyComposable(region: *CompositeRegion, key: []const u8, value: []const u8) void {
+    if (std.mem.eql(u8, key, "layout")) {
+        const id = parseLayoutId(unquote(value)) orelse return;
+        if (id == .composable or id == .game_mode) return;
+        region.layout = id;
+        region.layout_set = true;
+        return;
+    }
+    if (key.len != 2 or key[0] != 'p' or key[1] < '1' or key[1] > '4') return;
+    const point = parsePoint(value) orelse return;
+    const index: usize = key[1] - '1';
+    region.points[index] = point;
+    region.point_set[index] = true;
 }
 
 fn applySlot(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
@@ -148,7 +234,30 @@ fn parseLayoutId(value: []const u8) ?LayoutId {
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
+    if (std.mem.eql(u8, value, "composable")) return .composable;
     return null;
+}
+
+fn parsePoint(value: []const u8) ?Point {
+    const plain = std.mem.trim(u8, value, " \t");
+    if (plain.len < 5 or plain[0] != '[' or plain[plain.len - 1] != ']') return null;
+    const body = plain[1 .. plain.len - 1];
+    const comma = std.mem.indexOfScalar(u8, body, ',') orelse return null;
+    if (std.mem.indexOfScalar(u8, body[comma + 1 ..], ',') != null) return null;
+    const x = std.fmt.parseFloat(f64, std.mem.trim(u8, body[0..comma], " \t")) catch return null;
+    const y = std.fmt.parseFloat(f64, std.mem.trim(u8, body[comma + 1 ..], " \t")) catch return null;
+    if (!std.math.isFinite(x) or !std.math.isFinite(y) or x < 0 or x > 1 or y < 0 or y > 1) return null;
+    return .{ .x = x, .y = y };
+}
+
+fn approximatelyEqual(a: f64, b: f64) bool {
+    return @abs(a - b) <= 0.000000001;
+}
+
+fn regionsOverlap(a: CompositeRegion, b: CompositeRegion) bool {
+    if (!a.valid() or !b.valid()) return false;
+    return a.points[0].x < b.points[2].x and a.points[2].x > b.points[0].x and
+        a.points[0].y < b.points[2].y and a.points[2].y > b.points[0].y;
 }
 
 fn parseNonNegative(value: []const u8) ?i32 {
@@ -246,4 +355,85 @@ test "layout sidecar overlay wins and malformed values retain validated base" {
     try std.testing.expectEqual(@as(i32, 7), snapshot.layoutOptions(.tile).gaps_inner);
     try std.testing.expectEqual(@as(f64, 0.65), snapshot.layoutOptions(.tile).master_ratio);
     try std.testing.expectEqual(@as(i32, 3), snapshot.layoutOptions(.grid).gaps_inner);
+}
+
+test "composable config accepts non-overlapping normalized rectangles" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout]
+        \\default = "composable"
+        \\[layout.composable.a]
+        \\layout = "tile"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.5, 0.0]
+        \\p3 = [0.5, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "scrolling"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+
+    try std.testing.expectEqual(LayoutId.composable, snapshot.default);
+    try std.testing.expect(snapshot.composableValid());
+    try std.testing.expectEqual(@as(?u8, 0), snapshot.firstComposableRegion());
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.composable[1].layout);
+    try std.testing.expectEqual(@as(f64, 0.5), snapshot.composable[1].points[0].x);
+}
+
+test "composable config rejects overlap incomplete slots and recursive children" {
+    var overlapping: Snapshot = .{};
+    apply(&overlapping,
+        \\[layout.composable.a]
+        \\layout = "tile"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.75, 0.0]
+        \\p3 = [0.75, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "rows"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+    try std.testing.expect(!overlapping.composableValid());
+
+    var incomplete: Snapshot = .{};
+    apply(&incomplete,
+        \\[layout.composable.a]
+        \\layout = "tile"
+        \\p1 = [0.0, 0.0]
+    );
+    try std.testing.expect(!incomplete.composableValid());
+
+    var recursive: Snapshot = .{};
+    apply(&recursive,
+        \\[layout.composable.a]
+        \\layout = "composable"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.0, 1.0]
+    );
+    try std.testing.expect(!recursive.composableValid());
+}
+
+test "composable sidecar can complete a base slot one field at a time" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout.composable.a]
+        \\layout = "rows"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [1.0, 0.0]
+    );
+    apply(&snapshot,
+        \\[layout.composable.a]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.0, 1.0]
+    );
+    try std.testing.expect(snapshot.composableValid());
+    try std.testing.expectEqual(LayoutId.rows, snapshot.composable[0].layout);
 }

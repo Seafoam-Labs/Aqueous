@@ -29,6 +29,7 @@ jq -e '
   .ok == true and
   .protocol == 1 and
   (.fields | length) >= 130 and
+  (.fields[] | select(.id == "layout.default") | .options | index("composable") != null) and
   (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
   (.fields[] | select(.id == "reload_rules") | .value == ["Super+Shift+R"]) and
   (.fields[] | select(.id == "display.apply_on_reload") | .value == true and .inherited == true and .file == "outputs") and

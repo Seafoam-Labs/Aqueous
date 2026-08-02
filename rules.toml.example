@@ -43,7 +43,7 @@ gaps_inner = 8             # integer >= 0
 #
 # Layout/state:
 #   layout          tile | monocle | grid | rows | dwindle | scrolling |
-#                   float | floating | game-mode | game_mode
+#                   float | floating | game-mode | game_mode | composable
 #   workspace       1-based workspace number
 #   floating        true/false; enables floating placement independently of
 #                   layout (layout="float" also sets floating=true)

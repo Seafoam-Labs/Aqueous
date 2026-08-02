@@ -571,6 +571,24 @@ test "layout sidecar applies workspace mappings as well as layout engines" {
     try std.testing.expectEqual(layout.LayoutId.tile, snapshot.wm.resolveWorkspace(null, 3).?);
 }
 
+test "layout sidecar retains composable region tables" {
+    var snapshot: Snapshot = .{};
+    applyLayoutSource(&snapshot,
+        \\[layout]
+        \\default = "composable"
+        \\[layout.composable.a]
+        \\layout = "rows"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.0, 1.0]
+    );
+
+    try std.testing.expectEqual(layout.LayoutId.composable, snapshot.layout.default);
+    try std.testing.expect(snapshot.layout.composableValid());
+    try std.testing.expectEqual(layout.LayoutId.rows, snapshot.layout.composable[0].layout);
+}
+
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
     const io = std.Io.Threaded.global_single_threaded.io();
     return std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, allocator, .limited(max_config_bytes)) catch |err| switch (err) {

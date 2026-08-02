@@ -2,180 +2,109 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
+const composable = @import("composable.zig");
 const config = @import("../config/layout.zig");
-const dwindle = @import("dwindle.zig");
-const floating = @import("floating.zig");
 const game_mode = @import("game_mode.zig");
-const grid = @import("grid.zig");
-const monocle = @import("monocle.zig");
-const rows = @import("rows.zig");
-const scrolling = @import("scrolling.zig");
-const tile = @import("tile.zig");
+const leaf = @import("leaf.zig");
 const types = @import("types.zig");
 
 pub const State = struct {
     active_layout: config.LayoutId = .tile,
-    tile: tile.State = .{},
-    monocle: monocle.State = .{},
-    grid: grid.State = .{},
-    rows: rows.State = .{},
-    dwindle: dwindle.State = .{},
-    scrolling: scrolling.State = .{},
-    floating: floating.State = .{},
-    game_mode: game_mode.State = .{},
+    standalone: leaf.State = .{},
+    composite: composable.State = .{},
 
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
-        state.tile.deinit(allocator);
-        state.monocle.deinit(allocator);
-        state.grid.deinit(allocator);
-        state.rows.deinit(allocator);
-        state.dwindle.deinit(allocator);
-        state.scrolling.deinit(allocator);
-        state.floating.deinit(allocator);
-        state.game_mode.deinit(allocator);
+        state.standalone.deinit(allocator);
+        state.composite.deinit(allocator);
     }
 };
 
 pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const config.Snapshot, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, game_options: game_mode.Options) ![]types.Placement {
     const id = snapshot.default;
     state.active_layout = id;
-    const options = snapshot.layoutOptions(id);
-    return switch (id) {
-        .tile => tile.arrange(allocator, &state.tile, area, windows, options),
-        .monocle => monocle.arrange(allocator, &state.monocle, area, windows, focused, options, .{
-            .hide_others = snapshot.monocle_hide_others,
-            .show_borders = snapshot.monocle_show_borders,
-        }),
-        .grid => grid.arrange(allocator, &state.grid, area, windows, options),
-        .rows => rows.arrange(allocator, &state.rows, area, windows, options),
-        .dwindle => dwindle.arrange(allocator, &state.dwindle, area, windows, options, .{
-            .start_vertical = snapshot.dwindle_start_vertical,
-            .split_ratio = snapshot.dwindle_split_ratio,
-        }),
-        .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{
-            .column_width = snapshot.scrolling_column_fraction,
-            .center_focused = snapshot.scrolling_center_focused,
-            .follow_new_windows = snapshot.scrolling_follow_new,
-            .snap_to_columns = snapshot.scrolling_snap,
-            .allow_overscroll = snapshot.scrolling_overscroll,
-        }),
-        .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),
-        .game_mode => game_mode.arrange(allocator, &state.game_mode, area, windows, focused, options, game_options),
-    };
+    return if (id == .composable)
+        composable.arrange(allocator, &state.composite, snapshot, area, windows, focused, game_options)
+    else
+        leaf.arrange(allocator, &state.standalone, id, snapshot, area, windows, focused, game_options);
 }
 
 /// Swap two tiled windows in every initialized layout order. Keeping dormant
 /// orders synchronized makes a pointer reorder survive layout switches.
 pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
-    var changed = false;
-    if (state.tile.order.swap(a, b)) changed = true;
-    if (state.monocle.order.swap(a, b)) changed = true;
-    if (state.grid.order.swap(a, b)) changed = true;
-    if (state.rows.order.swap(a, b)) changed = true;
-    if (state.dwindle.order.swap(a, b)) changed = true;
-    if (scrolling.swap(&state.scrolling, a, b)) changed = true;
-    if (game_mode.swap(&state.game_mode, a, b)) changed = true;
-    return changed;
+    return if (state.active_layout == .composable)
+        composable.swap(&state.composite, a, b)
+    else
+        leaf.swap(&state.standalone, a, b);
 }
 
 pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, target: types.Handle, zone: types.DropZone) !bool {
-    if (state.active_layout != .scrolling) return swap(state, dragged, target);
-    if (!try scrolling.drop(&state.scrolling, allocator, dragged, target, zone)) return false;
-    try projectScrollingOrder(allocator, state);
-    return true;
+    return if (state.active_layout == .composable)
+        composable.drop(allocator, &state.composite, dragged, target, zone)
+    else
+        leaf.drop(allocator, &state.standalone, dragged, target, zone);
 }
 
 pub fn consumeWindowIntoColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle) !bool {
-    if (state.active_layout != .scrolling) return false;
-    if (!try scrolling.consumeFromRight(&state.scrolling, allocator, focused)) return false;
-    try projectScrollingOrder(allocator, state);
-    return true;
+    return if (state.active_layout == .composable)
+        composable.consumeWindowIntoColumn(allocator, &state.composite, focused)
+    else
+        leaf.consumeWindowIntoColumn(allocator, &state.standalone, focused);
 }
 
 pub fn expelWindowFromColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle) !bool {
-    if (state.active_layout != .scrolling) return false;
-    if (!try scrolling.expelToRight(&state.scrolling, allocator, focused)) return false;
-    try projectScrollingOrder(allocator, state);
-    return true;
+    return if (state.active_layout == .composable)
+        composable.expelWindowFromColumn(allocator, &state.composite, focused)
+    else
+        leaf.expelWindowFromColumn(allocator, &state.standalone, focused);
 }
 
 pub fn moveScrolling(allocator: std.mem.Allocator, state: *State, focused: types.Handle, dx: i32, dy: i32) !bool {
-    const changed = switch (state.active_layout) {
-        .scrolling => if (dx != 0)
-            try scrolling.moveToAdjacentColumn(&state.scrolling, allocator, focused, dx)
-        else
-            scrolling.moveWithinColumn(&state.scrolling, focused, dy),
-        .game_mode => try game_mode.moveWindow(&state.game_mode, allocator, focused, dx, dy),
-        else => return false,
-    };
-    if (!changed) return false;
-    if (state.active_layout == .scrolling) try projectScrollingOrder(allocator, state);
-    return true;
+    return if (state.active_layout == .composable)
+        composable.moveScrolling(allocator, &state.composite, focused, dx, dy)
+    else
+        leaf.moveScrolling(allocator, &state.standalone, focused, dx, dy);
 }
 
 pub fn moveScrollingColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle, delta: i32) !bool {
-    if (state.active_layout != .scrolling) return false;
-    if (!scrolling.moveColumn(&state.scrolling, focused, delta)) return false;
-    try projectScrollingOrder(allocator, state);
-    return true;
-}
-
-fn projectScrollingOrder(allocator: std.mem.Allocator, state: *State) !void {
-    const projection = try scrolling.flattened(allocator, &state.scrolling);
-    defer allocator.free(projection);
-    state.tile.order.reorder(projection);
-    state.monocle.order.reorder(projection);
-    state.grid.order.reorder(projection);
-    state.rows.order.reorder(projection);
-    state.dwindle.order.reorder(projection);
+    return if (state.active_layout == .composable)
+        composable.moveScrollingColumn(allocator, &state.composite, focused, delta)
+    else
+        leaf.moveScrollingColumn(allocator, &state.standalone, focused, delta);
 }
 
 pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?types.Handle {
-    return switch (state.active_layout) {
-        .scrolling => blk: {
-            const changed = if (dx != 0)
-                scrolling.scrollViewport(&state.scrolling, dx)
-            else
-                scrolling.scrollColumn(&state.scrolling, focused, dy);
-            break :blk if (changed) scrolling.viewportFocusTarget(&state.scrolling) else null;
-        },
-        .game_mode => if (game_mode.scrollViewport(&state.game_mode, focused, dx, dy))
-            game_mode.viewportFocusTarget(&state.game_mode, focused)
-        else
-            null,
-        else => null,
-    };
+    return if (state.active_layout == .composable)
+        composable.scrollViewport(&state.composite, focused, dx, dy)
+    else
+        leaf.scrollViewport(&state.standalone, focused, dx, dy);
 }
 
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
-    return switch (state.active_layout) {
-        .scrolling => scrolling.containsHandle(&state.scrolling, handle),
-        .game_mode => game_mode.canResizeScrolling(&state.game_mode, handle),
-        else => false,
-    };
+    return if (state.active_layout == .composable)
+        composable.canResizeScrolling(&state.composite, handle)
+    else
+        leaf.canResizeScrolling(&state.standalone, handle);
 }
 
 pub fn isGameAnchor(state: *const State, handle: types.Handle) bool {
-    return state.active_layout == .game_mode and game_mode.isAnchor(&state.game_mode, handle);
+    return if (state.active_layout == .composable)
+        composable.isGameAnchor(&state.composite, handle)
+    else
+        leaf.isGameAnchor(&state.standalone, handle);
 }
 
 pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.Handle {
-    return switch (state.active_layout) {
-        .scrolling => if (scrolling.containsHandle(&state.scrolling, handle))
-            scrolling.expandedOwner(&state.scrolling, handle)
-        else
-            null,
-        .game_mode => game_mode.scrollingExpandedOwner(&state.game_mode, handle),
-        else => null,
-    };
+    return if (state.active_layout == .composable)
+        composable.scrollingExpandedOwner(&state.composite, handle)
+    else
+        leaf.scrollingExpandedOwner(&state.standalone, handle);
 }
 
 pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
-    return switch (state.active_layout) {
-        .scrolling => scrolling.columnMembers(&state.scrolling, handle),
-        .game_mode => game_mode.scrollingColumnMembers(&state.game_mode, handle),
-        else => null,
-    };
+    return if (state.active_layout == .composable)
+        composable.scrollingColumnMembers(&state.composite, handle)
+    else
+        leaf.scrollingColumnMembers(&state.standalone, handle);
 }
 
 pub fn resizeScrolling(
@@ -185,31 +114,84 @@ pub fn resizeScrolling(
     width: i32,
     height: i32,
 ) !bool {
-    return switch (state.active_layout) {
-        .scrolling => scrolling.resize(&state.scrolling, allocator, handle, width, height),
-        .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, width, height),
-        else => false,
-    };
+    return if (state.active_layout == .composable)
+        composable.resizeScrolling(allocator, &state.composite, handle, width, height)
+    else
+        leaf.resizeScrolling(allocator, &state.standalone, handle, width, height);
 }
 
 pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {
-    return switch (state.active_layout) {
-        .scrolling => scrolling.resetSize(&state.scrolling, handle),
-        .game_mode => game_mode.resetScrollingSize(&state.game_mode, handle),
+    return if (state.active_layout == .composable)
+        composable.resetScrollingSize(&state.composite, handle)
+    else
+        leaf.resetScrollingSize(&state.standalone, handle);
+}
+
+pub fn setFloatingGeometry(allocator: std.mem.Allocator, state: *State, handle: types.Handle, geometry: types.Rect) !void {
+    if (state.active_layout == .composable) {
+        try composable.setFloatingGeometry(allocator, &state.composite, handle, geometry);
+    } else {
+        try leaf.setFloatingGeometry(allocator, &state.standalone, handle, geometry);
+    }
+}
+
+pub fn floatingGeometry(state: *const State, handle: types.Handle) ?types.Rect {
+    return if (state.active_layout == .composable)
+        composable.floatingGeometry(&state.composite, handle)
+    else
+        leaf.floatingGeometry(&state.standalone, handle);
+}
+
+pub fn forgetWindow(state: *State, handle: types.Handle) void {
+    leaf.forgetWindow(&state.standalone, handle);
+    composable.forgetWindow(&state.composite, handle);
+}
+
+pub fn layoutForHandle(state: *const State, handle: types.Handle) config.LayoutId {
+    if (state.active_layout != .composable) return state.active_layout;
+    return composable.layoutForHandle(&state.composite, handle) orelse .composable;
+}
+
+pub fn usesFloatingLayout(state: *const State, handle: types.Handle) bool {
+    return layoutForHandle(state, handle) == .floating;
+}
+
+pub fn usesSpecialMove(state: *const State, handle: types.Handle) bool {
+    return switch (layoutForHandle(state, handle)) {
+        .scrolling, .game_mode => true,
         else => false,
     };
 }
 
-pub fn setFloatingGeometry(allocator: std.mem.Allocator, state: *State, handle: types.Handle, geometry: types.Rect) !void {
-    try floating.setGeometry(&state.floating, allocator, handle, geometry);
+pub fn focusComposableSlot(state: *const State, slot: u8) ?types.Handle {
+    if (state.active_layout != .composable) return null;
+    return composable.focusTarget(&state.composite, slot);
 }
 
-pub fn floatingGeometry(state: *const State, handle: types.Handle) ?types.Rect {
-    return floating.geometry(&state.floating, handle);
+pub fn moveToComposableSlot(state: *State, handle: types.Handle, slot: u8) bool {
+    if (state.active_layout != .composable) return false;
+    return composable.moveToSlot(&state.composite, handle, slot);
 }
 
-pub fn forgetWindow(state: *State, handle: types.Handle) void {
-    floating.remove(&state.floating, handle);
+pub fn acceptsFloatingTransfer(state: *const State) bool {
+    return if (state.active_layout == .composable)
+        composable.activeLayout(&state.composite) == .floating
+    else
+        state.active_layout == .floating;
+}
+
+pub fn prepareFloatingTransfer(state: *State, allocator: std.mem.Allocator) !bool {
+    if (!acceptsFloatingTransfer(state)) return false;
+    if (state.active_layout == .composable) return composable.prepareAdmission(&state.composite, allocator);
+    return true;
+}
+
+pub fn commitFloatingTransfer(state: *State, handle: types.Handle) void {
+    if (state.active_layout == .composable) composable.admitToActiveAssumeCapacity(&state.composite, handle);
+}
+
+pub fn gameModeState(state: *State) *game_mode.State {
+    return &state.standalone.game_mode;
 }
 
 test "dispatcher selects the configured engine" {
@@ -236,7 +218,7 @@ test "pointer reorder swaps rows without changing window state" {
     std.testing.allocator.free(initial);
 
     try std.testing.expect(swap(&state, 1, 2));
-    try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.rows.order.items.items);
+    try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.standalone.rows.order.items.items);
 }
 
 test "switching away from scrolling returns unclipped placements" {
@@ -267,11 +249,20 @@ test "all managed layouts advertise tiled placements while floating does not" {
         config.LayoutId.dwindle,
         config.LayoutId.scrolling,
         config.LayoutId.game_mode,
+        config.LayoutId.composable,
     }) |id| {
         var state: State = .{};
         defer state.deinit(std.testing.allocator);
         var snapshot: config.Snapshot = .{};
         snapshot.default = id;
+        if (id == .composable) config.apply(&snapshot,
+            \\[layout.composable.a]
+            \\layout = "tile"
+            \\p1 = [0.0, 0.0]
+            \\p2 = [1.0, 0.0]
+            \\p3 = [1.0, 1.0]
+            \\p4 = [0.0, 1.0]
+        );
         const placements = try arrange(
             std.testing.allocator,
             &state,

@@ -21,8 +21,8 @@ focused window manager. Its defining features are designed as one coherent
 system:
 
 - Switch freely between scrolling, classic tiling, recursive tiling, floating,
-  monocle, grid, rows, and game-focused layouts without replacing the window
-  manager or installing layout extensions.
+  monocle, grid, rows, game-focused, and composable multi-region layouts
+  without replacing the window manager or installing layout extensions.
 - Keep window, workspace, input, rule, and output policy in one typed Zig
   process, configured through validated TOML rather than a collection of
   runtime scripts.
@@ -51,9 +51,10 @@ model; they do not replace it.
   thumbnails of every focusable window on the active workspace—including
   scrolling windows outside the current viewport—then navigate with arrows,
   H/J/K/L, or Tab and confirm without reconfiguring clients.
-- **Eight in-process layouts.** Choose from master/stack `tile`, `monocle`,
+- **Nine in-process layouts.** Choose from master/stack `tile`, `monocle`,
   `grid`, `rows`, recursive `dwindle`, column-based `scrolling`, `floating`, and
-  `game-mode`. Layout selection can vary by output and workspace.
+  `game-mode`, or compose up to four of the standard leaf layouts into fixed
+  monitor regions. Layout selection can vary by output and workspace.
 - **Game Mode that understands the rest of the desktop.** Anchor a game at a
   requested size and position while arranging companion windows with any of the
   standard tiling engines.

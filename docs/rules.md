@@ -61,7 +61,7 @@ matters.
 | `app_id` | string (glob) | one of `app_id` / `class` / `title` must be set | Match `xdg_toplevel.app_id`. |
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
-| `layout` | string | no | Select a built-in layout; `"float"` also marks the window floating. |
+| `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
 | `workspace` | integer | no | Move the window to the numbered workspace. Workspace numbers are 1-based. |
 | `width`, `height` | integer | no | Floating placement dimensions. |

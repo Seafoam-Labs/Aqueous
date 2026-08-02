@@ -71,7 +71,8 @@ pub const Field = struct {
     advanced: bool = false,
 };
 
-const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "scrolling", "float", "game-mode" };
+const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "scrolling", "float", "game-mode", "composable" };
+const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "scrolling", "float" };
 const accel_profiles = &.{ "flat", "adaptive" };
 const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
@@ -154,8 +155,8 @@ pub const fields = [_]Field{
     s("display.identify_by", .displays, "Display identity", "Compatibility identity field retained by Aqueous.", .outputs, "display", "identify_by", "edid", &.{ "edid", "name" }),
     f("display.rollback_seconds", .displays, "Rollback seconds", "Compatibility rollback timeout.", .outputs, "display", "rollback_seconds", .integer, "0", 0, 65535),
 
-    s("game_mode.remainder_layout", .rules, "Companion layout", "Layout for companion windows beside the anchor.", .rules, "game_mode", "remainder_layout", "grid", layouts),
-    s("game_mode.fallback_layout", .rules, "Fallback layout", "Layout used when Game Mode has no anchor.", .rules, "game_mode", "fallback_layout", "grid", layouts),
+    s("game_mode.remainder_layout", .rules, "Companion layout", "Layout for companion windows beside the anchor.", .rules, "game_mode", "remainder_layout", "grid", game_mode_child_layouts),
+    s("game_mode.fallback_layout", .rules, "Fallback layout", "Layout used when Game Mode has no anchor.", .rules, "game_mode", "fallback_layout", "grid", game_mode_child_layouts),
     f("game_mode.gaps_inner", .rules, "Game Mode gap", "Gap between anchor and companion columns.", .rules, "game_mode", "gaps_inner", .integer, "8", 0, 512),
 
     k("toggle_start_menu", "Super+Space"),
