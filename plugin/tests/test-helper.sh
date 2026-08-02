@@ -16,6 +16,7 @@ run_helper() {
         HOME="$test_root/home" \
         XDG_CONFIG_HOME="$test_root/config" \
         AQUEOUS_CONFIG="$config_root/wm.toml" \
+        AQUEOUS_OUTPUTS="$config_root/outputs.toml" \
         AQUEOUS_LAYOUT="$config_root/layout.toml" \
         AQUEOUS_INPUT="$config_root/input.toml" \
         AQUEOUS_RULES="$config_root/rules.toml" \
@@ -30,6 +31,7 @@ jq -e '
   (.fields | length) >= 130 and
   (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
   (.fields[] | select(.id == "reload_rules") | .value == ["Super+Shift+R"]) and
+  (.fields[] | select(.id == "display.apply_on_reload") | .value == true and .inherited == true and .file == "outputs") and
   (.custom_keybinds | length) == 2 and
   (.custom_keybinds[] | select(.chord == "Super+E") | .command == "spawn:nemo") and
   (.monitors | length) == 2 and
@@ -68,6 +70,7 @@ jq -n \
       create_user_override: true,
       changes: [
         {id: "blur.enabled", value: false},
+        {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
         {id: "input.touchpad.tap", value: false},
         {id: "spawn_terminal", value: "Super+Return, Super+Enter"}
@@ -85,12 +88,15 @@ jq -e '.ok == true and .generation != "'"$generation"'"' "$applied" >/dev/null
 
 rg -q '^# fixture comment must survive$' "$config_root/wm.toml"
 rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
+rg -q '^apply_on_reload = true$' "$config_root/wm.toml"
+rg -q '^apply_on_reload = false$' "$config_root/outputs.toml"
 rg -q '^gaps_outer = 18$' "$config_root/layout.toml"
 rg -q '^tap = false$' "$config_root/input.toml"
 rg -Fq 'spawn_terminal = ["Super+Return", "Super+Enter"]' "$config_root/wm.toml"
 test -f "$test_root/backups/$generation/wm.toml"
 test -f "$test_root/backups/$generation/layout.toml"
 test -f "$test_root/backups/$generation/input.toml"
+test -f "$test_root/backups/$generation/outputs.toml"
 
 if run_helper apply --request "$request" >"$test_root/stale.json"; then
     echo "stale generation unexpectedly applied" >&2
@@ -119,9 +125,10 @@ jq -e '
   (.monitors[] | select(.name == "DP-1") | .x == -1440 and .y == 200 and .transform == "90") and
   (.monitors[] | select(.name == "DP-9") | .x == 0 and .transform == "270")
 ' "$test_root/monitor-applied.json" >/dev/null
-rg -q '^position = \[-1440, 200\]$' "$config_root/wm.toml"
-rg -q '^transform = "90"$' "$config_root/wm.toml"
-rg -q '^name = "DP-9"$' "$config_root/wm.toml"
+rg -q '^position = \[-1440, 200\]$' "$config_root/outputs.toml"
+rg -q '^transform = "90"$' "$config_root/outputs.toml"
+rg -q '^name = "DP-9"$' "$config_root/outputs.toml"
+rg -q '^position = \[0, 0\]$' "$config_root/wm.toml"
 
 new_generation=$(jq -r .generation "$test_root/monitor-applied.json")
 custom_id=$(jq -r '.custom_keybinds[] | select(.chord == "Super+E") | .id' "$test_root/monitor-applied.json")

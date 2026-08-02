@@ -41,10 +41,19 @@ pub const Profile = struct {
 
 pub const Snapshot = struct {
     apply_on_start: bool = true,
+    apply_on_start_set: bool = false,
     apply_on_reload: bool = true,
+    apply_on_reload_set: bool = false,
     fallback_profile: Text = .{},
+    fallback_profile_set: bool = false,
     identify_by: Text = defaultIdentifyBy(),
+    identify_by_set: bool = false,
     rollback_seconds: u16 = 0,
+    rollback_seconds_set: bool = false,
+    /// True only when this source contains explicit top-level declarative
+    /// output policy. Profiles alone are persisted state and intentionally do
+    /// not opt a legacy wm.toml configuration into outputs.toml precedence.
+    declarative: bool = false,
     outputs: [max_outputs]Spec = undefined,
     output_count: u8 = 0,
     profiles: [max_profiles]Profile = undefined,
@@ -55,6 +64,52 @@ pub const Snapshot = struct {
         return null;
     }
 };
+
+pub fn effectiveApplyOnStart(legacy: *const Snapshot, preferred: *const Snapshot) bool {
+    if (preferred.declarative and preferred.apply_on_start_set) return preferred.apply_on_start;
+    return legacy.apply_on_start;
+}
+
+pub fn effectiveApplyOnReload(legacy: *const Snapshot, preferred: *const Snapshot) bool {
+    if (preferred.declarative and preferred.apply_on_reload_set) return preferred.apply_on_reload;
+    return legacy.apply_on_reload;
+}
+
+pub fn effectiveFallbackProfile(legacy: *const Snapshot, preferred: *const Snapshot) []const u8 {
+    if (preferred.declarative and preferred.fallback_profile_set) return preferred.fallback_profile.slice();
+    return legacy.fallback_profile.slice();
+}
+
+pub fn effectiveProfile(legacy: *const Snapshot, preferred: *const Snapshot, name: []const u8) ?*const Profile {
+    if (preferred.declarative) return preferred.profile(name) orelse legacy.profile(name);
+    return legacy.profile(name) orelse preferred.profile(name);
+}
+
+/// Populate the specs in their fold order. In legacy mode this exactly retains
+/// the previous all-or-nothing wm.toml fallback. After outputs.toml opts in,
+/// wm.toml is the base and outputs.toml entries are later overrides.
+pub fn configuredSpecs(legacy: *const Snapshot, preferred: *const Snapshot, destination: []Spec) []const Spec {
+    var count: usize = 0;
+    for (legacy.outputs[0..legacy.output_count]) |entry| if (entry.hasDisplayField()) {
+        if (count == destination.len) return destination[0..count];
+        destination[count] = entry;
+        count += 1;
+    };
+    if (preferred.declarative) {
+        for (preferred.outputs[0..preferred.output_count]) |entry| if (entry.hasDisplayField()) {
+            if (count == destination.len) return destination[0..count];
+            destination[count] = entry;
+            count += 1;
+        };
+    } else if (count == 0) {
+        for (preferred.outputs[0..preferred.output_count]) |entry| {
+            if (count == destination.len) return destination[0..count];
+            destination[count] = entry;
+            count += 1;
+        }
+    }
+    return destination[0..count];
+}
 
 fn defaultIdentifyBy() Text {
     var value: Text = .{};
@@ -111,11 +166,27 @@ pub fn parse(source: []const u8) Snapshot {
 }
 
 fn applyDisplay(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
-    if (std.mem.eql(u8, key, "apply_on_start")) snapshot.apply_on_start = parseBool(value) orelse snapshot.apply_on_start;
-    if (std.mem.eql(u8, key, "apply_on_reload")) snapshot.apply_on_reload = parseBool(value) orelse snapshot.apply_on_reload;
-    if (std.mem.eql(u8, key, "fallback_profile")) _ = snapshot.fallback_profile.set(value);
-    if (std.mem.eql(u8, key, "identify_by")) _ = snapshot.identify_by.set(value);
-    if (std.mem.eql(u8, key, "rollback_seconds")) snapshot.rollback_seconds = std.fmt.parseInt(u16, value, 10) catch snapshot.rollback_seconds;
+    if (std.mem.eql(u8, key, "apply_on_start")) if (parseBool(value)) |parsed| {
+        snapshot.apply_on_start = parsed;
+        snapshot.apply_on_start_set = true;
+        snapshot.declarative = true;
+    };
+    if (std.mem.eql(u8, key, "apply_on_reload")) if (parseBool(value)) |parsed| {
+        snapshot.apply_on_reload = parsed;
+        snapshot.apply_on_reload_set = true;
+        snapshot.declarative = true;
+    };
+    if (std.mem.eql(u8, key, "fallback_profile")) if (snapshot.fallback_profile.set(value)) {
+        snapshot.fallback_profile_set = true;
+        snapshot.declarative = true;
+    };
+    if (std.mem.eql(u8, key, "identify_by")) if (snapshot.identify_by.set(value)) {
+        snapshot.identify_by_set = true;
+    };
+    if (std.mem.eql(u8, key, "rollback_seconds")) if (std.fmt.parseInt(u16, value, 10)) |parsed| {
+        snapshot.rollback_seconds = parsed;
+        snapshot.rollback_seconds_set = true;
+    } else |_| {};
 }
 
 fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
@@ -211,6 +282,7 @@ fn flushOutput(snapshot: *Snapshot, pending: *?Spec) void {
     if (pending.*) |entry| if (entry.valid and (!entry.name.empty() or !entry.edid.empty()) and snapshot.output_count < max_outputs) {
         snapshot.outputs[snapshot.output_count] = entry;
         snapshot.output_count += 1;
+        if (entry.hasDisplayField() or entry.primary != null) snapshot.declarative = true;
     };
     pending.* = null;
 }
@@ -280,4 +352,90 @@ test "mode scale and transform validation matches outputd contract" {
     try std.testing.expect(parseScale("0.49") == null);
     try std.testing.expect(parseScale("3.0") != null);
     try std.testing.expect(parseTransform("45") == null);
+}
+
+test "declarative presence distinguishes policy from persisted profiles" {
+    const persisted_only = parse(
+        \\[[display.profile]]
+        \\name = "dock"
+        \\[[display.profile.output]]
+        \\name = "DP-1"
+        \\scale = 1.25
+    );
+    try std.testing.expect(!persisted_only.declarative);
+
+    const compatibility_only = parse(
+        \\[display]
+        \\identify_by = "name"
+        \\rollback_seconds = 10
+    );
+    try std.testing.expect(!compatibility_only.declarative);
+    try std.testing.expect(compatibility_only.identify_by_set);
+    try std.testing.expect(compatibility_only.rollback_seconds_set);
+
+    const policy = parse(
+        \\[display]
+        \\apply_on_reload = false
+        \\fallback_profile = ""
+        \\[[output]]
+        \\name = "DP-1"
+        \\primary = true
+    );
+    try std.testing.expect(policy.declarative);
+    try std.testing.expect(policy.apply_on_reload_set);
+    try std.testing.expect(policy.fallback_profile_set);
+    try std.testing.expect(!policy.apply_on_reload);
+}
+
+test "outputs policy overlays wm while persisted profiles preserve legacy behavior" {
+    const legacy = parse(
+        \\[display]
+        \\apply_on_start = false
+        \\apply_on_reload = true
+        \\fallback_profile = "legacy-safe"
+        \\[[output]]
+        \\name = "DP-1"
+        \\mode = "2560x1440@144"
+        \\scale = 1.0
+        \\[[display.profile]]
+        \\name = "dock"
+        \\[[display.profile.output]]
+        \\name = "DP-1"
+        \\scale = 1.0
+    );
+    const persisted_only = parse(
+        \\[[display.profile]]
+        \\name = "dock"
+        \\[[display.profile.output]]
+        \\name = "DP-1"
+        \\scale = 1.25
+    );
+    var specs: [max_outputs * 2]Spec = undefined;
+    const unchanged = configuredSpecs(&legacy, &persisted_only, &specs);
+    try std.testing.expectEqual(@as(usize, 1), unchanged.len);
+    try std.testing.expectEqual(@as(f32, 1.0), unchanged[0].scale.?);
+    try std.testing.expectEqual(@as(f32, 1.0), effectiveProfile(&legacy, &persisted_only, "dock").?.outputs[0].scale.?);
+
+    const preferred = parse(
+        \\[display]
+        \\apply_on_reload = false
+        \\fallback_profile = ""
+        \\[[output]]
+        \\name = "DP-1"
+        \\scale = 1.5
+        \\[[display.profile]]
+        \\name = "dock"
+        \\[[display.profile.output]]
+        \\name = "DP-1"
+        \\scale = 1.25
+    );
+    const overlaid = configuredSpecs(&legacy, &preferred, &specs);
+    try std.testing.expectEqual(@as(usize, 2), overlaid.len);
+    try std.testing.expect(overlaid[0].mode != null);
+    try std.testing.expectEqual(@as(f32, 1.0), overlaid[0].scale.?);
+    try std.testing.expectEqual(@as(f32, 1.5), overlaid[1].scale.?);
+    try std.testing.expect(!effectiveApplyOnStart(&legacy, &preferred));
+    try std.testing.expect(!effectiveApplyOnReload(&legacy, &preferred));
+    try std.testing.expectEqualStrings("", effectiveFallbackProfile(&legacy, &preferred));
+    try std.testing.expectEqual(@as(f32, 1.25), effectiveProfile(&legacy, &preferred, "dock").?.outputs[0].scale.?);
 }

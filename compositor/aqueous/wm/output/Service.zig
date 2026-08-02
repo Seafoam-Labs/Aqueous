@@ -51,7 +51,7 @@ pub fn init(service: *Service) void {
 pub fn start(service: *Service) void {
     if (service.started) return;
     _ = service.reload(false);
-    if (service.config.apply_on_start) _ = service.applyConfigured();
+    if (service.applyOnStart()) _ = service.applyConfigured();
     service.openSocket() catch |err| {
         log.warn("unable to create output compatibility socket: {}", .{err});
         return;
@@ -80,26 +80,45 @@ pub fn reload(service: *Service, apply: bool) ?OutputManager.ApplyReport {
     service.wm_fingerprint = configFingerprint(true);
     service.persisted_fingerprint = configFingerprint(false);
     service.primary_ambiguity_logged = false;
-    return if (apply and service.config.apply_on_reload) service.applyConfigured() else null;
+    return if (apply and service.applyOnReload()) service.applyConfigured() else null;
+}
+
+fn outputsPreferred(service: *const Service) bool {
+    return service.persisted.declarative;
+}
+
+fn applyOnStart(service: *const Service) bool {
+    return Config.effectiveApplyOnStart(&service.config, &service.persisted);
+}
+
+fn applyOnReload(service: *const Service) bool {
+    return Config.effectiveApplyOnReload(&service.config, &service.persisted);
+}
+
+fn fallbackProfile(service: *const Service) []const u8 {
+    return Config.effectiveFallbackProfile(&service.config, &service.persisted);
 }
 
 /// Return the configured primary output when it is currently usable. Specs are
 /// folded in declaration order, matching applySpecs' wildcard-then-specific
-/// override behavior. The active profile takes precedence; otherwise wm.toml
-/// takes precedence over persisted outputs.toml when it declares a primary.
+/// override behavior. Until outputs.toml contains declarative policy this
+/// preserves the legacy wm.toml-first behavior exactly. Once it does, wm.toml
+/// is folded first as a base and outputs.toml supplies the final overrides.
 pub fn primaryOutput(service: *Service) ?*Output {
-    const specs = service.primarySpecs();
-    if (specs.len == 0) return null;
+    const sources = service.primarySpecs();
+    if (sources.base.len == 0 and sources.preferred.len == 0) return null;
 
     var primary: ?*Output = null;
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| {
         const wlr_output = output.wlr_output orelse continue;
         var preferred = false;
-        for (specs) |*spec| {
-            if (!OutputManager.matchesSpec(spec, wlr_output)) continue;
+        for (sources.base) |*spec| if (OutputManager.matchesSpec(spec, wlr_output)) {
             if (spec.primary) |value| preferred = value;
-        }
+        };
+        for (sources.preferred) |*spec| if (OutputManager.matchesSpec(spec, wlr_output)) {
+            if (spec.primary) |value| preferred = value;
+        };
         if (!preferred) continue;
         const box = output.policyFullBox();
         if (output.active_workspace == null or box.width <= 0 or box.height <= 0) continue;
@@ -115,15 +134,31 @@ pub fn primaryOutput(service: *Service) ?*Output {
     return primary;
 }
 
-fn primarySpecs(service: *const Service) []const Config.Spec {
+const PrimarySpecs = struct {
+    base: []const Config.Spec = &.{},
+    preferred: []const Config.Spec = &.{},
+};
+
+fn primarySpecs(service: *const Service) PrimarySpecs {
+    if (service.outputsPreferred()) {
+        if (!service.active_profile.empty()) {
+            const profile = service.persisted.profile(service.active_profile.slice()) orelse service.config.profile(service.active_profile.slice());
+            if (profile) |entry| if (hasPrimary(entry.outputs[0..entry.output_count])) return .{ .preferred = entry.outputs[0..entry.output_count] };
+        }
+        const wm_specs = service.config.outputs[0..service.config.output_count];
+        const output_specs = service.persisted.outputs[0..service.persisted.output_count];
+        if (hasPrimary(wm_specs) or hasPrimary(output_specs)) return .{ .base = wm_specs, .preferred = output_specs };
+        return .{};
+    }
+
     if (!service.active_profile.empty()) {
         if (service.config.profile(service.active_profile.slice()) orelse service.persisted.profile(service.active_profile.slice())) |profile| {
-            if (hasPrimary(profile.outputs[0..profile.output_count])) return profile.outputs[0..profile.output_count];
+            if (hasPrimary(profile.outputs[0..profile.output_count])) return .{ .preferred = profile.outputs[0..profile.output_count] };
         }
     }
-    if (hasPrimary(service.config.outputs[0..service.config.output_count])) return service.config.outputs[0..service.config.output_count];
-    if (hasPrimary(service.persisted.outputs[0..service.persisted.output_count])) return service.persisted.outputs[0..service.persisted.output_count];
-    return &.{};
+    if (hasPrimary(service.config.outputs[0..service.config.output_count])) return .{ .preferred = service.config.outputs[0..service.config.output_count] };
+    if (hasPrimary(service.persisted.outputs[0..service.persisted.output_count])) return .{ .preferred = service.persisted.outputs[0..service.persisted.output_count] };
+    return .{};
 }
 
 fn hasPrimary(specs: []const Config.Spec) bool {
@@ -141,33 +176,25 @@ pub fn pollReload(service: *Service) bool {
 }
 
 fn applyConfigured(service: *Service) OutputManager.ApplyReport {
-    var selected: [Config.max_outputs]Config.Spec = undefined;
-    var count: usize = 0;
-    for (service.config.outputs[0..service.config.output_count]) |entry| if (entry.hasDisplayField()) {
-        selected[count] = entry;
-        count += 1;
-    };
-    if (count == 0) {
-        for (service.persisted.outputs[0..service.persisted.output_count]) |entry| {
-            selected[count] = entry;
-            count += 1;
-        }
-    }
-    if (count == 0) return .{};
-    const report = server.om.applySpecs(selected[0..count]) catch |err| {
+    var selected: [Config.max_outputs * 2]Config.Spec = undefined;
+    const specs = Config.configuredSpecs(&service.config, &service.persisted, &selected);
+    if (specs.len == 0) return .{};
+    const report = server.om.applySpecs(specs) catch |err| {
         log.warn("configured output transaction rejected: {}", .{err});
-        if (!service.config.fallback_profile.empty()) _ = service.applyProfile(service.config.fallback_profile.slice()) catch .{};
+        const fallback = service.fallbackProfile();
+        if (fallback.len != 0) _ = service.applyProfile(fallback) catch .{};
         return .{};
     };
     logApplyReport("configured output", &report);
-    if (report.applied == 0 and report.total_rejections != 0 and !service.config.fallback_profile.empty()) {
-        return service.applyProfile(service.config.fallback_profile.slice()) catch report;
+    const fallback = service.fallbackProfile();
+    if (report.applied == 0 and report.total_rejections != 0 and fallback.len != 0) {
+        return service.applyProfile(fallback) catch report;
     }
     return report;
 }
 
 fn applyProfile(service: *Service, name: []const u8) !OutputManager.ApplyReport {
-    const profile = service.config.profile(name) orelse service.persisted.profile(name) orelse return error.UnknownProfile;
+    const profile = Config.effectiveProfile(&service.config, &service.persisted, name) orelse return error.UnknownProfile;
     const report = try server.om.applySpecs(profile.outputs[0..profile.output_count]);
     logApplyReport("output profile", &report);
     if (reportOk(&report)) {
@@ -370,7 +397,7 @@ fn handleSaveProfile(service: *Service, client: *Client, request: *const std.jso
     service.persistProfile(name, outputs.array.items) catch return service.sendError(client, "write failed");
     _ = service.reload(false);
     var response: [std.fs.max_path_bytes + 64]u8 = undefined;
-    const path = outputsPath(&response) orelse return service.sendError(client, "write failed");
+    const path = outputsWritePath(&response) orelse return service.sendError(client, "write failed");
     var buffer: [std.fs.max_path_bytes + 80]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
     var json: std.json.Stringify = .{ .writer = &writer };
@@ -384,7 +411,7 @@ fn handleSaveProfile(service: *Service, client: *Client, request: *const std.jso
 
 fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value) !void {
     var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const path = outputsPath(&path_buffer) orelse return error.NoHome;
+    const path = outputsWritePath(&path_buffer) orelse return error.NoHome;
     var dir_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const directory = std.fs.path.dirname(path) orelse return error.NoHome;
     @memcpy(dir_buffer[0..directory.len], directory);
@@ -825,9 +852,30 @@ fn wmPath(buffer: []u8) ?[]const u8 {
 }
 
 fn outputsPath(buffer: []u8) ?[]const u8 {
+    if (outputsOverride(buffer)) |path| return path;
+    // Preserve the historical XDG/HOME resolution exactly when no explicit
+    // override is present. This keeps legacy profile-only files behaviorally
+    // inert and avoids discovering a different pre-existing file by accident.
+    if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/aqueous/outputs.toml", .{xdg}) catch null;
+    if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/outputs.toml", .{home}) catch null;
+    if (pathExists("/etc/xdg/aqueous/outputs.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/outputs.toml", .{}) catch null;
+    return null;
+}
+
+fn outputsWritePath(buffer: []u8) ?[]const u8 {
+    if (outputsOverride(buffer)) |path| return path;
     if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/aqueous/outputs.toml", .{xdg}) catch null;
     if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/outputs.toml", .{home}) catch null;
     return null;
+}
+
+fn outputsOverride(buffer: []u8) ?[]const u8 {
+    const path = getenv("AQUEOUS_OUTPUTS") orelse return null;
+    if (std.mem.startsWith(u8, path, "~/")) {
+        const home = getenv("HOME") orelse return null;
+        return std.fmt.bufPrint(buffer, "{s}/{s}", .{ home, path[2..] }) catch null;
+    }
+    return std.fmt.bufPrint(buffer, "{s}", .{path}) catch null;
 }
 
 fn getenv(name: [*:0]const u8) ?[]const u8 {

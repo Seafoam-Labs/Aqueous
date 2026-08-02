@@ -148,11 +148,11 @@ pub const fields = [_]Field{
     s("input.touchpad.click_method", .input, "Touchpad click method", "How physical touchpad clicks map to buttons.", .input, "input.touchpad", "click_method", "clickfinger", click_methods),
     s("input.touchpad.scroll_method", .input, "Touchpad scroll method", "How touchpad scrolling is recognized.", .input, "input.touchpad", "scroll_method", "two-finger", scroll_methods),
 
-    b("display.apply_on_start", .displays, "Apply displays at startup", "Apply declarative output policy when Aqueous starts.", .wm, "display", "apply_on_start", true),
-    b("display.apply_on_reload", .displays, "Apply displays on reload", "Apply declarative output policy after config reload.", .wm, "display", "apply_on_reload", true),
-    t("display.fallback_profile", .displays, "Fallback profile", "Named profile used after a rejected output transaction.", .wm, "display", "fallback_profile", ""),
-    s("display.identify_by", .displays, "Display identity", "Compatibility identity field retained by Aqueous.", .wm, "display", "identify_by", "edid", &.{ "edid", "name" }),
-    f("display.rollback_seconds", .displays, "Rollback seconds", "Compatibility rollback timeout.", .wm, "display", "rollback_seconds", .integer, "0", 0, 65535),
+    b("display.apply_on_start", .displays, "Apply displays at startup", "Apply declarative output policy when Aqueous starts.", .outputs, "display", "apply_on_start", true),
+    b("display.apply_on_reload", .displays, "Apply displays on reload", "Apply declarative output policy after config reload.", .outputs, "display", "apply_on_reload", true),
+    t("display.fallback_profile", .displays, "Fallback profile", "Named profile used after a rejected output transaction.", .outputs, "display", "fallback_profile", ""),
+    s("display.identify_by", .displays, "Display identity", "Compatibility identity field retained by Aqueous.", .outputs, "display", "identify_by", "edid", &.{ "edid", "name" }),
+    f("display.rollback_seconds", .displays, "Rollback seconds", "Compatibility rollback timeout.", .outputs, "display", "rollback_seconds", .integer, "0", 0, 65535),
 
     s("game_mode.remainder_layout", .rules, "Companion layout", "Layout for companion windows beside the anchor.", .rules, "game_mode", "remainder_layout", "grid", layouts),
     s("game_mode.fallback_layout", .rules, "Fallback layout", "Layout used when Game Mode has no anchor.", .rules, "game_mode", "fallback_layout", "grid", layouts),

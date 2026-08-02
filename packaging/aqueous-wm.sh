@@ -68,6 +68,13 @@ if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     install -Dm644 /etc/xdg/aqueous/wm.toml "$cfg" 2>/dev/null || true
 fi
 
+# Seed the inert output template separately. All declarations are commented,
+# so existing wm.toml display policy remains unchanged until the user opts in.
+outputs_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/outputs.toml"
+if [ ! -f "$outputs_cfg" ] && [ -f /etc/xdg/aqueous/outputs.toml ]; then
+    install -Dm644 /etc/xdg/aqueous/outputs.toml "$outputs_cfg" 2>/dev/null || true
+fi
+
 # Input configuration (pointer acceleration, tap-to-click, natural scroll,
 # and XKB policy) is applied directly by Aqueous.
 

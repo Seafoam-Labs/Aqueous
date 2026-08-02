@@ -352,7 +352,7 @@ pub const ConfigFiles = struct {
         var input = try File.open(allocator, "input.toml", input_path);
         errdefer input.deinit(allocator);
 
-        const outputs_path = try userPath(allocator, "outputs.toml");
+        const outputs_path = try resolveOutputsPath(allocator);
         var outputs = try File.open(allocator, "outputs.toml", outputs_path);
         errdefer outputs.deinit(allocator);
 
@@ -511,6 +511,14 @@ fn resolveInputPath(allocator: std.mem.Allocator, configured_raw: ?[]const u8) !
     if (try existingUserPath(allocator, "input.toml")) |path| return path;
     if (exists("/etc/xdg/aqueous/input.toml")) return allocator.dupe(u8, "/etc/xdg/aqueous/input.toml");
     return userPath(allocator, "input.toml");
+}
+
+fn resolveOutputsPath(allocator: std.mem.Allocator) ![]u8 {
+    const home = getenv("HOME");
+    if (getenv("AQUEOUS_OUTPUTS")) |path| return expandHome(allocator, path, home);
+    // Match the helper's historical outputs.toml location when no override is
+    // supplied. The session launcher seeds the packaged template there.
+    return userPath(allocator, "outputs.toml");
 }
 
 fn resolveRulesPath(allocator: std.mem.Allocator, configured_raw: ?[]const u8) ![]u8 {

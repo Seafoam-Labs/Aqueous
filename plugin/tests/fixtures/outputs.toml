@@ -1,4 +1,4 @@
-# Output-service persisted state.
+# Persisted profiles alone must not disable wm.toml fallback.
 [[display.profile]]
 name = "desk"
 
@@ -6,4 +6,3 @@ name = "desk"
 name = "DP-1"
 enabled = true
 mode = "2560x1440@144"
-

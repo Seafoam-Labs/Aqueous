@@ -1,4 +1,7 @@
 # fixture comment must survive
+[display]
+apply_on_reload = true
+
 [blur]
 enabled = true # keep inline
 radius = 10

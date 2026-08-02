@@ -92,9 +92,10 @@ their cost visible and optional.
 
 ## Configuration
 
-Aqueous discovers four compatible files in `~/.config/aqueous/`:
+Aqueous discovers five compatible files in `~/.config/aqueous/`:
 
-- `wm.toml` — bindings, actions, workspaces, struts, outputs, and global policy.
+- `wm.toml` — bindings, actions, workspaces, struts, and global policy.
+- `outputs.toml` — preferred physical display policy and output profiles; unset values inherit from `wm.toml`.
 - `layout.toml` — layout defaults, slots, options, and workspace/output overrides.
 - `input.toml` — XKB and libinput policy, plus optional gesture bindings.
 - `rules.toml` — window and layer-shell matching, placement, state, and visual behavior.

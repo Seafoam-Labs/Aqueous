@@ -10,6 +10,11 @@
 # -----------------------------------------------------------------------------
 # Output management
 # -----------------------------------------------------------------------------
+# Legacy-compatible fallback: physical display settings in outputs.toml are
+# checked first, and values omitted there continue to come from this section.
+# New configurations should place [display], physical [[output]] fields, and
+# display profiles in ~/.config/aqueous/outputs.toml. Per-output `layout`
+# mappings remain valid here and in layout.toml.
 [display]
 # Apply [[output]] display fields when Aqueous starts and when this file reloads.
 apply_on_start  = true

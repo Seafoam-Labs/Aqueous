@@ -115,7 +115,11 @@ fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void
     try json.endArray();
 
     try json.objectField("monitors");
-    try writeConfiguredMonitors(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
+    try writeConfiguredMonitors(
+        &json,
+        &files.items[@intFromEnum(schema.FileId.outputs)].document,
+        &files.items[@intFromEnum(schema.FileId.wm)].document,
+    );
 
     try json.objectField("custom_keybinds");
     try writeCustomKeybinds(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
@@ -130,8 +134,8 @@ fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void
 
     try json.objectField("warnings");
     try json.beginArray();
-    if (files.items[@intFromEnum(schema.FileId.outputs)].document.source.len > 0) {
-        try json.write("outputs.toml is output-service persisted state; declarative output policy in wm.toml takes precedence when it declares a primary output.");
+    if (hasLegacyDisplayPolicy(&files.items[@intFromEnum(schema.FileId.wm)].document)) {
+        try json.write("Display policy inherited from wm.toml remains active until the corresponding setting is written to outputs.toml.");
     }
     try json.endArray();
     try json.endObject();
@@ -153,7 +157,12 @@ fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: s
 
 fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles, schema_field: *const schema.Field) !void {
     const file_item = files.items[@intFromEnum(schema_field.file)];
-    const configured_raw = file_item.document.getRaw(schema_field.section, schema_field.key);
+    var configured_raw = file_item.document.getRaw(schema_field.section, schema_field.key);
+    var inherited = false;
+    if (configured_raw == null and schema_field.file == .outputs) {
+        configured_raw = files.items[@intFromEnum(schema.FileId.wm)].document.getRaw(schema_field.section, schema_field.key);
+        inherited = configured_raw != null;
+    }
     const raw = configured_raw orelse schema_field.default_raw;
     try json.beginObject();
     try field(json, "id", schema_field.id);
@@ -165,6 +174,7 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
     try field(json, "key", schema_field.key);
     try field(json, "type", schema_field.kind.name());
     try field(json, "configured", configured_raw != null);
+    try field(json, "inherited", inherited);
     try field(json, "advanced", schema_field.advanced);
     try json.objectField("value");
     try writeTomlValue(json, schema_field, raw);
@@ -299,14 +309,15 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
             return error.InvalidMonitorChanges;
         } else if (monitor_changes.array.items.len > 0) {
             if (request.get("raw_files")) |raw_files| {
-                if (raw_files == .object and raw_files.object.get("wm") != null) return error.ConflictingEdits;
+                if (raw_files == .object and raw_files.object.get("outputs") != null) return error.ConflictingEdits;
             }
             try applyMonitorChanges(
                 allocator,
+                &files.items[@intFromEnum(schema.FileId.outputs)].document,
                 &files.items[@intFromEnum(schema.FileId.wm)].document,
                 monitor_changes.array.items,
             );
-            dirty[@intFromEnum(schema.FileId.wm)] = true;
+            dirty[@intFromEnum(schema.FileId.outputs)] = true;
         }
     }
 
@@ -338,53 +349,106 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
     try writeSnapshot(writer, &files);
 }
 
-fn writeConfiguredMonitors(json: *std.json.Stringify, document: *const config.Document) !void {
-    const tables = try document.tables(document.allocator);
-    defer document.allocator.free(tables);
-    const entries = try document.entries(document.allocator);
-    defer document.allocator.free(entries);
+fn writeConfiguredMonitors(
+    json: *std.json.Stringify,
+    preferred: *const config.Document,
+    fallback: *const config.Document,
+) !void {
+    const preferred_tables = try preferred.tables(preferred.allocator);
+    defer preferred.allocator.free(preferred_tables);
+    const preferred_entries = try preferred.entries(preferred.allocator);
+    defer preferred.allocator.free(preferred_entries);
+    const fallback_tables = try fallback.tables(fallback.allocator);
+    defer fallback.allocator.free(fallback_tables);
+    const fallback_entries = try fallback.entries(fallback.allocator);
+    defer fallback.allocator.free(fallback_entries);
 
     try json.beginArray();
+    for (preferred_tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
+        const raw_name = tableEntryRaw(preferred_entries, table.index, "name") orelse continue;
+        const name = unquoteToml(raw_name);
+        if (name.len == 0) continue;
+        const fallback_table = outputTableByExactName(fallback_tables, fallback_entries, name);
+        try writeConfiguredMonitor(json, preferred_entries, table.index, fallback_entries, fallback_table, "output", name);
+    }
+    for (fallback_tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
+        const raw_name = tableEntryRaw(fallback_entries, table.index, "name") orelse continue;
+        const name = unquoteToml(raw_name);
+        if (name.len == 0 or outputTableByExactName(preferred_tables, preferred_entries, name) != null) continue;
+        try writeConfiguredMonitor(json, fallback_entries, table.index, &.{}, null, "wm-output", name);
+    }
+    try json.endArray();
+}
+
+fn writeConfiguredMonitor(
+    json: *std.json.Stringify,
+    entries: []const config.Document.Entry,
+    table_index: usize,
+    fallback_entries: []const config.Document.Entry,
+    fallback_table: ?usize,
+    id_prefix: []const u8,
+    name: []const u8,
+) !void {
+    const raw_position = tableEntryRaw(entries, table_index, "position") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "position") else null;
+    const position = if (raw_position) |raw| parsePosition(raw) else null;
+    const raw_transform = tableEntryRaw(entries, table_index, "transform") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "transform") else null;
+    const transform = if (raw_transform) |raw| unquoteToml(raw) else "normal";
+    const raw_mode = tableEntryRaw(entries, table_index, "mode") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "mode") else null;
+    const dimensions = if (raw_mode) |raw| parseModeDimensions(unquoteToml(raw)) else null;
+    const raw_scale = tableEntryRaw(entries, table_index, "scale") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "scale") else null;
+    const scale = if (raw_scale) |raw| std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 1.0 else 1.0;
+    var id_buffer: [40]u8 = undefined;
+    const id = try std.fmt.bufPrint(&id_buffer, "{s}:{d}", .{ id_prefix, table_index });
+
+    try json.beginObject();
+    try field(json, "id", id);
+    try field(json, "name", name);
+    try field(json, "configured", true);
+    try field(json, "inherited", std.mem.eql(u8, id_prefix, "wm-output"));
+    try field(json, "positioned", position != null);
+    if (position) |point| {
+        try field(json, "x", point[0]);
+        try field(json, "y", point[1]);
+    }
+    try field(json, "transform", transform);
+    try field(json, "scale", scale);
+    if (dimensions) |size| {
+        try field(json, "width", size[0]);
+        try field(json, "height", size[1]);
+    }
+    try json.endObject();
+}
+
+fn outputTableByExactName(
+    tables: []const config.Document.Table,
+    entries: []const config.Document.Entry,
+    name: []const u8,
+) ?usize {
     for (tables) |table| {
         if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
         const raw_name = tableEntryRaw(entries, table.index, "name") orelse continue;
-        const name = unquoteToml(raw_name);
-        if (name.len == 0) continue;
-        const raw_position = tableEntryRaw(entries, table.index, "position");
-        const position = if (raw_position) |raw| parsePosition(raw) else null;
-        const transform = if (tableEntryRaw(entries, table.index, "transform")) |raw|
-            unquoteToml(raw)
-        else
-            "normal";
-        const dimensions = if (tableEntryRaw(entries, table.index, "mode")) |raw|
-            parseModeDimensions(unquoteToml(raw))
-        else
-            null;
-        const scale = if (tableEntryRaw(entries, table.index, "scale")) |raw|
-            std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 1.0
-        else
-            1.0;
-        var id_buffer: [32]u8 = undefined;
-        const id = std.fmt.bufPrint(&id_buffer, "output:{d}", .{table.index}) catch unreachable;
-
-        try json.beginObject();
-        try field(json, "id", id);
-        try field(json, "name", name);
-        try field(json, "configured", true);
-        try field(json, "positioned", position != null);
-        if (position) |point| {
-            try field(json, "x", point[0]);
-            try field(json, "y", point[1]);
-        }
-        try field(json, "transform", transform);
-        try field(json, "scale", scale);
-        if (dimensions) |size| {
-            try field(json, "width", size[0]);
-            try field(json, "height", size[1]);
-        }
-        try json.endObject();
+        if (std.mem.eql(u8, unquoteToml(raw_name), name)) return table.index;
     }
-    try json.endArray();
+    return null;
+}
+
+fn hasLegacyDisplayPolicy(document: *const config.Document) bool {
+    inline for (.{ "apply_on_start", "apply_on_reload", "fallback_profile", "identify_by", "rollback_seconds" }) |key| {
+        if (document.getRaw("display", key) != null) return true;
+    }
+    const tables = document.tables(document.allocator) catch return false;
+    defer document.allocator.free(tables);
+    const entries = document.entries(document.allocator) catch return false;
+    defer document.allocator.free(entries);
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
+        inline for (.{ "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "primary" }) |key| {
+            if (tableEntryRaw(entries, table.index, key) != null) return true;
+        }
+    }
+    return false;
 }
 
 fn writeCustomKeybinds(json: *std.json.Stringify, document: *const config.Document) !void {
@@ -477,6 +541,7 @@ fn applyCustomKeybindChanges(
 fn applyMonitorChanges(
     allocator: Allocator,
     document: *config.Document,
+    legacy: *const config.Document,
     monitor_changes: []const Json,
 ) !void {
     for (monitor_changes) |change| {
@@ -494,6 +559,15 @@ fn applyMonitorChanges(
         if (std.mem.startsWith(u8, id, "output:")) {
             table_index = std.fmt.parseInt(usize, id["output:".len..], 10) catch return error.InvalidMonitorId;
             if (!isOutputTable(document, table_index.?)) return error.UnknownMonitor;
+        } else if (std.mem.startsWith(u8, id, "wm-output:")) {
+            const legacy_index = std.fmt.parseInt(usize, id["wm-output:".len..], 10) catch return error.InvalidMonitorId;
+            if (!isOutputTable(legacy, legacy_index)) return error.UnknownMonitor;
+            table_index = try outputTableByName(document, name);
+            if (table_index == null) {
+                const encoded_name = try jsonStringLiteral(allocator, name);
+                try document.appendTable("[[output]]", "name", encoded_name);
+                table_index = try lastOutputTable(document);
+            }
         } else if (std.mem.startsWith(u8, id, "live:")) {
             if (!std.mem.eql(u8, id["live:".len..], name)) return error.InvalidMonitorId;
             table_index = try outputTableByName(document, name);

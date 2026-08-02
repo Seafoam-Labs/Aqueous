@@ -249,8 +249,9 @@ all existing values reachable throughout development.
   adaptive sync, HDR, and primary selection.
 - `[display]` startup/reload/fallback policy.
 - `[[display.profile]]` and `[[display.profile.output]]`.
-- `outputs.toml` persisted state, clearly distinguished from declarative
-  `wm.toml` output policy. The UI must label which source will win.
+- `outputs.toml` preferred declarative and persisted output state, with unset
+  values inherited from legacy `wm.toml` output policy. The UI labels inherited
+  values and writes display edits to `outputs.toml`.
 
 ### Slice C — behavior and automation
 
@@ -479,10 +480,9 @@ The first stable release is complete when:
 
 - Noctalia v5's plugin system is still beta. Pin the tested beta release/API
   range in release notes and run compatibility smoke tests before each release.
-- The current standalone settings editor includes `outputs.toml`, while the main
-  Aqueous README describes four user-authored files. The UI must distinguish
-  output-service persisted state from declarative configuration instead of
-  presenting them as equivalent.
+- Legacy `wm.toml` display policy and preferred `outputs.toml` policy can both
+  be present. The UI must expose inherited values without writing migrations
+  until the user actually changes a display setting.
 - A schema maintained separately from compositor parsers can drift. Add a
   coverage test that compares known schema keys with the parser sources, and
   make unknown keys visible in Advanced.

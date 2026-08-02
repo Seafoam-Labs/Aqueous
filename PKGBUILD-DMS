@@ -138,6 +138,8 @@ package() {
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
+    install -Dm644 "$srcdir/aqueous/outputs.toml" "$pkgdir/etc/xdg/aqueous/outputs.toml"
+    install -Dm644 "$srcdir/aqueous/outputs.toml" "$pkgdir/usr/share/aqueous/outputs.toml"
     sed -i 's|toggle_start_menu = "noctalia msg panel-toggle launcher"|toggle_start_menu = "dms ipc call spotlight toggle"|' \
         "$pkgdir/etc/xdg/aqueous/wm.toml" \
         "$pkgdir/usr/share/aqueous/wm.toml"

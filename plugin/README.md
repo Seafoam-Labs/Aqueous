@@ -10,8 +10,9 @@ their rotation or flipped orientation, and use exact X/Y fields when needed.
 The canvas uses a common scale, so monitor rectangles reflect their relative
 logical resolutions and expand to use the available preview area. Connected
 monitors appear even before they have an `[[output]]` block. Changes remain
-drafts until **Apply**, which updates the corresponding output entries in
-`wm.toml`. The Advanced page exposes the complete `wm.toml`, `layout.toml`,
+drafts until **Apply**, which writes overrides to the corresponding output
+entries in `outputs.toml`. Inherited `wm.toml` entries remain visible until
+edited. The Advanced page exposes the complete `wm.toml`, `layout.toml`,
 `input.toml`, `outputs.toml`, and `rules.toml` files, so ordered output blocks,
 workspace mappings, window rules, custom keybindings, gestures, and startup
 commands are all editable.
@@ -135,5 +136,5 @@ bar or re-enable the plugin after a user intentionally disables it.
 - Aqueous's normal hot reload applies the result; the plugin never restarts the
   compositor.
 
-`outputs.toml` is labeled as output-service persisted state. Declarative output
-policy in `wm.toml` may take precedence.
+`outputs.toml` is the preferred physical-display policy source. Individual
+settings that are absent there continue to inherit from `wm.toml`.

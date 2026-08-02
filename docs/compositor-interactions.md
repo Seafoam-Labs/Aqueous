@@ -461,11 +461,13 @@ requests focus elsewhere.
 
 ## Outputs and hotplug
 
-The embedded output service reads display configuration from `wm.toml` and
-persisted output configuration, optionally resolves profiles, and converts
-matching specs into `Output.State`. `OutputManager.applySpecs()` stages the
-changes; the normal transaction performs output layout updates and an atomic
-backend commit.
+The embedded output service reads physical display configuration from
+`outputs.toml` first and uses `wm.toml` for settings that are not present there.
+An `outputs.toml` containing profiles only retains the legacy `wm.toml`-first
+behavior, so existing persisted profiles do not silently migrate a setup.
+After optionally resolving profiles, the service converts matching specs into
+`Output.State`. `OutputManager.applySpecs()` stages the changes; the normal
+transaction performs output layout updates and an atomic backend commit.
 
 On success, output geometry, mode, scale, transform, adaptive sync, HDR, and
 enabled state become current together. On failure, Aqueous reverts scheduled

@@ -48,7 +48,7 @@
   "category.collections_hint": "This category's ordered collections are available in Advanced as complete TOML. Typed collection cards can be added without changing the helper protocol.",
   "advanced.title": "Advanced TOML",
   "advanced.description": "Complete configuration files, including output blocks, workspace mappings, rules, keybindings, gestures, and startup commands. Changes are still generation-checked and validated before writing.",
-  "advanced.outputs_warning": "outputs.toml is persisted output-service state. Declarative output policy in wm.toml may take precedence.",
+  "advanced.outputs_warning": "outputs.toml overrides physical display settings from wm.toml. Settings not present there continue to inherit from wm.toml.",
   "status.loading": "Reading Aqueous configuration…",
   "status.ready": "Configuration is up to date",
   "status.dirty": "{count} draft change(s)",

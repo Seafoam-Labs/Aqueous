@@ -1,0 +1,43 @@
+# =============================================================================
+# Aqueous output configuration
+# Path: ~/.config/aqueous/outputs.toml
+# Override: $AQUEOUS_OUTPUTS (`~/...` is expanded)
+#
+# Explicit settings in this file override matching physical-display settings
+# from wm.toml. Omitted settings continue to inherit from wm.toml, so copying
+# this template without uncommenting anything does not change current behavior.
+# Profiles alone also do not activate outputs.toml precedence.
+# =============================================================================
+
+# [display]
+# apply_on_start = true
+# apply_on_reload = true
+# fallback_profile = ""
+
+# Repeat [[output]] for each monitor. Later matching entries override earlier
+# entries. `name` accepts connector globs; `edid` accepts the sha256 identity
+# reported by the embedded output service.
+#
+# [[output]]
+# name = "DP-1"
+# enabled = true
+# mode = "2560x1440@144"
+# scale = 1.0
+# transform = "normal"
+# position = [0, 0]
+# adaptive_sync = true
+# hdr = false
+# primary = true
+
+# [[display.profile]]
+# name = "docked"
+#
+# [[display.profile.output]]
+# name = "eDP-1"
+# enabled = false
+#
+# [[display.profile.output]]
+# name = "DP-1"
+# enabled = true
+# mode = "2560x1440@144"
+# position = [0, 0]
