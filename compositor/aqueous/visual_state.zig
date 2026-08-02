@@ -31,23 +31,36 @@ pub fn destinationCrop(destination: Rect, viewport: Rect) ?Rect {
     };
 }
 
-/// Whether a local clip preserves a content rectangle's complete outward
-/// outline. An empty clip means unclipped. Use widened coordinates so policy
-/// geometry near an i32 edge cannot overflow the containment test.
-pub fn clipContainsOutline(content: Rect, clip: Rect, border_width: i32) bool {
-    if (clip.width <= 0 or clip.height <= 0) return true;
-    if (content.width <= 0 or content.height <= 0) return false;
-    const border: i64 = @max(0, border_width);
-    const outline_left = @as(i64, content.x) - border;
-    const outline_top = @as(i64, content.y) - border;
-    const outline_right = @as(i64, content.x) + @as(i64, content.width) + border;
-    const outline_bottom = @as(i64, content.y) + @as(i64, content.height) + border;
-    const clip_left: i64 = clip.x;
-    const clip_top: i64 = clip.y;
-    const clip_right = @as(i64, clip.x) + @as(i64, clip.width);
-    const clip_bottom = @as(i64, clip.y) + @as(i64, clip.height);
-    return clip_left <= outline_left and clip_top <= outline_top and
-        clip_right >= outline_right and clip_bottom >= outline_bottom;
+/// Visible local bounds of an outward border. An empty clip means unclipped;
+/// a real viewport crops the outline but does not change its rounded policy.
+pub fn clippedOutline(content: Rect, clip: Rect, border_width: i32) ?Rect {
+    if (content.width <= 0 or content.height <= 0) return null;
+    const border = @max(0, border_width);
+    const outline: Rect = .{
+        .x = content.x -| border,
+        .y = content.y -| border,
+        .width = content.width +| (border *| 2),
+        .height = content.height +| (border *| 2),
+    };
+    if (clip.width <= 0 or clip.height <= 0) return outline;
+
+    const x = @max(outline.x, clip.x);
+    const y = @max(outline.y, clip.y);
+    const right = @min(
+        @as(i64, outline.x) + @as(i64, outline.width),
+        @as(i64, clip.x) + @as(i64, clip.width),
+    );
+    const bottom = @min(
+        @as(i64, outline.y) + @as(i64, outline.height),
+        @as(i64, clip.y) + @as(i64, clip.height),
+    );
+    if (right <= x or bottom <= y) return null;
+    return .{
+        .x = x,
+        .y = y,
+        .width = @intCast(right - x),
+        .height = @intCast(bottom - y),
+    };
 }
 
 pub fn fractionToOpacity(value: u32) f32 {
@@ -93,12 +106,21 @@ test "moving animation destinations remain clipped to a fixed viewport" {
     ));
 }
 
-test "rounded outlines survive containing clips but not cut edges" {
+test "rounded outlines are cropped rather than disabled by viewports" {
     const content: Rect = .{ .x = 0, .y = 0, .width = 46, .height = 76 };
-    try std.testing.expect(clipContainsOutline(content, .{ .x = -2, .y = -2, .width = 50, .height = 80 }, 2));
-    try std.testing.expect(clipContainsOutline(content, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 2));
-    try std.testing.expect(!clipContainsOutline(content, .{ .x = 0, .y = -2, .width = 48, .height = 80 }, 2));
-    try std.testing.expect(!clipContainsOutline(content, .{ .x = -2, .y = -2, .width = 49, .height = 80 }, 2));
+    const outline: Rect = .{ .x = -2, .y = -2, .width = 50, .height = 80 };
+    try std.testing.expectEqual(outline, clippedOutline(content, .{ .x = 0, .y = 0, .width = 0, .height = 0 }, 2).?);
+    try std.testing.expectEqual(outline, clippedOutline(content, outline, 2).?);
+    try std.testing.expectEqual(Rect{ .x = 0, .y = -2, .width = 48, .height = 80 }, clippedOutline(
+        content,
+        .{ .x = 0, .y = -2, .width = 48, .height = 80 },
+        2,
+    ).?);
+    try std.testing.expectEqual(@as(?Rect, null), clippedOutline(
+        content,
+        .{ .x = 50, .y = -2, .width = 20, .height = 80 },
+        2,
+    ));
 }
 
 test "direct scanout is blocked only by visible compositor effects" {

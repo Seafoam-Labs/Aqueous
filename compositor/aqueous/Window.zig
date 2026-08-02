@@ -2211,16 +2211,11 @@ fn drawBorderNodes(
         @floatCast(@as(f64, @floatFromInt(border.a)) / math.maxInt(u32)),
     };
 
-    // A clip which contains the complete outline is only a viewport aperture;
-    // it must not disable the window's real rounded corners. When the aperture
-    // cuts the outline, keep the new cut edge square rather than inventing a
-    // corner there. Selective borders also use the edge-node fallback below.
+    // Complete four-sided borders remain rounded even when a viewport cuts the
+    // window. The rounded path below crops the ring itself to the aperture, so
+    // newly exposed clip corners are rounded without leaking outside it.
+    // Selective borders still use the edge-node fallback below.
     const rounded = border.corner_radius > 0 and
-        visual_state.clipContainsOutline(
-            .{ .x = content.x, .y = content.y, .width = content.width, .height = content.height },
-            .{ .x = clip.x, .y = clip.y, .width = clip.width, .height = clip.height },
-            border.width,
-        ) and
         border.edges.top and
         border.edges.right and
         border.edges.bottom and
@@ -2282,27 +2277,34 @@ fn drawBorderNodes(
 
     const half_short_side: u31 = @intCast(@divTrunc(@min(content.width, content.height), 2));
     const radius: u31 = @min(border.corner_radius, half_short_side);
-    const outer_radius: u31 = @intCast(@min(
+    const requested_outer_radius: u31 = @intCast(@min(
         @as(u32, radius) + @as(u32, border.width),
         math.maxInt(u31),
     ));
     const bw: i32 = border.width;
 
-    const outline: wlr.Box = .{
-        .x = content.x - bw,
-        .y = content.y - bw,
-        .width = content.width + 2 * bw,
-        .height = content.height + 2 * bw,
+    const cropped_outline = visual_state.clippedOutline(
+        .{ .x = content.x, .y = content.y, .width = content.width, .height = content.height },
+        .{ .x = clip.x, .y = clip.y, .width = clip.width, .height = clip.height },
+        bw,
+    ) orelse return;
+    const visible_outline: wlr.Box = .{
+        .x = cropped_outline.x,
+        .y = cropped_outline.y,
+        .width = cropped_outline.width,
+        .height = cropped_outline.height,
     };
+    const visible_half_short_side: u31 = @intCast(@divTrunc(@min(visible_outline.width, visible_outline.height), 2));
+    const outer_radius = @min(requested_outer_radius, visible_half_short_side);
     const rect = nodes.rounded_outline;
     rect.node.setEnabled(true);
-    rect.node.setPosition(outline.x, outline.y);
-    rect.setSize(outline.width, outline.height);
+    rect.node.setPosition(visible_outline.x, visible_outline.y);
+    rect.setSize(visible_outline.width, visible_outline.height);
     rect.setColor(&color);
     fx.setRectRadius(rect, outer_radius);
     fx.setRectClippedRegion(rect, .{
-        .x = bw,
-        .y = bw,
+        .x = content.x - visible_outline.x,
+        .y = content.y - visible_outline.y,
         .width = content.width,
         .height = content.height,
     }, .{
