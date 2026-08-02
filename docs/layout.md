@@ -26,6 +26,7 @@ master_count = 1
 [layout.options.scrolling]
 column_fraction = "0.5"
 center_focused = "true"
+focus_follows_mouse_delay_ms = 0
 
 [[workspace]]
 workspace = 2
@@ -54,6 +55,12 @@ keeps an independent vertical viewport.
 Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.
+
+When global `input.focus_follows_mouse` is enabled,
+`focus_follows_mouse_delay_ms` delays focus caused by real pointer motion over
+a scrolling member. Keyboard viewport navigation and pointer clicks still
+focus immediately, and moving away cancels the pending request. The delay also
+applies to scrolling remainders in game mode; zero preserves immediate focus.
 
 The default column-management bindings are:
 

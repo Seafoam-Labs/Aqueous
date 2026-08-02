@@ -109,6 +109,9 @@ follow_new_windows = true
 snap_to_columns = false
 # Permit the first/last column to move beyond the centered viewport bound.
 allow_overscroll = true
+# Milliseconds of real pointer dwell before focus follows a scrolling member.
+# Keyboard navigation and pointer clicks remain immediate. Zero disables delay.
+focus_follows_mouse_delay_ms = 0
 
 [layout.options.float]
 # Floating has no engine-only keys. Common borders apply; each window otherwise

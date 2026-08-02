@@ -21,6 +21,7 @@ const stacking = @import("layout/stacking.zig");
 const layout_types = @import("layout/types.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
+const HoverDelay = @import("focus/hover_delay.zig");
 const pointer_drag = @import("input/drag.zig");
 const gesture_input = @import("input/gestures.zig");
 const output_transfer = @import("input/output_transfer.zig");
@@ -49,6 +50,8 @@ layout_overrides: std.AutoHashMapUnmanaged(LayoutStateKey, layout_config.LayoutI
 previous_workspaces: std.AutoHashMapUnmanaged(u64, u32) = .empty,
 fired_exec: std.AutoHashMapUnmanaged(u64, void) = .empty,
 reload_timer: ?*wl.EventSource = null,
+hover_focus_timer: ?*wl.EventSource = null,
+hover_focus: HoverDelay.State = .{},
 globals_applied: bool = false,
 focus_history: FocusHistory,
 pending_focus: PendingFocus,
@@ -109,6 +112,10 @@ pub fn init(aqueous: *Aqueous, mode: Mode) void {
         break :blk null;
     };
     if (aqueous.reload_timer) |timer| timer.timerUpdate(1000) catch log.warn("unable to arm configuration monitor", .{});
+    aqueous.hover_focus_timer = event_loop.addTimer(*Aqueous, handleHoverFocusTimer, aqueous) catch |err| blk: {
+        log.warn("unable to start scrolling pointer-focus delay timer: {}", .{err});
+        break :blk null;
+    };
     log.info("policy mode={s} layout={s}", .{ @tagName(mode), @tagName(aqueous.config.layout.default) });
 }
 
@@ -117,6 +124,7 @@ pub fn deinit(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
     aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
+    if (aqueous.hover_focus_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
     while (states.next()) |state| state.deinit(util.gpa);
     aqueous.layout_states.deinit(util.gpa);
@@ -147,6 +155,7 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 
 pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
+    aqueous.cancelHoverFocus();
     aqueous.config = config_loader.load(util.gpa);
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
@@ -438,7 +447,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     // A closing, minimized, or workspace-removed window may still be the
     // wl_seat focus target. If no active output considers it focusable,
     // explicitly send keyboard leave before it is destroyed.
-    if (!focused_is_focusable and !replacement_focus_requested) aqueous.api.clearFocus();
+    if (!focused_is_focusable and !replacement_focus_requested) aqueous.clearFocus();
 
     var stale: std.ArrayListUnmanaged(LayoutStateKey) = .empty;
     defer stale.deinit(util.gpa);
@@ -953,8 +962,31 @@ fn handleScrollingClick(aqueous: *Aqueous, drag: Drag, time_msec: u32) void {
 }
 
 pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
-    if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_follows_mouse) return;
-    if (handle) |target| if (aqueous.api.focusedWindow() != target) aqueous.requestFocus(target);
+    if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_follows_mouse) {
+        aqueous.cancelHoverFocus();
+        return;
+    }
+
+    const delay_ms = aqueous.config.layout.scrolling_focus_follows_mouse_delay_ms;
+    const delayed = if (handle) |target|
+        aqueous.hover_focus_timer != null and aqueous.scrollingHoverDelayApplies(target)
+    else
+        false;
+    const action = aqueous.hover_focus.hover(handle, aqueous.api.focusedWindow(), delayed, delay_ms);
+    switch (action) {
+        .none => {},
+        .disarm => aqueous.disarmHoverFocusTimer(),
+        .immediate => |target| aqueous.requestFocus(target),
+        .arm => |milliseconds| {
+            const timer = aqueous.hover_focus_timer orelse unreachable;
+            timer.timerUpdate(milliseconds) catch {
+                log.warn("unable to arm scrolling pointer-focus delay; focusing immediately", .{});
+                const target = aqueous.hover_focus.pending orelse return;
+                _ = aqueous.hover_focus.cancel();
+                aqueous.requestFocus(target);
+            };
+        },
+    }
 }
 
 /// Focus a window after an explicit, unmodified pointer interaction. The
@@ -964,6 +996,7 @@ pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
 /// events continue going to the previously focused client.
 pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (!aqueous.mode.runsInternal()) return;
+    aqueous.cancelHoverFocus();
     const state = aqueous.window_states.get(handle) orelse return;
     if (state.kind == .minimized) return;
     if (aqueous.api.focusedWindow() != handle) aqueous.requestFocus(handle);
@@ -1438,7 +1471,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
         } else {
             // Surface focus and output selection are deliberately independent:
             // an empty output remains selected after keyboard focus is cleared.
-            aqueous.api.clearFocus();
+            aqueous.clearFocus();
         }
     }
     aqueous.api.requestManageCycle();
@@ -1503,6 +1536,9 @@ fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
 }
 
 fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) void {
+    // The keybinding is an explicit focus/navigation intent even when the
+    // viewport is already at its edge. It must invalidate an older hover.
+    aqueous.cancelHoverFocus();
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
     const target = layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy) orelse return;
@@ -1926,6 +1962,7 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
 
     aqueous.cancelOverview();
     if (config_changed) {
+        aqueous.cancelHoverFocus();
         aqueous.config = replacement;
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     }
@@ -2028,9 +2065,49 @@ fn ensureFocusedPlacementOnTop(aqueous: *Aqueous, placements: []layout_types.Pla
 /// order. Waiting to observe the new focus would make click-to-raise lag by one
 /// unrelated manage cycle.
 fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    aqueous.cancelHoverFocus();
     if (aqueous.window_states.get(handle)) |state| state.stack_order = aqueous.takeStackOrder();
     aqueous.requested_stack_focus = handle;
     aqueous.api.requestFocus(handle);
+}
+
+fn clearFocus(aqueous: *Aqueous) void {
+    aqueous.cancelHoverFocus();
+    aqueous.api.clearFocus();
+}
+
+fn scrollingHoverDelayApplies(aqueous: *Aqueous, handle: layout_types.Handle) bool {
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return false;
+    const state = aqueous.layout_states.getPtr(.{
+        .output = workspace.output_id,
+        .workspace = workspace.workspace_number,
+    }) orelse return false;
+    return layout_engine.canResizeScrolling(state, handle);
+}
+
+fn cancelHoverFocus(aqueous: *Aqueous) void {
+    if (aqueous.hover_focus.cancel()) aqueous.disarmHoverFocusTimer();
+}
+
+fn disarmHoverFocusTimer(aqueous: *Aqueous) void {
+    if (aqueous.hover_focus_timer) |timer| {
+        timer.timerUpdate(0) catch log.warn("unable to disarm scrolling pointer-focus delay", .{});
+    }
+}
+
+fn handleHoverFocusTimer(aqueous: *Aqueous) c_int {
+    const pending = aqueous.hover_focus.pending orelse return 0;
+    const valid_context = aqueous.mode.runsInternal() and
+        aqueous.config.wm.input.focus_follows_mouse and
+        aqueous.config.layout.scrolling_focus_follows_mouse_delay_ms > 0 and
+        aqueous.scrollingHoverDelayApplies(pending);
+    const target = aqueous.hover_focus.expire(
+        aqueous.api.hoveredWindow(),
+        aqueous.api.focusedWindow(),
+        valid_context,
+    ) orelse return 0;
+    aqueous.requestFocus(target);
+    return 0;
 }
 
 fn transactionFocus(

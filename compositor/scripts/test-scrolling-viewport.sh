@@ -23,9 +23,11 @@ done
 TEST_ROOT=$(mktemp -d /tmp/aqueous-scrolling-viewport.XXXXXX)
 RUNTIME="$TEST_ROOT/runtime"
 LOG="$TEST_ROOT/compositor.log"
+WM_CONFIG="$TEST_ROOT/scrolling-viewport-wm.toml"
 COMPOSITOR_PID=""
 CLIENT_PIDS=()
 mkdir -p "$RUNTIME/config" "$RUNTIME/home"
+cp "$FIXTURES/scrolling-viewport-wm.toml" "$WM_CONFIG"
 chmod 700 "$RUNTIME"
 
 cleanup() {
@@ -42,7 +44,7 @@ WLR_RENDERER=pixman \
 XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
-AQUEOUS_CONFIG="$FIXTURES/scrolling-viewport-wm.toml" \
+AQUEOUS_CONFIG="$WM_CONFIG" \
 GDK_BACKEND=wayland \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -log-level info -c true >"$LOG" 2>&1 &
 COMPOSITOR_PID=$!
@@ -219,7 +221,44 @@ grep -F 'border: left [rect]' <<<"$settled_scene" |
 
 # Layout movement left the stationary pointer over the second column without
 # changing keyboard focus. A real pointer event, even within that same hovered
-# surface, must still apply focus-follows-mouse.
+# surface, starts the configured scrolling focus delay. Keyboard focus must not
+# snap back before that delay expires.
+wlrctl pointer move 1 0
+sleep 0.05
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+early_motion_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$early_motion_focus" = aq-scroll-clip-three ] ||
+    die "pointer focus ignored the scrolling delay (focused=$early_motion_focus)"
+
+# Explicit keyboard navigation cancels that armed hover request. Return right
+# and wait beyond the original deadline; the stationary pointer must not revive
+# the old request and scroll focus back to the second column.
+wlrctl keyboard type , modifiers SUPER
+for _ in $(seq 1 100); do
+    windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    cancelled_left_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+    [ "$cancelled_left_focus" = aq-scroll-clip-two ] && break
+    sleep 0.02
+done
+[ "$cancelled_left_focus" = aq-scroll-clip-two ] ||
+    die "keyboard navigation did not immediately focus the second column"
+wlrctl keyboard type . modifiers SUPER
+for _ in $(seq 1 100); do
+    windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    cancelled_right_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+    [ "$cancelled_right_focus" = aq-scroll-clip-three ] && break
+    sleep 0.02
+done
+[ "$cancelled_right_focus" = aq-scroll-clip-three ] ||
+    die "keyboard navigation did not immediately restore the third column"
+sleep 0.2
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+cancelled_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$cancelled_focus" = aq-scroll-clip-three ] ||
+    die "cancelled hover request scrolled focus back (focused=$cancelled_focus)"
+
+# A fresh real motion starts a fresh delay and eventually focuses the hovered
+# second column.
 wlrctl pointer move 1 0
 motion_focus=""
 for _ in $(seq 1 100); do
@@ -229,6 +268,30 @@ for _ in $(seq 1 100); do
     sleep 0.02
 done
 [ "$motion_focus" = aq-scroll-clip-two ] ||
-    die "real pointer motion did not apply focus-follows-mouse (focused=$motion_focus)"
+    die "delayed pointer motion did not apply focus-follows-mouse (focused=$motion_focus)"
 
-echo "scrolling viewport and animated border containment passed"
+# Zero retains the legacy immediate behavior. Reload a private fixture copy,
+# move keyboard focus right again, then ensure a real pointer event transfers
+# focus well inside the former 150 ms delay window.
+sed -i 's/focus_follows_mouse_delay_ms = 150/focus_follows_mouse_delay_ms = 0/' "$WM_CONFIG"
+wlrctl keyboard type r modifiers SUPER
+sleep 0.2
+wlrctl keyboard type . modifiers SUPER
+zero_keyboard_focus=""
+for _ in $(seq 1 100); do
+    windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
+    zero_keyboard_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+    [ "$zero_keyboard_focus" = aq-scroll-clip-three ] && break
+    sleep 0.02
+done
+[ "$zero_keyboard_focus" = aq-scroll-clip-three ] ||
+    die "keyboard viewport focus failed after zero-delay reload (focused=$zero_keyboard_focus)"
+sleep 1
+wlrctl pointer move 1 0
+sleep 0.05
+windows_json=$("$AQUEOUSCTL_BIN" windows --json)
+zero_motion_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$windows_json")
+[ "$zero_motion_focus" = aq-scroll-clip-two ] ||
+    die "zero-delay pointer focus was not immediate (focused=$zero_motion_focus)"
+
+echo "scrolling viewport, animated border containment, and pointer focus delay passed"

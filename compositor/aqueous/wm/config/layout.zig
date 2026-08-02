@@ -29,6 +29,7 @@ pub const Snapshot = struct {
     scrolling_follow_new: bool = true,
     scrolling_snap: bool = false,
     scrolling_overscroll: bool = true,
+    scrolling_focus_follows_mouse_delay_ms: i32 = 0,
     dwindle_split_ratio: f64 = 0.5,
     dwindle_start_vertical: bool = true,
     monocle_hide_others: bool = true,
@@ -107,6 +108,7 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "follow_new_windows")) snapshot.scrolling_follow_new = parseBool(plain) orelse snapshot.scrolling_follow_new;
             if (std.mem.eql(u8, key, "snap_to_columns")) snapshot.scrolling_snap = parseBool(plain) orelse snapshot.scrolling_snap;
             if (std.mem.eql(u8, key, "allow_overscroll")) snapshot.scrolling_overscroll = parseBool(plain) orelse snapshot.scrolling_overscroll;
+            if (std.mem.eql(u8, key, "focus_follows_mouse_delay_ms")) snapshot.scrolling_focus_follows_mouse_delay_ms = parseNonNegative(plain) orelse snapshot.scrolling_focus_follows_mouse_delay_ms;
         },
         .dwindle => {
             if (std.mem.eql(u8, key, "split_ratio")) snapshot.dwindle_split_ratio = parseRatio(plain) orelse snapshot.dwindle_split_ratio;
@@ -192,6 +194,7 @@ test "layout config parses defaults, aliases, extras, and colors" {
         \\[layout.options.scrolling]
         \\column_fraction = "0.4"
         \\center_focused = "false"
+        \\focus_follows_mouse_delay_ms = 150
         \\[layout.options.dwindle]
         \\start_axis = "horizontal"
     );
@@ -202,7 +205,25 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expectEqual(LayoutId.scrolling, snapshot.slots[1]);
     try std.testing.expectEqual(@as(f64, 0.4), snapshot.scrolling_column_fraction);
     try std.testing.expect(!snapshot.scrolling_center_focused);
+    try std.testing.expectEqual(@as(i32, 150), snapshot.scrolling_focus_follows_mouse_delay_ms);
     try std.testing.expect(!snapshot.dwindle_start_vertical);
+}
+
+test "scrolling focus delay rejects negative and malformed overlays" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\focus_follows_mouse_delay_ms = 175
+    );
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\focus_follows_mouse_delay_ms = -1
+    );
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\focus_follows_mouse_delay_ms = "soon"
+    );
+    try std.testing.expectEqual(@as(i32, 175), snapshot.scrolling_focus_follows_mouse_delay_ms);
 }
 
 test "layout sidecar overlay wins and malformed values retain validated base" {

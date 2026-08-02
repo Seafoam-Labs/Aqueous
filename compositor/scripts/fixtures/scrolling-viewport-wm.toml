@@ -10,6 +10,7 @@ border_normal = 0xFF424852
 column_fraction = 0.5
 center_focused = true
 follow_new_windows = true
+focus_follows_mouse_delay_ms = 150
 
 [struts]
 top = 0

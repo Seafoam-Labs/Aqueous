@@ -118,6 +118,7 @@ pub const fields = [_]Field{
     b("layout.options.scrolling.follow_new_windows", .layouts, "Follow new windows", "Pan when a new window extends the column order.", .layout, "layout.options.scrolling", "follow_new_windows", true),
     b("layout.options.scrolling.snap_to_columns", .layouts, "Snap viewport", "Quantize manual viewport movement to columns.", .layout, "layout.options.scrolling", "snap_to_columns", false),
     b("layout.options.scrolling.allow_overscroll", .layouts, "Allow overscroll", "Permit edge columns beyond the centered bound.", .layout, "layout.options.scrolling", "allow_overscroll", true),
+    f("layout.options.scrolling.focus_follows_mouse_delay_ms", .layouts, "Scrolling pointer focus delay", "Milliseconds the pointer must remain over a scrolling member before keyboard focus follows it; zero is immediate.", .layout, "layout.options.scrolling", "focus_follows_mouse_delay_ms", .integer, "0", 0, 10000),
     f("layout.options.dwindle.split_ratio", .layouts, "Dwindle split", "Fraction assigned to each recursive split.", .layout, "layout.options.dwindle", "split_ratio", .double, "0.5", 0.01, 0.99),
     s("layout.options.dwindle.start_axis", .layouts, "Dwindle start axis", "Direction of the first recursive split.", .layout, "layout.options.dwindle", "start_axis", "vertical", &.{ "vertical", "horizontal" }),
     b("layout.options.monocle.hide_others", .layouts, "Hide monocle stack", "Hide non-focused windows in monocle.", .layout, "layout.options.monocle", "hide_others", true),

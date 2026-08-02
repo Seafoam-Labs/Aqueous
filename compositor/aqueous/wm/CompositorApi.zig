@@ -172,6 +172,18 @@ pub fn focusedWindow(_: CompositorApi) ?layout.Handle {
     return null;
 }
 
+/// Window currently underneath the real pointer position. This is queried
+/// when delayed focus expires so layout transactions cannot make a stale
+/// pointer-motion request steal keyboard focus.
+pub fn hoveredWindow(_: CompositorApi) ?layout.Handle {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        const ref = seat.wm_scheduled.hovered orelse continue;
+        if (ref.get() != null) return @bitCast(ref);
+    }
+    return null;
+}
+
 /// Whether keyboard focus is intentionally owned by a non-window surface such
 /// as a layer-shell launcher, lock surface, or Xwayland override-redirect menu.
 /// Automatic window-focus restoration must wait for that surface to release
