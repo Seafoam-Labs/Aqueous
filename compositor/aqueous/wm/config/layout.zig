@@ -10,6 +10,7 @@ pub const LayoutId = enum {
     grid,
     rows,
     dwindle,
+    reverse_dwindle,
     scrolling,
     floating,
     game_mode,
@@ -73,6 +74,8 @@ pub const Snapshot = struct {
     scrolling_focus_follows_mouse_delay_ms: i32 = 0,
     dwindle_split_ratio: f64 = 0.5,
     dwindle_start_vertical: bool = true,
+    reverse_dwindle_split_ratio: f64 = 0.5,
+    reverse_dwindle_start_vertical: bool = true,
     monocle_hide_others: bool = true,
     monocle_show_borders: bool = false,
 
@@ -203,6 +206,13 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
                 if (std.mem.eql(u8, plain, "horizontal")) snapshot.dwindle_start_vertical = false;
             }
         },
+        .reverse_dwindle => {
+            if (std.mem.eql(u8, key, "split_ratio")) snapshot.reverse_dwindle_split_ratio = parseRatio(plain) orelse snapshot.reverse_dwindle_split_ratio;
+            if (std.mem.eql(u8, key, "start_axis")) {
+                if (std.mem.eql(u8, plain, "vertical")) snapshot.reverse_dwindle_start_vertical = true;
+                if (std.mem.eql(u8, plain, "horizontal")) snapshot.reverse_dwindle_start_vertical = false;
+            }
+        },
         .monocle => {
             if (std.mem.eql(u8, key, "hide_others")) snapshot.monocle_hide_others = parseBool(plain) orelse snapshot.monocle_hide_others;
             if (std.mem.eql(u8, key, "show_borders")) snapshot.monocle_show_borders = parseBool(plain) orelse snapshot.monocle_show_borders;
@@ -231,6 +241,7 @@ fn parseLayoutId(value: []const u8) ?LayoutId {
     if (std.mem.eql(u8, value, "grid")) return .grid;
     if (std.mem.eql(u8, value, "rows")) return .rows;
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
+    if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
@@ -306,6 +317,9 @@ test "layout config parses defaults, aliases, extras, and colors" {
         \\focus_follows_mouse_delay_ms = 150
         \\[layout.options.dwindle]
         \\start_axis = "horizontal"
+        \\[layout.options.reverse-dwindle]
+        \\split_ratio = "0.3"
+        \\start_axis = "horizontal"
     );
     try std.testing.expectEqual(LayoutId.game_mode, snapshot.default);
     try std.testing.expectEqual(@as(i32, 12), snapshot.layoutOptions(.tile).gaps_outer);
@@ -316,6 +330,28 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expect(!snapshot.scrolling_center_focused);
     try std.testing.expectEqual(@as(i32, 150), snapshot.scrolling_focus_follows_mouse_delay_ms);
     try std.testing.expect(!snapshot.dwindle_start_vertical);
+    try std.testing.expectEqual(@as(f64, 0.3), snapshot.reverse_dwindle_split_ratio);
+    try std.testing.expect(!snapshot.reverse_dwindle_start_vertical);
+}
+
+test "reverse dwindle accepts canonical and underscore layout ids" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout]
+        \\default = "reverse-dwindle"
+        \\[layout.slots]
+        \\primary = "reverse_dwindle"
+        \\[layout.composable.a]
+        \\layout = "reverse-dwindle"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.0, 1.0]
+    );
+    try std.testing.expectEqual(LayoutId.reverse_dwindle, snapshot.default);
+    try std.testing.expectEqual(LayoutId.reverse_dwindle, snapshot.slots[0]);
+    try std.testing.expectEqual(LayoutId.reverse_dwindle, snapshot.composable[0].layout);
+    try std.testing.expect(snapshot.composableValid());
 }
 
 test "scrolling focus delay rejects negative and malformed overlays" {

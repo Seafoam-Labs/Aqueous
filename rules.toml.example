@@ -18,7 +18,7 @@
 [game_mode]
 # Layout used for non-anchor companion windows. Each surviving side column gets
 # an independent instance of this layout.
-remainder_layout = "grid" # tile | monocle | grid | rows | dwindle | scrolling | float
+remainder_layout = "grid" # tile | monocle | grid | rows | dwindle | reverse-dwindle | scrolling | float
 # Layout used on an output/workspace where Game Mode has no matching anchor.
 fallback_layout = "grid"  # same accepted values as remainder_layout
 # Gap between the anchor and companion columns.
@@ -42,8 +42,9 @@ gaps_inner = 8             # integer >= 0
 #   app_id, class, title
 #
 # Layout/state:
-#   layout          tile | monocle | grid | rows | dwindle | scrolling |
-#                   float | floating | game-mode | game_mode | composable
+#   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
+#                   reverse_dwindle | scrolling | float | floating |
+#                   game-mode | game_mode | composable
 #   workspace       1-based workspace number
 #   floating        true/false; enables floating placement independently of
 #                   layout (layout="float" also sets floating=true)

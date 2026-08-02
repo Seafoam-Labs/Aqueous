@@ -392,6 +392,7 @@ fn parseLayout(value: []const u8) ?layout.LayoutId {
     if (std.mem.eql(u8, value, "grid")) return .grid;
     if (std.mem.eql(u8, value, "rows")) return .rows;
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
+    if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
@@ -456,6 +457,12 @@ test "wm and input config validates mappings, struts, and device settings" {
         \\[[workspace]]
         \\workspace = 3
         \\layout = "composable"
+        \\[[workspace]]
+        \\workspace = 4
+        \\layout = "reverse-dwindle"
+        \\[[workspace]]
+        \\workspace = 5
+        \\layout = "reverse_dwindle"
     );
     try std.testing.expectEqual(@as(i32, 32), wm_snapshot.struts.top);
     try std.testing.expectEqual(@as(i32, 0), wm_snapshot.struts.left);
@@ -469,6 +476,8 @@ test "wm and input config validates mappings, struts, and device settings" {
     try std.testing.expectEqual(layout.LayoutId.grid, wm_snapshot.resolveOutput(.{ .name = "DP-1" }).?);
     try std.testing.expectEqual(layout.LayoutId.monocle, wm_snapshot.resolveWorkspace("DP-1", 2).?);
     try std.testing.expectEqual(layout.LayoutId.composable, wm_snapshot.resolveWorkspace(null, 3).?);
+    try std.testing.expectEqual(layout.LayoutId.reverse_dwindle, wm_snapshot.resolveWorkspace(null, 4).?);
+    try std.testing.expectEqual(layout.LayoutId.reverse_dwindle, wm_snapshot.resolveWorkspace(null, 5).?);
 }
 
 test "new-window focus defaults to disabled" {

@@ -247,6 +247,7 @@ test "all managed layouts advertise tiled placements while floating does not" {
         config.LayoutId.grid,
         config.LayoutId.rows,
         config.LayoutId.dwindle,
+        config.LayoutId.reverse_dwindle,
         config.LayoutId.scrolling,
         config.LayoutId.game_mode,
         config.LayoutId.composable,

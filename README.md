@@ -51,8 +51,9 @@ model; they do not replace it.
   thumbnails of every focusable window on the active workspace—including
   scrolling windows outside the current viewport—then navigate with arrows,
   H/J/K/L, or Tab and confirm without reconfiguring clients.
-- **Nine in-process layouts.** Choose from master/stack `tile`, `monocle`,
-  `grid`, `rows`, recursive `dwindle`, column-based `scrolling`, `floating`, and
+- **Ten in-process layouts.** Choose from master/stack `tile`, `monocle`,
+  `grid`, `rows`, recursive `dwindle`, mirrored `reverse-dwindle`, column-based
+  `scrolling`, `floating`, and
   `game-mode`, or compose up to four of the standard leaf layouts into fixed
   monitor regions. Layout selection can vary by output and workspace.
 - **Game Mode that understands the rest of the desktop.** Anchor a game at a

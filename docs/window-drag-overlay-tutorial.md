@@ -5,7 +5,7 @@ while preserving Aqueous's current tiled-drag behavior:
 
 - `Super` + left-drag keeps a tiled window tiled.
 - Moving over another tiled window shows a translucent drop target.
-- `tile`, `monocle`, `grid`, `rows`, `dwindle`, and `game-mode` show a
+- `tile`, `monocle`, `grid`, `rows`, `dwindle`, `reverse-dwindle`, and `game-mode` show a
   full-window swap target.
 - `scrolling` shows its top, bottom, left, or right insertion zone.
 - `composable` delegates same-region behavior to the window's child layout;
@@ -622,7 +622,7 @@ cd ..
 Check each non-floating layout:
 
 1. Open at least three normal windows.
-2. Select `tile`, then `grid`, `rows`, `dwindle`, `monocle`, and `game-mode`.
+2. Select `tile`, then `grid`, `rows`, `dwindle`, `reverse-dwindle`, `monocle`, and `game-mode`.
 3. Hold the configured primary modifier and left-drag over another window.
 4. Confirm the overlay never steals hover or blocks another swap.
 5. Confirm the overlay stays inside the source output.

@@ -71,8 +71,8 @@ pub const Field = struct {
     advanced: bool = false,
 };
 
-const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "scrolling", "float", "game-mode", "composable" };
-const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "scrolling", "float" };
+const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "game-mode", "composable" };
+const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float" };
 const accel_profiles = &.{ "flat", "adaptive" };
 const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
@@ -122,6 +122,8 @@ pub const fields = [_]Field{
     f("layout.options.scrolling.focus_follows_mouse_delay_ms", .layouts, "Scrolling pointer focus delay", "Milliseconds the pointer must remain over a scrolling member before keyboard focus follows it; zero is immediate.", .layout, "layout.options.scrolling", "focus_follows_mouse_delay_ms", .integer, "0", 0, 10000),
     f("layout.options.dwindle.split_ratio", .layouts, "Dwindle split", "Fraction assigned to each recursive split.", .layout, "layout.options.dwindle", "split_ratio", .double, "0.5", 0.01, 0.99),
     s("layout.options.dwindle.start_axis", .layouts, "Dwindle start axis", "Direction of the first recursive split.", .layout, "layout.options.dwindle", "start_axis", "vertical", &.{ "vertical", "horizontal" }),
+    f("layout.options.reverse-dwindle.split_ratio", .layouts, "Reverse dwindle split", "Fraction assigned to each mirrored recursive split.", .layout, "layout.options.reverse-dwindle", "split_ratio", .double, "0.5", 0.01, 0.99),
+    s("layout.options.reverse-dwindle.start_axis", .layouts, "Reverse dwindle start axis", "Direction of the first mirrored recursive split.", .layout, "layout.options.reverse-dwindle", "start_axis", "vertical", &.{ "vertical", "horizontal" }),
     b("layout.options.monocle.hide_others", .layouts, "Hide monocle stack", "Hide non-focused windows in monocle.", .layout, "layout.options.monocle", "hide_others", true),
     b("layout.options.monocle.show_borders", .layouts, "Monocle border", "Draw the configured border in monocle.", .layout, "layout.options.monocle", "show_borders", false),
 

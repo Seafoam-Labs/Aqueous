@@ -1685,7 +1685,7 @@ fn setLayout(aqueous: *Aqueous, name: []const u8) void {
 fn parseLayoutName(name: []const u8) ?layout_config.LayoutId {
     return std.meta.stringToEnum(
         layout_config.LayoutId,
-        if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else name,
+        if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else if (std.mem.eql(u8, name, "reverse-dwindle")) "reverse_dwindle" else name,
     );
 }
 
@@ -1693,6 +1693,7 @@ pub fn layoutName(id: layout_config.LayoutId) [:0]const u8 {
     return switch (id) {
         .floating => "float",
         .game_mode => "game-mode",
+        .reverse_dwindle => "reverse-dwindle",
         else => @tagName(id),
     };
 }
@@ -2206,6 +2207,7 @@ fn ruleLayout(id: Rules.Layout) layout_config.LayoutId {
         .grid => .grid,
         .rows => .rows,
         .dwindle => .dwindle,
+        .reverse_dwindle => .reverse_dwindle,
         .scrolling => .scrolling,
         .floating => .floating,
         .game_mode => .game_mode,
@@ -2298,6 +2300,7 @@ fn ruleRemainder(id: Rules.Layout) game_mode.Remainder {
         .grid, .game_mode, .composable => .grid,
         .rows => .rows,
         .dwindle => .dwindle,
+        .reverse_dwindle => .reverse_dwindle,
         .scrolling => .scrolling,
         .floating => .floating,
     };
@@ -2337,6 +2340,9 @@ test "pending focus drives the transaction before seat focus commits" {
 test "composable action slots accept names and numeric aliases" {
     try std.testing.expectEqual(layout_config.LayoutId.composable, parseLayoutName("composable").?);
     try std.testing.expectEqualStrings("composable", layoutName(.composable));
+    try std.testing.expectEqual(layout_config.LayoutId.reverse_dwindle, parseLayoutName("reverse-dwindle").?);
+    try std.testing.expectEqual(layout_config.LayoutId.reverse_dwindle, parseLayoutName("reverse_dwindle").?);
+    try std.testing.expectEqualStrings("reverse-dwindle", layoutName(.reverse_dwindle));
     try std.testing.expectEqual(@as(?u8, 0), parseComposableSlot("a"));
     try std.testing.expectEqual(@as(?u8, 3), parseComposableSlot("d"));
     try std.testing.expectEqual(@as(?u8, 0), parseComposableSlot("1"));

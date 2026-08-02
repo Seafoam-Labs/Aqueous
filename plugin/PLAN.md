@@ -236,7 +236,7 @@ all existing values reachable throughout development.
 - Effects: `[blur]`, `[opacity]`, `[workspace_transition]`.
 - Geometry: `[struts]`, `[state]`, `[layout]`.
 - Layout slots: `[layout.slots]`.
-- Per-layout options for tile, monocle, grid, rows, dwindle, scrolling, float,
+- Per-layout options for tile, monocle, grid, rows, dwindle, reverse-dwindle, scrolling, float,
   and game-mode; composable region tables remain available in the Advanced
   editor until a point/region control is added.
 - Keyboard basics: XKB layout/variant/options and repeat rate/delay.

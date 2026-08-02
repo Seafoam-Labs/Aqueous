@@ -35,6 +35,7 @@ pub const Layout = enum {
     grid,
     rows,
     dwindle,
+    reverse_dwindle,
     scrolling,
     floating,
     game_mode,

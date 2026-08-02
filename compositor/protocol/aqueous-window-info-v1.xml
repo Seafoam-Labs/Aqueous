@@ -65,7 +65,7 @@
       </description>
       <arg name="output" type="string" summary="output connector name"/>
       <arg name="layout" type="string"
-           summary="tile, monocle, grid, rows, dwindle, scrolling, float, game-mode, or composable"/>
+           summary="tile, monocle, grid, rows, dwindle, reverse-dwindle, scrolling, float, game-mode, or composable"/>
     </request>
 
     <event name="active_workspace_layout" since="3">

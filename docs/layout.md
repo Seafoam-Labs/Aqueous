@@ -1,12 +1,13 @@
 # Layouts
 
-Aqueous ships nine in-process layout modes:
+Aqueous ships ten in-process layout modes:
 
 - `tile` — master/stack tiling.
 - `monocle` — one window fills the usable area.
 - `grid` — balanced rows and columns.
 - `rows` — horizontal rows.
 - `dwindle` — alternating recursive splits.
+- `reverse-dwindle` — a horizontal mirror of dwindle, splitting from the right and top.
 - `scrolling` — horizontally scrolling columns.
 - `float` — free placement using remembered/native geometry.
 - `game-mode` — an anchor window with remaining windows arranged beside it.
@@ -79,8 +80,9 @@ and clipping operate on rectangles. If any configured region is incomplete or
 invalid, composable mode safely falls back to `tile` over the whole usable
 area.
 
-A region may use `tile`, `monocle`, `grid`, `rows`, `dwindle`, `scrolling`, or
-`float`. Recursive `composable` children and `game-mode` children are rejected.
+A region may use `tile`, `monocle`, `grid`, `rows`, `dwindle`,
+`reverse-dwindle`, `scrolling`, or `float`. Recursive `composable` children and
+`game-mode` children are rejected.
 Each region owns independent order, scrolling viewport, and floating geometry.
 Child gaps and borders come from that child layout's existing
 `[layout.options.<id>]` section.

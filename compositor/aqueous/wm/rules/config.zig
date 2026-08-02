@@ -206,6 +206,7 @@ fn parseLayout(value: []const u8) ?Engine.Layout {
     if (std.mem.eql(u8, value, "grid")) return .grid;
     if (std.mem.eql(u8, value, "rows")) return .rows;
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
+    if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
     if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
@@ -327,4 +328,21 @@ test "rules accept composable workspaces but reject it as a game-mode child" {
     try std.testing.expectEqual(Engine.Layout.composable, engine.resolve(.{ .app_id = "editor" }).?.layout.?);
     try std.testing.expectEqual(Engine.Layout.grid, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.grid, engine.game_mode.fallback_layout);
+}
+
+test "rules accept reverse dwindle layouts and game-mode children" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[game_mode]
+        \\remainder_layout = "reverse-dwindle"
+        \\fallback_layout = "reverse_dwindle"
+        \\[[window]]
+        \\app_id = "editor"
+        \\layout = "reverse-dwindle"
+    );
+
+    try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.resolve(.{ .app_id = "editor" }).?.layout.?);
+    try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.game_mode.remainder_layout);
+    try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.game_mode.fallback_layout);
 }

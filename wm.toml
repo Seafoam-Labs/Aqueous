@@ -237,7 +237,7 @@ reload_config         = "Super+R"          # immediately reload all TOML snapsho
 
 
 # Per-engine semantics:
-#   tile/grid/dwindle → swap with neighbour at (row±1, col)/(row, col±1)
+#   tile/grid/dwindle/reverse-dwindle → swap with neighbour at (row±1, col)/(row, col±1)
 #   scrolling         → join the adjacent column (L/R) or reorder within the column (U/D)
 #   monocle           → reorder in z-stack
 #   game-mode         → delegate to the active remainder engine; a scrolling
@@ -331,7 +331,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child
 #   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
-#                             dwindle, scrolling, float/floating, game-mode,
+#                             dwindle, reverse-dwindle, scrolling, float/floating, game-mode,
 #                             composable;
 #                             slots are primary..quaternary
 #   builtin:<action_name>   — invoke any canonical [keybinds] action name
@@ -364,6 +364,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # "Super+Alt+F"        = "set_layout:float"
 # "Super+Alt+R"        = "set_layout:rows"
 # "Super+Alt+D"        = "set_layout:dwindle"
+# "Super+Alt+Shift+D"  = "set_layout:reverse-dwindle"
 # "Super+Alt+V"        = "set_layout:game-mode"
 # "Super+Alt+C"        = "set_layout:composable"
 # "Super+Alt+1"        = "builtin:focus_composable:a"

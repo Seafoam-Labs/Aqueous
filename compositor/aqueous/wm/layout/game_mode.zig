@@ -20,6 +20,7 @@ pub const RemainderState = struct {
     tile: tile.State = .{},
     monocle: monocle.State = .{},
     dwindle: dwindle.State = .{},
+    reverse_dwindle: dwindle.State = .{},
     scrolling: scrolling.State = .{},
     floating: floating.State = .{},
     pub fn deinit(state: *RemainderState, allocator: std.mem.Allocator) void {
@@ -28,6 +29,7 @@ pub const RemainderState = struct {
         state.tile.deinit(allocator);
         state.monocle.deinit(allocator);
         state.dwindle.deinit(allocator);
+        state.reverse_dwindle.deinit(allocator);
         state.scrolling.deinit(allocator);
         state.floating.deinit(allocator);
     }
@@ -39,6 +41,7 @@ pub const RemainderState = struct {
             .grid => &state.grid.order,
             .rows => &state.rows.order,
             .dwindle => &state.dwindle.order,
+            .reverse_dwindle => &state.reverse_dwindle.order,
             .scrolling => null,
             .floating => null,
         };
@@ -84,7 +87,7 @@ pub const Options = struct {
     scrolling_options: ScrollingOptions = .{},
 };
 
-pub const Remainder = enum { tile, monocle, grid, rows, dwindle, scrolling, floating };
+pub const Remainder = enum { tile, monocle, grid, rows, dwindle, reverse_dwindle, scrolling, floating };
 
 pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, focused: ?types.Handle, options: types.Options, game_options: Options) ![]types.Placement {
     const result = try allocator.alloc(types.Placement, windows.len);
@@ -169,6 +172,7 @@ fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: 
         .grid => grid.arrange(allocator, &state.grid, area, windows, options),
         .rows => rows.arrange(allocator, &state.rows, area, windows, options),
         .dwindle => dwindle.arrange(allocator, &state.dwindle, area, windows, options, .{}),
+        .reverse_dwindle => dwindle.arrange(allocator, &state.reverse_dwindle, area, windows, options, .{ .reverse = true }),
         .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{
             .allow_overscroll = scrolling_options.overscroll,
             .center_focused = scrolling_options.center_focused,
@@ -183,7 +187,7 @@ fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: 
 pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     var changed = false;
     inline for (.{ &state.fallback, &state.left, &state.right }) |side| {
-        inline for (.{ &side.tile.order, &side.monocle.order, &side.grid.order, &side.rows.order, &side.dwindle.order }) |layout_order| {
+        inline for (.{ &side.tile.order, &side.monocle.order, &side.grid.order, &side.rows.order, &side.dwindle.order, &side.reverse_dwindle.order }) |layout_order| {
             if (layout_order.swap(a, b)) changed = true;
         }
         if (scrolling.swap(&side.scrolling, a, b)) changed = true;
@@ -556,6 +560,33 @@ test "game mode sends all remainder windows to a surviving edge column" {
     try std.testing.expectEqual(types.Rect{ .x = 100, .y = 50, .width = 200, .height = 50 }, findPlacement(placements, 4).geometry);
     try std.testing.expectEqual(@as(usize, 0), state.left.rows.order.items.items.len);
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 3, 4 }, state.right.rows.order.items.items);
+}
+
+test "game mode reverse dwindle fallback mirrors dwindle" {
+    var normal_state: State = .{};
+    defer normal_state.deinit(std.testing.allocator);
+    var reverse_state: State = .{};
+    defer reverse_state.deinit(std.testing.allocator);
+    const area: types.Rect = .{ .x = 9, .y = 5, .width = 101, .height = 79 };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 } };
+    const layout_options: types.Options = .{ .gaps_outer = 2, .gaps_inner = 3, .master_ratio = 0.6 };
+
+    const normal = try arrange(std.testing.allocator, &normal_state, area, &windows, 1, layout_options, .{ .fallback = .dwindle });
+    defer std.testing.allocator.free(normal);
+    const reverse = try arrange(std.testing.allocator, &reverse_state, area, &windows, 1, layout_options, .{ .fallback = .reverse_dwindle });
+    defer std.testing.allocator.free(reverse);
+
+    const bounds = math.shrink(area, layout_options.gaps_outer);
+    for (normal, reverse) |ordinary, mirrored| {
+        try std.testing.expectEqual(ordinary.handle, mirrored.handle);
+        try std.testing.expectEqual(ordinary.geometry.width, mirrored.geometry.width);
+        try std.testing.expectEqual(ordinary.geometry.height, mirrored.geometry.height);
+        try std.testing.expectEqual(ordinary.geometry.y, mirrored.geometry.y);
+        try std.testing.expectEqual(
+            bounds.x + bounds.width - (ordinary.geometry.x - bounds.x) - ordinary.geometry.width,
+            mirrored.geometry.x,
+        );
+    }
 }
 
 fn findPlacement(placements: []const types.Placement, handle: types.Handle) types.Placement {

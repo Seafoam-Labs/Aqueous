@@ -33,6 +33,7 @@ local workspaceLayouts = {
 	{ value = "grid", label = "Grid" },
 	{ value = "rows", label = "Rows" },
 	{ value = "dwindle", label = "Dwindle" },
+	{ value = "reverse-dwindle", label = "Reverse Dwindle" },
 	{ value = "scrolling", label = "Scrolling" },
 	{ value = "float", label = "Float" },
 	{ value = "game-mode", label = "Game Mode" },

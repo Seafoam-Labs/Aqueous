@@ -28,15 +28,16 @@
 # -----------------------------------------------------------------------------
 [layout]
 # Layout used when there is no runtime, output, or workspace override.
-# Accepted: tile | monocle | grid | rows | dwindle | scrolling | float |
-#           floating | game-mode | game_mode | composable
+# Accepted: tile | monocle | grid | rows | dwindle | reverse-dwindle |
+#           reverse_dwindle | scrolling | float | floating | game-mode |
+#           game_mode | composable
 default = "tile"
 
 # Common geometry applied to every layout. Layout-specific sections below can
 # override any common field for one engine.
 gaps_outer  = 8       # pixels around the usable output rectangle; >= 0
 gaps_inner  = 4       # pixels between placements; >= 0
-master_ratio = 0.55   # master share used by tile/dwindle; strictly 0 < value < 1
+master_ratio = 0.55   # master share used by tile/dwindle/reverse-dwindle; strictly 0 < value < 1
 master_count = 1      # number of windows in tile's master area; >= 1
 
 # Border colors use 0xAARRGGBB.
@@ -77,7 +78,7 @@ quaternary = "grid"
 # incomplete region configuration makes `composable` fall back to full-area
 # `tile` placement.
 #
-# Child layouts may be tile, monocle, grid, rows, dwindle, scrolling, or float.
+# Child layouts may be tile, monocle, grid, rows, dwindle, reverse-dwindle, scrolling, or float.
 # game-mode and composable cannot be nested. Each child retains independent
 # ordering, scrolling, and floating state. A region is active whenever one of
 # its windows has focus, and newly managed windows join that active region.
@@ -136,6 +137,12 @@ gaps_inner = 4
 # Fraction assigned to each recursive split, strictly between 0 and 1.
 split_ratio = 0.5
 # First split: vertical = left/right; horizontal = top/bottom.
+start_axis = "vertical" # vertical | horizontal
+
+[layout.options.reverse-dwindle]
+# Horizontal mirror of dwindle: vertical splits start on the right while
+# horizontal splits still start at the top.
+split_ratio = 0.5
 start_axis = "vertical" # vertical | horizontal
 
 [layout.options.scrolling]

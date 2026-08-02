@@ -311,7 +311,7 @@ the global default. A matching rule can select the active layout for its
 output during the current manage pass.
 
 The dispatcher supports `tile`, `monocle`, `grid`, `rows`, `dwindle`,
-`scrolling`, `floating`, `game_mode`, and `composable`. Each engine receives:
+`reverse_dwindle`, `scrolling`, `floating`, `game_mode`, and `composable`. Each engine receives:
 
 - The final usable rectangle.
 - Only windows participating in that layout.

@@ -26,6 +26,7 @@ pub const State = struct {
     grid: grid.State = .{},
     rows: rows.State = .{},
     dwindle: dwindle.State = .{},
+    reverse_dwindle: dwindle.State = .{},
     scrolling: scrolling.State = .{},
     floating: floating.State = .{},
     game_mode: game_mode.State = .{},
@@ -36,6 +37,7 @@ pub const State = struct {
         state.grid.deinit(allocator);
         state.rows.deinit(allocator);
         state.dwindle.deinit(allocator);
+        state.reverse_dwindle.deinit(allocator);
         state.scrolling.deinit(allocator);
         state.floating.deinit(allocator);
         state.game_mode.deinit(allocator);
@@ -67,6 +69,11 @@ pub fn arrange(
             .start_vertical = snapshot.dwindle_start_vertical,
             .split_ratio = snapshot.dwindle_split_ratio,
         }),
+        .reverse_dwindle => dwindle.arrange(allocator, &state.reverse_dwindle, area, windows, options, .{
+            .start_vertical = snapshot.reverse_dwindle_start_vertical,
+            .split_ratio = snapshot.reverse_dwindle_split_ratio,
+            .reverse = true,
+        }),
         .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{
             .column_width = snapshot.scrolling_column_fraction,
             .center_focused = snapshot.scrolling_center_focused,
@@ -89,6 +96,7 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (state.grid.order.swap(a, b)) changed = true;
     if (state.rows.order.swap(a, b)) changed = true;
     if (state.dwindle.order.swap(a, b)) changed = true;
+    if (state.reverse_dwindle.order.swap(a, b)) changed = true;
     if (scrolling.swap(&state.scrolling, a, b)) changed = true;
     if (game_mode.swap(&state.game_mode, a, b)) changed = true;
     return changed;
@@ -144,6 +152,7 @@ fn projectScrollingOrder(allocator: std.mem.Allocator, state: *State) !void {
     state.grid.order.reorder(projection);
     state.rows.order.reorder(projection);
     state.dwindle.order.reorder(projection);
+    state.reverse_dwindle.order.reorder(projection);
 }
 
 pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?types.Handle {
