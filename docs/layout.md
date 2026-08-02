@@ -45,10 +45,12 @@ reload binding can also request an immediate reload.
 ## Scrolling columns
 
 The scrolling engine owns an ordered list of columns. New windows begin in
-their own column. By default every member retains the full column viewport
-height, so multi-window columns form vertical stacks instead of shrinking
-members to fit. A manually resized member may use a shorter or taller explicit
-height. Each column keeps an independent vertical viewport.
+their own column. By default every member's complete footprint, including its
+outward border, retains the full column viewport height, so multi-window
+columns form vertical stacks instead of shrinking members to fit. Inner gaps
+measure the clear pixels between neighboring border outlines. A manually
+resized member may use a shorter or taller explicit content height. Each column
+keeps an independent vertical viewport.
 Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.

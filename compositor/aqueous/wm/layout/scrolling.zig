@@ -77,7 +77,12 @@ pub fn arrange(
     }
 
     const area = math.shrink(usable_area, options.gaps_outer);
-    const base_width = @max(1, @as(i32, @intFromFloat(@round(@as(f64, @floatFromInt(area.width)) * scrolling_options.column_width))));
+    const border_width = options.border.width;
+    // Scrolling dimensions describe the complete tile footprint. Borders are
+    // drawn outside the client surface, so reserve their space here instead of
+    // letting them enlarge the tile and consume the configured gaps.
+    const base_outer_width = @max(1, @as(i32, @intFromFloat(@round(@as(f64, @floatFromInt(area.width)) * scrolling_options.column_width))));
+    const base_width = contentLength(base_outer_width, border_width);
     const widths = try allocator.alloc(i32, state.columns.items.len);
     defer allocator.free(widths);
     const offsets = try allocator.alloc(i32, state.columns.items.len);
@@ -98,7 +103,7 @@ pub fn arrange(
             }
         }
         const requested_width = if (column.expanded_owner != null)
-            area.width
+            contentLength(area.width, border_width)
         else
             column.width_override orelse base_width;
         width.* = if (column.expanded_owner == null and column.width_override != null)
@@ -106,7 +111,7 @@ pub fn arrange(
         else
             @max(requested_width, minimum_width);
         offset.* = cursor;
-        cursor += width.* + options.gaps_inner;
+        cursor += outerLength(width.*, border_width) + options.gaps_inner;
     }
     const total_width = cursor - options.gaps_inner;
 
@@ -132,7 +137,9 @@ pub fn arrange(
     state.viewport_column = @min(state.viewport_column, state.columns.items.len - 1);
     state.last_focused = focused;
     if (scrolling_options.center_focused or scrolling_options.snap_to_columns or state.viewport_dirty) {
-        state.viewport_x = offsets[state.viewport_column] + @divTrunc(widths[state.viewport_column], 2) - @divTrunc(area.width, 2);
+        state.viewport_x = offsets[state.viewport_column] +
+            @divTrunc(outerLength(widths[state.viewport_column], border_width), 2) -
+            @divTrunc(area.width, 2);
         state.viewport_dirty = false;
     }
     if (!scrolling_options.allow_overscroll) {
@@ -140,15 +147,18 @@ pub fn arrange(
     }
 
     var write: usize = 0;
-    // Outward borders only need focus-driven stacking when they can overlap.
-    // With enough inner gap, keep scene order stable so a focus change is just
-    // a decoration update and does not invalidate backdrop-blur checkpoints.
-    const focus_raises =
-        options.gaps_inner < options.border.width *| 2;
     for (state.columns.items, widths, offsets, 0..) |*column, width, offset, column_index| {
-        const rows = try splitColumnRows(allocator, state, column.windows.items, windows, area.height, options.gaps_inner);
+        const rows = try splitColumnRows(
+            allocator,
+            state,
+            column.windows.items,
+            windows,
+            area.height,
+            options.gaps_inner,
+            border_width,
+        );
         defer allocator.free(rows);
-        const total_height = rows[rows.len - 1].offset + rows[rows.len - 1].size;
+        const total_height = rows[rows.len - 1].offset + rows[rows.len - 1].size + border_width;
         column.viewport_max_y = @max(0, total_height - area.height);
         column.viewport_y = std.math.clamp(column.viewport_y, 0, column.viewport_max_y);
         if (column.viewport_anchor != null and
@@ -164,18 +174,18 @@ pub fn arrange(
         if (column.viewport_dirty) {
             if (column.viewport_anchor) |anchor| {
                 if (std.mem.indexOfScalar(types.Handle, column.windows.items, anchor)) |row_index| {
-                    column.viewport_y = centeredRowOffset(rows[row_index], area.height, column.viewport_max_y);
+                    column.viewport_y = centeredRowOffset(rows[row_index], area.height, column.viewport_max_y, border_width);
                 }
             }
             column.viewport_dirty = false;
         } else if (reveal_location) |row_index| {
             column.viewport_anchor = column.windows.items[row_index];
-            column.viewport_y = revealRow(rows[row_index], column.viewport_y, area.height, column.viewport_max_y);
+            column.viewport_y = revealRow(rows[row_index], column.viewport_y, area.height, column.viewport_max_y, border_width);
         }
         column.reveal_focused = false;
         if (column.viewport_max_y == 0) column.viewport_y = 0;
 
-        const x = area.x + offset - state.viewport_x;
+        const x = area.x + border_width + offset - state.viewport_x;
         for (column.windows.items, rows) |handle, row| {
             const geometry: types.Rect = .{
                 .x = x,
@@ -183,7 +193,13 @@ pub fn arrange(
                 .width = width,
                 .height = row.size,
             };
-            const intersection = math.intersect(geometry, area);
+            const footprint: types.Rect = .{
+                .x = geometry.x - border_width,
+                .y = geometry.y - border_width,
+                .width = outerLength(geometry.width, border_width),
+                .height = outerLength(geometry.height, border_width),
+            };
+            const intersection = math.intersect(footprint, area);
             const visible = intersection.width > 0 and intersection.height > 0;
             result[write] = .{
                 .handle = handle,
@@ -201,7 +217,7 @@ pub fn arrange(
                     .width = area.width,
                     .height = area.height,
                 },
-                .z_order = if (focus_raises and focused == handle) 1 else 0,
+                .z_order = 0,
                 .visible = visible,
                 .border = options.border,
             };
@@ -551,6 +567,7 @@ fn splitColumnRows(
     windows: []const types.Window,
     length: i32,
     gap: i32,
+    border_width: i32,
 ) ![]math.AxisCell {
     if (handles.len == 0) return allocator.alloc(math.AxisCell, 0);
     const rows = try allocator.alloc(math.AxisCell, handles.len);
@@ -559,14 +576,22 @@ fn splitColumnRows(
     var cursor: i32 = 0;
     for (handles, rows) |handle, *row| {
         const window = findWindow(windows, handle).?;
-        row.offset = cursor;
+        row.offset = cursor + border_width;
         row.size = if (state.height_overrides.get(handle)) |requested|
             clampRequestedSize(requested, window.min_height, window.max_height)
         else
-            @max(1, length, window.min_height);
-        cursor += row.size + gap;
+            @max(contentLength(length, border_width), window.min_height);
+        cursor += outerLength(row.size, border_width) + gap;
     }
     return rows;
+}
+
+fn contentLength(outer: i32, border_width: i32) i32 {
+    return @max(1, outer -| (border_width *| 2));
+}
+
+fn outerLength(content: i32, border_width: i32) i32 {
+    return content +| (border_width *| 2);
 }
 
 fn clampRequestedSize(requested: i32, minimum: i32, maximum: i32) i32 {
@@ -577,21 +602,25 @@ fn clampRequestedSize(requested: i32, minimum: i32, maximum: i32) i32 {
     return std.math.clamp(requested, lower, upper);
 }
 
-fn centeredRowOffset(row: math.AxisCell, viewport_height: i32, maximum: i32) i32 {
-    const requested = if (row.size >= viewport_height)
-        row.offset
+fn centeredRowOffset(row: math.AxisCell, viewport_height: i32, maximum: i32, border_width: i32) i32 {
+    const outer_size = outerLength(row.size, border_width);
+    const outer_offset = row.offset - border_width;
+    const requested = if (outer_size >= viewport_height)
+        outer_offset
     else
-        row.offset + @divTrunc(row.size, 2) - @divTrunc(viewport_height, 2);
+        outer_offset + @divTrunc(outer_size, 2) - @divTrunc(viewport_height, 2);
     return std.math.clamp(requested, 0, maximum);
 }
 
-fn revealRow(row: math.AxisCell, current: i32, viewport_height: i32, maximum: i32) i32 {
-    if (row.size >= viewport_height) return std.math.clamp(row.offset, 0, maximum);
+fn revealRow(row: math.AxisCell, current: i32, viewport_height: i32, maximum: i32, border_width: i32) i32 {
+    const outer_size = outerLength(row.size, border_width);
+    const outer_offset = row.offset - border_width;
+    if (outer_size >= viewport_height) return std.math.clamp(outer_offset, 0, maximum);
     var requested = std.math.clamp(current, 0, maximum);
-    if (row.offset < requested) {
-        requested = row.offset;
-    } else if (row.offset + row.size > requested + viewport_height) {
-        requested = row.offset + row.size - viewport_height;
+    if (outer_offset < requested) {
+        requested = outer_offset;
+    } else if (outer_offset + outer_size > requested + viewport_height) {
+        requested = outer_offset + outer_size - viewport_height;
     }
     return std.math.clamp(requested, 0, maximum);
 }
@@ -900,21 +929,21 @@ test "focus change recentres the containing column" {
     try std.testing.expectEqual(@as(i32, 25), focused[1].geometry.x);
 }
 
-test "focus only raises scrolling windows whose outward borders overlap" {
-    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+test "scrolling reserves outward borders and preserves exact gaps" {
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
     const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
 
-    var separated_state: State = .{};
-    defer separated_state.deinit(std.testing.allocator);
-    const separated = try arrange(
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const initial = try arrange(
         std.testing.allocator,
-        &separated_state,
+        &state,
         area,
         &windows,
-        2,
+        1,
         .{
             .gaps_outer = 0,
-            .gaps_inner = 4,
+            .gaps_inner = 6,
             .border = .{
                 .width = 2,
                 .focused = 0,
@@ -924,33 +953,35 @@ test "focus only raises scrolling windows whose outward borders overlap" {
         },
         .{},
     );
-    defer std.testing.allocator.free(separated);
-    try std.testing.expectEqual(@as(i32, 0), separated[0].z_order);
-    try std.testing.expectEqual(@as(i32, 0), separated[1].z_order);
+    std.testing.allocator.free(initial);
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
 
-    var overlapping_state: State = .{};
-    defer overlapping_state.deinit(std.testing.allocator);
-    const overlapping = try arrange(
-        std.testing.allocator,
-        &overlapping_state,
-        area,
-        &windows,
-        2,
-        .{
-            .gaps_outer = 0,
-            .gaps_inner = 3,
-            .border = .{
-                .width = 2,
-                .focused = 0,
-                .normal = 0,
-                .urgent = 0,
-            },
+    const placements = try arrange(std.testing.allocator, &state, area, &windows, 1, .{
+        .gaps_outer = 0,
+        .gaps_inner = 6,
+        .border = .{
+            .width = 2,
+            .focused = 0,
+            .normal = 0,
+            .urgent = 0,
         },
-        .{},
-    );
-    defer std.testing.allocator.free(overlapping);
-    try std.testing.expectEqual(@as(i32, 0), overlapping[0].z_order);
-    try std.testing.expectEqual(@as(i32, 1), overlapping[1].z_order);
+    }, .{});
+    defer std.testing.allocator.free(placements);
+
+    const first = findPlacement(placements, 1);
+    const second = findPlacement(placements, 2);
+    const third = findPlacement(placements, 3);
+    // The first member's outline spans exactly the 80-pixel viewport. The
+    // second outline begins six clear pixels later, without changing that
+    // viewport-sized scrolling stride into an oversized window.
+    try std.testing.expectEqual(types.Rect{ .x = 27, .y = 2, .width = 46, .height = 76 }, first.geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 27, .y = 88, .width = 46, .height = 76 }, second.geometry);
+    try std.testing.expectEqual(@as(i32, 86), state.columns.items[0].viewport_max_y);
+    // Adjacent column outlines also retain the exact configured gap.
+    try std.testing.expectEqual(@as(i32, 83), third.geometry.x);
+    try std.testing.expectEqual(@as(i32, 46), third.geometry.width);
+    try std.testing.expectEqual(@as(i32, 0), first.z_order);
+    try std.testing.expectEqual(@as(i32, 0), second.z_order);
 }
 
 test "column pan clamps at both ends" {
