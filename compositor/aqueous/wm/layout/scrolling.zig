@@ -268,6 +268,19 @@ pub fn scrollColumn(state: *State, focused: types.Handle, delta_rows: i32) bool 
     return true;
 }
 
+/// Window occupying the primary position of the selected viewport column.
+/// Explicit keyboard viewport movement uses this to keep keyboard focus with
+/// the content it brought on-screen. Pointer focus remains an independent
+/// input-policy decision.
+pub fn viewportFocusTarget(state: *const State) ?types.Handle {
+    if (state.columns.items.len == 0) return null;
+    const column = &state.columns.items[@min(state.viewport_column, state.columns.items.len - 1)];
+    if (column.viewport_anchor) |anchor| {
+        if (contains(column.windows.items, anchor)) return anchor;
+    }
+    return if (column.windows.items.len > 0) column.windows.items[0] else null;
+}
+
 pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (a == b) return false;
     const a_location = locate(state, a) orelse return false;
@@ -660,6 +673,7 @@ test "column members retain full viewport height" {
     try std.testing.expectEqual(@as(i32, 84), state.columns.items[0].viewport_max_y);
     try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
     try std.testing.expect(scrollColumn(&state, 1, 1));
+    try std.testing.expectEqual(@as(?types.Handle, 2), viewportFocusTarget(&state));
 
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(scrolled);
@@ -911,6 +925,7 @@ test "a full-width owner expands only its column and remains scrollable" {
     try std.testing.expectEqual(@as(i32, 50), stacked[2].geometry.width);
 
     try std.testing.expect(scrollViewport(&state, 1));
+    try std.testing.expectEqual(@as(?types.Handle, 3), viewportFocusTarget(&state));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
     defer std.testing.allocator.free(scrolled);
     try std.testing.expectEqual(@as(i32, 25), scrolled[2].geometry.x);
@@ -924,6 +939,7 @@ test "focus change recentres the containing column" {
     const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
     std.testing.allocator.free(initial);
     try std.testing.expect(scrollViewport(&state, 2));
+    try std.testing.expectEqual(@as(?types.Handle, 3), viewportFocusTarget(&state));
     const focused = try arrange(std.testing.allocator, &state, area, &windows, 2, .{ .gaps_outer = 0, .gaps_inner = 0 }, .{});
     defer std.testing.allocator.free(focused);
     try std.testing.expectEqual(@as(i32, 25), focused[1].geometry.x);

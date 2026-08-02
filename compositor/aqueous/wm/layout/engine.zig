@@ -130,14 +130,20 @@ fn projectScrollingOrder(allocator: std.mem.Allocator, state: *State) !void {
     state.dwindle.order.reorder(projection);
 }
 
-pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bool {
+pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?types.Handle {
     return switch (state.active_layout) {
-        .scrolling => if (dx != 0)
-            scrolling.scrollViewport(&state.scrolling, dx)
+        .scrolling => blk: {
+            const changed = if (dx != 0)
+                scrolling.scrollViewport(&state.scrolling, dx)
+            else
+                scrolling.scrollColumn(&state.scrolling, focused, dy);
+            break :blk if (changed) scrolling.viewportFocusTarget(&state.scrolling) else null;
+        },
+        .game_mode => if (game_mode.scrollViewport(&state.game_mode, focused, dx, dy))
+            game_mode.viewportFocusTarget(&state.game_mode, focused)
         else
-            scrolling.scrollColumn(&state.scrolling, focused, dy),
-        .game_mode => game_mode.scrollViewport(&state.game_mode, focused, dx, dy),
-        else => false,
+            null,
+        else => null,
     };
 }
 

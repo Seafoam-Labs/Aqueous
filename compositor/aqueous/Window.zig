@@ -1528,7 +1528,11 @@ pub fn renderFinish(window: *Window) void {
             // Animate settled-visible windows and scrolling members which have
             // just left their fixed viewport. Other hidden/closing windows snap
             // so they cannot visibly "catch up" when they reappear.
-            const leaving_scrolling_viewport = was_enabled and
+            // A keyboard viewport action may request focus on the entering
+            // member, producing a follow-up manage pass after the leaving live
+            // tree was disabled. Preserve an already-running clipped snapshot
+            // across that pass so the scrolling strip remains continuous.
+            const leaving_scrolling_viewport = (was_enabled or window.anim_snapshot) and
                 workspace_visible and
                 !window.overview_hidden and
                 window.state == .mapped and

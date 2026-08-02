@@ -114,9 +114,10 @@ OWNER_RIGHT=$(jq -r --arg owner "$OWNER_OUTPUT" '
 ' <<<"$output_state")
 [ -n "$OWNER_RIGHT" ] && [ "$OWNER_RIGHT" != "null" ] || die "could not resolve the owning output edge"
 
-# The newest third window is focused. Move focus left once so the third column
-# straddles the right edge of HEADLESS-1 throughout the position animation.
-wlrctl keyboard type h modifiers SUPER
+# The newest third window is focused. Scroll the keyboard viewport left once;
+# the newly primary second column must receive keyboard focus while the third
+# column straddles the right edge throughout the position animation.
+wlrctl keyboard type , modifiers SUPER
 
 # Confirm the full placement really crosses the owning output edge. The render
 # clip, not geometry clamping or a missed keybinding, must keep it off the
@@ -151,11 +152,11 @@ left_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$wind
 [ "$left_focus" = aq-scroll-clip-two ] ||
     die "focus-follows-mouse snapped past the requested left column (focused=$left_focus)"
 
-# Return focus to the right. This is the direction in which the newly focused
-# window has a lower/left sibling. Its compositor border must travel inside the
-# animation snapshot instead of remaining at the settled target while the
-# sibling slides across it.
-wlrctl keyboard type l modifiers SUPER
+# Return the keyboard viewport to the right. This is the direction in which the
+# newly focused window has a lower/left sibling. Its compositor border must
+# travel inside the animation snapshot instead of remaining at the settled
+# target while the sibling slides across it.
+wlrctl keyboard type . modifiers SUPER
 
 observed_animation=0
 for _ in $(seq 1 30); do

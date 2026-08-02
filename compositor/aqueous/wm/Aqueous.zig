@@ -1505,7 +1505,9 @@ fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
 fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
-    if (layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy)) aqueous.api.requestManageCycle();
+    const target = layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy) orelse return;
+    aqueous.requestFocus(target);
+    aqueous.api.requestManageCycle();
 }
 
 fn consumeWindowIntoColumn(aqueous: *Aqueous) void {

@@ -243,6 +243,16 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) bo
     return false;
 }
 
+pub fn viewportFocusTarget(state: *const State, focused: types.Handle) ?types.Handle {
+    if (state.active_remainder != .scrolling) return null;
+    for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.containsHandle(&side.scrolling, focused)) {
+            return scrolling.viewportFocusTarget(&side.scrolling);
+        }
+    }
+    return null;
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     if (state.active_remainder != .scrolling or state.anchor == handle) return false;
     for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
@@ -348,6 +358,7 @@ test "game mode routes viewport movement to a scrolling fallback" {
     std.testing.allocator.free(placements);
 
     try std.testing.expect(scrollViewport(&state, 1, 1, 0));
+    try std.testing.expectEqual(@as(?types.Handle, 2), viewportFocusTarget(&state, 1));
     try std.testing.expectEqual(@as(usize, 1), state.fallback.scrolling.viewport_column);
 }
 
@@ -472,6 +483,7 @@ test "game mode routes vertical movement to the focused scrolling column" {
     std.testing.allocator.free(stacked);
 
     try std.testing.expect(scrollViewport(&state, 1, 0, 1));
+    try std.testing.expectEqual(@as(?types.Handle, 2), viewportFocusTarget(&state, 1));
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
     defer std.testing.allocator.free(scrolled);
     try std.testing.expectEqual(@as(i32, -80), findPlacement(scrolled, 1).geometry.y);

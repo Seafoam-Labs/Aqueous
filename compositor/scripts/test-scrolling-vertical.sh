@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Render-level regression for full-height members inside one scrolling column
 # used as a game-mode remainder. The manual viewport action must reveal the
-# lower member without changing focus, and vertical focus must reveal the upper
-# member. Clients deliberately advertise a tiny minimum height so this catches
-# accidental shrink-to-fit behavior.
+# lower member and transfer keyboard focus to it; vertical focus must then
+# reveal the upper member. Clients deliberately advertise a tiny minimum height
+# so this catches accidental shrink-to-fit behavior.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
@@ -156,20 +156,21 @@ grim -o "$OUTPUT" "$TEST_ROOT/top.png"
 top_pixel=$(magick "$TEST_ROOT/top.png" -format "%[fx:p{$red_x,20}.r] %[fx:p{$red_x,20}.b]" info:)
 awk '{ exit !($1 > 0.9 && $2 < 0.1) }' <<<"$top_pixel" || die "upper red member was not rendered at the top of the column"
 
-# Pan to blue. The action must not alter keyboard focus.
+# Pan to blue. Explicit keyboard viewport movement must transfer keyboard focus
+# to the member promoted into the primary viewport.
 wlrctl keyboard type v modifiers "$INPUT_MOD"
 wait_for_animation_snapshots
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")
     blue_y=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | .geometry.y' <<<"$windows_json")
-    red_focused=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | (.states | index("focused") != null)' <<<"$windows_json")
-    [ "$red_y" -lt 0 ] && [ "$blue_y" = 0 ] && [ "$red_focused" = true ] && break
+    blue_focused=$(jq -r '.[] | select(.app_id == "aq-scroll-blue") | (.states | index("focused") != null)' <<<"$windows_json")
+    [ "$red_y" -lt 0 ] && [ "$blue_y" = 0 ] && [ "$blue_focused" = true ] && break
     sleep 0.05
 done
-[ "$red_y" -lt 0 ] && [ "$blue_y" = 0 ] && [ "$red_focused" = true ] || {
+[ "$red_y" -lt 0 ] && [ "$blue_y" = 0 ] && [ "$blue_focused" = true ] || {
     printf '%s\n' "$windows_json" >&2
-    die "manual vertical pan changed focus or failed to reveal the lower member"
+    die "manual vertical pan did not focus and reveal the lower member"
 }
 sleep 1
 grim -o "$OUTPUT" "$TEST_ROOT/bottom.png"
