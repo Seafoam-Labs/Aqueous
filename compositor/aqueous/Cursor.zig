@@ -444,6 +444,19 @@ pub fn opEndPointer(cursor: *Cursor) void {
     }
 }
 
+/// XWayland move/resize requests do not carry the wl_seat and validated serial
+/// supplied by xdg-shell. Accept them only while the default pointer has an
+/// active button press directed at the requesting top-level surface.
+pub fn canStartXwaylandPointerOperation(cursor: *const Cursor, surface: *wlr.Surface) bool {
+    switch (cursor.mode) {
+        .down => {},
+        else => return false,
+    }
+    if (cursor.pressed.count() == 0) return false;
+    const focused = cursor.seat.wlr_seat.pointer_state.focused_surface orelse return false;
+    return focused.getRootSurface() == surface;
+}
+
 pub fn processMotionRelative(cursor: *Cursor, event: *const Seat.Event.PointerMotionRelative) void {
     cursor.processMotionRelativeInternal(event, true);
 }

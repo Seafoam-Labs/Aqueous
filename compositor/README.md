@@ -68,6 +68,7 @@ scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
 scripts/test-scaling.sh
 scripts/test-xwayland-input.sh
+scripts/test-xwayland-floating.sh
 ```
 
 The xdg fullscreen harness compiles a small native Wayland client and verifies
@@ -82,10 +83,13 @@ overlap hit testing. The policy and floating harnesses require
 of testing an idle compositor. The floating-output harness verifies pointer-led
 workspace transfer across rotated mixed-scale outputs and recovery when the
 source output is disabled during an active move.
-The XWayland harness additionally requires a build with `-Dxwayland`,
+The XWayland harnesses additionally require a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
-files. It verifies active keyboard grabs and pointer confinement for real X11
-clients under the headless backend.
+files. The input harness verifies active keyboard grabs and pointer confinement
+for real X11 clients under the headless backend. The floating harness sends
+real `_NET_WM_MOVERESIZE` requests and verifies titlebar-style move and resize
+for persistent floats and workspace-floating windows without a compositor
+modifier, while tiled-policy windows reject the same requests.
 
 The Vulkan effects and uncached blur oracle can be captured from a nested
 session with:

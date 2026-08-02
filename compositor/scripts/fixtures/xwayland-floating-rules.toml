@@ -1,0 +1,7 @@
+[[window]]
+class = "AqueousXwaylandExplicitFloat"
+floating = true
+width = 320
+height = 200
+x = 120
+y = 80

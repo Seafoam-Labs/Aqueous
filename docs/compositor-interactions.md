@@ -359,9 +359,12 @@ size: the configured width for its column and full viewport height for that
 member. The click tracker uses release timestamps and a small motion tolerance,
 so tiled reorder drags never trigger the reset.
 
-Validated `xdg_toplevel.move` and `xdg_toplevel.resize` requests enter the same
-integrated-policy interaction path when the target is a persistent floating
-overlay or an ordinary window presented by the workspace floating layout.
+Validated client move and resize requests enter the same integrated-policy
+interaction path when the target is a persistent floating overlay or an
+ordinary window presented by the workspace floating layout. Native clients are
+validated with the `xdg_toplevel` seat and serial. XWayland
+`_NET_WM_MOVERESIZE` requests have neither, so Aqueous accepts them only while
+the default pointer has an active press focused on the requesting top-level.
 Resize requests preserve the client-selected edge or corner. Requests from
 ordinary windows in non-floating layouts, maximized windows, or minimized
 windows are consumed without changing their geometry or removing them from

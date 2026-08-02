@@ -14,6 +14,7 @@ const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
 const Output = @import("Output.zig");
+const Seat = @import("Seat.zig");
 const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 
@@ -29,6 +30,8 @@ surface_tree: ?*wlr.SceneTree = null,
 // Active over entire lifetime
 destroy: wl.Listener(void) = .init(handleDestroy),
 request_configure: wl.Listener(*wlr.XwaylandSurface.event.Configure) = .init(handleRequestConfigure),
+request_move: wl.Listener(void) = .init(handleRequestMove),
+request_resize: wl.Listener(*wlr.XwaylandSurface.event.Resize) = .init(handleRequestResize),
 set_override_redirect: wl.Listener(void) = .init(handleSetOverrideRedirect),
 associate: wl.Listener(void) = .init(handleAssociate),
 dissociate: wl.Listener(void) = .init(handleDissociate),
@@ -73,6 +76,8 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.associate.add(&xwindow.associate);
     xsurface.events.dissociate.add(&xwindow.dissociate);
     xsurface.events.request_configure.add(&xwindow.request_configure);
+    xsurface.events.request_move.add(&xwindow.request_move);
+    xsurface.events.request_resize.add(&xwindow.request_resize);
     xsurface.events.set_override_redirect.add(&xwindow.set_override_redirect);
     xsurface.events.set_size_hints.add(&xwindow.set_size_hints);
     xsurface.events.set_title.add(&xwindow.set_title);
@@ -162,6 +167,8 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.associate.link.remove();
     xwindow.dissociate.link.remove();
     xwindow.request_configure.link.remove();
+    xwindow.request_move.link.remove();
+    xwindow.request_resize.link.remove();
     xwindow.set_override_redirect.link.remove();
     xwindow.set_size_hints.link.remove();
     xwindow.set_title.link.remove();
@@ -341,6 +348,39 @@ fn handleRequestConfigure(
         event.height,
     );
     xwindow.window.setDimensions(event.width, event.height);
+}
+
+/// _NET_WM_MOVERESIZE has no Wayland seat or serial. XWayland has one core
+/// pointer, so use the default seat after verifying that its active press is
+/// focused on this managed top-level.
+fn clientPointerSeat(xwindow: *XwaylandWindow) ?*Seat {
+    const surface = xwindow.xsurface.surface orelse return null;
+    if (!surface.mapped or xwindow.window.state != .mapped) return null;
+    const seat = server.input_manager.defaultSeat();
+    if (!seat.cursor.canStartXwaylandPointerOperation(surface)) return null;
+    return seat;
+}
+
+fn handleRequestMove(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("request_move", listener);
+    const seat = xwindow.clientPointerSeat() orelse return;
+    xwindow.window.wm_scheduled.pointer_move_requested = seat;
+    server.wm.dirtyWindowing();
+}
+
+fn handleRequestResize(
+    listener: *wl.Listener(*wlr.XwaylandSurface.event.Resize),
+    event: *wlr.XwaylandSurface.event.Resize,
+) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("request_resize", listener);
+    const edges: wlr.Edges = @bitCast(event.edges);
+    if (!edges.top and !edges.bottom and !edges.left and !edges.right) return;
+    const seat = xwindow.clientPointerSeat() orelse return;
+    xwindow.window.wm_scheduled.pointer_resize_requested = .{
+        .seat = seat,
+        .edges = @bitCast(event.edges),
+    };
+    server.wm.dirtyWindowing();
 }
 
 fn handleSetOverrideRedirect(listener: *wl.Listener(void)) void {
