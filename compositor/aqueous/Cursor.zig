@@ -1032,6 +1032,9 @@ fn passthrough(cursor: *Cursor, time: u32) void {
                 cursor.seat.wlr_seat.pointerNotifyMotion(time, sx, sy);
                 cursor.last_sent_sx = sx;
                 cursor.last_sent_sy = sy;
+            } else {
+                cursor.last_sent_sx = result.sx;
+                cursor.last_sent_sy = result.sy;
             }
             cursor.last_sent_lx = lx;
             cursor.last_sent_ly = ly;
