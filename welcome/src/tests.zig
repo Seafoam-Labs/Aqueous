@@ -5,4 +5,5 @@ test {
     _ = @import("shelly_protocol.zig");
     _ = @import("shelly_client.zig");
     _ = @import("first_run.zig");
+    _ = @import("noctalia.zig");
 }

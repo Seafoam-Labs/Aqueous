@@ -6,8 +6,11 @@ const install_plan = @import("install_plan.zig");
 const shelly = @import("shelly_client.zig");
 const protocol = @import("shelly_protocol.zig");
 const first_run = @import("first_run.zig");
+const noctalia = @import("noctalia.zig");
 
 const shelly_path = "/usr/bin/shelly";
+const noctalia_path = "/usr/bin/noctalia";
+const wallpaper_directory = "/usr/share/aqueous/wallpapers";
 
 const Mutex = struct {
     value: std.atomic.Mutex = .unlocked,
@@ -38,6 +41,19 @@ const WorkerMode = enum {
     complete,
 };
 
+const CustomChange = union(enum) {
+    theme_mode: noctalia.ThemeMode,
+    palette: struct {
+        source: noctalia.Source,
+        name: [64]u8 = @splat(0),
+        len: usize = 0,
+    },
+    wallpaper: struct {
+        path: [256]u8 = @splat(0),
+        len: usize = 0,
+    },
+};
+
 const Runtime = struct {
     mutex: Mutex = .{},
     mode: WorkerMode = .idle,
@@ -45,6 +61,9 @@ const Runtime = struct {
     installed: shelly.Installed = @splat(false),
     selection: install_plan.Selection = @splat(false),
     results: [registry.application_count]Result = @splat(.none),
+    noctalia_state: noctalia.State = .{},
+    pending_change: ?CustomChange = null,
+    custom_running: bool = false,
     status: [256]u8 = @splat(0),
     status_len: usize = 0,
     percent: u8 = 0,
@@ -75,10 +94,13 @@ const App = struct {
     window: *quark.Parent,
     runtime: *Runtime,
     worker: ?std.Thread = null,
+    custom_worker: ?std.Thread = null,
     screen: Screen = .loading,
     installed: shelly.Installed = @splat(false),
     selected: install_plan.Selection = @splat(false),
     results: [registry.application_count]Result = @splat(.none),
+    noctalia_state: noctalia.State = .{},
+    wallpapers: [][]const u8 = &.{},
     status: [256]u8 = @splat(0),
     status_len: usize = 0,
     percent: u8 = 0,
@@ -86,7 +108,7 @@ const App = struct {
     needs_rebuild: bool = false,
     callbacks: std.ArrayList(*Callback) = .empty,
 
-    const Screen = enum { loading, selection, review, installing, results };
+    const Screen = enum { loading, customize, selection, review, installing, results };
     const Callback = struct { app: *App, value: u64 };
 
     fn init(
@@ -104,12 +126,17 @@ const App = struct {
             .window = window,
             .runtime = runtime,
         };
+        app.wallpapers = noctalia.listWallpapers(allocator, io, wallpaper_directory) catch
+            try allocator.dupe([]const u8, &.{});
         app.setStatus("Checking installed applications…");
         return app;
     }
 
     fn deinit(self: *App) void {
         if (self.worker) |thread| thread.join();
+        if (self.custom_worker) |thread| thread.join();
+        for (self.wallpapers) |name| self.allocator.free(name);
+        self.allocator.free(self.wallpapers);
         for (self.callbacks.items) |callback| self.allocator.destroy(callback);
         self.callbacks.deinit(self.allocator);
         self.allocator.destroy(self.runtime);
@@ -157,6 +184,7 @@ const App = struct {
         self.seen_revision = revision;
         self.installed = self.runtime.installed;
         self.results = self.runtime.results;
+        self.noctalia_state = self.runtime.noctalia_state;
         self.percent = self.runtime.percent;
         self.status_len = self.runtime.status_len;
         @memcpy(self.status[0..self.status_len], self.runtime.status[0..self.status_len]);
@@ -165,9 +193,9 @@ const App = struct {
 
         switch (mode) {
             .ready => if (self.screen == .loading) {
-                self.screen = .selection;
+                self.screen = .customize;
             },
-            .unavailable => self.screen = .selection,
+            .unavailable => self.screen = .customize,
             .installing => self.screen = .installing,
             .complete => self.screen = .results,
             else => {},
@@ -229,6 +257,7 @@ const App = struct {
 
         const content = switch (self.screen) {
             .loading => try self.loadingView(),
+            .customize => try self.customizeView(),
             .selection => try self.selectionView(),
             .review => try self.reviewView(),
             .installing => try self.installingView(),
@@ -245,10 +274,11 @@ const App = struct {
     fn stepLabel(self: *const App) []const u8 {
         return switch (self.screen) {
             .loading => "Getting ready",
-            .selection => "1 · Choose applications",
-            .review => "2 · Review",
-            .installing => "3 · Installing",
-            .results => "4 · Finished",
+            .customize => "1 · Make Noctalia yours",
+            .selection => "2 · Choose applications",
+            .review => "3 · Review",
+            .installing => "4 · Installing",
+            .results => "5 · Finished",
         };
     }
 
@@ -257,6 +287,101 @@ const App = struct {
         _ = try card.add(self.text("Looking at what is already installed", true, 0xF1EFF8));
         _ = try card.add(self.text(self.statusText(), false, 0xBBB6CF));
         return .{ .column = card };
+    }
+
+    fn customizeView(self: *App) !quark.Widget {
+        var content = quark.widget.Column.init(self.allocator, .{
+            .spacing = 14,
+            .padding = 4,
+            .alignment = .stretch,
+        });
+        const status = self.statusText();
+        if (status.len != 0 and !std.mem.eql(u8, status, "Choose the applications you would like to add.")) {
+            _ = try content.add(try self.noticeCard(status, 0x5B2834));
+        }
+        if (!self.noctalia_state.available) {
+            _ = try content.add(try self.noticeCard(
+                "Noctalia is not responding, so the shell keeps its current appearance.",
+                0x282344,
+            ));
+        }
+
+        var appearance = self.newCard();
+        _ = try appearance.add(self.text("Appearance", true, 0xF1EFF8));
+        _ = try appearance.add(self.text("Noctalia themes the shell, the bar, and your applications.", false, 0x9A94B5));
+        var modes = quark.widget.Row.init(self.allocator, .{
+            .spacing = 10,
+            .alignment = .center,
+        });
+        const mode_list = [_]noctalia.ThemeMode{ .dark, .light, .auto };
+        for (mode_list, 0..) |mode, index| {
+            _ = try modes.add(self.button(
+                mode.label(),
+                try self.bindValue(index, chooseThemeMode),
+                self.noctalia_state.theme_mode == mode,
+            ));
+        }
+        _ = try appearance.add(.{ .row = modes });
+        _ = try content.add(.{ .column = appearance });
+
+        var palette_card = self.newCard();
+        _ = try palette_card.add(self.text("Color palette", true, 0xF1EFF8));
+        _ = try palette_card.add(self.text("Pick a built-in palette, or generate colors from the wallpaper.", false, 0x9A94B5));
+        var palette_row = quark.widget.Row.init(self.allocator, .{
+            .spacing = 10,
+            .alignment = .center,
+        });
+        const source_index: ?u32 = switch (self.noctalia_state.source) {
+            .builtin => 0,
+            .wallpaper => 1,
+            else => null,
+        };
+        _ = try palette_row.addWithWidthConstraint(.{ .dropdown = quark.widget.Dropdown.init(.{
+            .items = &.{ "Built-in palettes", "From wallpaper" },
+            .selected_index = source_index,
+            .placeholder = "Community or custom palette",
+            .on_action = quark.action.bind(self, choosePaletteSource),
+        }) }, quark.Size.proportional(1));
+        const palette_items = self.paletteItems();
+        _ = try palette_row.addWithWidthConstraint(.{ .dropdown = quark.widget.Dropdown.init(.{
+            .items = palette_items,
+            .selected_index = indexOfItem(palette_items, self.noctalia_state.paletteName()),
+            .placeholder = "Select a palette",
+            .on_action = quark.action.bind(self, choosePalette),
+        }) }, quark.Size.proportional(1));
+        _ = try palette_card.add(.{ .row = palette_row });
+        _ = try content.add(.{ .column = palette_card });
+
+        if (self.wallpapers.len != 0) {
+            var wallpaper_card = self.newCard();
+            _ = try wallpaper_card.add(self.text("Wallpaper", true, 0xF1EFF8));
+            _ = try wallpaper_card.add(self.text("Bundled with Aqueous; Noctalia applies it immediately.", false, 0x9A94B5));
+            _ = try wallpaper_card.add(.{ .dropdown = quark.widget.Dropdown.init(.{
+                .items = self.wallpapers,
+                .selected_index = indexOfItem(
+                    self.wallpapers,
+                    std.fs.path.basename(self.noctalia_state.wallpaperPath()),
+                ),
+                .placeholder = "Select a wallpaper",
+                .on_action = quark.action.bind(self, chooseWallpaper),
+            }) });
+            _ = try content.add(.{ .column = wallpaper_card });
+        }
+        return .{ .column = content };
+    }
+
+    fn paletteItems(self: *const App) []const []const u8 {
+        return if (self.noctalia_state.source == .wallpaper)
+            noctalia.wallpaper_schemes
+        else
+            noctalia.builtin_palettes;
+    }
+
+    fn indexOfItem(items: []const []const u8, wanted: []const u8) ?u32 {
+        for (items, 0..) |item, index| {
+            if (std.mem.eql(u8, item, wanted)) return @intCast(index);
+        }
+        return null;
     }
 
     fn selectionView(self: *App) !quark.Widget {
@@ -385,7 +510,13 @@ const App = struct {
         });
         switch (self.screen) {
             .loading => _ = try row.add(self.text("This only reads Shelly's installed-package lists.", false, 0x817AA3)),
+            .customize => {
+                _ = try row.add(self.button("Skip for now", quark.action.bind(self, skip), false));
+                _ = try row.add(.{ .spacer = quark.widget.Spacer.flexible() });
+                _ = try row.add(self.button("Continue", quark.action.bind(self, showSelection), true));
+            },
             .selection => {
+                _ = try row.add(self.button("Back", quark.action.bind(self, showCustomize), false));
                 _ = try row.add(self.button("Skip for now", quark.action.bind(self, skip), false));
                 _ = try row.add(.{ .spacer = quark.widget.Spacer.flexible() });
                 const count = install_plan.selectedCount(self.selected, self.installed);
@@ -501,6 +632,114 @@ const App = struct {
         self.needs_rebuild = true;
     }
 
+    fn showCustomize(self: *App, action: quark.Action) !void {
+        if (action != .click) return;
+        self.screen = .customize;
+        self.needs_rebuild = true;
+    }
+
+    fn chooseThemeMode(self: *App, raw_index: u64, action: quark.Action) !void {
+        if (action != .click or raw_index > 2 or !self.noctalia_state.available) return;
+        const mode: noctalia.ThemeMode = switch (raw_index) {
+            0 => .dark,
+            1 => .light,
+            else => .auto,
+        };
+        self.runtime.mutex.lock();
+        self.runtime.noctalia_state.theme_mode = mode;
+        self.runtime.mutex.unlock();
+        self.queueChange(.{ .theme_mode = mode });
+        self.needs_rebuild = true;
+    }
+
+    fn choosePaletteSource(self: *App, action: quark.Action) !void {
+        if (action != .select_index or !self.noctalia_state.available) return;
+        const source: noctalia.Source = if (action.select_index == 0) .builtin else .wallpaper;
+        const items: []const []const u8 = if (source == .wallpaper)
+            noctalia.wallpaper_schemes
+        else
+            noctalia.builtin_palettes;
+        const current = self.noctalia_state.paletteName();
+        const name = if (self.noctalia_state.source == source and
+            indexOfItem(items, current) != null)
+            current
+        else
+            items[0];
+        self.applyPalette(source, name);
+    }
+
+    fn choosePalette(self: *App, action: quark.Action) !void {
+        if (action != .select_index or !self.noctalia_state.available) return;
+        const items = self.paletteItems();
+        if (action.select_index >= items.len) return;
+        const source: noctalia.Source = if (self.noctalia_state.source == .wallpaper)
+            .wallpaper
+        else
+            .builtin;
+        self.applyPalette(source, items[action.select_index]);
+    }
+
+    fn applyPalette(self: *App, source: noctalia.Source, name: []const u8) void {
+        var change: CustomChange = .{ .palette = .{ .source = source } };
+        change.palette.len = @min(name.len, change.palette.name.len);
+        @memcpy(change.palette.name[0..change.palette.len], name[0..change.palette.len]);
+        self.runtime.mutex.lock();
+        self.runtime.noctalia_state.source = source;
+        self.runtime.noctalia_state.palette = @splat(0);
+        self.runtime.noctalia_state.palette_len = change.palette.len;
+        @memcpy(
+            self.runtime.noctalia_state.palette[0..change.palette.len],
+            name[0..change.palette.len],
+        );
+        self.runtime.mutex.unlock();
+        self.queueChange(change);
+        self.needs_rebuild = true;
+    }
+
+    fn chooseWallpaper(self: *App, action: quark.Action) !void {
+        if (action != .select_index or !self.noctalia_state.available) return;
+        if (action.select_index >= self.wallpapers.len) return;
+        const name = self.wallpapers[action.select_index];
+        const path = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}/{s}",
+            .{ wallpaper_directory, name },
+        );
+        defer self.allocator.free(path);
+        var change: CustomChange = .{ .wallpaper = .{} };
+        change.wallpaper.len = @min(path.len, change.wallpaper.path.len);
+        @memcpy(change.wallpaper.path[0..change.wallpaper.len], path[0..change.wallpaper.len]);
+        self.runtime.mutex.lock();
+        self.runtime.noctalia_state.wallpaper = @splat(0);
+        self.runtime.noctalia_state.wallpaper_len = change.wallpaper.len;
+        @memcpy(
+            self.runtime.noctalia_state.wallpaper[0..change.wallpaper.len],
+            path[0..change.wallpaper.len],
+        );
+        self.runtime.mutex.unlock();
+        self.queueChange(change);
+        self.needs_rebuild = true;
+    }
+
+    fn queueChange(self: *App, change: CustomChange) void {
+        self.runtime.mutex.lock();
+        self.runtime.pending_change = change;
+        const spawn_needed = !self.runtime.custom_running;
+        if (spawn_needed) self.runtime.custom_running = true;
+        self.runtime.revision += 1;
+        self.runtime.mutex.unlock();
+        if (!spawn_needed) return;
+        self.custom_worker = std.Thread.spawn(.{}, customWorker, .{self.runtime}) catch {
+            self.runtime.mutex.lock();
+            self.runtime.custom_running = false;
+            self.runtime.pending_change = null;
+            self.runtime.setStatusLocked("Unable to start the Noctalia worker.");
+            self.runtime.revision += 1;
+            self.runtime.mutex.unlock();
+            return;
+        };
+    }
+
     fn install(self: *App, action: quark.Action) !void {
         if (action != .click) return;
         self.startInstall() catch {
@@ -553,8 +792,12 @@ fn discoveryWorker(runtime: *Runtime) void {
     defer threaded.deinit();
     const io = threaded.io();
 
+    var noctalia_state: noctalia.State = .{};
+    noctalia.readState(allocator, io, noctalia_path, &noctalia_state) catch {};
+
     if (!shelly.isAvailable(allocator, io, shelly_path)) {
         runtime.mutex.lock();
+        runtime.noctalia_state = noctalia_state;
         runtime.mode = .unavailable;
         runtime.setStatusLocked("Shelly is not available at /usr/bin/shelly. Install Shelly before continuing.");
         runtime.revision += 1;
@@ -565,6 +808,8 @@ fn discoveryWorker(runtime: *Runtime) void {
     var installed: shelly.Installed = @splat(false);
     shelly.discoverInstalled(allocator, io, shelly_path, &installed) catch {
         runtime.mutex.lock();
+        runtime.noctalia_state = noctalia_state;
+        runtime.installed = installed;
         runtime.mode = .ready;
         runtime.setStatusLocked("Some installed applications could not be detected; you can still continue.");
         runtime.revision += 1;
@@ -572,11 +817,51 @@ fn discoveryWorker(runtime: *Runtime) void {
         return;
     };
     runtime.mutex.lock();
+    runtime.noctalia_state = noctalia_state;
     runtime.installed = installed;
     runtime.mode = .ready;
     runtime.setStatusLocked("Choose the applications you would like to add.");
     runtime.revision += 1;
     runtime.mutex.unlock();
+}
+
+fn customWorker(runtime: *Runtime) void {
+    const allocator = std.heap.page_allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    while (true) {
+        runtime.mutex.lock();
+        const change = runtime.pending_change;
+        if (change == null) {
+            runtime.custom_running = false;
+            runtime.mutex.unlock();
+            return;
+        }
+        runtime.pending_change = null;
+        runtime.mutex.unlock();
+
+        const applied = switch (change.?) {
+            .theme_mode => |mode| noctalia.setThemeMode(allocator, io, noctalia_path, mode),
+            .palette => |palette| noctalia.setColorScheme(
+                allocator,
+                io,
+                noctalia_path,
+                palette.source,
+                palette.name[0..palette.len],
+            ),
+            .wallpaper => |wallpaper| noctalia.setWallpaper(
+                allocator,
+                io,
+                noctalia_path,
+                wallpaper.path[0..wallpaper.len],
+            ),
+        };
+        applied catch {
+            runtime.updateStatus("Noctalia did not apply the last change.", 0);
+        };
+    }
 }
 
 fn installWorker(runtime: *Runtime) void {
