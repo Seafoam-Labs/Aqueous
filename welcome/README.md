@@ -5,9 +5,11 @@ of common desktop applications, detects installed software through Shelly, and
 installs the user's selections through Shelly's repository, AUR, and Flatpak
 backends.
 
-The automatic `--first-run` launch exits after the user completes setup. A
-normal launcher invocation always opens, so the application can be used again
-later.
+The automatic `--first-run` launch exits after the user completes or skips
+setup. Completing or skipping also writes an XDG autostart override
+(`Hidden=true` for `org.aqueous.Welcome.desktop`), so later sessions do not
+launch the application at all. A normal launcher invocation always opens, so
+the application can be used again later.
 
 ## Add an application section
 

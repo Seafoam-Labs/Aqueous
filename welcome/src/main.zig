@@ -777,7 +777,9 @@ const App = struct {
     }
 
     fn skip(self: *App, action: quark.Action) !void {
-        if (action == .click) self.window.close();
+        if (action != .click) return;
+        first_run.markComplete(self.allocator, self.io, self.environ) catch {};
+        self.window.close();
     }
 
     fn hasFailures(self: *const App) bool {
