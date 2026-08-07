@@ -257,12 +257,16 @@ pub fn viewportFocusTarget(state: *const State, focused: types.Handle) ?types.Ha
     return null;
 }
 
-pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
+pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
     if (state.active_remainder != .scrolling or state.anchor == handle) return false;
     for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
         if (scrolling.containsHandle(&side.scrolling, handle)) return true;
     }
     return false;
+}
+
+pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
+    return supportsViewportScroll(state, handle);
 }
 
 pub fn isAnchor(state: *const State, handle: types.Handle) bool {

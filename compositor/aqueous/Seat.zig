@@ -24,6 +24,7 @@ const InputRelay = @import("InputRelay.zig");
 const Keyboard = @import("Keyboard.zig");
 const KeyboardGroup = @import("KeyboardGroup.zig");
 const Gesture = @import("wm/input/gestures.zig");
+const Wheel = @import("wm/input/wheel.zig");
 const LayerShellSeat = @import("LayerShellSeat.zig");
 const LayerSurface = @import("LayerSurface.zig");
 const LockSurface = @import("LockSurface.zig");
@@ -99,6 +100,7 @@ pub const Event = union(enum) {
         relative_direction: wl.Pointer.AxisRelativeDirection,
         delta: f64,
         delta_discrete: i32,
+        delta_discrete_raw: i32,
     };
 
     pub const PointerSwipeBegin = struct {
@@ -213,6 +215,7 @@ xkb_bindings_seat: XkbBindingsSeat = .{},
 
 event_queue: std.Deque(Event),
 gesture: Gesture.State = .{},
+wheel: Wheel.State = .{},
 
 /// State to be sent to the wm in the next manage sequence.
 wm_scheduled: struct {
@@ -430,6 +433,34 @@ fn processInteractiveMotionBatch(seat: *Seat, first: Event) void {
     }
 }
 
+fn processAxis(seat: *Seat, event: *const Event.PointerAxis) void {
+    const source: ?Wheel.Source = if (event.orientation == .vertical_scroll) switch (event.source) {
+        .wheel => .wheel,
+        .finger => .finger,
+        else => null,
+    } else null;
+    if (source) |wheel_source| {
+        const modifiers: u32 = if (seat.wlr_seat.getKeyboard()) |keyboard|
+            @bitCast(keyboard.getModifiers())
+        else
+            0;
+        if (server.aqueous.wheelNavigationAxis(modifiers)) |axis| {
+            const steps = seat.wheel.update(
+                axis,
+                wheel_source,
+                event.time_msec,
+                event.delta,
+                event.delta_discrete_raw,
+            );
+            if (steps != 0) _ = server.aqueous.navigateWithWheel(axis, steps);
+            return;
+        }
+    }
+
+    seat.wheel.reset();
+    seat.cursor.processAxis(event);
+}
+
 pub fn processEvents(seat: *Seat) void {
     assert(server.wm.state == .idle);
 
@@ -451,14 +482,23 @@ pub fn processEvents(seat: *Seat) void {
 
         const pg = server.input_manager.pointer_gestures;
         switch (event) {
-            .keyboard_key => |ev| ev.keyboard.processKey(&ev.key),
-            .keyboard_modifiers => |ev| ev.keyboard.processModifiers(ev.modifiers),
+            .keyboard_key => |ev| {
+                seat.wheel.reset();
+                ev.keyboard.processKey(&ev.key);
+            },
+            .keyboard_modifiers => |ev| {
+                seat.wheel.reset();
+                ev.keyboard.processModifiers(ev.modifiers);
+            },
             .keyboard_keymap => |ev| ev.keyboard.processKeymap(ev.keymap),
 
             .pointer_motion_relative => |ev| seat.cursor.processMotionRelative(&ev),
             .pointer_motion_absolute => |ev| seat.cursor.processMotionAbsolute(&ev),
-            .pointer_button => |ev| seat.cursor.processButton(&ev),
-            .pointer_axis => |ev| seat.cursor.processAxis(&ev),
+            .pointer_button => |ev| {
+                seat.wheel.reset();
+                seat.cursor.processButton(&ev);
+            },
+            .pointer_axis => |ev| seat.processAxis(&ev),
             .pointer_frame => seat.wlr_seat.pointerNotifyFrame(),
 
             .pointer_swipe_begin => |ev| {

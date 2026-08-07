@@ -1101,6 +1101,7 @@ fn queueAxis(listener: *wl.Listener(*wlr.Pointer.event.Axis), event: *wlr.Pointe
         .relative_direction = event.relative_direction,
         .delta = event.delta * device.config.scroll_factor,
         .delta_discrete = math.lossyCast(i32, @as(f64, @floatFromInt(event.delta_discrete)) * device.config.scroll_factor),
+        .delta_discrete_raw = event.delta_discrete,
     } }) catch {};
 }
 

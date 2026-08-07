@@ -172,6 +172,14 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?t
     };
 }
 
+pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
+    return switch (state.active_layout) {
+        .scrolling => scrolling.containsHandle(&state.scrolling, handle),
+        .game_mode => game_mode.supportsViewportScroll(&state.game_mode, handle),
+        else => false,
+    };
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     return switch (state.active_layout) {
         .scrolling => scrolling.containsHandle(&state.scrolling, handle),

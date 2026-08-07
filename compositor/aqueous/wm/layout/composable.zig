@@ -217,6 +217,11 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?t
     return leaf.scrollViewport(child, focused, dx, dy);
 }
 
+pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
+    const child = constChildForHandle(state, handle) orelse return false;
+    return leaf.supportsViewportScroll(child, handle);
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     const child = constChildForHandle(state, handle) orelse return false;
     return leaf.canResizeScrolling(child, handle);

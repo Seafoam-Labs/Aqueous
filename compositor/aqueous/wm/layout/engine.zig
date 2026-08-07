@@ -79,6 +79,13 @@ pub fn scrollViewport(state: *State, focused: types.Handle, dx: i32, dy: i32) ?t
         leaf.scrollViewport(&state.standalone, focused, dx, dy);
 }
 
+pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
+    return if (state.active_layout == .composable)
+        composable.supportsViewportScroll(&state.composite, handle)
+    else
+        leaf.supportsViewportScroll(&state.standalone, handle);
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     return if (state.active_layout == .composable)
         composable.canResizeScrolling(&state.composite, handle)
@@ -315,4 +322,103 @@ test "floating geometry survives temporary layout switches" {
     placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &windows, 1, .{});
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(remembered, placements[0].geometry);
+}
+
+test "viewport scroll support follows the active standalone layout" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+
+    snapshot.default = .scrolling;
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(supportsViewportScroll(&state, 1));
+    try std.testing.expect(!supportsViewportScroll(&state, 99));
+
+    snapshot.default = .tile;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(!supportsViewportScroll(&state, 1));
+
+    snapshot.default = .floating;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(!supportsViewportScroll(&state, 1));
+}
+
+test "viewport scroll support routes through game mode and rejects its anchor" {
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .game_mode;
+
+    var fallback_state: State = .{};
+    defer fallback_state.deinit(std.testing.allocator);
+    const fallback = try arrange(
+        std.testing.allocator,
+        &fallback_state,
+        &snapshot,
+        area,
+        &windows,
+        1,
+        .{ .fallback = .scrolling },
+    );
+    std.testing.allocator.free(fallback);
+    try std.testing.expect(supportsViewportScroll(&fallback_state, 1));
+
+    var anchored_state: State = .{};
+    defer anchored_state.deinit(std.testing.allocator);
+    const game_state = gameModeState(&anchored_state);
+    game_state.rule_anchor = 1;
+    game_state.rule_options = .{
+        .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+        .remainder = .scrolling,
+        .gaps_inner = 0,
+    };
+    const anchored = try arrange(
+        std.testing.allocator,
+        &anchored_state,
+        &snapshot,
+        area,
+        &windows,
+        2,
+        .{},
+    );
+    std.testing.allocator.free(anchored);
+    try std.testing.expect(!supportsViewportScroll(&anchored_state, 1));
+    try std.testing.expect(supportsViewportScroll(&anchored_state, 2));
+}
+
+test "viewport scroll support routes to the focused composable child" {
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .composable;
+    config.apply(&snapshot,
+        \\[layout.composable.a]
+        \\layout = "scrolling"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.5, 0.0]
+        \\p3 = [0.5, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "tile"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 200, .height = 100 };
+
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(moveToComposableSlot(&state, 2, 1));
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(supportsViewportScroll(&state, 1));
+    try std.testing.expect(!supportsViewportScroll(&state, 2));
 }

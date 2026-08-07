@@ -52,6 +52,14 @@ The following keybindings are always active:
 
 Configured bindings are read from Aqueous's TOML configuration.
 
+In the integrated policy's scrolling layout, hold the configured primary
+modifier (*Super* by default) and turn the vertical scroll wheel to navigate
+left or right by column. Add the alternate modifier (*Alt* by default) to
+navigate up or down within the focused column. If *AQUEOUS_MOD=Alt*, *Super*
+becomes the alternate modifier. Natural-scroll input policy reverses the wheel
+directions automatically. These wheel chords also apply to scrolling game-mode
+remainders and scrolling composable children.
+
 # CONFIGURATION
 
 On startup aqueous will run an executable file at $XDG_CONFIG_HOME/aqueous/init if

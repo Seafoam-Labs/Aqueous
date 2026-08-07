@@ -25,6 +25,7 @@ const HoverDelay = @import("focus/hover_delay.zig");
 const pointer_drag = @import("input/drag.zig");
 const gesture_input = @import("input/gestures.zig");
 const output_transfer = @import("input/output_transfer.zig");
+const wheel_input = @import("input/wheel.zig");
 const StateStore = @import("state/store.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
@@ -837,6 +838,36 @@ pub fn handleGesture(aqueous: *Aqueous, gesture: gesture_input.Completed) void {
     aqueous.runVerb(verb);
 }
 
+pub fn wheelNavigationAxis(aqueous: *Aqueous, modifiers: u32) ?wheel_input.NavigationAxis {
+    if (!aqueous.mode.runsInternal() or
+        aqueous.overview != null or
+        aqueous.drag != null or
+        server.input_manager.defaultSeat().xwaylandKeyboardGrabActive())
+    {
+        return null;
+    }
+    const axis = wheel_input.resolveNavigationAxis(
+        aqueous.config.actions.primary_modifier,
+        modifiers,
+    ) orelse return null;
+    const context = aqueous.api.focusedContext() orelse return null;
+    if (context.window.policy_state.kind != .tiled) return null;
+    const state = aqueous.layout_states.getPtr(.{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    }) orelse return null;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    return if (layout_engine.supportsViewportScroll(state, handle)) axis else null;
+}
+
+pub fn navigateWithWheel(aqueous: *Aqueous, axis: wheel_input.NavigationAxis, steps: i32) bool {
+    if (steps == 0) return false;
+    return switch (axis) {
+        .horizontal => aqueous.scrollViewport(steps, 0),
+        .vertical => aqueous.scrollViewport(0, steps),
+    };
+}
+
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64, time_msec: u32) bool {
     if (!aqueous.mode.runsInternal()) return false;
     if (aqueous.overview != null) {
@@ -1183,10 +1214,22 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "move_column_right")) return aqueous.moveFocusedColumn(1);
     if (std.mem.eql(u8, action, "consume_window_into_column")) return aqueous.consumeWindowIntoColumn();
     if (std.mem.eql(u8, action, "expel_window_from_column")) return aqueous.expelWindowFromColumn();
-    if (std.mem.startsWith(u8, action, "scroll_viewport_left")) return aqueous.scrollViewport(-1, 0);
-    if (std.mem.startsWith(u8, action, "scroll_viewport_right")) return aqueous.scrollViewport(1, 0);
-    if (std.mem.eql(u8, action, "scroll_viewport_up")) return aqueous.scrollViewport(0, -1);
-    if (std.mem.eql(u8, action, "scroll_viewport_down")) return aqueous.scrollViewport(0, 1);
+    if (std.mem.startsWith(u8, action, "scroll_viewport_left")) {
+        _ = aqueous.scrollViewport(-1, 0);
+        return;
+    }
+    if (std.mem.startsWith(u8, action, "scroll_viewport_right")) {
+        _ = aqueous.scrollViewport(1, 0);
+        return;
+    }
+    if (std.mem.eql(u8, action, "scroll_viewport_up")) {
+        _ = aqueous.scrollViewport(0, -1);
+        return;
+    }
+    if (std.mem.eql(u8, action, "scroll_viewport_down")) {
+        _ = aqueous.scrollViewport(0, 1);
+        return;
+    }
     if (std.mem.eql(u8, action, "toggle_scrolling_full_width")) return aqueous.toggleScrollingFullWidth();
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
@@ -1583,15 +1626,16 @@ fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
     aqueous.api.requestManageCycle();
 }
 
-fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) void {
+fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) bool {
     // The keybinding is an explicit focus/navigation intent even when the
     // viewport is already at its edge. It must invalidate an older hover.
     aqueous.cancelHoverFocus();
-    const context = aqueous.api.focusedContext() orelse return;
-    const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
-    const target = layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy) orelse return;
+    const context = aqueous.api.focusedContext() orelse return false;
+    const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return false;
+    const target = layout_engine.scrollViewport(state, @bitCast(context.window.ref), dx, dy) orelse return false;
     aqueous.requestFocus(target);
     aqueous.api.requestManageCycle();
+    return true;
 }
 
 fn consumeWindowIntoColumn(aqueous: *Aqueous) void {

@@ -142,6 +142,22 @@ The default column-management bindings are:
 - `Super+Up/Down` scrolls the focused column by one member without changing
   keyboard focus.
 
+The vertical scroll wheel provides the same viewport navigation while a
+scrolling-capable window is focused. Hold the configured primary modifier
+(`Super` by default) and scroll up/down to move the viewport left/right by
+column. Add Alt (`Super+Alt+wheel` by default) to move up/down through the
+focused column. When `AQUEOUS_MOD=Alt`, Super becomes the additional modifier,
+so the vertical chord remains `Alt+Super+wheel`. Wheel down moves right or down;
+wheel up moves left or up, with per-device `natural_scroll` reversing those
+directions automatically.
+
+One physical wheel notch produces one navigation step, including on
+high-resolution wheels; touchpad scrolls accumulate before stepping. Captured
+scrolls do not leak into the focused application, even at a viewport edge.
+Tile, floating, game anchors, overview, interactive drags, Xwayland keyboard
+grabs, unmatched modifier combinations, and physical horizontal-wheel events
+continue through the normal input path.
+
 With `Super` held, left-drag a tiled window over the top or bottom third of
 another window to stack it before or after that window. Dropping over the
 middle-left or middle-right creates an adjacent column. A full-width flag is
