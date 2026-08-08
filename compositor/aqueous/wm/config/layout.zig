@@ -373,7 +373,7 @@ test "scrolling focus delay rejects negative and malformed overlays" {
     try std.testing.expectEqual(@as(i32, 175), snapshot.scrolling_focus_follows_mouse_delay_ms);
 }
 
-test "scrolling portrait placement preference defaults false and parses booleans" {
+test "scrolling portrait placement preference parses booleans and malformed values retain validated base" {
     var snapshot: Snapshot = .{};
     try std.testing.expect(!snapshot.scrolling_prefer_vertical_on_portrait);
 
@@ -383,6 +383,8 @@ test "scrolling portrait placement preference defaults false and parses booleans
     );
     try std.testing.expect(snapshot.scrolling_prefer_vertical_on_portrait);
 
+    // A plausible-looking non-boolean keeps the last validated value instead
+    // of resetting the option.
     apply(&snapshot,
         \\[layout.options.scrolling]
         \\prefer_vertical_on_portrait = "portrait"

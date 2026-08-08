@@ -691,13 +691,18 @@ fn findPlacement(placements: []const types.Placement, handle: types.Handle) type
     unreachable;
 }
 
+// Shared fixtures for the portrait placement tests below.
+const portrait_area: types.Rect = .{ .x = 0, .y = 0, .width = 80, .height = 120 };
+const square_area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 100 };
+const landscape_area: types.Rect = .{ .x = 0, .y = 0, .width = 120, .height = 80 };
+const test_gaps: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+
 test "portrait preference stacks arrivals while default and non-portrait areas remain horizontal" {
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
-    const layout_options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
 
     var portrait: State = .{};
     defer portrait.deinit(std.testing.allocator);
-    const portrait_placements = try arrange(std.testing.allocator, &portrait, .{ .x = 0, .y = 0, .width = 80, .height = 120 }, &windows, null, layout_options, .{
+    const portrait_placements = try arrange(std.testing.allocator, &portrait, portrait_area, &windows, null, test_gaps, .{
         .follow_new_windows = false,
         .prefer_vertical_on_portrait = true,
     });
@@ -707,71 +712,69 @@ test "portrait preference stacks arrivals while default and non-portrait areas r
 
     var disabled: State = .{};
     defer disabled.deinit(std.testing.allocator);
-    const disabled_placements = try arrange(std.testing.allocator, &disabled, .{ .x = 0, .y = 0, .width = 80, .height = 120 }, &windows, null, layout_options, .{});
+    const disabled_placements = try arrange(std.testing.allocator, &disabled, portrait_area, &windows, null, test_gaps, .{});
     defer std.testing.allocator.free(disabled_placements);
     try std.testing.expectEqual(@as(usize, 3), disabled.columns.items.len);
 
     var square: State = .{};
     defer square.deinit(std.testing.allocator);
-    const square_placements = try arrange(std.testing.allocator, &square, .{ .x = 0, .y = 0, .width = 100, .height = 100 }, &windows, null, layout_options, .{ .prefer_vertical_on_portrait = true });
+    const square_placements = try arrange(std.testing.allocator, &square, square_area, &windows, null, test_gaps, .{ .prefer_vertical_on_portrait = true });
     defer std.testing.allocator.free(square_placements);
     try std.testing.expectEqual(@as(usize, 3), square.columns.items.len);
 
     var landscape: State = .{};
     defer landscape.deinit(std.testing.allocator);
-    const landscape_placements = try arrange(std.testing.allocator, &landscape, .{ .x = 0, .y = 0, .width = 120, .height = 80 }, &windows, null, layout_options, .{ .prefer_vertical_on_portrait = true });
+    const landscape_placements = try arrange(std.testing.allocator, &landscape, landscape_area, &windows, null, test_gaps, .{ .prefer_vertical_on_portrait = true });
     defer std.testing.allocator.free(landscape_placements);
     try std.testing.expectEqual(@as(usize, 3), landscape.columns.items.len);
 }
 
 test "portrait insertion selects current then previous then last column and preserves arrival order" {
     const initial_windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
-    const layout_options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
     const scrolling_options: Options = .{ .follow_new_windows = false, .prefer_vertical_on_portrait = true };
+    // A handle that is not mapped, exercising the focus fallback chain.
+    const missing: ?types.Handle = 99;
 
     var current: State = .{};
     defer current.deinit(std.testing.allocator);
-    const current_initial = try arrange(std.testing.allocator, &current, .{ .x = 0, .y = 0, .width = 120, .height = 80 }, &initial_windows, 2, layout_options, scrolling_options);
+    const current_initial = try arrange(std.testing.allocator, &current, landscape_area, &initial_windows, 2, test_gaps, scrolling_options);
     std.testing.allocator.free(current_initial);
-    const current_added = try arrange(std.testing.allocator, &current, .{ .x = 0, .y = 0, .width = 80, .height = 120 }, &.{
+    const current_added = try arrange(std.testing.allocator, &current, portrait_area, &.{
         .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 },
-    }, 1, layout_options, scrolling_options);
+    }, 1, test_gaps, scrolling_options);
     defer std.testing.allocator.free(current_added);
     try std.testing.expectEqualSlices(types.Handle, &.{ 1, 3, 4 }, current.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{2}, current.columns.items[1].windows.items);
 
     var previous: State = .{};
     defer previous.deinit(std.testing.allocator);
-    const previous_initial = try arrange(std.testing.allocator, &previous, .{ .x = 0, .y = 0, .width = 120, .height = 80 }, &initial_windows, 1, layout_options, scrolling_options);
+    const previous_initial = try arrange(std.testing.allocator, &previous, landscape_area, &initial_windows, 1, test_gaps, scrolling_options);
     std.testing.allocator.free(previous_initial);
-    const previous_added = try arrange(std.testing.allocator, &previous, .{ .x = 0, .y = 0, .width = 80, .height = 120 }, &.{
+    const previous_added = try arrange(std.testing.allocator, &previous, portrait_area, &.{
         .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 },
-    }, 99, layout_options, scrolling_options);
+    }, missing, test_gaps, scrolling_options);
     defer std.testing.allocator.free(previous_added);
     try std.testing.expectEqualSlices(types.Handle, &.{ 1, 3 }, previous.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{2}, previous.columns.items[1].windows.items);
 
     var last: State = .{};
     defer last.deinit(std.testing.allocator);
-    const last_initial = try arrange(std.testing.allocator, &last, .{ .x = 0, .y = 0, .width = 120, .height = 80 }, &initial_windows, null, layout_options, scrolling_options);
+    const last_initial = try arrange(std.testing.allocator, &last, landscape_area, &initial_windows, null, test_gaps, scrolling_options);
     std.testing.allocator.free(last_initial);
-    const last_added = try arrange(std.testing.allocator, &last, .{ .x = 0, .y = 0, .width = 80, .height = 120 }, &.{
+    const last_added = try arrange(std.testing.allocator, &last, portrait_area, &.{
         .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 },
-    }, 99, layout_options, scrolling_options);
+    }, missing, test_gaps, scrolling_options);
     defer std.testing.allocator.free(last_added);
     try std.testing.expectEqualSlices(types.Handle, &.{1}, last.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 3 }, last.columns.items[1].windows.items);
 }
 
 test "portrait follow reveals the last appended member and can be disabled" {
-    const layout_options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
-    const area: types.Rect = .{ .x = 0, .y = 0, .width = 80, .height = 120 };
-
     var following: State = .{};
     defer following.deinit(std.testing.allocator);
-    const following_initial = try arrange(std.testing.allocator, &following, area, &.{.{ .handle = 1 }}, 1, layout_options, .{ .prefer_vertical_on_portrait = true });
+    const following_initial = try arrange(std.testing.allocator, &following, portrait_area, &.{.{ .handle = 1 }}, 1, test_gaps, .{ .prefer_vertical_on_portrait = true });
     std.testing.allocator.free(following_initial);
-    const following_added = try arrange(std.testing.allocator, &following, area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } }, 1, layout_options, .{ .prefer_vertical_on_portrait = true });
+    const following_added = try arrange(std.testing.allocator, &following, portrait_area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } }, 1, test_gaps, .{ .prefer_vertical_on_portrait = true });
     defer std.testing.allocator.free(following_added);
     try std.testing.expectEqual(@as(?types.Handle, 3), following.columns.items[0].viewport_anchor);
     try std.testing.expectEqual(@as(i32, 0), findPlacement(following_added, 3).geometry.y);
@@ -779,12 +782,12 @@ test "portrait follow reveals the last appended member and can be disabled" {
 
     var stationary: State = .{};
     defer stationary.deinit(std.testing.allocator);
-    const stationary_initial = try arrange(std.testing.allocator, &stationary, area, &.{.{ .handle = 1 }}, 1, layout_options, .{
+    const stationary_initial = try arrange(std.testing.allocator, &stationary, portrait_area, &.{.{ .handle = 1 }}, 1, test_gaps, .{
         .follow_new_windows = false,
         .prefer_vertical_on_portrait = true,
     });
     std.testing.allocator.free(stationary_initial);
-    const stationary_added = try arrange(std.testing.allocator, &stationary, area, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, 1, layout_options, .{
+    const stationary_added = try arrange(std.testing.allocator, &stationary, portrait_area, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, 1, test_gaps, .{
         .follow_new_windows = false,
         .prefer_vertical_on_portrait = true,
     });
@@ -797,21 +800,19 @@ test "portrait follow reveals the last appended member and can be disabled" {
 test "portrait insertion respects explicit columns and removal membership" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
-    const area: types.Rect = .{ .x = 0, .y = 0, .width = 80, .height = 120 };
-    const layout_options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
     const scrolling_options: Options = .{ .follow_new_windows = false, .prefer_vertical_on_portrait = true };
-    const initial = try arrange(std.testing.allocator, &state, area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } }, 1, layout_options, scrolling_options);
+    const initial = try arrange(std.testing.allocator, &state, portrait_area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } }, 1, test_gaps, scrolling_options);
     std.testing.allocator.free(initial);
     try std.testing.expect(try expelToRight(&state, std.testing.allocator, 2));
     try std.testing.expect(try moveToAdjacentColumn(&state, std.testing.allocator, 3, 1));
     try std.testing.expectEqualSlices(types.Handle, &.{1}, state.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 3 }, state.columns.items[1].windows.items);
 
-    const added = try arrange(std.testing.allocator, &state, area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 } }, 3, layout_options, scrolling_options);
+    const added = try arrange(std.testing.allocator, &state, portrait_area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 } }, 3, test_gaps, scrolling_options);
     std.testing.allocator.free(added);
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 3, 4 }, state.columns.items[1].windows.items);
 
-    const removed = try arrange(std.testing.allocator, &state, area, &.{ .{ .handle = 1 }, .{ .handle = 3 }, .{ .handle = 4 } }, 3, layout_options, scrolling_options);
+    const removed = try arrange(std.testing.allocator, &state, portrait_area, &.{ .{ .handle = 1 }, .{ .handle = 3 }, .{ .handle = 4 } }, 3, test_gaps, scrolling_options);
     defer std.testing.allocator.free(removed);
     try std.testing.expectEqualSlices(types.Handle, &.{ 3, 4 }, state.columns.items[1].windows.items);
     const projection = try flattened(std.testing.allocator, &state);
