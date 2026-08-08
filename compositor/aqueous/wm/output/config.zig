@@ -11,6 +11,10 @@ pub const Text = wm.Text;
 pub const Transform = enum { normal, rotate_90, rotate_180, rotate_270, flipped, flipped_90, flipped_180, flipped_270 };
 pub const Mode = struct { width: i32, height: i32, refresh_mhz: ?i32 = null };
 
+/// Requested HDR peak-luminance preset. `auto` resolves against the EDID
+/// CTA-861 desired-content luminances when the output applies.
+pub const HdrLevelChoice = enum { auto, l100, l400, l1000 };
+
 pub const Spec = struct {
     valid: bool = true,
     name: Text = .{},
@@ -23,13 +27,17 @@ pub const Spec = struct {
     y: ?i32 = null,
     adaptive_sync: ?bool = null,
     hdr: ?bool = null,
+    hdr_level: ?HdrLevelChoice = null,
+    /// SDR diffuse white luminance on the HDR output, in cd/m². Mirrors the
+    /// 80–1000 range enforced by the compositor's output_hdr module.
+    sdr_white_level: ?f64 = null,
     /// Preferred output for compositor actions which do not yet have an
     /// explicitly selected output. Optional so later matching specs can clear
     /// a wildcard/default declaration with `primary = false`.
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null;
+        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null;
     }
 };
 
@@ -225,6 +233,14 @@ fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
         spec.valid = false;
         return;
     };
+    if (std.mem.eql(u8, key, "hdr_level")) spec.hdr_level = parseHdrLevelChoice(value) orelse {
+        spec.valid = false;
+        return;
+    };
+    if (std.mem.eql(u8, key, "sdr_white_level")) spec.sdr_white_level = parseSdrWhiteLevel(value) orelse {
+        spec.valid = false;
+        return;
+    };
     if (std.mem.eql(u8, key, "primary")) spec.primary = parseBool(value) orelse {
         spec.valid = false;
         return;
@@ -249,6 +265,28 @@ pub fn parseMode(value: []const u8) ?Mode {
 fn parseScale(value: []const u8) ?f32 {
     const scale = std.fmt.parseFloat(f32, value) catch return null;
     return if (std.math.isFinite(scale) and scale >= 0.5 and scale <= 3.0) scale else null;
+}
+
+pub fn parseHdrLevelChoice(value: []const u8) ?HdrLevelChoice {
+    if (std.mem.eql(u8, value, "auto")) return .auto;
+    if (std.mem.eql(u8, value, "100")) return .l100;
+    if (std.mem.eql(u8, value, "400")) return .l400;
+    if (std.mem.eql(u8, value, "1000")) return .l1000;
+    return null;
+}
+
+pub fn hdrLevelChoiceName(choice: HdrLevelChoice) []const u8 {
+    return switch (choice) {
+        .auto => "auto",
+        .l100 => "100",
+        .l400 => "400",
+        .l1000 => "1000",
+    };
+}
+
+fn parseSdrWhiteLevel(value: []const u8) ?f64 {
+    const white = std.fmt.parseFloat(f64, value) catch return null;
+    return if (std.math.isFinite(white) and white >= 80.0 and white <= 1000.0) white else null;
 }
 
 pub fn parseTransform(value: []const u8) ?Transform {
@@ -315,6 +353,8 @@ test "output config parses display specs and profiles" {
         \\transform = "flipped-90"
         \\adaptive_sync = true
         \\hdr = true
+        \\hdr_level = 400
+        \\sdr_white_level = 180
         \\primary = true
         \\[[display.profile]]
         \\name = "safe"
@@ -326,6 +366,8 @@ test "output config parses display specs and profiles" {
     try std.testing.expectEqual(@as(i32, 143999), snapshot.outputs[0].mode.?.refresh_mhz.?);
     try std.testing.expectEqual(Transform.flipped_90, snapshot.outputs[0].transform.?);
     try std.testing.expectEqual(true, snapshot.outputs[0].hdr.?);
+    try std.testing.expectEqual(HdrLevelChoice.l400, snapshot.outputs[0].hdr_level.?);
+    try std.testing.expectEqual(@as(f64, 180.0), snapshot.outputs[0].sdr_white_level.?);
     try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profile_count);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profiles[0].output_count);
@@ -352,6 +394,21 @@ test "mode scale and transform validation matches outputd contract" {
     try std.testing.expect(parseScale("0.49") == null);
     try std.testing.expect(parseScale("3.0") != null);
     try std.testing.expect(parseTransform("45") == null);
+}
+
+test "hdr level and sdr white level reject unsupported values" {
+    try std.testing.expectEqual(HdrLevelChoice.auto, parseHdrLevelChoice("auto").?);
+    try std.testing.expectEqual(HdrLevelChoice.l1000, parseHdrLevelChoice("1000").?);
+    try std.testing.expect(parseHdrLevelChoice("600") == null);
+    try std.testing.expect(parseSdrWhiteLevel("79") == null);
+    try std.testing.expect(parseSdrWhiteLevel("1000") != null);
+    try std.testing.expect(parseSdrWhiteLevel("1000.5") == null);
+    const snapshot = parse(
+        \\[[output]]
+        \\name = "DP-1"
+        \\hdr_level = 600
+    );
+    try std.testing.expectEqual(@as(u8, 0), snapshot.output_count);
 }
 
 test "declarative presence distinguishes policy from persisted profiles" {

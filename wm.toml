@@ -49,7 +49,9 @@ rollback_seconds = 0
 # transform = "normal"
 # position = [0, 0]
 # adaptive_sync = true
-# hdr = true # fixed HDR10 profile: 10-bit BT.2020 with PQ; capable DRM outputs only
+# hdr = true # HDR10 profile: 10-bit BT.2020 with PQ; capable DRM outputs only
+# hdr_level = "auto" # mastering peak preset: 100, 400, 1000 cd/m², or "auto" from EDID (default 1000)
+# sdr_white_level = 200 # SDR diffuse white on the HDR output in cd/m² (80–1000, default 200)
 # primary = true
 # layout = "scrolling" # optional default WM layout for this output
 

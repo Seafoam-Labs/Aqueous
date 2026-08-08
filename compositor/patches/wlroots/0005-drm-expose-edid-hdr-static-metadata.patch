@@ -1,0 +1,81 @@
+diff -ruN a/backend/drm/util.c b/backend/drm/util.c
+--- a/backend/drm/util.c	2026-08-08 14:42:04.797808178 -0400
++++ b/backend/drm/util.c	2026-08-08 14:43:31.051512768 -0400
+@@ -105,6 +105,18 @@
+ 		output->supported_transfer_functions |= WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
+ 	}
+ 
++	// Aqueous: keep the desired-content luminances around so compositors can
++	// pick a mastering profile that matches the display.
++	if (hdr_static_metadata->type1) {
++		output->edid_hdr_static_metadata = (struct wlr_output_edid_hdr_static_metadata){
++			.max_luminance = hdr_static_metadata->desired_content_max_luminance,
++			.max_frame_avg_luminance = hdr_static_metadata->desired_content_max_frame_avg_luminance,
++			.min_luminance = hdr_static_metadata->desired_content_min_luminance,
++		};
++	} else {
++		output->edid_hdr_static_metadata = (struct wlr_output_edid_hdr_static_metadata){0};
++	}
++
+ 	di_info_destroy(info);
+ }
+ 
+diff -ruN a/include/wlr/types/wlr_output.h b/include/wlr/types/wlr_output.h
+--- a/include/wlr/types/wlr_output.h	2026-08-08 14:42:55.566180869 -0400
++++ b/include/wlr/types/wlr_output.h	2026-08-08 14:43:31.051319867 -0400
+@@ -115,6 +115,15 @@
+ 	double sdr_white_level;
+ };
+ 
++// Aqueous: HDR static metadata parsed from the connector EDID CTA-861
++// extension. Luminances are in cd/m²; a value of zero means the display
++// did not advertise it.
++struct wlr_output_edid_hdr_static_metadata {
++	double max_luminance; // desired content max luminance
++	double max_frame_avg_luminance; // desired content max frame-average luminance
++	double min_luminance; // desired content min luminance
++};
++
+ /**
+  * Holds the double-buffered output state.
+  */
+@@ -279,6 +288,10 @@
+ 		struct wlr_color_transform *color_transform;
+ 		struct wlr_color_primaries default_primaries_value;
+ 	} WLR_PRIVATE;
++
++	// Aqueous: desired-content luminances from the EDID CTA-861 HDR static
++	// metadata block. Zeroed when the display does not advertise them.
++	struct wlr_output_edid_hdr_static_metadata edid_hdr_static_metadata;
+ };
+ 
+ struct wlr_output_event_damage {
+@@ -453,6 +466,11 @@
+  */
+ const struct wlr_drm_format_set *wlr_output_get_primary_formats(
+ 	struct wlr_output *output, uint32_t buffer_caps);
++
++// Aqueous: HDR static metadata parsed from the connector EDID. The returned
++// pointer stays valid for the lifetime of the output.
++const struct wlr_output_edid_hdr_static_metadata *
++wlr_output_get_edid_hdr_static_metadata(struct wlr_output *output);
+ /**
+  * Check whether direct scan-out is allowed on the output.
+  *
+diff -ruN a/types/output/output.c b/types/output/output.c
+--- a/types/output/output.c	2026-08-08 14:42:04.811064216 -0400
++++ b/types/output/output.c	2026-08-08 14:43:31.051678020 -0400
+@@ -523,6 +523,13 @@
+ 	return output->image_description;
+ }
+ 
++// Aqueous: expose the EDID CTA-861 HDR static metadata parsed by the DRM
++// backend.
++const struct wlr_output_edid_hdr_static_metadata *
++wlr_output_get_edid_hdr_static_metadata(struct wlr_output *output) {
++	return &output->edid_hdr_static_metadata;
++}
++
+ /**
+  * Compare a struct wlr_output_state with the current state of a struct
+  * wlr_output.

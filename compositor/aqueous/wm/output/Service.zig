@@ -386,6 +386,14 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
     }
     spec.adaptive_sync = jsonBool(object.get("adaptive_sync"));
     spec.hdr = jsonBool(object.get("hdr"));
+    if (object.get("hdr_level")) |value| spec.hdr_level = jsonHdrLevelChoice(value) orelse return null;
+    if (object.get("sdr_white_level")) |value| {
+        // Mirrors the 80–1000 cd/m² range enforced by the compositor's
+        // output_hdr module.
+        const white = jsonNumber(value) orelse return null;
+        if (!std.math.isFinite(white) or white < 80.0 or white > 1000.0) return null;
+        spec.sdr_white_level = white;
+    }
     if (spec.name.empty() and spec.edid.empty()) return null;
     return spec;
 }
@@ -447,6 +455,11 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
         if (spec.x) |x| try writer.print("position = [{d}, {d}]\n", .{ x, spec.y.? });
         if (spec.adaptive_sync) |v| try writer.print("adaptive_sync = {}\n", .{v});
         if (spec.hdr) |v| try writer.print("hdr = {}\n", .{v});
+        if (spec.hdr_level) |v| switch (v) {
+            .auto => try writer.writeAll("hdr_level = \"auto\"\n"),
+            else => try writer.print("hdr_level = {s}\n", .{Config.hdrLevelChoiceName(v)}),
+        };
+        if (spec.sdr_white_level) |v| try writer.print("sdr_white_level = {d}\n", .{v});
     }
     var tmp_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const tmp = try std.fmt.bufPrint(&tmp_buffer, "{s}.tmp", .{path});
@@ -566,8 +579,12 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "transform", OutputManager.transformName(state.transform));
         try field(json, "adaptive_sync", state.adaptive_sync);
         try field(json, "hdr", state.hdr_enabled);
+        try field(json, "hdr_level", @as(u16, @intFromEnum(state.hdr_level)));
+        try field(json, "sdr_white_level", state.sdr_white_level);
         try field(json, "hdr_capable", Output.hdr.capable(wlr_output));
         try field(json, "hdr_active", Output.hdr.active(wlr_output));
+        try json.objectField("hdr_edid_max_luminance");
+        if (Output.hdr.edidDesiredMaxLuminance(wlr_output)) |luminance| try json.write(luminance) else try json.write(null);
         var format_buffer: [4]u8 = undefined;
         try field(json, "render_format", Output.hdr.formatName(wlr_output.render_format, &format_buffer));
         try json.objectField("supported_primaries");
@@ -776,6 +793,9 @@ fn outputFingerprint() u64 {
         hash.update(std.mem.asBytes(&transform));
         hash.update(std.mem.asBytes(&state.adaptive_sync));
         hash.update(std.mem.asBytes(&state.hdr_enabled));
+        const hdr_level: u16 = @intFromEnum(state.hdr_level);
+        hash.update(std.mem.asBytes(&hdr_level));
+        hash.update(std.mem.asBytes(&state.sdr_white_level));
         switch (state.mode) {
             .standard => |mode| {
                 hash.update(std.mem.asBytes(&mode.width));
@@ -896,6 +916,22 @@ fn jsonString(value: ?std.json.Value) ?[]const u8 {
 fn jsonBool(value: ?std.json.Value) ?bool {
     const actual = value orelse return null;
     return if (actual == .bool) actual.bool else null;
+}
+
+fn jsonHdrLevelChoice(value: std.json.Value) ?Config.HdrLevelChoice {
+    return switch (value) {
+        .string => |text| Config.parseHdrLevelChoice(text),
+        .integer => |v| intToHdrLevelChoice(v),
+        .float => |v| if (std.math.isFinite(v) and @floor(v) == v and v >= 0 and v <= 10000) intToHdrLevelChoice(@intFromFloat(v)) else null,
+        else => null,
+    };
+}
+
+fn intToHdrLevelChoice(value: i64) ?Config.HdrLevelChoice {
+    if (value == 100) return .l100;
+    if (value == 400) return .l400;
+    if (value == 1000) return .l1000;
+    return null;
 }
 
 fn jsonNumber(value: ?std.json.Value) ?f64 {

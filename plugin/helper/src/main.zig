@@ -444,7 +444,7 @@ fn hasLegacyDisplayPolicy(document: *const config.Document) bool {
     defer document.allocator.free(entries);
     for (tables) |table| {
         if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
-        inline for (.{ "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "primary" }) |key| {
+        inline for (.{ "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "primary" }) |key| {
             if (tableEntryRaw(entries, table.index, key) != null) return true;
         }
     }

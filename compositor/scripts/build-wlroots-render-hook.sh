@@ -9,6 +9,8 @@ patch_files=(
     "$here/patches/wlroots/0001-aqueous-vulkan-render-hook.patch"
     "$here/patches/wlroots/0002-fix-hdr-min-luminance.patch"
     "$here/patches/wlroots/0003-color-management-v1-srgb-compat.patch"
+    "$here/patches/wlroots/0004-scene-sdr-white-level.patch"
+    "$here/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -86,6 +88,7 @@ for symbol in \
     wlr_vk_render_pass_add_completion \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs \
+    wlr_output_get_edid_hdr_static_metadata \
     wlr_backend_is_x11 \
     wlr_xwayland_create; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||

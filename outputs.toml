@@ -27,6 +27,14 @@
 # position = [0, 0]
 # adaptive_sync = true
 # hdr = false
+# HDR peak-luminance preset used for the HDR10 mastering metadata: 100, 400,
+# or 1000 (cd/m²). "auto" picks the preset nearest the display's EDID
+# desired-content peak luminance (falling back to 1000 when unknown).
+# Defaults to 1000 when omitted.
+# hdr_level = "auto"
+# SDR diffuse white luminance on the HDR output, in cd/m² (80–1000, default
+# 200). Only applies while hdr = true.
+# sdr_white_level = 200
 # primary = true
 
 # [[display.profile]]

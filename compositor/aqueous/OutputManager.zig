@@ -291,6 +291,13 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         if (enabled and !Output.hdr.capable(wlr_output)) return error.HdrUnsupported;
         state.hdr_enabled = enabled;
     }
+    if (spec.hdr_level) |choice| state.hdr_level = switch (choice) {
+        .auto => Output.hdr.autoLevel(wlr_output) orelse .l1000,
+        .l100 => .l100,
+        .l400 => .l400,
+        .l1000 => .l1000,
+    };
+    if (spec.sdr_white_level) |white| state.sdr_white_level = white;
 }
 
 /// Shared with the in-process output service when resolving the configured
@@ -425,6 +432,8 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             const previous = output.scheduled.state;
             var proposed: Output.State = .fromHeadState(&head.state);
             proposed.hdr_enabled = output.scheduled.hdr_enabled;
+            proposed.hdr_level = output.scheduled.hdr_level;
+            proposed.sdr_white_level = output.scheduled.sdr_white_level;
             if (repair_initial_overlap) proposed.position_source = .automatic;
             output.scheduled = proposed;
             // Maintain power management state set with wlr-output-power-management-v1
@@ -625,7 +634,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             if (output.sent.state == .enabled) {
                 if (output.sent.scale != wlr_output.scale) break :blk true;
                 if (output.sent.transform != wlr_output.transform) break :blk true;
-                if (!Output.hdr.stateMatches(wlr_output, output.sent.hdr_enabled)) break :blk true;
+                if (!Output.hdr.stateMatches(wlr_output, output.sent.hdr_enabled, output.sent.hdr_level, output.sent.sdr_white_level)) break :blk true;
             }
         }
         break :blk false;

@@ -1,0 +1,67 @@
+diff -ruN a/include/wlr/types/wlr_output.h b/include/wlr/types/wlr_output.h
+--- a/include/wlr/types/wlr_output.h	2026-07-07 17:46:09.000000000 -0400
++++ b/include/wlr/types/wlr_output.h	2026-08-08 14:42:55.566180869 -0400
+@@ -106,6 +106,13 @@
+ 	} mastering_luminance;
+ 	double max_cll; // max content light level
+ 	double max_fall; // max frame-average light level
++
++	// Aqueous: desired luminance of SDR diffuse white in cd/m² when the
++	// output transfer function is ST 2084 PQ. Scene composition scales
++	// relative-luminance (SDR) content so that diffuse white lands here
++	// instead of at the fixed PQ reference white. Zero keeps the wlroots
++	// default. Not encoded in DRM metadata.
++	double sdr_white_level;
+ };
+ 
+ /**
+diff -ruN a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
+--- a/types/scene/wlr_scene.c	2026-08-08 14:42:04.795551550 -0400
++++ b/types/scene/wlr_scene.c	2026-08-08 14:43:31.046015699 -0400
+@@ -339,6 +339,9 @@
+ 
+ 	struct wlr_render_pass *render_pass;
+ 	pixman_region32_t damage;
++
++	// Aqueous: pending image description of the output being rendered.
++	const struct wlr_output_image_description *output_image_description;
+ };
+ 
+ static void logical_to_buffer_coords(pixman_region32_t *region, const struct render_data *data,
+@@ -1612,6 +1615,23 @@
+ 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
+ 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
+ 
++		// Aqueous: on an HDR (PQ) output, scale relative-luminance (SDR)
++		// content so diffuse white lands on the configured SDR white level
++		// instead of the fixed PQ reference white (203 cd/m²). Absolute
++		// luminance PQ buffers are left untouched.
++		const struct wlr_output_image_description *out_img_desc =
++			data->output_image_description;
++		if (out_img_desc != NULL &&
++				out_img_desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ &&
++				out_img_desc->sdr_white_level > 0 &&
++				scene_buffer->transfer_function != WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
++			struct wlr_color_luminances pq_lum;
++			wlr_color_transfer_function_get_default_luminance(
++				WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ, &pq_lum);
++			luminance_multiplier *=
++				(float)(out_img_desc->sdr_white_level / pq_lum.reference);
++		}
++
+ 		struct wlr_render_texture_options texture_options = {
+ 			.texture = texture,
+ 			.src_box = scene_buffer->src_box,
+@@ -2504,6 +2524,12 @@
+ 		.output = scene_output,
+ 	};
+ 
++	// Aqueous: expose the pending output image description to per-buffer
++	// rendering so SDR content can be scaled to the configured SDR white
++	// level on HDR outputs.
++	render_data.output_image_description =
++		output_pending_image_description(output, state);
++
+ 	int resolution_width, resolution_height;
+ 	output_pending_resolution(output, state,
+ 		&resolution_width, &resolution_height);

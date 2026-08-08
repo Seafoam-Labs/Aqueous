@@ -83,8 +83,12 @@ pub const State = struct {
     scale: f32,
     transform: wl.Output.Transform,
     adaptive_sync: bool,
-    /// Enable the fixed BT.2020/PQ HDR10 output profile.
+    /// Enable the BT.2020/PQ HDR10 output profile.
     hdr_enabled: bool,
+    /// Target peak luminance preset for the HDR10 mastering metadata.
+    hdr_level: hdr.HdrLevel,
+    /// SDR diffuse white luminance on the HDR output, in cd/m².
+    sdr_white_level: f64,
     position_source: PositionSource,
 
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
@@ -118,6 +122,8 @@ pub const State = struct {
             // wlr-output-management-v1 has no HDR field. Callers replacing
             // existing state through that protocol preserve this separately.
             .hdr_enabled = false,
+            .hdr_level = .l1000,
+            .sdr_white_level = hdr.default_sdr_white_level,
             .position_source = .output_management,
         };
     }
@@ -159,7 +165,7 @@ pub const State = struct {
             .none => {},
         }
         wlr_state.setAdaptiveSyncEnabled(state.adaptive_sync);
-        return hdr.apply(wlr_output, state.hdr_enabled, wlr_state);
+        return hdr.apply(wlr_output, state.hdr_enabled, state.hdr_level, state.sdr_white_level, wlr_state);
     }
 };
 
@@ -517,6 +523,8 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .transform = .normal,
         .adaptive_sync = wlr_output.adaptive_sync_status == .enabled,
         .hdr_enabled = false,
+        .hdr_level = .l1000,
+        .sdr_white_level = hdr.default_sdr_white_level,
         .position_source = .automatic,
     };
     output.* = .{

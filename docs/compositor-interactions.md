@@ -482,14 +482,23 @@ enabled state become current together. On failure, Aqueous reverts scheduled
 state to the last working state. An initial modeset failure terminates the
 session instead of running indefinitely without a usable display.
 
-`hdr = true` selects the basic fixed HDR10 profile on a capable DRM output:
-10-bit scanout, BT.2020 primaries, and the ST 2084 PQ transfer function with
-static mastering metadata. The request is rejected unless the connector
-advertises BT.2020 and PQ, the renderer can perform output color transforms,
-and the primary scanout path supports a 10-bit format. Disabling HDR restores
-the normal 8-bit sRGB output profile. Per-surface mastering metadata, HLG,
-display-specific tone mapping, and ICC calibration are outside this basic
-profile.
+`hdr = true` selects the HDR10 profile on a capable DRM output: 10-bit
+scanout, BT.2020 primaries, and the ST 2084 PQ transfer function with static
+mastering metadata. The request is rejected unless the connector advertises
+BT.2020 and PQ, the renderer can perform output color transforms, and the
+primary scanout path supports a 10-bit format. Disabling HDR restores the
+normal 8-bit sRGB output profile. Per-surface mastering metadata, HLG,
+display-specific tone mapping, and ICC calibration are outside this profile.
+
+`hdr_level` picks the peak-luminance preset used for the mastering metadata
+(100, 400, or 1000 cd/m²; default 1000), so the static InfoFrame matches the
+connected display. `hdr_level = "auto"` resolves the preset nearest the
+EDID CTA-861 desired-content peak luminance when the connector advertises
+one, falling back to 1000 otherwise. `sdr_white_level` (80–1000 cd/m²,
+default 200) places SDR diffuse white on the HDR output; the patched wlroots
+scene scales relative-luminance content to that level while absolute PQ
+content keeps its mastering luminances. Level and white-level changes ride
+the same atomic modeset as enabling HDR.
 
 Hotplug creates or destroys native `Output` objects, reapplies configured
 policy, updates the output protocol, and broadcasts compatibility events.
@@ -515,9 +524,12 @@ compositor. It preserves the display-panel JSON contract without a separate
 `aqueous-outputd` process and accepts only same-UID peers.
 
 The output-service `set` and `save_profile` operations accept an optional
-boolean `hdr` field. Listed outputs report `hdr`, `hdr_capable`, `hdr_active`,
-the current DRM `render_format`, and arrays of supported primaries and transfer
-functions.
+boolean `hdr` field, an optional `hdr_level` field (100, 400, 1000, or
+`"auto"`), and an optional numeric `sdr_white_level` field in cd/m². Listed
+outputs report `hdr`, the resolved `hdr_level`, `sdr_white_level`,
+`hdr_capable`, `hdr_active`, the EDID `hdr_edid_max_luminance` when known,
+the current DRM `render_format`, and arrays of supported primaries and
+transfer functions.
 
 Output specifications are validated independently. A setting rejected for one
 output (for example, an unavailable mode or a connector absent from the current
