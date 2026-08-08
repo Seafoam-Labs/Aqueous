@@ -72,6 +72,7 @@ pub const ScrollingOptions = struct {
     column_fraction: f64 = 0.5,
     center_focused: bool = true,
     follow_new: bool = true,
+    prefer_vertical_on_portrait: bool = false,
     snap: bool = false,
     overscroll: bool = true,
 };
@@ -178,6 +179,7 @@ fn arrangeRemainder(allocator: std.mem.Allocator, state: *RemainderState, kind: 
             .center_focused = scrolling_options.center_focused,
             .column_width = scrolling_options.column_fraction,
             .follow_new_windows = scrolling_options.follow_new,
+            .prefer_vertical_on_portrait = scrolling_options.prefer_vertical_on_portrait,
             .snap_to_columns = scrolling_options.snap,
         }),
         .floating => floating.arrange(allocator, &state.floating, area, windows, focused, options),

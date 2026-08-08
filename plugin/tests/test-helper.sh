@@ -30,6 +30,7 @@ jq -e '
   .protocol == 1 and
   (.fields | length) >= 130 and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null) and
+  (.fields[] | select(.id == "layout.options.scrolling.prefer_vertical_on_portrait") | .value == true and .file == "layout") and
   (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
   (.fields[] | select(.id == "reload_rules") | .value == ["Super+Shift+R"]) and
   (.fields[] | select(.id == "display.apply_on_reload") | .value == true and .inherited == true and .file == "outputs") and
@@ -73,6 +74,7 @@ jq -n \
         {id: "blur.enabled", value: false},
         {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
+        {id: "layout.options.scrolling.prefer_vertical_on_portrait", value: false},
         {id: "input.touchpad.tap", value: false},
         {id: "spawn_terminal", value: "Super+Return, Super+Enter"}
       ],
@@ -92,6 +94,7 @@ rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = true$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = false$' "$config_root/outputs.toml"
 rg -q '^gaps_outer = 18$' "$config_root/layout.toml"
+rg -q '^prefer_vertical_on_portrait = false$' "$config_root/layout.toml"
 rg -q '^tap = false$' "$config_root/input.toml"
 rg -Fq 'spawn_terminal = ["Super+Return", "Super+Enter"]' "$config_root/wm.toml"
 test -f "$test_root/backups/$generation/wm.toml"

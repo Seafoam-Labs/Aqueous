@@ -29,6 +29,7 @@ master_count = 1
 [layout.options.scrolling]
 column_fraction = "0.5"
 center_focused = "true"
+prefer_vertical_on_portrait = "false"
 focus_follows_mouse_delay_ms = 0
 
 [[workspace]]
@@ -109,13 +110,26 @@ region active and requests an immediate rearrangement.
 
 ## Scrolling columns
 
-The scrolling engine owns an ordered list of columns. New windows begin in
-their own column. By default every member's complete footprint, including its
-outward border, retains the full column viewport height, so multi-window
-columns form vertical stacks instead of shrinking members to fit. Inner gaps
-measure the clear pixels between neighboring border outlines. A manually
-resized member may use a shorter or taller explicit content height. Each column
-keeps an independent vertical viewport.
+The scrolling engine owns an ordered list of columns. By default, new windows
+begin in their own column, preserving horizontal placement. Setting
+`prefer_vertical_on_portrait = true` adds future windows to the bottom of the
+active column whenever that scrolling instance's local usable rectangle is
+taller than it is wide. Square and landscape instances remain horizontal.
+This local check also applies independently to composable regions and game-mode
+remainders; changing the option does not regroup existing windows.
+Several windows arriving in one update are appended in input order. The target
+is the column containing the instance's current focus, then its previously
+focused member's column, then the last surviving column. `follow_new_windows`
+reveals the final appended member in that column. Consume, expel, move, and
+drag/drop actions remain explicit overrides and can still create or rearrange
+columns after this initial placement.
+
+By default every member's complete footprint, including its outward border,
+retains the full column viewport height, so multi-window columns form vertical
+stacks instead of shrinking members to fit. Inner gaps measure the clear pixels
+between neighboring border outlines. A manually resized member may use a
+shorter or taller explicit content height. Each column keeps an independent
+vertical viewport.
 Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.

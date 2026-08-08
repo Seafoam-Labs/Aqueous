@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Render-level regression for full-height members inside one scrolling column
-# used as a game-mode remainder. The manual viewport action must reveal the
-# lower member and transfer keyboard focus to it; vertical focus must then
-# reveal the upper member. Clients deliberately advertise a tiny minimum height
-# so this catches accidental shrink-to-fit behavior.
+# Render-level regression for automatic portrait placement of full-height
+# members inside one scrolling column used as a game-mode fallback. The manual
+# viewport action must reveal the lower member and transfer keyboard focus to
+# it; vertical focus must then reveal the upper member. Clients deliberately
+# advertise a tiny minimum height so this catches accidental shrink-to-fit
+# behavior.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
@@ -109,7 +110,20 @@ for _ in $(seq 1 100); do
 done
 [ -n "$output_state" ] || die "output daemon did not report the headless output"
 OUTPUT=$(jq -r '.outputs[0].name' <<<"$output_state")
-OUTPUT_HEIGHT=$(jq -r '.outputs[0].current_mode.height / .outputs[0].scale | floor' <<<"$output_state")
+configure=$(jq -cn --arg output "$OUTPUT" '{
+    op: "set",
+    changes: [{name: $output, enabled: true, scale: 1, transform: "90", position: [0, 0]}]
+}')
+configured=$(printf '%s\n' "$configure" | nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null | head -1)
+jq -e '.ok == true and .applied == 1' <<<"$configured" >/dev/null ||
+    die "portrait output configuration was rejected: $configured"
+for _ in $(seq 1 120); do
+    output_state=$(printf '%s\n' '{"op":"list"}' | nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null | head -1)
+    [ "$(jq -r '.outputs[0].transform' <<<"$output_state")" = 90 ] && break
+    sleep 0.05
+done
+[ "$(jq -r '.outputs[0].transform' <<<"$output_state")" = 90 ] || die "headless output did not become portrait"
+OUTPUT_HEIGHT=$(jq -r '.outputs[0].current_mode.width / .outputs[0].scale | floor' <<<"$output_state")
 CLIENT_MINIMUM_HEIGHT=1
 
 wlrctl pointer move 100 100
@@ -131,10 +145,9 @@ for _ in $(seq 1 160); do
 done
 [ "$(jq 'length' <<<"$windows_json")" = 2 ] || die "reference windows did not map"
 
-# Focus the blue window, move only that window left into the red window's
-# column, then focus red to reveal the top of the new vertical stack.
-wlrctl keyboard type l modifiers "$INPUT_MOD"
-wlrctl keyboard type m modifiers "$INPUT_MOD,SHIFT"
+# Automatic portrait placement puts blue below red. Visit blue and then focus
+# red again to reveal the top of the vertical stack.
+wlrctl keyboard type j modifiers "$INPUT_MOD"
 wlrctl keyboard type k modifiers "$INPUT_MOD"
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
@@ -147,7 +160,7 @@ for _ in $(seq 1 120); do
 done
 [ "$red_column_x" = "$blue_column_x" ] && [ "$red_y" = 0 ] && [ "$blue_y" -ge "$OUTPUT_HEIGHT" ] || {
     printf '%s\n' "$windows_json" >&2
-    die "horizontal window movement passed the adjacent column instead of joining it"
+    die "portrait placement did not append the new window to the active column"
 }
 
 red_x=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.x + (.geometry.width / 2) | floor' <<<"$windows_json")

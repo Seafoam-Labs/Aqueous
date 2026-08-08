@@ -8,6 +8,7 @@ border_width = 0
 column_fraction = 0.5
 center_focused = true
 follow_new_windows = true
+prefer_vertical_on_portrait = true
 
 [struts]
 top = 0
@@ -19,10 +20,6 @@ right = 0
 focus_follows_mouse = false
 
 [keybinds]
-focus_right = "Super+L"
 focus_up = "Super+K"
-# wlrctl can type text keys but not named arrow keys. Retain the full
-# Primary+Shift modifier path while exercising the move_window_left action.
-move_window_left = "Super+Shift+M"
 move_window_right = "Super+Shift+N"
 scroll_viewport_down = "Super+V"

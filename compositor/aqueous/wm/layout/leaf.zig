@@ -78,6 +78,7 @@ pub fn arrange(
             .column_width = snapshot.scrolling_column_fraction,
             .center_focused = snapshot.scrolling_center_focused,
             .follow_new_windows = snapshot.scrolling_follow_new,
+            .prefer_vertical_on_portrait = snapshot.scrolling_prefer_vertical_on_portrait,
             .snap_to_columns = snapshot.scrolling_snap,
             .allow_overscroll = snapshot.scrolling_overscroll,
         }),

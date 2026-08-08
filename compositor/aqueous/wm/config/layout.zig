@@ -69,6 +69,7 @@ pub const Snapshot = struct {
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
+    scrolling_prefer_vertical_on_portrait: bool = false,
     scrolling_snap: bool = false,
     scrolling_overscroll: bool = true,
     scrolling_focus_follows_mouse_delay_ms: i32 = 0,
@@ -195,6 +196,7 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "column_fraction")) snapshot.scrolling_column_fraction = parseRatio(plain) orelse snapshot.scrolling_column_fraction;
             if (std.mem.eql(u8, key, "center_focused")) snapshot.scrolling_center_focused = parseBool(plain) orelse snapshot.scrolling_center_focused;
             if (std.mem.eql(u8, key, "follow_new_windows")) snapshot.scrolling_follow_new = parseBool(plain) orelse snapshot.scrolling_follow_new;
+            if (std.mem.eql(u8, key, "prefer_vertical_on_portrait")) snapshot.scrolling_prefer_vertical_on_portrait = parseBool(plain) orelse snapshot.scrolling_prefer_vertical_on_portrait;
             if (std.mem.eql(u8, key, "snap_to_columns")) snapshot.scrolling_snap = parseBool(plain) orelse snapshot.scrolling_snap;
             if (std.mem.eql(u8, key, "allow_overscroll")) snapshot.scrolling_overscroll = parseBool(plain) orelse snapshot.scrolling_overscroll;
             if (std.mem.eql(u8, key, "focus_follows_mouse_delay_ms")) snapshot.scrolling_focus_follows_mouse_delay_ms = parseNonNegative(plain) orelse snapshot.scrolling_focus_follows_mouse_delay_ms;
@@ -369,6 +371,29 @@ test "scrolling focus delay rejects negative and malformed overlays" {
         \\focus_follows_mouse_delay_ms = "soon"
     );
     try std.testing.expectEqual(@as(i32, 175), snapshot.scrolling_focus_follows_mouse_delay_ms);
+}
+
+test "scrolling portrait placement preference defaults false and parses booleans" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.scrolling_prefer_vertical_on_portrait);
+
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\prefer_vertical_on_portrait = true
+    );
+    try std.testing.expect(snapshot.scrolling_prefer_vertical_on_portrait);
+
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\prefer_vertical_on_portrait = "portrait"
+    );
+    try std.testing.expect(snapshot.scrolling_prefer_vertical_on_portrait);
+
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\prefer_vertical_on_portrait = false
+    );
+    try std.testing.expect(!snapshot.scrolling_prefer_vertical_on_portrait);
 }
 
 test "layout sidecar overlay wins and malformed values retain validated base" {

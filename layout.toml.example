@@ -152,6 +152,9 @@ column_fraction = 0.5
 center_focused = true
 # Pan to a newly managed window when it extends the column order.
 follow_new_windows = true
+# Add new windows to a vertical stack when this scrolling instance's local
+# usable rectangle is taller than it is wide. false keeps horizontal placement.
+prefer_vertical_on_portrait = false
 # Quantize manual viewport movement to whole column steps.
 snap_to_columns = false
 # Permit the first/last column to move beyond the centered viewport bound.
