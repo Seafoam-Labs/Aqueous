@@ -839,9 +839,9 @@ pub fn applyRuleWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u6
     return true;
 }
 
-pub fn applyRuleVisual(_: CompositorApi, handle: layout.Handle, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+pub fn applyRuleVisual(_: CompositorApi, handle: layout.Handle, blur: ?bool, opacity: ?f64, hdr_expand: ?bool, force_ssd: bool) void {
     const ref: Window.Ref = @bitCast(handle);
-    if (ref.get()) |window| window.policyApplyVisualRule(blur, opacity, force_ssd);
+    if (ref.get()) |window| window.policyApplyVisualRule(blur, opacity, hdr_expand, force_ssd);
 }
 
 pub fn setFullscreen(_: CompositorApi, handle: layout.Handle, output_id: u64) bool {

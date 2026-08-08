@@ -188,6 +188,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "ignore_struts")) rule.ignore_struts = parseBool(value) orelse rule.ignore_struts;
     if (std.mem.eql(u8, key, "blur")) rule.blur = parseBool(value) orelse rule.blur;
     if (std.mem.eql(u8, key, "opacity")) rule.opacity = parseOpacity(value) orelse rule.opacity;
+    if (std.mem.eql(u8, key, "hdr_expand")) rule.hdr_expand = parseBool(value) orelse rule.hdr_expand;
 }
 
 fn applyLayerValue(rule: *Engine.LayerRule, key: []const u8, value: []const u8) void {
@@ -284,6 +285,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\fullscreen = true
         \\ignore_struts = true
         \\opacity = 0.8
+        \\hdr_expand = false
         \\[[window]]
         \\title = "Dialog #1"
         \\layout = "float"
@@ -301,12 +303,14 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(Engine.Layout.game_mode, game.layout.?);
     try std.testing.expectEqual(@as(u32, 9), game.placement.workspace);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
+    try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);
     try std.testing.expectEqual(@as(i32, 3), engine.game_mode.gaps_inner);
     const dialog = engine.resolve(.{ .title = "Dialog #1" }).?;
     try std.testing.expect(dialog.placement.floating);
     try std.testing.expectEqual(@as(i32, 800), dialog.placement.width);
+    try std.testing.expectEqual(@as(?bool, null), dialog.hdr_expand);
     try std.testing.expectEqual(@as(usize, 1), engine.layer_rules.len);
     const panel = engine.resolveLayer("panel-main").?;
     try std.testing.expect(panel.blur);

@@ -35,6 +35,12 @@
 # SDR diffuse white luminance on the HDR output, in cd/m² (80–1000, default
 # 200). Only applies while hdr = true.
 # sdr_white_level = 200
+# Expand SDR highlights toward the HDR peak on this output (Auto HDR style),
+# while hdr = true. By default only fullscreen windows are expanded; override
+# per window with the hdr_expand rule in rules.toml.
+# auto_hdr = false
+# Expansion strength, 0.0–1.0 (default 0.5).
+# auto_hdr_boost = 0.5
 # primary = true
 
 # [[display.profile]]

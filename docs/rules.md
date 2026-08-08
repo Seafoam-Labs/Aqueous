@@ -70,6 +70,7 @@ matters.
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
+| `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, only fullscreen windows are expanded. |
 
 ### `[[layer]]`
 

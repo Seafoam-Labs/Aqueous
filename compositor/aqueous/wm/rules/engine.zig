@@ -55,6 +55,9 @@ pub const Rule = struct {
     ignore_struts: bool = false,
     blur: ?bool = null,
     opacity: ?f64 = null,
+    /// Auto HDR expansion override for matching windows on HDR outputs with
+    /// `auto_hdr` enabled. Null follows the default (fullscreen windows).
+    hdr_expand: ?bool = null,
 
     /// Stable semantic identity used by per-window lifecycle reconciliation.
     /// It deliberately excludes source addresses and struct padding.
@@ -89,6 +92,7 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.ignore_struts));
         hashOptionalBool(&hash, rule.blur);
         hashOptionalFloat(&hash, rule.opacity);
+        hashOptionalBool(&hash, rule.hdr_expand);
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
@@ -113,6 +117,7 @@ pub const Rule = struct {
         placement_only.fullscreen = false;
         placement_only.blur = null;
         placement_only.opacity = null;
+        placement_only.hdr_expand = null;
         return placement_only.fingerprint();
     }
 };

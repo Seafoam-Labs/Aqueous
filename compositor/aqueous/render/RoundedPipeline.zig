@@ -7,6 +7,7 @@ const std = @import("std");
 const c = @import("c");
 
 const EffectMetadata = @import("EffectMetadata.zig");
+const auto_hdr = @import("../auto_hdr.zig");
 const util = @import("../util.zig");
 
 const texture_vertex_shader align(4) =
@@ -28,6 +29,9 @@ const TextureFragmentPush = extern struct {
     color_matrix: [4][4]f32,
     alpha: f32,
     luminance_multiplier: f32,
+    /// Auto HDR expansion parameters; peak <= 0 disables the curve.
+    itm_peak: f32,
+    itm_boost: f32,
 };
 
 const RectPush = extern struct {
@@ -41,14 +45,13 @@ const RectPush = extern struct {
 
 comptime {
     std.debug.assert(@sizeOf(TextureVertexPush) == 80);
-    std.debug.assert(@sizeOf(TextureFragmentPush) == 72);
+    std.debug.assert(@sizeOf(TextureFragmentPush) == 80);
     std.debug.assert(@sizeOf(RectPush) == 96);
 }
 
 const TexturePipeline = struct {
     render_pass: c.VkRenderPass,
     subpass: u32,
-    pipeline_layout: c.VkPipelineLayout,
     texture_transform: u32,
     pipeline: c.VkPipeline,
 };
@@ -62,6 +65,8 @@ const RectPipeline = struct {
 device: c.VkDevice,
 pipeline_cache: c.VkPipelineCache,
 rect_pipeline_layout: c.VkPipelineLayout,
+texture_descriptor_set_layout: c.VkDescriptorSetLayout,
+texture_pipeline_layout: c.VkPipelineLayout,
 texture_pipelines: std.ArrayList(TexturePipeline) = .empty,
 rect_pipelines: std.ArrayList(RectPipeline) = .empty,
 texture_draw_count: u64 = 0,
@@ -99,11 +104,82 @@ pub fn init(
         return error.VulkanRoundedRectPipelineLayoutCreateFailed;
     }
 
+    // The texture pipeline cannot reuse wlroots' pipeline layout: the Auto
+    // HDR push constants extend past its push constant range. A descriptor
+    // set layout matching wlroots' texture layout keeps the descriptor sets
+    // wlroots allocates compatible with this one (immutable samplers are
+    // ignored for pipeline layout compatibility).
+    var texture_binding = std.mem.zeroes(c.VkDescriptorSetLayoutBinding);
+    texture_binding.binding = 0;
+    texture_binding.descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texture_binding.descriptorCount = 1;
+    texture_binding.stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    var texture_ds_info = std.mem.zeroes(c.VkDescriptorSetLayoutCreateInfo);
+    texture_ds_info.sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    texture_ds_info.bindingCount = 1;
+    texture_ds_info.pBindings = &texture_binding;
+
+    var texture_descriptor_set_layout: c.VkDescriptorSetLayout = null;
+    const ds_result = c.vkCreateDescriptorSetLayout(
+        device,
+        &texture_ds_info,
+        null,
+        &texture_descriptor_set_layout,
+    );
+    if (ds_result != c.VK_SUCCESS) {
+        c.vkDestroyPipelineLayout(device, rect_pipeline_layout, null);
+        std.log.err(
+            "failed to create Vulkan rounded-texture descriptor set layout: {s}",
+            .{resultName(ds_result)},
+        );
+        return error.VulkanRoundedTexturePipelineLayoutCreateFailed;
+    }
+    errdefer c.vkDestroyDescriptorSetLayout(device, texture_descriptor_set_layout, null);
+
+    var texture_push_ranges = [_]c.VkPushConstantRange{
+        .{
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = @sizeOf(TextureVertexPush),
+        },
+        .{
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .offset = @sizeOf(TextureVertexPush),
+            .size = @sizeOf(TextureFragmentPush),
+        },
+    };
+
+    var texture_layout_info = std.mem.zeroes(c.VkPipelineLayoutCreateInfo);
+    texture_layout_info.sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    texture_layout_info.setLayoutCount = 1;
+    texture_layout_info.pSetLayouts = &texture_descriptor_set_layout;
+    texture_layout_info.pushConstantRangeCount = texture_push_ranges.len;
+    texture_layout_info.pPushConstantRanges = &texture_push_ranges;
+
+    var texture_pipeline_layout: c.VkPipelineLayout = null;
+    const texture_layout_result = c.vkCreatePipelineLayout(
+        device,
+        &texture_layout_info,
+        null,
+        &texture_pipeline_layout,
+    );
+    if (texture_layout_result != c.VK_SUCCESS) {
+        c.vkDestroyPipelineLayout(device, rect_pipeline_layout, null);
+        std.log.err(
+            "failed to create Vulkan rounded-texture pipeline layout: {s}",
+            .{resultName(texture_layout_result)},
+        );
+        return error.VulkanRoundedTexturePipelineLayoutCreateFailed;
+    }
+
     std.log.info("Vulkan rounded effects pipeline initialized", .{});
     return .{
         .device = device,
         .pipeline_cache = pipeline_cache,
         .rect_pipeline_layout = rect_pipeline_layout,
+        .texture_descriptor_set_layout = texture_descriptor_set_layout,
+        .texture_pipeline_layout = texture_pipeline_layout,
     };
 }
 
@@ -118,6 +194,16 @@ pub fn deinit(pipeline: *RoundedPipeline) void {
     }
     pipeline.texture_pipelines.deinit(util.gpa);
     pipeline.rect_pipelines.deinit(util.gpa);
+    c.vkDestroyPipelineLayout(
+        pipeline.device,
+        pipeline.texture_pipeline_layout,
+        null,
+    );
+    c.vkDestroyDescriptorSetLayout(
+        pipeline.device,
+        pipeline.texture_descriptor_set_layout,
+        null,
+    );
     c.vkDestroyPipelineLayout(
         pipeline.device,
         pipeline.rect_pipeline_layout,
@@ -146,6 +232,7 @@ pub fn drawTexture(
     radii: EffectMetadata.CornerRadii,
     scale: f32,
     swapchain_path: bool,
+    itm: ?auto_hdr.ItmParams,
 ) !bool {
     if (!validPass(&attributes.render_pass) or
         attributes.pipeline_layout == null or
@@ -162,7 +249,9 @@ pub fn drawTexture(
         box.height,
         scale,
     );
-    if (!hasRadius(physical_radii)) return false;
+    // Auto HDR can take over an otherwise unrounded buffer; corner clipping
+    // with zero radii degenerates to full coverage.
+    if (!hasRadius(physical_radii) and itm == null) return false;
 
     const graphics_pipeline = try pipeline.texturePipelineFor(attributes);
     var vertex_push: TextureVertexPush = .{
@@ -174,6 +263,8 @@ pub fn drawTexture(
         .color_matrix = attributes.color_matrix,
         .alpha = attributes.alpha,
         .luminance_multiplier = attributes.luminance_multiplier,
+        .itm_peak = if (itm) |params| params.peak else 0.0,
+        .itm_boost = if (itm) |params| params.boost else 0.0,
     };
     fragment_push.color_matrix[0][3] = @floatFromInt(box.width);
     fragment_push.color_matrix[1][3] = @floatFromInt(box.height);
@@ -189,7 +280,7 @@ pub fn drawTexture(
     c.vkCmdBindDescriptorSets(
         command_buffer,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        attributes.pipeline_layout,
+        pipeline.texture_pipeline_layout,
         0,
         1,
         &attributes.descriptor_set,
@@ -198,7 +289,7 @@ pub fn drawTexture(
     );
     c.vkCmdPushConstants(
         command_buffer,
-        attributes.pipeline_layout,
+        pipeline.texture_pipeline_layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(TextureVertexPush),
@@ -206,7 +297,7 @@ pub fn drawTexture(
     );
     c.vkCmdPushConstants(
         command_buffer,
-        attributes.pipeline_layout,
+        pipeline.texture_pipeline_layout,
         c.VK_SHADER_STAGE_FRAGMENT_BIT,
         @sizeOf(TextureVertexPush),
         @sizeOf(TextureFragmentPush),
@@ -329,7 +420,6 @@ fn texturePipelineFor(
     for (pipeline.texture_pipelines.items) |entry| {
         if (entry.render_pass == attributes.render_pass.render_pass and
             entry.subpass == attributes.render_pass.subpass and
-            entry.pipeline_layout == attributes.pipeline_layout and
             entry.texture_transform == attributes.texture_transform)
         {
             return entry.pipeline;
@@ -339,7 +429,7 @@ fn texturePipelineFor(
     const graphics_pipeline = try pipeline.createGraphicsPipeline(
         attributes.render_pass.render_pass,
         attributes.render_pass.subpass,
-        attributes.pipeline_layout,
+        pipeline.texture_pipeline_layout,
         &texture_vertex_shader,
         &texture_fragment_shader,
         attributes.texture_transform,
@@ -348,7 +438,6 @@ fn texturePipelineFor(
     try pipeline.texture_pipelines.append(util.gpa, .{
         .render_pass = attributes.render_pass.render_pass,
         .subpass = attributes.render_pass.subpass,
-        .pipeline_layout = attributes.pipeline_layout,
         .texture_transform = attributes.texture_transform,
         .pipeline = graphics_pipeline,
     });

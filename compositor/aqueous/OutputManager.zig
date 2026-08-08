@@ -298,6 +298,8 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         .l1000 => .l1000,
     };
     if (spec.sdr_white_level) |white| state.sdr_white_level = white;
+    if (spec.auto_hdr) |enabled| state.auto_hdr = enabled;
+    if (spec.auto_hdr_boost) |boost| state.auto_hdr_boost = boost;
 }
 
 /// Shared with the in-process output service when resolving the configured
@@ -434,6 +436,8 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             proposed.hdr_enabled = output.scheduled.hdr_enabled;
             proposed.hdr_level = output.scheduled.hdr_level;
             proposed.sdr_white_level = output.scheduled.sdr_white_level;
+            proposed.auto_hdr = output.scheduled.auto_hdr;
+            proposed.auto_hdr_boost = output.scheduled.auto_hdr_boost;
             if (repair_initial_overlap) proposed.position_source = .automatic;
             output.scheduled = proposed;
             // Maintain power management state set with wlr-output-power-management-v1
@@ -727,6 +731,14 @@ pub fn commitOutputState(om: *OutputManager) void {
             // Output.handleBind and Output.manageStart) so the DRM backend's
             // lazily-created global is eventually announced to the wm client.
             output.trySendWlOutput();
+            // Auto HDR changes alter pixel processing without changing any
+            // output color state, so they need full damage rather than a
+            // modeset to become visible.
+            if (output.current.auto_hdr != output.sent.auto_hdr or
+                output.current.auto_hdr_boost != output.sent.auto_hdr_boost)
+            {
+                if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
+            }
             output.current = output.sent;
             output.syncBlur(false);
             switch (output.sent.state) {

@@ -33,6 +33,7 @@ const scaling = @import("scaling.zig");
 const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
+const auto_hdr = @import("auto_hdr.zig");
 
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
@@ -89,6 +90,11 @@ pub const State = struct {
     hdr_level: hdr.HdrLevel,
     /// SDR diffuse white luminance on the HDR output, in cd/m².
     sdr_white_level: f64,
+    /// Expand SDR highlights toward the HDR peak (Auto HDR). Takes effect
+    /// only while HDR is active and the effects build can draw the buffer.
+    auto_hdr: bool,
+    /// Auto HDR expansion strength, 0..1.
+    auto_hdr_boost: f64,
     position_source: PositionSource,
 
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
@@ -124,6 +130,8 @@ pub const State = struct {
             .hdr_enabled = false,
             .hdr_level = .l1000,
             .sdr_white_level = hdr.default_sdr_white_level,
+            .auto_hdr = false,
+            .auto_hdr_boost = auto_hdr.default_boost,
             .position_source = .output_management,
         };
     }
@@ -525,6 +533,8 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .hdr_enabled = false,
         .hdr_level = .l1000,
         .sdr_white_level = hdr.default_sdr_white_level,
+        .auto_hdr = false,
+        .auto_hdr_boost = auto_hdr.default_boost,
         .position_source = .automatic,
     };
     output.* = .{
@@ -598,17 +608,51 @@ fn roundedBufferHook(
     const output: *Output = @ptrCast(@alignCast(data orelse return false));
     const scene_buffer: *wlr.SceneBuffer =
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
-    const effect = server.effect_metadata.bufferData(scene_buffer) orelse
-        return false;
+    const effect = server.effect_metadata.bufferData(scene_buffer);
+    const itm = output.autoHdrExpansion(scene_buffer);
+    if (effect == null and itm == null) return false;
+    // Corner clipping with zero radii degenerates to full coverage, so an
+    // Auto-HDR-only buffer can share the rounded texture draw.
+    const radii: EffectMetadata.CornerRadii =
+        if (effect) |entry| entry.radii else EffectMetadata.CornerRadii.uniform(0);
     return server.vulkan_context.rounded_pipeline.drawTexture(
         attributes orelse return false,
         options orelse return false,
-        effect.radii,
+        radii,
         output.effectRenderState().scale,
         output.effects_swapchain_path,
+        itm,
     ) catch |err| {
         log.err("Vulkan rounded texture draw failed: {s}", .{@errorName(err)});
         return false;
+    };
+}
+
+/// Resolve the Auto HDR expansion for one buffer draw, or null when the
+/// buffer keeps the stock SDR path. Expansion applies to relative-luminance
+/// (SDR) content owned by policy-eligible windows on an HDR output;
+/// absolute-luminance PQ content and non-window surfaces are untouched.
+fn autoHdrExpansion(output: *Output, scene_buffer: *wlr.SceneBuffer) ?auto_hdr.ItmParams {
+    const wlr_output = output.wlr_output orelse return null;
+    if (!hdr.active(wlr_output)) return null;
+    const state = output.effectRenderState();
+    if (!state.auto_hdr) return null;
+    if (scene_buffer.transfer_function == .st2084_pq) return null;
+    const window = windowForNode(&scene_buffer.node) orelse return null;
+    const eligible = window.hdr_expand_rule orelse (window.wm_requested.fullscreen != null);
+    if (!eligible) return null;
+    const peak_nits: f64 = @floatFromInt(state.hdr_level.nits());
+    return .{
+        .peak = @floatCast(peak_nits / 203.0),
+        .boost = @floatCast(std.math.clamp(state.auto_hdr_boost, 0.0, 1.0)),
+    };
+}
+
+fn windowForNode(node: *wlr.SceneNode) ?*Window {
+    const scene_node_data = SceneNodeData.fromNode(node) orelse return null;
+    return switch (scene_node_data.data) {
+        .window => |window| window,
+        else => null,
     };
 }
 

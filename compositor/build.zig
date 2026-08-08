@@ -362,6 +362,17 @@ pub fn build(b: *Build) !void {
         output_hdr_test.root_module.addImport("wlroots", wlroots);
         const run_output_hdr_test = b.addRunArtifact(output_hdr_test);
 
+        const auto_hdr_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/auto_hdr.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_auto_hdr_test = b.addRunArtifact(auto_hdr_test);
+
         const global_filter_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/global_filter.zig"),
@@ -545,6 +556,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);
         test_step.dependOn(&run_output_hdr_test.step);
+        test_step.dependOn(&run_auto_hdr_test.step);
         test_step.dependOn(&run_global_filter_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);

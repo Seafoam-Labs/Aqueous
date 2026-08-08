@@ -500,6 +500,15 @@ scene scales relative-luminance content to that level while absolute PQ
 content keeps its mastering luminances. Level and white-level changes ride
 the same atomic modeset as enabling HDR.
 
+`auto_hdr = true` expands SDR highlights toward the output's HDR peak while
+HDR is active, in the style of Windows Auto HDR. Expansion strength is set
+by `auto_hdr_boost` (0.0–1.0, default 0.5); zero boost degenerates to the
+plain SDR white level. By default only fullscreen windows are expanded;
+`rules.toml` can override per window with `hdr_expand`. Absolute PQ content,
+layer-shell surfaces, and the lock screen are never expanded, and toggling
+the setting damages the output without a modeset. The feature requires the
+Vulkan effects build and is reported per output as `auto_hdr_capable`.
+
 Hotplug creates or destroys native `Output` objects, reapplies configured
 policy, updates the output protocol, and broadcasts compatibility events.
 Output policy IDs are valid only for the life of their `Output`; stale
@@ -525,11 +534,12 @@ compositor. It preserves the display-panel JSON contract without a separate
 
 The output-service `set` and `save_profile` operations accept an optional
 boolean `hdr` field, an optional `hdr_level` field (100, 400, 1000, or
-`"auto"`), and an optional numeric `sdr_white_level` field in cd/m². Listed
-outputs report `hdr`, the resolved `hdr_level`, `sdr_white_level`,
-`hdr_capable`, `hdr_active`, the EDID `hdr_edid_max_luminance` when known,
-the current DRM `render_format`, and arrays of supported primaries and
-transfer functions.
+`"auto"`), an optional numeric `sdr_white_level` field in cd/m², an optional
+boolean `auto_hdr` field, and an optional numeric `auto_hdr_boost` field.
+Listed outputs report `hdr`, the resolved `hdr_level`, `sdr_white_level`,
+`auto_hdr`, `auto_hdr_boost`, `auto_hdr_capable`, `hdr_capable`,
+`hdr_active`, the EDID `hdr_edid_max_luminance` when known, the current DRM
+`render_format`, and arrays of supported primaries and transfer functions.
 
 Output specifications are validated independently. A setting rejected for one
 output (for example, an unavailable mode or a connector absent from the current

@@ -10,6 +10,8 @@ layout(push_constant) uniform PushConstants {
     layout(offset = 80) vec4 color_rows[4];
     float alpha;
     float luminance_multiplier;
+    float itm_peak;
+    float itm_boost;
 } push_data;
 
 layout(constant_id = 0) const int TEXTURE_TRANSFORM = 0;
@@ -100,6 +102,26 @@ void main() {
         dot(push_data.color_rows[1].xyz, rgb),
         dot(push_data.color_rows[2].xyz, rgb)
     );
+
+    // Auto HDR expansion: lift SDR highlights toward the configured HDR
+    // peak. The luminance multiplier above already places SDR diffuse white
+    // (patched wlroots sdr_white_level), so the curve is expressed relative
+    // to it: identity at and below the knee, rising gain near white, and a
+    // hard clamp at the peak so content never exceeds the advertised level.
+    // Mirrors aqueous/auto_hdr.zig.
+    if (push_data.itm_peak > 0.0) {
+        float white = max(push_data.luminance_multiplier, 1.0e-4);
+        float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        float x = luma / white;
+        float mask = smoothstep(0.8, 1.0, x);
+        float peak_rel = max(push_data.itm_peak / white, 1.0);
+        float gain = 1.0 + push_data.itm_boost * (peak_rel - 1.0) * mask;
+        rgb *= gain;
+        float expanded_luma = luma * gain;
+        if (expanded_luma > push_data.itm_peak) {
+            rgb *= push_data.itm_peak / expanded_luma;
+        }
+    }
 
     vec2 size = vec2(
         push_data.color_rows[0].w,

@@ -3,6 +3,7 @@
 
 const Service = @This();
 const std = @import("std");
+const build_options = @import("build_options");
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 const linux = std.os.linux;
@@ -394,6 +395,12 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
         if (!std.math.isFinite(white) or white < 80.0 or white > 1000.0) return null;
         spec.sdr_white_level = white;
     }
+    spec.auto_hdr = jsonBool(object.get("auto_hdr"));
+    if (object.get("auto_hdr_boost")) |value| {
+        const boost = jsonNumber(value) orelse return null;
+        if (!std.math.isFinite(boost) or boost < 0.0 or boost > 1.0) return null;
+        spec.auto_hdr_boost = boost;
+    }
     if (spec.name.empty() and spec.edid.empty()) return null;
     return spec;
 }
@@ -460,6 +467,8 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
             else => try writer.print("hdr_level = {s}\n", .{Config.hdrLevelChoiceName(v)}),
         };
         if (spec.sdr_white_level) |v| try writer.print("sdr_white_level = {d}\n", .{v});
+        if (spec.auto_hdr) |v| try writer.print("auto_hdr = {}\n", .{v});
+        if (spec.auto_hdr_boost) |v| try writer.print("auto_hdr_boost = {d}\n", .{v});
     }
     var tmp_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const tmp = try std.fmt.bufPrint(&tmp_buffer, "{s}.tmp", .{path});
@@ -581,6 +590,9 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "hdr", state.hdr_enabled);
         try field(json, "hdr_level", @as(u16, @intFromEnum(state.hdr_level)));
         try field(json, "sdr_white_level", state.sdr_white_level);
+        try field(json, "auto_hdr", state.auto_hdr);
+        try field(json, "auto_hdr_boost", state.auto_hdr_boost);
+        try field(json, "auto_hdr_capable", Output.hdr.capable(wlr_output) and build_options.vulkan_effects);
         try field(json, "hdr_capable", Output.hdr.capable(wlr_output));
         try field(json, "hdr_active", Output.hdr.active(wlr_output));
         try json.objectField("hdr_edid_max_luminance");
@@ -796,6 +808,8 @@ fn outputFingerprint() u64 {
         const hdr_level: u16 = @intFromEnum(state.hdr_level);
         hash.update(std.mem.asBytes(&hdr_level));
         hash.update(std.mem.asBytes(&state.sdr_white_level));
+        hash.update(std.mem.asBytes(&state.auto_hdr));
+        hash.update(std.mem.asBytes(&state.auto_hdr_boost));
         switch (state.mode) {
             .standard => |mode| {
                 hash.update(std.mem.asBytes(&mode.width));

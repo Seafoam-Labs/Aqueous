@@ -381,6 +381,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 window.handle,
                 if (rule) |matched| matched.blur else null,
                 if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
+                if (rule) |matched| matched.hdr_expand else null,
                 aqueous.config.wm.force_ssd,
             );
         }

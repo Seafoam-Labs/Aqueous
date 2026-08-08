@@ -52,6 +52,8 @@ rollback_seconds = 0
 # hdr = true # HDR10 profile: 10-bit BT.2020 with PQ; capable DRM outputs only
 # hdr_level = "auto" # mastering peak preset: 100, 400, 1000 cd/m², or "auto" from EDID (default 1000)
 # sdr_white_level = 200 # SDR diffuse white on the HDR output in cd/m² (80–1000, default 200)
+# auto_hdr = false # expand SDR highlights toward the HDR peak (fullscreen windows by default; hdr_expand rule overrides)
+# auto_hdr_boost = 0.5 # Auto HDR expansion strength, 0.0–1.0
 # primary = true
 # layout = "scrolling" # optional default WM layout for this output
 

@@ -31,13 +31,15 @@ pub const Spec = struct {
     /// SDR diffuse white luminance on the HDR output, in cd/m². Mirrors the
     /// 80–1000 range enforced by the compositor's output_hdr module.
     sdr_white_level: ?f64 = null,
+    auto_hdr: ?bool = null,
+    auto_hdr_boost: ?f64 = null,
     /// Preferred output for compositor actions which do not yet have an
     /// explicitly selected output. Optional so later matching specs can clear
     /// a wildcard/default declaration with `primary = false`.
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null;
+        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null;
     }
 };
 
@@ -241,6 +243,14 @@ fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
         spec.valid = false;
         return;
     };
+    if (std.mem.eql(u8, key, "auto_hdr")) spec.auto_hdr = parseBool(value) orelse {
+        spec.valid = false;
+        return;
+    };
+    if (std.mem.eql(u8, key, "auto_hdr_boost")) spec.auto_hdr_boost = parseAutoHdrBoost(value) orelse {
+        spec.valid = false;
+        return;
+    };
     if (std.mem.eql(u8, key, "primary")) spec.primary = parseBool(value) orelse {
         spec.valid = false;
         return;
@@ -287,6 +297,11 @@ pub fn hdrLevelChoiceName(choice: HdrLevelChoice) []const u8 {
 fn parseSdrWhiteLevel(value: []const u8) ?f64 {
     const white = std.fmt.parseFloat(f64, value) catch return null;
     return if (std.math.isFinite(white) and white >= 80.0 and white <= 1000.0) white else null;
+}
+
+fn parseAutoHdrBoost(value: []const u8) ?f64 {
+    const boost = std.fmt.parseFloat(f64, value) catch return null;
+    return if (std.math.isFinite(boost) and boost >= 0.0 and boost <= 1.0) boost else null;
 }
 
 pub fn parseTransform(value: []const u8) ?Transform {
@@ -355,6 +370,8 @@ test "output config parses display specs and profiles" {
         \\hdr = true
         \\hdr_level = 400
         \\sdr_white_level = 180
+        \\auto_hdr = true
+        \\auto_hdr_boost = 0.7
         \\primary = true
         \\[[display.profile]]
         \\name = "safe"
@@ -368,6 +385,8 @@ test "output config parses display specs and profiles" {
     try std.testing.expectEqual(true, snapshot.outputs[0].hdr.?);
     try std.testing.expectEqual(HdrLevelChoice.l400, snapshot.outputs[0].hdr_level.?);
     try std.testing.expectEqual(@as(f64, 180.0), snapshot.outputs[0].sdr_white_level.?);
+    try std.testing.expectEqual(true, snapshot.outputs[0].auto_hdr.?);
+    try std.testing.expectEqual(@as(f64, 0.7), snapshot.outputs[0].auto_hdr_boost.?);
     try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profile_count);
     try std.testing.expectEqual(@as(u8, 1), snapshot.profiles[0].output_count);
@@ -409,6 +428,12 @@ test "hdr level and sdr white level reject unsupported values" {
         \\hdr_level = 600
     );
     try std.testing.expectEqual(@as(u8, 0), snapshot.output_count);
+    const out_of_range = parse(
+        \\[[output]]
+        \\name = "DP-1"
+        \\auto_hdr_boost = 1.5
+    );
+    try std.testing.expectEqual(@as(u8, 0), out_of_range.output_count);
 }
 
 test "declarative presence distinguishes policy from persisted profiles" {

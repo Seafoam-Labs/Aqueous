@@ -259,6 +259,10 @@ tree: *wlr.SceneTree,
 /// cache owns the background image; this handle defines where it is displayed.
 backdrop_blur: ?fx.WindowBlur,
 
+/// Auto HDR expansion override from the matched window rule, reapplied every
+/// manage cycle. Null follows the output default (fullscreen windows expand).
+hdr_expand_rule: ?bool = null,
+
 /// Opaque black rectangle used as the background while this window is rendered fullscreen.
 /// TODO consider using one of these per output rather than one per window to save memory
 /// if the complexity tradeoff is worth it.
@@ -572,12 +576,13 @@ pub fn policyEndInteractive(window: *Window) void {
     }
 }
 
-pub fn policyApplyVisualRule(window: *Window, blur: ?bool, opacity: ?f64, force_ssd: bool) void {
+pub fn policyApplyVisualRule(window: *Window, blur: ?bool, opacity: ?f64, hdr_expand: ?bool, force_ssd: bool) void {
     window.rendering_requested.blur_enabled = blur orelse true;
     if (opacity) |fraction| {
         const clamped = std.math.clamp(fraction, 0, 1);
         window.rendering_requested.opacity = @intFromFloat(clamped * @as(f64, @floatFromInt(std.math.maxInt(u32))));
     } else window.rendering_requested.opacity = null;
+    window.hdr_expand_rule = hdr_expand;
     if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
 }
 
