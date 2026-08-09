@@ -1,0 +1,8 @@
+torch>=2.2
+numpy>=1.24
+pillow>=10.0
+tqdm>=4.66
+OpenEXR>=3.2
+onnx>=1.15
+onnxscript>=0.1
+huggingface_hub>=0.23
