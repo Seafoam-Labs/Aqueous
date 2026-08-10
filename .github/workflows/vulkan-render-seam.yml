@@ -48,7 +48,7 @@ jobs:
             pixman libdrm libevdev mesa systemd-libs seatd \
             pkgconf ninja meson libdisplay-info libliftoff lcms2 \
             glslang vulkan-headers vulkan-icd-loader \
-            libxcb xcb-util-errors xcb-util-wm xorg-xwayland
+            libxcb xcb-util-errors xcb-util-renderutil xcb-util-wm xorg-xwayland
 
       - name: Checkout sources
         uses: actions/checkout@v4
