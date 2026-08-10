@@ -8,7 +8,7 @@ pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3')
-depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
+depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal-wlr' 'wl-clipboard'
@@ -19,7 +19,7 @@ depends=('wayland' 'wayland-protocols' 'libxkbcommon' 'libinput'
          'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff'
          'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
 makedepends=('clang' 'lld' 'llvm'
-             'git' 'curl' 'patch' 'scdoc' 'wayland-protocols' 'pkgconf'
+             'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf'
              'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
 optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'

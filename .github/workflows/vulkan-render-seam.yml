@@ -11,6 +11,8 @@ on:
       - 'compositor/protocol/**'
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-color-management-luminance.sh'
+      - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
   pull_request:
@@ -23,6 +25,8 @@ on:
       - 'compositor/protocol/**'
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
+      - 'compositor/scripts/test-color-management-luminance.sh'
+      - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
   workflow_dispatch:
@@ -67,6 +71,12 @@ jobs:
         run: |
           compositor/scripts/build-wlroots-render-hook.sh \
             "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
+
+      - name: Test Proton HDR luminance headroom
+        shell: bash
+        run: |
+          AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
+            compositor/scripts/test-color-management-luminance.sh
 
       - name: Build Vulkan effects
         shell: bash

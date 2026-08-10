@@ -80,7 +80,8 @@ The HDR levels work provides everything the expansion stage builds on:
 graph TD
     A[scene buffer] --> B{transfer function?}
     B -->|ST 2084 PQ| C[absolute content: untouched]
-    B -->|SDR: srgb/gamma22/bt1886/ext-linear| D{auto_hdr and window policy?}
+    B -->|predefined Windows scRGB/BT.2100| C
+    B -->|SDR: srgb/gamma22/bt1886/parametric ext-linear| D{auto_hdr and window policy?}
     D -->|off| E[patch 0004 white gain<br>wlroots luminance_multiplier]
     D -->|on| F[buffer render hook takes over<br>ITM pipeline: decode, expand, anchor white]
     E --> G[pass color transform<br>working space to PQ]
@@ -158,10 +159,12 @@ Steps:
    fix that first — ITM inherits the same composition.
 2. **Hook decision** in `Output.zig` (generalize `roundedBufferHook`):
    take over the draw when the buffer is SDR (`scene_buffer.transfer_function`
-   not PQ), the output has HDR active (`Output.hdr.active`), the output's
-   scheduled state has `auto_hdr` enabled, and the buffer's
-   `EffectMetadata` allows expansion (phase 3 flag). Everything else falls
-   through exactly as today.
+   not PQ), is not tagged with a predefined Windows-scRGB/BT.2100 image
+   description, the output has HDR active (`Output.hdr.active`), the output's
+   scheduled state has `auto_hdr` enabled, and the buffer's `EffectMetadata`
+   allows expansion (phase 3 flag). Everything else falls through exactly as
+   today. A parametric extended-linear description remains eligible; the
+   bypass is based on description identity, not transfer function alone.
 3. **Pipeline**: extend `RoundedPipeline` (or add an `AutoHdrPipeline` in
    `VulkanContext` if the uniform sets diverge too much) with the ITM
    fragment stage and the uniforms above. Failure paths return `false` so
@@ -176,6 +179,8 @@ Steps:
      white gain only); revisit if highlight bleed into blur is requested.
    - Screen capture shows expanded content, matching what is displayed.
    - Lock screen and layer-shell surfaces never expand (phase 3).
+   - Native Wine/Proton Windows HDR descriptions never expand a second time;
+     Windows-scRGB also keeps its fixed 80-nit-per-1.0 stimulus mapping.
 6. **Capability gate**: `auto_hdr` is inert unless the build has
    `vulkan_effects`, the output is DRM, and HDR is active. The service
    reports this (phase 3).

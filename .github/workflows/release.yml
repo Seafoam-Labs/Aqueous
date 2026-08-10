@@ -1,9 +1,8 @@
 name: Release
 
 # Build Aqueous and its inspection client and attach them to a
-# GitHub Release. Runs inside an Arch Linux container
-# so we inherit Arch's patched `wayland-protocols` (which carries
-# `wp_color_manager_v1` v2) — Ubuntu/upstream tarballs do not have it yet.
+# GitHub Release. Runs inside an Arch Linux container so the build has
+# wayland-protocols 1.49 and the `wp_color_manager_v1` version 3 contract.
 
 on:
   push:
@@ -61,12 +60,13 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Verify wayland-protocols carries wp_color_manager_v1 v2
+      - name: Verify wayland-protocols carries wp_color_manager_v1 v3
         shell: bash
         run: |
           set -euxo pipefail
           pacman -Q wayland-protocols
-          grep -E 'name="wp_color_manager_v1" version="2"' \
+          pkg-config --atleast-version=1.49 wayland-protocols
+          grep -E 'name="wp_color_manager_v1" version="3"' \
             /usr/share/wayland-protocols/staging/color-management/color-management-v1.xml
 
       - name: Verify wlroots 0.20 is installed
@@ -82,6 +82,8 @@ jobs:
         run: |
           compositor/scripts/build-wlroots-render-hook.sh \
             "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
+          AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
+            compositor/scripts/test-color-management-luminance.sh
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \

@@ -15,6 +15,7 @@
 //! the EDID CTA-861 desired-content luminances for automatic level selection.
 
 const std = @import("std");
+const build_options = @import("build_options");
 const wlr = @import("wlroots");
 
 fn fourcc(a: u8, b: u8, c: u8, d: u8) u32 {
@@ -160,10 +161,12 @@ pub fn selectRenderFormat(output: *wlr.Output) ?u32 {
 }
 
 pub fn capable(output: *wlr.Output) bool {
+    if (comptime !build_options.vulkan_effects) return false;
     return selectRenderFormat(output) != null;
 }
 
 pub fn active(output: *const wlr.Output) bool {
+    if (comptime !build_options.vulkan_effects) return false;
     if (!output.enabled) return false;
     const description = output.image_description orelse return false;
     if (description.primaries != .bt2020 or description.transfer_function != .st2084_pq) return false;
@@ -185,6 +188,7 @@ pub fn pickAutoLevel(desired_max_luminance: f64, desired_max_frame_avg_luminance
 /// Resolve `hdr_level = "auto"` from the EDID CTA-861 HDR static metadata.
 /// Non-DRM outputs and displays without metadata return null.
 pub fn autoLevel(output: *wlr.Output) ?HdrLevel {
+    if (comptime !build_options.vulkan_effects) return null;
     if (!output.isDrm()) return null;
     const metadata = wlr_output_get_edid_hdr_static_metadata(output);
     return pickAutoLevel(metadata.max_luminance, metadata.max_frame_avg_luminance);
@@ -192,6 +196,7 @@ pub fn autoLevel(output: *wlr.Output) ?HdrLevel {
 
 /// The EDID desired-content max luminance in cd/m², or null when unknown.
 pub fn edidDesiredMaxLuminance(output: *wlr.Output) ?f64 {
+    if (comptime !build_options.vulkan_effects) return null;
     if (!output.isDrm()) return null;
     const metadata = wlr_output_get_edid_hdr_static_metadata(output);
     if (metadata.max_luminance <= 0) return null;
@@ -200,6 +205,7 @@ pub fn edidDesiredMaxLuminance(output: *wlr.Output) ?f64 {
 
 pub fn stateMatches(output: *wlr.Output, requested: bool, level: HdrLevel, sdr_white_level: f64) bool {
     if (requested) {
+        if (comptime !build_options.vulkan_effects) return false;
         const format = selectRenderFormat(output) orelse return false;
         if (output.render_format != format) return false;
         const description = output.image_description orelse return false;
@@ -220,6 +226,7 @@ pub fn stateMatches(output: *wlr.Output, requested: bool, level: HdrLevel, sdr_w
 /// The image description setter allocates a copy and can fail.
 pub fn apply(output: *wlr.Output, enabled: bool, level: HdrLevel, sdr_white_level: f64, state: *wlr.Output.State) bool {
     if (enabled) {
+        if (comptime !build_options.vulkan_effects) return false;
         const format = selectRenderFormat(output) orelse return false;
         state.setRenderFormat(format);
         var description = imageDescription(level, sdr_white_level);
@@ -302,6 +309,14 @@ test "image descriptions follow the level envelope" {
     try std.testing.expectEqual(@as(f64, 1000.0), l1000.mastering_luminance.max);
     try std.testing.expectEqual(@as(f64, 1000.0), l1000.max_cll);
     try std.testing.expectEqual(@as(f64, 400.0), l1000.max_fall);
+
+    // Primary PQ luminance and target/mastering luminance are intentionally
+    // independent. The wlroots protocol serializer reports this as a
+    // 399/400 reference/target pair without changing the configured gain or
+    // the 10,000-nit PQ encoding range.
+    const reference_at_target_max = imageDescription(.l400, 400.0);
+    try std.testing.expectEqual(@as(f64, 400.0), reference_at_target_max.sdr_white_level);
+    try std.testing.expectEqual(@as(f64, 400.0), reference_at_target_max.mastering_luminance.max);
 
     for ([_]ImageDescription{ l100, l400, l1000 }) |description| {
         try std.testing.expectEqual(wlr.color.NamedPrimaries.bt2020, description.primaries);

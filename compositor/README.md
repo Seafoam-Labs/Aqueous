@@ -5,7 +5,7 @@ Wayland compositor with integrated window-management, input, and output policy.
 
 ## Building
 
-Required development libraries include Wayland, wayland-protocols,
+Required development libraries include Wayland, wayland-protocols 1.49 or newer,
 libxkbcommon, libinput, libevdev, pixman, Vulkan headers and loader, and the
 wlroots 0.20 build dependencies. Zig 0.16 or newer is required; scdoc is
 optional for man pages.
@@ -32,6 +32,8 @@ PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
     -Dcpu=baseline \
     -Doptimize=ReleaseSafe
 scripts/test-vulkan-render-seam.sh /tmp/aqueous-vulkan-render-seam
+scripts/test-color-management-luminance.sh
+scripts/test-proton-hdr-color-management.sh
 ```
 
 The test requires `VK_LAYER_KHRONOS_validation`, ImageMagick, grim, jq, netcat,
@@ -45,6 +47,12 @@ explicit synchronization, and 4,096 releases and reuses of one client buffer.
 Set
 `AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION=0` only for a functional smoke run on a
 machine without the validation layer.
+
+The color-management tests validate Proton's strict target/reference luminance
+headroom after protocol rounding and exercise the live version 3
+Windows-scRGB/BT.2100 Wayland contract used by Wine/Proton. The live probe needs
+host GPU access for Aqueous's Vulkan renderer, but does not require an HDR
+display; its headless SDR output also guards against false HDR detection.
 
 ## Usage
 

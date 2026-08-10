@@ -152,7 +152,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("ext_foreign_toplevel_list_v1", 1);
     scanner.generate("wp_cursor_shape_manager_v1", 1);
     scanner.generate("wp_tearing_control_manager_v1", 1);
-    scanner.generate("wp_color_manager_v1", 2);
+    scanner.generate("wp_color_manager_v1", 3);
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("river_window_manager_v1", 10);
@@ -359,6 +359,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        output_hdr_test.root_module.addOptions("build_options", options);
         output_hdr_test.root_module.addImport("wlroots", wlroots);
         const run_output_hdr_test = b.addRunArtifact(output_hdr_test);
 
@@ -372,6 +373,20 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         const run_auto_hdr_test = b.addRunArtifact(auto_hdr_test);
+
+        const color_management_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/color_management.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        color_management_test.root_module.addImport("wayland", wayland);
+        color_management_test.root_module.addImport("wlroots", wlroots);
+        const run_color_management_test = b.addRunArtifact(color_management_test);
 
         const global_filter_test = b.addTest(.{
             .root_module = b.createModule(.{
@@ -557,6 +572,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_effect_metadata_test.step);
         test_step.dependOn(&run_output_hdr_test.step);
         test_step.dependOn(&run_auto_hdr_test.step);
+        test_step.dependOn(&run_color_management_test.step);
         test_step.dependOn(&run_global_filter_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);

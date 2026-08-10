@@ -11,15 +11,18 @@ patch_files=(
     "$here/patches/wlroots/0003-color-management-v1-srgb-compat.patch"
     "$here/patches/wlroots/0004-scene-sdr-white-level.patch"
     "$here/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
+    "$here/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
 archive="$cache_dir/wlroots-$version.tar.gz"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
-for tool in curl meson ninja patch sha256sum tar; do
+for tool in curl meson ninja patch pkg-config sha256sum tar; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
+pkg-config --atleast-version=1.49 wayland-protocols ||
+    die "wayland-protocols 1.49 or newer is required"
 for patch_file in "${patch_files[@]}"; do
     [ -r "$patch_file" ] || die "missing wlroots patch: $patch_file"
 done
@@ -49,6 +52,17 @@ grep -Fq 'scene_output_damage_internal(scene_output, &damage, false);' \
 grep -Fq 'render_pass, &scene_output->pending_effect_damage,' \
     "$scene_source" ||
     die "patched wlroots does not pass full scene damage to the render hook"
+color_manager_source="$source_dir/types/wlr_color_management_v1.c"
+grep -Fq '#define COLOR_MANAGEMENT_V1_VERSION 3' "$color_manager_source" ||
+    die "patched wlroots does not expose color-management-v1 version 3"
+grep -Fq 'WP_COLOR_MANAGER_V1_FEATURE_WINDOWS_BT2100' "$color_manager_source" ||
+    die "patched wlroots does not advertise Windows BT.2100"
+grep -Fq 'WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ ? target_max_lum : 0' \
+    "$color_manager_source" ||
+    die "patched wlroots does not preserve Proton target/reference HDR headroom"
+grep -Fq 'wp_color_management_output_v1_send_image_description_changed' \
+    "$color_manager_source" ||
+    die "patched wlroots does not notify clients about output color changes"
 history_line=$(
     grep -nF 'wlr_damage_ring_add(&scene_output->damage_ring,' \
         "$scene_source" | tail -1 | cut -d: -f1
@@ -89,6 +103,10 @@ for symbol in \
     wlr_vk_render_pass_set_texture_hook \
     wlr_vk_render_pass_get_attribs \
     wlr_output_get_edid_hdr_static_metadata \
+    wlr_color_manager_v1_set_windows_hdr_features \
+    wlr_color_manager_v1_encode_luminances \
+    wlr_surface_has_windows_hdr_image_description \
+    wlr_surface_has_windows_scrgb_image_description \
     wlr_backend_is_x11 \
     wlr_xwayland_create; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||

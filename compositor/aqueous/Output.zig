@@ -34,6 +34,7 @@ const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
 const auto_hdr = @import("auto_hdr.zig");
+const color_management = @import("color_management.zig");
 
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
@@ -637,7 +638,17 @@ fn autoHdrExpansion(output: *Output, scene_buffer: *wlr.SceneBuffer) ?auto_hdr.I
     if (!hdr.active(wlr_output)) return null;
     const state = output.effectRenderState();
     if (!state.auto_hdr) return null;
-    if (scene_buffer.transfer_function == .st2084_pq) return null;
+    const native_windows_hdr = if (comptime build_options.vulkan_effects)
+        if (wlr.SceneSurface.tryFromBuffer(scene_buffer)) |scene_surface|
+            color_management.surfaceHasWindowsHdrDescription(scene_surface.surface)
+        else
+            false
+    else
+        false;
+    if (!auto_hdr.shouldExpandContent(
+        scene_buffer.transfer_function == .st2084_pq,
+        native_windows_hdr,
+    )) return null;
     const window = windowForNode(&scene_buffer.node) orelse return null;
     const eligible = window.hdr_expand_rule orelse (window.wm_requested.fullscreen != null);
     if (!eligible) return null;

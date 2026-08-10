@@ -500,14 +500,39 @@ scene scales relative-luminance content to that level while absolute PQ
 content keeps its mastering luminances. Level and white-level changes ride
 the same atomic modeset as enabling HDR.
 
+The production color manager exposes `color-management-v1` version 3 and the
+predefined Windows-scRGB and Windows-BT.2100 descriptions when the renderer
+supports their complete encodings. These are the native Wine/Proton paths:
+Windows-scRGB is extended-linear sRGB with the protocol-defined stimulus scale
+of `1.0 = 80 cd/m²`, while Windows-BT.2100 is BT.2020/PQ. The scRGB scale is
+fixed and deliberately does not follow `sdr_white_level`; both descriptions
+are tagged as client-managed HDR.
+
+Output image-description information keeps the protocol's primary and target
+color volumes separate. A PQ output reports a 10,000 cd/m² primary encoding
+range and the configured SDR white as its reference luminance. If integer
+protocol rounding would make reference equal to or exceed the target maximum,
+the wire value is clamped to `target max - 1`. This preserves Proton's strict
+`target max > reference` HDR signal without changing the compositor's actual
+SDR-white gain. The 100/400/1000 cd/m² output preset remains the
+target/mastering maximum and is also used for MaxCLL/MaxFALL; it does not
+replace the PQ encoding maximum.
+Normal SDR output information remains 80 cd/m² maximum and 80 cd/m² reference,
+so clients do not falsely detect HDR. A committed output image-description
+change emits `image_description_changed` followed by the shared output-done
+cycle.
+
 `auto_hdr = true` expands SDR highlights toward the output's HDR peak while
 HDR is active, in the style of Windows Auto HDR. Expansion strength is set
 by `auto_hdr_boost` (0.0–1.0, default 0.5); zero boost degenerates to the
 plain SDR white level. By default only fullscreen windows are expanded;
 `rules.toml` can override per window with `hdr_expand`. Absolute PQ content,
-layer-shell surfaces, and the lock screen are never expanded, and toggling
-the setting damages the output without a modeset. The feature requires the
-Vulkan effects build and is reported per output as `auto_hdr_capable`.
+native Windows-scRGB/BT.2100 content, layer-shell surfaces, and the lock screen
+are never expanded, and toggling the setting damages the output without a
+modeset. Ordinary parametric extended-linear content is still classified by
+the existing Auto HDR policy; only the predefined Windows descriptions bypass
+it. The feature requires the Vulkan effects build and is reported per output
+as `auto_hdr_capable`.
 
 Hotplug creates or destroys native `Output` objects, reapplies configured
 policy, updates the output protocol, and broadcasts compatibility events.

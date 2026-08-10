@@ -29,6 +29,14 @@ pub const default_boost: f64 = 0.5;
 /// White-relative luminance where highlight expansion starts ramping in.
 pub const knee: f64 = 0.8;
 
+/// Whether content is eligible for SDR highlight expansion based on its color
+/// ownership. PQ is absolute-luminance content. The predefined Windows scRGB
+/// and BT.2100 descriptions are managed by Wine/Proton even when scRGB's
+/// transfer function is linear, so both classes must bypass Auto HDR.
+pub fn shouldExpandContent(is_pq: bool, is_windows_hdr: bool) bool {
+    return !is_pq and !is_windows_hdr;
+}
+
 fn smoothstep(edge0: f64, edge1: f64, x: f64) f64 {
     const t = std.math.clamp((x - edge0) / (edge1 - edge0), 0, 1);
     return t * t * (3.0 - 2.0 * t);
@@ -134,4 +142,11 @@ test "boost validation matches the documented range" {
     try std.testing.expect(validateBoost(1.5) == null);
     try std.testing.expect(validateBoost(std.math.inf(f64)) == null);
     try std.testing.expect(validateBoost(std.math.nan(f64)) == null);
+}
+
+test "native HDR never enters SDR expansion" {
+    try std.testing.expect(shouldExpandContent(false, false));
+    try std.testing.expect(!shouldExpandContent(true, false));
+    try std.testing.expect(!shouldExpandContent(false, true));
+    try std.testing.expect(!shouldExpandContent(true, true));
 }

@@ -15,6 +15,7 @@ const wp = wayland.server.wp;
 
 const util = @import("util.zig");
 const fx = @import("fx.zig");
+const color_management = @import("color_management.zig");
 const global_filter = @import("global_filter.zig");
 const VulkanContext = if (build_options.vulkan_effects) @import("render/VulkanContext.zig") else void;
 const EffectMetadata = if (build_options.vulkan_effects) @import("render/EffectMetadata.zig") else void;
@@ -474,7 +475,12 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         defer std.c.free(transfer_functions.ptr);
         const primaries = renderer.primariesList();
         defer std.c.free(primaries.ptr);
-        server.color_manager = try wlr.ColorManagerV1.create(wl_server, 2, .{
+        const windows_hdr_features = if (comptime build_options.vulkan_effects)
+            color_management.windowsHdrFeatureMask(transfer_functions, primaries)
+        else
+            0;
+        const color_manager_version = if (build_options.vulkan_effects) 3 else 2;
+        server.color_manager = try wlr.ColorManagerV1.create(wl_server, color_manager_version, .{
             .features = .{
                 .parametric = true,
                 .set_mastering_display_primaries = true,
@@ -483,6 +489,9 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
             .transfer_functions = transfer_functions,
             .primaries = primaries,
         });
+        if (comptime build_options.vulkan_effects) {
+            color_management.enableWindowsHdr(server.color_manager.?, windows_hdr_features);
+        }
     }
 
     if (build_options.xwayland and runtime_xwayland) {
