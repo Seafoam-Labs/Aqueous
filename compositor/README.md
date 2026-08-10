@@ -49,10 +49,11 @@ Set
 machine without the validation layer.
 
 The color-management tests validate Proton's strict target/reference luminance
-headroom after protocol rounding and exercise the live version 3
-Windows-scRGB/BT.2100 Wayland contract used by Wine/Proton. The live probe needs
-host GPU access for Aqueous's Vulkan renderer, but does not require an HDR
-display; its headless SDR output also guards against false HDR detection.
+headroom after protocol rounding and exercise both Proton-EM's live version 1
+output-discovery path and the version 3 Windows-scRGB/BT.2100 Wayland contract.
+The live probe needs host GPU access for Aqueous's Vulkan renderer, but does not
+require an HDR display; its headless SDR output also guards against false HDR
+detection.
 
 ## Usage
 

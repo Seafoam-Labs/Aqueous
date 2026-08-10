@@ -14,6 +14,8 @@
 struct description_result {
 	bool ready;
 	bool failed;
+	bool ready_legacy;
+	bool ready2;
 	uint64_t identity;
 };
 
@@ -175,6 +177,7 @@ static void description_ready(void *data,
 	(void)description;
 	struct description_result *result = data;
 	result->ready = true;
+	result->ready_legacy = true;
 	result->identity = identity;
 }
 
@@ -184,6 +187,7 @@ static void description_ready2(void *data,
 	(void)description;
 	struct description_result *result = data;
 	result->ready = true;
+	result->ready2 = true;
 	result->identity = ((uint64_t)identity_hi << 32) | identity_lo;
 }
 
@@ -340,6 +344,85 @@ int main(void) {
 	require_condition(probe.pq && probe.bt2020,
 		"Windows-BT.2100 was advertised without its renderer encoding");
 
+	/* Proton-EM binds wp_color_manager_v1 at version 1 and determines HDR
+	 * support from the output description's target/reference luminance
+	 * headroom. Exercise that exact object-version and metadata path. */
+	struct probe version1 = { .display = probe.display };
+	version1.manager = wl_registry_bind(probe.registry, probe.manager_global_name,
+		&wp_color_manager_v1_interface, 1);
+	require_condition(version1.manager != NULL,
+		"version 1 color-manager binding failed");
+	require_condition(wp_color_manager_v1_get_version(version1.manager) == 1,
+		"Proton-EM color-manager binding did not negotiate version 1");
+	wp_color_manager_v1_add_listener(version1.manager, &manager_listener, &version1);
+	checked_roundtrip(&probe, "version 1 Proton-EM capabilities");
+	require_condition(version1.manager_done,
+		"version 1 color-manager capability list was incomplete");
+	require_condition(version1.perceptual,
+		"version 1 client lost the perceptual rendering intent");
+	require_condition(version1.windows_scrgb,
+		"version 1 client lost Windows-scRGB compatibility");
+	require_condition(!version1.windows_bt2100,
+		"version 1 client received a version 3-only feature");
+	require_condition(version1.ext_linear && version1.srgb,
+		"version 1 Windows-scRGB encoding capabilities were incomplete");
+
+	struct description_result version1_scrgb_result = {0};
+	struct wp_image_description_v1 *version1_scrgb =
+		wp_color_manager_v1_create_windows_scrgb(version1.manager);
+	require_condition(wp_image_description_v1_get_version(version1_scrgb) == 1,
+		"version 1 Windows-scRGB description negotiated the wrong version");
+	wp_image_description_v1_add_listener(version1_scrgb,
+		&description_listener, &version1_scrgb_result);
+	checked_roundtrip(&probe, "version 1 Windows-scRGB description");
+	require_condition(version1_scrgb_result.ready && !version1_scrgb_result.failed,
+		"version 1 Windows-scRGB image description was not ready");
+	require_condition(version1_scrgb_result.ready_legacy &&
+		!version1_scrgb_result.ready2,
+		"version 1 Windows-scRGB description did not use the legacy ready event");
+
+	struct wp_color_management_output_v1 *version1_color_output =
+		wp_color_manager_v1_get_output(version1.manager, probe.output);
+	require_condition(wp_color_management_output_v1_get_version(version1_color_output) == 1,
+		"version 1 color-management output negotiated the wrong version");
+	struct description_result version1_output_description_result = {0};
+	struct wp_image_description_v1 *version1_output_description =
+		wp_color_management_output_v1_get_image_description(version1_color_output);
+	require_condition(wp_image_description_v1_get_version(version1_output_description) == 1,
+		"version 1 output description negotiated the wrong version");
+	wp_image_description_v1_add_listener(version1_output_description,
+		&description_listener, &version1_output_description_result);
+	checked_roundtrip(&probe, "version 1 Proton-EM output description");
+	require_condition(version1_output_description_result.ready &&
+		!version1_output_description_result.failed,
+		"version 1 output image description was not ready");
+	require_condition(version1_output_description_result.ready_legacy &&
+		!version1_output_description_result.ready2,
+		"version 1 output description did not use the legacy ready event");
+	require_condition(version1_output_description_result.identity != 0,
+		"version 1 output image description identity was zero");
+
+	struct output_information version1_output_info = {0};
+	struct wp_image_description_info_v1 *version1_information =
+		wp_image_description_v1_get_information(version1_output_description);
+	require_condition(wp_image_description_info_v1_get_version(version1_information) == 1,
+		"version 1 output information negotiated the wrong version");
+	wp_image_description_info_v1_add_listener(version1_information,
+		&information_listener, &version1_output_info);
+	checked_roundtrip(&probe, "version 1 Proton-EM output information");
+	require_condition(version1_output_info.done,
+		"version 1 output image-description information was incomplete");
+	require_condition(version1_output_info.saw_luminances &&
+		version1_output_info.saw_target_luminance,
+		"version 1 output omitted Proton-EM luminance metadata");
+	require_condition(version1_output_info.reference_lum == 80 &&
+		version1_output_info.target_max_lum == 80,
+		"version 1 headless SDR output luminance metadata changed");
+	bool version1_proton_hdr = version1_output_info.target_max_lum >
+		version1_output_info.reference_lum;
+	require_condition(!version1_proton_hdr,
+		"version 1 Proton-EM predicate falsely detected HDR on an SDR output");
+
 	/* Version 2 is the previous Aqueous/tooling contract. It must retain the
 	 * v1 Windows-scRGB request without leaking the v3-only BT.2100 feature. */
 	struct probe version2 = { .display = probe.display };
@@ -439,12 +522,16 @@ int main(void) {
 	wp_image_description_v1_destroy(scrgb);
 	wp_image_description_v1_destroy(version2_scrgb);
 	wp_color_manager_v1_destroy(version2.manager);
+	wp_image_description_v1_destroy(version1_output_description);
+	wp_color_management_output_v1_destroy(version1_color_output);
+	wp_image_description_v1_destroy(version1_scrgb);
+	wp_color_manager_v1_destroy(version1.manager);
 	wp_color_manager_v1_destroy(probe.manager);
 	wl_output_release(probe.output);
 	wl_compositor_destroy(probe.compositor);
 	wl_registry_destroy(probe.registry);
 	wl_display_disconnect(probe.display);
 
-	puts("PASS: color-management-v1 v3 Windows HDR wire contract");
+	puts("PASS: color-management-v1 Proton-EM v1 and Windows HDR v3 wire contracts");
 	return EXIT_SUCCESS;
 }

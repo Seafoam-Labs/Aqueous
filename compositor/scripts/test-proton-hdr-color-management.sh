@@ -2,10 +2,13 @@
 set -euo pipefail
 
 # Exercise the exact Wayland contract Wine/Proton uses for native HDR. The
-# output is intentionally headless/SDR: that also verifies SDR metadata keeps
-# max luminance equal to reference white and therefore does not falsely signal
-# HDR. Proton's strict target/reference headroom predicate and its rounding
-# boundaries are covered by test-color-management-luminance.sh.
+# probe binds wp_color_manager_v1 at version 1 exactly like Proton-EM, verifies
+# its legacy ready event and output-information path, then covers Aqueous's
+# current version 3 Windows-scRGB/BT.2100 contract. The output is intentionally
+# headless/SDR: that also verifies SDR metadata keeps target maximum equal to
+# reference white and therefore does not falsely signal HDR. Proton's strict
+# target/reference headroom predicate and its rounding boundaries are covered
+# by test-color-management-luminance.sh.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 compositor_bin=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
