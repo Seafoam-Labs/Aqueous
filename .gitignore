@@ -18,3 +18,6 @@ lib/aqueous/
 
 # Local floating implementation roadmap
 /FLOATING_MILESTONES.md
+docs/auto-hdr-model-training-plan.md
+docs/auto-hdr-ship-corpus-training-plan.md
+docs/auto-hdr-training-data-sourcing.md
