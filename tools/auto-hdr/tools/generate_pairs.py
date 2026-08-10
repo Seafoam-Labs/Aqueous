@@ -8,6 +8,10 @@ the dataset consumes. The HDR side is *not* duplicated: index entries point
 at the original EXR with an `hdr_scale` factor (scene-white placement in
 working units, 1.0 == 203 nits).
 
+EXRs under auxiliary modality directories (S2R stores depth/diffuse/flow/
+normal maps next to its frames) are not training frames and are skipped;
+see --exclude-dirs.
+
 The SDR side includes real-world quantization (8-bit), which is part of the
 degradation the model must invert.
 
@@ -69,6 +73,10 @@ def main() -> int:
                     choices=["scene", "video"])
     ap.add_argument("--video-substrings", default="s2r,sequence",
                     help="paths containing these become class 'video'")
+    ap.add_argument("--exclude-dirs",
+                    default="depth,diffuse,flow,normal,camera_params",
+                    help="skip EXRs under any directory with one of these "
+                         "names (S2R auxiliary modalities are not frames)")
     ap.add_argument("--max-assets", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -81,10 +89,14 @@ def main() -> int:
     mapper_names = [m for m in args.mappers.split(",") if m]
     video_subs = [s for s in args.video_substrings.split(",") if s]
 
-    exr_files = sorted(root.rglob("*.exr"))
+    all_exr = sorted(root.rglob("*.exr"))
+    exclude = {d for d in args.exclude_dirs.split(",") if d}
+    exr_files = [p for p in all_exr
+                 if not exclude & set(p.relative_to(root).parts)]
     if args.max_assets:
         exr_files = exr_files[:args.max_assets]
-    print(f"{len(exr_files)} EXR assets under {root}")
+    print(f"{len(exr_files)} EXR assets under {root} "
+          f"({len(all_exr) - len(exr_files)} excluded)")
 
     entries = []
     stats = {"pairs": 0, "assets": 0, "skipped": 0}
