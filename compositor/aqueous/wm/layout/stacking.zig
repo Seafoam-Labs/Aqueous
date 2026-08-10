@@ -59,6 +59,41 @@ test "semantic bands sort tiled, maximized, floating, transient, and fullscreen"
     }
 }
 
+test "maximized-on-floating shares floating band so focus decides stacking" {
+    // On a floating workspace, maximized windows share the floating band with
+    // ordinary floating peers, so the most recently focused one (higher
+    // stack_order) sorts on top. Transient and fullscreen peers still win via
+    // their higher bands.
+
+    // Focused maximized window sorts above a floating peer.
+    {
+        var placements = [_]types.Placement{
+            .{ .handle = 1, .geometry = .empty, .z_order = floating_band, .stack_order = 9, .visible = true, .border = .none },
+            .{ .handle = 2, .geometry = .empty, .z_order = floating_band, .stack_order = 3, .visible = true, .border = .none },
+            .{ .handle = 3, .geometry = .empty, .z_order = floatingZ(1), .visible = true, .border = .none },
+        };
+        std.mem.sort(types.Placement, &placements, {}, lessThan);
+        const expected = [_]types.Handle{ 2, 1, 3 };
+        for (placements, expected) |placement, handle| {
+            try std.testing.expectEqual(handle, placement.handle);
+        }
+    }
+
+    // Focused floating window sorts above the maximized one.
+    {
+        var placements = [_]types.Placement{
+            .{ .handle = 1, .geometry = .empty, .z_order = floating_band, .stack_order = 3, .visible = true, .border = .none },
+            .{ .handle = 2, .geometry = .empty, .z_order = floating_band, .stack_order = 9, .visible = true, .border = .none },
+            .{ .handle = 3, .geometry = .empty, .z_order = floatingZ(1), .visible = true, .border = .none },
+        };
+        std.mem.sort(types.Placement, &placements, {}, lessThan);
+        const expected = [_]types.Handle{ 1, 2, 3 };
+        for (placements, expected) |placement, handle| {
+            try std.testing.expectEqual(handle, placement.handle);
+        }
+    }
+}
+
 test "persistent raise order wins within a floating band" {
     var placements = [_]types.Placement{
         .{ .handle = 20, .geometry = .empty, .z_order = floating_band, .stack_order = 9, .visible = true, .border = .none },

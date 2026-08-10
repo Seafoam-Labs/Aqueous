@@ -319,10 +319,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
             if (state.kind == .maximized) {
                 const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
+                const max_z: i32 = if (aqueous.layoutIsFloating(layout_key)) stacking.floating_band else stacking.maximized_band;
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
                     .geometry = max_area,
-                    .z_order = stacking.maximized_band,
+                    .z_order = max_z,
                     .stack_order = aqueous.ensureStackOrder(state),
                     .visible = true,
                     .border = output_layout.layoutOptions(.floating).border,
