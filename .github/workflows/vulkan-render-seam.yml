@@ -51,7 +51,7 @@ jobs:
             libxcb xcb-util-errors xcb-util-renderutil xcb-util-wm xorg-xwayland
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Mark workspace safe for git
         shell: bash
