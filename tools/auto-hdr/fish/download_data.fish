@@ -15,9 +15,10 @@ $root/.venv/bin/python $root/tools/download_polyhaven.py \
 or exit 1
 
 echo ""
-echo "Optional Category B corpora (large; pull manually as needed):"
-echo "  huggingface-cli download --repo-type dataset iimmortall/S2R-HDR --local-dir $DATA_DIR/raw/s2r-hdr"
-echo "  huggingface-cli download --repo-type dataset iimmortall/S2R-HDR-2 --local-dir $DATA_DIR/raw/s2r-hdr-2"
-echo "  huggingface-cli download --repo-type dataset zlicastro/zanya-unreal-engine-hdr-dataset --local-dir $DATA_DIR/raw/zanya-ue5"
-echo "  huggingface-cli download --repo-type dataset ZhengGuangze/HDRI --local-dir $DATA_DIR/raw/hdri-skies"
-echo "  huggingface-cli download --repo-type dataset Temporarium/HDR_Photos_VAE_Training_DNG --local-dir $DATA_DIR/raw/hdr-dng"
+echo "Optional Category B corpora (large; pull manually as needed)."
+echo "--max-workers 2 avoids HF Xet rate limits (429); log in for higher limits."
+echo "  huggingface-cli download --repo-type dataset iimmortall/S2R-HDR --local-dir $DATA_DIR/raw/s2r-hdr --max-workers 2"
+echo "  huggingface-cli download --repo-type dataset iimmortall/S2R-HDR-2 --local-dir $DATA_DIR/raw/s2r-hdr-2 --max-workers 2"
+echo "  huggingface-cli download --repo-type dataset zlicastro/zanya-unreal-engine-hdr-dataset --local-dir $DATA_DIR/raw/zanya-ue5 --max-workers 2"
+echo "  huggingface-cli download --repo-type dataset ZhengGuangze/HDRI --local-dir $DATA_DIR/raw/hdri-skies --max-workers 2"
+echo "  huggingface-cli download --repo-type dataset Temporarium/HDR_Photos_VAE_Training_DNG --local-dir $DATA_DIR/raw/hdr-dng --max-workers 2"
