@@ -2,6 +2,8 @@ name: Vulkan render seam
 
 on:
   push:
+    branches:
+      - master
     paths:
       - '.github/workflows/vulkan-render-seam.yml'
       - 'compositor/aqueous/**'
@@ -14,6 +16,8 @@ on:
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
   pull_request:
+    branches:
+      - master
     paths:
       - '.github/workflows/vulkan-render-seam.yml'
       - 'compositor/aqueous/**'
@@ -29,6 +33,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: vulkan-render-seam-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
