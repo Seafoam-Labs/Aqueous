@@ -164,12 +164,18 @@ pub fn clientMinimizeAllowed(
 ) bool {
     const entry = store.resolver(handle) orelse return false;
     if (minimized) {
-        return entry.kind == .floating or
-            (layout_floating and entry.kind == .tiled);
+        return canMinimizeFrom(entry.kind, layout_floating);
     }
     return entry.kind == .minimized and
-        (entry.previous == .floating or
-            (layout_floating and entry.previous == .tiled));
+        canMinimizeFrom(entry.previous, layout_floating);
+}
+
+fn canMinimizeFrom(kind: Kind, layout_floating: bool) bool {
+    return switch (kind) {
+        .floating, .maximized => true,
+        .tiled => layout_floating,
+        else => false,
+    };
 }
 
 pub fn minimize(store: *Store, handle: types.Handle) !bool {
@@ -288,6 +294,23 @@ test "client state requests are confined to floating presentations" {
     TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
     try std.testing.expect(!store.setClientMaximized(2, false, true));
     try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
+}
+
+test "client minimize and restore work from a maximized floating window" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    TestResolver.entries[0].kind = .floating;
+    try std.testing.expect(store.setClientMaximized(1, true, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(ClientMaximizeOrigin.floating_overlay, TestResolver.entries[0].client_maximize_origin);
+
+    try std.testing.expect(try store.setClientMinimized(1, true, false));
+    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
+
+    try std.testing.expect(try store.setClientMinimized(1, false, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
 }
 
 test "manual maximize supersedes client maximize provenance" {
