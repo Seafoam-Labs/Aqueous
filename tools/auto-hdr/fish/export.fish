@@ -9,6 +9,13 @@ set -q RUN_DIR; or set -l RUN_DIR $root/runs
 set -q AUTO_HDR_OPTION; or set -l AUTO_HDR_OPTION A
 set -q AUTO_HDR_CKPT; or set -l AUTO_HDR_CKPT $RUN_DIR/option(string lower $AUTO_HDR_OPTION)/best.pt
 set -q EXPORT_DIR; or set -l EXPORT_DIR $root/export
+set -l python $root/.venv-rocm/bin/python
+if set -q AUTO_HDR_VENV
+    set python $AUTO_HDR_VENV/bin/python
+end
+if set -q AUTO_HDR_PYTHON
+    set python $AUTO_HDR_PYTHON
+end
 
 if not test -f $AUTO_HDR_CKPT
     echo "checkpoint not found: $AUTO_HDR_CKPT" >&2
@@ -17,7 +24,7 @@ end
 
 mkdir -p $EXPORT_DIR
 set -l name option(string lower $AUTO_HDR_OPTION)
-exec $root/.venv/bin/python $root/tools/export.py \
+exec $python $root/tools/export.py \
     --ckpt $AUTO_HDR_CKPT \
     --out $EXPORT_DIR/$name.onnx \
     --demo-out $EXPORT_DIR/demo-$name \

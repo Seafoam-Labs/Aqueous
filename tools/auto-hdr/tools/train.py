@@ -43,6 +43,9 @@ def parse_args():
     ap.add_argument("--option", required=True, choices=["A", "B", "C"])
     ap.add_argument("--index", required=True, help="pair index.jsonl")
     ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--device", choices=["auto", "rocm", "cuda", "cpu"],
+                    default="auto",
+                    help="accelerator backend (train.fish defaults to rocm)")
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -73,6 +76,35 @@ def parse_args():
     ap.add_argument("--smoke", type=int, default=0,
                     help="cap train entries to N for a pipeline smoke test")
     return ap.parse_args()
+
+
+def select_device(requested: str) -> torch.device:
+    """Resolve a requested backend without silently falling back to CPU."""
+    if requested == "cpu":
+        return torch.device("cpu")
+
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if requested == "rocm" and torch.version.hip is None:
+        raise SystemExit(
+            "ROCm was requested, but this is not a ROCm PyTorch build "
+            f"(torch {torch.__version__}, torch.version.hip=None). "
+            "Run 'fish fish/setup.fish' or select the server environment with "
+            "AUTO_HDR_PYTHON."
+        )
+    if requested == "cuda" and torch.version.cuda is None:
+        raise SystemExit(
+            "CUDA was requested, but this is not a CUDA PyTorch build "
+            f"(torch {torch.__version__}, torch.version.cuda=None)."
+        )
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            f"{requested.upper()} PyTorch is installed, but no device is "
+            "available. Check /dev/kfd and /dev/dri access, container device "
+            "passthrough, and the server's GPU permissions."
+        )
+    return torch.device("cuda")
 
 
 def build_model(args):
@@ -136,10 +168,12 @@ def main() -> int:
     run_dir = Path(args.run_dir) / f"option{args.option.lower()}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(args.device)
     if device.type == "cuda":
         props = torch.cuda.get_device_properties(0)
-        print(f"device: {torch.cuda.get_device_name(0)} "
+        backend = (f"ROCm {torch.version.hip}" if torch.version.hip
+                   else f"CUDA {torch.version.cuda}")
+        print(f"device: {torch.cuda.get_device_name(0)} [{backend}] "
               f"({props.total_memory / 1e9:.1f} GB)")
     else:
         print("device: CPU (no CUDA/ROCm device visible)")

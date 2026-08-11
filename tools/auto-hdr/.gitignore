@@ -1,4 +1,5 @@
 .venv/
+.venv-rocm/
 data/
 runs/
 __pycache__/

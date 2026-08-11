@@ -14,6 +14,20 @@ set -l root (dirname $here)
 set -q DATA_DIR; or set -l DATA_DIR $root/data
 set -q RUN_DIR; or set -l RUN_DIR $root/runs
 set -q AUTO_HDR_OPTION; or set -l AUTO_HDR_OPTION A
+set -q AUTO_HDR_DEVICE; or set -l AUTO_HDR_DEVICE rocm
+
+set -l python $root/.venv-rocm/bin/python
+if set -q AUTO_HDR_VENV
+    set python $AUTO_HDR_VENV/bin/python
+end
+if set -q AUTO_HDR_PYTHON
+    set python $AUTO_HDR_PYTHON
+end
+if not test -x $python
+    echo "Auto HDR Python is not executable: $python" >&2
+    echo "run 'fish fish/setup.fish' or set AUTO_HDR_PYTHON" >&2
+    exit 1
+end
 
 set -l index $DATA_DIR/pairs/index.jsonl
 if not test -f $index
@@ -22,8 +36,9 @@ if not test -f $index
     exit 1
 end
 
-exec $root/.venv/bin/python $root/tools/train.py \
+exec $python $root/tools/train.py \
     --option $AUTO_HDR_OPTION \
+    --device $AUTO_HDR_DEVICE \
     --index $index \
     --run-dir $RUN_DIR \
     $argv

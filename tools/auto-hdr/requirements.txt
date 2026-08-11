@@ -1,4 +1,7 @@
-torch>=2.2
+# AMD's validated ROCm 7.2 wheels for Ryzen AI Max/gfx1151. These require
+# Linux x86-64 and Python 3.12; fish/setup.fish enforces that interpreter.
+torch @ https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/torch-2.9.1%2Brocm7.2.0.lw.git7e1940d4-cp312-cp312-linux_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64" and python_version == "3.12"
+triton @ https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/triton-3.5.1%2Brocm7.2.0.gita272dfa8-cp312-cp312-linux_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64" and python_version == "3.12"
 numpy>=1.24
 pillow>=10.0
 tqdm>=4.66

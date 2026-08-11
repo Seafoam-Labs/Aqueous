@@ -8,6 +8,13 @@ set -q DATA_DIR; or set -l DATA_DIR $root/data
 set -q RUN_DIR; or set -l RUN_DIR $root/runs
 set -q AUTO_HDR_OPTION; or set -l AUTO_HDR_OPTION A
 set -q AUTO_HDR_CKPT; or set -l AUTO_HDR_CKPT $RUN_DIR/option(string lower $AUTO_HDR_OPTION)/best.pt
+set -l python $root/.venv-rocm/bin/python
+if set -q AUTO_HDR_VENV
+    set python $AUTO_HDR_VENV/bin/python
+end
+if set -q AUTO_HDR_PYTHON
+    set python $AUTO_HDR_PYTHON
+end
 
 if not test -f $AUTO_HDR_CKPT
     echo "checkpoint not found: $AUTO_HDR_CKPT" >&2
@@ -15,7 +22,7 @@ if not test -f $AUTO_HDR_CKPT
     exit 1
 end
 
-exec $root/.venv/bin/python $root/tools/evaluate.py \
+exec $python $root/tools/evaluate.py \
     --ckpt $AUTO_HDR_CKPT \
     --index $DATA_DIR/pairs/index.jsonl \
     --out (dirname $AUTO_HDR_CKPT)/results.json \

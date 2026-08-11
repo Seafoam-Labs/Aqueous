@@ -6,9 +6,16 @@
 set -l here (cd (dirname (status filename)); and pwd)
 set -l root (dirname $here)
 set -q DATA_DIR; or set -l DATA_DIR $root/data
+set -l python $root/.venv-rocm/bin/python
+if set -q AUTO_HDR_VENV
+    set python $AUTO_HDR_VENV/bin/python
+end
+if set -q AUTO_HDR_PYTHON
+    set python $AUTO_HDR_PYTHON
+end
 
 mkdir -p $DATA_DIR/raw
-$root/.venv/bin/python $root/tools/download_polyhaven.py \
+$python $root/tools/download_polyhaven.py \
     --out $DATA_DIR/raw/polyhaven \
     --manifest $DATA_DIR/polyhaven_manifest.jsonl \
     --res 4k $argv

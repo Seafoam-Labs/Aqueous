@@ -6,7 +6,7 @@ finiteness), EXR I/O roundtrip, pair index + dataset + sampler, all three
 models' forward/backward, and the analytic curve against hand-computed
 values from compositor/aqueous/auto_hdr.zig.
 
-Run:  .venv/bin/python tools/smoke_test.py
+Run:  .venv-rocm/bin/python tools/smoke_test.py
 """
 from __future__ import annotations
 

@@ -31,29 +31,50 @@ tools/auto-hdr/
 
 ```fish
 cd tools/auto-hdr
-fish/fish/setup.fish                          # venv + deps + device check
-fish/download_data.fish --limit 25            # smoke pull (~2 GB)
-fish/download_data.fish                       # full 4k catalog (~82 GB)
+fish fish/setup.fish                          # ROCm venv + tensor probe
+fish fish/download_data.fish --limit 25       # smoke pull (~2 GB)
+fish fish/download_data.fish                  # full 4k catalog (~82 GB)
 set UI_DIR ~/screenshots                      # optional negative-class source
-fish/make_corpus.fish
+fish fish/make_corpus.fish
 set AUTO_HDR_OPTION C
-fish/train.fish --smoke 64 --epochs 2 --workers 0   # pipeline shakedown
-fish/train.fish --epochs 40                          # Option C (M1)
+fish fish/train.fish --smoke 64 --epochs 2 --workers 0 # pipeline shakedown
+fish fish/train.fish --epochs 40                     # Option C (M1)
 set AUTO_HDR_OPTION A
-fish/train.fish                                      # Option A (M3)
-fish/evaluate.fish
-fish/export.fish --demo some_sdr_screenshot.png
+fish fish/train.fish                                 # Option A (M3)
+fish fish/evaluate.fish
+fish fish/export.fish --demo some_sdr_screenshot.png
 ```
 
 Environment overrides: `DATA_DIR`, `RUN_DIR`, `EXPORT_DIR`, `UI_DIR`,
-`AUTO_HDR_OPTION` (A|B|C), `AUTO_HDR_CKPT`.
+`AUTO_HDR_OPTION` (A|B|C), `AUTO_HDR_CKPT`, `AUTO_HDR_DEVICE`
+(`rocm` by default in `train.fish`), `AUTO_HDR_VENV`, and
+`AUTO_HDR_PYTHON`. `AUTO_HDR_PYTHON` takes precedence in the launcher
+scripts, so it can point directly at a server-managed ROCm environment.
+`AUTO_HDR_VENV` relocates the managed environment, including onto shared
+storage. Setup creates `.venv-rocm` by default, keeping it separate from
+any existing CPU-only `.venv`.
+
+The Linux x86-64 requirements install AMD's validated PyTorch 2.9.1 and
+Triton wheels for ROCm 7.2 on Ryzen AI Max/gfx1151. Those wheels require
+Python 3.12; setup uses `python3.12` by default, or
+`AUTO_HDR_BOOTSTRAP_PYTHON` when it lives elsewhere. `setup.fish` runs a
+real GPU tensor operation and fails if it cannot initialize ROCm, preventing
+a full training run from silently using CPU. To use a prebuilt environment,
+skip setup and set `AUTO_HDR_PYTHON` to its Python executable. Set
+`AUTO_HDR_REQUIRE_ROCM 0` only when preparing the venv on a node where the
+GPU is intentionally unavailable; training still requires ROCm by default.
 
 ## Hardware expectations (96 GB shared-memory machine)
 
 Assumption: an APU with unified memory (e.g. Ryzen AI Max-class iGPU, ~40 CU)
 where "96 GB shared" is system RAM the GPU draws from, and a ROCm/PyTorch
-build that supports the iGPU (`setup.fish` prints what it sees). If the box
+build that supports the iGPU (`setup.fish` probes it). If the box
 has a discrete GPU instead, scale the numbers by its throughput.
+
+Setup installs the Python stack, not the host driver. The server must expose
+`/dev/kfd` and `/dev/dri/renderD*` to the training process; AMD's validated
+Ryzen ROCm 7.2 configuration also requires Python 3.12 and the supported
+Ubuntu 24.04/kernel stack.
 
 Workload model: Option A (base 32, ~180k params) does roughly 8–12 GFLOP
 forward+backward per 256² sample. A modern iGPU sustains ~3–10 effective
