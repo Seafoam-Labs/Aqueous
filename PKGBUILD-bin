@@ -28,7 +28,7 @@ provides=('aqueous')
 conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
 backup=('etc/xdg/aqueous/wm.toml'
-        'etc/uwsm/env-aqueous')
+        'etc/xdg/uwsm/env-aqueous')
 source_x86_64=(
     "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
 )
@@ -56,7 +56,7 @@ check() {
         share/wayland-sessions/aqueous.desktop
         share/xdg-desktop-portal/aqueous-portals.conf
         etc/xdg/aqueous/wm.toml
-        etc/uwsm/env-aqueous
+        etc/xdg/uwsm/env-aqueous
         lib/systemd/user/aqueous-session.target
         lib/systemd/user/noctalia.service
         lib/tmpfiles.d/aqueous.conf

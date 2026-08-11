@@ -129,7 +129,7 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/lib/tmpfiles.d
           mkdir -p publish/aqueous-linux-x64/etc/xdg/aqueous
           mkdir -p publish/aqueous-linux-x64/etc/xdg/autostart
-          mkdir -p publish/aqueous-linux-x64/etc/uwsm
+          mkdir -p publish/aqueous-linux-x64/etc/xdg/uwsm
           mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal
 
           # Binaries
@@ -156,7 +156,7 @@ jobs:
              publish/aqueous-linux-x64/etc/xdg/autostart/org.aqueous.Welcome.desktop
           cp wm.toml         publish/aqueous-linux-x64/etc/xdg/aqueous/
           cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
-          cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/uwsm/
+          cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/xdg/uwsm/
           cp packaging/aqueous-portals.conf \
              publish/aqueous-linux-x64/share/xdg-desktop-portal/aqueous-portals.conf
           cp packaging/aqueous.tmpfiles publish/aqueous-linux-x64/lib/tmpfiles.d/aqueous.conf

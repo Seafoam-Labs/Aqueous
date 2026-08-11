@@ -13,7 +13,8 @@ post_install() {
     the whole session down cleanly on exit. This fixes the stale-WAYLAND_DISPLAY
     reconnect loop that could leave the bar chasing a dead socket across a
     compositor restart. Static
-    toolkit/backend hints live in /etc/uwsm/env-aqueous.
+    toolkit/backend hints live in /etc/xdg/uwsm/env-aqueous (per-user
+    overrides: ~/.config/uwsm/env-aqueous or ~/.config/uwsm/env-aqueous.d/*).
 
     Output modes, scale, transform, position, adaptive sync, profiles,
     persistence, and hotplug are handled directly by the compositor. The
@@ -77,6 +78,9 @@ post_upgrade() {
     echo "    The session target takes effect on your next login."
     echo "    The packaged Aqueous Settings plugin will be registered and enabled"
     echo "    once after Noctalia starts in that session."
+    echo "    The uwsm environment file moved to /etc/xdg/uwsm/env-aqueous (the"
+    echo "    old /etc/uwsm/env-aqueous was never read by uwsm); if a stale or"
+    echo "    .pacsave copy remains there, it can be deleted."
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/aqueous.conf >/dev/null 2>&1 || true
 }
 

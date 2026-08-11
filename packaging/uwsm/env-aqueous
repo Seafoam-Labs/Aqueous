@@ -1,10 +1,16 @@
 # uwsm environment file for the Aqueous session.
 #
-# uwsm sources this (along with ~/.config/uwsm/env and ~/.config/uwsm/env-aqueous)
-# before launching the compositor, and exports the resulting variables into the
-# systemd --user / D-Bus activation environment. The desktop-specific suffix
-# (-aqueous) is derived from DesktopNames=Aqueous in aqueous.desktop, so these
-# only apply to the Aqueous session and never pollute other Wayland sessions.
+# Installed to /etc/xdg/uwsm/env-aqueous. uwsm's env preloader scans the XDG
+# hierarchy (XDG_CONFIG_HOME:XDG_CONFIG_DIRS:XDG_DATA_DIRS) for uwsm/env and
+# uwsm/env-aqueous (plus their .d/ drop-in dirs), sources them before launching
+# the compositor, and exports the resulting variables into the systemd --user /
+# D-Bus activation environment. Users can override per-variable via
+# ~/.config/uwsm/env-aqueous or ~/.config/uwsm/env-aqueous.d/*. The
+# desktop-specific suffix (-aqueous) is derived from DesktopNames=Aqueous in
+# aqueous.desktop, so these only apply to the Aqueous session and never pollute
+# other Wayland sessions.
+#
+# NOTE: /etc/uwsm/ is NOT scanned by uwsm; this file must live under /etc/xdg/.
 #
 # These are the static toolkit/backend hints formerly exported inline by
 # aqueous-wm.sh. Centralising them here means apps launched as systemd user

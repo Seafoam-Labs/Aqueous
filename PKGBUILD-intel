@@ -156,12 +156,13 @@ package() {
     install -Dm755 "$srcdir/aqueous/packaging/aqueous-wm.sh" "$pkgdir/usr/bin/aqueous-wm"
     install -Dm644 "$srcdir/aqueous/aqueous.desktop" "$pkgdir/usr/share/wayland-sessions/aqueous.desktop"
 
-    # uwsm environment file. uwsm sources /etc/uwsm/env-aqueous (the -aqueous
-    # suffix matches DesktopNames=Aqueous) before launching the compositor and
-    # exports the static toolkit/backend hints into the systemd --user / D-Bus
-    # environment, so user-unit-launched apps inherit them too.
+    # uwsm environment file. uwsm's env preloader scans the XDG config
+    # hierarchy (NOT /etc/uwsm/) for uwsm/env-aqueous (the -aqueous suffix
+    # matches DesktopNames=Aqueous), sources it before launching the compositor
+    # and exports the static toolkit/backend hints into the systemd --user /
+    # D-Bus environment, so user-unit-launched apps inherit them too.
     install -Dm644 "$srcdir/aqueous/packaging/uwsm/env-aqueous" \
-        "$pkgdir/etc/uwsm/env-aqueous"
+        "$pkgdir/etc/xdg/uwsm/env-aqueous"
 
     # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
     # wlroots backend (xdg-desktop-portal-wlr) so screen sharing works out of
