@@ -54,15 +54,16 @@ scripts, so it can point directly at a server-managed ROCm environment.
 storage. Setup creates `.venv-rocm` by default, keeping it separate from
 any existing CPU-only `.venv`.
 
-The Linux x86-64 requirements install AMD's validated PyTorch 2.9.1 and
-Triton wheels for ROCm 7.2 on Ryzen AI Max/gfx1151. Those wheels require
-Python 3.12; setup uses `python3.12` by default, or
-`AUTO_HDR_BOOTSTRAP_PYTHON` when it lives elsewhere. `setup.fish` runs a
-real GPU tensor operation and fails if it cannot initialize ROCm, preventing
-a full training run from silently using CPU. To use a prebuilt environment,
-skip setup and set `AUTO_HDR_PYTHON` to its Python executable. Set
-`AUTO_HDR_REQUIRE_ROCM 0` only when preparing the venv on a node where the
-GPU is intentionally unavailable; training still requires ROCm by default.
+The Linux x86-64 requirements select a ROCm 7.2 build by Python version:
+Python 3.12 gets AMD's validated PyTorch 2.9.1/Triton build for Ryzen AI
+Max/gfx1151, while Python 3.14 gets PyTorch 2.13 from PyTorch's ROCm index.
+Setup uses `python3` by default, or `AUTO_HDR_BOOTSTRAP_PYTHON` when the
+interpreter lives elsewhere. `setup.fish` runs a real GPU tensor operation
+and fails if it cannot initialize ROCm, preventing a full training run from
+silently using CPU. To use a prebuilt environment, skip setup and set
+`AUTO_HDR_PYTHON` to its Python executable. Set `AUTO_HDR_REQUIRE_ROCM 0`
+only when preparing the venv on a node where the GPU is intentionally
+unavailable; training still requires ROCm by default.
 
 ## Hardware expectations (96 GB shared-memory machine)
 
@@ -72,9 +73,10 @@ build that supports the iGPU (`setup.fish` probes it). If the box
 has a discrete GPU instead, scale the numbers by its throughput.
 
 Setup installs the Python stack, not the host driver. The server must expose
-`/dev/kfd` and `/dev/dri/renderD*` to the training process; AMD's validated
-Ryzen ROCm 7.2 configuration also requires Python 3.12 and the supported
-Ubuntu 24.04/kernel stack.
+`/dev/kfd` and `/dev/dri/renderD*` to the training process. AMD's formally
+validated Ryzen ROCm 7.2 combination uses Python 3.12 and the supported
+Ubuntu 24.04/kernel stack; the Python 3.14 path is verified at setup time by
+the tensor probe.
 
 Workload model: Option A (base 32, ~180k params) does roughly 8–12 GFLOP
 forward+backward per 256² sample. A modern iGPU sustains ~3–10 effective
