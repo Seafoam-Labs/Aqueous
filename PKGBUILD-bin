@@ -2,8 +2,8 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=aqueous-bin
 pkgbase=aqueous
-pkgver=0.1.0
-pkgrel=6
+pkgver=0.4.8
+pkgrel=1
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"

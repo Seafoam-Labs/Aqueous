@@ -15,7 +15,7 @@ aqueousctl - inspect Aqueous state and control workspace layouts
 
 *aqueousctl scene* [*--dot*]
 
-*aqueousctl outputs*
+*aqueousctl outputs* [*--json*]
 
 *aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
 
@@ -23,9 +23,9 @@ aqueousctl - inspect Aqueous state and control workspace layouts
 
 *aqueousctl* is a Wayland client for Aqueous's window information protocol. It
 enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
-stable identifiers to request compositor-owned state. Output mode information
-is read from the standard wl_output protocol. Its only mutating operation is an
-output-scoped active-workspace layout change.
+stable identifiers to request compositor-owned state. Output information is
+read from the event stream of zwlr_output_manager_v1. Its only mutating
+operation is an output-scoped active-workspace layout change.
 
 # COMMANDS
 
@@ -46,9 +46,11 @@ output-scoped active-workspace layout change.
 	print Graphviz DOT instead.
 
 *outputs*
-	Print each active output and every mode it advertises. Each mode includes its
-	physical resolution and refresh rate; the current and preferred modes are
-	marked explicitly.
+	Print every output head and all information exposed to wlr-randr: connector
+	identity and description, make, model, serial, physical size, enabled state,
+	advertised modes, position, transform, scale, and adaptive-sync state. Current
+	and preferred modes are marked explicitly. With *--json*, print the same
+	snapshot using the wlr-randr JSON field names and value types.
 
 *layout --output NAME --json*
 	Print the active workspace number and effective runtime layout for _NAME_ as
@@ -63,9 +65,10 @@ output-scoped active-workspace layout change.
 # SECURITY
 
 The Aqueous protocol is hidden from clients running through a Wayland security
-context, along with the foreign-toplevel protocols it extends. The *outputs*
-command uses the standard read-only wl_output interface. Layout mutation is
-limited to the active workspace of an explicitly named output.
+context, along with the foreign-toplevel protocols it extends. The output
+management global used by *outputs* is also hidden because the protocol contains
+configuration requests, although aqueousctl only reads its event stream. Layout
+mutation is limited to the active workspace of an explicitly named output.
 
 # SEE ALSO
 

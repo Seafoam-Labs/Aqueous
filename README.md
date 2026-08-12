@@ -149,14 +149,17 @@ aqueousctl scene
 aqueousctl windows --json
 aqueousctl inspect --rule
 aqueousctl outputs
+aqueousctl outputs --json
 aqueousctl layout --output DP-1 --json
 aqueousctl layout --output DP-1 --set grid --json
 ```
 
 The rule command emits ready-to-paste `[[window]]` entries. Native Wayland
 windows use `app_id`; XWayland windows use their `WM_CLASS` as `class`.
-The outputs command lists available resolutions and refresh rates and marks the
-current and preferred modes.
+The outputs command provides the full wlr-randr information set: identity,
+physical size, enabled state, every advertised mode, logical position,
+transform, scale, and adaptive-sync state. Its JSON form uses wlr-randr-compatible
+field names and value types. The current and preferred modes are marked.
 The layout command targets the explicitly named output and can apply an
 immediate runtime override without editing configuration files.
 `wlrctl toplevel list` remains supported through the legacy foreign-toplevel

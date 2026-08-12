@@ -101,9 +101,13 @@ the standard ext protocol. `aqueousctl` combines the two protocols for table,
 JSON, and ready-to-paste rule output. All three foreign-window globals are
 hidden from Wayland security contexts.
 
-`aqueousctl outputs` separately reads the standard `wl_output` globals and
-prints every advertised physical resolution and refresh rate, marking current
-and preferred modes without entering the output-management transaction path.
+`aqueousctl outputs` binds the event side of `zwlr_output_manager_v1` and waits
+for its `done` boundary to obtain an atomic snapshot. It reports the complete
+wlr-randr information set: identity, physical size, enabled state, every
+advertised mode, position, transform, scale, and adaptive sync. `aqueousctl
+outputs --json` exposes the same data with wlr-randr-compatible field names and
+types. The client never creates an output configuration or enters the
+apply/test transaction path.
 
 ## The transaction cycle
 

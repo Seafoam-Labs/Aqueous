@@ -9,6 +9,7 @@ const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const ext = wayland.client.ext;
 const aqueous = wayland.client.aqueous;
+const zwlr = wayland.client.zwlr;
 
 const io = Io.Threaded.global_single_threaded.io();
 const allocator = std.heap.c_allocator;
@@ -17,7 +18,7 @@ const usage =
     \\usage: aqueousctl windows [--json]
     \\       aqueousctl inspect --rule
     \\       aqueousctl scene [--dot]
-    \\       aqueousctl outputs
+    \\       aqueousctl outputs [--json]
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
     \\
     \\Inspect compositor state or change the active workspace layout on one output.
@@ -26,32 +27,53 @@ const usage =
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
 
-const Mode = enum { windows, json, rules, scene, scene_dot, outputs, layout_query, layout_set };
+const Mode = enum { windows, json, rules, scene, scene_dot, outputs, outputs_json, layout_query, layout_set };
 
 const OutputMode = struct {
-    width: i32,
-    height: i32,
-    refresh_mhz: i32,
-    current: bool,
-    preferred: bool,
+    handle: *zwlr.OutputModeV1,
+    width: i32 = 0,
+    height: i32 = 0,
+    refresh_mhz: i32 = 0,
+    preferred: bool = false,
+    removed: bool = false,
+
+    fn deinit(mode: *OutputMode) void {
+        if (mode.handle.getVersion() >= zwlr.OutputModeV1.release_since_version) {
+            mode.handle.release();
+        } else {
+            mode.handle.destroy();
+        }
+        allocator.destroy(mode);
+    }
 };
 
 const DisplayOutput = struct {
-    handle: *wl.Output,
-    global_name: u32,
+    handle: *zwlr.OutputHeadV1,
     name: ?[]u8 = null,
     make: ?[]u8 = null,
     model: ?[]u8 = null,
+    serial: ?[]u8 = null,
     description: ?[]u8 = null,
+    physical_width_mm: i32 = 0,
+    physical_height_mm: i32 = 0,
+    has_physical_size: bool = false,
+    enabled: bool = false,
+    x: i32 = 0,
+    y: i32 = 0,
+    transform: wl.Output.Transform = .normal,
+    scale: f64 = 1.0,
+    adaptive_sync: bool = false,
+    current_mode: ?*OutputMode = null,
     removed: bool = false,
-    modes: std.ArrayListUnmanaged(OutputMode) = .empty,
+    modes: std.ArrayListUnmanaged(*OutputMode) = .empty,
 
     fn deinit(output: *DisplayOutput) void {
-        inline for (.{ output.name, output.make, output.model, output.description }) |value| {
+        inline for (.{ output.name, output.make, output.model, output.serial, output.description }) |value| {
             if (value) |owned| allocator.free(owned);
         }
+        for (output.modes.items) |mode| mode.deinit();
         output.modes.deinit(allocator);
-        if (output.handle.getVersion() >= wl.Output.release_since_version) {
+        if (output.handle.getVersion() >= zwlr.OutputHeadV1.release_since_version) {
             output.handle.release();
         } else {
             output.handle.destroy();
@@ -113,6 +135,11 @@ const Window = struct {
 const State = struct {
     registry: *wl.Registry,
     collect_outputs: bool = false,
+    output_manager_name: u32 = 0,
+    output_manager_version: u32 = 0,
+    output_manager: ?*zwlr.OutputManagerV1 = null,
+    outputs_done: bool = false,
+    output_manager_finished: bool = false,
     list_name: u32 = 0,
     list_version: u32 = 0,
     info_name: u32 = 0,
@@ -138,6 +165,9 @@ const State = struct {
         state.scene_nodes.deinit(allocator);
         for (state.outputs.items) |output| output.deinit();
         state.outputs.deinit(allocator);
+        if (state.output_manager) |manager| {
+            if (!state.output_manager_finished) manager.destroy();
+        }
         if (state.layout_output) |value| allocator.free(value);
         if (state.layout_name) |value| allocator.free(value);
         state.registry.destroy();
@@ -182,17 +212,32 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer display.disconnect();
 
     const registry = try display.getRegistry();
-    var state: State = .{ .registry = registry, .collect_outputs = mode == .outputs };
+    const output_mode = mode == .outputs or mode == .outputs_json;
+    var state: State = .{ .registry = registry, .collect_outputs = output_mode };
     defer state.deinit();
     registry.setListener(*State, registryListener, &state);
     tryRoundtrip(display, stderr);
 
-    if (mode == .outputs) {
-        // Output globals are bound while dispatching the registry roundtrip.
-        // Complete one more roundtrip to receive their initial geometry, name,
-        // and advertised mode batches before rendering the snapshot.
-        tryRoundtrip(display, stderr);
-        try writeOutputs(stdout, &state);
+    if (output_mode) {
+        if (state.output_manager == null) {
+            try stderr.writeAll("aqueousctl: compositor does not expose wlr output management\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        var rounds: usize = 0;
+        while (!state.outputs_done and !state.output_manager_finished and rounds < 8) : (rounds += 1) {
+            tryRoundtrip(display, stderr);
+        }
+        if (!state.outputs_done) {
+            try stderr.writeAll("aqueousctl: timed out collecting a consistent output snapshot\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        if (mode == .outputs_json) {
+            try writeOutputsJson(stdout, &state);
+        } else {
+            try writeOutputs(stdout, &state);
+        }
         try stdout.flush();
         return;
     }
@@ -272,7 +317,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot, .outputs, .layout_query, .layout_set => unreachable,
+        .scene, .scene_dot, .outputs, .outputs_json, .layout_query, .layout_set => unreachable,
     }
     try stdout.flush();
 }
@@ -284,6 +329,7 @@ fn parseMode(args: anytype) ?Mode {
     if (args.len == 2 and mem.eql(u8, args[1], "scene")) return .scene;
     if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) return .scene_dot;
     if (args.len == 2 and mem.eql(u8, args[1], "outputs")) return .outputs;
+    if (args.len == 3 and mem.eql(u8, args[1], "outputs") and mem.eql(u8, args[2], "--json")) return .outputs_json;
     if (args.len == 5 and mem.eql(u8, args[1], "layout") and
         mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--json")) return .layout_query;
     if (args.len == 7 and mem.eql(u8, args[1], "layout") and
@@ -317,26 +363,20 @@ fn registryListener(_: *wl.Registry, event: wl.Registry.Event, state: *State) vo
             } else if (mem.eql(u8, name, mem.span(aqueous.WindowInfoManagerV1.interface.name))) {
                 state.info_name = global.name;
                 state.info_version = global.version;
-            } else if (state.collect_outputs and mem.eql(u8, name, mem.span(wl.Output.interface.name))) {
-                const version = @min(global.version, wl.Output.generated_version);
-                const handle = state.registry.bind(global.name, wl.Output, version) catch return;
-                const output = allocator.create(DisplayOutput) catch {
-                    if (version >= wl.Output.release_since_version) handle.release() else handle.destroy();
-                    return;
-                };
-                output.* = .{ .handle = handle, .global_name = global.name };
-                state.outputs.append(allocator, output) catch {
-                    output.deinit();
-                    return;
-                };
-                handle.setListener(*DisplayOutput, outputListener, output);
+            } else if (state.collect_outputs and mem.eql(u8, name, mem.span(zwlr.OutputManagerV1.interface.name))) {
+                state.output_manager_name = global.name;
+                state.output_manager_version = @min(global.version, zwlr.OutputManagerV1.generated_version);
+                const manager = state.registry.bind(
+                    global.name,
+                    zwlr.OutputManagerV1,
+                    state.output_manager_version,
+                ) catch return;
+                state.output_manager = manager;
+                manager.setListener(*State, outputManagerListener, state);
             }
         },
-        .global_remove => |removed| for (state.outputs.items) |output| {
-            if (output.global_name == removed.name) {
-                output.removed = true;
-                break;
-            }
+        .global_remove => |removed| if (removed.name == state.output_manager_name) {
+            state.output_manager_finished = true;
         },
     }
 }
@@ -369,35 +409,95 @@ fn writeLayoutJson(writer: *Io.Writer, state: *const State) !void {
     try writer.writeAll("}\n");
 }
 
-fn outputListener(_: *wl.Output, event: wl.Output.Event, output: *DisplayOutput) void {
+fn outputManagerListener(
+    _: *zwlr.OutputManagerV1,
+    event: zwlr.OutputManagerV1.Event,
+    state: *State,
+) void {
     switch (event) {
-        .geometry => |value| {
-            replaceString(&output.make, mem.span(value.make));
-            replaceString(&output.model, mem.span(value.model));
-        },
-        .mode => |value| {
-            if (value.flags.current) {
-                for (output.modes.items) |*existing| existing.current = false;
-            }
-            for (output.modes.items) |*existing| {
-                if (existing.width != value.width or
-                    existing.height != value.height or
-                    existing.refresh_mhz != value.refresh) continue;
-                existing.current = value.flags.current;
-                existing.preferred = value.flags.preferred;
+        .head => |created| {
+            const output = allocator.create(DisplayOutput) catch {
+                if (created.head.getVersion() >= zwlr.OutputHeadV1.release_since_version) {
+                    created.head.release();
+                } else {
+                    created.head.destroy();
+                }
                 return;
-            }
-            output.modes.append(allocator, .{
-                .width = value.width,
-                .height = value.height,
-                .refresh_mhz = value.refresh,
-                .current = value.flags.current,
-                .preferred = value.flags.preferred,
-            }) catch {};
+            };
+            output.* = .{ .handle = created.head };
+            state.outputs.append(allocator, output) catch {
+                output.deinit();
+                return;
+            };
+            created.head.setListener(*DisplayOutput, outputHeadListener, output);
         },
+        .done => state.outputs_done = true,
+        .finished => {
+            state.output_manager_finished = true;
+            state.output_manager = null;
+        },
+    }
+}
+
+fn outputHeadListener(_: *zwlr.OutputHeadV1, event: zwlr.OutputHeadV1.Event, output: *DisplayOutput) void {
+    switch (event) {
         .name => |value| replaceString(&output.name, mem.span(value.name)),
         .description => |value| replaceString(&output.description, mem.span(value.description)),
-        .done, .scale => {},
+        .physical_size => |value| {
+            output.physical_width_mm = value.width;
+            output.physical_height_mm = value.height;
+            output.has_physical_size = true;
+        },
+        .mode => |created| {
+            const mode = allocator.create(OutputMode) catch {
+                if (created.mode.getVersion() >= zwlr.OutputModeV1.release_since_version) {
+                    created.mode.release();
+                } else {
+                    created.mode.destroy();
+                }
+                return;
+            };
+            mode.* = .{ .handle = created.mode };
+            output.modes.append(allocator, mode) catch {
+                mode.deinit();
+                return;
+            };
+            created.mode.setListener(*OutputMode, outputModeListener, mode);
+        },
+        .enabled => |value| output.enabled = value.enabled != 0,
+        .current_mode => |value| {
+            output.current_mode = null;
+            const current = value.mode orelse return;
+            for (output.modes.items) |mode| {
+                if (mode.handle == current) {
+                    output.current_mode = mode;
+                    break;
+                }
+            }
+        },
+        .position => |value| {
+            output.x = value.x;
+            output.y = value.y;
+        },
+        .transform => |value| output.transform = value.transform,
+        .scale => |value| output.scale = value.scale.toDouble(),
+        .finished => output.removed = true,
+        .make => |value| replaceString(&output.make, mem.span(value.make)),
+        .model => |value| replaceString(&output.model, mem.span(value.model)),
+        .serial_number => |value| replaceString(&output.serial, mem.span(value.serial_number)),
+        .adaptive_sync => |value| output.adaptive_sync = value.state == .enabled,
+    }
+}
+
+fn outputModeListener(_: *zwlr.OutputModeV1, event: zwlr.OutputModeV1.Event, mode: *OutputMode) void {
+    switch (event) {
+        .size => |value| {
+            mode.width = value.width;
+            mode.height = value.height;
+        },
+        .refresh => |value| mode.refresh_mhz = value.refresh,
+        .preferred => mode.preferred = true,
+        .finished => mode.removed = true,
     }
 }
 
@@ -545,51 +645,54 @@ fn writeOutputs(writer: *Io.Writer, state: *const State) !void {
         if (rendered != 0) try writer.writeByte('\n');
         rendered += 1;
 
-        if (output.name) |name| {
-            try writeSingleLine(writer, name);
-        } else {
-            try writer.print("output-{d}", .{output.global_name});
-        }
-
+        try writeSingleLine(writer, output.name orelse "unknown");
         if (output.description) |text| {
-            try writer.writeAll(" — ");
+            try writer.writeAll(" \"");
             try writeSingleLine(writer, text);
-        } else if (output.make != null or output.model != null) {
-            var identity_buffer: [512]u8 = undefined;
-            const identity = std.fmt.bufPrint(&identity_buffer, "{s}{s}{s}", .{
-                output.make orelse "",
-                if (output.make != null and output.model != null) " " else "",
-                output.model orelse "",
-            }) catch "";
-            if (identity.len != 0) {
-                try writer.writeAll(" — ");
-                try writeSingleLine(writer, identity);
-            }
+            try writer.writeByte('"');
         }
         try writer.writeByte('\n');
 
-        if (output.modes.items.len == 0) {
-            try writer.writeAll("  (no modes advertised)\n");
-            continue;
+        if (output.make) |value| try writer.print("  Make: {s}\n", .{value});
+        if (output.model) |value| try writer.print("  Model: {s}\n", .{value});
+        if (output.serial) |value| try writer.print("  Serial: {s}\n", .{value});
+        if (output.has_physical_size) {
+            try writer.print("  Physical size: {d}x{d} mm\n", .{ output.physical_width_mm, output.physical_height_mm });
         }
+        try writer.print("  Enabled: {s}\n", .{if (output.enabled) "yes" else "no"});
+        try writer.writeAll("  Modes:\n");
+        var mode_count: usize = 0;
         for (output.modes.items) |available| {
-            try writer.print("  {d}x{d} @ ", .{ available.width, available.height });
-            try writeRefreshRate(writer, available.refresh_mhz);
-            if (available.current or available.preferred) {
-                try writer.writeAll(" [");
-                if (available.current) try writer.writeAll("current");
-                if (available.current and available.preferred) try writer.writeAll(", ");
+            if (available.removed) continue;
+            mode_count += 1;
+            try writer.print("    {d}x{d} px", .{ available.width, available.height });
+            if (available.refresh_mhz > 0) {
+                try writer.writeAll(", ");
+                try writeRefreshRate(writer, available.refresh_mhz);
+            }
+            const current = output.current_mode == available;
+            if (current or available.preferred) {
+                try writer.writeAll(" (");
+                if (current) try writer.writeAll("current");
+                if (current and available.preferred) try writer.writeAll(", ");
                 if (available.preferred) try writer.writeAll("preferred");
-                try writer.writeByte(']');
+                try writer.writeByte(')');
             }
             try writer.writeByte('\n');
+        }
+        if (mode_count == 0) try writer.writeAll("    (none)\n");
+        if (output.enabled) {
+            try writer.print("  Position: {d},{d}\n", .{ output.x, output.y });
+            try writer.print("  Transform: {s}\n", .{transformName(output.transform)});
+            try writer.print("  Scale: {d:.6}\n", .{output.scale});
+            try writer.print("  Adaptive Sync: {s}\n", .{if (output.adaptive_sync) "enabled" else "disabled"});
         }
     }
     if (rendered == 0) try writer.writeAll("No outputs found.\n");
 }
 
 fn writeRefreshRate(writer: *Io.Writer, refresh_mhz: i32) !void {
-    if (refresh_mhz <= 0) return writer.writeAll("unknown refresh");
+    if (refresh_mhz <= 0) return;
     const fractional = @mod(refresh_mhz, 1000);
     try writer.print("{d}.", .{@divTrunc(refresh_mhz, 1000)});
     if (fractional < 10) {
@@ -600,6 +703,63 @@ fn writeRefreshRate(writer: *Io.Writer, refresh_mhz: i32) !void {
         try writer.print("{d}", .{fractional});
     }
     try writer.writeAll(" Hz");
+}
+
+fn transformName(transform: wl.Output.Transform) []const u8 {
+    return switch (transform) {
+        .normal => "normal",
+        .@"90" => "90",
+        .@"180" => "180",
+        .@"270" => "270",
+        .flipped => "flipped",
+        .flipped_90 => "flipped-90",
+        .flipped_180 => "flipped-180",
+        .flipped_270 => "flipped-270",
+        else => "unknown",
+    };
+}
+
+fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
+    try writer.writeAll("[\n");
+    var first_output = true;
+    for (state.outputs.items) |output| {
+        if (output.removed) continue;
+        if (!first_output) try writer.writeAll(",\n");
+        first_output = false;
+        try writer.writeAll("  {");
+        try jsonField(writer, "name", output.name, true);
+        try jsonField(writer, "description", output.description, false);
+        try jsonField(writer, "make", output.make, false);
+        try jsonField(writer, "model", output.model, false);
+        try jsonField(writer, "serial", output.serial, false);
+        try writer.print(",\"physical_size\":{{\"width\":{d},\"height\":{d}}}", .{
+            output.physical_width_mm,
+            output.physical_height_mm,
+        });
+        try writer.writeAll(",\"enabled\":");
+        try writer.writeAll(if (output.enabled) "true" else "false");
+        try writer.writeAll(",\"modes\":[");
+        var first_mode = true;
+        for (output.modes.items) |available| {
+            if (available.removed) continue;
+            if (!first_mode) try writer.writeByte(',');
+            first_mode = false;
+            try writer.print("{{\"width\":{d},\"height\":{d},\"refresh\":{d:.6},\"preferred\":{s},\"current\":{s}}}", .{
+                available.width,
+                available.height,
+                @as(f64, @floatFromInt(available.refresh_mhz)) / 1000.0,
+                if (available.preferred) "true" else "false",
+                if (output.current_mode == available) "true" else "false",
+            });
+        }
+        try writer.print("],\"position\":{{\"x\":{d},\"y\":{d}}},\"transform\":", .{ output.x, output.y });
+        try jsonString(writer, transformName(output.transform));
+        try writer.print(",\"scale\":{d:.6},\"adaptive_sync\":{s}}}", .{
+            output.scale,
+            if (output.adaptive_sync) "true" else "false",
+        });
+    }
+    try writer.writeAll("\n]\n");
 }
 
 fn writeSceneDot(writer: *Io.Writer, state: *const State) !void {
@@ -783,13 +943,14 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.scene, parseMode(&.{ "aqueousctl", "scene" }).?);
     try testing.expectEqual(Mode.scene_dot, parseMode(&.{ "aqueousctl", "scene", "--dot" }).?);
     try testing.expectEqual(Mode.outputs, parseMode(&.{ "aqueousctl", "outputs" }).?);
+    try testing.expectEqual(Mode.outputs_json, parseMode(&.{ "aqueousctl", "outputs", "--json" }).?);
     try testing.expectEqual(Mode.layout_query, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--json" }).?);
     try testing.expectEqual(Mode.layout_set, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--set", "grid", "--json" }).?);
 
     try testing.expect(parseMode(&.{"aqueousctl"}) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "windows", "--dot" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "scene", "--json" }) == null);
-    try testing.expect(parseMode(&.{ "aqueousctl", "outputs", "--json" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "outputs", "--dot" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "inspect" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1" }) == null);
 }
@@ -798,21 +959,34 @@ test "outputs render advertised refresh rates and mode flags" {
     var state: State = .{ .registry = undefined };
     var first: DisplayOutput = .{
         .handle = undefined,
-        .global_name = 7,
         .name = @constCast("DP-1"),
         .description = @constCast("Example Display\n27-inch"),
-    };
-    var first_modes = [_]OutputMode{
-        .{ .width = 3840, .height = 2160, .refresh_mhz = 59_997, .current = true, .preferred = true },
-        .{ .width = 2560, .height = 1440, .refresh_mhz = 120_000, .current = false, .preferred = false },
-        .{ .width = 1920, .height = 1080, .refresh_mhz = 0, .current = false, .preferred = false },
-    };
-    first.modes = .{ .items = &first_modes, .capacity = first_modes.len };
-    var second: DisplayOutput = .{
-        .handle = undefined,
-        .global_name = 9,
         .make = @constCast("Acme"),
         .model = @constCast("Panel"),
+        .serial = @constCast("ABC123"),
+        .physical_width_mm = 600,
+        .physical_height_mm = 340,
+        .has_physical_size = true,
+        .enabled = true,
+        .x = -10,
+        .y = 20,
+        .transform = .flipped_90,
+        .scale = 1.25,
+        .adaptive_sync = true,
+    };
+    var mode_one: OutputMode = .{ .handle = undefined, .width = 3840, .height = 2160, .refresh_mhz = 59_997, .preferred = true };
+    var mode_two: OutputMode = .{ .handle = undefined, .width = 2560, .height = 1440, .refresh_mhz = 120_000 };
+    var mode_three: OutputMode = .{ .handle = undefined, .width = 1920, .height = 1080 };
+    var first_modes = [_]*OutputMode{
+        &mode_one,
+        &mode_two,
+        &mode_three,
+    };
+    first.modes = .{ .items = &first_modes, .capacity = first_modes.len };
+    first.current_mode = &mode_one;
+    var second: DisplayOutput = .{
+        .handle = undefined,
+        .name = @constCast("HEADLESS-1"),
     };
     var outputs = [_]*DisplayOutput{ &first, &second };
     state.outputs = .{ .items = &outputs, .capacity = outputs.len };
@@ -822,14 +996,37 @@ test "outputs render advertised refresh rates and mode flags" {
     try writeOutputs(&writer, &state);
 
     try std.testing.expectEqualStrings(
-        "DP-1 — Example Display 27-inch\n" ++
-            "  3840x2160 @ 59.997 Hz [current, preferred]\n" ++
-            "  2560x1440 @ 120.000 Hz\n" ++
-            "  1920x1080 @ unknown refresh\n" ++
+        "DP-1 \"Example Display 27-inch\"\n" ++
+            "  Make: Acme\n" ++
+            "  Model: Panel\n" ++
+            "  Serial: ABC123\n" ++
+            "  Physical size: 600x340 mm\n" ++
+            "  Enabled: yes\n" ++
+            "  Modes:\n" ++
+            "    3840x2160 px, 59.997 Hz (current, preferred)\n" ++
+            "    2560x1440 px, 120.000 Hz\n" ++
+            "    1920x1080 px\n" ++
+            "  Position: -10,20\n" ++
+            "  Transform: flipped-90\n" ++
+            "  Scale: 1.250000\n" ++
+            "  Adaptive Sync: enabled\n" ++
             "\n" ++
-            "output-9 — Acme Panel\n" ++
-            "  (no modes advertised)\n",
+            "HEADLESS-1\n" ++
+            "  Enabled: no\n" ++
+            "  Modes:\n" ++
+            "    (none)\n",
         writer.buffered(),
+    );
+
+    var json_buffer: [4096]u8 = undefined;
+    var json_writer = Io.Writer.fixed(&json_buffer);
+    try writeOutputsJson(&json_writer, &state);
+    try std.testing.expectEqualStrings(
+        "[\n" ++
+            "  {\"name\":\"DP-1\",\"description\":\"Example Display\\n27-inch\",\"make\":\"Acme\",\"model\":\"Panel\",\"serial\":\"ABC123\",\"physical_size\":{\"width\":600,\"height\":340},\"enabled\":true,\"modes\":[{\"width\":3840,\"height\":2160,\"refresh\":59.997000,\"preferred\":true,\"current\":true},{\"width\":2560,\"height\":1440,\"refresh\":120.000000,\"preferred\":false,\"current\":false},{\"width\":1920,\"height\":1080,\"refresh\":0.000000,\"preferred\":false,\"current\":false}],\"position\":{\"x\":-10,\"y\":20},\"transform\":\"flipped-90\",\"scale\":1.250000,\"adaptive_sync\":true},\n" ++
+            "  {\"name\":\"HEADLESS-1\",\"description\":null,\"make\":null,\"model\":null,\"serial\":null,\"physical_size\":{\"width\":0,\"height\":0},\"enabled\":false,\"modes\":[],\"position\":{\"x\":0,\"y\":0},\"transform\":\"normal\",\"scale\":1.000000,\"adaptive_sync\":false}\n" ++
+            "]\n",
+        json_writer.buffered(),
     );
 }
 
