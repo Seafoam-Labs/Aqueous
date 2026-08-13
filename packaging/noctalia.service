@@ -20,9 +20,10 @@ ConditionEnvironment=XDG_CURRENT_DESKTOP=Aqueous
 # stays active and tears down cleanly with graphical-session.target).
 Type=forking
 ExecStart=/usr/bin/noctalia --daemon
-# Register the system-owned Aqueous plugin once for this user. The helper
-# writes a marker only after both source registration and enablement succeed,
-# so failures retry next session while a later intentional disable is honored.
+# Confirm the system-owned Aqueous plugin is enabled once for this user, or
+# register it for profiles created before the default config included it. The
+# helper writes a marker only after enablement succeeds, so failures retry next
+# session while a later intentional disable is honored.
 ExecStartPost=/usr/lib/aqueous/enable-noctalia-plugin
 Restart=on-failure
 RestartSec=2

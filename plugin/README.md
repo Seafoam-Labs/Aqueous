@@ -114,10 +114,12 @@ noctalia msg plugins enable aqueous/settings
 ```
 
 The standalone installer deliberately does not enable the plugin or alter the
-user's bar. The root Aqueous `PKGBUILD` additionally installs a one-time
-per-user Noctalia registration hook, so the plugin is enabled automatically
-after the packaged `noctalia.service` starts. It does not add the widget to a
-bar or re-enable the plugin after a user intentionally disables it.
+user's bar. The root Aqueous packages seed a Noctalia config for fresh profiles
+that registers and enables the plugin and places its widget on the default
+bar. Existing Noctalia configs and bar layouts are not overwritten; a one-time
+registration hook enables the plugin for those profiles, and the widget can be
+added from Noctalia's bar widget picker. The hook does not re-enable the plugin
+after a user intentionally disables it.
 
 ## Safety model
 

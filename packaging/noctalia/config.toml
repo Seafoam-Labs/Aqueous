@@ -6,8 +6,33 @@
 # Noctalia v5 reads every *.toml in ~/.config/noctalia/ and merges them; this is
 # the hand-written base layer. Changes made in the Noctalia Settings GUI are
 # written separately to ~/.local/state/noctalia/settings.toml and win over the
-# values here. v5 ships sane defaults, so this seed stays minimal: it only sets
-# the bundled wallpapers and the idle/lock behaviour.
+# values here. v5 ships sane defaults, so this seed stays minimal: it enables
+# the packaged Aqueous Settings plugin, places its widget on the default bar,
+# and sets the bundled wallpapers and idle/lock behaviour.
+
+[bar.default]
+start = [ "launcher", "wallpaper", "workspaces", "aqueous_settings" ]
+
+[widget.aqueous_settings]
+type = "aqueous/settings:widget"
+
+[plugins]
+enabled = [ "aqueous/settings" ]
+
+[[plugins.source]]
+name = "official"
+kind = "git"
+location = "https://github.com/noctalia-dev/official-plugins"
+
+[[plugins.source]]
+name = "community"
+kind = "git"
+location = "https://github.com/noctalia-dev/community-plugins"
+
+[[plugins.source]]
+name = "aqueous"
+kind = "path"
+location = "/usr/share/aqueous/noctalia-plugins"
 
 [wallpaper]
 enabled   = true
@@ -16,7 +41,7 @@ directory = "/usr/share/aqueous/wallpapers"
 
 [wallpaper.automation]
 enabled          = true
-interval_minutes = 5              # rotate wallpaper every 5 min (v4 randomIntervalSec = 300)
+interval_seconds = 300            # rotate wallpaper every 5 min (v4 randomIntervalSec = 300)
 order            = "random"       # random | alphabetical
 
 [lockscreen]

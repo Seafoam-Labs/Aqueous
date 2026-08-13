@@ -15,10 +15,11 @@ set -u
 # Seed the Noctalia (v5) default config on first launch. Idempotent and
 # non-destructive: only runs when the user has no config.toml yet. Noctalia v5
 # reads every *.toml in ~/.config/noctalia/ and merges them; we seed the
-# hand-written base layer (config.toml) with Aqueous defaults (idle/lock
-# timeouts, blurred lock screen, default wallpapers pointing at
-# /usr/share/aqueous/wallpapers). GUI changes land in
-# ~/.local/state/noctalia/settings.toml and are never touched here.
+# hand-written base layer (config.toml) with Aqueous defaults (the packaged
+# settings plugin on the default bar, idle/lock timeouts, blurred lock screen,
+# and default wallpapers pointing at /usr/share/aqueous/wallpapers). GUI
+# changes land in ~/.local/state/noctalia/settings.toml and are never touched
+# here.
 NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
 NOCTALIA_DEFAULTS="/usr/share/aqueous/noctalia/config.toml"
 if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then

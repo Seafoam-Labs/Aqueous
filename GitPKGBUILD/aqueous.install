@@ -28,9 +28,10 @@ EOF
         cat <<'EOF'
 
     Noctalia starts automatically with the Aqueous graphical session. The
-    packaged Aqueous Settings source is registered and enabled once per user;
-    add its widget from Noctalia's bar widget picker. An intentional later
-    disable is preserved.
+    default config registers and enables the packaged Aqueous Settings plugin
+    and places its widget on the bar for new profiles. Existing Noctalia bar
+    layouts are preserved; those users can add it from the bar widget picker.
+    An intentional later disable is preserved.
 EOF
     elif [ -e /usr/lib/systemd/user/aqueous-dms.service ]; then
         cat <<'EOF'

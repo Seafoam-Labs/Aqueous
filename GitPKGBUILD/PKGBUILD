@@ -22,7 +22,7 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
 makedepends=('clang' 'lld' 'llvm' 'git' 'curl' 'patch' 'scdoc'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang' 'shaderc'
              'vulkan-headers' 'hwdata' 'zig>=0.16')
-checkdepends=('jq' 'ripgrep')
+checkdepends=('jq' 'python' 'ripgrep')
 optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
@@ -146,7 +146,8 @@ check() {
     fi
     "$srcdir/aqueous/plugin/tests/test-helper.sh" \
         "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
-    noctalia plugins lint "$srcdir/aqueous/plugin/settings"
+    "$srcdir/aqueous/plugin/tests/test-noctalia.sh"
+    "$srcdir/aqueous/packaging/tests/test-enable-noctalia-plugin.sh"
 }
 
 package() {
