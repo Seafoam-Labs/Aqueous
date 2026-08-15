@@ -189,6 +189,11 @@ pub fn build(b: *Build) !void {
 
     const flags = b.createModule(.{ .root_source_file = b.path("common/flags.zig") });
     const slotmap = b.createModule(.{ .root_source_file = b.path("common/slotmap.zig") });
+    const scaling = b.createModule(.{
+        .root_source_file = b.path("aqueous/scaling.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const translate_c: Translator = .init(b.dependency("translate_c", .{}), .{
         .name = "c",
@@ -238,6 +243,7 @@ pub fn build(b: *Build) !void {
         river.root_module.addImport("wlroots", wlroots);
         river.root_module.addImport("flags", flags);
         river.root_module.addImport("slotmap", slotmap);
+        river.root_module.addImport("scaling", scaling);
         river.root_module.addImport("c", translate_c.mod);
 
         river.root_module.addCSourceFile(.{
@@ -476,6 +482,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        config_test.root_module.addImport("scaling", scaling);
         const run_config_test = b.addRunArtifact(config_test);
 
         const layout_test = b.addTest(.{

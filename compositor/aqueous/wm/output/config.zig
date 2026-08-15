@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const wm = @import("../config/wm.zig");
+const scaling = @import("scaling");
 
 pub const max_outputs = 64;
 pub const max_profiles = 16;
@@ -274,7 +275,9 @@ pub fn parseMode(value: []const u8) ?Mode {
 
 fn parseScale(value: []const u8) ?f32 {
     const scale = std.fmt.parseFloat(f32, value) catch return null;
-    return if (std.math.isFinite(scale) and scale >= 0.5 and scale <= 3.0) scale else null;
+    if (!std.math.isFinite(scale)) return null;
+    if (scaling.clampScale(scale) != scale) return null;
+    return scaling.normalizeScale(scale);
 }
 
 pub fn parseHdrLevelChoice(value: []const u8) ?HdrLevelChoice {

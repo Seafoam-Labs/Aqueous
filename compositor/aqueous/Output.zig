@@ -29,7 +29,7 @@ const river = wayland.server.river;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
-const scaling = @import("scaling.zig");
+const scaling = @import("scaling");
 const render_metrics = @import("render_metrics.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
@@ -101,11 +101,11 @@ pub const State = struct {
     pub fn fromHeadState(state: *const wlr.OutputHeadV1.State) State {
         assert(state.enabled);
         const requested_scale: f32 = @floatCast(state.scale);
-        const clamped_scale = scaling.clampScale(requested_scale);
-        if (clamped_scale != requested_scale) {
+        const normalized_scale = scaling.normalizeScale(requested_scale);
+        if (normalized_scale != requested_scale) {
             std.log.scoped(.output).info(
-                "output {s}: scale {d} clamped to {d}",
-                .{ state.output.name, requested_scale, clamped_scale },
+                "output {s}: scale {d} adjusted to {d}",
+                .{ state.output.name, requested_scale, normalized_scale },
             );
         }
         return .{
@@ -123,7 +123,7 @@ pub const State = struct {
             },
             .x = state.x,
             .y = state.y,
-            .scale = scaling.roundScale(clamped_scale),
+            .scale = normalized_scale,
             .transform = state.transform,
             .adaptive_sync = state.adaptive_sync_enabled,
             // wlr-output-management-v1 has no HDR field. Callers replacing
@@ -148,8 +148,8 @@ pub const State = struct {
             mem.swap(i32, &w, &h);
         }
         return .{
-            @intFromFloat(@as(f32, @floatFromInt(w)) / state.scale),
-            @intFromFloat(@as(f32, @floatFromInt(h)) / state.scale),
+            scaling.logicalDimension(w, state.scale),
+            scaling.logicalDimension(h, state.scale),
         };
     }
 

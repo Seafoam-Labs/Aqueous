@@ -4,7 +4,7 @@ This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
 
 ## Pipeline recap
 
-- **P1** — scale clamps to `[0.1, 10.0]` and rounds to 1/120; commits onto
+- **P1** — scale clamps to `[0.5, 3.0]` and rounds to 1/120; commits onto
   `wlr_output` (`river/scaling.zig`, `Output.State.fromHeadState`).
 - **P2** — scale/transform-only deltas route through `backend.commit`, so
   wlroots' `wlr_output_schedule_done` fans `wl_output.scale`/`done` out to
@@ -23,10 +23,10 @@ This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
 
 | Test | Module | Asserts |
 |---|---|---|
-| `clampScale bounds` | `river/scaling.zig` | clamp to `[0.1, 10.0]` |
+| `clampScale bounds` | `river/scaling.zig` | clamp to `[0.5, 3.0]` |
 | `roundScale snaps to 1/120` | `river/scaling.zig` | fractional-scale exactness |
 | `normalizeScale clamps then rounds` | `river/scaling.zig` | P1 composition |
-| `preferredBufferScale ceils` | `river/scaling.zig` | integer-ceil for v6 path |
+| `logicalDimension rounds non-even divisions` | `river/scaling.zig` | physical→logical rounding for `Output.State.dimensions` |
 
 ### Headless integration (`bash scripts/test-scaling.sh`)
 

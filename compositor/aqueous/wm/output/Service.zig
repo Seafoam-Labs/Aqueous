@@ -8,6 +8,7 @@ const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 const linux = std.os.linux;
 const util = @import("../../util.zig");
+const scaling = @import("scaling");
 const Output = @import("../../Output.zig");
 const OutputManager = @import("../../OutputManager.zig");
 const Config = @import("config.zig");
@@ -376,8 +377,10 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
     spec.enabled = jsonBool(object.get("enabled"));
     if (jsonString(object.get("mode"))) |value| spec.mode = Config.parseMode(value) orelse return null;
     if (jsonNumber(object.get("scale"))) |value| {
-        if (!std.math.isFinite(value) or value < 0.5 or value > 3.0) return null;
-        spec.scale = @floatCast(value);
+        if (!std.math.isFinite(value)) return null;
+        const scale: f32 = @floatCast(value);
+        if (scaling.clampScale(scale) != scale) return null;
+        spec.scale = scaling.normalizeScale(scale);
     }
     if (jsonString(object.get("transform"))) |value| spec.transform = Config.parseTransform(value) orelse return null;
     if (object.get("position")) |position| {
