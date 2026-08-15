@@ -58,7 +58,9 @@ left or right by column. Add the alternate modifier (*Alt* by default) to
 navigate up or down within the focused column. If *AQUEOUS_MOD=Alt*, *Super*
 becomes the alternate modifier. Natural-scroll input policy reverses the wheel
 directions automatically. These wheel chords also apply to scrolling game-mode
-remainders and scrolling composable children.
+remainders and scrolling composable children. Instances arranged vertically by
+*prefer_vertical_on_portrait* swap the two chord axes, so the primary chord
+navigates within the focused column and the alternate chord pans columns.
 
 # CONFIGURATION
 

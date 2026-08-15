@@ -37,6 +37,10 @@ pub const State = struct {
     viewport_column: usize = 0,
     last_focused: ?types.Handle = null,
     viewport_dirty: bool = false,
+    /// Effective vertical preference from the most recent arrange: the
+    /// configured portrait option applied while this instance's usable
+    /// rectangle was taller than it was wide.
+    prefer_vertical: bool = false,
 
     pub fn deinit(state: *State, allocator: std.mem.Allocator) void {
         for (state.columns.items) |*column| column.deinit(allocator);
@@ -66,13 +70,9 @@ pub fn arrange(
     scrolling_options: Options,
 ) ![]types.Placement {
     const old_count = windowCount(state);
-    const appended_vertical = try sync(
-        state,
-        allocator,
-        windows,
-        focused,
-        scrolling_options.prefer_vertical_on_portrait and usable_area.height > usable_area.width,
-    );
+    const prefer_vertical = scrolling_options.prefer_vertical_on_portrait and usable_area.height > usable_area.width;
+    const appended_vertical = try sync(state, allocator, windows, focused, prefer_vertical);
+    state.prefer_vertical = prefer_vertical;
     if (appended_vertical) |location| {
         if (scrolling_options.follow_new_windows) {
             const column = &state.columns.items[location.column];
@@ -281,6 +281,13 @@ pub fn scrollColumn(state: *State, focused: types.Handle, delta_rows: i32) bool 
     column.viewport_dirty = true;
     column.reveal_focused = false;
     return true;
+}
+
+/// Whether the most recent arrange stacked this instance vertically. Input
+/// policy uses this to follow the stacked axis with the primary navigation
+/// chord instead of panning columns.
+pub fn prefersVerticalScroll(state: *const State, handle: types.Handle) bool {
+    return state.prefer_vertical and containsHandle(state, handle);
 }
 
 /// Window occupying the primary position of the selected viewport column.
@@ -727,6 +734,28 @@ test "portrait preference stacks arrivals while default and non-portrait areas r
     const landscape_placements = try arrange(std.testing.allocator, &landscape, landscape_area, &windows, null, test_gaps, .{ .prefer_vertical_on_portrait = true });
     defer std.testing.allocator.free(landscape_placements);
     try std.testing.expectEqual(@as(usize, 3), landscape.columns.items.len);
+}
+
+test "vertical scroll preference follows the effective portrait arrangement" {
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const scrolling_options: Options = .{ .prefer_vertical_on_portrait = true };
+
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var placements = try arrange(std.testing.allocator, &state, portrait_area, &windows, null, test_gaps, scrolling_options);
+    std.testing.allocator.free(placements);
+    try std.testing.expect(prefersVerticalScroll(&state, 1));
+    try std.testing.expect(!prefersVerticalScroll(&state, 99));
+
+    // The same instance re-arranged into a landscape area becomes horizontal again.
+    placements = try arrange(std.testing.allocator, &state, landscape_area, &windows, null, test_gaps, scrolling_options);
+    std.testing.allocator.free(placements);
+    try std.testing.expect(!prefersVerticalScroll(&state, 1));
+
+    // The option off keeps landscape behavior even in portrait areas.
+    placements = try arrange(std.testing.allocator, &state, portrait_area, &windows, null, test_gaps, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(!prefersVerticalScroll(&state, 1));
 }
 
 test "portrait insertion selects current then previous then last column and preserves arrival order" {

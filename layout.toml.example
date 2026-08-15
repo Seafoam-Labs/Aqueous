@@ -154,6 +154,7 @@ center_focused = true
 follow_new_windows = true
 # Add new windows to a vertical stack when this scrolling instance's local
 # usable rectangle is taller than it is wide. false keeps horizontal placement.
+# Vertically arranged instances also swap the wheel navigation chords.
 prefer_vertical_on_portrait = false
 # Quantize manual viewport movement to whole column steps.
 snap_to_columns = false

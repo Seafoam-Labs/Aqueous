@@ -267,6 +267,14 @@ pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
     return false;
 }
 
+pub fn prefersVerticalScroll(state: *const State, handle: types.Handle) bool {
+    if (state.active_remainder != .scrolling or state.anchor == handle) return false;
+    for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.prefersVerticalScroll(&side.scrolling, handle)) return true;
+    }
+    return false;
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     return supportsViewportScroll(state, handle);
 }

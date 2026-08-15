@@ -222,6 +222,11 @@ pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
     return leaf.supportsViewportScroll(child, handle);
 }
 
+pub fn prefersVerticalScroll(state: *const State, handle: types.Handle) bool {
+    const child = constChildForHandle(state, handle) orelse return false;
+    return leaf.prefersVerticalScroll(child, handle);
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     const child = constChildForHandle(state, handle) orelse return false;
     return leaf.canResizeScrolling(child, handle);

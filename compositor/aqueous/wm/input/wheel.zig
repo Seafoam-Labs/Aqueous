@@ -117,6 +117,18 @@ pub fn resolveNavigationAxis(primary_modifier: u32, modifiers: u32) ?NavigationA
     return null;
 }
 
+/// Scrolling instances arranged with the portrait preference follow their
+/// stacked axis: the primary chord scrolls the focused column while the
+/// alternate chord keeps column panning reachable. Horizontal instances keep
+/// the default axis mapping.
+pub fn applyLayoutPreference(axis: NavigationAxis, prefer_vertical: bool) NavigationAxis {
+    if (!prefer_vertical) return axis;
+    return switch (axis) {
+        .horizontal => .vertical,
+        .vertical => .horizontal,
+    };
+}
+
 test "modifier resolution supports Super and Alt primary configurations" {
     try std.testing.expectEqual(NavigationAxis.horizontal, resolveNavigationAxis(super_modifier, super_modifier).?);
     try std.testing.expectEqual(NavigationAxis.vertical, resolveNavigationAxis(super_modifier, super_modifier | alt_modifier).?);
@@ -131,6 +143,13 @@ test "modifier resolution rejects relevant extras and ignores locks" {
         NavigationAxis.horizontal,
         resolveNavigationAxis(super_modifier, super_modifier | 2 | 16).?,
     );
+}
+
+test "layout preference swaps navigation axes only for vertical instances" {
+    try std.testing.expectEqual(NavigationAxis.horizontal, applyLayoutPreference(.horizontal, false));
+    try std.testing.expectEqual(NavigationAxis.vertical, applyLayoutPreference(.vertical, false));
+    try std.testing.expectEqual(NavigationAxis.vertical, applyLayoutPreference(.horizontal, true));
+    try std.testing.expectEqual(NavigationAxis.horizontal, applyLayoutPreference(.vertical, true));
 }
 
 test "wheel v120 updates preserve partial notches and emit multiple steps" {

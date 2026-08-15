@@ -859,7 +859,8 @@ pub fn wheelNavigationAxis(aqueous: *Aqueous, modifiers: u32) ?wheel_input.Navig
         .workspace = context.workspace_number,
     }) orelse return null;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
-    return if (layout_engine.supportsViewportScroll(state, handle)) axis else null;
+    if (!layout_engine.supportsViewportScroll(state, handle)) return null;
+    return wheel_input.applyLayoutPreference(axis, layout_engine.prefersVerticalScroll(state, handle));
 }
 
 pub fn navigateWithWheel(aqueous: *Aqueous, axis: wheel_input.NavigationAxis, steps: i32) bool {

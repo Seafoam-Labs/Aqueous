@@ -165,6 +165,11 @@ so the vertical chord remains `Alt+Super+wheel`. Wheel down moves right or down;
 wheel up moves left or up, with per-device `natural_scroll` reversing those
 directions automatically.
 
+When `prefer_vertical_on_portrait` arranges the focused instance vertically,
+the two chords swap axes for that instance: the primary modifier chord moves
+up/down through the focused column, and the additional modifier chord pans
+left/right by column.
+
 One physical wheel notch produces one navigation step, including on
 high-resolution wheels; touchpad scrolls accumulate before stepping. Captured
 scrolls do not leak into the focused application, even at a viewport edge.

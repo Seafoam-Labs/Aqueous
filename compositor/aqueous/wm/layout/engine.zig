@@ -86,6 +86,13 @@ pub fn supportsViewportScroll(state: *const State, handle: types.Handle) bool {
         leaf.supportsViewportScroll(&state.standalone, handle);
 }
 
+pub fn prefersVerticalScroll(state: *const State, handle: types.Handle) bool {
+    return if (state.active_layout == .composable)
+        composable.prefersVerticalScroll(&state.composite, handle)
+    else
+        leaf.prefersVerticalScroll(&state.standalone, handle);
+}
+
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     return if (state.active_layout == .composable)
         composable.canResizeScrolling(&state.composite, handle)
@@ -421,4 +428,117 @@ test "viewport scroll support routes to the focused composable child" {
 
     try std.testing.expect(supportsViewportScroll(&state, 1));
     try std.testing.expect(!supportsViewportScroll(&state, 2));
+}
+
+test "vertical scroll preference follows the active standalone arrangement" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    snapshot.scrolling_prefer_vertical_on_portrait = true;
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const portrait: types.Rect = .{ .x = 0, .y = 0, .width = 80, .height = 120 };
+    const landscape: types.Rect = .{ .x = 0, .y = 0, .width = 120, .height = 80 };
+
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, portrait, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(prefersVerticalScroll(&state, 1));
+    try std.testing.expect(!prefersVerticalScroll(&state, 99));
+
+    placements = try arrange(std.testing.allocator, &state, &snapshot, landscape, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(!prefersVerticalScroll(&state, 1));
+}
+
+test "vertical scroll preference routes through game mode and rejects its anchor" {
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .game_mode;
+
+    var fallback_state: State = .{};
+    defer fallback_state.deinit(std.testing.allocator);
+    const portrait_area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 300 };
+    const fallback = try arrange(
+        std.testing.allocator,
+        &fallback_state,
+        &snapshot,
+        portrait_area,
+        &windows,
+        1,
+        .{ .fallback = .scrolling, .scrolling_options = .{ .prefer_vertical_on_portrait = true } },
+    );
+    std.testing.allocator.free(fallback);
+    try std.testing.expect(prefersVerticalScroll(&fallback_state, 2));
+
+    const landscape_area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };
+    const landscape = try arrange(
+        std.testing.allocator,
+        &fallback_state,
+        &snapshot,
+        landscape_area,
+        &windows,
+        1,
+        .{ .fallback = .scrolling, .scrolling_options = .{ .prefer_vertical_on_portrait = true } },
+    );
+    std.testing.allocator.free(landscape);
+    try std.testing.expect(!prefersVerticalScroll(&fallback_state, 2));
+
+    var anchored_state: State = .{};
+    defer anchored_state.deinit(std.testing.allocator);
+    const game_state = gameModeState(&anchored_state);
+    game_state.rule_anchor = 1;
+    game_state.rule_options = .{
+        .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+        .remainder = .scrolling,
+        .gaps_inner = 0,
+    };
+    // A portrait anchor area whose side remainders are themselves portrait,
+    // so only the anchor guard can reject the anchor handle.
+    const anchored_area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 400 };
+    const anchored = try arrange(
+        std.testing.allocator,
+        &anchored_state,
+        &snapshot,
+        anchored_area,
+        &windows,
+        2,
+        .{ .scrolling_options = .{ .prefer_vertical_on_portrait = true } },
+    );
+    std.testing.allocator.free(anchored);
+    try std.testing.expect(!prefersVerticalScroll(&anchored_state, 1));
+    try std.testing.expect(prefersVerticalScroll(&anchored_state, 2));
+}
+
+test "vertical scroll preference routes to the focused composable child" {
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .composable;
+    snapshot.scrolling_prefer_vertical_on_portrait = true;
+    config.apply(&snapshot,
+        \\[layout.composable.a]
+        \\layout = "scrolling"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.25, 0.0]
+        \\p3 = [0.25, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "scrolling"
+        \\p1 = [0.25, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.25, 1.0]
+    );
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 200, .height = 100 };
+
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(moveToComposableSlot(&state, 2, 1));
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    std.testing.allocator.free(placements);
+
+    // Region a is 50x100 (portrait) while region b is 150x100 (landscape).
+    try std.testing.expect(prefersVerticalScroll(&state, 1));
+    try std.testing.expect(!prefersVerticalScroll(&state, 2));
 }
