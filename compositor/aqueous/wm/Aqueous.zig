@@ -259,9 +259,15 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         defer requested.deinit(util.gpa);
         var focusable: std.ArrayListUnmanaged(layout_types.Window) = .empty;
         defer focusable.deinit(util.gpa);
+        // First-time floating presentations admitted this cycle. The focus
+        // raise below mints newer orders than their admission orders, so they
+        // are re-minted afterwards to open at the top of the floating band.
+        var new_floats: std.ArrayListUnmanaged(layout_types.Handle) = .empty;
+        defer new_floats.deinit(util.gpa);
         try managed.ensureTotalCapacity(util.gpa, output.windows.len);
         try requested.ensureTotalCapacity(util.gpa, output.windows.len);
         try focusable.ensureTotalCapacity(util.gpa, output.windows.len);
+        try new_floats.ensureTotalCapacity(util.gpa, output.windows.len);
         var game_anchor: ?struct { handle: layout_types.Handle, rule: Rules.Rule } = null;
         var fullscreen_owner: ?layout_types.Handle = null;
         for (output.windows) |window| {
@@ -341,6 +347,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     state.floating_geometry = geometry;
                     state.needs_output_recovery = false;
                 }
+                if (state.stack_order == 0) new_floats.appendAssumeCapacity(window.handle);
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
                     .geometry = geometry,
@@ -424,12 +431,24 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (!placement.tiled) {
                 placement.z_order = stacking.floating_band;
                 if (aqueous.window_states.get(placement.handle)) |state| {
+                    if (state.stack_order == 0) new_floats.appendAssumeCapacity(placement.handle);
                     placement.stack_order = aqueous.ensureStackOrder(state);
                 }
             }
         }
         try requested.appendSlice(util.gpa, placements);
         aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse cycle_focus);
+        // The focus raise above may have minted a newer order than a
+        // first-time float's admission order. Re-mint those orders so newly
+        // floating windows open above every other window in their band.
+        for (new_floats.items) |handle| {
+            for (requested.items) |*placement| {
+                if (placement.handle != handle) continue;
+                const order = aqueous.takeStackOrder();
+                placement.stack_order = order;
+                if (aqueous.window_states.get(handle)) |state| state.stack_order = order;
+            }
+        }
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
         for (requested.items) |placement| {
             aqueous.api.applyPlacement(
