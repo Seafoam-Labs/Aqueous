@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2025 The River Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 const KeyboardGroup = @This();
@@ -90,9 +90,9 @@ pub fn create(seat: *Seat, config: Keyboard.Config, virtual: bool) !*KeyboardGro
     seat.keyboard_groups.append(group);
 
     group.state.init(&.{
-        .name = "river.KeyboardGroup",
+        .name = "aqueous.KeyboardGroup",
         .led_update = ledUpdate,
-    }, "river.KeyboardGroup");
+    }, "aqueous.KeyboardGroup");
     group.state.data = group;
 
     // wlroots will log an error on failure, there's not much we can do to recover unfortunately.
