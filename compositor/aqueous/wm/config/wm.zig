@@ -288,6 +288,7 @@ fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
         input.repeat_delay = parsed;
         input.repeat_delay_set = true;
     };
+    if (std.mem.eql(u8, key, "num_lock_state")) input.num_lock_state = parseBool(value) orelse input.num_lock_state;
     if (std.mem.eql(u8, key, "xkb_layout")) _ = input.xkb_layout.set(value);
     if (std.mem.eql(u8, key, "xkb_variant")) _ = input.xkb_variant.set(value);
     if (std.mem.eql(u8, key, "xkb_options")) _ = input.xkb_options.set(value);

@@ -72,6 +72,7 @@ pub fn create(seat: *Seat, wlr_device: *wlr.InputDevice, virtual: bool) !*Keyboa
     if (!virtual and server.aqueous.mode.runsInternal()) {
         keyboard.config.repeat_rate = server.aqueous.config.wm.input.repeat_rate;
         keyboard.config.repeat_delay = server.aqueous.config.wm.input.repeat_delay;
+        keyboard.config.num_lock_state = server.aqueous.config.wm.input.num_lock_state;
     }
     errdefer if (keyboard.config.keymap) |keymap| keymap.unref();
 

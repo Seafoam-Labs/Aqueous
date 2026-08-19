@@ -102,6 +102,7 @@ rollback_seconds = 0
 # focus_new_windows = false
 # pointer_acceleration = false
 # pointer_acceleration_factor = 0.0
+# num_lock_state = true
 # repeat_rate = 40       # characters per second; 0 disables repeat
 # repeat_delay = 400     # milliseconds before repeating begins
 # xkb_layout = "us"

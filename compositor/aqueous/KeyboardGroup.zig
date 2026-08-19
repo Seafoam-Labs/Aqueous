@@ -102,6 +102,12 @@ pub fn create(seat: *Seat, config: Keyboard.Config, virtual: bool) !*KeyboardGro
     group.state.events.key.add(&group.key);
     group.state.events.modifiers.add(&group.modifiers);
 
+    const mask = config.keymap.?.modGetMask(xkb.names.vmod.num);
+    if (config.num_lock_state) {
+        group.state.modifiers.locked |= mask;
+        group.state.notifyModifiers(group.state.modifiers);
+    }
+
     return group;
 }
 
