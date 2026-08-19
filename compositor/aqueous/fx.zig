@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2024 The River Developers
+// SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Backend-neutral facade for compositor visual effects.
