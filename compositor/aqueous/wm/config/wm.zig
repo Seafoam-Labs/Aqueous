@@ -72,6 +72,7 @@ pub const Input = struct {
     xkb_layout: Text = .{},
     xkb_variant: Text = .{},
     xkb_options: Text = .{},
+    num_lock_state: bool = false,
 };
 
 pub const OutputLayout = struct {
