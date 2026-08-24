@@ -276,6 +276,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .app_id = window.app_id,
                 .class = window.app_id,
                 .title = window.title,
+                .content_type = window.content_type,
             });
             aqueous.reconcileTransientParent(window, usable_area);
             aqueous.api.ensureWorkspace(window.handle, output.id);
@@ -380,6 +381,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .app_id = window.app_id,
                 .class = window.app_id,
                 .title = window.title,
+                .content_type = window.content_type,
             });
             const focus_opacity: ?f64 = if (aqueous.config.wm.opacity_enabled and aqueous.config.wm.opacity_focus_sensitive)
                 (if (cycle_focus == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)

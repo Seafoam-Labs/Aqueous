@@ -650,7 +650,8 @@ fn autoHdrExpansion(output: *Output, scene_buffer: *wlr.SceneBuffer) ?auto_hdr.I
         native_windows_hdr,
     )) return null;
     const window = windowForNode(&scene_buffer.node) orelse return null;
-    const eligible = window.hdr_expand_rule orelse (window.wm_requested.fullscreen != null);
+    const eligible = window.hdr_expand_rule orelse
+        (window.wm_requested.fullscreen != null or window.content_type == .game);
     if (!eligible) return null;
     const peak_nits: f64 = @floatFromInt(state.hdr_level.nits());
     return .{

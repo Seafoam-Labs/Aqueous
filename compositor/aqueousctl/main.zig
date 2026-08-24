@@ -106,6 +106,9 @@ const Window = struct {
     class: ?[]u8 = null,
     output: ?[]u8 = null,
     layout: ?[]u8 = null,
+    /// Static string owned by the binary; never freed. Null when the client
+    /// has not committed a content type.
+    content_type: ?[]const u8 = null,
     backend: aqueous.WindowInfoV1.Backend = .xdg,
     workspace: u32 = 0,
     geometry: Geometry = .{},
@@ -543,15 +546,26 @@ fn infoListener(_: *aqueous.WindowInfoV1, event: aqueous.WindowInfoV1.Event, win
         .geometry => |value| window.geometry = .{ .x = value.x, .y = value.y, .width = value.width, .height = value.height },
         .state => |value| window.states = value.state,
         .layout => |value| replaceString(&window.layout, mem.span(value.layout)),
+        .content_type => |value| window.content_type = contentTypeName(value.content_type),
         .matched_rule => |value| window.matched_rule = value.index,
         .rule_matcher => |value| switch (value.matcher) {
             .app_id => replaceString(&window.rule_app_id, mem.span(value.pattern)),
             .class => replaceString(&window.rule_class, mem.span(value.pattern)),
             .title => replaceString(&window.rule_title, mem.span(value.pattern)),
+            .content_type => {},
             _ => {},
         },
         .done => window.info_done = true,
     }
+}
+
+fn contentTypeName(value: u32) ?[]const u8 {
+    return switch (value) {
+        1 => "photo",
+        2 => "video",
+        3 => "game",
+        else => null,
+    };
 }
 
 fn sceneListener(_: *aqueous.SceneSnapshotV1, event: aqueous.SceneSnapshotV1.Event, state: *State) void {
@@ -814,11 +828,11 @@ fn writeDotEscaped(writer: *Io.Writer, value: []const u8) !void {
 }
 
 fn writeHuman(writer: *Io.Writer, state: *const State) !void {
-    try writer.writeAll("ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tSTATE\n");
+    try writer.writeAll("ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tSTATE\n");
     for (state.windows.items) |window| {
         if (window.closed or !window.info_done) continue;
         const identity = window.app_id orelse window.class orelse window.foreign_app_id orelse "";
-        try writer.print("{s}\t{s}\t{s}\t{s}\t{s}:{d}\t{d},{d} {d}x{d}\t{s}\t", .{
+        try writer.print("{s}\t{s}\t{s}\t{s}\t{s}:{d}\t{d},{d} {d}x{d}\t{s}\t{s}\t", .{
             window.identifier orelse "",
             @tagName(window.backend),
             identity,
@@ -830,6 +844,7 @@ fn writeHuman(writer: *Io.Writer, state: *const State) !void {
             window.geometry.width,
             window.geometry.height,
             window.layout orelse "",
+            window.content_type orelse "",
         });
         try writeStates(writer, window.states);
         try writer.writeByte('\n');
@@ -871,6 +886,7 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
             window.workspace, window.geometry.x, window.geometry.y, window.geometry.width, window.geometry.height,
         });
         try jsonField(writer, "layout", window.layout, false);
+        try jsonField(writer, "content_type", window.content_type, false);
         try writer.print(",\"matched_rule\":{d},\"states\":[", .{window.matched_rule});
         var states_buffer: [128]u8 = undefined;
         var states_writer = Io.Writer.fixed(&states_buffer);
@@ -1061,6 +1077,7 @@ test "human output selects identity fallback and ordered states" {
         .class = @constCast("EditorClass"),
         .output = @constCast("DP-1"),
         .layout = @constCast("dwindle"),
+        .content_type = "game",
         .workspace = 4,
         .geometry = .{ .x = -10, .y = 20, .width = 1280, .height = 720 },
         .states = .{ .focused = true, .fullscreen = true, .visible = true },
@@ -1073,8 +1090,8 @@ test "human output selects identity fallback and ordered states" {
     try writeHuman(&writer, &state);
 
     try std.testing.expectEqualStrings(
-        "ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tSTATE\n" ++
-            "window-1\txdg\tEditorClass\tEditor\tDP-1:4\t-10,20 1280x720\tdwindle\tfocused,fullscreen,visible\n",
+        "ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tSTATE\n" ++
+            "window-1\txdg\tEditorClass\tEditor\tDP-1:4\t-10,20 1280x720\tdwindle\tgame\tfocused,fullscreen,visible\n",
         writer.buffered(),
     );
 }
@@ -1114,7 +1131,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
 
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\"]}\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\"]}\n" ++
             "]\n",
         writer.buffered(),
     );

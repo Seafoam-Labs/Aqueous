@@ -4,6 +4,7 @@
 const std = @import("std");
 const Engine = @import("engine.zig");
 const toml = @import("../config/wm.zig");
+const wp = @import("wayland").server.wp;
 
 const log = std.log.scoped(.aqueous);
 const max_config_bytes = 1024 * 1024;
@@ -141,7 +142,7 @@ fn hash(source: []const u8) u64 {
 }
 
 fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
-    if (rule.app_id == null and rule.class == null and rule.title == null) return;
+    if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) return;
     try rules.append(allocator, rule);
 }
 
@@ -171,6 +172,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "app_id")) rule.app_id = value;
     if (std.mem.eql(u8, key, "class")) rule.class = value;
     if (std.mem.eql(u8, key, "title")) rule.title = value;
+    if (std.mem.eql(u8, key, "content_type")) rule.content_type = parseContentType(value) orelse rule.content_type;
     if (std.mem.eql(u8, key, "floating")) rule.placement.floating = parseBool(value) orelse rule.placement.floating;
     if (std.mem.eql(u8, key, "workspace")) rule.placement.workspace = std.fmt.parseInt(u32, value, 10) catch rule.placement.workspace;
     if (std.mem.eql(u8, key, "width")) rule.placement.width = parsePositive(value) orelse rule.placement.width;
@@ -217,6 +219,13 @@ fn parseLayout(value: []const u8) ?Engine.Layout {
 
 fn parseAnchor(value: []const u8) ?Engine.Anchor {
     inline for (.{ .center, .top, .bottom, .left, .right }) |anchor| if (std.mem.eql(u8, value, @tagName(anchor))) return anchor;
+    return null;
+}
+
+fn parseContentType(value: []const u8) ?wp.ContentTypeV1.Type {
+    inline for (.{ wp.ContentTypeV1.Type.none, .photo, .video, .game }) |content_type| {
+        if (std.mem.eql(u8, value, @tagName(content_type))) return content_type;
+    }
     return null;
 }
 
@@ -315,6 +324,28 @@ test "rules parser preserves order and parses native placement behavior" {
     const panel = engine.resolveLayer("panel-main").?;
     try std.testing.expect(panel.blur);
     try std.testing.expect(panel.blur_popups);
+}
+
+test "rules parser accepts content_type matchers and rejects invalid values" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\content_type = "game"
+        \\blur = false
+        \\hdr_expand = true
+        \\workspace = 5
+        \\[[window]]
+        \\content_type = "bogus"
+        \\blur = true
+    );
+    // The invalid content_type value leaves its rule matcher-less, so it is dropped.
+    try std.testing.expectEqual(@as(usize, 1), engine.rules.len);
+    const game = engine.resolve(.{ .content_type = .game }).?;
+    try std.testing.expectEqual(@as(?bool, false), game.blur);
+    try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
+    // The placement edit parsed but is dropped at resolve time.
+    try std.testing.expectEqual(@as(u32, 0), game.placement.workspace);
 }
 
 test "rules accept composable workspaces but reject it as a game-mode child" {

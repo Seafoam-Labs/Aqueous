@@ -31,15 +31,20 @@ gaps_inner = 8             # integer >= 0
 # Rule fields
 # -----------------------------------------------------------------------------
 # Rules use first-match-wins order. At least one matcher is required; a block
-# without app_id, class, or title is silently discarded. Every matcher present
-# in a block must match. app_id is used by native Wayland clients, class is
-# useful for XWayland clients, and title matches the current window title.
-# Matchers support `*` and `?` globs.
+# without app_id, class, title, or content_type is silently discarded. Every
+# matcher present in a block must match. app_id is used by native Wayland
+# clients, class is useful for XWayland clients, and title matches the current
+# window title. Matchers support `*` and `?` globs.
 #
 # Accepted fields inside [[window]]:
 #
 # Matchers:
 #   app_id, class, title
+#   content_type    none | photo | video | game; matches the wp_content_type_v1
+#                   state committed by the client. Rules with this matcher only
+#                   apply blur, opacity, and hdr_expand - layout and placement
+#                   edits are ignored because the content type commonly arrives
+#                   long after map and must never move an arranged window.
 #
 # Layout/state:
 #   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
@@ -65,6 +70,9 @@ gaps_inner = 8             # integer >= 0
 #   blur            true/false per-window preference; false is useful for
 #                   games/video.
 #   opacity         0.0 through 1.0
+#   hdr_expand      true/false; expand SDR highlights toward the HDR peak on
+#                   auto_hdr outputs. Unset follows the default (fullscreen
+#                   windows and game content).
 #
 # Stateful rule properties have lifecycle ownership. A manual workspace move,
 # fullscreen toggle, or floating toggle overrides that property until a new
@@ -104,6 +112,19 @@ gaps_inner = 8             # integer >= 0
 # ignore_struts = false
 # blur = true
 # opacity = 0.95
+
+# -----------------------------------------------------------------------------
+# Content-type example
+# -----------------------------------------------------------------------------
+# Clients such as Steam commit wp_content_type_v1 once a window is a game.
+# Content-type rules are visual-only, so they are safe to place ahead of
+# broader rules: they never move a window when the tag arrives late.
+#
+# [[window]]
+# content_type = "game"
+# blur = false
+# opacity = 1.0
+# hdr_expand = true
 
 # -----------------------------------------------------------------------------
 # Layer-shell blur examples

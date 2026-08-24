@@ -97,6 +97,7 @@ pub fn build(b: *Build) !void {
 
     const scanner = Scanner.create(b, .{});
 
+    scanner.addSystemProtocol("staging/content-type/content-type-v1.xml");
     scanner.addSystemProtocol("stable/tablet/tablet-v2.xml");
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.addSystemProtocol("staging/color-management/color-management-v1.xml");
@@ -134,6 +135,7 @@ pub fn build(b: *Build) !void {
     // These versions control Zig code generation and have no effect on anything internal
     // to wlroots. Therefore, the only thing that can happen due to a version being too
     // old is that river fails to compile.
+    scanner.generate("wp_content_type_manager_v1", 1);
     scanner.generate("wl_compositor", 4);
     scanner.generate("wl_subcompositor", 1);
     scanner.generate("wl_shm", 1);
@@ -157,7 +159,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("river_window_manager_v1", 10);
-    scanner.generate("aqueous_window_info_manager_v1", 3);
+    scanner.generate("aqueous_window_info_manager_v1", 4);
     scanner.generate("river_xkb_bindings_v1", 3);
     scanner.generate("river_layer_shell_v1", 1);
     scanner.generate("river_input_manager_v1", 2);
@@ -483,6 +485,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         config_test.root_module.addImport("scaling", scaling);
+        config_test.root_module.addImport("wayland", wayland);
         const run_config_test = b.addRunArtifact(config_test);
 
         const layout_test = b.addTest(.{
@@ -494,6 +497,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        layout_test.root_module.addImport("wayland", wayland);
         const run_layout_test = b.addRunArtifact(layout_test);
 
         const overview_model_test = b.addTest(.{
@@ -516,6 +520,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        rules_test.root_module.addImport("wayland", wayland);
         const run_rules_test = b.addRunArtifact(rules_test);
 
         const focus_test = b.addTest(.{

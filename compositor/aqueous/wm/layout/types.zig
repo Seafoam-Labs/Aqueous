@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2026 Seafoam Labs
 // SPDX-License-Identifier: GPL-3.0-only
 
+const wp = @import("wayland").server.wp;
+
 pub const Handle = u64;
 
 pub const Rect = struct {
@@ -28,6 +30,7 @@ pub const Window = struct {
     parent: ?Handle = null,
     app_id: ?[]u8 = null,
     title: ?[]u8 = null,
+    content_type: wp.ContentTypeV1.Type = .none,
     accepts_focus: bool = true,
     min_width: i32 = 0,
     min_height: i32 = 0,

@@ -347,6 +347,9 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     // NB: the subsurface tree is never empty here
     window.capture_scene.tree.node.subsurfaceTreeSetClip(&toplevel.wlr_toplevel.base.geometry);
 
+    const new_content_type = server.content_type_manager.get(toplevel.wlr_toplevel.base.surface);
+    if (new_content_type != window.content_type) window.notifyContentType(new_content_type);
+
     window.setDimensionsHint(.{
         .min_width = @intCast(toplevel.wlr_toplevel.current.min_width),
         .min_height = @intCast(toplevel.wlr_toplevel.current.min_height),

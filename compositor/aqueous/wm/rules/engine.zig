@@ -5,11 +5,13 @@ const Engine = @This();
 
 const std = @import("std");
 const glob = @import("glob.zig");
+const wp = @import("wayland").server.wp;
 
 pub const Identity = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
+    content_type: wp.ContentTypeV1.Type = .none,
 };
 
 pub const Placement = struct {
@@ -46,6 +48,12 @@ pub const Rule = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
+    /// Matches the wp_content_type_v1 state committed by the client. Rules
+    /// with this matcher only apply visual and HDR effects (blur, opacity,
+    /// hdr_expand); layout and placement edits are deliberately dropped at
+    /// resolve time because the content type commonly arrives long after map
+    /// and must never move an already-arranged window.
+    content_type: ?wp.ContentTypeV1.Type = null,
     layout: ?Layout = .game_mode,
     placement: Placement = .{},
     anchor: Anchor = .center,
@@ -56,7 +64,8 @@ pub const Rule = struct {
     blur: ?bool = null,
     opacity: ?f64 = null,
     /// Auto HDR expansion override for matching windows on HDR outputs with
-    /// `auto_hdr` enabled. Null follows the default (fullscreen windows).
+    /// `auto_hdr` enabled. Null follows the default (fullscreen windows and
+    /// game content).
     hdr_expand: ?bool = null,
 
     /// Stable semantic identity used by per-window lifecycle reconciliation.
@@ -66,6 +75,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
+        hashOptionalContentType(&hash, rule.content_type);
         hashOptionalEnum(&hash, rule.layout);
         hash.update(std.mem.asBytes(&rule.placement.floating));
         hash.update(std.mem.asBytes(&rule.placement.workspace));
@@ -104,6 +114,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
+        hashOptionalContentType(&hash, rule.content_type);
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
@@ -113,6 +124,7 @@ pub const Rule = struct {
         placement_only.app_id = null;
         placement_only.class = null;
         placement_only.title = null;
+        placement_only.content_type = null;
         placement_only.layout = null;
         placement_only.fullscreen = false;
         placement_only.blur = null;
@@ -171,11 +183,23 @@ pub fn reloadSnapshot(
 
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     for (engine.rules) |rule| {
-        if (rule.app_id == null and rule.class == null and rule.title == null) continue;
+        if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) continue;
         if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) continue;
         if (rule.class != null and !glob.matches(rule.class, identity.class)) continue;
         if (rule.title != null and !glob.matches(rule.title, identity.title)) continue;
-        return rule;
+        if (rule.content_type) |expected| if (expected != identity.content_type) continue;
+        if (rule.content_type == null) return rule;
+        // Content-type rules are visual-only: drop every layout and placement
+        // edit so a late-arriving content type can never move a window.
+        var visual = rule;
+        visual.layout = null;
+        visual.placement = .{};
+        visual.anchor = .center;
+        visual.size = .native;
+        visual.scale = 1;
+        visual.fullscreen = false;
+        visual.ignore_struts = false;
+        return visual;
     }
     return null;
 }
@@ -271,6 +295,11 @@ fn hashOptionalEnum(hash: *std.hash.Wyhash, value: ?Layout) void {
     hash.update(std.mem.asBytes(&encoded));
 }
 
+fn hashOptionalContentType(hash: *std.hash.Wyhash, value: ?wp.ContentTypeV1.Type) void {
+    const encoded: u8 = if (value) |item| @as(u8, @intCast(@intFromEnum(item))) + 1 else 0;
+    hash.update(std.mem.asBytes(&encoded));
+}
+
 fn hashOptionalBool(hash: *std.hash.Wyhash, value: ?bool) void {
     const encoded: u8 = if (value) |item| if (item) 2 else 1 else 0;
     hash.update(std.mem.asBytes(&encoded));
@@ -296,6 +325,37 @@ test "rules are first-match-wins and require every present matcher" {
     try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.workspace);
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.workspace);
     try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
+}
+
+test "content type rules match committed state and keep only visual effects" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    var source = [_]Rule{
+        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .workspace = 4 }, .fullscreen = true, .blur = false, .hdr_expand = true },
+        .{ .app_id = "player*", .placement = .{ .workspace = 2 } },
+    };
+    try engine.reload(&source);
+
+    // No committed content type: the content-type rule is skipped entirely.
+    try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "player-one" }).?.placement.workspace);
+
+    // Matching content type: layout and placement edits are dropped, visuals survive.
+    const game = engine.resolve(.{ .app_id = "player-one", .content_type = .game }).?;
+    try std.testing.expect(game.layout == null);
+    try std.testing.expectEqual(@as(u32, 0), game.placement.workspace);
+    try std.testing.expect(!game.fullscreen);
+    try std.testing.expect(!game.ignore_struts);
+    try std.testing.expectEqual(@as(?bool, false), game.blur);
+    try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
+
+    // A different committed type does not match.
+    try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "player-one", .content_type = .video }).?.placement.workspace);
+}
+
+test "matcher fingerprints include the content type matcher" {
+    const plain: Rule = .{ .app_id = "term*" };
+    const with_content: Rule = .{ .app_id = "term*", .content_type = .game };
+    try std.testing.expect(plain.matcherFingerprint() != with_content.matcherFingerprint());
 }
 
 test "layer rules are first-match-wins namespace globs" {

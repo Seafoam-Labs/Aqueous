@@ -149,6 +149,8 @@ request_activate: wl.Listener(*wlr.XdgActivationV1.event.RequestActivate) = .ini
 request_set_cursor_shape: wl.Listener(*wlr.CursorShapeManagerV1.event.RequestSetShape) = .init(handleRequestSetCursorShape),
 toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceManagerV1.Request) = .init(handleToplevelCaptureRequest),
 
+content_type_manager: *wlr.ContentTypeManagerV1,
+
 /// Count render-capable GPUs by probing the conventional render-node range.
 /// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
 /// result <= 1 means we leave the environment untouched.
@@ -408,6 +410,8 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
 
         .color_representation_manager = try wlr.ColorRepresentationManagerV1.createWithRenderer(wl_server, 1, renderer),
 
+        .content_type_manager = try wlr.ContentTypeManagerV1.create(wl_server, 1),
+
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
         .compositor = compositor,
@@ -664,7 +668,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.input_manager.pointer_gestures.global or
         global == server.idle_inhibit_manager.wlr_manager.global or
         global == server.workspace_manager.global or
-        global == server.screencopy_manager.global;
+        global == server.screencopy_manager.global or global == server.content_type_manager.global;
 }
 
 /// Returns true if the global is blocked for security contexts

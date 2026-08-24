@@ -31,10 +31,13 @@ operation is an output-scoped active-workspace layout change.
 
 *windows*
 	Print a tabular list containing the stable identifier, backend, application
-	identity, title, output, workspace, geometry, layout, and state.
+	identity, title, output, workspace, geometry, layout, committed
+	wp_content_type_v1 content type, and state.
 
 *windows --json*
-	Print the same snapshot as a JSON array for scripts and diagnostics.
+	Print the same snapshot as a JSON array for scripts and diagnostics. The
+	content_type field is null when the client has not committed a content
+	type.
 
 *inspect --rule*
 	Print one ready-to-paste rules.toml entry per mapped window. Native Wayland

@@ -343,6 +343,12 @@ fn sendSnapshot(
         .visible = snapshot.visible,
     });
     info.sendLayout(snapshot.layout.ptr);
+    // Content-type reporting was added with manager version 4; older clients
+    // bind below that and must not receive the new event opcode.
+    const supports_content_type = manager.getVersion() >= 4;
+    if (supports_content_type and snapshot.content_type != .none) {
+        info.sendContentType(@intCast(@intFromEnum(snapshot.content_type)));
+    }
 
     const fingerprint = window.matchedRuleFingerprint();
     if (fingerprint != 0) {
@@ -352,6 +358,9 @@ fn sendSnapshot(
             if (rule.app_id) |pattern| sendRuleMatcher(info, .app_id, pattern);
             if (rule.class) |pattern| sendRuleMatcher(info, .class, pattern);
             if (rule.title) |pattern| sendRuleMatcher(info, .title, pattern);
+            if (supports_content_type) if (rule.content_type) |content_type| {
+                sendRuleMatcher(info, .content_type, @tagName(content_type));
+            };
             break;
         }
     }

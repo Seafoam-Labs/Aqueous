@@ -12,6 +12,7 @@ const posix = std.posix;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 const river = @import("wayland").server.river;
+const wp = @import("wayland").server.wp;
 const SlotMap = @import("slotmap").SlotMap;
 
 const server = &@import("main.zig").server;
@@ -188,6 +189,7 @@ pub const PolicySnapshot = struct {
     active: bool,
     app_id: ?[*:0]const u8,
     title: ?[*:0]const u8,
+    content_type: wp.ContentTypeV1.Type,
     accepts_focus: bool,
     fullscreen: bool,
     min_width: i32,
@@ -206,6 +208,7 @@ pub const InfoSnapshot = struct {
     app_id: ?[*:0]const u8,
     class: ?[*:0]const u8,
     title: ?[*:0]const u8,
+    content_type: wp.ContentTypeV1.Type,
     output: ?[*:0]const u8,
     workspace: u32,
     geometry: wlr.Box,
@@ -307,6 +310,7 @@ anim_border: BorderNodes,
 
 capture_scene: *wlr.Scene,
 capture_source: ?*wlr.ExtImageCaptureSourceV1 = null,
+content_type: wp.ContentTypeV1.Type = .none,
 
 /// State to be sent to the wm in the next manage sequence.
 wm_scheduled: struct {
@@ -490,6 +494,7 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         // filtered by the caller anyway.
         .app_id = if (active) window.getAppId() else null,
         .title = if (active) window.getTitle() else null,
+        .content_type = window.content_type,
         .accepts_focus = window.wm_scheduled.accepts_focus,
         .fullscreen = window.wm_requested.fullscreen != null,
         .min_width = @intCast(window.wm_scheduled.dimensions_hint.min_width),
@@ -2456,6 +2461,7 @@ pub fn infoSnapshot(window: *const Window) InfoSnapshot {
         .app_id = app_id,
         .class = class,
         .title = window.getTitle(),
+        .content_type = window.content_type,
         .output = if (workspace) |ws|
             if (ws.output.wlr_output) |output| output.name else null
         else
@@ -2679,6 +2685,11 @@ pub fn notifyAppId(window: *Window) void {
     }
 }
 
+pub fn notifyContentType(window: *Window, content_type: wp.ContentTypeV1.Type) void {
+    server.wm.dirtyWindowing();
+    window.content_type = content_type;
+}
+
 /// Diff-emit outputEnter / outputLeave on the wlr_toplevel_handle so that
 /// foreign-toplevel clients (Noctalia, waybar wlr-taskbar per-monitor, etc.)
 /// can correctly scope windows to outputs.
@@ -2763,6 +2774,10 @@ pub fn initialOutput(window: *Window) ?*Output {
         if (outputIsUsable(output)) return output;
     }
     return null;
+}
+
+pub fn getContentType(window: *Window) wp.ContentTypeV1.Type {
+    return window.content_type;
 }
 
 // ---------------------------------------------------------------------------
