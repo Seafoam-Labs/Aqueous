@@ -68,6 +68,7 @@ for feature in (
     'layout --output ',
     'setWorkspaceLayout',
     'ui.select',
+    'return ui.row({ align = "center", justify = "start" }, {',
 ):
     assert feature in panel, feature
 PY
