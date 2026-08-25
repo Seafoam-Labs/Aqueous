@@ -104,10 +104,12 @@ hidden from Wayland security contexts.
 `aqueousctl outputs` binds the event side of `zwlr_output_manager_v1` and waits
 for its `done` boundary to obtain an atomic snapshot. It reports the complete
 wlr-randr information set: identity, physical size, enabled state, every
-advertised mode, position, transform, scale, and adaptive sync. `aqueousctl
+advertised mode, position, transform, scale, and adaptive sync. When make,
+model, or serial metadata is available, it also derives the same stable
+`sha256:` EDID identifier used by the embedded output service. `aqueousctl
 outputs --json` exposes the same data with wlr-randr-compatible field names and
-types. The client never creates an output configuration or enters the
-apply/test transaction path.
+types plus `edid_sha256`. The client never creates an output configuration or
+enters the apply/test transaction path.
 
 ## The transaction cycle
 

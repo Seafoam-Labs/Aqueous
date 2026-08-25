@@ -50,10 +50,11 @@ operation is an output-scoped active-workspace layout change.
 
 *outputs*
 	Print every output head and all information exposed to wlr-randr: connector
-	identity and description, make, model, serial, physical size, enabled state,
-	advertised modes, position, transform, scale, and adaptive-sync state. Current
-	and preferred modes are marked explicitly. With *--json*, print the same
-	snapshot using the wlr-randr JSON field names and value types.
+	identity and description, make, model, serial, a quoted stable EDID identifier,
+	physical size, enabled state, advertised modes, position, transform, scale, and
+	adaptive-sync state. Current and preferred modes are marked explicitly. With
+	*--json*, print the same snapshot using the wlr-randr JSON field names and value
+	types plus the *edid_sha256* field.
 
 *layout --output NAME --json*
 	Print the active workspace number and effective runtime layout for _NAME_ as
