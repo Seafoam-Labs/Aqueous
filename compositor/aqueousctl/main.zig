@@ -670,6 +670,10 @@ fn writeOutputs(writer: *Io.Writer, state: *const State) !void {
         if (output.make) |value| try writer.print("  Make: {s}\n", .{value});
         if (output.model) |value| try writer.print("  Model: {s}\n", .{value});
         if (output.serial) |value| try writer.print("  Serial: {s}\n", .{value});
+        var edid_buffer: [71]u8 = undefined;
+        if (identityHash(output, &edid_buffer)) |value| {
+            try writer.print("  EDID Identifier: \"{s}\"\n", .{value});
+        }
         if (output.has_physical_size) {
             try writer.print("  Physical size: {d}x{d} mm\n", .{ output.physical_width_mm, output.physical_height_mm });
         }
@@ -746,6 +750,8 @@ fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
         try jsonField(writer, "make", output.make, false);
         try jsonField(writer, "model", output.model, false);
         try jsonField(writer, "serial", output.serial, false);
+        var edid_buffer: [71]u8 = undefined;
+        try jsonField(writer, "edid_sha256", identityHash(output, &edid_buffer), false);
         try writer.print(",\"physical_size\":{{\"width\":{d},\"height\":{d}}}", .{
             output.physical_width_mm,
             output.physical_height_mm,
@@ -774,6 +780,21 @@ fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
         });
     }
     try writer.writeAll("\n]\n");
+}
+
+fn identityHash(output: *const DisplayOutput, buffer: *[71]u8) ?[]const u8 {
+    if (output.make == null and output.model == null and output.serial == null) return null;
+
+    var identity: [768]u8 = undefined;
+    const source = std.fmt.bufPrint(&identity, "{s}|{s}|{s}", .{
+        output.make orelse "",
+        output.model orelse "",
+        output.serial orelse "",
+    }) catch return null;
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(source, &digest, .{});
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    return std.fmt.bufPrint(buffer, "sha256:{s}", .{hex}) catch null;
 }
 
 fn writeSceneDot(writer: *Io.Writer, state: *const State) !void {
@@ -1016,6 +1037,7 @@ test "outputs render advertised refresh rates and mode flags" {
             "  Make: Acme\n" ++
             "  Model: Panel\n" ++
             "  Serial: ABC123\n" ++
+            "  EDID Identifier: \"sha256:daf5f59252c5a28c00c8f13b516d7ccb8afdce47b8f664ff18f3059e18f3057e\"\n" ++
             "  Physical size: 600x340 mm\n" ++
             "  Enabled: yes\n" ++
             "  Modes:\n" ++
@@ -1039,8 +1061,8 @@ test "outputs render advertised refresh rates and mode flags" {
     try writeOutputsJson(&json_writer, &state);
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"name\":\"DP-1\",\"description\":\"Example Display\\n27-inch\",\"make\":\"Acme\",\"model\":\"Panel\",\"serial\":\"ABC123\",\"physical_size\":{\"width\":600,\"height\":340},\"enabled\":true,\"modes\":[{\"width\":3840,\"height\":2160,\"refresh\":59.997000,\"preferred\":true,\"current\":true},{\"width\":2560,\"height\":1440,\"refresh\":120.000000,\"preferred\":false,\"current\":false},{\"width\":1920,\"height\":1080,\"refresh\":0.000000,\"preferred\":false,\"current\":false}],\"position\":{\"x\":-10,\"y\":20},\"transform\":\"flipped-90\",\"scale\":1.250000,\"adaptive_sync\":true},\n" ++
-            "  {\"name\":\"HEADLESS-1\",\"description\":null,\"make\":null,\"model\":null,\"serial\":null,\"physical_size\":{\"width\":0,\"height\":0},\"enabled\":false,\"modes\":[],\"position\":{\"x\":0,\"y\":0},\"transform\":\"normal\",\"scale\":1.000000,\"adaptive_sync\":false}\n" ++
+            "  {\"name\":\"DP-1\",\"description\":\"Example Display\\n27-inch\",\"make\":\"Acme\",\"model\":\"Panel\",\"serial\":\"ABC123\",\"edid_sha256\":\"sha256:daf5f59252c5a28c00c8f13b516d7ccb8afdce47b8f664ff18f3059e18f3057e\",\"physical_size\":{\"width\":600,\"height\":340},\"enabled\":true,\"modes\":[{\"width\":3840,\"height\":2160,\"refresh\":59.997000,\"preferred\":true,\"current\":true},{\"width\":2560,\"height\":1440,\"refresh\":120.000000,\"preferred\":false,\"current\":false},{\"width\":1920,\"height\":1080,\"refresh\":0.000000,\"preferred\":false,\"current\":false}],\"position\":{\"x\":-10,\"y\":20},\"transform\":\"flipped-90\",\"scale\":1.250000,\"adaptive_sync\":true},\n" ++
+            "  {\"name\":\"HEADLESS-1\",\"description\":null,\"make\":null,\"model\":null,\"serial\":null,\"edid_sha256\":null,\"physical_size\":{\"width\":0,\"height\":0},\"enabled\":false,\"modes\":[],\"position\":{\"x\":0,\"y\":0},\"transform\":\"normal\",\"scale\":1.000000,\"adaptive_sync\":false}\n" ++
             "]\n",
         json_writer.buffered(),
     );
