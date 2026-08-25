@@ -1,0 +1,330 @@
+From: Aqueous contributors <zoey@seafoam-labs.org>
+Subject: [PATCH] output, scene: support compositor-owned Xwayland projection
+
+A rootless Xwayland client needs a physical-pixel output model while ordinary
+Wayland clients continue to consume the compositor's logical model. Add a
+per-client output projection callback and a scene-surface destination scale so
+compositors can implement that policy without changing global output state.
+
+diff --git a/include/wlr/types/wlr_output.h b/include/wlr/types/wlr_output.h
+--- a/include/wlr/types/wlr_output.h
++++ b/include/wlr/types/wlr_output.h
+@@ -325,6 +325,24 @@ struct wlr_output_event_bind {
+ 	struct wlr_output *output;
+ 	struct wl_resource *resource;
+ };
++
++/** Client-specific logical output projection. */
++struct wlr_output_client_projection {
++	int32_t x, y;
++	int32_t width, height;
++	int32_t scale;
++};
++
++typedef bool (*wlr_output_client_projection_func_t)(
++	struct wlr_output *output, struct wl_client *client,
++	struct wlr_output_client_projection *projection, void *data);
++
++void wlr_output_set_client_projection_handler(
++	wlr_output_client_projection_func_t handler, void *data);
++
++bool wlr_output_get_client_projection(struct wlr_output *output,
++	struct wl_client *client,
++	struct wlr_output_client_projection *projection);
+ 
+ enum wlr_output_present_flag {
+ 	// The presentation was synchronized with the vertical retrace
+diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -449,5 +452,20 @@ struct wlr_scene_surface *wlr_scene_surface_try_from_buffer(
+ void wlr_scene_surface_send_frame_done(struct wlr_scene_surface *scene_surface,
+ 	const struct timespec *when);
++/**
++ * Project a surface rendered in physical-pixel coordinates into logical scene
++ * coordinates. Hit testing is transformed back into surface coordinates.
++ */
++void wlr_scene_surface_set_destination_scale(
++	struct wlr_scene_surface *scene_surface, double scale);
++double wlr_scene_surface_get_destination_scale(
++	struct wlr_scene_surface *scene_surface);
++/**
++ * Convert surface-local coordinates to the projected destination coordinate
++ * system used by the scene node.
++ */
++void wlr_scene_surface_map_point_to_destination(
++	struct wlr_scene_surface *scene_surface, double sx, double sy,
++	double *dx, double *dy);
+ 
+ /**
+  * Add a node displaying a solid-colored rectangle to the scene-graph.
+diff --git a/include/wlr/types/wlr_xdg_output_v1.h b/include/wlr/types/wlr_xdg_output_v1.h
+--- a/include/wlr/types/wlr_xdg_output_v1.h
++++ b/include/wlr/types/wlr_xdg_output_v1.h
+@@ -48,4 +48,8 @@ struct wlr_xdg_output_manager_v1 {
+ struct wlr_xdg_output_manager_v1 *wlr_xdg_output_manager_v1_create(
+ 	struct wl_display *display, struct wlr_output_layout *layout);
++
++/** Resend output details, including client-specific projections. */
++void wlr_xdg_output_manager_v1_update(
++	struct wlr_xdg_output_manager_v1 *manager);
+ 
+ #endif
+diff --git a/types/output/output.c b/types/output/output.c
+--- a/types/output/output.c
++++ b/types/output/output.c
+@@ -15,5 +15,24 @@
+ #define OUTPUT_VERSION 4
+ 
++static wlr_output_client_projection_func_t client_projection_handler = NULL;
++static void *client_projection_data = NULL;
++
++void wlr_output_set_client_projection_handler(
++		wlr_output_client_projection_func_t handler, void *data) {
++	client_projection_handler = handler;
++	client_projection_data = data;
++}
++
++bool wlr_output_get_client_projection(struct wlr_output *output,
++		struct wl_client *client,
++		struct wlr_output_client_projection *projection) {
++	if (client_projection_handler == NULL) {
++		return false;
++	}
++	return client_projection_handler(output, client, projection,
++		client_projection_data);
++}
++
+ static void send_geometry(struct wl_resource *resource) {
+ 	struct wlr_output *output = wlr_output_from_resource(resource);
+ 	wl_output_send_geometry(resource, 0, 0,
+@@ -37,7 +56,13 @@ static void send_scale(struct wl_resource *resource) {
+ 	struct wlr_output *output = wlr_output_from_resource(resource);
+ 	uint32_t version = wl_resource_get_version(resource);
+ 	if (version >= WL_OUTPUT_SCALE_SINCE_VERSION) {
+-		wl_output_send_scale(resource, (uint32_t)ceil(output->scale));
++		struct wlr_output_client_projection projection;
++		struct wl_client *client = wl_resource_get_client(resource);
++		if (wlr_output_get_client_projection(output, client, &projection)) {
++			wl_output_send_scale(resource, projection.scale);
++		} else {
++			wl_output_send_scale(resource, (uint32_t)ceil(output->scale));
++		}
+ 	}
+ }
+ 
+diff --git a/types/scene/surface.c b/types/scene/surface.c
+--- a/types/scene/surface.c
++++ b/types/scene/surface.c
+@@ -1,4 +1,5 @@
+ #include <assert.h>
++#include <math.h>
+ #include <stdlib.h>
+ #include <wlr/types/wlr_alpha_modifier_v1.h>
+ #include <wlr/types/wlr_color_management_v1.h>
+@@ -9,6 +10,7 @@
+ #include <wlr/types/wlr_linux_drm_syncobj_v1.h>
+ #include <wlr/types/wlr_output.h>
+ #include <wlr/types/wlr_presentation_time.h>
+ #include <wlr/types/wlr_single_pixel_buffer_v1.h>
++#include <wlr/util/region.h>
+ #include <wlr/util/transform.h>
+ #include "types/wlr_scene.h"
+@@ -15,3 +17,33 @@
++
++struct scene_surface_destination_scale {
++	struct wlr_addon addon;
++	double scale;
++};
++
++static void destination_scale_destroy(struct wlr_addon *addon) {
++	struct scene_surface_destination_scale *state =
++		wl_container_of(addon, state, addon);
++	wlr_addon_finish(&state->addon);
++	free(state);
++}
++
++static const struct wlr_addon_interface destination_scale_impl = {
++	.name = "wlr_scene_surface_destination_scale",
++	.destroy = destination_scale_destroy,
++};
++
++static double scene_surface_destination_scale(
++		struct wlr_scene_surface *scene_surface) {
++	struct wlr_addon *addon = wlr_addon_find(
++		&scene_surface->buffer->node.addons, scene_surface,
++		&destination_scale_impl);
++	if (addon == NULL) {
++		return 1.0;
++	}
++	struct scene_surface_destination_scale *state =
++		wl_container_of(addon, state, addon);
++	return state->scale;
++}
+ 
+ static double get_surface_preferred_buffer_scale(struct wlr_surface *surface) {
+ 	double scale = 1;
+@@ -143,7 +174,9 @@ static void handle_scene_buffer_outputs_update(
+ 		wlr_surface_send_enter(surface->surface, event->active[i]->output);
+ 	}
+ 
+-	double scale = get_surface_preferred_buffer_scale(surface->surface);
++	double destination_scale = scene_surface_destination_scale(surface);
++	double scale = destination_scale == 1.0 ?
++		get_surface_preferred_buffer_scale(surface->surface) : 1.0;
+ 	wlr_fractional_scale_v1_notify_scale(surface->surface, scale);
+ 	wlr_surface_set_preferred_buffer_scale(surface->surface, ceil(scale));
+ 
+@@ -309,14 +342,33 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
+ 		}
+ 	}
+ 
+-	wlr_scene_buffer_set_opaque_region(scene_buffer, &opaque);
++	pixman_region32_t projected_opaque;
++	pixman_region32_init(&projected_opaque);
++	double destination_scale = scene_surface_destination_scale(scene_surface);
++	if (destination_scale != 1.0) {
++		float inverse_scale = 1.0f / (float)destination_scale;
++		wlr_region_scale_xy(&projected_opaque, &opaque,
++			inverse_scale, inverse_scale);
++	} else {
++		pixman_region32_copy(&projected_opaque, &opaque);
++	}
++
++	int destination_width = width;
++	int destination_height = height;
++	if (destination_scale != 1.0) {
++		destination_width = lround((double)width / destination_scale);
++		destination_height = lround((double)height / destination_scale);
++	}
++
++	wlr_scene_buffer_set_opaque_region(scene_buffer, &projected_opaque);
+ 	wlr_scene_buffer_set_source_box(scene_buffer, &src_box);
+-	wlr_scene_buffer_set_dest_size(scene_buffer, width, height);
++	wlr_scene_buffer_set_dest_size(scene_buffer,
++		destination_width, destination_height);
+ 	wlr_scene_buffer_set_transform(scene_buffer, state->transform);
+ 	wlr_scene_buffer_set_opacity(scene_buffer, opacity);
+ 	wlr_scene_buffer_set_transfer_function(scene_buffer, tf);
+ 	wlr_scene_buffer_set_primaries(scene_buffer, primaries);
+ 	wlr_scene_buffer_set_color_encoding(scene_buffer, color_encoding);
+ 	wlr_scene_buffer_set_color_range(scene_buffer, color_range);
+ 
+ 	scene_buffer_unmark_client_buffer(scene_buffer);
+@@ -354,6 +376,7 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
+ 	}
+ 
+ 	pixman_region32_fini(&opaque);
++	pixman_region32_fini(&projected_opaque);
+ }
+ 
+ static void handle_scene_surface_surface_commit(
+@@ -383,8 +436,9 @@ static bool scene_buffer_point_accepts_input(struct wlr_scene_buffer *scene_buffer,
+ 	struct wlr_scene_surface *scene_surface =
+ 		wlr_scene_surface_try_from_buffer(scene_buffer);
+ 
+-	*sx += scene_surface->clip.x;
+-	*sy += scene_surface->clip.y;
++	double scale = scene_surface_destination_scale(scene_surface);
++	*sx = *sx * scale + scene_surface->clip.x;
++	*sy = *sy * scale + scene_surface->clip.y;
+ 
+ 	return wlr_surface_point_accepts_input(scene_surface->surface, *sx, *sy);
+ }
+@@ -462,6 +516,50 @@ struct wlr_scene_surface *wlr_scene_surface_create(struct wlr_scene_tree *parent,
+ 	return surface;
+ }
+ 
++void wlr_scene_surface_set_destination_scale(
++		struct wlr_scene_surface *scene_surface, double scale) {
++	assert(scale > 0.0 && isfinite(scale));
++	struct wlr_addon *addon = wlr_addon_find(
++		&scene_surface->buffer->node.addons, scene_surface,
++		&destination_scale_impl);
++	if (addon != NULL) {
++		struct scene_surface_destination_scale *state =
++			wl_container_of(addon, state, addon);
++		if (state->scale == scale) {
++			return;
++		}
++		state->scale = scale;
++	} else if (scale != 1.0) {
++		struct scene_surface_destination_scale *state = calloc(1, sizeof(*state));
++		if (state == NULL) {
++			return;
++		}
++		state->scale = scale;
++		wlr_addon_init(&state->addon, &scene_surface->buffer->node.addons,
++			scene_surface, &destination_scale_impl);
++	} else {
++		return;
++	}
++	surface_reconfigure(scene_surface);
++	double preferred_scale = scale == 1.0 ?
++		get_surface_preferred_buffer_scale(scene_surface->surface) : 1.0;
++	wlr_fractional_scale_v1_notify_scale(scene_surface->surface, preferred_scale);
++	wlr_surface_set_preferred_buffer_scale(scene_surface->surface, ceil(preferred_scale));
++}
++
++double wlr_scene_surface_get_destination_scale(
++		struct wlr_scene_surface *scene_surface) {
++	return scene_surface_destination_scale(scene_surface);
++}
++
++void wlr_scene_surface_map_point_to_destination(
++		struct wlr_scene_surface *scene_surface, double sx, double sy,
++		double *dx, double *dy) {
++	double scale = scene_surface_destination_scale(scene_surface);
++	*dx = (sx - scene_surface->clip.x) / scale;
++	*dy = (sy - scene_surface->clip.y) / scale;
++}
++
+ void scene_surface_set_clip(struct wlr_scene_surface *surface, struct wlr_box *clip) {
+ 	if (wlr_box_equal(clip, &surface->clip)) {
+ 		return;
+diff --git a/types/wlr_xdg_output_v1.c b/types/wlr_xdg_output_v1.c
+--- a/types/wlr_xdg_output_v1.c
++++ b/types/wlr_xdg_output_v1.c
+@@ -27,9 +27,19 @@ static void output_handle_resource_destroy(struct wl_resource *resource) {
+ static void output_send_details(struct wlr_xdg_output_v1 *xdg_output,
+ 		struct wl_resource *resource) {
+-	zxdg_output_v1_send_logical_position(resource,
+-		xdg_output->x, xdg_output->y);
+-	zxdg_output_v1_send_logical_size(resource,
+-		xdg_output->width, xdg_output->height);
++	struct wlr_output *output = xdg_output->layout_output->output;
++	struct wl_client *client = wl_resource_get_client(resource);
++	struct wlr_output_client_projection projection;
++	if (wlr_output_get_client_projection(output, client, &projection)) {
++		zxdg_output_v1_send_logical_position(resource,
++			projection.x, projection.y);
++		zxdg_output_v1_send_logical_size(resource,
++			projection.width, projection.height);
++	} else {
++		zxdg_output_v1_send_logical_position(resource,
++			xdg_output->x, xdg_output->y);
++		zxdg_output_v1_send_logical_size(resource,
++			xdg_output->width, xdg_output->height);
++	}
+ 	if (wl_resource_get_version(resource) < OUTPUT_DONE_DEPRECATED_SINCE_VERSION) {
+ 		zxdg_output_v1_send_done(resource);
+ 	}
+@@ -211,6 +221,18 @@ static void output_manager_send_details(
+ 	}
+ }
+ 
++void wlr_xdg_output_manager_v1_update(
++		struct wlr_xdg_output_manager_v1 *manager) {
++	struct wlr_xdg_output_v1 *output;
++	wl_list_for_each(output, &manager->outputs, link) {
++		struct wl_resource *resource;
++		wl_resource_for_each(resource, &output->resources) {
++			output_send_details(output, resource);
++		}
++		wlr_output_schedule_done(output->layout_output->output);
++	}
++}
++
+ static void handle_layout_add(struct wl_listener *listener, void *data) {
+ 	struct wlr_xdg_output_manager_v1 *manager =
+ 		wl_container_of(listener, manager, layout_add);

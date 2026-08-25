@@ -42,6 +42,7 @@ const XdgDecoration = @import("XdgDecoration.zig");
 const XdgToplevel = @import("XdgToplevel.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
+const xwayland_projection = @import("xwayland_projection.zig");
 const Aqueous = @import("wm/Aqueous.zig");
 const PolicyMode = @import("wm/Mode.zig").Mode;
 
@@ -139,6 +140,7 @@ xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
 
 xwayland: if (build_options.xwayland) ?*wlr.Xwayland else void = if (build_options.xwayland) null,
+xwayland_scaling: xwayland_projection.Mode = .legacy,
 new_xsurface: if (build_options.xwayland) wl.Listener(*wlr.XwaylandSurface) else void =
     if (build_options.xwayland) .init(handleNewXwaylandSurface),
 
@@ -353,7 +355,12 @@ fn resolveGpuPin(drm_fd: c_int) GpuPin {
     return pin;
 }
 
-pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !void {
+pub fn init(
+    server: *Server,
+    runtime_xwayland: bool,
+    policy_mode: PolicyMode,
+    xwayland_scaling: xwayland_projection.Mode,
+) !void {
     // We intentionally don't try to prevent memory leaks on error in this function
     // since river will exit during initialization anyway if there is an error.
     // This keeps the code simpler and more readable.
@@ -415,6 +422,7 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
         .compositor = compositor,
+        .xwayland_scaling = xwayland_scaling,
         .subcompositor = try wlr.Subcompositor.create(wl_server),
         .cursor_shape_manager = try wlr.CursorShapeManagerV1.create(server.wl_server, 2),
 
@@ -501,6 +509,10 @@ pub fn init(server: *Server, runtime_xwayland: bool, policy_mode: PolicyMode) !v
     if (build_options.xwayland and runtime_xwayland) {
         server.xwayland = try wlr.Xwayland.create(wl_server, compositor, false);
         server.xwayland.?.events.new_surface.add(&server.new_xsurface);
+        if (xwayland_scaling == .native) {
+            wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
+            log.info("using native-resolution embedded Xwayland scaling", .{});
+        }
     }
 
     try server.wm.init();
@@ -544,6 +556,9 @@ pub fn deinit(server: *Server) void {
     server.om.new_output.link.remove();
 
     if (build_options.xwayland) {
+        if (server.xwayland_scaling == .native) {
+            wlr_output_set_client_projection_handler(null, null);
+        }
         if (server.xwayland) |xwayland| {
             server.new_xsurface.link.remove();
             xwayland.destroy();
@@ -582,6 +597,48 @@ pub fn deinit(server: *Server) void {
     server.layer_shell.deinit();
 
     server.wl_server.destroy();
+}
+
+const WlrOutputClientProjection = extern struct {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    scale: i32,
+};
+
+const OutputProjectionHandler = *const fn (
+    output: *wlr.Output,
+    client: *wl.Client,
+    projection: *WlrOutputClientProjection,
+    data: ?*anyopaque,
+) callconv(.c) bool;
+
+extern fn wlr_output_set_client_projection_handler(
+    handler: ?OutputProjectionHandler,
+    data: ?*anyopaque,
+) void;
+
+fn handleXwaylandOutputProjection(
+    output: *wlr.Output,
+    client: *wl.Client,
+    projection: *WlrOutputClientProjection,
+    data: ?*anyopaque,
+) callconv(.c) bool {
+    const self: *Server = @ptrCast(@alignCast(data orelse return false));
+    const xwayland = if (build_options.xwayland) self.xwayland orelse return false else return false;
+    const xwayland_server = xwayland.server orelse return false;
+    if (client != xwayland_server.client) return false;
+
+    const projected = self.om.xwaylandProjectionForOutput(output) orelse return false;
+    projection.* = .{
+        .x = projected.x11.x,
+        .y = projected.x11.y,
+        .width = projected.x11.width,
+        .height = projected.x11.height,
+        .scale = 1,
+    };
+    return true;
 }
 
 fn globalFilter(client: *const wl.Client, global: *const wl.Global, server: *Server) bool {

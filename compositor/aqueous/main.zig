@@ -20,6 +20,7 @@ const process = @import("process.zig");
 
 const Server = @import("Server.zig");
 const PolicyMode = @import("wm/Mode.zig").Mode;
+const XwaylandScalingMode = @import("xwayland_projection.zig").Mode;
 
 const io = Io.Threaded.global_single_threaded.io();
 
@@ -32,6 +33,8 @@ const usage: []const u8 =
     \\  -log-level <level> Set the log level to error, warning, info, or debug.
     \\  -policy <mode>      Select internal policy (or external/compare when built with compatibility support).
     \\  -no-xwayland       Disable xwayland even if built with support.
+    \\  -xwayland-scaling <mode>
+    \\                     Select legacy or native embedded Xwayland scaling.
     \\
 ;
 
@@ -71,6 +74,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .{ .name = "policy", .kind = .arg },
         .{ .name = "log-scopes", .kind = .arg },
         .{ .name = "no-xwayland", .kind = .boolean },
+        .{ .name = "xwayland-scaling", .kind = .arg },
     }).parse(args[1..]) catch {
         try stderr.writeAll(usage);
         try stderr.flush();
@@ -131,6 +135,10 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         }
     }
     const runtime_xwayland = !result.flags.@"no-xwayland";
+    const xwayland_scaling = if (result.flags.@"xwayland-scaling") |value|
+        XwaylandScalingMode.parse(value) orelse fatal("invalid Xwayland scaling mode '{s}'", .{value})
+    else
+        XwaylandScalingMode.legacy;
     const policy_mode = if (result.flags.policy) |value|
         PolicyMode.parse(value) orelse fatal("invalid policy mode '{s}'", .{value})
     else
@@ -160,7 +168,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .warn, .err => .err,
     });
 
-    try server.init(runtime_xwayland, policy_mode);
+    try server.init(runtime_xwayland, policy_mode, xwayland_scaling);
     defer server.deinit();
 
     // wlroots starts the Xwayland process from an idle event source, the reasoning being that

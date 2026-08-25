@@ -12,12 +12,15 @@ FIXTURE_SOURCE="$here/scripts/fixtures/xwayland-input-grab.c"
 VIRTUAL_KEYBOARD_PROTOCOL="$here/protocol/upstream/virtual-keyboard-unstable-v1.xml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
 RENDER_ONLY=${AQUEOUS_XWAYLAND_RENDER_ONLY:-0}
+XWAYLAND_SCALING=${AQUEOUS_XWAYLAND_SCALING:-legacy}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 [[ "$RENDER_ONLY" = 0 || "$RENDER_ONLY" = 1 ]] ||
     die "AQUEOUS_XWAYLAND_RENDER_ONLY must be 0 or 1"
+[[ "$XWAYLAND_SCALING" = legacy || "$XWAYLAND_SCALING" = native ]] ||
+    die "AQUEOUS_XWAYLAND_SCALING must be legacy or native"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || \
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN (build with: zig build -Dxwayland)"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
@@ -93,6 +96,7 @@ run_case() {
     XDG_CONFIG_HOME="$runtime/config" \
     HOME="$runtime/home" \
         "$AQUEOUS_COMPOSITOR_BIN" -policy internal -log-level debug \
+        -xwayland-scaling "$XWAYLAND_SCALING" \
         -c "$FIXTURE_BIN $mode >$CLIENT_LOG 2>&1" \
         >"$COMPOSITOR_LOG" 2>&1 &
     COMPOSITOR_PID=$!

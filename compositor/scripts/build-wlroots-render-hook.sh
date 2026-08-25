@@ -13,6 +13,7 @@ patch_files=(
     "$here/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
     "$here/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
     "$here/patches/wlroots/0007-scene-precise-position.patch"
+    "$here/patches/wlroots/0008-xwayland-native-scaling.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -98,6 +99,11 @@ for symbol in \
     wlr_scene_output_set_render_hooks \
     wlr_scene_node_set_position_f64 \
     wlr_scene_node_coords_f64 \
+    wlr_scene_surface_set_destination_scale \
+    wlr_scene_surface_get_destination_scale \
+    wlr_scene_surface_map_point_to_destination \
+    wlr_output_set_client_projection_handler \
+    wlr_xdg_output_manager_v1_update \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \

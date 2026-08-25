@@ -431,6 +431,17 @@ pub fn build(b: *Build) !void {
         });
         const run_scaling_test = b.addRunArtifact(scaling_test);
 
+        const xwayland_projection_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/xwayland_projection.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_xwayland_projection_test = b.addRunArtifact(xwayland_projection_test);
+
         const visual_state_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/visual_state.zig"),
@@ -590,6 +601,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_global_filter_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);
+        test_step.dependOn(&run_xwayland_projection_test.step);
         test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_aqueous_test.step);

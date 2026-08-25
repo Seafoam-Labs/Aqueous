@@ -153,6 +153,17 @@ pub const State = struct {
         };
     }
 
+    /// Physical mode dimensions after applying the output transform.
+    pub fn physicalDimensions(state: *const State) struct { i32, i32 } {
+        var width: i32, var height: i32 = switch (state.mode) {
+            .standard => |mode| .{ mode.width, mode.height },
+            .custom => |mode| .{ mode.width, mode.height },
+            .none => .{ 0, 0 },
+        };
+        if (@mod(@intFromEnum(state.transform), 2) != 0) mem.swap(i32, &width, &height);
+        return .{ width, height };
+    }
+
     pub fn box(state: *const State) wlr.Box {
         const w, const h = state.dimensions();
         return .{ .x = state.x, .y = state.y, .width = w, .height = h };

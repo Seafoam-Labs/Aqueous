@@ -1410,15 +1410,27 @@ pub fn renderStart(window: *Window) void {
             // the surface actually commits a buffer at the requested size.
             if (xwindow.xsurface.surface) |surface| {
                 if (surface.mapped and surface.current.width > 0 and surface.current.height > 0) {
-                    window.rendering_scheduled.width = @intCast(surface.current.width);
-                    window.rendering_scheduled.height = @intCast(surface.current.height);
+                    const width, const height = xwindow.logicalSize(
+                        math.lossyCast(u16, surface.current.width),
+                        math.lossyCast(u16, surface.current.height),
+                    );
+                    window.rendering_scheduled.width = width;
+                    window.rendering_scheduled.height = height;
                 } else {
-                    window.rendering_scheduled.width = xwindow.xsurface.width;
-                    window.rendering_scheduled.height = xwindow.xsurface.height;
+                    const width, const height = xwindow.logicalSize(
+                        xwindow.xsurface.width,
+                        xwindow.xsurface.height,
+                    );
+                    window.rendering_scheduled.width = width;
+                    window.rendering_scheduled.height = height;
                 }
             } else {
-                window.rendering_scheduled.width = xwindow.xsurface.width;
-                window.rendering_scheduled.height = xwindow.xsurface.height;
+                const width, const height = xwindow.logicalSize(
+                    xwindow.xsurface.width,
+                    xwindow.xsurface.height,
+                );
+                window.rendering_scheduled.width = width;
+                window.rendering_scheduled.height = height;
             }
         },
         .destroying => {},

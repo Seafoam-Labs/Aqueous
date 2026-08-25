@@ -62,6 +62,16 @@ TTY using DRM/KMS. `-policy internal` is accepted explicitly but is also the
 default. Aqueous loads its TOML configuration and directly manages layouts,
 focus, workspaces, bindings, startup commands, screencopy, and outputs.
 
+Embedded XWayland defaults to `-xwayland-scaling legacy`, which preserves the
+traditional logical-resolution desktop. Use `-xwayland-scaling native` to give
+XWayland each output's physical pixel dimensions while Aqueous projects its
+surfaces into the logical scene. Native mode keeps X11 buffers sharp at
+fractional output scales and converts X11 geometry, popups, pointer motion, and
+pointer constraints at the output boundary. It requires the pinned wlroots
+build above. Mixed-scale layouts may contain inert gaps in X11 root coordinates;
+normal window placement and pointer delivery remain aligned with the Wayland
+layout.
+
 The same build produces `zig-out/bin/aqueousctl`. While running inside an
 Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
 `aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
@@ -78,6 +88,19 @@ scripts/test-floating-outputs.sh
 scripts/test-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh
+```
+
+Run the XWayland floating and input coverage at 125% native scaling with:
+
+```sh
+AQUEOUS_OUTPUTS="$PWD/scripts/fixtures/xwayland-native-scaling-outputs.toml" \
+AQUEOUS_XWAYLAND_SCALING=native \
+AQUEOUS_XWAYLAND_POINTER_EXTENT=1024x576 \
+AQUEOUS_XWAYLAND_SCALE_NUMERATOR=5 \
+AQUEOUS_XWAYLAND_SCALE_DENOMINATOR=4 \
+  scripts/test-xwayland-floating.sh
+AQUEOUS_OUTPUTS="$PWD/scripts/fixtures/xwayland-native-scaling-outputs.toml" \
+AQUEOUS_XWAYLAND_SCALING=native scripts/test-xwayland-input.sh
 ```
 
 The xdg fullscreen harness compiles a small native Wayland client and verifies
