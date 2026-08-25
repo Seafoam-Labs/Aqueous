@@ -452,9 +452,12 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
-        for (requested.items) |placement| {
+        for (requested.items) |*placement| {
+            placement.output_scale = output.scale;
+            placement.output_origin_x = output.area.x;
+            placement.output_origin_y = output.area.y;
             aqueous.api.applyPlacement(
-                placement,
+                placement.*,
                 cycle_focus == placement.handle,
             );
         }

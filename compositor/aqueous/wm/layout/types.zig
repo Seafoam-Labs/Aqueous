@@ -61,6 +61,12 @@ pub const Options = struct {
 pub const Placement = struct {
     handle: Handle,
     geometry: Rect,
+    /// Scale of the output which owns this placement. It is deliberately not
+    /// part of layout arithmetic: it resolves compositor geometry onto the
+    /// destination output's physical pixel grid at the rendering boundary.
+    output_scale: f32 = 1,
+    output_origin_x: i32 = 0,
+    output_origin_y: i32 = 0,
     /// Optional rendering clip in window-local coordinates. Layouts which
     /// expose only part of a full-sized window use this to describe their
     /// viewport without changing the configured window dimensions.

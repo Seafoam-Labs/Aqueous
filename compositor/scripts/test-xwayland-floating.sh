@@ -12,6 +12,10 @@ FIXTURE_SOURCE="$here/scripts/fixtures/xwayland-floating-request.c"
 WM_CONFIG="$here/scripts/fixtures/xwayland-floating-wm.toml"
 RULES="$here/scripts/fixtures/xwayland-floating-rules.toml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
+XWAYLAND_SCALING=${AQUEOUS_XWAYLAND_SCALING:-legacy}
+POINTER_EXTENT=${AQUEOUS_XWAYLAND_POINTER_EXTENT:-1280x720}
+SCALE_NUMERATOR=${AQUEOUS_XWAYLAND_SCALE_NUMERATOR:-1}
+SCALE_DENOMINATOR=${AQUEOUS_XWAYLAND_SCALE_DENOMINATOR:-1}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -26,6 +30,14 @@ have() { command -v "$1" >/dev/null 2>&1; }
 for tool in cc jq pkg-config wayland-scanner Xwayland; do
     have "$tool" || die "$tool is required for XWayland floating integration tests"
 done
+[[ "$XWAYLAND_SCALING" = legacy || "$XWAYLAND_SCALING" = native ]] ||
+    die "AQUEOUS_XWAYLAND_SCALING must be legacy or native"
+[[ "$POINTER_EXTENT" =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] ||
+    die "AQUEOUS_XWAYLAND_POINTER_EXTENT must be WIDTHxHEIGHT"
+[[ "$SCALE_NUMERATOR" =~ ^[1-9][0-9]*$ && "$SCALE_DENOMINATOR" =~ ^[1-9][0-9]*$ ]] ||
+    die "XWayland test scale numerator and denominator must be positive integers"
+POINTER_WIDTH=${POINTER_EXTENT%x*}
+POINTER_HEIGHT=${POINTER_EXTENT#*x}
 pkg-config --exists x11 wayland-client || \
     die "X11 and Wayland client development files are required"
 
@@ -80,6 +92,7 @@ run_session() {
     AQUEOUS_CONFIG="$WM_CONFIG" \
     AQUEOUS_RULES="$RULES" \
         "$AQUEOUS_COMPOSITOR_BIN" -policy internal -log-level debug \
+        -xwayland-scaling "$XWAYLAND_SCALING" \
         -c "$FIXTURE_BIN $sync_dir $class >$client_log 2>&1" \
         >"$compositor_log" 2>&1 &
     COMPOSITOR_PID=$!
@@ -171,8 +184,9 @@ run_session() {
     request() {
         local verb=$1 start_x=$2 start_y=$3 end_x=$4 end_y=$5
         rm -f "$sync_dir/done"
-        printf '%s %d %d %d %d 1280 720\n' \
-            "$verb" "$start_x" "$start_y" "$end_x" "$end_y" >"$sync_dir/request"
+        printf '%s %d %d %d %d %d %d\n' \
+            "$verb" "$start_x" "$start_y" "$end_x" "$end_y" \
+            "$POINTER_WIDTH" "$POINTER_HEIGHT" >"$sync_dir/request"
         for _ in $(seq 1 200); do
             kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited during $verb"
             [ -f "$sync_dir/done" ] && return 0
@@ -186,6 +200,30 @@ run_session() {
     local initial initial_x initial_y initial_w initial_h
     initial=$(wait_window)
     read -r initial_x initial_y initial_w initial_h < <(geometry <<<"$initial")
+
+    if [ "$XWAYLAND_SCALING" = native ]; then
+        local root_w root_h x11_x x11_y x11_w x11_h
+        read -r root_w root_h x11_x x11_y x11_w x11_h <"$sync_dir/x11-state"
+        local expected_x expected_y expected_w expected_h
+        [ "$root_w" = 1280 ] && [ "$root_h" = 720 ] ||
+            die "native X11 root was ${root_w}x${root_h}, expected physical 1280x720"
+        for _ in $(seq 1 200); do
+            initial=$(window_json)
+            read -r initial_x initial_y initial_w initial_h < <(geometry <<<"$initial")
+            expected_x=$(((initial_x * SCALE_NUMERATOR + SCALE_DENOMINATOR / 2) / SCALE_DENOMINATOR))
+            expected_y=$(((initial_y * SCALE_NUMERATOR + SCALE_DENOMINATOR / 2) / SCALE_DENOMINATOR))
+            expected_w=$(((initial_w * SCALE_NUMERATOR + SCALE_DENOMINATOR / 2) / SCALE_DENOMINATOR))
+            expected_h=$(((initial_h * SCALE_NUMERATOR + SCALE_DENOMINATOR / 2) / SCALE_DENOMINATOR))
+            if [ "$x11_x" = "$expected_x" ] && [ "$x11_y" = "$expected_y" ] &&
+                [ "$x11_w" = "$expected_w" ] && [ "$x11_h" = "$expected_h" ]; then
+                break
+            fi
+            sleep 0.05
+        done
+        [ "$x11_x" = "$expected_x" ] && [ "$x11_y" = "$expected_y" ] &&
+            [ "$x11_w" = "$expected_w" ] && [ "$x11_h" = "$expected_h" ] ||
+            die "native X11 geometry was $x11_x,$x11_y ${x11_w}x${x11_h}, expected $expected_x,$expected_y ${expected_w}x${expected_h}"
+    fi
 
     if [ "$mode" = explicit ]; then
         jq -e '.states | index("floating") != null' <<<"$initial" >/dev/null ||
@@ -299,4 +337,4 @@ run_session() {
 run_session explicit AqueousXwaylandExplicitFloat
 run_session layout AqueousXwaylandLayoutFloat
 
-echo "PASS: XWayland client move/resize honors explicit and workspace floating policy"
+echo "PASS: $XWAYLAND_SCALING XWayland client move/resize honors explicit and workspace floating policy"

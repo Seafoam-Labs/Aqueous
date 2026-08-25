@@ -12,13 +12,15 @@ patch_files=(
     "$here/patches/wlroots/0004-scene-sdr-white-level.patch"
     "$here/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
     "$here/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
+    "$here/patches/wlroots/0007-scene-precise-position.patch"
+    "$here/patches/wlroots/0008-xwayland-native-scaling.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
 archive="$cache_dir/wlroots-$version.tar.gz"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
-for tool in curl meson ninja patch pkg-config sha256sum tar; do
+for tool in cc curl meson ninja patch pkg-config sha256sum tar; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 pkg-config --atleast-version=1.49 wayland-protocols ||
@@ -95,6 +97,13 @@ for symbol in \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \
     wlr_scene_output_set_render_hooks \
+    wlr_scene_node_set_position_f64 \
+    wlr_scene_node_coords_f64 \
+    wlr_scene_surface_set_destination_scale \
+    wlr_scene_surface_get_destination_scale \
+    wlr_scene_surface_map_point_to_destination \
+    wlr_output_set_client_projection_handler \
+    wlr_xdg_output_manager_v1_update \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
@@ -112,6 +121,13 @@ for symbol in \
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"
 done
+
+probe="$build_root/scene-precise-position"
+cc "$here/scripts/fixtures/wlroots-precise-position.c" \
+    -o "$probe" \
+    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs wlroots-0.20)
+LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$probe" ||
+    die "patched wlroots did not preserve precise scene coordinates"
 
 echo "patched wlroots $version installed at $prefix"
 echo "export PKG_CONFIG_PATH=$prefix/lib/pkgconfig"

@@ -17,6 +17,9 @@ const SlotMap = @import("slotmap").SlotMap;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
+const scaling = @import("scaling");
+
+extern fn wlr_scene_node_set_position_f64(node: *wlr.SceneNode, x: f64, y: f64) void;
 
 const Decoration = @import("Decoration.zig");
 const Output = @import("Output.zig");
@@ -148,6 +151,11 @@ pub const Configure = struct {
 const RenderingRequested = struct {
     x: i32,
     y: i32,
+    precise_x: f64,
+    precise_y: f64,
+    output_scale: f32,
+    output_origin_x: i32,
+    output_origin_y: i32,
     hidden: bool,
     border: Border,
     clip: wlr.Box,
@@ -165,6 +173,11 @@ const RenderingRequested = struct {
     pub const init: RenderingRequested = .{
         .x = 0,
         .y = 0,
+        .precise_x = 0,
+        .precise_y = 0,
+        .output_scale = 1,
+        .output_origin_x = 0,
+        .output_origin_y = 0,
         .hidden = false,
         .border = .{},
         .clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
@@ -510,6 +523,9 @@ pub fn policyApplyPlacement(
     y: i32,
     width: i32,
     height: i32,
+    output_scale: f32,
+    output_origin_x: i32,
+    output_origin_y: i32,
     clip: ?wlr.Box,
     visible: bool,
     border_width: u31,
@@ -535,6 +551,18 @@ pub fn policyApplyPlacement(
     }
     window.rendering_requested.x = x;
     window.rendering_requested.y = y;
+    const grid = scaling.PhysicalGrid.init(output_scale);
+    window.rendering_requested.precise_x = grid.snapFromOrigin(
+        @floatFromInt(x),
+        @floatFromInt(output_origin_x),
+    );
+    window.rendering_requested.precise_y = grid.snapFromOrigin(
+        @floatFromInt(y),
+        @floatFromInt(output_origin_y),
+    );
+    window.rendering_requested.output_scale = output_scale;
+    window.rendering_requested.output_origin_x = output_origin_x;
+    window.rendering_requested.output_origin_y = output_origin_y;
     // Placement is a complete rendering contract. Clear clips requested by a
     // previous scrolling layout when the new layout does not provide one.
     window.rendering_requested.clip = clip orelse .{ .x = 0, .y = 0, .width = 0, .height = 0 };
@@ -611,6 +639,9 @@ pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {
     hasher.update(std.mem.asBytes(&dimensions.height));
     hasher.update(std.mem.asBytes(&window.rendering_requested.x));
     hasher.update(std.mem.asBytes(&window.rendering_requested.y));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.precise_x));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.precise_y));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.output_scale));
     hasher.update(std.mem.asBytes(&window.rendering_requested.hidden));
     const fullscreen = window.wm_requested.fullscreen != null;
     hasher.update(std.mem.asBytes(&fullscreen));
@@ -1033,6 +1064,11 @@ fn handleDestroy(_: *river.WindowV1, window: *Window) void {
     window.rendering_requested = .{
         .x = window.rendering_requested.x,
         .y = window.rendering_requested.y,
+        .precise_x = window.rendering_requested.precise_x,
+        .precise_y = window.rendering_requested.precise_y,
+        .output_scale = window.rendering_requested.output_scale,
+        .output_origin_x = window.rendering_requested.output_origin_x,
+        .output_origin_y = window.rendering_requested.output_origin_y,
         .hidden = false,
         .border = .{},
         .clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
@@ -1374,15 +1410,27 @@ pub fn renderStart(window: *Window) void {
             // the surface actually commits a buffer at the requested size.
             if (xwindow.xsurface.surface) |surface| {
                 if (surface.mapped and surface.current.width > 0 and surface.current.height > 0) {
-                    window.rendering_scheduled.width = @intCast(surface.current.width);
-                    window.rendering_scheduled.height = @intCast(surface.current.height);
+                    const width, const height = xwindow.logicalSize(
+                        math.lossyCast(u16, surface.current.width),
+                        math.lossyCast(u16, surface.current.height),
+                    );
+                    window.rendering_scheduled.width = width;
+                    window.rendering_scheduled.height = height;
                 } else {
-                    window.rendering_scheduled.width = xwindow.xsurface.width;
-                    window.rendering_scheduled.height = xwindow.xsurface.height;
+                    const width, const height = xwindow.logicalSize(
+                        xwindow.xsurface.width,
+                        xwindow.xsurface.height,
+                    );
+                    window.rendering_scheduled.width = width;
+                    window.rendering_scheduled.height = height;
                 }
             } else {
-                window.rendering_scheduled.width = xwindow.xsurface.width;
-                window.rendering_scheduled.height = xwindow.xsurface.height;
+                const width, const height = xwindow.logicalSize(
+                    xwindow.xsurface.width,
+                    xwindow.xsurface.height,
+                );
+                window.rendering_scheduled.width = width;
+                window.rendering_scheduled.height = height;
             }
         },
         .destroying => {},
@@ -1562,8 +1610,16 @@ pub fn renderFinish(window: *Window) void {
     // animation clone and keeps the live surfaces invisible at the target so
     // scene hit-testing / input stay correct.
     window.applySurfaceVisualState();
-    window.tree.node.setPosition(window.box.x, window.box.y);
-    window.popup_tree.node.setPosition(window.box.x, window.box.y);
+    wlr_scene_node_set_position_f64(
+        &window.tree.node,
+        requested.precise_x,
+        requested.precise_y,
+    );
+    wlr_scene_node_set_position_f64(
+        &window.popup_tree.node,
+        requested.precise_x,
+        requested.precise_y,
+    );
 
     switch (window.impl) {
         .xwayland => |*xwindow| _ = xwindow.configure(),
@@ -1761,10 +1817,7 @@ fn armSnapshot(window: *Window) void {
         window.anim_buffers.clearRetainingCapacity();
         return;
     }
-    window.anim_tree.node.setPosition(
-        @intFromFloat(@round(window.anim_x)),
-        @intFromFloat(@round(window.anim_y)),
-    );
+    window.setPreciseAnimationPosition();
     window.anim_tree.node.raiseToTop();
     window.anim_tree.node.setEnabled(true);
     window.anim_snapshot = true;
@@ -1871,13 +1924,22 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
         return true;
     }
 
-    window.anim_tree.node.setPosition(
-        @intFromFloat(@round(window.anim_x)),
-        @intFromFloat(@round(window.anim_y)),
-    );
+    window.setPreciseAnimationPosition();
     window.updateAnimationClip();
 
     return true;
+}
+
+fn setPreciseAnimationPosition(window: *Window) void {
+    const requested = &window.rendering_requested;
+    const grid = scaling.PhysicalGrid.init(requested.output_scale);
+    const origin_x: f64 = @floatFromInt(requested.output_origin_x);
+    const origin_y: f64 = @floatFromInt(requested.output_origin_y);
+    wlr_scene_node_set_position_f64(
+        &window.anim_tree.node,
+        grid.snapFromOrigin(window.anim_x, origin_x),
+        grid.snapFromOrigin(window.anim_y, origin_y),
+    );
 }
 
 const AnimBuffer = struct {

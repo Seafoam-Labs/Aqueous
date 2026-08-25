@@ -1,6 +1,6 @@
 # Output scaling — test & regression matrix
 
-This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
+This document tracks how the output-scaling pipeline (Phases 1–6) is verified.
 
 ## Pipeline recap
 
@@ -16,6 +16,10 @@ This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
   (fractional) and `preferred_buffer_scale`.
 - **P5** — the server-drawn xcursor theme reloads per active output scale
   (`Cursor.loadActiveScales` / `Cursor.reloadScales`).
+- **P6** — policy placements retain their owning output's scale and origin.
+  Static window roots and eased animation roots snap in output-local physical
+  pixels, then convert back to precise logical coordinates for scene rendering.
+  XDG configure dimensions and input geometry remain integral.
 
 ## Automated coverage
 
@@ -23,10 +27,18 @@ This document tracks how the output-scaling pipeline (Phases 1–5) is verified.
 
 | Test | Module | Asserts |
 |---|---|---|
-| `clampScale bounds` | `river/scaling.zig` | clamp to `[0.5, 3.0]` |
-| `roundScale snaps to 1/120` | `river/scaling.zig` | fractional-scale exactness |
-| `normalizeScale clamps then rounds` | `river/scaling.zig` | P1 composition |
-| `logicalDimension rounds non-even divisions` | `river/scaling.zig` | physical→logical rounding for `Output.State.dimensions` |
+| `clampScale bounds` | `aqueous/scaling.zig` | clamp to `[0.5, 3.0]` |
+| `roundScale snaps to 1/120` | `aqueous/scaling.zig` | fractional-scale exactness |
+| `normalizeScale clamps then rounds` | `aqueous/scaling.zig` | P1 composition |
+| `logicalDimension rounds non-even divisions` | `aqueous/scaling.zig` | physical→logical rounding for `Output.State.dimensions` |
+| `physical grid snaps logical origins without subpixel filtering` | `aqueous/scaling.zig` | P6 physical-boundary round trip at 1.25× |
+| `physical grid follows each output scale` | `aqueous/scaling.zig` | P6 mixed-scale ownership |
+| `physical grid is local to the owning output origin` | `aqueous/scaling.zig` | P6 non-zero mixed-scale output origins |
+
+The patched-wlroots build also compiles and executes
+`scripts/fixtures/wlroots-precise-position.c`. The probe verifies that nested
+precise scene positions survive as doubles and that the legacy integer setter
+cleanly returns a node to integer positioning.
 
 ### Headless integration (`bash scripts/test-scaling.sh`)
 
@@ -68,7 +80,13 @@ has been retired; the daemon's socket protocol is unchanged.)
 
 ## Known limitations
 
-- Xwayland clients keep their own DPI story and stay at scale 1; soft rendering
-  on a fractional output is expected, not a regression.
+- Managed Wayland windows use the P6 precise scene path. Layer-shell and
+  override-redirect roots still use wlroots' integer scene placement; they are
+  rendered on physical boundaries, but do not yet get fractional animation
+  coordinates.
+- Embedded Xwayland clients keep their own DPI story and stay at scale 1; soft
+  rendering on a fractional output remains expected. Matching niri here also
+  requires a native-resolution Xwayland strategy (such as its satellite
+  process), which is independent of Wayland fractional scene placement.
 - The headless backend can confirm protocol events but not pixel crispness;
   that part of the matrix stays manual.

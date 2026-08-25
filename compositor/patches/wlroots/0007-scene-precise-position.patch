@@ -1,0 +1,267 @@
+scene: preserve precise positions until physical output rendering
+
+Keep the existing integer scene ABI for hit-testing and protocol-facing
+geometry, but allow compositor-owned nodes to retain a double-precision
+logical origin. Destination edges are rounded only after applying the output
+scale, preventing fractional animation coordinates from being filtered
+between physical pixels.
+
+Precise positions live in a node addon, so this remains ABI-compatible with
+zig-wlroots and existing wlroots scene users.
+
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -341,6 +341,14 @@
+  */
+ void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y);
+ /**
++ * Set a precise logical position for the node relative to its parent.
++ *
++ * Precise coordinates are retained until output rendering, where their edges
++ * are rounded to physical pixels. Integer scene APIs remain ABI-compatible.
++ */
++void wlr_scene_node_set_position_f64(struct wlr_scene_node *node,
++	double x, double y);
++/**
+  * Move the node right above the specified sibling.
+  * Asserts that node and sibling are distinct and share the same parent.
+  */
+@@ -372,6 +380,11 @@
+  */
+ bool wlr_scene_node_coords(struct wlr_scene_node *node, int *lx, int *ly);
+ /**
++ * Get the node's precise layout-local coordinates.
++ */
++bool wlr_scene_node_coords_f64(struct wlr_scene_node *node,
++	double *lx, double *ly);
++/**
+  * Call `iterator` on each buffer in the scene-graph, with the buffer's
+  * position in layout coordinates. The function is called from root to leaves
+  * (in rendering order).
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -69,6 +69,39 @@
+ 	return scene;
+ }
+ 
++struct scene_node_precise_position {
++	struct wlr_addon addon;
++	double x, y;
++};
++
++static void scene_node_precise_position_destroy(struct wlr_addon *addon) {
++	struct scene_node_precise_position *position =
++		wl_container_of(addon, position, addon);
++	wlr_addon_finish(&position->addon);
++	free(position);
++}
++
++static const struct wlr_addon_interface scene_node_precise_position_impl = {
++	.name = "wlr_scene_node_precise_position",
++	.destroy = scene_node_precise_position_destroy,
++};
++
++static struct scene_node_precise_position *scene_node_get_precise_position(
++		struct wlr_scene_node *node) {
++	struct wlr_addon *addon = wlr_addon_find(&node->addons, NULL,
++		&scene_node_precise_position_impl);
++	return addon == NULL ? NULL : wl_container_of(addon,
++		(struct scene_node_precise_position *)NULL, addon);
++}
++
++static void scene_node_local_position(struct wlr_scene_node *node,
++		double *x, double *y) {
++	struct scene_node_precise_position *position =
++		scene_node_get_precise_position(node);
++	*x = position != NULL ? position->x : node->x;
++	*y = position != NULL ? position->y : node->y;
++}
++
+ static void scene_node_init(struct wlr_scene_node *node,
+ 		enum wlr_scene_node_type type, struct wlr_scene_tree *parent) {
+ 	*node = (struct wlr_scene_node){
+@@ -359,20 +392,24 @@
+ 		wlr_output_transform_invert(output->transform), width, height);
+ }
+ 
+-static int scale_length(int length, int offset, float scale) {
+-	return round((offset + length) * scale) - round(offset * scale);
+-}
+-
+-static void scale_box(struct wlr_box *box, float scale) {
+-	box->width = scale_length(box->width, box->x, scale);
+-	box->height = scale_length(box->height, box->y, scale);
+-	box->x = round(box->x * scale);
+-	box->y = round(box->y * scale);
++static void scale_fbox_to_box(struct wlr_box *box, double x, double y,
++		int width, int height, float scale) {
++	int left = round(x * scale);
++	int top = round(y * scale);
++	int right = round((x + width) * scale);
++	int bottom = round((y + height) * scale);
++	*box = (struct wlr_box){
++		.x = left,
++		.y = top,
++		.width = right - left,
++		.height = bottom - top,
++	};
+ }
+ 
+-static void transform_output_box(struct wlr_box *box, const struct render_data *data) {
++static void transform_output_fbox(struct wlr_box *box, double x, double y,
++		int width, int height, const struct render_data *data) {
+ 	enum wl_output_transform transform = wlr_output_transform_invert(data->transform);
+-	scale_box(box, data->scale);
++	scale_fbox_to_box(box, x, y, width, height, data->scale);
+ 	wlr_box_transform(box, box, transform, data->trans_width, data->trans_height);
+ }
+ 
+@@ -1296,15 +1333,51 @@
+ }
+ 
+ void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
+-	if (node->x == x && node->y == y) {
++	struct scene_node_precise_position *position =
++		scene_node_get_precise_position(node);
++	if (position == NULL && node->x == x && node->y == y) {
+ 		return;
+ 	}
+-
++	if (position != NULL) {
++		scene_node_precise_position_destroy(&position->addon);
++	}
+ 	node->x = x;
+ 	node->y = y;
+ 	scene_node_update(node, NULL);
+ }
+ 
++void wlr_scene_node_set_position_f64(struct wlr_scene_node *node,
++		double x, double y) {
++	assert(isfinite(x) && isfinite(y));
++	struct scene_node_precise_position *position =
++		scene_node_get_precise_position(node);
++	double old_x = position != NULL ? position->x : node->x;
++	double old_y = position != NULL ? position->y : node->y;
++	if (old_x == x && old_y == y) {
++		return;
++	}
++
++	if (position == NULL) {
++		position = calloc(1, sizeof(*position));
++		if (position == NULL) {
++			// Preserve the existing infallible API contract under memory pressure.
++			node->x = round(x);
++			node->y = round(y);
++			scene_node_update(node, NULL);
++			return;
++		}
++		wlr_addon_init(&position->addon, &node->addons, NULL,
++			&scene_node_precise_position_impl);
++	}
++	position->x = x;
++	position->y = y;
++	// Integer APIs, hit-testing and conservative visibility retain their
++	// historical coordinate space. Rendering uses the precise values below.
++	node->x = round(x);
++	node->y = round(y);
++	scene_node_update(node, NULL);
++}
++
+ void wlr_scene_node_place_above(struct wlr_scene_node *node,
+ 		struct wlr_scene_node *sibling) {
+ 	assert(node != sibling);
+@@ -1400,6 +1473,29 @@
+ 	return enabled;
+ }
+ 
++bool wlr_scene_node_coords_f64(struct wlr_scene_node *node,
++		double *lx_ptr, double *ly_ptr) {
++	assert(node);
++
++	double lx = 0, ly = 0;
++	bool enabled = true;
++	while (true) {
++		double x, y;
++		scene_node_local_position(node, &x, &y);
++		lx += x;
++		ly += y;
++		enabled = enabled && node->enabled;
++		if (node->parent == NULL) {
++			break;
++		}
++		node = &node->parent->node;
++	}
++
++	*lx_ptr = lx;
++	*ly_ptr = ly;
++	return enabled;
++}
++
+ static void scene_node_for_each_scene_buffer(struct wlr_scene_node *node,
+ 		int lx, int ly, wlr_scene_buffer_iterator_func_t user_iterator,
+ 		void *user_data) {
+@@ -1492,7 +1578,7 @@
+ struct render_list_entry {
+ 	struct wlr_scene_node *node;
+ 	bool highlight_transparent_region;
+-	int x, y;
++	double x, y;
+ };
+ 
+ #if WLR_HAS_VULKAN_RENDERER
+@@ -1534,19 +1620,17 @@
+ 			&render_region, data->output->render_hook_data);
+ 	}
+ 
+-	int x = entry->x - data->logical.x;
+-	int y = entry->y - data->logical.y;
++	double x = entry->x - data->logical.x;
++	double y = entry->y - data->logical.y;
+ 
+-	struct wlr_box dst_box = {
+-		.x = x,
+-		.y = y,
+-	};
+-	scene_node_get_size(node, &dst_box.width, &dst_box.height);
+-	transform_output_box(&dst_box, data);
++	int width, height;
++	scene_node_get_size(node, &width, &height);
++	struct wlr_box dst_box;
++	transform_output_fbox(&dst_box, x, y, width, height, data);
+ 
+ 	pixman_region32_t opaque;
+ 	pixman_region32_init(&opaque);
+-	scene_node_opaque_region(node, x, y, &opaque);
++	scene_node_opaque_region(node, round(x), round(y), &opaque);
+ 	logical_to_buffer_coords(&opaque, data, false);
+ 	pixman_region32_subtract(&opaque, &render_region, &opaque);
+ 
+@@ -2159,10 +2243,9 @@
+ 
+ 	*entry = (struct render_list_entry){
+ 		.node = node,
+-		.x = lx,
+-		.y = ly,
+ 		.highlight_transparent_region = data->highlight_transparent_region,
+ 	};
++	wlr_scene_node_coords_f64(node, &entry->x, &entry->y);
+ 
+ 	return false;
+ }
+@@ -2322,11 +2405,11 @@
+ 	}
+ 
+ 	// Translate the position from scene coordinates to output coordinates
+-	pending.buffer_dst_box.x = entry->x - scene_output->x;
+-	pending.buffer_dst_box.y = entry->y - scene_output->y;
+-
+-	scene_node_get_size(node, &pending.buffer_dst_box.width, &pending.buffer_dst_box.height);
+-	transform_output_box(&pending.buffer_dst_box, data);
++	double x = entry->x - scene_output->x;
++	double y = entry->y - scene_output->y;
++	int width, height;
++	scene_node_get_size(node, &width, &height);
++	transform_output_fbox(&pending.buffer_dst_box, x, y, width, height, data);
+ 
+ 	struct wlr_buffer *wlr_buffer = buffer->buffer;
+ 	struct wlr_client_buffer *client_buffer = wlr_client_buffer_get(wlr_buffer);

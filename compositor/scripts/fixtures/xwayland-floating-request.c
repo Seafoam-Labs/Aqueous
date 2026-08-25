@@ -61,6 +61,51 @@ static bool publish_marker(const struct app *app, const char *name) {
     return file != NULL && fclose(file) == 0;
 }
 
+static bool publish_x11_state(struct app *app) {
+    Window root_return;
+    int x, y;
+    unsigned int width, height, border_width, depth;
+    if (XGetGeometry(
+            app->xdisplay,
+            app->window,
+            &root_return,
+            &x,
+            &y,
+            &width,
+            &height,
+            &border_width,
+            &depth) == 0) {
+        return false;
+    }
+    Window child;
+    int root_x, root_y;
+    if (XTranslateCoordinates(
+            app->xdisplay,
+            app->window,
+            app->root,
+            0,
+            0,
+            &root_x,
+            &root_y,
+            &child) == 0) {
+        return false;
+    }
+    char path[PATH_MAX];
+    if (!sync_path(path, sizeof(path), app, "x11-state")) return false;
+    FILE *file = fopen(path, "w");
+    if (file == NULL) return false;
+    const int written = fprintf(
+        file,
+        "%d %d %d %d %u %u\n",
+        DisplayWidth(app->xdisplay, DefaultScreen(app->xdisplay)),
+        DisplayHeight(app->xdisplay, DefaultScreen(app->xdisplay)),
+        root_x,
+        root_y,
+        width,
+        height);
+    return written > 0 && fclose(file) == 0;
+}
+
 static void registry_global(
     void *data,
     struct wl_registry *registry,
@@ -394,8 +439,8 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    if (!publish_marker(&app, "ready")) {
-        fprintf(stderr, "FAIL: could not publish ready marker\n");
+    if (!publish_x11_state(&app) || !publish_marker(&app, "ready")) {
+        fprintf(stderr, "FAIL: could not publish initial X11 state\n");
         destroy_app(&app);
         return 1;
     }

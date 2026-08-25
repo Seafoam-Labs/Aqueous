@@ -9,6 +9,7 @@ const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 
 const util = @import("util.zig");
+const scene_surface_projection = @import("scene_surface_projection.zig");
 
 const Seat = @import("Seat.zig");
 
@@ -239,8 +240,13 @@ pub fn updateState(constraint: *PointerConstraint) void {
 
     const sx = constraint.state.active.sx;
     const sy = constraint.state.active.sy;
-    const warp_lx = @as(f64, @floatFromInt(lx)) + sx;
-    const warp_ly = @as(f64, @floatFromInt(ly)) + sy;
+    const destination = scene_surface_projection.surfaceToDestination(
+        constraint.state.active.node,
+        sx,
+        sy,
+    );
+    const warp_lx = @as(f64, @floatFromInt(lx)) + destination.x;
+    const warp_ly = @as(f64, @floatFromInt(ly)) + destination.y;
     if (!seat.cursor.wlr_cursor.warp(null, warp_lx, warp_ly)) {
         log.info("deactivating pointer constraint, could not warp cursor", .{});
         constraint.deactivate();
@@ -263,12 +269,13 @@ pub fn confine(constraint: *PointerConstraint, dx: *f64, dy: *f64) void {
     const region = &constraint.wlr_constraint.region;
     const sx = constraint.state.active.sx;
     const sy = constraint.state.active.sy;
+    const scale = scene_surface_projection.scale(constraint.state.active.node);
     var new_sx: f64 = undefined;
     var new_sy: f64 = undefined;
-    assert(wlr.region.confine(region, sx, sy, sx + dx.*, sy + dy.*, &new_sx, &new_sy));
+    assert(wlr.region.confine(region, sx, sy, sx + dx.* * scale, sy + dy.* * scale, &new_sx, &new_sy));
 
-    dx.* = new_sx - sx;
-    dy.* = new_sy - sy;
+    dx.* = (new_sx - sx) / scale;
+    dy.* = (new_sy - sy) / scale;
 
     constraint.state.active.sx = new_sx;
     constraint.state.active.sy = new_sy;
@@ -325,8 +332,17 @@ fn warpToHintIfSet(constraint: *PointerConstraint) void {
         const point = seat.cursor.clampSurfacePoint(constraint.state.active.node, constraint.wlr_constraint.current.cursor_hint.x, constraint.wlr_constraint.current.cursor_hint.y);
         const sx = point.sx;
         const sy = point.sy;
+        const destination = scene_surface_projection.surfaceToDestination(
+            constraint.state.active.node,
+            sx,
+            sy,
+        );
         seat.cursor.invalidateLastSent();
-        _ = seat.cursor.wlr_cursor.warp(null, @as(f64, @floatFromInt(lx)) + sx, @as(f64, @floatFromInt(ly)) + sy);
+        _ = seat.cursor.wlr_cursor.warp(
+            null,
+            @as(f64, @floatFromInt(lx)) + destination.x,
+            @as(f64, @floatFromInt(ly)) + destination.y,
+        );
         _ = seat.wlr_seat.pointerWarp(sx, sy);
         seat.cursor.invalidateLastSent();
     }

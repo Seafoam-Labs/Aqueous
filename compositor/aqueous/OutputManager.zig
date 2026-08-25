@@ -24,6 +24,7 @@ const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 const OutputConfig = @import("wm/output/config.zig");
 const autolayout = @import("wm/output/autolayout.zig");
 const mode_match = @import("wm/output/mode_match.zig");
+const xwayland_projection = @import("xwayland_projection.zig");
 
 const log = std.log.scoped(.output);
 
@@ -759,10 +760,104 @@ pub fn commitOutputState(om: *OutputManager) void {
         }
     }
 
+    if (build_options.xwayland and server.xwayland != null and
+        server.xwayland_scaling == .native)
+    {
+        wlr_xdg_output_manager_v1_update(om.xdg_output_manager);
+    }
+
     om.sendConfig() catch {
         log.err("out of memory", .{});
     };
     server.aqueous.output_service.outputsChanged(false);
+}
+
+extern fn wlr_xdg_output_manager_v1_update(manager: *wlr.XdgOutputManagerV1) void;
+
+const ProjectionSet = struct {
+    specs: [OutputConfig.max_outputs]xwayland_projection.Output = undefined,
+    outputs: [OutputConfig.max_outputs]*Output = undefined,
+    len: usize = 0,
+
+    fn projection(set: *const ProjectionSet, index: usize) xwayland_projection.Projection {
+        return xwayland_projection.project(set.specs[0..set.len], index);
+    }
+};
+
+fn xwaylandProjectionSet(om: *OutputManager) ProjectionSet {
+    var set: ProjectionSet = .{};
+    var it = om.outputs.iterator(.forward);
+    while (it.next()) |output| {
+        if (set.len == set.specs.len) break;
+        if (output.wlr_output == null) continue;
+        switch (output.current.state) {
+            .enabled, .disabled_soft => {},
+            .disabled_hard, .destroying => continue,
+        }
+        const logical = output.current.box();
+        if (logical.empty()) continue;
+        const physical_width, const physical_height = output.current.physicalDimensions();
+        if (physical_width <= 0 or physical_height <= 0) continue;
+        set.specs[set.len] = .{
+            .logical = .{
+                .x = logical.x,
+                .y = logical.y,
+                .width = logical.width,
+                .height = logical.height,
+            },
+            .physical_width = physical_width,
+            .physical_height = physical_height,
+            .scale = output.current.scale,
+        };
+        set.outputs[set.len] = output;
+        set.len += 1;
+    }
+    return set;
+}
+
+pub fn xwaylandProjectionForOutput(
+    om: *OutputManager,
+    wlr_output: *wlr.Output,
+) ?xwayland_projection.Projection {
+    const set = om.xwaylandProjectionSet();
+    for (set.outputs[0..set.len], 0..) |output, index| {
+        if (output.wlr_output == wlr_output) return set.projection(index);
+    }
+    return null;
+}
+
+pub fn xwaylandProjectionForLogicalBox(
+    om: *OutputManager,
+    box: wlr.Box,
+) ?xwayland_projection.Projection {
+    const set = om.xwaylandProjectionSet();
+    var best_index: ?usize = null;
+    var best_area: i64 = -1;
+    for (set.specs[0..set.len], 0..) |spec, index| {
+        const left = @max(box.x, spec.logical.x);
+        const top = @max(box.y, spec.logical.y);
+        const right = @min(box.x + box.width, spec.logical.x + spec.logical.width);
+        const bottom = @min(box.y + box.height, spec.logical.y + spec.logical.height);
+        const area: i64 = @as(i64, @max(0, right - left)) * @as(i64, @max(0, bottom - top));
+        if (area > best_area) {
+            best_area = area;
+            best_index = index;
+        }
+    }
+    return if (best_index) |index| set.projection(index) else null;
+}
+
+pub fn xwaylandProjectionForX11Point(
+    om: *OutputManager,
+    x: f64,
+    y: f64,
+) ?xwayland_projection.Projection {
+    const set = om.xwaylandProjectionSet();
+    for (set.specs[0..set.len], 0..) |_, index| {
+        const projection = set.projection(index);
+        if (projection.x11.contains(x, y)) return projection;
+    }
+    return if (set.len > 0) set.projection(0) else null;
 }
 
 fn modesetFailed(om: *OutputManager) void {

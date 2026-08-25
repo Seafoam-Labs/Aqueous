@@ -19,6 +19,12 @@ const Window = @import("Window.zig");
 const XwaylandWindow = @import("XwaylandWindow.zig");
 
 const log = std.log.scoped(.xwayland);
+const xwayland_projection = @import("xwayland_projection.zig");
+
+extern fn wlr_scene_surface_set_destination_scale(
+    scene_surface: *wlr.SceneSurface,
+    scale: f64,
+) void;
 
 xsurface: *wlr.XwaylandSurface,
 surface_tree: ?*wlr.SceneTree = null,
@@ -133,10 +139,7 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
 
     surface.data = &override_redirect.surface_tree.?.node;
 
-    override_redirect.surface_tree.?.node.setPosition(
-        override_redirect.xsurface.x,
-        override_redirect.xsurface.y,
-    );
+    override_redirect.applyProjection();
 
     override_redirect.xsurface.events.set_geometry.add(&override_redirect.set_geometry);
     // As with managed XWayland windows, run after the scene helper's commit
@@ -157,6 +160,7 @@ fn mapImpl(override_redirect: *XwaylandOverrideRedirect) error{OutOfMemory}!void
 
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("commit", listener);
+    override_redirect.applyProjection();
     override_redirect.applyOpacity();
 }
 
@@ -376,11 +380,52 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
 
 fn handleSetGeometry(listener: *wl.Listener(void)) void {
     const override_redirect: *XwaylandOverrideRedirect = @fieldParentPtr("set_geometry", listener);
+    override_redirect.applyProjection();
+}
 
-    override_redirect.surface_tree.?.node.setPosition(
+fn projection(override_redirect: *XwaylandOverrideRedirect) ?xwayland_projection.Projection {
+    if (server.xwayland_scaling != .native) return null;
+    if (override_redirect.owner) |owner_ref| {
+        if (owner_ref.get()) |owner| {
+            if (owner.impl == .xwayland) return owner.impl.xwayland.projection();
+        }
+    }
+    if (override_redirect.resolveOwner()) |owner| {
+        override_redirect.owner = owner.ref;
+        if (owner.impl == .xwayland) return owner.impl.xwayland.projection();
+    }
+    return server.om.xwaylandProjectionForX11Point(
         override_redirect.xsurface.x,
         override_redirect.xsurface.y,
     );
+}
+
+fn applyProjection(override_redirect: *XwaylandOverrideRedirect) void {
+    const tree = override_redirect.surface_tree orelse return;
+    if (override_redirect.projection()) |projected| {
+        const logical_x, const logical_y = projected.x11ToLogicalPoint(
+            override_redirect.xsurface.x,
+            override_redirect.xsurface.y,
+        );
+        tree.node.setPosition(
+            @intFromFloat(@round(logical_x)),
+            @intFromFloat(@round(logical_y)),
+        );
+        var scale = projected.scale;
+        tree.node.forEachBuffer(*f64, setSurfaceScaleIterator, &scale);
+    } else {
+        tree.node.setPosition(override_redirect.xsurface.x, override_redirect.xsurface.y);
+    }
+}
+
+fn setSurfaceScaleIterator(
+    buffer: *wlr.SceneBuffer,
+    _: c_int,
+    _: c_int,
+    scale: *f64,
+) void {
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+    wlr_scene_surface_set_destination_scale(scene_surface, scale.*);
 }
 
 fn handleSetOverrideRedirect(listener: *wl.Listener(void)) void {

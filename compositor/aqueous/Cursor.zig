@@ -15,6 +15,7 @@ const zwlr = wayland.server.zwlr;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
+const scene_surface_projection = @import("scene_surface_projection.zig");
 const cursor_lock_restore = @import("cursor_lock_restore.zig");
 
 const DragIcon = @import("DragIcon.zig");
@@ -47,6 +48,7 @@ const Mode = union(enum) {
         // Initial cursor position in surface-local coordinates
         sx: f64,
         sy: f64,
+        surface_scale: f64,
     },
     op: struct {
         /// Window coordinates are stored as i32s as they are in logical pixels.
@@ -474,11 +476,12 @@ pub fn beginPointerLock(cursor: *Cursor, node: *wlr.SceneNode, sx: f64, sy: f64,
 
 pub fn restorePointerLock(cursor: *Cursor, node: *wlr.SceneNode, sx: f64, sy: f64, time_msec: u32) void {
     const point = cursor.clampSurfacePoint(node, sx, sy);
+    const destination = scene_surface_projection.surfaceToDestination(node, point.sx, point.sy);
     var lx: c_int = undefined;
     var ly: c_int = undefined;
     if (node.coords(&lx, &ly)) {
-        const layout_x = @as(f64, @floatFromInt(lx)) + point.sx;
-        const layout_y = @as(f64, @floatFromInt(ly)) + point.sy;
+        const layout_x = @as(f64, @floatFromInt(lx)) + destination.x;
+        const layout_y = @as(f64, @floatFromInt(ly)) + destination.y;
         cursor.wlr_cursor.warpClosest(null, layout_x, layout_y);
         cursor.last_sent_lx = layout_x;
         cursor.last_sent_ly = layout_y;
@@ -534,13 +537,14 @@ fn processMotionRelativeInternal(
     if (cursor.suppressTransitionMotion(event)) return;
 
     if (send_relative_motion) {
+        const scale = cursor.focusedSurfaceScale();
         server.input_manager.relative_pointer_manager.sendRelativeMotion(
             cursor.seat.wlr_seat,
             @as(u64, event.time_msec) * 1000,
-            event.delta_x,
-            event.delta_y,
-            event.unaccel_dx,
-            event.unaccel_dy,
+            event.delta_x * scale,
+            event.delta_y * scale,
+            event.unaccel_dx * scale,
+            event.unaccel_dy * scale,
         );
     }
 
@@ -570,8 +574,8 @@ fn processMotionRelativeInternal(
                 .down => |data| {
                     cursor.seat.wlr_seat.pointerNotifyMotion(
                         event.time_msec,
-                        data.sx + (cursor.wlr_cursor.x - data.lx),
-                        data.sy + (cursor.wlr_cursor.y - data.ly),
+                        data.sx + (cursor.wlr_cursor.x - data.lx) * data.surface_scale,
+                        data.sy + (cursor.wlr_cursor.y - data.ly) * data.surface_scale,
                     );
                 },
                 else => unreachable,
@@ -603,6 +607,13 @@ fn move(cursor: *const Cursor, mapping: *const wlr.Box, dx: f64, dy: f64) void {
         mapping.closestPoint(lx, ly, &lx, &ly);
     }
     cursor.wlr_cursor.warpClosest(null, lx, ly);
+}
+
+fn focusedSurfaceScale(cursor: *const Cursor) f64 {
+    const focused = cursor.seat.wlr_seat.pointer_state.focused_surface orelse return 1;
+    const result = server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y) orelse return 1;
+    if (result.surface != focused) return 1;
+    return scene_surface_projection.scale(result.node);
 }
 
 /// Refresh the compositor's pointer target. `allow_focus_follow` is true only
@@ -726,6 +737,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
                                 .ly = cursor.wlr_cursor.y,
                                 .sx = at.sx,
                                 .sy = at.sy,
+                                .surface_scale = scene_surface_projection.scale(at.node),
                             },
                         };
                         return;
@@ -1024,8 +1036,9 @@ fn passthrough(cursor: *Cursor, time: u32) void {
             var sx = result.sx;
             var sy = result.sy;
             if (!cursor.hasActivePointerConstraint() and !focus_changed and cursor_moved) {
-                sx = cursor.last_sent_sx + (lx - cursor.last_sent_lx);
-                sy = cursor.last_sent_sy + (ly - cursor.last_sent_ly);
+                const scale = scene_surface_projection.scale(result.node);
+                sx = cursor.last_sent_sx + (lx - cursor.last_sent_lx) * scale;
+                sy = cursor.last_sent_sy + (ly - cursor.last_sent_ly) * scale;
             }
 
             if (cursor_moved or focus_changed) {

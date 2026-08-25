@@ -19,6 +19,12 @@ const Window = @import("Window.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 
 const log = std.log.scoped(.xwayland);
+const xwayland_projection = @import("xwayland_projection.zig");
+
+extern fn wlr_scene_surface_set_destination_scale(
+    scene_surface: *wlr.SceneSurface,
+    scale: f64,
+) void;
 
 /// TODO(zig): get rid of this and use @fieldParentPtr(), https://github.com/ziglang/zig/issues/6611
 window: *Window,
@@ -48,6 +54,7 @@ focus_in: wl.Listener(void) = .init(handleFocusIn),
 grab_focus: wl.Listener(void) = .init(handleGrabFocus),
 focused_before_map: bool = false,
 grab_focused_before_map: bool = false,
+projection_scale: f64 = 1,
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -105,32 +112,49 @@ pub fn configure(xwindow: *XwaylandWindow) bool {
     const scheduled = &window.configure_scheduled;
     const sent = &window.configure_sent;
 
-    // Sending a 0 width/height to X11 clients is invalid, so fake it
-    if (scheduled.width == 0) {
-        scheduled.width = xwindow.xsurface.width;
-    }
-    if (scheduled.height == 0) {
-        scheduled.height = xwindow.xsurface.height;
-    }
-    const width = scheduled.width orelse xwindow.xsurface.width;
-    const height = scheduled.height orelse xwindow.xsurface.height;
+    const projected_output = xwindow.projection();
+    const current_logical_size = xwindow.logicalSize(
+        xwindow.xsurface.width,
+        xwindow.xsurface.height,
+    );
+    // Sending a 0 width/height to X11 clients is invalid, so fake it with the
+    // current size expressed in compositor-logical coordinates.
+    if (scheduled.width == 0) scheduled.width = current_logical_size[0];
+    if (scheduled.height == 0) scheduled.height = current_logical_size[1];
+    const width = scheduled.width orelse current_logical_size[0];
+    const height = scheduled.height orelse current_logical_size[1];
+
+    const x: i16, const y: i16, const configured_width: u16, const configured_height: u16 =
+        if (projected_output) |value| blk: {
+            const projected_x, const projected_y = value.logicalToX11Point(window.box.x, window.box.y);
+            const projected_width, const projected_height = value.logicalToX11Size(width, height);
+            xwindow.projection_scale = value.scale;
+            if (xwindow.surface_tree) |tree| setSurfaceTreeScale(tree, value.scale);
+            setSurfaceTreeScale(&window.capture_scene.tree, value.scale);
+            break :blk .{
+                math.lossyCast(i16, projected_x),
+                math.lossyCast(i16, projected_y),
+                projected_width,
+                projected_height,
+            };
+        } else .{
+            math.lossyCast(i16, window.box.x),
+            math.lossyCast(i16, window.box.y),
+            math.lossyCast(u16, width),
+            math.lossyCast(u16, height),
+        };
 
     // Unlike native Wayland windows, we need to tell X11 windows about their
     // position. However, river does not necessarily know the new position
     // until after a rendering sequence is completed. Therefore, configure()
     // is called both on manageFinish() and renderFinish() for Xwayland windows.
     // Frame perfection is not achievable for Xwayland windows in any case.
-    if (window.box.x != xwindow.xsurface.x or
-        window.box.y != xwindow.xsurface.y or
-        width != xwindow.xsurface.width or
-        height != xwindow.xsurface.height)
+    if (x != xwindow.xsurface.x or
+        y != xwindow.xsurface.y or
+        configured_width != xwindow.xsurface.width or
+        configured_height != xwindow.xsurface.height)
     {
-        xwindow.xsurface.configure(
-            math.lossyCast(i16, window.box.x),
-            math.lossyCast(i16, window.box.y),
-            math.lossyCast(u16, width),
-            math.lossyCast(u16, height),
-        );
+        xwindow.xsurface.configure(x, y, configured_width, configured_height);
     }
 
     if (scheduled.activated != sent.activated) {
@@ -149,6 +173,42 @@ pub fn configure(xwindow: *XwaylandWindow) bool {
     window.configure_scheduled.height = null;
 
     return false;
+}
+
+pub fn projection(xwindow: *const XwaylandWindow) ?xwayland_projection.Projection {
+    if (server.xwayland_scaling != .native) return null;
+    const width: i32 = @intCast(xwindow.window.configure_scheduled.width orelse
+        xwindow.window.configure_sent.width orelse 1);
+    const height: i32 = @intCast(xwindow.window.configure_scheduled.height orelse
+        xwindow.window.configure_sent.height orelse 1);
+    return server.om.xwaylandProjectionForLogicalBox(.{
+        .x = xwindow.window.box.x,
+        .y = xwindow.window.box.y,
+        .width = width,
+        .height = height,
+    });
+}
+
+pub fn logicalSize(xwindow: *const XwaylandWindow, width: u16, height: u16) struct { u31, u31 } {
+    return if (xwindow.projection()) |projected|
+        projected.x11ToLogicalSize(width, height)
+    else
+        .{ @as(u31, width), @as(u31, height) };
+}
+
+fn setSurfaceTreeScale(tree: *wlr.SceneTree, scale: f64) void {
+    var mutable_scale = scale;
+    tree.node.forEachBuffer(*f64, setSurfaceScaleIterator, &mutable_scale);
+}
+
+fn setSurfaceScaleIterator(
+    buffer: *wlr.SceneBuffer,
+    _: c_int,
+    _: c_int,
+    scale: *f64,
+) void {
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+    wlr_scene_surface_set_destination_scale(scene_surface, scale.*);
 }
 
 fn setActivated(xwindow: XwaylandWindow, activated: bool) void {
@@ -217,7 +277,17 @@ fn handleDissociate(listener: *wl.Listener(void)) void {
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("commit", listener);
     const window = xwindow.window;
-    if (window.state == .mapped) window.applySurfaceVisualState();
+    if (window.state == .mapped) {
+        const surface = xwindow.xsurface.surface.?;
+        if (surface.current.width > 0 and surface.current.height > 0) {
+            const width, const height = xwindow.logicalSize(
+                math.lossyCast(u16, surface.current.width),
+                math.lossyCast(u16, surface.current.height),
+            );
+            window.setDimensions(width, height);
+        }
+        window.applySurfaceVisualState();
+    }
 }
 
 pub fn handleMap(listener: *wl.Listener(void)) void {
@@ -230,13 +300,20 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
         surface.resource.getClient().postNoMemory();
         return;
     };
+    if (xwindow.projection()) |projected| {
+        xwindow.projection_scale = projected.scale;
+        setSurfaceTreeScale(xwindow.surface_tree.?, projected.scale);
+    }
     surface.data = &window.tree.node;
 
-    _ = window.capture_scene.tree.createSceneSurface(surface) catch {
+    const capture_surface = window.capture_scene.tree.createSceneSurface(surface) catch {
         log.err("out of memory", .{});
         surface.resource.getClient().postNoMemory();
         return;
     };
+    if (xwindow.projection()) |projected| {
+        wlr_scene_surface_set_destination_scale(capture_surface, projected.scale);
+    }
 
     // Register after the scene tree so our commit listener runs after wlroots
     // has created/replaced scene buffers. Otherwise the scene helper can reset
@@ -341,6 +418,22 @@ fn handleRequestConfigure(
         return;
     }
 
+    if (xwindow.projection()) |projected| {
+        const projected_x, const projected_y = projected.logicalToX11Point(
+            xwindow.window.box.x,
+            xwindow.window.box.y,
+        );
+        xwindow.xsurface.configure(
+            math.lossyCast(i16, projected_x),
+            math.lossyCast(i16, projected_y),
+            event.width,
+            event.height,
+        );
+        const logical_width, const logical_height = projected.x11ToLogicalSize(event.width, event.height);
+        xwindow.window.setDimensions(logical_width, logical_height);
+        return;
+    }
+
     xwindow.xsurface.configure(
         math.lossyCast(i16, xwindow.window.box.x),
         math.lossyCast(i16, xwindow.window.box.y),
@@ -408,13 +501,14 @@ fn handleSetOverrideRedirect(listener: *wl.Listener(void)) void {
 fn handleSetSizeHints(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("set_size_hints", listener);
     if (xwindow.xsurface.size_hints) |size_hints| {
-        const min_width: u31 = @max(0, size_hints.min_width);
-        const min_height: u31 = @max(0, size_hints.min_height);
+        const scale = if (server.xwayland_scaling == .native) xwindow.projection_scale else 1;
+        const min_width: u31 = @intFromFloat(@max(0, @round(@as(f64, @floatFromInt(size_hints.min_width)) / scale)));
+        const min_height: u31 = @intFromFloat(@max(0, @round(@as(f64, @floatFromInt(size_hints.min_height)) / scale)));
         // Don't trust X11 clients not to set a min_width greater than their max_width.
         const max_width: u31 =
-            if (size_hints.max_width <= 0) 0 else @max(min_width, size_hints.max_width);
+            if (size_hints.max_width <= 0) 0 else @max(min_width, @as(u31, @intFromFloat(@round(@as(f64, @floatFromInt(size_hints.max_width)) / scale))));
         const max_height: u31 =
-            if (size_hints.max_height <= 0) 0 else @max(min_height, size_hints.max_height);
+            if (size_hints.max_height <= 0) 0 else @max(min_height, @as(u31, @intFromFloat(@round(@as(f64, @floatFromInt(size_hints.max_height)) / scale))));
         xwindow.window.setDimensionsHint(.{
             .min_width = min_width,
             .max_width = max_width,

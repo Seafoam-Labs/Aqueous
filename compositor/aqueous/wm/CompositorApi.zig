@@ -549,6 +549,7 @@ pub const PolicyOutput = struct {
     model: ?[]const u8,
     serial: ?[]const u8,
     workspace_number: u32,
+    scale: f32,
     /// Complete output rectangle, used by fullscreen and ignore-struts rules.
     area: layout.Rect,
     /// Rectangle remaining after live layer-shell exclusive zones.
@@ -643,6 +644,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
             .model = identity.model,
             .serial = identity.serial,
             .workspace_number = output.policyActiveWorkspaceNumber(),
+            .scale = output.scheduled.scale,
             .area = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
             .usable_area = .{ .x = usable_box.x, .y = usable_box.y, .width = usable_box.width, .height = usable_box.height },
             .windows = undefined,
@@ -891,6 +893,9 @@ pub fn applyPlacement(
         placement.geometry.y,
         placement.geometry.width,
         placement.geometry.height,
+        placement.output_scale,
+        placement.output_origin_x,
+        placement.output_origin_y,
         if (placement.clip) |clip| .{
             .x = clip.x,
             .y = clip.y,
