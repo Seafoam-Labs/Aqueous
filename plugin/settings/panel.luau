@@ -931,12 +931,14 @@ end
 local function fieldControl(field)
 	local value = currentValue(field)
 	if field.type == "boolean" then
-		return ui.toggle({
-			key = "toggle-" .. field.id,
-			checked = value == true,
-			onChange = function(text)
-				setDraft(field, text == "true")
-			end,
+		return ui.row({ align = "center", justify = "start" }, {
+			ui.toggle({
+				key = "toggle-" .. field.id,
+				checked = value == true,
+				onChange = function(text)
+					setDraft(field, text == "true")
+				end,
+			}),
 		})
 	elseif field.type == "integer" or field.type == "double" then
 		return numericControl(field, value)
