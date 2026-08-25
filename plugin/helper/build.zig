@@ -11,6 +11,16 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
+    const toolkit_sync_module = b.createModule(.{
+        .root_source_file = b.path("src/toolkit_sync.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "aqueous_config_document", .module = config_module },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "aqueous-config",
         .root_module = b.createModule(.{
@@ -20,6 +30,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
             .imports = &.{
                 .{ .name = "aqueous_config_document", .module = config_module },
+                .{ .name = "aqueous_toolkit_sync", .module = toolkit_sync_module },
             },
         }),
     });
@@ -38,6 +49,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
             .imports = &.{
                 .{ .name = "aqueous_config_document", .module = config_module },
+                .{ .name = "aqueous_toolkit_sync", .module = toolkit_sync_module },
             },
         }),
     });

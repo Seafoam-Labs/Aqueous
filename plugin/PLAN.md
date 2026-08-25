@@ -1,6 +1,6 @@
 # Aqueous Settings Flyout — Noctalia v5 Plan
 
-Status: implemented as `0.1.0`, including a visual output layout editor
+Status: implemented as `0.2.0`, including desktop typography synchronization and a visual output layout editor
 Target: Noctalia v5 native Luau plugin system  
 Provisional plugin id: `aqueous/settings`  
 Provisional entries: `aqueous/settings:widget` and
@@ -33,6 +33,9 @@ noctalia msg panel-toggle aqueous/settings:panel
 
 - A Noctalia v5 bar widget and declarative panel written in Luau.
 - Typed controls for every recognized Aqueous configuration family.
+- Desktop font family and point-size controls backed by an Aqueous-owned
+  appearance sidecar and synchronized to Noctalia, GTK, GSettings, qt5ct, and
+  qt6ct.
 - A visual output canvas for dragging connected/configured monitors into place,
   choosing rotations and flips, and entering exact coordinates.
 - Draft, validation, apply, reload, and conflict handling.
@@ -49,7 +52,8 @@ noctalia msg panel-toggle aqueous/settings:panel
 - Replacing Aqueous TOML with a Noctalia-owned configuration format.
 - Applying values continuously while a slider is dragged.
 - Restarting or killing the compositor.
-- Editing Noctalia's own settings.
+- KDE/Plasma-specific font configuration (`kdeglobals`, `kwriteconfig`, and
+  Plasma reload services).
 - Shipping remote telemetry or network access.
 
 ## 3. Architectural decision
@@ -85,17 +89,24 @@ Noctalia widget ---- togglePanel ----> Noctalia panel
                                           |
                                           v
                                   aqueous-config
-                                   /     |      \
-                                  /      |       \
-                           wm/layout   input    rules/outputs
-                              TOML     TOML         TOML
-                                          |
-                                   Aqueous hot reload
+                              /          |            \
+                    Aqueous TOML   appearance.toml   toolkit adapters
+                     wm/layout…      source of truth  Noctalia/GTK/Qt
+                         |
+                  Aqueous hot reload
 ```
 
 This keeps all new implementation under `plugin/`. Packaging changes elsewhere
 in the repository should be limited to installing and seeding the completed
 bundle.
+
+Desktop typography is a synchronization layer rather than a compositor
+rendering option. `appearance.toml` is owned by Aqueous, while the helper
+applies its font to the formats consumed by each toolkit. Noctalia receives the
+family directly and maps the point size relative to a 12 pt baseline through
+its UI and default-bar scales. GTK receives `Family Size` through GSettings and
+GTK 3/4 configuration. qt5ct and qt6ct receive their serialized general
+`QFont`; fixed-width fonts remain untouched.
 
 ## 4. Target directory layout
 

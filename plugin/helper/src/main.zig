@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("aqueous_config_document");
+const toolkit_sync = @import("aqueous_toolkit_sync");
 const schema = @import("schema.zig");
 
 const Allocator = std.mem.Allocator;
@@ -8,32 +9,31 @@ const max_request_bytes = 4 * 1024 * 1024;
 
 const Command = enum { version, snapshot, validate, apply, raw };
 
-pub fn main(init: std.process.Init.Minimal) !void {
+pub fn main(init: std.process.Init) !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena_state.deinit();
     const allocator = arena_state.allocator();
-    const args = try init.args.toSlice(allocator);
+    const args = try init.minimal.args.toSlice(allocator);
 
     var response: std.Io.Writer.Allocating = .init(allocator);
     defer response.deinit();
 
     var exit_code: u8 = 0;
-    run(allocator, args, &response.writer) catch |err| {
+    run(allocator, init.io, args, &response.writer) catch |err| {
         response.clearRetainingCapacity();
         writeError(&response.writer, errorCode(err), @errorName(err)) catch {};
         exit_code = 1;
     };
 
-    const io = std.Io.Threaded.global_single_threaded.io();
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     try stdout_writer.interface.writeAll(response.written());
     try stdout_writer.interface.writeByte('\n');
     try stdout_writer.interface.flush();
     if (exit_code != 0) std.process.exit(exit_code);
 }
 
-fn run(allocator: Allocator, args: []const []const u8, writer: *std.Io.Writer) !void {
+fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.Io.Writer) !void {
     if (args.len < 2) return error.MissingCommand;
     const command = parseCommand(args[1]) orelse return error.UnknownCommand;
     switch (command) {
@@ -41,7 +41,7 @@ fn run(allocator: Allocator, args: []const []const u8, writer: *std.Io.Writer) !
         .snapshot => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
-            try writeSnapshot(writer, &files);
+            try writeSnapshot(io, writer, &files, null);
         },
         .raw => {
             const wanted = option(args, "--file") orelse return error.MissingFile;
@@ -52,7 +52,7 @@ fn run(allocator: Allocator, args: []const []const u8, writer: *std.Io.Writer) !
         },
         .validate, .apply => {
             const request_path = option(args, "--request") orelse return error.MissingRequest;
-            try handleRequest(allocator, writer, request_path, command == .apply);
+            try handleRequest(allocator, io, writer, request_path, command == .apply);
         },
     }
 }
@@ -80,7 +80,12 @@ fn writeVersion(writer: *std.Io.Writer) !void {
     try json.endObject();
 }
 
-fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void {
+fn writeSnapshot(
+    io: std.Io,
+    writer: *std.Io.Writer,
+    files: *const config.ConfigFiles,
+    applied_report: ?*const toolkit_sync.Report,
+) !void {
     var generation_buffer: [16]u8 = undefined;
     const generation = generationText(files, &generation_buffer);
     var json: std.json.Stringify = .{ .writer = writer };
@@ -138,7 +143,50 @@ fn writeSnapshot(writer: *std.Io.Writer, files: *const config.ConfigFiles) !void
         try json.write("Display policy inherited from wm.toml remains active until the corresponding setting is written to outputs.toml.");
     }
     try json.endArray();
+
+    const typography = desktopTypography(files);
+    const inspected = if (applied_report == null)
+        toolkit_sync.inspect(files.allocator, io, typography.family, typography.size_pt)
+    else
+        undefined;
+    const report = applied_report orelse &inspected;
+    try json.objectField("desktop_typography");
+    try json.beginObject();
+    try field(&json, "family", typography.family);
+    try field(&json, "size_pt", typography.size_pt);
+    try field(&json, "baseline_size_pt", toolkit_sync.baseline_size_pt);
+    try field(&json, "failed_count", report.failedCount());
+    try json.objectField("targets");
+    try json.beginArray();
+    for (report.targets) |target| {
+        try json.beginObject();
+        try field(&json, "id", target.id);
+        try field(&json, "available", target.available);
+        try field(&json, "active", target.active);
+        try field(&json, "synced", target.synced);
+        try field(&json, "state", target.state);
+        try json.endObject();
+    }
+    try json.endArray();
     try json.endObject();
+    try json.endObject();
+}
+
+const DesktopTypography = struct {
+    family: []const u8,
+    size_pt: i64,
+};
+
+fn desktopTypography(files: *const config.ConfigFiles) DesktopTypography {
+    const document = &files.items[@intFromEnum(schema.FileId.appearance)].document;
+    const family_field = schema.find("desktop.font.family").?;
+    const size_field = schema.find("desktop.font.size_pt").?;
+    const family = unquoteToml(document.getRaw(family_field.section, family_field.key) orelse family_field.default_raw);
+    const size_raw = document.getRaw(size_field.section, size_field.key) orelse size_field.default_raw;
+    return .{
+        .family = family,
+        .size_pt = std.fmt.parseInt(i64, std.mem.trim(u8, size_raw, " \t\r"), 10) catch 12,
+    };
 }
 
 fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: schema.FileId) !void {
@@ -226,8 +274,7 @@ fn writeStringList(json: *std.json.Stringify, raw_value: []const u8) !void {
     try json.endArray();
 }
 
-fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool) !void {
-    const io = std.Io.Threaded.global_single_threaded.io();
+fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool) !void {
     const source = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, request_path, allocator, .limited(max_request_bytes));
     var parsed = try std.json.parseFromSlice(Json, allocator, source, .{});
     defer parsed.deinit();
@@ -242,11 +289,11 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
     var generation_buffer: [16]u8 = undefined;
     if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) return error.ExternalChange;
 
-    var originals: [5][]u8 = undefined;
+    var originals: [schema.file_count][]u8 = undefined;
     for (files.items, 0..) |file_item, index| originals[index] = try allocator.dupe(u8, file_item.document.source);
     defer for (originals) |original| allocator.free(original);
 
-    var dirty = [_]bool{false} ** 5;
+    var dirty = [_]bool{false} ** schema.file_count;
     if (request.get("raw_files")) |raw_files| {
         if (raw_files != .object) return error.InvalidRawFiles;
         var iterator = raw_files.object.iterator();
@@ -333,6 +380,13 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
         try validateBasicToml(files.items[index].document.source);
     }
     try validateKnownFields(&files);
+    const typography = desktopTypography(&files);
+    try toolkit_sync.validateFamily(typography.family);
+    if (dirty[@intFromEnum(schema.FileId.appearance)]) {
+        try toolkit_sync.validateInstalledFamily(allocator, io, typography.family);
+    }
+
+    var sync_report: ?toolkit_sync.Report = null;
 
     if (do_apply and changed_count > 0) {
         if (changed_count > 1) {
@@ -344,9 +398,12 @@ fn handleRequest(allocator: Allocator, writer: *std.Io.Writer, request_path: []c
             rollbackOriginals(allocator, &files, originals, dirty);
             return save_error;
         };
+        if (dirty[@intFromEnum(schema.FileId.appearance)]) {
+            sync_report = toolkit_sync.apply(allocator, io, typography.family, typography.size_pt);
+        }
     }
 
-    try writeSnapshot(writer, &files);
+    try writeSnapshot(io, writer, &files, if (sync_report) |*report| report else null);
 }
 
 fn writeConfiguredMonitors(
@@ -820,8 +877,8 @@ fn backupOriginals(
     backup_dir: []const u8,
     generation: []const u8,
     files: *const config.ConfigFiles,
-    originals: [5][]u8,
-    dirty: [5]bool,
+    originals: [schema.file_count][]u8,
+    dirty: [schema.file_count]bool,
 ) !void {
     for (dirty, 0..) |is_dirty, index| {
         if (!is_dirty) continue;
@@ -833,7 +890,7 @@ fn backupOriginals(
     }
 }
 
-fn rollbackOriginals(allocator: Allocator, files: *const config.ConfigFiles, originals: [5][]u8, dirty: [5]bool) void {
+fn rollbackOriginals(allocator: Allocator, files: *const config.ConfigFiles, originals: [schema.file_count][]u8, dirty: [schema.file_count]bool) void {
     for (dirty, 0..) |is_dirty, index| {
         if (!is_dirty or std.mem.startsWith(u8, files.items[index].path, "/etc/xdg/")) continue;
         var document = config.Document.init(allocator, originals[index]) catch continue;
@@ -991,6 +1048,11 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidAssignment,
         error.InvalidTableHeader,
         error.ConfigTooLarge,
+        error.EmptyFontFamily,
+        error.FontFamilyTooLong,
+        error.InvalidFontFamily,
+        error.FontLookupFailed,
+        error.FontFamilyNotInstalled,
         => "invalid_value",
         error.UnknownField => "unknown_field",
         error.UnknownFile => "unknown_file",

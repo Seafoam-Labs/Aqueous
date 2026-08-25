@@ -5,7 +5,9 @@
   coreutils,
   dbus,
   fetchurl,
+  fontconfig,
   gzip,
+  glib,
   gnutar,
   jq,
   libevdev,
@@ -311,6 +313,8 @@ stdenv.mkDerivation (finalAttrs: {
       --prefix PATH : "${lib.makeBinPath [ coreutils systemd ]}"
     wrapProgram "$out/bin/aqueous-init" \
       --prefix PATH : "${lib.makeBinPath [ coreutils dbus systemd uwsm ]}"
+    wrapProgram "$out/bin/aqueous-config" \
+      --prefix PATH : "${lib.makeBinPath [ fontconfig glib noctalia-shell ]}"
     wrapProgram "$out/libexec/aqueous/enable-noctalia-plugin" \
       --prefix PATH : "${lib.makeBinPath [ coreutils noctalia-shell ]}"
 

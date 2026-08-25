@@ -11,7 +11,7 @@ local categories = {
 	{ id = "keybinds", label = "Keybinds", glyph = "keyboard" },
 	{ id = "advanced", label = "Advanced", glyph = "code" },
 }
-local fileOrder = { "wm", "layout", "input", "outputs", "rules" }
+local fileOrder = { "wm", "layout", "input", "outputs", "rules", "appearance" }
 
 local snapshot = nil
 local drafts = {}
@@ -315,6 +315,7 @@ local function writeRequest(mode)
 		return
 	end
 	local changes = {}
+	local appliesTypography = drafts["desktop.font.family"] ~= nil or drafts["desktop.font.size_pt"] ~= nil or rawDirty.appearance == true
 	for id, value in pairs(drafts) do
 		table.insert(changes, { id = id, value = value })
 	end
@@ -403,9 +404,14 @@ local function writeRequest(mode)
 			end
 		else
 			if mode == "apply" then
+				local failedTargets = appliesTypography and response.desktop_typography and tonumber(response.desktop_typography.failed_count) or 0
 				resetFromSnapshot(response)
 				status = "success"
-				statusMessage = tr("status.applied")
+				if failedTargets > 0 then
+					statusMessage = tr("status.typography_partial"):gsub("{count}", tostring(failedTargets))
+				else
+					statusMessage = appliesTypography and tr("status.typography_applied") or tr("status.applied")
+				end
 			else
 				status = "dirty"
 				statusMessage = tr("status.valid")
@@ -1140,10 +1146,39 @@ local function keybindsView()
 	return ui.scroll({ flexGrow = 1, gap = 10, align = "stretch" }, children)
 end
 
+local function typographyTargets()
+	local typography = snapshot.desktop_typography or {}
+	local rows = {}
+	for _, target in ipairs(typography.targets or {}) do
+		local stateKey = "typography.state." .. tostring(target.state or "unavailable")
+		local stateColor = target.synced and "primary" or (target.available and "tertiary" or "on_surface_variant")
+		table.insert(rows, ui.row({
+			key = "typography-target-" .. tostring(target.id),
+			gap = 8,
+			paddingV = 5,
+			align = "center",
+		}, {
+			ui.glyph({ name = target.synced and "check" or (target.available and "alert-triangle" or "minus"), color = stateColor }),
+			ui.label({ text = tr("typography.target." .. tostring(target.id)), fontWeight = "medium", width = 130 }),
+			ui.label({ text = tr(stateKey), color = stateColor, flexGrow = 1 }),
+			target.available and ui.label({
+				text = target.active and tr("typography.active") or tr("typography.inactive"),
+				fontSize = 10,
+				color = "on_surface_variant",
+			}) or ui.spacer({ width = 0 }),
+		}))
+	end
+	return ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, rows)
+end
+
 local function categoryView()
 	local children = {
 		sectionTitle(activeCategory:sub(1, 1):upper() .. activeCategory:sub(2), tr("category." .. activeCategory)),
 	}
+	if activeCategory == "appearance" then
+		table.insert(children, ui.label({ text = tr("typography.targets"), fontWeight = "bold" }))
+		table.insert(children, typographyTargets())
+	end
 	local found = false
 	for _, field in ipairs(snapshot.fields or {}) do
 		if field.category == activeCategory then

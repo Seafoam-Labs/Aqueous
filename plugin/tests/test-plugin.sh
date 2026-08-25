@@ -41,6 +41,10 @@ for key in (
     "keybind.custom",
     "overview.workspace_layout",
     "overview.workspace_layout.changed",
+    "typography.targets",
+    "typography.target.noctalia",
+    "typography.target.qt6ct",
+    "status.typography_applied",
 ):
     assert key in translations, key
 
@@ -69,6 +73,8 @@ for feature in (
     'setWorkspaceLayout',
     'ui.select',
     'return ui.row({ align = "center", justify = "start" }, {',
+    'desktop.font.family',
+    'typographyTargets',
 ):
     assert feature in panel, feature
 PY

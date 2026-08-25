@@ -10,11 +10,18 @@ trap 'rm -rf "$test_root"' EXIT
 config_root="$test_root/config/aqueous"
 mkdir -p "$config_root"
 cp "$plugin_root/tests/fixtures/"*.toml "$config_root/"
+mkdir -p "$test_root/bin"
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$3"' >"$test_root/bin/fc-match"
+chmod +x "$test_root/bin/fc-match"
 
 run_helper() {
     env \
         HOME="$test_root/home" \
         XDG_CONFIG_HOME="$test_root/config" \
+        XDG_STATE_HOME="$test_root/state" \
+        NOCTALIA_STATE_HOME="$test_root/state" \
+        GSETTINGS_BACKEND=memory \
+        PATH="$test_root/bin:$PATH" \
         AQUEOUS_CONFIG="$config_root/wm.toml" \
         AQUEOUS_OUTPUTS="$config_root/outputs.toml" \
         AQUEOUS_LAYOUT="$config_root/layout.toml" \
@@ -191,5 +198,65 @@ if run_helper validate --request "$invalid_request" >"$test_root/invalid-respons
     exit 1
 fi
 jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-response.json" >/dev/null
+
+# Desktop typography is canonicalized in appearance.toml and synchronized to
+# Noctalia's final settings layer plus the available toolkit configuration.
+mkdir -p "$test_root/config/qt5ct" "$test_root/config/qt6ct"
+printf '%s\n' '[Appearance]' 'style=Fusion' >"$test_root/config/qt5ct/qt5ct.conf"
+printf '%s\n' '[Appearance]' 'style=Fusion' >"$test_root/config/qt6ct/qt6ct.conf"
+typography_snapshot="$test_root/typography-snapshot.json"
+run_helper snapshot --json >"$typography_snapshot"
+typography_generation=$(jq -r .generation "$typography_snapshot")
+typography_request="$test_root/typography-request.json"
+jq -n \
+    --arg generation "$typography_generation" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [
+        {id: "desktop.font.family", value: "Test Sans"},
+        {id: "desktop.font.size_pt", value: 14}
+      ],
+      raw_files: {}
+    }' >"$typography_request"
+if ! run_helper apply --request "$typography_request" >"$test_root/typography-applied.json"; then
+    cat "$test_root/typography-applied.json" >&2
+    exit 1
+fi
+jq -e '
+  .desktop_typography.family == "Test Sans" and
+  .desktop_typography.size_pt == 14 and
+  (.desktop_typography.targets[] | select(.id == "noctalia") | .synced == true) and
+  (.desktop_typography.targets[] | select(.id == "gtk3") | .synced == true) and
+  (.desktop_typography.targets[] | select(.id == "gtk4") | .synced == true) and
+  (.desktop_typography.targets[] | select(.id == "qt5ct") | .synced == true) and
+  (.desktop_typography.targets[] | select(.id == "qt6ct") | .synced == true)
+' "$test_root/typography-applied.json" >/dev/null
+rg -q '^family = "Test Sans"$' "$config_root/appearance.toml"
+rg -q '^size_pt = 14$' "$config_root/appearance.toml"
+rg -q '^font_family = "Test Sans"$' "$test_root/state/noctalia/settings.toml"
+rg -q '^ui_scale = 1.166' "$test_root/state/noctalia/settings.toml"
+rg -q '^font_scale = 1.166' "$test_root/state/noctalia/settings.toml"
+rg -q '^gtk-font-name = Test Sans 14$' "$test_root/config/gtk-3.0/settings.ini"
+rg -q '^gtk-font-name = Test Sans 14$' "$test_root/config/gtk-4.0/settings.ini"
+rg -Fq 'general = "Test Sans,14,-1,5,50,0,0,0,0,0"' "$test_root/config/qt5ct/qt5ct.conf"
+rg -Fq 'general = "Test Sans,14,-1,5,400,0,0,0,0,0,0,0,0,0,1"' "$test_root/config/qt6ct/qt6ct.conf"
+rg -q '^style=Fusion$' "$test_root/config/qt5ct/qt5ct.conf"
+
+invalid_font_request="$test_root/invalid-font.json"
+typography_generation=$(jq -r .generation "$test_root/typography-applied.json")
+jq -n \
+    --arg generation "$typography_generation" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [{id: "desktop.font.family", value: "Bad, Alternate"}],
+      raw_files: {}
+    }' >"$invalid_font_request"
+if run_helper validate --request "$invalid_font_request" >"$test_root/invalid-font-response.json"; then
+    echo "ambiguous Qt font family unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-font-response.json" >/dev/null
 
 echo "aqueous-config integration tests passed"

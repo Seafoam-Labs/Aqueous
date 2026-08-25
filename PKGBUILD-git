@@ -12,7 +12,7 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal-wlr' 'wl-clipboard'
-         'xdg-desktop-portal-gtk' 'libnotify'
+         'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
          'uwsm'
@@ -28,6 +28,8 @@ optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser'
+            'qt5ct: synchronize the Aqueous desktop font with Qt 5 applications'
+            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications'
             'wireplumber: volume/media key bindings (wpctl)')
 provides=('aqueous')
 conflicts=('aqueous')

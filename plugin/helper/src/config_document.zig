@@ -330,7 +330,7 @@ pub const ConfigFiles = struct {
     };
 
     allocator: std.mem.Allocator,
-    items: [5]File,
+    items: [6]File,
 
     pub fn init(allocator: std.mem.Allocator) !ConfigFiles {
         const wm_path = try resolveWmPath(allocator);
@@ -363,9 +363,13 @@ pub const ConfigFiles = struct {
         var rules = try File.open(allocator, "rules.toml", rules_path);
         errdefer rules.deinit(allocator);
 
+        const appearance_path = try resolveAppearancePath(allocator);
+        var appearance = try File.open(allocator, "appearance.toml", appearance_path);
+        errdefer appearance.deinit(allocator);
+
         return .{
             .allocator = allocator,
-            .items = .{ wm, layout, input, outputs, rules },
+            .items = .{ wm, layout, input, outputs, rules, appearance },
         };
     }
 
@@ -530,6 +534,12 @@ fn resolveRulesPath(allocator: std.mem.Allocator, configured_raw: ?[]const u8) !
     }
     if (try existingUserPath(allocator, "rules.toml")) |path| return path;
     return userPath(allocator, "rules.toml");
+}
+
+fn resolveAppearancePath(allocator: std.mem.Allocator) ![]u8 {
+    const home = getenv("HOME");
+    if (getenv("AQUEOUS_APPEARANCE")) |path| return expandHome(allocator, path, home);
+    return userPath(allocator, "appearance.toml");
 }
 
 fn existingUserPath(allocator: std.mem.Allocator, filename: []const u8) !?[]u8 {

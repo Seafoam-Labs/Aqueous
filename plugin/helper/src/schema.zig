@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.1.0";
+pub const helper_version = "0.2.0";
 
 pub const FileId = enum(u8) {
     wm,
@@ -9,6 +9,7 @@ pub const FileId = enum(u8) {
     input,
     outputs,
     rules,
+    appearance,
 
     pub fn name(self: FileId) []const u8 {
         return switch (self) {
@@ -17,6 +18,7 @@ pub const FileId = enum(u8) {
             .input => "input",
             .outputs => "outputs",
             .rules => "rules",
+            .appearance => "appearance",
         };
     }
 
@@ -27,6 +29,8 @@ pub const FileId = enum(u8) {
         return null;
     }
 };
+
+pub const file_count = std.meta.fields(FileId).len;
 
 pub const Category = enum {
     appearance,
@@ -78,6 +82,8 @@ const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
 
 pub const fields = [_]Field{
+    t("desktop.font.family", .appearance, "Desktop font", "Font family synchronized across Noctalia, GTK, qt5ct, and qt6ct.", .appearance, "desktop.font", "family", "sans-serif"),
+    f("desktop.font.size_pt", .appearance, "Desktop font size", "Point size for toolkit UI text. Noctalia maps 12 pt to its default text scale.", .appearance, "desktop.font", "size_pt", .integer, "12", 6, 30),
     f("struts.top", .appearance, "Top reserved space", "Pixels reserved above windows.", .wm, "struts", "top", .integer, "32", 0, 4096),
     f("struts.bottom", .appearance, "Bottom reserved space", "Pixels reserved below windows.", .wm, "struts", "bottom", .integer, "0", 0, 4096),
     f("struts.left", .appearance, "Left reserved space", "Pixels reserved left of windows.", .wm, "struts", "left", .integer, "0", 0, 4096),

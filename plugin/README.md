@@ -4,7 +4,7 @@ A native Noctalia v5 flyout for configuring the Aqueous compositor.
 
 The plugin adds an **Aqueous** bar widget. Clicking it opens an attached,
 theme-native panel with typed controls for effects, layouts, input, display
-policy, Game Mode, and built-in action commands. The Displays page includes a
+policy, desktop typography, Game Mode, and built-in action commands. The Displays page includes a
 visual monitor canvas: drag monitor cards relative to one another, select
 their rotation or flipped orientation, and use exact X/Y fields when needed.
 The canvas uses a common scale, so monitor rectangles reflect their relative
@@ -13,7 +13,8 @@ monitors appear even before they have an `[[output]]` block. Changes remain
 drafts until **Apply**, which writes overrides to the corresponding output
 entries in `outputs.toml`. Inherited `wm.toml` entries remain visible until
 edited. The Advanced page exposes the complete `wm.toml`, `layout.toml`,
-`input.toml`, `outputs.toml`, and `rules.toml` files, so ordered output blocks,
+`input.toml`, `outputs.toml`, `rules.toml`, and Aqueous-owned
+`appearance.toml` files, so ordered output blocks,
 workspace mappings, window rules, custom keybindings, gestures, and startup
 commands are all editable.
 
@@ -22,6 +23,14 @@ that are currently unbound. A shortcut field accepts comma-separated chords.
 Configured `[keybinds.custom]` entries expose both their chord and command, and
 the action-command section controls the commands invoked by launcher, terminal,
 screenshot, and lock bindings.
+
+The **Appearance** page owns a desktop font family and point size in
+`~/.config/aqueous/appearance.toml`. Applying either value synchronizes
+Noctalia's shell settings, GSettings, GTK 3 and GTK 4 `settings.ini`, plus
+qt5ct/qt6ct when those adapters are installed or already configured. Each
+target reports whether it is available, active, and synchronized. An inactive
+Qt label means applications currently use another `QT_QPA_PLATFORMTHEME`.
+KDE/Plasma-specific configuration is deliberately not touched.
 
 This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 `ui.*` controls. It does not contain the v4 QML plugin API.
@@ -41,6 +50,12 @@ validates known typed values, checks for external changes, and uses atomic file
 replacement. Multi-file changes are backed up before writing. If the effective
 file is under `/etc/xdg`, Apply creates a user override instead of modifying the
 system file.
+
+Toolkit synchronization runs after the canonical appearance file is saved.
+Each target file is replaced atomically and preserves unrelated keys. A failed
+target is reported in the panel and can be retried by applying the same
+Aqueous setting again. Existing applications may need restarting; the helper
+asks a running Noctalia instance to reload immediately.
 
 ## Build and test
 
@@ -128,6 +143,8 @@ after a user intentionally disables it.
 - Every request includes the loaded generation; a manual edit blocks stale
   Apply and leaves the draft intact.
 - Known numeric, enum, boolean, and color values are validated.
+- Desktop font families reject empty or structurally ambiguous values and are
+  checked through Fontconfig when available; point size is limited to 6–30.
 - Raw files receive structural validation and the 1 MiB Aqueous size limit.
 - Existing comments, ordering, whitespace, and unknown keys survive typed
   edits.
@@ -137,6 +154,9 @@ after a user intentionally disables it.
   before the first write.
 - Aqueous's normal hot reload applies the result; the plugin never restarts the
   compositor.
+- Toolkit targets are independently observable rather than presented as a
+  false cross-process transaction. The Aqueous sidecar remains the source of
+  truth when an optional adapter is unavailable.
 
 `outputs.toml` is the preferred physical-display policy source. Individual
 settings that are absent there continue to inherit from `wm.toml`.
