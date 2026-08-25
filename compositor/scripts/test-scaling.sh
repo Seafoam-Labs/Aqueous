@@ -44,7 +44,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$AQUEOUS_COMPOSITOR_BIN" -policy internal -log-level debug >"$COMPOSITOR_LOG" 2>&1 &
+"$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level debug >"$COMPOSITOR_LOG" 2>&1 &
 COMPOSITOR_PID=$!
 
 grep_log() { grep -q "$1" "$COMPOSITOR_LOG" 2>/dev/null; }
