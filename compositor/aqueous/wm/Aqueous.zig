@@ -673,13 +673,57 @@ fn startClientPointerDrag(
         .output = workspace.output_id,
         .workspace = workspace.workspace_number,
     };
-    const layout_floating = state.kind == .tiled and aqueous.windowUsesFloatingLayout(layout_key, handle);
-    if (state.kind != .floating and !layout_floating) return;
+    const uses_floating_layout = aqueous.windowUsesFloatingLayout(layout_key, handle);
+    var layout_floating = state.kind == .tiled and uses_floating_layout;
+    var drag_start = geometry;
+
+    if (state.kind == .maximized) {
+        if (action != .move_floating) return;
+        const restored_kind = aqueous.window_states.maximizedMoveRestoreKind(
+            handle,
+            uses_floating_layout,
+        ) orelse return;
+        layout_floating = restored_kind == .tiled;
+        const normal = if (layout_floating) blk: {
+            const layout_state = aqueous.layout_states.getPtr(layout_key) orelse return;
+            break :blk layout_engine.floatingGeometry(layout_state, handle) orelse return;
+        } else state.floating_geometry;
+        if (normal.width <= 0 or normal.height <= 0) return;
+        drag_start = pointer_drag.restoredMoveStart(
+            geometry,
+            normal,
+            pointer.x,
+            pointer.y,
+        );
+    } else if (state.kind != .floating and !layout_floating) return;
     if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
+
+    if (state.kind == .maximized) {
+        if (layout_floating) {
+            const layout_state = aqueous.layout_states.getPtr(layout_key) orelse {
+                aqueous.api.endClientPointerOperation(pointer.seat);
+                return;
+            };
+            layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, drag_start) catch {
+                log.err("out of memory restoring floating-layout geometry for titlebar move", .{});
+                aqueous.api.endClientPointerOperation(pointer.seat);
+                return;
+            };
+        } else {
+            state.floating_geometry = drag_start;
+        }
+        _ = aqueous.window_states.restoreMaximizedForMove(
+            handle,
+            layout_floating,
+        ) orelse {
+            aqueous.api.endClientPointerOperation(pointer.seat);
+            return;
+        };
+    }
 
     aqueous.drag = .{
         .handle = handle,
-        .start = geometry,
+        .start = drag_start,
         .pointer_x = pointer.x,
         .pointer_y = pointer.y,
         .last_pointer_x = pointer.x,

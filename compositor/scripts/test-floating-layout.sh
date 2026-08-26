@@ -326,6 +326,34 @@ jq -e '.layout == "tiled" and (.states | index("floating") == null)' \
     <<<"$(window_json "$APP_MAXIMIZE")" >/dev/null ||
     die "unmaximize did not return workspace-floating window to layout ownership"
 
+# A titlebar move from maximized state restores the remembered floating size
+# beneath the pointer and continues the same client move operation.
+APP_MAXIMIZE_MOVE=aqueous.layout-maximize-move
+MAXIMIZE_MOVE_INDEX=${#CLIENT_PIDS[@]}
+start_fixture "$APP_MAXIMIZE_MOVE" maximize-move
+PID_MAXIMIZE_MOVE=$STARTED_PID
+SYNC_MAXIMIZE_MOVE="${CLIENT_SYNCS[$MAXIMIZE_MOVE_INDEX]}"
+LOG_MAXIMIZE_MOVE="${CLIENT_LOGS[$MAXIMIZE_MOVE_INDEX]}"
+read -r maximize_move_x maximize_move_y maximize_move_w maximize_move_h \
+    < <(geometry <<<"$(window_json "$APP_MAXIMIZE_MOVE")")
+touch "$SYNC_MAXIMIZE_MOVE/maximize"
+wait_marker "$PID_MAXIMIZE_MOVE" "$SYNC_MAXIMIZE_MOVE" maximize-done "$LOG_MAXIMIZE_MOVE"
+wait_maximized_state "$APP_MAXIMIZE_MOVE" true
+wait_geometry "$APP_MAXIMIZE_MOVE" $'0\t0\t1280\t720'
+printf '%d %d %d %d\n' 640 20 700 120 >"$SYNC_MAXIMIZE_MOVE/move"
+wait_marker "$PID_MAXIMIZE_MOVE" "$SYNC_MAXIMIZE_MOVE" move-done "$LOG_MAXIMIZE_MOVE"
+wait_maximized_state "$APP_MAXIMIZE_MOVE" false
+read -r restored_x restored_y restored_w restored_h \
+    < <(geometry <<<"$(window_json "$APP_MAXIMIZE_MOVE")")
+[ "$restored_w" -eq "$maximize_move_w" ] &&
+    [ "$restored_h" -eq "$maximize_move_h" ] &&
+    [ "$restored_x" -eq $((640 - maximize_move_w / 2 + 60)) ] &&
+    [ "$restored_y" -eq 100 ] ||
+    die "maximized titlebar move did not restore and track floating geometry"
+jq -e '.layout == "tiled" and (.states | index("floating") == null)' \
+    <<<"$(window_json "$APP_MAXIMIZE_MOVE")" >/dev/null ||
+    die "maximized titlebar move changed floating-layout ownership"
+
 for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
 for index in "${!CLIENT_PIDS[@]}"; do
     if ! wait "${CLIENT_PIDS[$index]}"; then
@@ -336,4 +364,4 @@ for index in "${!CLIENT_PIDS[@]}"; do
 done
 CLIENT_PIDS=()
 
-echo "PASS: floating layout cascade, ownership, switching, and toggle semantics"
+echo "PASS: floating layout cascade, ownership, switching, maximize-drag, and toggle semantics"

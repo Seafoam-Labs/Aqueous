@@ -30,6 +30,37 @@ pub fn withinDoubleClick(previous_msec: u32, current_msec: u32) bool {
     return current_msec -% previous_msec <= double_click_msec;
 }
 
+/// Position a restored floating rectangle beneath the pointer which initiated
+/// a move from maximized state. Preserve the horizontal grab ratio so dragging
+/// from either end of a titlebar feels stable, and retain the pointer's
+/// vertical offset from the maximized top edge.
+pub fn restoredMoveStart(
+    maximized: types.Rect,
+    normal: types.Rect,
+    pointer_x: f64,
+    pointer_y: f64,
+) types.Rect {
+    const maximized_width: f64 = @floatFromInt(@max(1, maximized.width));
+    const normal_width: f64 = @floatFromInt(normal.width);
+    const normal_height: f64 = @floatFromInt(normal.height);
+    const horizontal_ratio = std.math.clamp(
+        (pointer_x - @as(f64, @floatFromInt(maximized.x))) / maximized_width,
+        0,
+        1,
+    );
+    const vertical_offset = std.math.clamp(
+        pointer_y - @as(f64, @floatFromInt(maximized.y)),
+        0,
+        @max(0, normal_height - 1),
+    );
+    return .{
+        .x = @intFromFloat(@round(pointer_x - horizontal_ratio * normal_width)),
+        .y = @intFromFloat(@round(pointer_y - vertical_offset)),
+        .width = normal.width,
+        .height = normal.height,
+    };
+}
+
 pub fn action(
     button: u32,
     kind: PolicyState.Kind,
@@ -100,6 +131,24 @@ test "double click timing and motion reject drags" {
     try std.testing.expect(withinDoubleClick(1000, 1400));
     try std.testing.expect(!withinDoubleClick(1000, 1401));
     try std.testing.expect(withinDoubleClick(std.math.maxInt(u32) - 10, 20));
+}
+
+test "maximized move restore keeps the titlebar beneath the pointer" {
+    const maximized: types.Rect = .{ .x = 100, .y = 40, .width = 1200, .height = 800 };
+    const normal: types.Rect = .{ .x = 250, .y = 180, .width = 600, .height = 400 };
+
+    try std.testing.expectEqual(
+        types.Rect{ .x = 400, .y = 40, .width = 600, .height = 400 },
+        restoredMoveStart(maximized, normal, 700, 62),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 100, .y = 40, .width = 600, .height = 400 },
+        restoredMoveStart(maximized, normal, 100, 50),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 700, .y = 40, .width = 600, .height = 400 },
+        restoredMoveStart(maximized, normal, 1300, 55),
+    );
 }
 
 test "drop zones distinguish vertical stacks from adjacent columns" {

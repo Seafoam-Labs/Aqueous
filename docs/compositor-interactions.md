@@ -387,12 +387,15 @@ validated with the `xdg_toplevel` seat and serial. XWayland
 `_NET_WM_MOVERESIZE` requests have neither, so Aqueous accepts them only while
 the default pointer has an active press focused on the requesting top-level.
 Resize requests preserve the client-selected edge or corner. Requests from
-ordinary windows in non-floating layouts, maximized windows, or minimized
-windows are consumed without changing their geometry or removing them from
-layout. Client maximize and minimize requests follow the same presentation
-rule. Maximize records whether the window came from a persistent overlay or the
-workspace floating layout, so unmaximize restores floating or tiled policy
-ownership respectively and the appropriate remembered rectangle is reused.
+ordinary windows in non-floating layouts or minimized windows are consumed
+without changing their geometry or removing them from layout. A validated move
+request on a maximized floating presentation immediately restores its remembered
+normal size beneath the pointer and continues through the same floating-drag
+path. Client maximize and minimize requests follow the same presentation rule.
+Maximize records whether the window came from a persistent overlay or the
+workspace floating layout, so unmaximize or titlebar-drag restoration returns
+to floating or tiled policy ownership respectively and reuses the appropriate
+remembered rectangle.
 
 ## Focus, keyboard, and pointer flow
 

@@ -97,6 +97,41 @@ pub fn toggleMaximized(store: *Store, handle: types.Handle) ?bool {
     return true;
 }
 
+/// Restore a maximized window as part of a user-initiated titlebar move.
+/// Persistent floats can always return to their own geometry; tiled policy
+/// windows may do so only while their active layout presents them as floating.
+pub fn maximizedMoveRestoreKind(
+    store: *Store,
+    handle: types.Handle,
+    layout_floating: bool,
+) ?Kind {
+    const entry = store.resolver(handle) orelse return null;
+    if (entry.kind != .maximized) return null;
+    return switch (entry.client_maximize_origin) {
+        .floating_overlay => .floating,
+        .workspace_floating => if (layout_floating) .tiled else null,
+        .none => switch (entry.previous) {
+            .floating => .floating,
+            .tiled => if (layout_floating) .tiled else null,
+            else => null,
+        },
+    };
+}
+
+pub fn restoreMaximizedForMove(
+    store: *Store,
+    handle: types.Handle,
+    layout_floating: bool,
+) ?Kind {
+    const entry = store.resolver(handle) orelse return null;
+    const restored = store.maximizedMoveRestoreKind(handle, layout_floating) orelse return null;
+    entry.overrideFloating();
+    entry.client_maximize_origin = .none;
+    entry.previous = restored;
+    entry.kind = restored;
+    return restored;
+}
+
 /// Honor client maximize for either a persistent floating overlay or an
 /// ordinary layout-owned window currently presented by the workspace floating
 /// layout. Explicit provenance lets unmaximize restore the correct owner even
@@ -329,6 +364,42 @@ test "manual maximize supersedes client maximize provenance" {
     try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
     try std.testing.expect(!store.setClientMaximized(1, false, true));
     try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+}
+
+test "titlebar move restores maximized floating presentations" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    TestResolver.entries[0] = .{
+        .kind = .maximized,
+        .previous = .tiled,
+        .client_maximize_origin = .workspace_floating,
+    };
+    try std.testing.expectEqual(Kind.tiled, store.restoreMaximizedForMove(1, true).?);
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(ClientMaximizeOrigin.none, TestResolver.entries[0].client_maximize_origin);
+
+    TestResolver.entries[1] = .{
+        .kind = .maximized,
+        .previous = .floating,
+        .client_maximize_origin = .none,
+    };
+    try std.testing.expectEqual(Kind.floating, store.restoreMaximizedForMove(2, false).?);
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[1].kind);
+
+    TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
+    try std.testing.expectEqual(@as(?Kind, null), store.restoreMaximizedForMove(2, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
+
+    // Client maximize provenance remains authoritative if a minimize/restore
+    // round trip has overwritten the single-level `previous` field.
+    TestResolver.entries[1] = .{
+        .kind = .maximized,
+        .previous = .maximized,
+        .client_maximize_origin = .floating_overlay,
+    };
+    try std.testing.expectEqual(Kind.floating, store.restoreMaximizedForMove(2, false).?);
 }
 
 const TestResolver = struct {

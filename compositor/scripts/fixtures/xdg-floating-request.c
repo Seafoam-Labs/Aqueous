@@ -429,8 +429,9 @@ int main(int argc, char **argv) {
          strcmp(mode, "move-resize") != 0 &&
          strcmp(mode, "move-hold") != 0 &&
          strcmp(mode, "maximize") != 0 &&
+         strcmp(mode, "maximize-move") != 0 &&
          strcmp(mode, "minimize") != 0)) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold|maximize|minimize]\n", argv[0]);
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold|maximize|maximize-move|minimize]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -492,6 +493,14 @@ int main(int argc, char **argv) {
             !publish_marker(&app, "unmaximize-done") ||
             !wait_for_marker(&app, "finish")) {
             fail(&app, "maximize command failed");
+        }
+    } else if (strcmp(mode, "maximize-move") == 0) {
+        if (!request_state(&app, "maximize") ||
+            !publish_marker(&app, "maximize-done") ||
+            !run_pointer_operation(&app, "move", OP_MOVE, false) ||
+            !publish_marker(&app, "move-done") ||
+            !wait_for_marker(&app, "finish")) {
+            fail(&app, "maximize/move command failed");
         }
     } else if (strcmp(mode, "minimize") == 0) {
         if (!request_state(&app, "minimize") ||
