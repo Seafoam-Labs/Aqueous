@@ -136,12 +136,19 @@ active windows. An unassigned new window is admitted on the first usable
 output; this breaks the otherwise circular dependency where it cannot map
 until configured but historically was not assigned until mapping.
 
+Before layout, transient-parent placement is reconciled and then explicit
+window rules may route a window to an exact output name, a numbered workspace,
+or both. Any membership change rebuilds the copied snapshot so a cross-output
+window is arranged only by its destination. Output-only rules use the
+destination's active workspace; workspace-only rules keep the admission
+output.
+
 For each output, the policy:
 
 1. Resolves global, output, workspace, and runtime layout selection.
 2. Intersects live layer-shell reservations with configured static struts.
 3. Ensures newly admitted windows have a workspace.
-4. Resolves and reconciles each window rule.
+4. Reconciles the remaining state and visual properties of each window rule.
 5. Separates minimized, maximized, floating, fullscreen, and tiled windows.
 6. Updates focus history and chooses a replacement focus when necessary.
 7. Runs the selected layout engine for tiled windows.
@@ -424,10 +431,10 @@ constraints and restores them on key release.
 
 New windows preserve the current keyboard target by default. Enabling
 `focus_new_windows` makes the integrated policy focus the newest admitted
-focusable window after its workspace rules are resolved. Windows routed to an
-inactive workspace and X11 surfaces which reject keyboard focus do not steal
-focus; admission waits while a layer-shell or other non-window surface owns
-the keyboard.
+focusable window after its output/workspace rule is resolved. Windows routed
+to an inactive workspace and X11 surfaces which reject keyboard focus do not
+steal focus; admission waits while a layer-shell or other non-window surface
+owns the keyboard.
 
 ## Workspaces
 
@@ -438,8 +445,9 @@ temporary pre-initial-configure state.
 Changing workspaces records the prior number per output, activates the target,
 dirties policy, and schedules an output frame. The next manage cycle arranges
 windows on the newly active workspace and repairs focus using workspace focus
-history. Moving a window first marks workspace-rule ownership overridden, then
-changes its native workspace membership.
+history. Moving a window between workspaces or outputs first marks composite
+placement-rule ownership overridden, then changes its native workspace
+membership.
 
 When transitions are enabled, the output retains the outgoing workspace while
 the incoming workspace becomes active. Render finish enables both sets of

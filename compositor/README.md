@@ -82,6 +82,7 @@ The headless cutover and output checks are:
 
 ```sh
 scripts/test-policy-parity.sh
+scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh

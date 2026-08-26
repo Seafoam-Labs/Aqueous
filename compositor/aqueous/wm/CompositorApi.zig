@@ -320,7 +320,9 @@ pub fn overviewWindowDisappearing(_: CompositorApi, handle: layout.Handle) bool 
     return window.state == .closing or window.state == .init;
 }
 
-pub fn windowWorkspace(_: CompositorApi, handle: layout.Handle) ?struct { output_id: u64, workspace_number: u32 } {
+pub const WindowWorkspace = struct { output_id: u64, workspace_number: u32 };
+
+pub fn windowWorkspace(_: CompositorApi, handle: layout.Handle) ?WindowWorkspace {
     const ref: Window.Ref = @bitCast(handle);
     const window = ref.get() orelse return null;
     const workspace = window.workspace orelse return null;
@@ -832,14 +834,38 @@ pub fn windowGeometry(_: CompositorApi, handle: layout.Handle) ?layout.Rect {
     return .{ .x = window.box.x, .y = window.box.y, .width = window.box.width, .height = window.box.height };
 }
 
-pub fn applyRuleWorkspace(_: CompositorApi, handle: layout.Handle, output_id: u64, workspace_number: u32) bool {
-    if (workspace_number == 0) return false;
+pub const RulePlacementResult = enum { unchanged, changed, unavailable };
+
+/// Apply a rule-owned composite output/workspace target. An omitted output
+/// keeps the admission output; an omitted workspace uses the destination's
+/// active workspace. Explicit output names target only visible, enabled heads
+/// so a rule cannot silently admit a new window onto a powered-off display.
+pub fn applyRulePlacement(
+    _: CompositorApi,
+    handle: layout.Handle,
+    admission_output_id: u64,
+    output_name: ?[]const u8,
+    workspace_number: u32,
+) RulePlacementResult {
     const ref: Window.Ref = @bitCast(handle);
-    const window = ref.get() orelse return false;
-    const output = outputById(output_id) orelse return false;
-    const workspace = output.policyWorkspaceAt(workspace_number) orelse return false;
-    if (window.workspace != workspace) window.setWorkspace(workspace);
-    return true;
+    const window = ref.get() orelse return .unavailable;
+    const output = if (output_name) |requested| blk: {
+        var outputs = server.om.outputs.iterator(.forward);
+        while (outputs.next()) |candidate| {
+            if (!std.mem.eql(u8, candidate.policyName(), requested)) continue;
+            const box = candidate.policyFullBox();
+            if (!candidate.policyTransferTarget() or box.width <= 0 or box.height <= 0) return .unavailable;
+            break :blk candidate;
+        }
+        return .unavailable;
+    } else outputById(admission_output_id) orelse return .unavailable;
+    const workspace = if (workspace_number == 0)
+        output.active_workspace orelse return .unavailable
+    else
+        output.policyWorkspaceAt(workspace_number) orelse return .unavailable;
+    if (window.workspace == workspace) return .unchanged;
+    window.setWorkspace(workspace);
+    return .changed;
 }
 
 pub fn applyRuleVisual(_: CompositorApi, handle: layout.Handle, blur: ?bool, opacity: ?f64, hdr_expand: ?bool, force_ssd: bool) void {

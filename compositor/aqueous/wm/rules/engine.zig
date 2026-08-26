@@ -16,6 +16,9 @@ pub const Identity = struct {
 
 pub const Placement = struct {
     floating: bool = false,
+    /// Exact connector name reported by `aqueousctl outputs`. Null keeps the
+    /// window on its admission output.
+    output: ?[]const u8 = null,
     workspace: u32 = 0,
     width: i32 = 0,
     height: i32 = 0,
@@ -78,6 +81,7 @@ pub const Rule = struct {
         hashOptionalContentType(&hash, rule.content_type);
         hashOptionalEnum(&hash, rule.layout);
         hash.update(std.mem.asBytes(&rule.placement.floating));
+        hashOptionalString(&hash, rule.placement.output);
         hash.update(std.mem.asBytes(&rule.placement.workspace));
         hash.update(std.mem.asBytes(&rule.placement.width));
         hash.update(std.mem.asBytes(&rule.placement.height));
@@ -131,6 +135,17 @@ pub const Rule = struct {
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
         return placement_only.fingerprint();
+    }
+
+    /// Identity of the composite output/workspace target. Zero means normal
+    /// admission placement with neither field configured.
+    pub fn placementFingerprint(rule: Rule) u64 {
+        if (rule.placement.output == null and rule.placement.workspace == 0) return 0;
+        var hash = std.hash.Wyhash.init(0);
+        hashOptionalString(&hash, rule.placement.output);
+        hash.update(std.mem.asBytes(&rule.placement.workspace));
+        const value = hash.final();
+        return if (value == 0) 1 else value;
     }
 };
 
@@ -224,6 +239,7 @@ fn freeRules(allocator: std.mem.Allocator, rules: []Rule) void {
         if (rule.app_id) |value| allocator.free(value);
         if (rule.class) |value| allocator.free(value);
         if (rule.title) |value| allocator.free(value);
+        if (rule.placement.output) |value| allocator.free(value);
     }
     if (rules.len > 0) allocator.free(rules);
 }
@@ -236,6 +252,7 @@ fn cloneRules(allocator: std.mem.Allocator, rules: []const Rule) ![]Rule {
             if (rule.app_id) |value| allocator.free(value);
             if (rule.class) |value| allocator.free(value);
             if (rule.title) |value| allocator.free(value);
+            if (rule.placement.output) |value| allocator.free(value);
         }
         allocator.free(result);
     }
@@ -253,6 +270,8 @@ fn cloneRule(allocator: std.mem.Allocator, source: Rule) !Rule {
     result.class = if (source.class) |value| try allocator.dupe(u8, value) else null;
     errdefer if (result.class) |value| allocator.free(value);
     result.title = if (source.title) |value| try allocator.dupe(u8, value) else null;
+    errdefer if (result.title) |value| allocator.free(value);
+    result.placement.output = if (source.placement.output) |value| try allocator.dupe(u8, value) else null;
     return result;
 }
 
@@ -331,7 +350,7 @@ test "content type rules match committed state and keep only visual effects" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     var source = [_]Rule{
-        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .workspace = 4 }, .fullscreen = true, .blur = false, .hdr_expand = true },
+        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .hdr_expand = true },
         .{ .app_id = "player*", .placement = .{ .workspace = 2 } },
     };
     try engine.reload(&source);
@@ -342,6 +361,7 @@ test "content type rules match committed state and keep only visual effects" {
     // Matching content type: layout and placement edits are dropped, visuals survive.
     const game = engine.resolve(.{ .app_id = "player-one", .content_type = .game }).?;
     try std.testing.expect(game.layout == null);
+    try std.testing.expect(game.placement.output == null);
     try std.testing.expectEqual(@as(u32, 0), game.placement.workspace);
     try std.testing.expect(!game.fullscreen);
     try std.testing.expect(!game.ignore_struts);
@@ -379,6 +399,20 @@ test "rule fingerprints are semantic and detect behavior changes" {
     try std.testing.expectEqual(first.fingerprint(), same.fingerprint());
     try std.testing.expect(first.fingerprint() != changed.fingerprint());
     try std.testing.expect(first.fingerprint() != 0);
+}
+
+test "placement fingerprints cover output and workspace without changing the matcher" {
+    const none: Rule = .{ .app_id = "term*" };
+    const first: Rule = .{ .app_id = "term*", .placement = .{ .output = "DP-1", .workspace = 2 } };
+    const same: Rule = .{ .app_id = "term*", .placement = .{ .output = "DP-1", .workspace = 2 } };
+    const other_output: Rule = .{ .app_id = "term*", .placement = .{ .output = "DP-2", .workspace = 2 } };
+    const other_workspace: Rule = .{ .app_id = "term*", .placement = .{ .output = "DP-1", .workspace = 3 } };
+
+    try std.testing.expectEqual(@as(u64, 0), none.placementFingerprint());
+    try std.testing.expectEqual(first.matcherFingerprint(), other_output.matcherFingerprint());
+    try std.testing.expectEqual(first.placementFingerprint(), same.placementFingerprint());
+    try std.testing.expect(first.placementFingerprint() != other_output.placementFingerprint());
+    try std.testing.expect(first.placementFingerprint() != other_workspace.placementFingerprint());
 }
 
 test "matcher fingerprints ignore unrelated property edits" {
