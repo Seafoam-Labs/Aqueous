@@ -1,0 +1,11 @@
+[layout]
+default = "tile"
+gaps_outer = 0
+gaps_inner = 0
+
+[workspace_transition]
+enabled = false
+
+[input]
+focus_follows_mouse = false
+

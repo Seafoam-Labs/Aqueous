@@ -301,6 +301,7 @@ focus_output_left        = "Super+Ctrl+Comma"
 focus_output_right       = "Super+Ctrl+Period"
 move_to_output_left      = "Super+Shift+Comma"
 move_to_output_right     = "Super+Shift+Period"
+rotate_output_clockwise  = "Super+Ctrl+R"       # rotate the output beneath the mouse by 90°
 # The following chords are FREE in the exclusive workspace model. Bind them to
 # anything you like, e.g. under [keybinds.custom]:
 #   Super+0, Super+Shift+0

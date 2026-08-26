@@ -236,6 +236,7 @@ scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
+scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
 ```
 
@@ -252,6 +253,8 @@ virtual keyboard and pointer input to exercise layouts, rules, focus, fullscreen
 keybindings, and repeated workspace changes. The scaling harness checks
 client-side `wl_output` events, the embedded output service, and the headless
 output commit pipeline.
+The output-rotation harness verifies that the runtime quarter-turn keybinding
+targets only the display beneath the pointer.
 
 ## Packaging
 

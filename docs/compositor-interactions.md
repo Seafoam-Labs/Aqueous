@@ -499,6 +499,13 @@ enabled state become current together. On failure, Aqueous reverts scheduled
 state to the last working state. An initial modeset failure terminates the
 session instead of running indefinitely without a usable display.
 
+`rotate_output_clockwise` (default `Super+Ctrl+R`) advances the transform of
+the enabled output directly beneath the pointer by 90 degrees. Pointer gaps do
+not fall back to the focused, primary, or nearest output. The action changes
+runtime state through the same atomic output transaction, preserves every
+other output field, and does not rewrite `outputs.toml`; a later configured
+reload may therefore reassert its declared transform.
+
 `hdr = true` selects the HDR10 profile on a capable DRM output: 10-bit
 scanout, BT.2020 primaries, and the ST 2084 PQ transfer function with static
 mastering metadata. The request is rejected unless the connector advertises

@@ -1290,6 +1290,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "focus_output_right")) return aqueous.focusOutput(1, false);
     if (std.mem.eql(u8, action, "move_to_output_left")) return aqueous.focusOutput(-1, true);
     if (std.mem.eql(u8, action, "move_to_output_right")) return aqueous.focusOutput(1, true);
+    if (std.mem.eql(u8, action, "rotate_output_clockwise")) return aqueous.rotatePointerOutputClockwise();
     if (std.mem.eql(u8, action, "focus_composable")) {
         if (parseComposableSlot(argument)) |slot| aqueous.focusComposableSlot(slot);
         return;
@@ -1345,6 +1346,16 @@ fn parseIndexed(action: []const u8, prefix: []const u8) ?u32 {
     if (!std.mem.startsWith(u8, action, prefix)) return null;
     const number = std.fmt.parseInt(u32, action[prefix.len..], 10) catch return null;
     return if (number >= 1 and number <= 9) number else null;
+}
+
+fn rotatePointerOutputClockwise(aqueous: *Aqueous) void {
+    const output_id = aqueous.api.pointerOutputId() orelse {
+        log.debug("rotate output ignored: pointer is not on an enabled output", .{});
+        return;
+    };
+    if (!aqueous.output_service.rotateOutputClockwise(output_id)) {
+        log.warn("unable to schedule clockwise output rotation", .{});
+    }
 }
 
 fn parseComposableSlot(value: []const u8) ?u8 {
