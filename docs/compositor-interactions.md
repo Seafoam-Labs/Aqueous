@@ -432,6 +432,12 @@ hit-testing. Modifier drags are intercepted before client delivery. Holding
 the configured pointer-untrap binding temporarily suppresses pointer
 constraints and restores them on key release.
 
+Client-side drag and drop is a temporary exception to focus-follows-mouse.
+wlroots owns both pointer and keyboard grabs for the duration of a pointer
+drag, so Aqueous cancels pending hover focus and does not change its logical
+window focus while that grab is active. After the grab ends, the pointer target
+is refreshed and normal immediate or delayed hover focus is evaluated once.
+
 New windows preserve the current keyboard target by default. Enabling
 `focus_new_windows` makes the integrated policy focus the newest admitted
 focusable window after its output/workspace rule is resolved. Windows routed

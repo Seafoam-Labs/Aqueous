@@ -1104,7 +1104,13 @@ pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
         aqueous.hover_focus_timer != null and aqueous.scrollingHoverDelayApplies(target)
     else
         false;
-    const action = aqueous.hover_focus.hover(handle, aqueous.api.focusedWindow(), delayed, delay_ms);
+    const action = aqueous.hover_focus.hover(
+        handle,
+        aqueous.api.focusedWindow(),
+        delayed,
+        delay_ms,
+        aqueous.api.clientDragActive(),
+    );
     switch (action) {
         .none => {},
         .disarm => aqueous.disarmHoverFocusTimer(),
@@ -1119,6 +1125,13 @@ pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
             };
         },
     }
+}
+
+/// Cancel any dwell request which predates a client-side drag. wlroots installs
+/// a keyboard grab for the drag and ignores keyboard-enter requests until that
+/// grab is destroyed.
+pub fn handleClientDragStarted(aqueous: *Aqueous) void {
+    aqueous.cancelHoverFocus();
 }
 
 /// Focus a window after an explicit, unmodified pointer interaction. The
@@ -2365,6 +2378,7 @@ fn handleHoverFocusTimer(aqueous: *Aqueous) c_int {
     const pending = aqueous.hover_focus.pending orelse return 0;
     const valid_context = aqueous.mode.runsInternal() and
         aqueous.config.wm.input.focus_follows_mouse and
+        !aqueous.api.clientDragActive() and
         aqueous.config.layout.scrolling_focus_follows_mouse_delay_ms > 0 and
         aqueous.scrollingHoverDelayApplies(pending);
     const target = aqueous.hover_focus.expire(

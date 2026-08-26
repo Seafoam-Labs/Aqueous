@@ -1230,6 +1230,7 @@ fn handleStartDrag(listener: *wl.Listener(*wlr.Drag), wlr_drag: *wlr.Drag) void 
         .keyboard_touch => seat.drag = .touch,
         .keyboard => unreachable,
     }
+    server.aqueous.handleClientDragStarted();
     wlr_drag.events.destroy.add(&seat.drag_destroy);
 
     if (wlr_drag.icon) |wlr_drag_icon| {
@@ -1245,14 +1246,19 @@ fn handleDragDestroy(listener: *wl.Listener(*wlr.Drag), _: *wlr.Drag) void {
     const seat: *Seat = @fieldParentPtr("drag_destroy", listener);
     seat.drag_destroy.link.remove();
 
-    switch (seat.drag) {
+    const drag = seat.drag;
+    seat.drag = .none;
+    switch (drag) {
         .none => unreachable,
         .pointer => {
+            // The wlroots drag keyboard grab is gone now, so refresh the
+            // pointer target and let normal hover policy establish the focus
+            // which was intentionally deferred while dragging.
             seat.cursor.updateState();
+            server.aqueous.handleHover(if (seat.wm_scheduled.hovered) |ref| @bitCast(ref) else null);
         },
         .touch => {},
     }
-    seat.drag = .none;
 }
 
 fn handleRequestSetPrimarySelection(
