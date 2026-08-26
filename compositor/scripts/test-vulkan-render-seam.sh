@@ -102,12 +102,12 @@ validation_manifest=$(
     find /usr/share/vulkan /etc/vulkan -type f \
         -name 'VkLayer_khronos_validation.json' -print -quit 2>/dev/null || true
 )
-if [ "$REQUIRE_VALIDATION" = 1 ] && [ -z "$validation_manifest" ]; then
-    die "VK_LAYER_KHRONOS_validation is required"
-fi
 VALIDATION_ENV=()
-[ -z "$validation_manifest" ] ||
+if [ "$REQUIRE_VALIDATION" = 1 ]; then
+    [ -n "$validation_manifest" ] ||
+        die "VK_LAYER_KHRONOS_validation is required"
     VALIDATION_ENV=(VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation)
+fi
 
 TEST_ROOT=$(mktemp -d /tmp/aqueous-vulkan-render-seam.XXXXXX)
 RUNTIME_DIR="$TEST_ROOT/runtime"
@@ -115,6 +115,7 @@ SANDBOX_HOME="$TEST_ROOT/home"
 FIXTURE_BIN="$TEST_ROOT/visual-effects-reference"
 EXIT_FIXTURE="$TEST_ROOT/exit-session"
 BACKGROUND_CONTROL="$TEST_ROOT/background-control"
+BLUR_CONTROL="$TEST_ROOT/blur-control"
 if [ "$#" -eq 1 ]; then
     ARTIFACT_DIR=$(readlink -m "$1")
     mkdir -p "$ARTIFACT_DIR"
@@ -152,6 +153,7 @@ mkdir -p \
     "$RUNTIME_DIR/config" \
     "$SANDBOX_HOME" \
     "$BACKGROUND_CONTROL" \
+    "$BLUR_CONTROL" \
     "$ARTIFACT_DIR"
 chmod 700 "$RUNTIME_DIR"
 BACKEND_ENV=()
@@ -203,6 +205,7 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     AQUEOUS_CONFIG="$WM_CONFIG" \
     AQUEOUS_LAYOUT="$LAYOUT_CONFIG" \
     AQUEOUS_RULES="$RULES_CONFIG" \
+    AQUEOUS_RENDER_METRICS=1 \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     XDG_CONFIG_HOME="$RUNTIME_DIR/config" \
     HOME="$SANDBOX_HOME" \
@@ -361,36 +364,49 @@ nonblack_pixel_count() {
 
 CONTROL_SEQUENCE=0
 
-send_background_command() {
+send_control_command() {
+    local control_dir=$1 fixture_pid=$2 control_log=$3
+    shift 3
     local operation=$1 value=$2 expected_x=$3 expected_y=$4
     local expected_width=$5 expected_height=$6
     CONTROL_SEQUENCE=$((CONTROL_SEQUENCE + 1))
     printf '%d %s %d\n' "$CONTROL_SEQUENCE" "$operation" "$value" \
-        >"$BACKGROUND_CONTROL/command.tmp"
-    mv "$BACKGROUND_CONTROL/command.tmp" "$BACKGROUND_CONTROL/command"
+        >"$control_dir/command.tmp"
+    mv "$control_dir/command.tmp" "$control_dir/command"
     local deadline=$((SECONDS + STRESS_TIMEOUT_SECONDS))
     while [ "$SECONDS" -lt "$deadline" ]; do
-        if [ -f "$BACKGROUND_CONTROL/ack" ]; then
+        if [ -f "$control_dir/ack" ]; then
             read -r sequence ack_operation x y width height \
-                <"$BACKGROUND_CONTROL/ack"
+                <"$control_dir/ack"
             if [ "$sequence" = "$CONTROL_SEQUENCE" ]; then
                 [ "$ack_operation" = "$operation" ] ||
                     die "fixture acknowledged the wrong operation"
                 [ "$x $y $width $height" = \
                     "$expected_x $expected_y $expected_width $expected_height" ] ||
                     die "fixture acknowledged unexpected damage: $x $y $width $height"
-                cat "$BACKGROUND_CONTROL/ack" \
-                    >>"$ARTIFACT_DIR/background-controls.log"
+                cat "$control_dir/ack" >>"$control_log"
                 return
             fi
         fi
-        kill -0 "$CLIENT_PID" 2>/dev/null ||
+        kill -0 "$fixture_pid" 2>/dev/null ||
             die "fixture exited while processing $operation"
         kill -0 "$COMPOSITOR_PID" 2>/dev/null ||
             die "compositor exited while processing $operation"
         sleep 0.05
     done
     die "fixture did not complete $operation within $STRESS_TIMEOUT_SECONDS seconds"
+}
+
+send_background_command() {
+    send_control_command \
+        "$BACKGROUND_CONTROL" "$CLIENT_PID" \
+        "$ARTIFACT_DIR/background-controls.log" "$@"
+}
+
+send_blur_command() {
+    send_control_command \
+        "$BLUR_CONTROL" "$BLUR_PID" \
+        "$ARTIFACT_DIR/blur-controls.log" "$@"
 }
 
 set_output_mode 1920 1080
@@ -495,7 +511,7 @@ blur_ready="$TEST_ROOT/blur.ready"
 env -u LD_PRELOAD \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     WAYLAND_DISPLAY="$socket" \
-    "$FIXTURE_BIN" blur "$blur_ready" \
+    "$FIXTURE_BIN" blur "$blur_ready" "$BLUR_CONTROL" \
     >"$BLUR_LOG" 2>&1 &
 BLUR_PID=$!
 for _ in $(seq 1 240); do
@@ -511,6 +527,22 @@ read -r _ BLUR_WIDTH BLUR_HEIGHT <"$blur_ready"
 [ "$BLUR_WIDTH $BLUR_HEIGHT" = "760 520" ] ||
     die "blur fixture mapped at an unexpected size"
 capture_output "$ARTIFACT_DIR/blur-static.png"
+self_damage_metric_line=$(($(wc -l <"$COMPOSITOR_LOG") + 1))
+self_damage_frames=8
+send_blur_command stress "$self_damage_frames" 360 240 160 120
+sleep 0.2
+self_damage_metrics=$(
+    tail -n +"$self_damage_metric_line" "$COMPOSITOR_LOG" |
+        sed -n \
+            's/.*render-metric kind=vulkan-effects .*cache_hits=\([0-9][0-9]*\) cache_partial_rebuilds=\([0-9][0-9]*\) cache_full_rebuilds=\([0-9][0-9]*\) pixels_processed=\([0-9][0-9]*\).*/\1 \2 \3 \4/p'
+)
+self_damage_metric_count=$(wc -l <<<"$self_damage_metrics")
+[ "$self_damage_metric_count" -ge "$self_damage_frames" ] ||
+    die "self-damage did not produce the expected blur-cache samples"
+awk \
+    'NF != 4 || $1 < 1 || $2 != 0 || $3 != 0 || $4 != 0 { exit 1 }' \
+    <<<"$self_damage_metrics" ||
+    die "a blur window's own damage rebuilt its backdrop cache"
 content_order_values=$(
     magick "$ARTIFACT_DIR/blur-static.png" \
         -format '%[fx:(p{741,600}.r+p{741,600}.g+p{741,600}.b)/3] %[fx:(p{754,600}.r+p{754,600}.g+p{754,600}.b)/3] %[fx:(p{270,600}.r+p{270,600}.g+p{270,600}.b)/3] %[fx:abs(p{572,438}.r-p{588,438}.r)+abs(p{572,438}.g-p{588,438}.g)+abs(p{572,438}.b-p{588,438}.b)]' \

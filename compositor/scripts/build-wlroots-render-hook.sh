@@ -48,12 +48,21 @@ for patch_file in "${patch_files[@]}"; do
     patch -d "$source_dir" -p1 <"$patch_file"
 done
 scene_source="$source_dir/types/scene/wlr_scene.c"
-grep -Fq 'scene_output_damage_internal(scene_output, &damage, false);' \
+grep -Fq 'scene_output_damage_internal(scene_output, &damage, false, NULL);' \
     "$scene_source" ||
     die "patched wlroots does not separate output-only and scene damage"
 grep -Fq 'render_pass, &scene_output->pending_effect_damage,' \
     "$scene_source" ||
     die "patched wlroots does not pass full scene damage to the render hook"
+grep -Fq '&scene_buffer->node);' "$scene_source" ||
+    die "patched wlroots does not preserve buffer damage provenance"
+grep -Fq 'scene_output_damage_internal(data->output, &render_region, true,' \
+    "$scene_source" ||
+    die "patched wlroots does not preserve render-retry damage provenance"
+grep -Fq 'scene_damage_outputs(scene, damage, node);' "$scene_source" ||
+    die "patched wlroots does not preserve node-update damage provenance"
+grep -Fq 'int wlr_scene_node_render_order(' "$scene_source" ||
+    die "patched wlroots does not expose scene render ordering"
 color_manager_source="$source_dir/types/wlr_color_management_v1.c"
 grep -Fq '#define COLOR_MANAGEMENT_V1_VERSION 3' "$color_manager_source" ||
     die "patched wlroots does not expose color-management-v1 version 3"
@@ -97,6 +106,8 @@ for symbol in \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \
     wlr_scene_output_set_render_hooks \
+    wlr_scene_output_set_damage_hook \
+    wlr_scene_node_render_order \
     wlr_scene_node_set_position_f64 \
     wlr_scene_node_coords_f64 \
     wlr_scene_surface_set_destination_scale \
@@ -128,6 +139,16 @@ cc "$here/scripts/fixtures/wlroots-precise-position.c" \
     $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs wlroots-0.20)
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$probe" ||
     die "patched wlroots did not preserve precise scene coordinates"
+
+scene_order_probe="$build_root/wlroots-scene-order"
+cc "$here/scripts/fixtures/wlroots-scene-order.c" \
+    -o "$scene_order_probe" \
+    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config \
+        --cflags --libs wlroots-0.20) \
+    -DWLR_USE_UNSTABLE
+LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$scene_order_probe" ||
+    die "patched wlroots did not preserve scene render ordering"
 
 echo "patched wlroots $version installed at $prefix"
 echo "export PKG_CONFIG_PATH=$prefix/lib/pkgconfig"

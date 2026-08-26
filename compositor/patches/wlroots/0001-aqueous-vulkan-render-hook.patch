@@ -958,3 +958,133 @@
 +	pixman_region32_init(&render_data.damage);
 +	wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,
 +		&render_data.damage);
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -16 +16 @@
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 8
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 9
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -76,0 +77,3 @@
++typedef void (*wlr_scene_damage_hook_func_t)(
++	struct wlr_scene_node *source, const pixman_region32_t *damage, void *data);
++
+@@ -308,0 +312,2 @@
++		wlr_scene_damage_hook_func_t damage_hook;
++		void *damage_hook_data;
+@@ -680,0 +686,15 @@
++
++/**
++ * Set a callback invoked when scene content damages this output. The source is
++ * NULL when the damage cannot be attributed to one scene node.
++ */
++void wlr_scene_output_set_damage_hook(
++	struct wlr_scene_output *scene_output,
++	wlr_scene_damage_hook_func_t hook, void *data);
++
++/**
++ * Compare two nodes' scene render order. Returns -1 when the first node is
++ * below the second, 1 when it is above, and 0 when the order is indeterminate.
++ */
++int wlr_scene_node_render_order(
++	struct wlr_scene_node *first, struct wlr_scene_node *second);
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -377 +377,2 @@
+-		const pixman_region32_t *damage, bool affects_scene) {
++		const pixman_region32_t *damage, bool affects_scene,
++		struct wlr_scene_node *source) {
+@@ -392,0 +394,4 @@
++			if (scene_output->damage_hook != NULL) {
++				scene_output->damage_hook(source, &clipped,
++					scene_output->damage_hook_data);
++			}
+@@ -401 +406 @@
+-	scene_output_damage_internal(scene_output, damage, true);
++	scene_output_damage_internal(scene_output, damage, true, NULL);
+@@ -1073 +1078,2 @@
+-		scene_output_damage(scene_output, &output_damage);
++		scene_output_damage_internal(scene_output, &output_damage, true,
++			&scene_buffer->node);
+@@ -1595 +1601,2 @@
+-			scene_output_damage(data->output, &render_region);
++			scene_output_damage_internal(data->output, &render_region, true,
++				&scene_buffer->node);
+@@ -1855 +1861 @@
+-	scene_output_damage_internal(scene_output, &damage, false);
++	scene_output_damage_internal(scene_output, &damage, false, NULL);
+@@ -2047,0 +2054,59 @@
++}
++
++void wlr_scene_output_set_damage_hook(
++		struct wlr_scene_output *scene_output,
++		wlr_scene_damage_hook_func_t hook, void *data) {
++	scene_output->damage_hook = hook;
++	scene_output->damage_hook_data = data;
++}
++
++int wlr_scene_node_render_order(
++		struct wlr_scene_node *first, struct wlr_scene_node *second) {
++	if (first == second) {
++		return 0;
++	}
++
++	size_t first_depth = 0, second_depth = 0;
++	for (struct wlr_scene_node *node = first; node->parent != NULL;
++			node = &node->parent->node) {
++		first_depth++;
++	}
++	for (struct wlr_scene_node *node = second; node->parent != NULL;
++			node = &node->parent->node) {
++		second_depth++;
++	}
++
++	struct wlr_scene_node *first_branch = first;
++	struct wlr_scene_node *second_branch = second;
++	while (first_depth > second_depth) {
++		first_branch = &first_branch->parent->node;
++		first_depth--;
++	}
++	while (second_depth > first_depth) {
++		second_branch = &second_branch->parent->node;
++		second_depth--;
++	}
++	if (first_branch == second_branch) {
++		return 0;
++	}
++	while (first_branch->parent != second_branch->parent) {
++		if (first_branch->parent == NULL || second_branch->parent == NULL) {
++			return 0;
++		}
++		first_branch = &first_branch->parent->node;
++		second_branch = &second_branch->parent->node;
++	}
++	if (first_branch->parent == NULL) {
++		return 0;
++	}
++
++	struct wlr_scene_node *node;
++	wl_list_for_each(node, &first_branch->parent->children, link) {
++		if (node == first_branch) {
++			return -1;
++		}
++		if (node == second_branch) {
++			return 1;
++		}
++	}
++	return 0;
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -418 +418,2 @@
+-static void scene_damage_outputs(struct wlr_scene *scene, const pixman_region32_t *damage) {
++static void scene_damage_outputs(struct wlr_scene *scene,
++		const pixman_region32_t *damage, struct wlr_scene_node *source) {
+@@ -432 +433 @@
+-		scene_output_damage(scene_output, &output_damage);
++		scene_output_damage_internal(scene_output, &output_damage, true, source);
+@@ -755 +756 @@
+-			scene_damage_outputs(scene, damage);
++			scene_damage_outputs(scene, damage, node);
+@@ -778 +779 @@
+-	scene_damage_outputs(scene, damage);
++	scene_damage_outputs(scene, damage, node);

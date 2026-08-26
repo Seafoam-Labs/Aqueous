@@ -987,8 +987,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unknown role: %s\n", argv[1]);
         return 2;
     }
-    if (app.control_dir != NULL && app.role != ROLE_BACKGROUND) {
-        fputs("CONTROL_DIR is only supported for the background role\n", stderr);
+    if (app.control_dir != NULL && app.role != ROLE_BACKGROUND &&
+            app.role != ROLE_BLUR) {
+        fputs("CONTROL_DIR is only supported for background and blur roles\n",
+            stderr);
         return 2;
     }
 

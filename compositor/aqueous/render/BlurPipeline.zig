@@ -105,6 +105,7 @@ const CacheEntry = struct {
     key: u64,
     resource: ?*CacheImage = null,
     effect: Effect,
+    pending_damage: c.pixman_region32_t,
     window_generation: u64 = 0,
     config_generation: u64 = 0,
     invalidation_generation: u64 = 0,
@@ -122,27 +123,50 @@ pub const CacheStats = struct {
 
 pub const OutputCache = struct {
     entries: std.ArrayList(CacheEntry) = .empty,
-    damage: c.pixman_region32_t = std.mem.zeroes(c.pixman_region32_t),
-    damage_initialized: bool = false,
     frame: u64 = 0,
     stats: CacheStats = .{},
 
-    pub fn beginFrame(
-        cache: *OutputCache,
-        damage: ?*const c.pixman_region32_t,
-    ) void {
+    pub fn beginFrame(cache: *OutputCache) void {
         cache.frame +%= 1;
         if (cache.frame == 0) cache.frame = 1;
-        if (!cache.damage_initialized) {
-            c.pixman_region32_init(&cache.damage);
-            cache.damage_initialized = true;
-        }
-        if (damage) |region| {
-            _ = c.pixman_region32_copy(&cache.damage, region);
-        } else {
-            c.pixman_region32_clear(&cache.damage);
-        }
         cache.stats = .{};
+    }
+
+    pub fn damageOwner(
+        cache: *OutputCache,
+        key: u64,
+        damage: *const c.pixman_region32_t,
+    ) void {
+        for (cache.entries.items) |*entry| {
+            if (entry.key != key) continue;
+            _ = c.pixman_region32_union(
+                &entry.pending_damage,
+                &entry.pending_damage,
+                damage,
+            );
+            return;
+        }
+    }
+
+    pub fn ownerDamage(
+        cache: *const OutputCache,
+        key: u64,
+    ) ?*const c.pixman_region32_t {
+        for (cache.entries.items) |*entry| {
+            if (entry.key != key or
+                c.pixman_region32_not_empty(&entry.pending_damage) == 0)
+            {
+                continue;
+            }
+            return &entry.pending_damage;
+        }
+        return null;
+    }
+
+    pub fn clearPendingDamage(cache: *OutputCache) void {
+        for (cache.entries.items) |*entry| {
+            c.pixman_region32_clear(&entry.pending_damage);
+        }
     }
 
     pub fn markVisible(cache: *OutputCache, key: u64) bool {
@@ -163,6 +187,7 @@ pub const OutputCache = struct {
             const entry = &cache.entries.items[index];
             if (entry.last_seen_frame != cache.frame) {
                 pipeline.retireCacheImage(entry.resource);
+                c.pixman_region32_fini(&entry.pending_damage);
                 _ = cache.entries.swapRemove(index);
                 continue;
             }
@@ -171,21 +196,15 @@ pub const OutputCache = struct {
     }
 
     pub fn clear(cache: *OutputCache, pipeline: *BlurPipeline) void {
-        for (cache.entries.items) |entry| {
+        for (cache.entries.items) |*entry| {
             pipeline.retireCacheImage(entry.resource);
+            c.pixman_region32_fini(&entry.pending_damage);
         }
         cache.entries.clearRetainingCapacity();
-        if (cache.damage_initialized) {
-            c.pixman_region32_clear(&cache.damage);
-        }
     }
 
     pub fn deinit(cache: *OutputCache, pipeline: *BlurPipeline) void {
         cache.clear(pipeline);
-        if (cache.damage_initialized) {
-            c.pixman_region32_fini(&cache.damage);
-            cache.damage_initialized = false;
-        }
         cache.entries.deinit(util.gpa);
     }
 };
@@ -432,9 +451,13 @@ pub fn renderCached(
         for (cache.entries.items) |*candidate| {
             if (candidate.key == key) break :blk candidate;
         }
+        var pending_damage: c.pixman_region32_t = undefined;
+        c.pixman_region32_init(&pending_damage);
+        errdefer c.pixman_region32_fini(&pending_damage);
         try cache.entries.append(util.gpa, .{
             .key = key,
             .effect = effect,
+            .pending_damage = pending_damage,
         });
         break :blk &cache.entries.items[cache.entries.items.len - 1];
     };
@@ -482,10 +505,10 @@ pub fn renderCached(
         );
     } else {
         c.pixman_region32_init(&updates);
-        if (cache.damage_initialized) {
+        if (cache.ownerDamage(key)) |damage| {
             c.wlr_region_expand(
                 &updates,
-                &cache.damage,
+                damage,
                 @intCast(@min(
                     kernel.reach,
                     @as(u32, std.math.maxInt(c_int)),

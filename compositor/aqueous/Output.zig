@@ -579,6 +579,11 @@ pub fn create(wlr_output: *wlr.Output) !void {
             effectsRenderBegin,
             effectsNodeRender,
         );
+        c.wlr_scene_output_set_damage_hook(
+            @ptrCast(scene_output),
+            effectsDamage,
+            output,
+        );
     }
 
     server.om.outputs.append(output);
@@ -745,7 +750,7 @@ fn effectsRenderBegin(
     const output: *Output = @ptrCast(@alignCast(data orelse return 0));
     output.blur_last_key = null;
     if (uncachedBlurRequested()) return 0;
-    output.blur_cache.beginFrame(content_damage);
+    output.blur_cache.beginFrame();
     const config = server.effect_metadata.blurConfig();
     const kernel = BlurPipeline.resolveKernel(
         config.radius,
@@ -815,16 +820,90 @@ fn prepareBlurOwner(
         blur,
         output.effectRenderState(),
     ) orelse return;
-    const ready = output.blur_cache.markVisible(@bitCast(handle.key));
-    if (expandedRenderRegionIntersects(
+    const key: u64 = @bitCast(handle.key);
+    const ready = output.blur_cache.markVisible(key);
+    if (output.blur_cache.ownerDamage(key) != null) {
+        affected.* = true;
+    } else if (!ready and expandedRenderRegionIntersects(
         content_damage,
         effect.box,
         kernel.reach,
     )) {
+        // A cache entry doesn't exist until its first draw, so use aggregate
+        // damage conservatively for that initial population.
         affected.* = true;
     } else if (ready) {
         preserved.* += 1;
     }
+}
+
+fn effectsDamage(
+    c_source: ?*c.struct_wlr_scene_node,
+    damage: ?*const c.pixman_region32_t,
+    data: ?*anyopaque,
+) callconv(.c) void {
+    if (comptime !build_options.vulkan_effects) return;
+    const output: *Output = @ptrCast(@alignCast(data orelse return));
+    const region = damage orelse return;
+    const source: ?*wlr.SceneNode = if (c_source) |node|
+        @ptrCast(@alignCast(node))
+    else
+        null;
+    const config = server.effect_metadata.blurConfig();
+    const kernel = BlurPipeline.resolveKernel(
+        config.radius,
+        config.passes,
+        output.effectRenderState().scale,
+    ) orelse return;
+
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        damageBlurOwner(output, .{ .window = window }, source, region, kernel);
+    }
+    var layer_surfaces = server.layer_shell.surfaces.iterator();
+    while (layer_surfaces.next()) |layer_surface| {
+        damageBlurOwner(
+            output,
+            .{ .layer_surface = layer_surface },
+            source,
+            region,
+            kernel,
+        );
+    }
+    var popups = server.layer_shell.popups.iterator();
+    while (popups.next()) |popup| {
+        damageBlurOwner(output, .{ .popup = popup }, source, region, kernel);
+    }
+}
+
+fn damageBlurOwner(
+    output: *Output,
+    owner: BlurOwner,
+    source: ?*wlr.SceneNode,
+    damage: *const c.pixman_region32_t,
+    kernel: BlurPipeline.Kernel,
+) void {
+    const handle = blurOwnerHandle(owner) orelse return;
+    const blur = blurOwnerData(owner) orelse return;
+    const effect = blurOwnerEffect(
+        owner,
+        blur,
+        output.effectRenderState(),
+    ) orelse return;
+    if (!expandedRenderRegionIntersects(damage, effect.box, kernel.reach)) return;
+
+    if (source) |node| {
+        const marker = &blurOwnerMarker(owner).node;
+        const order = c.wlr_scene_node_render_order(
+            @ptrCast(node),
+            @ptrCast(marker),
+        );
+        // A source rendered above the marker cannot alter its backdrop. An
+        // ancestor in the owner's own tree is likewise not backdrop content;
+        // its geometry/config generations cover effect-domain changes.
+        if (order > 0 or nodeInTree(node, blurOwnerTree(owner))) return;
+    }
+    output.blur_cache.damageOwner(@bitCast(handle.key), damage);
 }
 
 fn effectsNodeRender(
@@ -1922,6 +2001,9 @@ fn renderAndCommit(output: *Output, force: bool) !void {
     if (!wlr_output.commitState(&state)) {
         output.discardRenderMetric();
         return error.CommitFailed;
+    }
+    if (comptime build_options.vulkan_effects) {
+        output.blur_cache.clearPendingDamage();
     }
 
     switch (server.lock_manager.state) {
