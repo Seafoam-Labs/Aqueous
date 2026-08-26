@@ -371,6 +371,18 @@ pub fn outputTargetAt(_: CompositorApi, x: f64, y: f64, nearest: bool) ?OutputTa
     return if (best) |output| outputTarget(output) else null;
 }
 
+/// Resolve only the enabled output whose logical rectangle currently contains
+/// the default pointer. Unlike output selection and drag recovery, this has no
+/// focus, primary-output, or nearest-output fallback.
+pub fn pointerOutputId(api: CompositorApi) ?u64 {
+    const seat = server.input_manager.defaultSeat();
+    return (api.outputTargetAt(
+        seat.cursor.wlr_cursor.x,
+        seat.cursor.wlr_cursor.y,
+        false,
+    ) orelse return null).id;
+}
+
 fn outputTarget(output: *Output) OutputTarget {
     const box = output.policyFullBox();
     const usable = output.policyUsableBox();

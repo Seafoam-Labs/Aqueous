@@ -98,10 +98,11 @@ const defaults = [_]struct { []const u8, []const u8 }{
     .{ "move_to_workspace_up", "Super+Shift+Bracketleft" }, .{ "move_to_workspace_down", "Super+Shift+Bracketright" },
     .{ "focus_output_left", "Super+Ctrl+Comma" },           .{ "focus_output_right", "Super+Ctrl+Period" },
     .{ "move_to_output_left", "Super+Shift+Comma" },        .{ "move_to_output_right", "Super+Shift+Period" },
-    .{ "toggle_fullscreen", "Super+Shift+F" },              .{ "toggle_maximize", "Super+Shift+M" },
-    .{ "toggle_scrolling_full_width", "Super+Shift+Z" },    .{ "toggle_floating", "Super+Shift+Space" },
-    .{ "toggle_minimize", "Super+N" },                      .{ "unminimize_last", "Super+Shift+N" },
-    .{ "lock_screen", "Super+Ctrl+L" },                     .{ "untrap_pointer", "Super+grave" },
+    .{ "rotate_output_clockwise", "Super+Ctrl+R" },         .{ "toggle_fullscreen", "Super+Shift+F" },
+    .{ "toggle_maximize", "Super+Shift+M" },                .{ "toggle_scrolling_full_width", "Super+Shift+Z" },
+    .{ "toggle_floating", "Super+Shift+Space" },            .{ "toggle_minimize", "Super+N" },
+    .{ "unminimize_last", "Super+Shift+N" },                .{ "lock_screen", "Super+Ctrl+L" },
+    .{ "untrap_pointer", "Super+grave" },
 };
 
 pub fn initDefaults(snapshot: *Snapshot) void {
@@ -279,6 +280,7 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     const expel_window = parseChord("Super+Ctrl+K").?;
     const move_window_left = parseChord("Super+Shift+Left").?;
     const move_window_right = parseChord("Super+Shift+Right").?;
+    const rotate_output = parseChord("Super+Ctrl+R").?;
 
     try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(scroll_left.keysym, scroll_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:scroll_viewport_right_arrow", snapshot.find(scroll_right.keysym, scroll_right.modifiers).?);
@@ -295,7 +297,22 @@ test "shipped defaults keep scrolling output navigation and pointer actions reac
     try std.testing.expectEqualStrings("builtin:expel_window_from_column", snapshot.find(expel_window.keysym, expel_window.modifiers).?);
     try std.testing.expectEqualStrings("builtin:move_window_left", snapshot.find(move_window_left.keysym, move_window_left.modifiers).?);
     try std.testing.expectEqualStrings("builtin:move_window_right", snapshot.find(move_window_right.keysym, move_window_right.modifiers).?);
+    try std.testing.expectEqualStrings("builtin:rotate_output_clockwise", snapshot.find(rotate_output.keysym, rotate_output.modifiers).?);
     try std.testing.expectEqualStrings("builtin:screenshot", snapshot.find(screenshot.keysym, screenshot.modifiers).?);
     try std.testing.expectEqualStrings("builtin:toggle_overview", snapshot.find(overview.keysym, overview.modifiers).?);
     try std.testing.expectEqualStrings(default_screenshot_command, snapshot.screenshot.slice());
+}
+
+test "output rotation binding remains overridable" {
+    var snapshot: Snapshot = .{};
+    initDefaults(&snapshot);
+    addBuiltin(&snapshot, "rotate_output_clockwise", "Super+Alt+R");
+
+    const original = parseChord("Super+Ctrl+R").?;
+    const replacement = parseChord("Super+Alt+R").?;
+    try std.testing.expect(snapshot.find(original.keysym, original.modifiers) == null);
+    try std.testing.expectEqualStrings(
+        "builtin:rotate_output_clockwise",
+        snapshot.find(replacement.keysym, replacement.modifiers).?,
+    );
 }

@@ -86,6 +86,7 @@ scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
+scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh
@@ -116,6 +117,8 @@ overlap hit testing. The policy and floating harnesses require
 of testing an idle compositor. The floating-output harness verifies pointer-led
 workspace transfer across rotated mixed-scale outputs and recovery when the
 source output is disabled during an active move.
+The output-rotation harness verifies exact pointer-output targeting, transform
+cycling, and preservation of unrelated output state.
 The XWayland harnesses additionally require a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. The input harness verifies active keyboard grabs and pointer confinement

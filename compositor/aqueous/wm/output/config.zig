@@ -10,6 +10,20 @@ pub const max_profiles = 16;
 pub const max_profile_outputs = 32;
 pub const Text = wm.Text;
 pub const Transform = enum { normal, rotate_90, rotate_180, rotate_270, flipped, flipped_90, flipped_180, flipped_270 };
+
+pub fn rotateClockwise(transform: Transform) Transform {
+    return switch (transform) {
+        .normal => .rotate_90,
+        .rotate_90 => .rotate_180,
+        .rotate_180 => .rotate_270,
+        .rotate_270 => .normal,
+        .flipped => .flipped_90,
+        .flipped_90 => .flipped_180,
+        .flipped_180 => .flipped_270,
+        .flipped_270 => .flipped,
+    };
+}
+
 pub const Mode = struct { width: i32, height: i32, refresh_mhz: ?i32 = null };
 
 /// Requested HDR peak-luminance preset. `auto` resolves against the EDID
@@ -416,6 +430,17 @@ test "mode scale and transform validation matches outputd contract" {
     try std.testing.expect(parseScale("0.49") == null);
     try std.testing.expect(parseScale("3.0") != null);
     try std.testing.expect(parseTransform("45") == null);
+}
+
+test "clockwise output rotation cycles normal and reflected transforms" {
+    try std.testing.expectEqual(Transform.rotate_90, rotateClockwise(.normal));
+    try std.testing.expectEqual(Transform.rotate_180, rotateClockwise(.rotate_90));
+    try std.testing.expectEqual(Transform.rotate_270, rotateClockwise(.rotate_180));
+    try std.testing.expectEqual(Transform.normal, rotateClockwise(.rotate_270));
+    try std.testing.expectEqual(Transform.flipped_90, rotateClockwise(.flipped));
+    try std.testing.expectEqual(Transform.flipped_180, rotateClockwise(.flipped_90));
+    try std.testing.expectEqual(Transform.flipped_270, rotateClockwise(.flipped_180));
+    try std.testing.expectEqual(Transform.flipped, rotateClockwise(.flipped_270));
 }
 
 test "hdr level and sdr white level reject unsupported values" {

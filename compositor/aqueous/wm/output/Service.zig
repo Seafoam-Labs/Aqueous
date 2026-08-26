@@ -195,6 +195,27 @@ fn applyConfigured(service: *Service) OutputManager.ApplyReport {
     return report;
 }
 
+/// Apply a runtime-only clockwise quarter turn to one exact output. The
+/// transform-only spec preserves every other scheduled field and rides the
+/// normal atomic output transaction and rollback path.
+pub fn rotateOutputClockwise(_: *Service, output_id: u64) bool {
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (output.policyId() != output_id) continue;
+        const wlr_output = output.wlr_output orelse return false;
+        const current = Config.parseTransform(OutputManager.transformName(output.scheduled.transform)) orelse return false;
+        var spec: Config.Spec = .{ .transform = Config.rotateClockwise(current) };
+        if (!spec.name.set(std.mem.span(wlr_output.name))) return false;
+        const report = server.om.applySpecs(&.{spec}) catch |err| {
+            log.warn("output rotation transaction rejected: {}", .{err});
+            return false;
+        };
+        logApplyReport("output rotation keybinding", &report);
+        return report.applied == 1 and report.total_rejections == 0;
+    }
+    return false;
+}
+
 fn applyProfile(service: *Service, name: []const u8) !OutputManager.ApplyReport {
     const profile = Config.effectiveProfile(&service.config, &service.persisted, name) orelse return error.UnknownProfile;
     const report = try server.om.applySpecs(profile.outputs[0..profile.output_count]);
