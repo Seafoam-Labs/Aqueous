@@ -145,6 +145,7 @@ fn writeSnapshot(
     try json.endArray();
 
     const typography = desktopTypography(files);
+    const families = try toolkit_sync.installedFamilies(files.allocator, io, typography.family);
     const inspected = if (applied_report == null)
         toolkit_sync.inspect(files.allocator, io, typography.family, typography.size_pt)
     else
@@ -153,6 +154,7 @@ fn writeSnapshot(
     try json.objectField("desktop_typography");
     try json.beginObject();
     try field(&json, "family", typography.family);
+    try field(&json, "families", families);
     try field(&json, "size_pt", typography.size_pt);
     try field(&json, "baseline_size_pt", toolkit_sync.baseline_size_pt);
     try field(&json, "failed_count", report.failedCount());

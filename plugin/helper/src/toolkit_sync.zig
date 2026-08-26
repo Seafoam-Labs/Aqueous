@@ -59,6 +59,57 @@ pub fn validateInstalledFamily(allocator: Allocator, io: std.Io, family: []const
     if (!std.ascii.eqlIgnoreCase(matched, family)) return error.FontFamilyNotInstalled;
 }
 
+pub fn installedFamilies(allocator: Allocator, io: std.Io, current: []const u8) ![]const []const u8 {
+    var families = std.ArrayList([]const u8).empty;
+    errdefer {
+        for (families.items) |family| allocator.free(family);
+        families.deinit(allocator);
+    }
+
+    try appendFamily(allocator, &families, "sans-serif");
+    try appendFamily(allocator, &families, "serif");
+    try appendFamily(allocator, &families, "monospace");
+    try appendFamily(allocator, &families, current);
+
+    if (commandPath(allocator, "fc-list")) |executable| {
+        defer allocator.free(executable);
+        const process_allocator = std.heap.c_allocator;
+        const result = std.process.run(process_allocator, io, .{
+            .argv = &.{ executable, "-f", "%{family[0]}\n" },
+            .stdout_limit = .limited(4 * 1024 * 1024),
+            .stderr_limit = .limited(64 * 1024),
+        }) catch null;
+        if (result) |output| {
+            defer process_allocator.free(output.stdout);
+            defer process_allocator.free(output.stderr);
+            if (succeeded(output.term)) try appendFamilyLines(allocator, &families, output.stdout);
+        }
+    }
+
+    std.mem.sort([]const u8, families.items, {}, familyLessThan);
+    return families.toOwnedSlice(allocator);
+}
+
+fn appendFamilyLines(allocator: Allocator, families: *std.ArrayList([]const u8), text: []const u8) !void {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| try appendFamily(allocator, families, line);
+}
+
+fn appendFamily(allocator: Allocator, families: *std.ArrayList([]const u8), raw: []const u8) !void {
+    const family = std.mem.trim(u8, raw, " \t\r\n");
+    validateFamily(family) catch return;
+    for (families.items) |existing| {
+        if (std.ascii.eqlIgnoreCase(existing, family)) return;
+    }
+    const owned = try allocator.dupe(u8, family);
+    errdefer allocator.free(owned);
+    try families.append(allocator, owned);
+}
+
+fn familyLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+    return std.ascii.lessThanIgnoreCase(lhs, rhs);
+}
+
 pub fn inspect(allocator: Allocator, io: std.Io, family: []const u8, size_pt: i64) Report {
     const gtk_value = std.fmt.allocPrint(allocator, "{s} {d}", .{ family, size_pt }) catch "";
     const qfont5_value = qfont5Value(allocator, family, size_pt) catch "";
@@ -317,4 +368,20 @@ test "font family validation rejects ambiguous QFont serialization" {
     try std.testing.expectError(error.InvalidFontFamily, validateFamily("Quoted \"Font\""));
     try std.testing.expectError(error.InvalidFontFamily, validateFamily("Escaped\\Font"));
     try std.testing.expectError(error.InvalidFontFamily, validateFamily("Bad\nFont"));
+}
+
+test "font family lines are trimmed deduplicated and sorted" {
+    const allocator = std.testing.allocator;
+    var families = std.ArrayList([]const u8).empty;
+    defer {
+        for (families.items) |family| allocator.free(family);
+        families.deinit(allocator);
+    }
+
+    try appendFamilyLines(allocator, &families, " Zed Sans \nAlpha Sans\nzed sans\nBad, Alternate\n\n");
+    std.mem.sort([]const u8, families.items, {}, familyLessThan);
+
+    try std.testing.expectEqual(@as(usize, 2), families.items.len);
+    try std.testing.expectEqualStrings("Alpha Sans", families.items[0]);
+    try std.testing.expectEqualStrings("Zed Sans", families.items[1]);
 }

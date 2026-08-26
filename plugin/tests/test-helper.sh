@@ -13,6 +13,11 @@ cp "$plugin_root/tests/fixtures/"*.toml "$config_root/"
 mkdir -p "$test_root/bin"
 printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$3"' >"$test_root/bin/fc-match"
 chmod +x "$test_root/bin/fc-match"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'printf "%s\n" "Zed Sans" "Alpha Sans" "zed sans" "Bad, Alternate" ""' \
+    >"$test_root/bin/fc-list"
+chmod +x "$test_root/bin/fc-list"
 
 run_helper() {
     env \
@@ -45,6 +50,7 @@ jq -e '
   (.custom_keybinds[] | select(.chord == "Super+E") | .command == "spawn:nemo") and
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
+  .desktop_typography.families == ["Alpha Sans", "monospace", "sans-serif", "serif", "Zed Sans"] and
   .files.wm.path != "" and
   (.raw_files.wm | contains("fixture comment"))
 ' "$snapshot" >/dev/null
@@ -225,6 +231,7 @@ if ! run_helper apply --request "$typography_request" >"$test_root/typography-ap
 fi
 jq -e '
   .desktop_typography.family == "Test Sans" and
+  (.desktop_typography.families | index("Test Sans") != null) and
   .desktop_typography.size_pt == 14 and
   (.desktop_typography.targets[] | select(.id == "noctalia") | .synced == true) and
   (.desktop_typography.targets[] | select(.id == "gtk3") | .synced == true) and

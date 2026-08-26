@@ -30,7 +30,9 @@ Noctalia's shell settings, GSettings, GTK 3 and GTK 4 `settings.ini`, plus
 qt5ct/qt6ct when those adapters are installed or already configured. Each
 target reports whether it is available, active, and synchronized. An inactive
 Qt label means applications currently use another `QT_QPA_PLATFORMTHEME`.
-KDE/Plasma-specific configuration is deliberately not touched.
+The family control lists installed Fontconfig families and retains the current
+configured family as an option. KDE/Plasma-specific configuration is
+deliberately not touched.
 
 This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 `ui.*` controls. It does not contain the v4 QML plugin API.

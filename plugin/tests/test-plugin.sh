@@ -74,6 +74,8 @@ for feature in (
     'ui.select',
     'return ui.row({ align = "center", justify = "start" }, {',
     'desktop.font.family',
+    'local families = typography.families or {}',
+    'return selectControl(field, value, families)',
     'typographyTargets',
 ):
     assert feature in panel, feature

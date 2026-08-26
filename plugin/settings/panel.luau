@@ -915,9 +915,10 @@ local function numericControl(field, value)
 	return ui.row({ gap = 12, align = "center" }, controls)
 end
 
-local function selectControl(field, value)
+local function selectControl(field, value, suppliedOptions)
+	local options = suppliedOptions or field.options or {}
 	local selected = 0
-	for index, option in ipairs(field.options or {}) do
+	for index, option in ipairs(options) do
 		if option == value then
 			selected = index - 1
 			break
@@ -925,11 +926,11 @@ local function selectControl(field, value)
 	end
 	return ui.select({
 		key = "select-" .. field.id,
-		options = field.options or {},
+		options = options,
 		selectedIndex = selected,
 		onChange = function(index, _text)
 			local wanted = (tonumber(index) or 0) + 1
-			setDraft(field, field.options[wanted] or value)
+			setDraft(field, options[wanted] or value)
 		end,
 	})
 end
@@ -950,6 +951,12 @@ local function fieldControl(field)
 		return numericControl(field, value)
 	elseif field.type == "select" then
 		return selectControl(field, value)
+	elseif field.id == "desktop.font.family" then
+		local typography = snapshot.desktop_typography or {}
+		local families = typography.families or {}
+		if #families > 0 then
+			return selectControl(field, value, families)
+		end
 	end
 	local revision = inputRevisions[field.id] or 0
 	local children = {
