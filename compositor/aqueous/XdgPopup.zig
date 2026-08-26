@@ -62,6 +62,12 @@ pub fn create(
     const key = try server.layer_shell.popups.put(util.gpa, xdg_popup);
     errdefer server.layer_shell.popups.remove(key);
 
+    // Publish the owner's scale policy before the popup scene node can derive
+    // output scale and before the popup's initial configure is sent.
+    if (owner) |window_ref| if (window_ref.get()) |window| {
+        window.applyPreferredScaleToSurface(wlr_popup.base.surface);
+    };
+
     const tree = try parent.createSceneXdgSurface(wlr_popup.base);
     errdefer tree.node.destroy();
     const blur_marker = try tree.createSceneRect(

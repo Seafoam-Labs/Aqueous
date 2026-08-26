@@ -531,6 +531,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        rules_test.root_module.addImport("scaling", scaling);
         rules_test.root_module.addImport("wayland", wayland);
         const run_rules_test = b.addRunArtifact(rules_test);
 
@@ -565,6 +566,7 @@ pub fn build(b: *Build) !void {
             .use_llvm = use_llvm,
             .use_lld = use_llvm,
         });
+        input_drag_test.root_module.addImport("scaling", scaling);
         const run_input_drag_test = b.addRunArtifact(input_drag_test);
 
         const workspaces_test = b.addTest(.{

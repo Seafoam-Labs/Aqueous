@@ -6,6 +6,31 @@ const std = @import("std");
 pub const min_scale: f32 = 0.5;
 pub const max_scale: f32 = 3.0;
 
+/// Preferred client-buffer scaling strategy. `native` advertises the exact
+/// fractional output scale. `integer_ceil` keeps the output's logical geometry
+/// fractional while asking clients for the next integer-sized backing buffer,
+/// matching the compatibility path used for clients without fractional-scale
+/// support.
+pub const BufferScalePolicy = enum {
+    native,
+    integer_ceil,
+
+    pub fn parse(value: []const u8) ?BufferScalePolicy {
+        if (std.mem.eql(u8, value, "native")) return .native;
+        if (std.mem.eql(u8, value, "integer-ceil") or
+            std.mem.eql(u8, value, "integer_ceil")) return .integer_ceil;
+        return null;
+    }
+
+    pub fn advertisedScale(policy: BufferScalePolicy, output_scale: f32) f64 {
+        const normalized: f64 = @floatCast(normalizeScale(output_scale));
+        return switch (policy) {
+            .native => normalized,
+            .integer_ceil => @ceil(normalized),
+        };
+    }
+};
+
 pub fn clampScale(requested: f32) f32 {
     return std.math.clamp(requested, min_scale, max_scale);
 }
@@ -78,6 +103,16 @@ test "roundScale snaps to 1/120" {
     try std.testing.expectEqual(@as(f32, 2.0), roundScale(2.0));
     try std.testing.expectEqual(@as(f32, @round(1.5 * 120)) / 120, roundScale(1.5));
     try std.testing.expectEqual(@as(f32, @round(1.25 * 120)) / 120, roundScale(1.25));
+}
+
+test "buffer scale policy parses aliases and advertises integer ceilings" {
+    try std.testing.expectEqual(BufferScalePolicy.native, BufferScalePolicy.parse("native").?);
+    try std.testing.expectEqual(BufferScalePolicy.integer_ceil, BufferScalePolicy.parse("integer-ceil").?);
+    try std.testing.expectEqual(BufferScalePolicy.integer_ceil, BufferScalePolicy.parse("integer_ceil").?);
+    try std.testing.expect(BufferScalePolicy.parse("nearest") == null);
+    try std.testing.expectEqual(@as(f64, 1.25), BufferScalePolicy.native.advertisedScale(1.25));
+    try std.testing.expectEqual(@as(f64, 2.0), BufferScalePolicy.integer_ceil.advertisedScale(1.25));
+    try std.testing.expectEqual(@as(f64, 2.0), BufferScalePolicy.integer_ceil.advertisedScale(2.0));
 }
 
 test "normalizeScale clamps then rounds" {

@@ -135,6 +135,21 @@ blur = true
 blur_popups = true
 ```
 
+Fractional-scale-aware clients use their exact output scale by default. For a
+client whose toolkit produces softer glyphs at fractional device coordinates,
+an opt-in rule can request an integer-ceil backing buffer while keeping the
+window's logical size and output scale unchanged:
+
+```toml
+[[window]]
+app_id = "com.example.Editor"
+buffer_scale_policy = "integer-ceil"
+```
+
+This compatibility mode increases the client's pixel count and GPU/memory
+cost. Aqueous ships no application-specific opt-ins; use `aqueousctl inspect
+--rule` to obtain the exact, case-sensitive app ID before adding one.
+
 See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.

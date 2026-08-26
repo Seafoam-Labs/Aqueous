@@ -14,6 +14,7 @@ const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
 const overview_model = @import("overview/model.zig");
 const output_transfer = @import("input/output_transfer.zig");
+const scaling = @import("scaling");
 const wm_config = @import("config/wm.zig");
 const xkb = @import("xkbcommon");
 
@@ -891,9 +892,23 @@ pub fn applyRulePlacement(
     return .changed;
 }
 
-pub fn applyRuleVisual(_: CompositorApi, handle: layout.Handle, blur: ?bool, opacity: ?f64, hdr_expand: ?bool, force_ssd: bool) void {
+pub fn applyRuleVisual(
+    _: CompositorApi,
+    handle: layout.Handle,
+    blur: ?bool,
+    opacity: ?f64,
+    hdr_expand: ?bool,
+    buffer_scale_policy: scaling.BufferScalePolicy,
+    force_ssd: bool,
+) void {
     const ref: Window.Ref = @bitCast(handle);
-    if (ref.get()) |window| window.policyApplyVisualRule(blur, opacity, hdr_expand, force_ssd);
+    if (ref.get()) |window| window.policyApplyVisualRule(
+        blur,
+        opacity,
+        hdr_expand,
+        buffer_scale_policy,
+        force_ssd,
+    );
 }
 
 pub fn setFullscreen(_: CompositorApi, handle: layout.Handle, output_id: u64) bool {

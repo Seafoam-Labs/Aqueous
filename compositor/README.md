@@ -88,6 +88,7 @@ scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
+scripts/test-client-buffer-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh
 ```
@@ -119,6 +120,10 @@ workspace transfer across rotated mixed-scale outputs and recovery when the
 source output is disabled during an active move.
 The output-rotation harness verifies exact pointer-output targeting, transform
 cycling, and preservation of unrelated output state.
+The client-buffer scaling harness runs at 125%, verifies that the default
+native `preferred_scale(150)` and an explicit test-only integer-ceil
+`preferred_scale(240)` both precede initial root and popup configures, propagate
+to subsurfaces, and keep all VSCodium/Shelly opt-ins confined to its fixture.
 The XWayland harnesses additionally require a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. The input harness verifies active keyboard grabs and pointer confinement

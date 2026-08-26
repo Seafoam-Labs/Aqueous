@@ -1,6 +1,6 @@
 # Output scaling — test & regression matrix
 
-This document tracks how the output-scaling pipeline (Phases 1–6) is verified.
+This document tracks how the output-scaling pipeline (Phases 1–7) is verified.
 
 ## Pipeline recap
 
@@ -20,6 +20,10 @@ This document tracks how the output-scaling pipeline (Phases 1–6) is verified.
   Static window roots and eased animation roots snap in output-local physical
   pixels, then convert back to precise logical coordinates for scene rendering.
   XDG configure dimensions and input geometry remain integral.
+- **P7** — client-buffer policy is published before initial root and popup
+  configures. `native` advertises the exact fractional scale; the opt-in
+  `integer-ceil` path advertises its ceiling and persists across later scene
+  output notifications.
 
 ## Automated coverage
 
@@ -34,6 +38,7 @@ This document tracks how the output-scaling pipeline (Phases 1–6) is verified.
 | `physical grid snaps logical origins without subpixel filtering` | `aqueous/scaling.zig` | P6 physical-boundary round trip at 1.25× |
 | `physical grid follows each output scale` | `aqueous/scaling.zig` | P6 mixed-scale ownership |
 | `physical grid is local to the owning output origin` | `aqueous/scaling.zig` | P6 non-zero mixed-scale output origins |
+| `buffer scale policy parses aliases and advertises integer ceilings` | `aqueous/scaling.zig` | P7 exact default and compatibility scales |
 
 The patched-wlroots build also compiles and executes
 `scripts/fixtures/wlroots-precise-position.c`. The probe verifies that nested
@@ -54,6 +59,17 @@ Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 | `wp_fractional_scale_manager_v1` / `wp_viewporter` / `wl_compositor` v6 | P4 globals | wayland-info |
 
 Checks whose tools are missing degrade to `SKIP` rather than failing.
+
+### Client-buffer policy integration (`bash scripts/test-client-buffer-scaling.sh`)
+
+At output scale 1.25, a generated xdg-shell client asserts that
+`preferred_scale(150)` precedes the initial root and popup configures under the
+default policy. A second app ID matched only by the test fixture asserts the
+same ordering for `preferred_scale(240)`. The fixture also contains optional
+VSCodium and Shelly matchers for real-application smoke tests; it is never
+loaded by default. Both policies are then exercised across a live 1.25 to 2.5
+output-scale transition, including an already-created popup and subsurface, to
+ensure later scene notifications retain and inherit the selected policy.
 
 ## Manual matrix
 

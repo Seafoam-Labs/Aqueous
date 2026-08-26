@@ -42,9 +42,10 @@ gaps_inner = 8             # integer >= 0
 #   app_id, class, title
 #   content_type    none | photo | video | game; matches the wp_content_type_v1
 #                   state committed by the client. Rules with this matcher only
-#                   apply blur, opacity, and hdr_expand - layout and placement
-#                   edits are ignored because the content type commonly arrives
-#                   long after map and must never move an arranged window.
+#                   apply blur, opacity, hdr_expand, and buffer_scale_policy -
+#                   layout and placement edits are ignored because the content
+#                   type commonly arrives long after map and must never move an
+#                   arranged window.
 #
 # Layout/state:
 #   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
@@ -73,6 +74,10 @@ gaps_inner = 8             # integer >= 0
 #   blur            true/false per-window preference; false is useful for
 #                   games/video.
 #   opacity         0.0 through 1.0
+#   buffer_scale_policy
+#                   native | integer-ceil; integer-ceil requests a larger
+#                   integer-scale client buffer while preserving fractional
+#                   logical geometry. It is opt-in and costs GPU/memory.
 #   hdr_expand      true/false; expand SDR highlights toward the HDR peak on
 #                   auto_hdr outputs. Unset follows the default (fullscreen
 #                   windows and game content).
@@ -118,6 +123,7 @@ gaps_inner = 8             # integer >= 0
 # ignore_struts = false
 # blur = true
 # opacity = 0.95
+# buffer_scale_policy = "integer-ceil"
 
 # -----------------------------------------------------------------------------
 # Content-type example

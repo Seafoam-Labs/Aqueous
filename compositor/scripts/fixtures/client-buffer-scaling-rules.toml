@@ -1,0 +1,14 @@
+# Test-only coverage for the opt-in integer-ceil client-buffer policy. These
+# rules are never loaded by the default configuration.
+[[window]]
+app_id = "aqueous.scale-policy-integer"
+buffer_scale_policy = "integer-ceil"
+
+# Real-application smoke tests may opt into this fixture explicitly.
+[[window]]
+app_id = "*codium*"
+buffer_scale_policy = "integer-ceil"
+
+[[window]]
+app_id = "*shelly*"
+buffer_scale_policy = "integer-ceil"

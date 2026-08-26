@@ -20,6 +20,7 @@ const util = @import("util.zig");
 const scaling = @import("scaling");
 
 extern fn wlr_scene_node_set_position_f64(node: *wlr.SceneNode, x: f64, y: f64) void;
+extern fn wlr_surface_set_preferred_scale_override(surface: *wlr.Surface, scale: f64) void;
 
 const Decoration = @import("Decoration.zig");
 const Output = @import("Output.zig");
@@ -169,6 +170,7 @@ const RenderingRequested = struct {
     /// river_window_manager_v1.set_opacity. Driven by
     /// river_window_v1.set_window_opacity.
     opacity: ?u32 = null,
+    buffer_scale_policy: scaling.BufferScalePolicy = .native,
 
     pub const init: RenderingRequested = .{
         .x = 0,
@@ -184,6 +186,7 @@ const RenderingRequested = struct {
         .content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
         .blur_enabled = true,
         .opacity = null,
+        .buffer_scale_policy = .native,
     };
 };
 
@@ -617,13 +620,21 @@ pub fn policyEndInteractive(window: *Window) void {
     }
 }
 
-pub fn policyApplyVisualRule(window: *Window, blur: ?bool, opacity: ?f64, hdr_expand: ?bool, force_ssd: bool) void {
+pub fn policyApplyVisualRule(
+    window: *Window,
+    blur: ?bool,
+    opacity: ?f64,
+    hdr_expand: ?bool,
+    buffer_scale_policy: scaling.BufferScalePolicy,
+    force_ssd: bool,
+) void {
     window.rendering_requested.blur_enabled = blur orelse true;
     if (opacity) |fraction| {
         const clamped = std.math.clamp(fraction, 0, 1);
         window.rendering_requested.opacity = @intFromFloat(clamped * @as(f64, @floatFromInt(std.math.maxInt(u32))));
     } else window.rendering_requested.opacity = null;
     window.hdr_expand_rule = hdr_expand;
+    window.rendering_requested.buffer_scale_policy = buffer_scale_policy;
     if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
 }
 
@@ -650,6 +661,7 @@ pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {
     hasher.update(std.mem.asBytes(&window.rendering_requested.precise_x));
     hasher.update(std.mem.asBytes(&window.rendering_requested.precise_y));
     hasher.update(std.mem.asBytes(&window.rendering_requested.output_scale));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.buffer_scale_policy));
     hasher.update(std.mem.asBytes(&window.rendering_requested.hidden));
     const fullscreen = window.wm_requested.fullscreen != null;
     hasher.update(std.mem.asBytes(&fullscreen));
@@ -1344,6 +1356,21 @@ pub fn manageFinish(window: *Window) bool {
         .inform_fullscreen = wm_requested.inform_fullscreen,
     };
 
+    // Publish the policy-selected scale before the initial/size-changing xdg
+    // configure. Clients can allocate their first real buffer at the intended
+    // scale, and the wlroots override keeps later scene-output notifications
+    // from replacing an integer-ceil preference with the fractional output
+    // scale.
+    if (window.impl == .toplevel) {
+        window.applyPreferredScaleToSurface(window.impl.toplevel.wlr_toplevel.base.surface);
+        var popups = server.layer_shell.popups.iterator();
+        while (popups.next()) |popup| {
+            if (popup.owner != null and popup.owner.? == window.ref) {
+                window.applyPreferredScaleToSurface(popup.wlr_popup.base.surface);
+            }
+        }
+    }
+
     const track_configure = switch (window.impl) {
         .toplevel => |*toplevel| toplevel.configure(),
         .xwayland => |*xwindow| xwindow.configure(),
@@ -1366,6 +1393,18 @@ pub fn manageFinish(window: *Window) bool {
     }
 
     return track_configure;
+}
+
+pub fn applyPreferredScaleToSurface(window: *const Window, surface: *wlr.Surface) void {
+    const policy = window.rendering_requested.buffer_scale_policy;
+    const advertised_scale = policy.advertisedScale(window.rendering_requested.output_scale);
+    const override_scale = switch (policy) {
+        .native => 0,
+        .integer_ceil => advertised_scale,
+    };
+    wlr_surface_set_preferred_scale_override(surface, override_scale);
+    wlr.FractionalScaleManagerV1.notifyScale(surface, advertised_scale);
+    surface.setPreferredBufferScale(@intFromFloat(@ceil(advertised_scale)));
 }
 
 pub fn renderStart(window: *Window) void {

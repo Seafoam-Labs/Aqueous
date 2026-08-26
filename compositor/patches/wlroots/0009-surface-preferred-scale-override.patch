@@ -1,0 +1,148 @@
+diff --git a/include/wlr/types/wlr_compositor.h b/include/wlr/types/wlr_compositor.h
+--- a/include/wlr/types/wlr_compositor.h
++++ b/include/wlr/types/wlr_compositor.h
+@@ -479,5 +479,22 @@ void wlr_surface_set_preferred_buffer_scale(struct wlr_surface *surface,
+ 	int32_t scale);
+ 
++/**
++ * Override the fractional scale advertised for this surface and its
++ * subsurfaces. A scale of zero clears the override.
++ *
++ * This only stores compositor policy. The caller is responsible for sending
++ * the initial fractional-scale and preferred-buffer-scale events; scene output
++ * updates use the override for all subsequent notifications.
++ */
++void wlr_surface_set_preferred_scale_override(struct wlr_surface *surface,
++	double scale);
++
++/**
++ * Return this surface's preferred-scale override, inherited from its root
++ * surface for subsurfaces. Zero means that output-derived scaling is active.
++ */
++double wlr_surface_get_preferred_scale_override(struct wlr_surface *surface);
++
+ /**
+  * Set the preferred buffer transform for the surface.
+  *
+diff --git a/types/wlr_compositor.c b/types/wlr_compositor.c
+--- a/types/wlr_compositor.c
++++ b/types/wlr_compositor.c
+@@ -1,4 +1,5 @@
+ #include <assert.h>
++#include <math.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <wayland-server-core.h>
+@@ -1281,6 +1282,75 @@ void wlr_surface_set_preferred_buffer_scale(struct wlr_surface *surface,
+ 	surface->preferred_buffer_scale = scale;
+ }
+ 
++struct surface_preferred_scale_override {
++	struct wlr_addon addon;
++	double scale;
++};
++
++static void preferred_scale_override_destroy(struct wlr_addon *addon) {
++	struct surface_preferred_scale_override *state =
++		wl_container_of(addon, state, addon);
++	wlr_addon_finish(&state->addon);
++	free(state);
++}
++
++static const struct wlr_addon_interface preferred_scale_override_impl = {
++	.name = "wlr_surface_preferred_scale_override",
++	.destroy = preferred_scale_override_destroy,
++};
++
++static struct surface_preferred_scale_override *
++get_direct_preferred_scale_override(struct wlr_surface *surface) {
++	struct wlr_addon *addon = wlr_addon_find(&surface->addons, surface,
++		&preferred_scale_override_impl);
++	if (addon == NULL) {
++		return NULL;
++	}
++	struct surface_preferred_scale_override *state =
++		wl_container_of(addon, state, addon);
++	return state;
++}
++
++void wlr_surface_set_preferred_scale_override(struct wlr_surface *surface,
++		double scale) {
++	assert(scale >= 0.0 && isfinite(scale));
++	struct surface_preferred_scale_override *state =
++		get_direct_preferred_scale_override(surface);
++	if (scale == 0.0) {
++		if (state != NULL) {
++			preferred_scale_override_destroy(&state->addon);
++		}
++		return;
++	}
++	if (state != NULL) {
++		state->scale = scale;
++		return;
++	}
++	state = calloc(1, sizeof(*state));
++	if (state == NULL) {
++		return;
++	}
++	state->scale = scale;
++	wlr_addon_init(&state->addon, &surface->addons, surface,
++		&preferred_scale_override_impl);
++}
++
++double wlr_surface_get_preferred_scale_override(struct wlr_surface *surface) {
++	struct surface_preferred_scale_override *state =
++		get_direct_preferred_scale_override(surface);
++	if (state != NULL) {
++		return state->scale;
++	}
++	struct wlr_surface *root = wlr_surface_get_root_surface(surface);
++	if (root != surface) {
++		state = get_direct_preferred_scale_override(root);
++		if (state != NULL) {
++			return state->scale;
++		}
++	}
++	return 0.0;
++}
++
+ void wlr_surface_set_preferred_buffer_transform(struct wlr_surface *surface,
+ 		enum wl_output_transform transform) {
+ 	if (wl_resource_get_version(surface->resource) <
+diff --git a/types/scene/surface.c b/types/scene/surface.c
+--- a/types/scene/surface.c
++++ b/types/scene/surface.c
+@@ -49,6 +49,15 @@ static double get_surface_preferred_buffer_scale(struct wlr_surface *surface) {
+ 	return scale;
+ }
+ 
++static double get_surface_effective_preferred_scale(
++		struct wlr_surface *surface) {
++	double override = wlr_surface_get_preferred_scale_override(surface);
++	if (override > 0.0) {
++		return override;
++	}
++	return get_surface_preferred_buffer_scale(surface);
++}
++
+ // Output used for frame pacing (surface frame callbacks, presentation
+ // time feedback, etc), may be NULL
+ static struct wlr_output *get_surface_frame_pacing_output(struct wlr_surface *surface) {
+@@ -176,7 +185,7 @@ static void handle_scene_buffer_outputs_update(
+ 
+ 	double destination_scale = scene_surface_destination_scale(surface);
+ 	double scale = destination_scale == 1.0 ?
+-		get_surface_preferred_buffer_scale(surface->surface) : 1.0;
++		get_surface_effective_preferred_scale(surface->surface) : 1.0;
+ 	wlr_fractional_scale_v1_notify_scale(surface->surface, scale);
+ 	wlr_surface_set_preferred_buffer_scale(surface->surface, ceil(scale));
+ 
+@@ -568,7 +577,7 @@ void wlr_scene_surface_set_destination_scale(
+ 	}
+ 	surface_reconfigure(scene_surface);
+ 	double preferred_scale = scale == 1.0 ?
+-		get_surface_preferred_buffer_scale(scene_surface->surface) : 1.0;
++		get_surface_effective_preferred_scale(scene_surface->surface) : 1.0;
+ 	wlr_fractional_scale_v1_notify_scale(scene_surface->surface, preferred_scale);
+ 	wlr_surface_set_preferred_buffer_scale(scene_surface->surface, ceil(preferred_scale));
+ }

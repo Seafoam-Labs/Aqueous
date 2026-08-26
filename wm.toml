@@ -173,6 +173,14 @@ focus_sensitive = false  # true = use focused/unfocused below per window focus
 focused         = 1.0    # focused-window opacity when focus_sensitive = true
 unfocused       = 0.9    # unfocused-window opacity when focus_sensitive = true
 
+# Client buffer scaling. `native` advertises the exact fractional output scale
+# and is the default. `integer-ceil` asks fractional-aware clients for the next
+# integer-sized backing buffer while retaining fractional logical geometry;
+# this can sharpen some toolkit text at increased GPU/memory cost. Prefer a
+# per-window `buffer_scale_policy` rule for selective testing.
+[scaling]
+buffer_policy = "native" # native | integer-ceil
+
 # Workspace slide animation. `rate = 0` selects the compiled default rate;
 # larger positive values settle more quickly. Animations can also be compiled
 # out entirely with -Danimations=false.

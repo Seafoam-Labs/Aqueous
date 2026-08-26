@@ -6,6 +6,7 @@ const Engine = @This();
 const std = @import("std");
 const glob = @import("glob.zig");
 const wp = @import("wayland").server.wp;
+const scaling = @import("scaling");
 
 pub const Identity = struct {
     app_id: ?[]const u8 = null,
@@ -52,10 +53,11 @@ pub const Rule = struct {
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
     /// Matches the wp_content_type_v1 state committed by the client. Rules
-    /// with this matcher only apply visual and HDR effects (blur, opacity,
-    /// hdr_expand); layout and placement edits are deliberately dropped at
-    /// resolve time because the content type commonly arrives long after map
-    /// and must never move an already-arranged window.
+    /// with this matcher only apply visual/client-buffer effects (blur,
+    /// opacity, buffer_scale_policy, and hdr_expand); layout and placement
+    /// edits are deliberately dropped at resolve time because the content type
+    /// commonly arrives long after map and must never move an already-arranged
+    /// window.
     content_type: ?wp.ContentTypeV1.Type = null,
     layout: ?Layout = .game_mode,
     placement: Placement = .{},
@@ -66,6 +68,8 @@ pub const Rule = struct {
     ignore_struts: bool = false,
     blur: ?bool = null,
     opacity: ?f64 = null,
+    /// Override the global client-buffer scaling strategy for this window.
+    buffer_scale_policy: ?scaling.BufferScalePolicy = null,
     /// Auto HDR expansion override for matching windows on HDR outputs with
     /// `auto_hdr` enabled. Null follows the default (fullscreen windows and
     /// game content).
@@ -106,6 +110,7 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.ignore_struts));
         hashOptionalBool(&hash, rule.blur);
         hashOptionalFloat(&hash, rule.opacity);
+        hashOptionalEnum(&hash, rule.buffer_scale_policy);
         hashOptionalBool(&hash, rule.hdr_expand);
         const value = hash.final();
         return if (value == 0) 1 else value;
@@ -309,7 +314,7 @@ fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
     } else hash.update(&.{0});
 }
 
-fn hashOptionalEnum(hash: *std.hash.Wyhash, value: ?Layout) void {
+fn hashOptionalEnum(hash: *std.hash.Wyhash, value: anytype) void {
     const encoded: u8 = if (value) |item| @as(u8, @intFromEnum(item)) + 1 else 0;
     hash.update(std.mem.asBytes(&encoded));
 }
@@ -350,7 +355,7 @@ test "content type rules match committed state and keep only visual effects" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     var source = [_]Rule{
-        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .hdr_expand = true },
+        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .buffer_scale_policy = .integer_ceil, .hdr_expand = true },
         .{ .app_id = "player*", .placement = .{ .workspace = 2 } },
     };
     try engine.reload(&source);
@@ -366,6 +371,7 @@ test "content type rules match committed state and keep only visual effects" {
     try std.testing.expect(!game.fullscreen);
     try std.testing.expect(!game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.blur);
+    try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
 
     // A different committed type does not match.
@@ -399,6 +405,8 @@ test "rule fingerprints are semantic and detect behavior changes" {
     try std.testing.expectEqual(first.fingerprint(), same.fingerprint());
     try std.testing.expect(first.fingerprint() != changed.fingerprint());
     try std.testing.expect(first.fingerprint() != 0);
+    const scale_edit: Rule = .{ .app_id = "term*", .placement = .{ .floating = true }, .buffer_scale_policy = .integer_ceil };
+    try std.testing.expect(first.fingerprint() != scale_edit.fingerprint());
 }
 
 test "placement fingerprints cover output and workspace without changing the matcher" {

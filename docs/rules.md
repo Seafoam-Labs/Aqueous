@@ -61,7 +61,7 @@ matters.
 | `app_id` | string (glob) | one of `app_id` / `class` / `title` / `content_type` must be set | Match `xdg_toplevel.app_id`. |
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
-| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only `blur`, `opacity`, and `hdr_expand`; every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
+| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, and `buffer_scale_policy`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
 | `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
@@ -72,6 +72,7 @@ matters.
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
+| `buffer_scale_policy` | string | no | Override the global client-buffer policy with `"native"` or `"integer-ceil"`. Integer-ceil advertises the next integer scale before initial root/popup configures while retaining fractional logical geometry; it may improve toolkit text rasterization at the cost of larger buffers and more GPU/memory bandwidth. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
 
 `output` and `workspace` form one initial-placement target. Either can be used
@@ -81,6 +82,13 @@ not activate an inactive workspace. A missing or disabled output falls back to
 normal admission placement and does not move the established window if the
 output appears later. Manual workspace and output moves override the placement
 rule until a different matcher becomes active.
+
+The global default is `[scaling].buffer_policy = "native"` in `wm.toml`.
+`"integer-ceil"` is a compatibility path, not an application default. Aqueous
+does not automatically enable it for Chromium, Electron, GTK, VSCodium, or
+Shelly. Existing popups follow their owning window when the policy or output
+scale changes, and newly created popups receive the preference before their
+first configure.
 
 ### `[[layer]]`
 

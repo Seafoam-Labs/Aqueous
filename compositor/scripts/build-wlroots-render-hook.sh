@@ -14,6 +14,7 @@ patch_files=(
     "$here/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
     "$here/patches/wlroots/0007-scene-precise-position.patch"
     "$here/patches/wlroots/0008-xwayland-native-scaling.patch"
+    "$here/patches/wlroots/0009-surface-preferred-scale-override.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -63,6 +64,11 @@ grep -Fq 'scene_damage_outputs(scene, damage, node);' "$scene_source" ||
     die "patched wlroots does not preserve node-update damage provenance"
 grep -Fq 'int wlr_scene_node_render_order(' "$scene_source" ||
     die "patched wlroots does not expose scene render ordering"
+scene_surface_source="$source_dir/types/scene/surface.c"
+grep -Fq 'get_surface_effective_preferred_scale' "$scene_surface_source" &&
+    grep -Fq 'wlr_surface_get_preferred_scale_override(surface)' \
+    "$scene_surface_source" ||
+    die "patched wlroots scene path does not preserve surface scale overrides"
 color_manager_source="$source_dir/types/wlr_color_management_v1.c"
 grep -Fq '#define COLOR_MANAGEMENT_V1_VERSION 3' "$color_manager_source" ||
     die "patched wlroots does not expose color-management-v1 version 3"
@@ -113,6 +119,8 @@ for symbol in \
     wlr_scene_surface_set_destination_scale \
     wlr_scene_surface_get_destination_scale \
     wlr_scene_surface_map_point_to_destination \
+    wlr_surface_set_preferred_scale_override \
+    wlr_surface_get_preferred_scale_override \
     wlr_output_set_client_projection_handler \
     wlr_xdg_output_manager_v1_update \
     wlr_scene_buffer_set_force_blend \

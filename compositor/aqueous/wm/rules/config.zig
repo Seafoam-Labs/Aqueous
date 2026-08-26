@@ -5,6 +5,7 @@ const std = @import("std");
 const Engine = @import("engine.zig");
 const toml = @import("../config/wm.zig");
 const wp = @import("wayland").server.wp;
+const scaling = @import("scaling");
 
 const log = std.log.scoped(.aqueous);
 const max_config_bytes = 1024 * 1024;
@@ -191,6 +192,9 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "ignore_struts")) rule.ignore_struts = parseBool(value) orelse rule.ignore_struts;
     if (std.mem.eql(u8, key, "blur")) rule.blur = parseBool(value) orelse rule.blur;
     if (std.mem.eql(u8, key, "opacity")) rule.opacity = parseOpacity(value) orelse rule.opacity;
+    if (std.mem.eql(u8, key, "buffer_scale_policy")) {
+        rule.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse rule.buffer_scale_policy;
+    }
     if (std.mem.eql(u8, key, "hdr_expand")) rule.hdr_expand = parseBool(value) orelse rule.hdr_expand;
 }
 
@@ -296,6 +300,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\fullscreen = true
         \\ignore_struts = true
         \\opacity = 0.8
+        \\buffer_scale_policy = "integer-ceil"
         \\hdr_expand = false
         \\[[window]]
         \\title = "Dialog #1"
@@ -316,6 +321,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(@as(u32, 9), game.placement.workspace);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
+    try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);
     try std.testing.expectEqual(@as(i32, 3), engine.game_mode.gaps_inner);

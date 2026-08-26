@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const layout = @import("layout.zig");
+const scaling = @import("scaling");
 
 pub const max_mappings = 32;
 
@@ -136,6 +137,7 @@ pub const Snapshot = struct {
     opacity_focus_sensitive: bool = false,
     opacity_focused: f64 = 1,
     opacity_unfocused: f64 = 0.9,
+    buffer_scale_policy: scaling.BufferScalePolicy = .native,
     workspace_transition_enabled: bool = true,
     workspace_transition_rate: f64 = 0,
 
@@ -160,7 +162,7 @@ pub const Snapshot = struct {
     }
 };
 
-const Section = union(enum) { none, layout, rules, struts, state, blur, opacity, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
+const Section = union(enum) { none, layout, rules, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
     var section: Section = .none;
@@ -218,6 +220,9 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "vibrancy_darkness")) snapshot.blur_vibrancy_darkness = parseUnit(value) orelse snapshot.blur_vibrancy_darkness;
             },
             .opacity => applyOpacity(snapshot, key, value),
+            .scaling => if (std.mem.eql(u8, key, "buffer_policy")) {
+                snapshot.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse snapshot.buffer_scale_policy;
+            },
             .workspace_transition => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.workspace_transition_enabled = parseBool(value) orelse snapshot.workspace_transition_enabled;
                 if (std.mem.eql(u8, key, "rate")) snapshot.workspace_transition_rate = parseNonNegativeFloat(value) orelse snapshot.workspace_transition_rate;
@@ -248,6 +253,7 @@ fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "state")) return .state;
     if (std.mem.eql(u8, name, "blur")) return .blur;
     if (std.mem.eql(u8, name, "opacity")) return .opacity;
+    if (std.mem.eql(u8, name, "scaling")) return .scaling;
     if (std.mem.eql(u8, name, "workspace_transition")) return .workspace_transition;
     if (std.mem.eql(u8, name, "input")) return .input;
     if (std.mem.eql(u8, name, "input.mouse")) return .{ .device = .mouse };
@@ -486,6 +492,23 @@ test "new-window focus defaults to disabled" {
     const snapshot: Snapshot = .{};
     try std.testing.expect(!snapshot.input.focus_new_windows);
     try std.testing.expect(!snapshot.input.focus_new_windows_set);
+    try std.testing.expectEqual(scaling.BufferScalePolicy.native, snapshot.buffer_scale_policy);
+}
+
+test "scaling buffer policy is opt-in and rejects unknown values" {
+    var wm_snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[scaling]
+        \\buffer_policy = "integer-ceil"
+    );
+    try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, wm_snapshot.buffer_scale_policy);
+
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[scaling]
+        \\buffer_policy = "unsupported"
+    );
+    try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, wm_snapshot.buffer_scale_policy);
 }
 
 test "blur appearance validates ranges and preserves neutral defaults" {

@@ -404,6 +404,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (rule) |matched| matched.blur else null,
                 if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
                 if (rule) |matched| matched.hdr_expand else null,
+                if (rule) |matched| matched.buffer_scale_policy orelse aqueous.config.wm.buffer_scale_policy else aqueous.config.wm.buffer_scale_policy,
                 aqueous.config.wm.force_ssd,
             );
         }
