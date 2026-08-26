@@ -178,6 +178,9 @@ jobs:
             mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia
             cp packaging/noctalia/*.toml publish/aqueous-linux-x64/share/aqueous/noctalia/ 2>/dev/null || true
           fi
+          mkdir -p publish/aqueous-linux-x64/share/aqueous/ghostty
+          cp packaging/ghostty/config.ghostty \
+             publish/aqueous-linux-x64/share/aqueous/ghostty/
           mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations
           cp plugin/catalog.toml \
              publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/

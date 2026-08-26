@@ -237,6 +237,10 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/noctalia/config.toml" \
         "$pkgdir/usr/share/aqueous/noctalia/config.toml"
 
+    # Default Ghostty config (seeded only for new profiles by aqueous-init).
+    install -Dm644 "$srcdir/aqueous/packaging/ghostty/config.ghostty" \
+        "$pkgdir/usr/share/aqueous/ghostty/config.ghostty"
+
     # System-owned Noctalia v5 path source. The one-shot ExecStartPost helper
     # registers this source and enables aqueous/settings for each user.
     local plugin_source="$pkgdir/usr/share/aqueous/noctalia-plugins"

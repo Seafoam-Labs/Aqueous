@@ -19,4 +19,5 @@ env -u LD_PRELOAD \
 "$plugin_root/tests/test-helper.sh"
 "$plugin_root/tests/test-plugin.sh"
 "$plugin_root/tests/test-noctalia.sh"
+"$plugin_root/../packaging/tests/test-aqueous-init.sh"
 "$plugin_root/../packaging/tests/test-enable-noctalia-plugin.sh"

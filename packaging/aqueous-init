@@ -12,6 +12,9 @@
 # runs inside the compositor.
 set -u
 
+# System-owned defaults copied into otherwise unconfigured user profiles.
+AQUEOUS_SHARE_DIR="${AQUEOUS_SHARE_DIR:-/usr/share/aqueous}"
+
 # Seed the Noctalia (v5) default config on first launch. Idempotent and
 # non-destructive: only runs when the user has no config.toml yet. Noctalia v5
 # reads every *.toml in ~/.config/noctalia/ and merges them; we seed the
@@ -21,11 +24,22 @@ set -u
 # changes land in ~/.local/state/noctalia/settings.toml and are never touched
 # here.
 NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
-NOCTALIA_DEFAULTS="/usr/share/aqueous/noctalia/config.toml"
+NOCTALIA_DEFAULTS="$AQUEOUS_SHARE_DIR/noctalia/config.toml"
 if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
     mkdir -p "$NOCTALIA_USER_CFG_DIR"
     cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/config.toml"
     chmod 600 "$NOCTALIA_USER_CFG_DIR/config.toml"
+fi
+
+# Ghostty's client-side frame obscures the compositor-provided rounded border.
+# Seed an undecorated default only for new Ghostty profiles; an existing config
+# is user-owned and must never be changed by Aqueous.
+GHOSTTY_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+GHOSTTY_DEFAULTS="$AQUEOUS_SHARE_DIR/ghostty/config.ghostty"
+if [ ! -e "$GHOSTTY_USER_CFG_DIR/config.ghostty" ] && [ -r "$GHOSTTY_DEFAULTS" ]; then
+    mkdir -p "$GHOSTTY_USER_CFG_DIR"
+    cp "$GHOSTTY_DEFAULTS" "$GHOSTTY_USER_CFG_DIR/config.ghostty"
+    chmod 600 "$GHOSTTY_USER_CFG_DIR/config.ghostty"
 fi
 
 # Push the live Wayland and native XWayland environment into systemd --user

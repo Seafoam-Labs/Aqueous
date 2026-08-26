@@ -220,9 +220,11 @@ and launches Noctalia inside the new display. Set
 
 Packaged sessions use `/usr/bin/aqueous-wm` to launch `/usr/bin/aqueous`.
 `/usr/bin/aqueous-init` exports the live Wayland environment and starts
-graphical-session services; it does not start another window manager. No
-greeter-specific configuration is required beyond selecting the installed
-Aqueous Wayland session.
+graphical-session services; it does not start another window manager. For a
+new Ghostty profile it also seeds `window-decoration = none`, allowing
+Aqueous's compositor-provided rounded border to remain visible. Existing
+Ghostty configuration is never overwritten. No greeter-specific configuration
+is required beyond selecting the installed Aqueous Wayland session.
 
 ## Test
 

@@ -284,6 +284,8 @@ stdenv.mkDerivation (finalAttrs: {
 
     install -Dm644 packaging/noctalia/config.toml \
       "$out/share/aqueous/noctalia/config.toml"
+    install -Dm644 packaging/ghostty/config.ghostty \
+      "$out/share/aqueous/ghostty/config.ghostty"
     install -Dm644 plugin/catalog.toml \
       "$out/share/aqueous/noctalia-plugins/catalog.toml"
     install -Dm644 plugin/settings/plugin.toml \

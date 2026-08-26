@@ -1,0 +1,4 @@
+# Aqueous clips undecorated windows to its compositor-provided rounded border.
+# Keep Ghostty's client-side frame disabled so it does not draw square corners
+# outside that border.
+window-decoration = none
