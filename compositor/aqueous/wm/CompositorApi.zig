@@ -184,6 +184,17 @@ pub fn hoveredWindow(_: CompositorApi) ?layout.Handle {
     return null;
 }
 
+/// Whether wlroots currently owns keyboard input for a client-side drag and
+/// drop operation. Focus requests made while this is true are ignored by the
+/// drag keyboard grab, so policy must defer focus-follows-mouse until teardown.
+pub fn clientDragActive(_: CompositorApi) bool {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        if (seat.drag != .none) return true;
+    }
+    return false;
+}
+
 /// Whether keyboard focus is intentionally owned by a non-window surface such
 /// as a layer-shell launcher, lock surface, or Xwayland override-redirect menu.
 /// Automatic window-focus restoration must wait for that surface to release
