@@ -48,7 +48,9 @@ rule_floating_owned: bool = false,
 rule_workspace_overridden: bool = false,
 rule_fullscreen_overridden: bool = false,
 rule_floating_overridden: bool = false,
-rule_workspace_requested: u32 = 0,
+/// Fingerprint of the last composite output/workspace target reconciled for
+/// the active matcher. Zero represents ordinary admission placement.
+rule_workspace_requested: u64 = 0,
 rule_fullscreen_requested: bool = false,
 rule_floating_requested: bool = false,
 rule_floating_signature: u64 = 0,

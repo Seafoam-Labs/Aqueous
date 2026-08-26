@@ -218,6 +218,19 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
     }
+    if (aqueous.reconcileTransientParents(&snapshot)) {
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
+    if (aqueous.reconcileRulePlacements(&snapshot)) {
+        // Output rules can transfer a window between the per-output slices in
+        // this snapshot. Rebuild before layout so the source never arranges a
+        // window which already belongs to the destination.
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
     aqueous.validateOverviewSnapshot(&snapshot);
     const focused = aqueous.api.focusedWindow();
     const non_window_keyboard_focus = aqueous.api.hasNonWindowKeyboardFocus();
@@ -278,7 +291,6 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .title = window.title,
                 .content_type = window.content_type,
             });
-            aqueous.reconcileTransientParent(window, usable_area);
             aqueous.api.ensureWorkspace(window.handle, output.id);
             const effect = aqueous.reconcileWindowRule(
                 window,
@@ -753,15 +765,29 @@ fn recoverRemovedOutputDrag(aqueous: *Aqueous, drag: Drag) bool {
 /// null -> parent edge. xdg_toplevel parents and X11 WM_TRANSIENT_FOR both
 /// arrive through this field, covering native dialogs and Xwayland dialogs
 /// without application-specific rules.
-fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usable_area: layout_types.Rect) void {
-    const state = aqueous.window_states.get(window.handle) orelse return;
-    if (!transient.parentChanged(state, window.parent)) return;
+fn reconcileTransientParents(aqueous: *Aqueous, snapshot: *const CompositorApi.PolicySnapshot) bool {
+    var changed = false;
+    for (snapshot.outputs) |output| {
+        const usable_area = aqueous.effectiveUsableArea(output.area, output.usable_area);
+        for (output.windows) |window| {
+            if (aqueous.reconcileTransientParent(window, usable_area)) changed = true;
+        }
+    }
+    return changed;
+}
+
+fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usable_area: layout_types.Rect) bool {
+    const state = aqueous.window_states.get(window.handle) orelse return false;
+    if (!transient.parentChanged(state, window.parent)) return false;
     const parent = window.parent.?;
 
+    const before = aqueous.api.windowWorkspace(window.handle);
     aqueous.api.moveToParentWorkspace(window.handle);
     const parent_geometry = aqueous.api.windowGeometry(parent) orelse usable_area;
     const geometry = transient.geometry(usable_area, parent_geometry, window.min_width, window.min_height);
     _ = aqueous.window_states.setAutomaticFloating(window.handle, geometry);
+    const after = aqueous.api.windowWorkspace(window.handle);
+    return !sameWorkspace(before, after);
 }
 
 /// Drop policy state before the compositor invalidates a stable window handle.
@@ -1981,6 +2007,93 @@ const RuleEffect = struct {
     workspace_visible: bool = true,
 };
 
+fn reconcileRulePlacements(aqueous: *Aqueous, snapshot: *const CompositorApi.PolicySnapshot) bool {
+    var refresh = false;
+    for (snapshot.outputs) |output| for (output.windows) |window| {
+        const rule = aqueous.rules.resolve(.{
+            .app_id = window.app_id,
+            .class = window.app_id,
+            .title = window.title,
+            .content_type = window.content_type,
+        });
+        if (aqueous.prepareWindowRuleMatch(window, output.id, rule)) refresh = true;
+
+        const state = aqueous.window_states.get(window.handle) orelse continue;
+        const requested = if (rule) |matched| matched.placementFingerprint() else 0;
+        if (requested == state.rule_workspace_requested) continue;
+        if (requested == 0) {
+            state.rule_workspace_owned = false;
+            state.rule_workspace_overridden = false;
+            state.rule_workspace_requested = 0;
+            continue;
+        }
+
+        if (!state.rule_workspace_overridden) {
+            const matched = rule.?;
+            const before = aqueous.api.windowWorkspace(window.handle);
+            switch (aqueous.api.applyRulePlacement(
+                window.handle,
+                output.id,
+                matched.placement.output,
+                matched.placement.workspace,
+            )) {
+                .changed => {
+                    const after = aqueous.api.windowWorkspace(window.handle);
+                    if (before == null or after == null or before.?.output_id != after.?.output_id) {
+                        state.needs_output_recovery = true;
+                    }
+                    state.rule_workspace_owned = true;
+                    refresh = true;
+                },
+                .unchanged => state.rule_workspace_owned = true,
+                .unavailable => {
+                    state.rule_workspace_owned = false;
+                    if (matched.placement.output) |name| {
+                        log.warn("window rule target output '{s}' workspace {d} is unavailable; using normal admission placement", .{ name, matched.placement.workspace });
+                    } else {
+                        log.warn("window rule target workspace {d} is unavailable; using normal admission placement", .{matched.placement.workspace});
+                    }
+                },
+            }
+        }
+        // Record unavailable targets too. Output rules are initial placement,
+        // so a later hotplug must not unexpectedly move an established window.
+        state.rule_workspace_requested = requested;
+    };
+    return refresh;
+}
+
+/// Roll back state still owned by an old semantic matcher before placement is
+/// resolved. Doing this in the placement pre-pass lets a new rule move directly
+/// to its destination while preserving the established property lifecycle.
+fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output_id: u64, rule: ?Rules.Rule) bool {
+    const state = aqueous.window_states.get(window.handle) orelse return false;
+    const match = if (rule) |matched| matched.matcherFingerprint() else 0;
+    if (!state.ruleChanged(match)) return false;
+
+    if (state.rule_fullscreen_owned) {
+        if (state.rule_fullscreen_previous) {
+            if (!window.fullscreen) {
+                aqueous.api.clearOtherFullscreen(output_id, window.handle);
+                _ = aqueous.api.setFullscreen(window.handle, output_id);
+            }
+        } else {
+            aqueous.api.clearFullscreen(window.handle);
+        }
+    }
+    _ = aqueous.window_states.restoreRuleFloating(window.handle);
+    state.acceptRuleMatch(match);
+    return true;
+}
+
+fn sameWorkspace(
+    first: ?CompositorApi.WindowWorkspace,
+    second: ?CompositorApi.WindowWorkspace,
+) bool {
+    if (first == null or second == null) return first == null and second == null;
+    return first.?.output_id == second.?.output_id and first.?.workspace_number == second.?.workspace_number;
+}
+
 /// Reconcile stateful rule properties only when the semantic match changes.
 /// Visual properties are intentionally handled separately on every cycle.
 fn reconcileWindowRule(
@@ -1994,40 +2107,12 @@ fn reconcileWindowRule(
     rule: ?Rules.Rule,
 ) RuleEffect {
     const state = aqueous.window_states.get(window.handle) orelse return .{ .fullscreen = window.fullscreen };
-    const match = if (rule) |matched| matched.matcherFingerprint() else 0;
-    var effect: RuleEffect = .{ .fullscreen = window.fullscreen };
-    const match_changed = state.ruleChanged(match);
-
-    if (match_changed) {
-        // Undo only properties which are still owned by the old match. Manual
-        // overrides survive until the matcher itself changes.
-        if (state.rule_fullscreen_owned) {
-            if (state.rule_fullscreen_previous) {
-                if (!effect.fullscreen) {
-                    aqueous.api.clearOtherFullscreen(output_id, window.handle);
-                    effect.fullscreen = aqueous.api.setFullscreen(window.handle, output_id);
-                }
-            } else {
-                aqueous.api.clearFullscreen(window.handle);
-                effect.fullscreen = false;
-            }
-        }
-        _ = aqueous.window_states.restoreRuleFloating(window.handle);
-        state.acceptRuleMatch(match);
-    }
+    var effect: RuleEffect = .{
+        .fullscreen = window.fullscreen,
+        .workspace_visible = aqueous.api.windowOnWorkspace(window.handle, output_id, active_workspace),
+    };
 
     const matched = rule orelse return effect;
-    const requested_workspace = matched.placement.workspace;
-    if (requested_workspace != state.rule_workspace_requested) {
-        if (requested_workspace == 0) {
-            state.rule_workspace_owned = false;
-            state.rule_workspace_overridden = false;
-        } else if (!state.rule_workspace_overridden and aqueous.api.applyRuleWorkspace(window.handle, output_id, requested_workspace)) {
-            state.rule_workspace_owned = true;
-            effect.workspace_visible = requested_workspace == active_workspace;
-        }
-        state.rule_workspace_requested = requested_workspace;
-    }
 
     if (matched.fullscreen != state.rule_fullscreen_requested) {
         if (matched.fullscreen) {

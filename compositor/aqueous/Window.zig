@@ -494,8 +494,16 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
     else
         window.workspace;
     const output = if (effective_workspace) |workspace| workspace.output else null;
-    const active = window.state != .init and window.state != .closing and
-        (output == null or output.?.policyWorkspaceActive(effective_workspace));
+    const admitted = window.state != .init and window.state != .closing;
+    const workspace_visible = output == null or output.?.policyWorkspaceActive(effective_workspace);
+    // A ready/initialized toplevel must remain visible to integrated policy
+    // until it maps, even when an initial-placement rule assigned it directly
+    // to an inactive workspace. Otherwise it is omitted before policy can give
+    // it dimensions, so xdg-shell can never complete the initial configure.
+    // renderFinish() independently gates the scene tree on workspace activity,
+    // so admitting the pre-map window here cannot expose it on the active
+    // workspace.
+    const active = admitted and (window.state != .mapped or workspace_visible);
     return .{
         .handle = @bitCast(window.ref),
         .parent_handle = parent_handle,

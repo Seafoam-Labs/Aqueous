@@ -174,6 +174,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "title")) rule.title = value;
     if (std.mem.eql(u8, key, "content_type")) rule.content_type = parseContentType(value) orelse rule.content_type;
     if (std.mem.eql(u8, key, "floating")) rule.placement.floating = parseBool(value) orelse rule.placement.floating;
+    if (std.mem.eql(u8, key, "output") and value.len > 0) rule.placement.output = value;
     if (std.mem.eql(u8, key, "workspace")) rule.placement.workspace = std.fmt.parseInt(u32, value, 10) catch rule.placement.workspace;
     if (std.mem.eql(u8, key, "width")) rule.placement.width = parsePositive(value) orelse rule.placement.width;
     if (std.mem.eql(u8, key, "height")) rule.placement.height = parsePositive(value) orelse rule.placement.height;
@@ -290,6 +291,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\anchor = "left"
         \\size = "0.7x0.5"
         \\scale = 1.2
+        \\output = "DP-2"
         \\workspace = 9
         \\fullscreen = true
         \\ignore_struts = true
@@ -310,6 +312,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(@as(usize, 2), engine.rules.len);
     const game = engine.resolve(.{ .app_id = "game-one" }).?;
     try std.testing.expectEqual(Engine.Layout.game_mode, game.layout.?);
+    try std.testing.expectEqualStrings("DP-2", game.placement.output.?);
     try std.testing.expectEqual(@as(u32, 9), game.placement.workspace);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
@@ -334,6 +337,7 @@ test "rules parser accepts content_type matchers and rejects invalid values" {
         \\content_type = "game"
         \\blur = false
         \\hdr_expand = true
+        \\output = "DP-2"
         \\workspace = 5
         \\[[window]]
         \\content_type = "bogus"
@@ -345,6 +349,7 @@ test "rules parser accepts content_type matchers and rejects invalid values" {
     try std.testing.expectEqual(@as(?bool, false), game.blur);
     try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
     // The placement edit parsed but is dropped at resolve time.
+    try std.testing.expect(game.placement.output == null);
     try std.testing.expectEqual(@as(u32, 0), game.placement.workspace);
 }
 

@@ -64,7 +64,8 @@ matters.
 | `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only `blur`, `opacity`, and `hdr_expand`; every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
-| `workspace` | integer | no | Move the window to the numbered workspace. Workspace numbers are 1-based. |
+| `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
+| `workspace` | integer | no | Open the window on this 1-based workspace number. Without `output`, the window's normal admission output is used. |
 | `width`, `height` | integer | no | Floating placement dimensions. |
 | `x`, `y` | integer | no | Floating placement coordinates. |
 | `anchor` | string | no (default `center`) | `center` / `top` / `bottom` / `left` / `right`. |
@@ -72,6 +73,14 @@ matters.
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
+
+`output` and `workspace` form one initial-placement target. Either can be used
+alone: output-only rules use the destination's active workspace, while
+workspace-only rules retain the compositor's normal admission output. Rules do
+not activate an inactive workspace. A missing or disabled output falls back to
+normal admission placement and does not move the established window if the
+output appears later. Manual workspace and output moves override the placement
+rule until a different matcher becomes active.
 
 ### `[[layer]]`
 

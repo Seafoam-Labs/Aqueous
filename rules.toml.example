@@ -50,7 +50,10 @@ gaps_inner = 8             # integer >= 0
 #   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
 #                   reverse_dwindle | scrolling | float | floating |
 #                   game-mode | game_mode | composable
-#   workspace       1-based workspace number
+#   output          exact enabled connector name from `aqueousctl outputs`;
+#                   without workspace, uses that output's active workspace
+#   workspace       1-based workspace number; without output, uses the normal
+#                   admission output
 #   floating        true/false; enables floating placement independently of
 #                   layout (layout="float" also sets floating=true)
 #   fullscreen      true/false
@@ -74,9 +77,11 @@ gaps_inner = 8             # integer >= 0
 #                   auto_hdr outputs. Unset follows the default (fullscreen
 #                   windows and game content).
 #
-# Stateful rule properties have lifecycle ownership. A manual workspace move,
-# fullscreen toggle, or floating toggle overrides that property until a new
-# matcher becomes active; the rule is not blindly enforced every manage cycle.
+# Stateful rule properties have lifecycle ownership. A manual workspace/output
+# move, fullscreen toggle, or floating toggle overrides that property until a
+# new matcher becomes active; the rule is not blindly enforced every manage
+# cycle. A missing or disabled output falls back to normal admission placement
+# and does not move the established window if that output appears later.
 
 # -----------------------------------------------------------------------------
 # Complete Game Mode example
@@ -85,6 +90,7 @@ gaps_inner = 8             # integer >= 0
 # app_id = "steam_app_*"
 # title = "*"
 # layout = "game-mode"
+# output = "DP-2"
 # workspace = 9
 # anchor = "center"
 # size = "0.70x0.80"

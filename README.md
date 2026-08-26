@@ -124,6 +124,8 @@ center_focused = "true"
 [[window]]
 app_id = "com.example.Game"
 layout = "game-mode"
+output = "DP-2"
+workspace = 9
 blur = false
 opacity = 1.0
 
@@ -230,6 +232,7 @@ zig build test
 scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
 scripts/test-policy-parity.sh
+scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
