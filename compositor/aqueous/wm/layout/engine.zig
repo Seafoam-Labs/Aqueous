@@ -355,6 +355,33 @@ test "viewport scroll support follows the active standalone layout" {
     try std.testing.expect(!supportsViewportScroll(&state, 1));
 }
 
+test "tile members resize through the engine like scrolling members" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_inner = 4;
+    snapshot.options[@intFromEnum(config.LayoutId.tile)].master_ratio = 0.5;
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(canResizeScrolling(&state, 1));
+    try std.testing.expect(!canResizeScrolling(&state, 99));
+    try std.testing.expect(try resizeScrolling(std.testing.allocator, &state, 1, 70, 60));
+
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 70, .height = 60 }, placements[0].geometry);
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(resetScrollingSize(&state, 1));
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 50, .height = 80 }, placements[0].geometry);
+}
+
 test "viewport scroll support routes through game mode and rejects its anchor" {
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
     const area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };

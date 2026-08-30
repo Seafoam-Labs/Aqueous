@@ -191,6 +191,7 @@ pub fn prefersVerticalScroll(state: *const State, handle: types.Handle) bool {
 
 pub fn canResizeScrolling(state: *const State, handle: types.Handle) bool {
     return switch (state.active_layout) {
+        .tile => tile.canResize(&state.tile, handle),
         .scrolling => scrolling.containsHandle(&state.scrolling, handle),
         .game_mode => game_mode.canResizeScrolling(&state.game_mode, handle),
         else => false,
@@ -228,6 +229,7 @@ pub fn resizeScrolling(
     height: i32,
 ) !bool {
     return switch (state.active_layout) {
+        .tile => tile.resize(allocator, &state.tile, handle, width, height),
         .scrolling => scrolling.resize(&state.scrolling, allocator, handle, width, height),
         .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, width, height),
         else => false,
@@ -236,6 +238,7 @@ pub fn resizeScrolling(
 
 pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {
     return switch (state.active_layout) {
+        .tile => tile.resetSize(&state.tile, handle),
         .scrolling => scrolling.resetSize(&state.scrolling, handle),
         .game_mode => game_mode.resetScrollingSize(&state.game_mode, handle),
         else => false,

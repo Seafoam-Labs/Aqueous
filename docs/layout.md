@@ -47,6 +47,17 @@ The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
 
+## Tile resize
+
+`Super`+right-drag resizes a tile member without making it floating.
+Horizontal motion moves the master/stack split shared by every member;
+vertical motion changes only the selected member's height within its column,
+while unmodified members share the remaining space. The split persists as a
+ratio of the usable area, so it survives output mode changes and applies to
+tile regions inside composable layouts. `Super`+double-left-click restores the
+configured `master_ratio` and the selected member's default even column
+height. Other members retain their independent height overrides.
+
 ## Composable layouts
 
 The composable layout divides the strut-adjusted usable monitor area into one
