@@ -84,7 +84,7 @@ gaps_inner = 8             # integer >= 0
 #                   windows and game content).
 #   overlay_plane   off | prefer; request zero-copy DRM overlay promotion when
 #                   [render].overlay_planes is enabled. Aqueous tests one
-#                   topmost candidate per output and composes on rejection.
+#                   deterministic candidate per output and composes on rejection.
 #
 # Stateful rule properties have lifecycle ownership. A manual workspace/output
 # move, fullscreen toggle, or floating toggle overrides that property until a

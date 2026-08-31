@@ -7,6 +7,10 @@ set -euo pipefail
 # mode with explicit `-policy internal` after identical user-visible actions.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
+# The spawn-terminal fixture intentionally uses a repository-relative path.
+# Pin the process working directory so invoking this script from compositor/ or
+# elsewhere cannot make Ghostty open its "Configuration Errors" helper window.
+cd "$here/.."
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURES="$here/scripts/fixtures"
@@ -16,7 +20,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
-for tool in ghostty wlrctl timeout; do
+for tool in ghostty jq wlrctl timeout; do
     have "$tool" || die "$tool is required for real-window policy integration tests"
 done
 [ -r "$FIXTURES/parity-wm.toml" ] || die "missing parity-wm.toml fixture"
@@ -54,6 +58,8 @@ wait_windows() {
         sleep 0.05
         n=$((n + 1))
     done
+    "$AQUEOUSCTL_BIN" windows --json 2>/dev/null |
+        jq -c '[.[] | {identifier,title,app_id,class,states}]' >&2 || true
     tail -80 "$SESSION_LOG" >&2
     die "timed out waiting for windows=$wanted (last=${value:-none})"
 }

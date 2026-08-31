@@ -1,0 +1,6 @@
+# Headless overlay-plane diagnostics fixture. A non-DRM backend must report
+# promotion as unavailable without attempting or committing a layer.
+
+[render]
+overlay_planes = true
+

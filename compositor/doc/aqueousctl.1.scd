@@ -17,6 +17,8 @@ aqueousctl - inspect Aqueous state and control workspace layouts
 
 *aqueousctl outputs* [*--json*]
 
+*aqueousctl overlay-planes* [*--json*]
+
 *aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
 
 # DESCRIPTION
@@ -55,6 +57,21 @@ operation is an output-scoped active-workspace layout change.
 	adaptive-sync state. Current and preferred modes are marked explicitly. With
 	*--json*, print the same snapshot using the wlr-randr JSON field names and value
 	types plus the *edid_sha256* field.
+
+*overlay-planes*
+	Report the DRM overlay promotion state for every output: backend capability,
+	current phase, stable rejection reason, candidate geometry and
+	format/modifier, retry backoff, and cumulative test, fallback, promotion,
+	and demotion counters. With *--json*, print a machine-readable array.
+
+	An attempt is an atomic layer test, not a blank or rendered frame. Equivalent
+	rejected assignments use an exponential 250 ms to 4 second retry backoff. A
+	nonzero fallback counter means a promoted final commit failed and Aqueous
+	retried that frame with full composition.
+
+	Set *AQUEOUS_OVERLAY_TRACE_BUDGET* before starting Aqueous to emit at most
+	that many detailed overlay test/backoff records. Values above 10000 are
+	clamped; the default is zero.
 
 *layout --output NAME --json*
 	Print the active workspace number and effective runtime layout for _NAME_ as

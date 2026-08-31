@@ -1,9 +1,14 @@
 --- a/include/wlr/types/wlr_output_layer.h
 +++ b/include/wlr/types/wlr_output_layer.h
-@@ -72,6 +72,14 @@
- 	// to damage the whole buffer.
- 	const pixman_region32_t *damage;
- 
+@@ -72,6 +72,19 @@
+	// to damage the whole buffer.
+	const pixman_region32_t *damage;
+
++	// When true, failing to assign this layer to a hardware plane makes the
++	// entire state invalid. Compositors use this after omitting the layer's
++	// contents from the primary buffer.
++	bool must_scan_out;
++
 +	// Optional explicit synchronization for this layer's buffer. The wait
 +	// point must be reached before scan-out. The signal point is reached once
 +	// the backend no longer uses the buffer.
@@ -181,32 +186,52 @@
  		liftoff_layer_set_property(layer->liftoff, "FB_DAMAGE_CLIPS", fb_damage_clips) == 0;
  }
  
-@@ -390,7 +393,8 @@
+@@ -390,22 +393,28 @@
  	return ok;
  }
  
 -static void connector_update_layers_feedback(const struct wlr_drm_connector_state *state) {
-+static void connector_update_layers_feedback(
-+		const struct wlr_drm_connector_state *state, bool emit_feedback) {
++static bool connector_update_layers_acceptance(
++		const struct wlr_drm_connector_state *state) {
  	struct wlr_drm_backend *drm = state->connector->backend;
  
  	if (!(state->base->committed & WLR_OUTPUT_STATE_LAYERS)) {
-@@ -402,7 +406,7 @@
+-		return;
++		return true;
+ 	}
+ 
++	bool required_layers_accepted = true;
+ 	for (size_t i = 0; i < state->base->layers_len; i++) {
+ 		struct wlr_output_layer_state *layer_state = &state->base->layers[i];
  		struct wlr_drm_layer *layer = get_drm_layer(drm, layer_state->layer);
  		layer_state->accepted =
  			!liftoff_layer_needs_composition(layer->liftoff);
--		if (!layer_state->accepted) {
-+		if (!layer_state->accepted && emit_feedback) {
+ 		if (!layer_state->accepted) {
  			update_layer_feedback(drm, layer);
++			if (layer_state->must_scan_out) {
++				required_layers_accepted = false;
++			}
  		}
  	}
-@@ -480,9 +484,11 @@
++	return required_layers_accepted;
+ }
+ 
+ static bool commit(struct wlr_drm_backend *drm,
+@@ -460,6 +469,10 @@
+ 			goto out;
+ 		}
+ 
++		if (!connector_update_layers_acceptance(&state->connectors[i])) {
++			goto out;
++		}
++
+ 		if (crtc->cursor &&
+ 				liftoff_layer_needs_composition(crtc->cursor->liftoff_layer)) {
+ 			wlr_drm_conn_log(conn, WLR_DEBUG, "Failed to scan-out cursor plane");
+@@ -480,9 +493,8 @@
  	drmModeAtomicFree(req);
  	for (size_t i = 0; i < state->connectors_len; i++) {
  		struct wlr_drm_connector_state *conn_state = &state->connectors[i];
-+		if (ok) {
-+			connector_update_layers_feedback(conn_state, !test_only);
-+		}
  		if (ok && !test_only) {
  			drm_atomic_connector_apply_commit(conn_state);
 -			connector_update_layers_feedback(conn_state);

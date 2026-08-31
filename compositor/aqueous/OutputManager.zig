@@ -709,7 +709,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         }
         for (states.items) |*state| {
             const output: *Output = @ptrCast(@alignCast(state.output.data));
-            output.commitOverlayState();
+            output.commitOverlayState(true);
         }
         om.first_modeset = false;
 

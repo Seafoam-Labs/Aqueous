@@ -28,7 +28,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            3,
+            5,
             *WindowInfoManager,
             manager,
             bind,
@@ -58,6 +58,7 @@ fn handleManagerRequest(
     switch (request) {
         .get_window_info => |args| sendSnapshot(resource, args.id, args.toplevel),
         .get_scene_snapshot => |args| sendSceneSnapshot(resource, args.id),
+        .get_overlay_plane_snapshot => |args| sendOverlayPlaneSnapshot(resource, args.id),
         .get_active_workspace_layout => |args| sendActiveWorkspaceLayout(resource, std.mem.span(args.output)),
         .set_active_workspace_layout => |args| {
             const output = std.mem.span(args.output);
@@ -73,6 +74,78 @@ fn handleManagerRequest(
                 );
             }
         },
+        .destroy => {},
+    }
+}
+
+fn splitU64(value: u64) struct { u32, u32 } {
+    return .{ @truncate(value >> 32), @truncate(value) };
+}
+
+fn sendOverlayPlaneSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void {
+    const snapshot = aqueous.OverlayPlaneSnapshotV1.create(manager.getClient(), 1, id) catch {
+        manager.getClient().postNoMemory();
+        return;
+    };
+    snapshot.setHandler(?*anyopaque, handleOverlayPlaneSnapshotRequest, null, null);
+
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const wlr_output = output.wlr_output orelse continue;
+        const state = output.overlaySnapshot();
+        const candidate_hi, const candidate_lo = splitU64(state.candidate_id);
+        const modifier_hi, const modifier_lo = splitU64(state.modifier);
+        snapshot.sendOutputState(
+            wlr_output.name,
+            @intFromBool(state.enabled),
+            @enumFromInt(@intFromEnum(state.capability)),
+            @enumFromInt(@intFromEnum(state.phase)),
+            @enumFromInt(@intFromEnum(state.reason)),
+            candidate_hi,
+            candidate_lo,
+            state.destination.x,
+            state.destination.y,
+            state.destination.width,
+            state.destination.height,
+            state.format,
+            modifier_hi,
+            modifier_lo,
+            state.backoff_remaining_ms,
+        );
+        const attempts_hi, const attempts_lo = splitU64(state.counters.attempts);
+        const accepted_hi, const accepted_lo = splitU64(state.counters.accepted_tests);
+        const rejected_hi, const rejected_lo = splitU64(state.counters.backend_rejections);
+        const skips_hi, const skips_lo = splitU64(state.counters.backoff_skips);
+        const fallback_hi, const fallback_lo = splitU64(state.counters.fallback_retries);
+        const promotions_hi, const promotions_lo = splitU64(state.counters.promotions);
+        const demotions_hi, const demotions_lo = splitU64(state.counters.demotions);
+        snapshot.sendOutputCounters(
+            wlr_output.name,
+            attempts_hi,
+            attempts_lo,
+            accepted_hi,
+            accepted_lo,
+            rejected_hi,
+            rejected_lo,
+            skips_hi,
+            skips_lo,
+            fallback_hi,
+            fallback_lo,
+            promotions_hi,
+            promotions_lo,
+            demotions_hi,
+            demotions_lo,
+        );
+    }
+    snapshot.sendDone();
+}
+
+fn handleOverlayPlaneSnapshotRequest(
+    _: *aqueous.OverlayPlaneSnapshotV1,
+    request: aqueous.OverlayPlaneSnapshotV1.Request,
+    _: ?*anyopaque,
+) void {
+    switch (request) {
         .destroy => {},
     }
 }

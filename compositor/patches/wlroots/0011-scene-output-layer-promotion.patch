@@ -4,7 +4,7 @@
  #ifndef WLR_TYPES_WLR_SCENE_H
  #define WLR_TYPES_WLR_SCENE_H
  
-+#define WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 1
++#define WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 2
 +
  /**
   * The scene-graph API provides a declarative way to display surfaces. The
@@ -17,7 +17,7 @@
  #include <wlr/util/addon.h>
  #include <wlr/util/box.h>
  
-@@ -742,6 +745,31 @@
+@@ -742,6 +745,56 @@
  	 * wlr_output_state or output size if not specified.
  	 */
  	struct wlr_swapchain *swapchain;
@@ -29,6 +29,24 @@
 +	 * the output state, disabled when promotion is unavailable or rejected.
 +	 */
 +	struct wlr_scene_output_layer_candidate *layer_candidate;
++};
++
++enum wlr_scene_output_layer_rejection_reason {
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_NONE = 0,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_WRONG_NODE,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_OUTPUT_STATE,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_CAPTURE_ACTIVE,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_SOFTWARE_CURSOR,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_NO_BUFFER,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_NOT_OPAQUE,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_TRANSFORMED,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_CLIPPED,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_EFFECTS,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_COLOR,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_SCALED,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_OUTSIDE_OUTPUT,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_INTERSECTED,
++	WLR_SCENE_OUTPUT_LAYER_REJECTION_BACKEND_TEST,
 +};
 +
 +/**
@@ -43,14 +61,46 @@
 +
 +	// Output: whether this build accepted and omitted the buffer from composition.
 +	bool promoted;
++	bool tested;
++
++	enum wlr_scene_output_layer_rejection_reason rejection_reason;
++	struct wlr_scene_output *scene_output;
 +
 +	// Internal output state. Callers must not modify this while a state is live.
 +	struct wlr_output_layer_state state;
  };
++
++void wlr_scene_output_layer_candidate_finish(
++	struct wlr_scene_output_layer_candidate *candidate, bool committed);
  
  /**
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
+@@ -2023,6 +2023,24 @@
+ 
+ 	wlr_linux_dmabuf_feedback_v1_finish(&feedback);
+ }
++
++struct scene_output_layer_feedback_context {
++	struct wl_listener listener;
++	struct wlr_scene_output *scene_output;
++	struct wlr_scene_buffer *buffer;
++};
++
++static void scene_output_layer_feedback(struct wl_listener *listener, void *data) {
++	struct scene_output_layer_feedback_context *context =
++		wl_container_of(listener, context, listener);
++	const struct wlr_output_layer_feedback_event *event = data;
++	struct wlr_linux_dmabuf_feedback_v1_init_options options = {
++		.main_renderer = context->scene_output->output->renderer,
++		.output_layer_feedback_event = event,
++	};
++	scene_buffer_send_dmabuf_feedback(context->scene_output->scene,
++		context->buffer, &options);
++}
+ 
+ static bool color_management_is_scanout_allowed(const struct wlr_output_image_description *img_desc,
+ 		const struct wlr_scene_buffer *buffer) {
 @@ -2400,6 +2400,17 @@
  	SCANOUT_SUCCESS,
  };
@@ -82,7 +132,7 @@
  
  	wlr_output_state_set_buffer(&pending, wlr_buffer);
  	if (buffer->wait_timeline != NULL) {
-@@ -2522,6 +2529,129 @@
+@@ -2522,6 +2529,174 @@
  	return SCANOUT_SUCCESS;
  }
  
@@ -93,20 +143,47 @@
 +	struct wlr_scene_output *scene_output = data->output;
 +	struct wlr_scene_node *node = candidate_entry->node;
 +
-+	if (node->type != WLR_SCENE_NODE_BUFFER || data->scale != 1.0f ||
-+			data->transform != WL_OUTPUT_TRANSFORM_NORMAL ||
-+			state->committed & (WLR_OUTPUT_STATE_MODE |
-+				WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_RENDER_FORMAT) ||
-+			!wlr_output_is_direct_scanout_allowed(scene_output->output) ||
-+			scene_output->output->software_cursor_locks > 0) {
++	if (node->type != WLR_SCENE_NODE_BUFFER) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_WRONG_NODE;
++		return false;
++	}
++	if (data->scale != 1.0f) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_SCALED;
++		return false;
++	}
++	if (data->transform != WL_OUTPUT_TRANSFORM_NORMAL) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_TRANSFORMED;
++		return false;
++	}
++	if (state->committed & (WLR_OUTPUT_STATE_MODE |
++			WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_RENDER_FORMAT)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_OUTPUT_STATE;
++		return false;
++	}
++	if (!wlr_output_is_direct_scanout_allowed(scene_output->output)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_CAPTURE_ACTIVE;
++		return false;
++	}
++	if (scene_output->output->software_cursor_locks > 0) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_SOFTWARE_CURSOR;
 +		return false;
 +	}
 +
 +	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
-+	if (buffer != candidate->buffer || buffer->buffer == NULL ||
-+			buffer->opacity != 1.0f || buffer->force_blend ||
-+			buffer->transform != WL_OUTPUT_TRANSFORM_NORMAL ||
-+			!wlr_fbox_empty(&buffer->src_box)) {
++	if (buffer != candidate->buffer || buffer->buffer == NULL) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_NO_BUFFER;
++		return false;
++	}
++	if (buffer->opacity != 1.0f || buffer->force_blend) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_NOT_OPAQUE;
++		return false;
++	}
++	if (buffer->transform != WL_OUTPUT_TRANSFORM_NORMAL) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_TRANSFORMED;
++		return false;
++	}
++	if (!wlr_fbox_empty(&buffer->src_box)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_CLIPPED;
 +		return false;
 +	}
 +
@@ -114,12 +191,14 @@
 +			(scene_output->buffer_needs_composition == NULL ||
 +			scene_output->buffer_needs_composition(buffer,
 +				scene_output->render_hook_data))) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_EFFECTS;
 +		return false;
 +	}
 +
 +	const struct wlr_output_image_description *img_desc =
 +		output_pending_image_description(scene_output->output, state);
 +	if (!color_management_is_scanout_allowed(img_desc, buffer)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_COLOR;
 +		return false;
 +	}
 +
@@ -129,6 +208,7 @@
 +		buffer->color_encoding == WLR_COLOR_ENCODING_IDENTITY &&
 +		buffer->color_range == WLR_COLOR_RANGE_FULL;
 +	if (!(is_color_repr_none || is_color_repr_identity_full)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_COLOR;
 +		return false;
 +	}
 +
@@ -137,6 +217,7 @@
 +	if (width != buffer->buffer->width || height != buffer->buffer->height ||
 +			candidate_entry->x != floor(candidate_entry->x) ||
 +			candidate_entry->y != floor(candidate_entry->y)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_SCALED;
 +		return false;
 +	}
 +
@@ -147,6 +228,7 @@
 +		.height = height,
 +	};
 +	if (!wlr_box_contains_box(&data->logical, &scene_box)) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_OUTSIDE_OUTPUT;
 +		return false;
 +	}
 +
@@ -163,6 +245,7 @@
 +		PIXMAN_REGION_IN;
 +	pixman_region32_fini(&opaque);
 +	if (!fully_opaque) {
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_NOT_OPAQUE;
 +		return false;
 +	}
 +
@@ -177,6 +260,7 @@
 +		bool intersects = !pixman_region32_empty(&overlap);
 +		pixman_region32_fini(&overlap);
 +		if (intersects) {
++			candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_INTERSECTED;
 +			return false;
 +		}
 +	}
@@ -191,12 +275,23 @@
 +		layer_state->wait_point = buffer->wait_point;
 +	}
 +
-+	if (!wlr_output_test_state(scene_output->output, state) ||
-+			!layer_state->accepted) {
++	struct scene_output_layer_feedback_context feedback = {
++		.listener = { .notify = scene_output_layer_feedback },
++		.scene_output = scene_output,
++		.buffer = buffer,
++	};
++	wl_signal_add(&candidate->layer->events.feedback, &feedback.listener);
++	layer_state->must_scan_out = true;
++	candidate->tested = true;
++	bool test_ok = wlr_output_test_state(scene_output->output, state);
++	wl_list_remove(&feedback.listener.link);
++	if (!test_ok || !layer_state->accepted) {
 +		layer_state->buffer = NULL;
++		layer_state->must_scan_out = false;
 +		layer_state->wait_timeline = NULL;
 +		layer_state->wait_point = 0;
 +		layer_state->accepted = false;
++		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_BACKEND_TEST;
 +		return false;
 +	}
 +
@@ -212,7 +307,7 @@
  bool wlr_scene_output_needs_frame(struct wlr_scene_output *scene_output) {
  	return scene_output->output->needs_frame ||
  		!pixman_region32_empty(&scene_output->pending_commit_damage) ||
-@@ -2658,6 +2788,17 @@
+@@ -2658,6 +2833,20 @@
  	if (!options) {
  		options = &default_options;
  	}
@@ -220,6 +315,9 @@
 +		options->layer_candidate;
 +	if (layer_candidate != NULL) {
 +		layer_candidate->promoted = false;
++		layer_candidate->tested = false;
++		layer_candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_NO_BUFFER;
++		layer_candidate->scene_output = scene_output;
 +		layer_candidate->state = (struct wlr_output_layer_state){
 +			.layer = layer_candidate->layer,
 +		};
@@ -240,7 +338,7 @@
  		scene_output_state_attempt_gamma(scene_output, state);
  
  		if (timer) {
-@@ -2852,6 +2996,36 @@
+@@ -2852,6 +3060,39 @@
  	}
  
  	assert(buffer->width == resolution_width && buffer->height == resolution_height);
@@ -265,6 +363,9 @@
 +				candidate_entry, list_data, list_len, layer_candidate,
 +				state, &render_data);
 +		}
++	} else if (layer_candidate != NULL && layer_candidate->buffer != NULL) {
++		layer_candidate->rejection_reason =
++			WLR_SCENE_OUTPUT_LAYER_REJECTION_EFFECTS;
 +	}
 +
 +	if (layer_candidate != NULL &&
@@ -290,21 +391,25 @@
  		scene_entry_render(entry, &render_data);
  
  		if (entry->node->type == WLR_SCENE_NODE_BUFFER) {
-@@ -3020,6 +3200,17 @@
- 			scene_output->out_point);
- 	}
+@@ -3046,6 +3263,21 @@
+ 	return true;
+ }
  
-+	if (layer_candidate != NULL && layer_candidate->promoted) {
-+		struct wlr_scene_output_sample_event sample_event = {
-+			.output = scene_output,
-+			.direct_scanout = true,
-+			.release_timeline = layer_candidate->state.signal_timeline,
-+			.release_point = layer_candidate->state.signal_point,
-+		};
-+		wl_signal_emit_mutable(&layer_candidate->buffer->events.output_sample,
-+			&sample_event);
++void wlr_scene_output_layer_candidate_finish(
++		struct wlr_scene_output_layer_candidate *candidate, bool committed) {
++	if (!committed || !candidate->promoted || candidate->buffer == NULL ||
++			candidate->scene_output == NULL) {
++		return;
 +	}
++	struct wlr_scene_output_sample_event sample_event = {
++		.output = candidate->scene_output,
++		.direct_scanout = true,
++		.release_timeline = candidate->state.signal_timeline,
++		.release_point = candidate->state.signal_point,
++	};
++	wl_signal_emit_mutable(&candidate->buffer->events.output_sample, &sample_event);
++}
 +
- 	if (!render_gamma_lut) {
- 		scene_output_state_attempt_gamma(scene_output, state);
- 	}
+ int64_t wlr_scene_timer_get_duration_ns(struct wlr_scene_timer *timer) {
+ 	int64_t pre_render = timer->pre_render_duration;
+ 	if (!timer->render_timer) {

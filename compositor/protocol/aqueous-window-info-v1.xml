@@ -12,10 +12,11 @@
     Enumeration and stable identifiers remain owned by
     ext_foreign_toplevel_list_v1. Version 3 adds narrowly scoped control of the
     active workspace layout on a named output. Version 4 reports the window's
-    committed wp_content_type_v1 state and content-type rule matchers.
+    committed wp_content_type_v1 state and content-type rule matchers. Version
+    5 adds a read-only DRM overlay-plane diagnostic snapshot.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="4">
+  <interface name="aqueous_window_info_manager_v1" version="5">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -76,6 +77,11 @@
       <arg name="workspace" type="uint" summary="one-based active workspace, or zero"/>
       <arg name="layout" type="string" summary="effective layout, or empty on failure"/>
     </event>
+
+    <request name="get_overlay_plane_snapshot" since="5">
+      <description summary="snapshot per-output DRM overlay-plane state"/>
+      <arg name="id" type="new_id" interface="aqueous_overlay_plane_snapshot_v1"/>
+    </request>
   </interface>
 
   <interface name="aqueous_window_info_v1" version="2">
@@ -204,5 +210,91 @@
     <request name="destroy" type="destructor">
       <description summary="destroy this snapshot object"/>
     </request>
+  </interface>
+
+  <interface name="aqueous_overlay_plane_snapshot_v1" version="1">
+    <description summary="one-shot DRM overlay-plane diagnostic snapshot">
+      One state and one counters event are emitted for each output, followed by
+      done. 64-bit values are carried as high and low 32-bit words.
+    </description>
+
+    <enum name="capability">
+      <entry name="unknown" value="0"/>
+      <entry name="available" value="1"/>
+      <entry name="unavailable" value="2"/>
+    </enum>
+
+    <enum name="phase">
+      <entry name="disabled" value="0"/>
+      <entry name="unavailable" value="1"/>
+      <entry name="idle" value="2"/>
+      <entry name="testing" value="3"/>
+      <entry name="promoted" value="4"/>
+      <entry name="backed_off" value="5"/>
+      <entry name="fallback" value="6"/>
+    </enum>
+
+    <enum name="rejection_reason">
+      <entry name="none" value="0"/>
+      <entry name="globally_disabled" value="1"/>
+      <entry name="backend_unavailable" value="2"/>
+      <entry name="no_candidate" value="3"/>
+      <entry name="candidate_destroyed" value="4"/>
+      <entry name="not_visible" value="5"/>
+      <entry name="not_opaque" value="6"/>
+      <entry name="transformed" value="7"/>
+      <entry name="scaled" value="8"/>
+      <entry name="clipped" value="9"/>
+      <entry name="effects_active" value="10"/>
+      <entry name="intersected" value="11"/>
+      <entry name="capture_active" value="12"/>
+      <entry name="session_locked" value="13"/>
+      <entry name="session_inactive" value="14"/>
+      <entry name="software_cursor" value="15"/>
+      <entry name="no_dmabuf" value="16"/>
+      <entry name="explicit_sync_unavailable" value="17"/>
+      <entry name="backend_test_rejected" value="18"/>
+      <entry name="promoted_commit_failed" value="19"/>
+    </enum>
+
+    <event name="output_state">
+      <arg name="output" type="string"/>
+      <arg name="enabled" type="uint"/>
+      <arg name="capability" type="uint" enum="capability"/>
+      <arg name="phase" type="uint" enum="phase"/>
+      <arg name="rejection_reason" type="uint" enum="rejection_reason"/>
+      <arg name="candidate_hi" type="uint"/>
+      <arg name="candidate_lo" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="format" type="uint" summary="DRM fourcc, or zero"/>
+      <arg name="modifier_hi" type="uint"/>
+      <arg name="modifier_lo" type="uint"/>
+      <arg name="backoff_ms" type="uint"/>
+    </event>
+
+    <event name="output_counters">
+      <arg name="output" type="string"/>
+      <arg name="attempts_hi" type="uint"/>
+      <arg name="attempts_lo" type="uint"/>
+      <arg name="accepted_hi" type="uint"/>
+      <arg name="accepted_lo" type="uint"/>
+      <arg name="rejected_hi" type="uint"/>
+      <arg name="rejected_lo" type="uint"/>
+      <arg name="backoff_skips_hi" type="uint"/>
+      <arg name="backoff_skips_lo" type="uint"/>
+      <arg name="fallback_hi" type="uint"/>
+      <arg name="fallback_lo" type="uint"/>
+      <arg name="promotions_hi" type="uint"/>
+      <arg name="promotions_lo" type="uint"/>
+      <arg name="demotions_hi" type="uint"/>
+      <arg name="demotions_lo" type="uint"/>
+    </event>
+
+    <event name="done"/>
+
+    <request name="destroy" type="destructor"/>
   </interface>
 </protocol>

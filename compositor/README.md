@@ -77,6 +77,8 @@ Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
 `aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
 `aqueousctl layout --output DP-1 --json` reports an output's active workspace
 layout; add `--set grid` before `--json` to change it immediately.
+`aqueousctl overlay-planes [--json]` reports per-output overlay eligibility,
+rejection backoff, promotion transitions, and composed fallback counters.
 
 The headless cutover and output checks are:
 
@@ -88,6 +90,7 @@ scripts/test-xdg-floating.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
+scripts/test-overlay-planes.sh
 scripts/test-client-buffer-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh

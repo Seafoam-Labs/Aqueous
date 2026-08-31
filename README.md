@@ -167,6 +167,8 @@ aqueousctl windows --json
 aqueousctl inspect --rule
 aqueousctl outputs
 aqueousctl outputs --json
+aqueousctl overlay-planes
+aqueousctl overlay-planes --json
 aqueousctl layout --output DP-1 --json
 aqueousctl layout --output DP-1 --set grid --json
 ```

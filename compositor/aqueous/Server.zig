@@ -828,6 +828,7 @@ fn gpuResetRecover(server: *Server) !void {
                 // renderer, allocator, and backend should have prevented creating
                 // the output in the first place.
                 _ = wlr_output.initRender(new_allocator, new_renderer);
+                output.invalidateOverlayCapabilities();
             }
         }
     }

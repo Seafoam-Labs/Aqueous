@@ -159,7 +159,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("river_window_manager_v1", 10);
-    scanner.generate("aqueous_window_info_manager_v1", 4);
+    scanner.generate("aqueous_window_info_manager_v1", 5);
     scanner.generate("river_xkb_bindings_v1", 3);
     scanner.generate("river_layer_shell_v1", 1);
     scanner.generate("river_input_manager_v1", 2);
@@ -462,6 +462,17 @@ pub fn build(b: *Build) !void {
         });
         const run_cursor_lock_restore_test = b.addRunArtifact(cursor_lock_restore_test);
 
+        const overlay_planes_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/overlay_planes.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_overlay_planes_test = b.addRunArtifact(overlay_planes_test);
+
         const aqueous_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/wm/Mode.zig"),
@@ -604,6 +615,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_xwayland_projection_test.step);
         test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
+        test_step.dependOn(&run_overlay_planes_test.step);
         test_step.dependOn(&run_aqueous_test.step);
         test_step.dependOn(&run_trace_test.step);
         test_step.dependOn(&run_config_test.step);

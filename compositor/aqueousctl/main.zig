@@ -19,6 +19,7 @@ const usage =
     \\       aqueousctl inspect --rule
     \\       aqueousctl scene [--dot]
     \\       aqueousctl outputs [--json]
+    \\       aqueousctl overlay-planes [--json]
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
     \\
     \\Inspect compositor state or change the active workspace layout on one output.
@@ -27,7 +28,7 @@ const usage =
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
 
-const Mode = enum { windows, json, rules, scene, scene_dot, outputs, outputs_json, layout_query, layout_set };
+const Mode = enum { windows, json, rules, scene, scene_dot, outputs, outputs_json, overlay_planes, overlay_planes_json, layout_query, layout_set };
 
 const OutputMode = struct {
     handle: *zwlr.OutputModeV1,
@@ -91,6 +92,26 @@ const SceneNode = struct {
     geometry: Geometry,
 };
 
+const OverlayPlane = struct {
+    output: []u8,
+    enabled: bool = false,
+    capability: aqueous.OverlayPlaneSnapshotV1.Capability = .unknown,
+    phase: aqueous.OverlayPlaneSnapshotV1.Phase = .disabled,
+    rejection_reason: aqueous.OverlayPlaneSnapshotV1.RejectionReason = .none,
+    candidate_id: u64 = 0,
+    geometry: Geometry = .{},
+    format: u32 = 0,
+    modifier: u64 = 0,
+    backoff_ms: u32 = 0,
+    attempts: u64 = 0,
+    accepted: u64 = 0,
+    rejected: u64 = 0,
+    backoff_skips: u64 = 0,
+    fallback_retries: u64 = 0,
+    promotions: u64 = 0,
+    demotions: u64 = 0,
+};
+
 const Window = struct {
     state: *State,
     handle: *ext.ForeignToplevelHandleV1,
@@ -152,6 +173,9 @@ const State = struct {
     scene_snapshot: ?*aqueous.SceneSnapshotV1 = null,
     scene_done: bool = false,
     scene_nodes: std.ArrayListUnmanaged(SceneNode) = .empty,
+    overlay_snapshot: ?*aqueous.OverlayPlaneSnapshotV1 = null,
+    overlay_done: bool = false,
+    overlay_planes: std.ArrayListUnmanaged(OverlayPlane) = .empty,
     outputs: std.ArrayListUnmanaged(*DisplayOutput) = .empty,
     list_finished: bool = false,
     windows: std.ArrayListUnmanaged(*Window) = .empty,
@@ -166,6 +190,8 @@ const State = struct {
         state.windows.deinit(allocator);
         for (state.scene_nodes.items) |node| allocator.free(node.label);
         state.scene_nodes.deinit(allocator);
+        for (state.overlay_planes.items) |plane| allocator.free(plane.output);
+        state.overlay_planes.deinit(allocator);
         for (state.outputs.items) |output| output.deinit();
         state.outputs.deinit(allocator);
         if (state.output_manager) |manager| {
@@ -186,6 +212,10 @@ const State = struct {
 
     fn scenePending(state: *const State) bool {
         return !state.scene_done;
+    }
+
+    fn overlayPending(state: *const State) bool {
+        return !state.overlay_done;
     }
 };
 
@@ -246,13 +276,37 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     const scene_mode = mode == .scene or mode == .scene_dot;
-    if (state.info_name == 0 or (!scene_mode and state.list_name == 0)) {
+    const overlay_mode = mode == .overlay_planes or mode == .overlay_planes_json;
+    if (state.info_name == 0 or (!scene_mode and !overlay_mode and state.list_name == 0)) {
         try stderr.writeAll("aqueousctl: compositor does not expose Aqueous window introspection\n");
         try stderr.flush();
         std.process.exit(1);
     }
 
     state.info_manager = try registry.bind(state.info_name, aqueous.WindowInfoManagerV1, state.info_version);
+    if (overlay_mode) {
+        if (state.info_version < 5) {
+            try stderr.writeAll("aqueousctl: compositor does not expose overlay-plane diagnostics\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        state.overlay_snapshot = try state.info_manager.?.getOverlayPlaneSnapshot();
+        state.overlay_snapshot.?.setListener(*State, overlayPlaneListener, &state);
+        var overlay_rounds: usize = 0;
+        while (state.overlayPending() and overlay_rounds < 8) : (overlay_rounds += 1) tryRoundtrip(display, stderr);
+        if (state.overlayPending()) {
+            try stderr.writeAll("aqueousctl: timed out collecting overlay-plane state\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        if (mode == .overlay_planes_json) {
+            try writeOverlayPlanesJson(stdout, &state);
+        } else {
+            try writeOverlayPlanes(stdout, &state);
+        }
+        try stdout.flush();
+        return;
+    }
     if (mode == .layout_query or mode == .layout_set) {
         if (state.info_version < 3) {
             try stderr.writeAll("aqueousctl: compositor does not expose workspace layout control\n");
@@ -320,7 +374,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot, .outputs, .outputs_json, .layout_query, .layout_set => unreachable,
+        .scene, .scene_dot, .outputs, .outputs_json, .overlay_planes, .overlay_planes_json, .layout_query, .layout_set => unreachable,
     }
     try stdout.flush();
 }
@@ -333,6 +387,8 @@ fn parseMode(args: anytype) ?Mode {
     if (args.len == 3 and mem.eql(u8, args[1], "scene") and mem.eql(u8, args[2], "--dot")) return .scene_dot;
     if (args.len == 2 and mem.eql(u8, args[1], "outputs")) return .outputs;
     if (args.len == 3 and mem.eql(u8, args[1], "outputs") and mem.eql(u8, args[2], "--json")) return .outputs_json;
+    if (args.len == 2 and mem.eql(u8, args[1], "overlay-planes")) return .overlay_planes;
+    if (args.len == 3 and mem.eql(u8, args[1], "overlay-planes") and mem.eql(u8, args[2], "--json")) return .overlay_planes_json;
     if (args.len == 5 and mem.eql(u8, args[1], "layout") and
         mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--json")) return .layout_query;
     if (args.len == 7 and mem.eql(u8, args[1], "layout") and
@@ -398,6 +454,126 @@ fn managerListener(
             state.layout_done = true;
         },
     }
+}
+
+fn joinU64(high: u32, low: u32) u64 {
+    return (@as(u64, high) << 32) | low;
+}
+
+fn overlayPlaneByName(state: *State, name: []const u8, create: bool) ?*OverlayPlane {
+    for (state.overlay_planes.items) |*plane| {
+        if (mem.eql(u8, plane.output, name)) return plane;
+    }
+    if (!create) return null;
+    const owned = allocator.dupe(u8, name) catch return null;
+    state.overlay_planes.append(allocator, .{ .output = owned }) catch {
+        allocator.free(owned);
+        return null;
+    };
+    return &state.overlay_planes.items[state.overlay_planes.items.len - 1];
+}
+
+fn overlayPlaneListener(
+    _: *aqueous.OverlayPlaneSnapshotV1,
+    event: aqueous.OverlayPlaneSnapshotV1.Event,
+    state: *State,
+) void {
+    switch (event) {
+        .output_state => |value| {
+            const plane = overlayPlaneByName(state, mem.span(value.output), true) orelse return;
+            plane.enabled = value.enabled != 0;
+            plane.capability = value.capability;
+            plane.phase = value.phase;
+            plane.rejection_reason = value.rejection_reason;
+            plane.candidate_id = joinU64(value.candidate_hi, value.candidate_lo);
+            plane.geometry = .{
+                .x = value.x,
+                .y = value.y,
+                .width = value.width,
+                .height = value.height,
+            };
+            plane.format = value.format;
+            plane.modifier = joinU64(value.modifier_hi, value.modifier_lo);
+            plane.backoff_ms = value.backoff_ms;
+        },
+        .output_counters => |value| {
+            const plane = overlayPlaneByName(state, mem.span(value.output), false) orelse return;
+            plane.attempts = joinU64(value.attempts_hi, value.attempts_lo);
+            plane.accepted = joinU64(value.accepted_hi, value.accepted_lo);
+            plane.rejected = joinU64(value.rejected_hi, value.rejected_lo);
+            plane.backoff_skips = joinU64(value.backoff_skips_hi, value.backoff_skips_lo);
+            plane.fallback_retries = joinU64(value.fallback_hi, value.fallback_lo);
+            plane.promotions = joinU64(value.promotions_hi, value.promotions_lo);
+            plane.demotions = joinU64(value.demotions_hi, value.demotions_lo);
+        },
+        .done => state.overlay_done = true,
+    }
+}
+
+fn writeOverlayPlanes(writer: *Io.Writer, state: *const State) !void {
+    if (state.overlay_planes.items.len == 0) {
+        try writer.writeAll("No outputs.\n");
+        return;
+    }
+    for (state.overlay_planes.items) |plane| {
+        try writer.print("{s}:\n", .{plane.output});
+        try writer.print("  Enabled: {s}\n", .{if (plane.enabled) "yes" else "no"});
+        try writer.print("  Capability: {s}\n", .{@tagName(plane.capability)});
+        try writer.print("  Phase: {s}\n", .{@tagName(plane.phase)});
+        try writer.print("  Reason: {s}\n", .{@tagName(plane.rejection_reason)});
+        if (plane.candidate_id == 0) {
+            try writer.writeAll("  Candidate: none\n");
+        } else {
+            try writer.print("  Candidate: 0x{x}\n", .{plane.candidate_id});
+        }
+        try writer.print(
+            "  Destination: {d},{d} {d}x{d}\n  Format: 0x{x:0>8} modifier 0x{x}\n",
+            .{ plane.geometry.x, plane.geometry.y, plane.geometry.width, plane.geometry.height, plane.format, plane.modifier },
+        );
+        try writer.print(
+            "  Backoff: {d} ms\n  Counters: attempts={d} accepted={d} rejected={d} skips={d} fallback={d} promotions={d} demotions={d}\n",
+            .{ plane.backoff_ms, plane.attempts, plane.accepted, plane.rejected, plane.backoff_skips, plane.fallback_retries, plane.promotions, plane.demotions },
+        );
+    }
+}
+
+fn writeOverlayPlanesJson(writer: *Io.Writer, state: *const State) !void {
+    try writer.writeByte('[');
+    for (state.overlay_planes.items, 0..) |plane, index| {
+        if (index != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"output\":");
+        try jsonString(writer, plane.output);
+        try writer.print(
+            ",\"enabled\":{s},\"capability\":",
+            .{if (plane.enabled) "true" else "false"},
+        );
+        try jsonString(writer, @tagName(plane.capability));
+        try writer.writeAll(",\"phase\":");
+        try jsonString(writer, @tagName(plane.phase));
+        try writer.writeAll(",\"rejection_reason\":");
+        try jsonString(writer, @tagName(plane.rejection_reason));
+        try writer.print(
+            ",\"candidate_id\":{d},\"destination\":{{\"x\":{d},\"y\":{d},\"width\":{d},\"height\":{d}}},\"format\":{d},\"modifier\":{d},\"backoff_ms\":{d},\"counters\":{{\"attempts\":{d},\"accepted\":{d},\"rejected\":{d},\"backoff_skips\":{d},\"fallback_retries\":{d},\"promotions\":{d},\"demotions\":{d}}}}}",
+            .{
+                plane.candidate_id,
+                plane.geometry.x,
+                plane.geometry.y,
+                plane.geometry.width,
+                plane.geometry.height,
+                plane.format,
+                plane.modifier,
+                plane.backoff_ms,
+                plane.attempts,
+                plane.accepted,
+                plane.rejected,
+                plane.backoff_skips,
+                plane.fallback_retries,
+                plane.promotions,
+                plane.demotions,
+            },
+        );
+    }
+    try writer.writeAll("]\n");
 }
 
 fn writeLayoutJson(writer: *Io.Writer, state: *const State) !void {
@@ -981,6 +1157,8 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.scene_dot, parseMode(&.{ "aqueousctl", "scene", "--dot" }).?);
     try testing.expectEqual(Mode.outputs, parseMode(&.{ "aqueousctl", "outputs" }).?);
     try testing.expectEqual(Mode.outputs_json, parseMode(&.{ "aqueousctl", "outputs", "--json" }).?);
+    try testing.expectEqual(Mode.overlay_planes, parseMode(&.{ "aqueousctl", "overlay-planes" }).?);
+    try testing.expectEqual(Mode.overlay_planes_json, parseMode(&.{ "aqueousctl", "overlay-planes", "--json" }).?);
     try testing.expectEqual(Mode.layout_query, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--json" }).?);
     try testing.expectEqual(Mode.layout_set, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--set", "grid", "--json" }).?);
 

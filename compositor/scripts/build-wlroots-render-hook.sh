@@ -70,14 +70,17 @@ output_layer_header="$source_dir/include/wlr/types/wlr_output_layer.h"
 grep -Fq 'struct wlr_drm_syncobj_timeline *signal_timeline;' \
     "$output_layer_header" ||
     die "patched wlroots output layers do not expose release synchronization"
+grep -Fq 'bool must_scan_out;' "$output_layer_header" ||
+    die "patched wlroots output layers cannot require a hardware assignment"
 liftoff_source="$source_dir/backend/drm/libliftoff.c"
-grep -Fq 'connector_update_layers_feedback(conn_state, !test_only);' \
+grep -Fq 'connector_update_layers_acceptance(&state->connectors[i])' \
     "$liftoff_source" ||
-    die "patched wlroots does not report output-layer TEST_ONLY acceptance"
+    die "patched wlroots does not enforce output-layer TEST_ONLY acceptance"
 scene_header="$source_dir/include/wlr/types/wlr_scene.h"
-grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
-    grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 1' "$scene_header" &&
-    grep -Fq 'scene_entry_try_output_layer' "$scene_source" ||
+    grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
+    grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 2' "$scene_header" &&
+    grep -Fq 'scene_entry_try_output_layer' "$scene_source" &&
+    grep -Fq 'wlr_scene_output_layer_candidate_finish' "$scene_source" ||
     die "patched wlroots does not provide scene output-layer promotion"
 scene_surface_source="$source_dir/types/scene/surface.c"
 grep -Fq 'get_surface_effective_preferred_scale' "$scene_surface_source" &&
