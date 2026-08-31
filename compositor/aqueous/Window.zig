@@ -18,6 +18,7 @@ const SlotMap = @import("slotmap").SlotMap;
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const scaling = @import("scaling");
+const OverlayPreference = @import("wm/rules/engine.zig").OverlayPreference;
 
 extern fn wlr_scene_node_set_position_f64(node: *wlr.SceneNode, x: f64, y: f64) void;
 extern fn wlr_surface_set_preferred_scale_override(surface: *wlr.Surface, scale: f64) void;
@@ -171,6 +172,7 @@ const RenderingRequested = struct {
     /// river_window_v1.set_window_opacity.
     opacity: ?u32 = null,
     buffer_scale_policy: scaling.BufferScalePolicy = .native,
+    overlay_plane: OverlayPreference = .off,
 
     pub const init: RenderingRequested = .{
         .x = 0,
@@ -187,6 +189,7 @@ const RenderingRequested = struct {
         .blur_enabled = true,
         .opacity = null,
         .buffer_scale_policy = .native,
+        .overlay_plane = .off,
     };
 };
 
@@ -626,6 +629,7 @@ pub fn policyApplyVisualRule(
     opacity: ?f64,
     hdr_expand: ?bool,
     buffer_scale_policy: scaling.BufferScalePolicy,
+    overlay_plane: OverlayPreference,
     force_ssd: bool,
 ) void {
     window.rendering_requested.blur_enabled = blur orelse true;
@@ -635,7 +639,40 @@ pub fn policyApplyVisualRule(
     } else window.rendering_requested.opacity = null;
     window.hdr_expand_rule = hdr_expand;
     window.rendering_requested.buffer_scale_policy = buffer_scale_policy;
+    window.rendering_requested.overlay_plane = overlay_plane;
     if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
+}
+
+pub fn overlayPreference(window: *const Window) OverlayPreference {
+    return window.rendering_requested.overlay_plane;
+}
+
+/// Return the live scene buffer for the window's root surface. Subsurfaces and
+/// popups intentionally cannot become the one output-layer candidate.
+pub fn overlaySceneBuffer(window: *Window) ?*wlr.SceneBuffer {
+    const Context = struct {
+        root: *wlr.Surface,
+        result: *?*wlr.SceneBuffer,
+    };
+    const root = window.rootSurface() orelse return null;
+    var result: ?*wlr.SceneBuffer = null;
+    var context: Context = .{ .root = root, .result = &result };
+    window.surfaces.tree.node.forEachBuffer(
+        *Context,
+        struct {
+            fn iterator(
+                buffer: *wlr.SceneBuffer,
+                _: c_int,
+                _: c_int,
+                ctx: *Context,
+            ) void {
+                const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+                if (scene_surface.surface == ctx.root) ctx.result.* = buffer;
+            }
+        }.iterator,
+        &context,
+    );
+    return result;
 }
 
 pub fn policySetFullscreen(window: *Window, output: ?*Output) void {

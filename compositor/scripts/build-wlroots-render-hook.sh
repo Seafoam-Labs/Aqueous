@@ -15,6 +15,8 @@ patch_files=(
     "$here/patches/wlroots/0007-scene-precise-position.patch"
     "$here/patches/wlroots/0008-xwayland-native-scaling.patch"
     "$here/patches/wlroots/0009-surface-preferred-scale-override.patch"
+    "$here/patches/wlroots/0010-output-layer-sync-and-test.patch"
+    "$here/patches/wlroots/0011-scene-output-layer-promotion.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -64,6 +66,19 @@ grep -Fq 'scene_damage_outputs(scene, damage, node);' "$scene_source" ||
     die "patched wlroots does not preserve node-update damage provenance"
 grep -Fq 'int wlr_scene_node_render_order(' "$scene_source" ||
     die "patched wlroots does not expose scene render ordering"
+output_layer_header="$source_dir/include/wlr/types/wlr_output_layer.h"
+grep -Fq 'struct wlr_drm_syncobj_timeline *signal_timeline;' \
+    "$output_layer_header" ||
+    die "patched wlroots output layers do not expose release synchronization"
+liftoff_source="$source_dir/backend/drm/libliftoff.c"
+grep -Fq 'connector_update_layers_feedback(conn_state, !test_only);' \
+    "$liftoff_source" ||
+    die "patched wlroots does not report output-layer TEST_ONLY acceptance"
+scene_header="$source_dir/include/wlr/types/wlr_scene.h"
+grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
+    grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 1' "$scene_header" &&
+    grep -Fq 'scene_entry_try_output_layer' "$scene_source" ||
+    die "patched wlroots does not provide scene output-layer promotion"
 scene_surface_source="$source_dir/types/scene/surface.c"
 grep -Fq 'get_surface_effective_preferred_scale' "$scene_surface_source" &&
     grep -Fq 'wlr_surface_get_preferred_scale_override(surface)' \

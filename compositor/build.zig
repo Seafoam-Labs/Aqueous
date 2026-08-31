@@ -205,11 +205,11 @@ pub fn build(b: *Build) !void {
     });
     translate_c.linkSystemLibrary("libevdev", .{});
     translate_c.linkSystemLibrary("libinput", .{});
+    translate_c.linkSystemLibrary(wlroots_pkgconf, .{});
+    translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
     if (vulkan_effects) {
-        translate_c.linkSystemLibrary(wlroots_pkgconf, .{});
         translate_c.linkSystemLibrary("vulkan", .{});
         translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
-        translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
     }
 
     {
@@ -232,9 +232,9 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("libinput", .{});
         river.root_module.linkSystemLibrary("wayland-server", .{});
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        river.root_module.addRPathSpecial("$ORIGIN/../lib/aqueous");
         if (vulkan_effects) {
             river.root_module.linkSystemLibrary("vulkan", .{});
-            river.root_module.addRPathSpecial("$ORIGIN/../lib/aqueous");
         }
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
@@ -257,20 +257,18 @@ pub fn build(b: *Build) !void {
         river.root_module.omit_frame_pointer = omit_frame_pointer;
 
         b.installArtifact(river);
-        if (vulkan_effects) {
-            const library = b.option(
-                []const u8,
-                "wlroots-render-hook-library",
-                "Path to the patched wlroots shared library installed with Aqueous.",
-            ) orelse findWlrootsRenderHook(b) orelse std.process.fatal(
-                "unable to locate libwlroots-0.20.so for the Vulkan effects install",
-                .{},
-            );
-            b.getInstallStep().dependOn(&b.addInstallFile(
-                .{ .cwd_relative = library },
-                "lib/aqueous/libwlroots-0.20.so",
-            ).step);
-        }
+        const library = b.option(
+            []const u8,
+            "wlroots-render-hook-library",
+            "Path to the patched wlroots shared library installed with Aqueous.",
+        ) orelse findWlrootsRenderHook(b) orelse std.process.fatal(
+            "unable to locate the pinned Aqueous libwlroots-0.20.so",
+            .{},
+        );
+        b.getInstallStep().dependOn(&b.addInstallFile(
+            .{ .cwd_relative = library },
+            "lib/aqueous/libwlroots-0.20.so",
+        ).step);
     }
 
     {

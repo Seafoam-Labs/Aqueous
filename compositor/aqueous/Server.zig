@@ -45,6 +45,7 @@ const XwaylandWindow = @import("XwaylandWindow.zig");
 const xwayland_projection = @import("xwayland_projection.zig");
 const Aqueous = @import("wm/Aqueous.zig");
 const PolicyMode = @import("wm/Mode.zig").Mode;
+const ConfigSnapshot = @import("wm/config/loader.zig").Snapshot;
 
 const log = std.log;
 const linux = std.os.linux;
@@ -82,6 +83,9 @@ gpu_reset_recover: ?*wl.EventSource = null,
 /// client pins to the same GPU the compositor renders on, avoiding the
 /// dual-GPU GObject toggle-ref crash. Empty on single-GPU systems.
 gpu_pin: GpuPin = .{},
+
+/// True when Aqueous selected the libliftoff DRM path before backend creation.
+overlay_planes_enabled: bool,
 
 security_context_manager: *wlr.SecurityContextManagerV1,
 
@@ -360,6 +364,8 @@ pub fn init(
     runtime_xwayland: bool,
     policy_mode: PolicyMode,
     xwayland_scaling: xwayland_projection.Mode,
+    overlay_planes_enabled: bool,
+    startup_config: ConfigSnapshot,
 ) !void {
     // We intentionally don't try to prevent memory leaks on error in this function
     // since river will exit during initialization anyway if there is an error.
@@ -408,6 +414,7 @@ pub fn init(
         .effect_metadata = if (comptime build_options.vulkan_effects)
             EffectMetadata.init(util.gpa)
         else {},
+        .overlay_planes_enabled = overlay_planes_enabled,
 
         .security_context_manager = try wlr.SecurityContextManagerV1.create(wl_server),
 
@@ -516,7 +523,7 @@ pub fn init(
     }
 
     try server.wm.init();
-    server.aqueous.init(policy_mode);
+    server.aqueous.init(policy_mode, startup_config);
     try server.workspace_manager.init();
     try server.window_info_manager.init();
     try server.xkb_bindings.init();

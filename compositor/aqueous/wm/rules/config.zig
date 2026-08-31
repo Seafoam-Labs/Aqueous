@@ -196,6 +196,9 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
         rule.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse rule.buffer_scale_policy;
     }
     if (std.mem.eql(u8, key, "hdr_expand")) rule.hdr_expand = parseBool(value) orelse rule.hdr_expand;
+    if (std.mem.eql(u8, key, "overlay_plane")) {
+        rule.overlay_plane = Engine.OverlayPreference.parse(value) orelse rule.overlay_plane;
+    }
 }
 
 fn applyLayerValue(rule: *Engine.LayerRule, key: []const u8, value: []const u8) void {
@@ -302,6 +305,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\opacity = 0.8
         \\buffer_scale_policy = "integer-ceil"
         \\hdr_expand = false
+        \\overlay_plane = "prefer"
         \\[[window]]
         \\title = "Dialog #1"
         \\layout = "float"
@@ -321,6 +325,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(@as(u32, 9), game.placement.workspace);
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
+    try std.testing.expectEqual(Engine.OverlayPreference.prefer, game.overlay_plane);
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);

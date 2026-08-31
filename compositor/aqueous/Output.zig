@@ -12,16 +12,7 @@ const posix = std.posix;
 const fmt = std.fmt;
 const pixman = @import("pixman");
 const wlr = @import("wlroots");
-const c = if (build_options.vulkan_effects) @import("c") else struct {
-    const struct_wlr_box = opaque {};
-    const struct_wlr_render_pass = opaque {};
-    const struct_wlr_scene_buffer = opaque {};
-    const struct_wlr_scene_node = opaque {};
-    const struct_wlr_scene_rect = opaque {};
-    const struct_wlr_render_texture_options = opaque {};
-    const struct_wlr_render_rect_options = opaque {};
-    const struct_wlr_vk_render_texture_attribs = opaque {};
-};
+const c = @import("c");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
 const zwlr = wayland.server.zwlr;
@@ -199,6 +190,15 @@ const RenderingState = struct {
 /// Set to null when the wlr_output is destroyed.
 wlr_output: ?*wlr.Output,
 scene_output: ?*wlr.SceneOutput,
+
+/// One backend output layer and one caller-owned scene promotion state per
+/// output. wlroots destroys the layer as part of wlr_output teardown.
+overlay_layer: ?*c.struct_wlr_output_layer = null,
+overlay_candidate: c.struct_wlr_scene_output_layer_candidate = std.mem.zeroes(c.struct_wlr_scene_output_layer_candidate),
+overlay_committed: bool = false,
+overlay_attempts: u64 = 0,
+overlay_accepted: u64 = 0,
+overlay_rejected: u64 = 0,
 
 object: ?*river.OutputV1 = null,
 layer_shell: LayerShellOutput = .{},
@@ -559,6 +559,14 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .link_sent = undefined,
         .workspaces = undefined,
     };
+    if (server.overlay_planes_enabled and wlr_output.isDrm()) {
+        output.overlay_layer = c.wlr_output_layer_create(@ptrCast(wlr_output));
+        if (output.overlay_layer == null) {
+            log.err("output {s}: failed to allocate DRM overlay layer", .{wlr_output.name});
+        } else {
+            log.info("output {s}: DRM overlay-plane promotion enabled", .{wlr_output.name});
+        }
+    }
     wlr_output.data = output;
     if (comptime build_options.vulkan_effects) {
         c.wlr_scene_output_set_buffer_render_hook(
@@ -2002,6 +2010,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         output.discardRenderMetric();
         return error.CommitFailed;
     }
+    output.commitOverlayState();
     if (comptime build_options.vulkan_effects) {
         output.blur_cache.clearPendingDamage();
     }
@@ -2059,17 +2068,18 @@ pub fn buildSceneState(
 
     const full_blur_damage =
         output.prepareFullBlurDamage(animation_changed_scene);
-    var scene_options: wlr.SceneOutput.StateOptions = .{
-        .swapchain = swapchain,
-    };
+    var scene_options: c.struct_wlr_scene_output_state_options = std.mem.zeroes(c.struct_wlr_scene_output_state_options);
+    scene_options.swapchain = @ptrCast(swapchain);
+    output.prepareOverlayCandidate(&scene_options);
     if (collect_metrics) {
         output.render_metric_sample = .{};
-        scene_options.timer = &output.render_metric_sample.?.timer;
+        scene_options.timer = @ptrCast(&output.render_metric_sample.?.timer);
     }
 
-    if (!output.scene_output.?.buildState(
-        state,
-        if (swapchain != null or collect_metrics) &scene_options else null,
+    if (!c.wlr_scene_output_build_state(
+        @ptrCast(output.scene_output.?),
+        @ptrCast(state),
+        &scene_options,
     )) {
         if (collect_metrics) output.discardRenderMetric();
         return false;
@@ -2077,6 +2087,78 @@ pub fn buildSceneState(
     output.recordVulkanEffectsMetric();
     if (full_blur_damage) output.setFullBlurDamage(state);
     return true;
+}
+
+fn prepareOverlayCandidate(
+    output: *Output,
+    options: *c.struct_wlr_scene_output_state_options,
+) void {
+    const layer = output.overlay_layer orelse return;
+    const window = output.selectOverlayWindow();
+    const buffer = if (window) |candidate| candidate.overlaySceneBuffer() else null;
+
+    output.overlay_candidate = std.mem.zeroes(c.struct_wlr_scene_output_layer_candidate);
+    output.overlay_candidate.layer = layer;
+    output.overlay_candidate.buffer = @ptrCast(buffer);
+    output.overlay_candidate.previously_promoted = output.overlay_committed;
+    options.layer_candidate = &output.overlay_candidate;
+
+    if (buffer != null) output.overlay_attempts +%= 1;
+}
+
+fn selectOverlayWindow(output: *Output) ?*Window {
+    var selected: ?*Window = null;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (window.state != .mapped or window.overlayPreference() != .prefer or
+            window.anim_active) continue;
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output or output.active_workspace != workspace) continue;
+        if (window.overlaySceneBuffer() == null) continue;
+
+        if (selected) |current| {
+            const order = c.wlr_scene_node_render_order(
+                @ptrCast(&window.tree.node),
+                @ptrCast(&current.tree.node),
+            );
+            if (order > 0) selected = window;
+        } else {
+            selected = window;
+        }
+    }
+    return selected;
+}
+
+pub fn commitOverlayState(output: *Output) void {
+    if (output.overlay_layer == null) return;
+    const promoted = output.overlay_candidate.promoted and
+        output.overlay_candidate.state.accepted;
+    if (output.overlay_candidate.promoted and !promoted) {
+        // TEST_ONLY accepted the exact state but the real commit did not keep
+        // the layer. Force a fully composed recovery frame immediately.
+        if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
+        if (output.wlr_output) |wlr_output| {
+            wlr_output.scheduleFrame();
+            log.warn("output {s}: overlay acceptance changed at commit; scheduling composed recovery", .{wlr_output.name});
+        }
+    }
+    if (output.overlay_candidate.buffer != null) {
+        if (promoted) output.overlay_accepted +%= 1 else output.overlay_rejected +%= 1;
+    }
+    if (promoted != output.overlay_committed) {
+        const wlr_output = output.wlr_output orelse return;
+        log.info(
+            "output {s}: DRM overlay-plane promotion {s} (attempts={}, accepted={}, rejected={})",
+            .{
+                wlr_output.name,
+                if (promoted) "active" else "inactive",
+                output.overlay_attempts,
+                output.overlay_accepted,
+                output.overlay_rejected,
+            },
+        );
+    }
+    output.overlay_committed = promoted;
 }
 
 fn syncWindowVisualState(output: *Output) void {

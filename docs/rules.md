@@ -61,7 +61,7 @@ matters.
 | `app_id` | string (glob) | one of `app_id` / `class` / `title` / `content_type` must be set | Match `xdg_toplevel.app_id`. |
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
-| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, and `buffer_scale_policy`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
+| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
 | `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
@@ -74,6 +74,7 @@ matters.
 | `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
 | `buffer_scale_policy` | string | no | Override the global client-buffer policy with `"native"` or `"integer-ceil"`. Integer-ceil advertises the next integer scale before initial root/popup configures while retaining fractional logical geometry; it may improve toolkit text rasterization at the cost of larger buffers and more GPU/memory bandwidth. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
+| `overlay_plane` | string | no (default `"off"`) | `"prefer"` requests promotion of this window's root buffer to the output's single DRM overlay layer. `[render].overlay_planes = true` must be enabled before startup. Promotion falls back to normal composition when TEST_ONLY rejects the complete state, when content overlaps the window, during capture/software-cursor forcing, or when scaling, transforms, effects, opacity, clipping, or buffer format constraints require composition. |
 
 `output` and `workspace` form one initial-placement target. Either can be used
 alone: output-only rules use the destination's active workspace, while

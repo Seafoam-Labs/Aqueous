@@ -1,0 +1,215 @@
+--- a/include/wlr/types/wlr_output_layer.h
++++ b/include/wlr/types/wlr_output_layer.h
+@@ -72,6 +72,14 @@
+ 	// to damage the whole buffer.
+ 	const pixman_region32_t *damage;
+ 
++	// Optional explicit synchronization for this layer's buffer. The wait
++	// point must be reached before scan-out. The signal point is reached once
++	// the backend no longer uses the buffer.
++	struct wlr_drm_syncobj_timeline *wait_timeline;
++	uint64_t wait_point;
++	struct wlr_drm_syncobj_timeline *signal_timeline;
++	uint64_t signal_point;
++
+ 	// Populated by the backend after wlr_output_test_state() and
+ 	// wlr_output_commit_state(), indicates whether the backend has acknowledged
+ 	// and will take care of displaying the layer
+--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -58,10 +58,15 @@
+ 
+ 	/* Buffer to be submitted to the kernel on the next page-flip */
+ 	struct wlr_drm_fb *pending_fb;
++	int pending_in_fence_fd;
+ 	/* Buffer submitted to the kernel, will be presented on next vblank */
+ 	struct wlr_drm_fb *queued_fb;
++	struct wlr_drm_syncobj_timeline *queued_release_timeline;
++	uint64_t queued_release_point;
+ 	/* Buffer currently displayed on screen */
+ 	struct wlr_drm_fb *current_fb;
++	struct wlr_drm_syncobj_timeline *current_release_timeline;
++	uint64_t current_release_point;
+ 
+ 	// One entry per wlr_drm_backend.planes
+ 	bool *candidate_planes;
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -429,8 +429,21 @@
+ 	liftoff_layer_destroy(layer->liftoff);
+ #endif
+ 	drm_fb_clear(&layer->pending_fb);
++	if (layer->pending_in_fence_fd >= 0) {
++		close(layer->pending_in_fence_fd);
++	}
+ 	drm_fb_clear(&layer->queued_fb);
++	if (layer->queued_release_timeline != NULL) {
++		wlr_drm_syncobj_timeline_signal(layer->queued_release_timeline,
++			layer->queued_release_point);
++		wlr_drm_syncobj_timeline_unref(layer->queued_release_timeline);
++	}
+ 	drm_fb_clear(&layer->current_fb);
++	if (layer->current_release_timeline != NULL) {
++		wlr_drm_syncobj_timeline_signal(layer->current_release_timeline,
++			layer->current_release_point);
++		wlr_drm_syncobj_timeline_unref(layer->current_release_timeline);
++	}
+ 	free(layer->candidate_planes);
+ 	free(layer);
+ }
+@@ -465,6 +478,7 @@
+ 	}
+ 
+ 	layer->wlr = wlr_layer;
++	layer->pending_in_fence_fd = -1;
+ 
+ #if HAVE_LIBLIFTOFF
+ 	layer->liftoff = liftoff_layer_create(crtc->liftoff);
+@@ -587,6 +601,29 @@
+ 	struct wlr_drm_layer *layer;
+ 	wl_list_for_each(layer, &crtc->layers, link) {
+ 		drm_fb_move(&layer->queued_fb, &layer->pending_fb);
++		if (layer->pending_in_fence_fd >= 0) {
++			close(layer->pending_in_fence_fd);
++			layer->pending_in_fence_fd = -1;
++		}
++		if (layer->queued_release_timeline != NULL) {
++			wlr_drm_syncobj_timeline_signal(layer->queued_release_timeline,
++				layer->queued_release_point);
++			wlr_drm_syncobj_timeline_unref(layer->queued_release_timeline);
++			layer->queued_release_timeline = NULL;
++		}
++		for (size_t i = 0; i < state->base->layers_len; i++) {
++			const struct wlr_output_layer_state *layer_state =
++				&state->base->layers[i];
++			if (layer_state->layer != layer->wlr ||
++					layer_state->buffer == NULL ||
++					layer_state->signal_timeline == NULL) {
++				continue;
++			}
++			layer->queued_release_timeline =
++				wlr_drm_syncobj_timeline_ref(layer_state->signal_timeline);
++			layer->queued_release_point = layer_state->signal_point;
++			break;
++		}
+ 	}
+ 
+ 	drm_connector_set_pending_page_flip(conn, page_flip);
+@@ -598,6 +635,23 @@
+ 	if (!state->active) {
+ 		drm_plane_finish_surface(crtc->primary);
+ 		drm_plane_finish_surface(crtc->cursor);
++		struct wlr_drm_layer *layer;
++		wl_list_for_each(layer, &crtc->layers, link) {
++			drm_fb_clear(&layer->queued_fb);
++			if (layer->queued_release_timeline != NULL) {
++				wlr_drm_syncobj_timeline_signal(layer->queued_release_timeline,
++					layer->queued_release_point);
++				wlr_drm_syncobj_timeline_unref(layer->queued_release_timeline);
++				layer->queued_release_timeline = NULL;
++			}
++			drm_fb_clear(&layer->current_fb);
++			if (layer->current_release_timeline != NULL) {
++				wlr_drm_syncobj_timeline_signal(layer->current_release_timeline,
++					layer->current_release_point);
++				wlr_drm_syncobj_timeline_unref(layer->current_release_timeline);
++				layer->current_release_timeline = NULL;
++			}
++		}
+ 		drm_fb_clear(&conn->cursor_pending_fb);
+ 
+ 		conn->cursor_enabled = false;
+@@ -628,6 +682,10 @@
+ 	struct wlr_drm_layer *layer;
+ 	wl_list_for_each(layer, &crtc->layers, link) {
+ 		drm_fb_clear(&layer->pending_fb);
++		if (layer->pending_in_fence_fd >= 0) {
++			close(layer->pending_in_fence_fd);
++			layer->pending_in_fence_fd = -1;
++		}
+ 	}
+ }
+ 
+@@ -823,8 +881,22 @@
+ 			return false;
+ 		}
+ 
++		if (layer->pending_in_fence_fd >= 0) {
++			close(layer->pending_in_fence_fd);
++			layer->pending_in_fence_fd = -1;
++		}
++
+ 		if (layer_state->buffer != NULL) {
+ 			drm_fb_import(&layer->pending_fb, drm, layer_state->buffer, NULL);
++			if (layer->pending_fb != NULL && layer_state->wait_timeline != NULL) {
++				layer->pending_in_fence_fd =
++					wlr_drm_syncobj_timeline_export_sync_file(
++						layer_state->wait_timeline, layer_state->wait_point);
++				if (layer->pending_in_fence_fd < 0) {
++					drm_fb_clear(&layer->pending_fb);
++					return false;
++				}
++			}
+ 		} else {
+ 			drm_fb_clear(&layer->pending_fb);
+ 		}
+@@ -2056,6 +2128,15 @@
+ 	struct wlr_drm_layer *layer;
+ 	wl_list_for_each(layer, &conn->crtc->layers, link) {
+ 		drm_fb_move(&layer->current_fb, &layer->queued_fb);
++		if (layer->current_release_timeline != NULL) {
++			wlr_drm_syncobj_timeline_signal(layer->current_release_timeline,
++				layer->current_release_point);
++			wlr_drm_syncobj_timeline_unref(layer->current_release_timeline);
++		}
++		layer->current_release_timeline = layer->queued_release_timeline;
++		layer->current_release_point = layer->queued_release_point;
++		layer->queued_release_timeline = NULL;
++		layer->queued_release_point = 0;
+ 	}
+ 
+ 	/* Don't report ZERO_COPY in multi-gpu situations, because we had to copy
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -242,6 +242,9 @@
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_Y", src_y) == 0 &&
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_W", src_w) == 0 &&
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_H", src_h) == 0 &&
++		(layer->pending_in_fence_fd < 0 ||
++			liftoff_layer_set_property(layer->liftoff, "IN_FENCE_FD",
++				layer->pending_in_fence_fd) == 0) &&
+ 		liftoff_layer_set_property(layer->liftoff, "FB_DAMAGE_CLIPS", fb_damage_clips) == 0;
+ }
+ 
+@@ -390,7 +393,8 @@
+ 	return ok;
+ }
+ 
+-static void connector_update_layers_feedback(const struct wlr_drm_connector_state *state) {
++static void connector_update_layers_feedback(
++		const struct wlr_drm_connector_state *state, bool emit_feedback) {
+ 	struct wlr_drm_backend *drm = state->connector->backend;
+ 
+ 	if (!(state->base->committed & WLR_OUTPUT_STATE_LAYERS)) {
+@@ -402,7 +406,7 @@
+ 		struct wlr_drm_layer *layer = get_drm_layer(drm, layer_state->layer);
+ 		layer_state->accepted =
+ 			!liftoff_layer_needs_composition(layer->liftoff);
+-		if (!layer_state->accepted) {
++		if (!layer_state->accepted && emit_feedback) {
+ 			update_layer_feedback(drm, layer);
+ 		}
+ 	}
+@@ -480,9 +484,11 @@
+ 	drmModeAtomicFree(req);
+ 	for (size_t i = 0; i < state->connectors_len; i++) {
+ 		struct wlr_drm_connector_state *conn_state = &state->connectors[i];
++		if (ok) {
++			connector_update_layers_feedback(conn_state, !test_only);
++		}
+ 		if (ok && !test_only) {
+ 			drm_atomic_connector_apply_commit(conn_state);
+-			connector_update_layers_feedback(conn_state);
+ 		} else {
+ 			drm_atomic_connector_rollback_commit(conn_state);
+ 		}

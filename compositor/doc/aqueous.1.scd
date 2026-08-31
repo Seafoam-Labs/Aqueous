@@ -43,6 +43,15 @@ inside the compositor.
 *-no-xwayland*
 	Disable Xwayland at runtime even if aqueous has been built with support.
 
+*-drm-overlay-planes*
+	Enable the startup-only DRM overlay-plane promotion path, overriding
+	*[render].overlay_planes*. One rule-selected window may be promoted per
+	output after an atomic TEST_ONLY commit succeeds.
+
+*-no-drm-overlay-planes*
+	Disable DRM overlay-plane promotion, overriding the configuration and any
+	inherited *WLR_DRM_FORCE_LIBLIFTOFF* setting.
+
 # KEYBINDINGS
 
 The following keybindings are always active:

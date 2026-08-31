@@ -95,10 +95,10 @@ const ScrollingClick = struct {
     time_msec: u32,
 };
 
-pub fn init(aqueous: *Aqueous, mode: Mode) void {
+pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapshot) void {
     aqueous.* = .{
         .mode = mode,
-        .config = config_loader.load(util.gpa),
+        .config = startup_config,
         .rules = Rules.init(util.gpa),
         .focus_history = FocusHistory.init(util.gpa),
         .pending_focus = PendingFocus.init(util.gpa),
@@ -157,7 +157,12 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
     aqueous.cancelHoverFocus();
-    aqueous.config = config_loader.load(util.gpa);
+    var replacement = config_loader.load(util.gpa);
+    if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
+        log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
+        replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
+    }
+    aqueous.config = replacement;
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     aqueous.applyLayerRules();
@@ -405,6 +410,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (rule) |matched| matched.opacity orelse focus_opacity else focus_opacity,
                 if (rule) |matched| matched.hdr_expand else null,
                 if (rule) |matched| matched.buffer_scale_policy orelse aqueous.config.wm.buffer_scale_policy else aqueous.config.wm.buffer_scale_policy,
+                if (rule) |matched| matched.overlay_plane else .off,
                 aqueous.config.wm.force_ssd,
             );
         }
@@ -2233,7 +2239,7 @@ fn reconcileWindowRule(
 
 fn handleReloadTimer(aqueous: *Aqueous) c_int {
     defer if (aqueous.reload_timer) |timer| timer.timerUpdate(1000) catch log.warn("unable to re-arm configuration monitor", .{});
-    const replacement = config_loader.load(util.gpa);
+    var replacement = config_loader.load(util.gpa);
     const config_changed = replacement.fingerprint != aqueous.config.fingerprint;
     const rules_fingerprint = rules_config.discoveredFingerprint(util.gpa, replacement.wm.rules_path.slice());
     const rules_changed = rules_fingerprint != aqueous.rules.source_fingerprint;
@@ -2243,6 +2249,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
     aqueous.cancelOverview();
     if (config_changed) {
         aqueous.cancelHoverFocus();
+        if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
+            log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
+            replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
+        }
         aqueous.config = replacement;
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     }

@@ -48,6 +48,17 @@ pub const Layout = enum {
     composable,
 };
 
+pub const OverlayPreference = enum {
+    off,
+    prefer,
+
+    pub fn parse(value: []const u8) ?OverlayPreference {
+        if (std.mem.eql(u8, value, "off")) return .off;
+        if (std.mem.eql(u8, value, "prefer")) return .prefer;
+        return null;
+    }
+};
+
 pub const Rule = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
@@ -74,6 +85,8 @@ pub const Rule = struct {
     /// `auto_hdr` enabled. Null follows the default (fullscreen windows and
     /// game content).
     hdr_expand: ?bool = null,
+    /// Request zero-copy promotion when the output/backend accepts it.
+    overlay_plane: OverlayPreference = .off,
 
     /// Stable semantic identity used by per-window lifecycle reconciliation.
     /// It deliberately excludes source addresses and struct padding.
@@ -112,6 +125,7 @@ pub const Rule = struct {
         hashOptionalFloat(&hash, rule.opacity);
         hashOptionalEnum(&hash, rule.buffer_scale_policy);
         hashOptionalBool(&hash, rule.hdr_expand);
+        hash.update(std.mem.asBytes(&rule.overlay_plane));
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
@@ -139,6 +153,7 @@ pub const Rule = struct {
         placement_only.blur = null;
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
+        placement_only.overlay_plane = .off;
         return placement_only.fingerprint();
     }
 
@@ -355,7 +370,7 @@ test "content type rules match committed state and keep only visual effects" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     var source = [_]Rule{
-        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .buffer_scale_policy = .integer_ceil, .hdr_expand = true },
+        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .buffer_scale_policy = .integer_ceil, .hdr_expand = true, .overlay_plane = .prefer },
         .{ .app_id = "player*", .placement = .{ .workspace = 2 } },
     };
     try engine.reload(&source);
@@ -373,6 +388,7 @@ test "content type rules match committed state and keep only visual effects" {
     try std.testing.expectEqual(@as(?bool, false), game.blur);
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
+    try std.testing.expectEqual(OverlayPreference.prefer, game.overlay_plane);
 
     // A different committed type does not match.
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "player-one", .content_type = .video }).?.placement.workspace);

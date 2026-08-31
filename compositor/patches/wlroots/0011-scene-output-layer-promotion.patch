@@ -1,0 +1,310 @@
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -9,6 +9,8 @@
+ #ifndef WLR_TYPES_WLR_SCENE_H
+ #define WLR_TYPES_WLR_SCENE_H
+ 
++#define WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 1
++
+ /**
+  * The scene-graph API provides a declarative way to display surfaces. The
+  * compositor creates a scene, adds surfaces, then renders the scene on
+@@ -25,6 +27,7 @@
+ #include <wlr/render/wlr_renderer.h>
+ #include <wlr/types/wlr_damage_ring.h>
+ #include <wlr/types/wlr_linux_dmabuf_v1.h>
++#include <wlr/types/wlr_output_layer.h>
+ #include <wlr/util/addon.h>
+ #include <wlr/util/box.h>
+ 
+@@ -742,6 +745,31 @@
+ 	 * wlr_output_state or output size if not specified.
+ 	 */
+ 	struct wlr_swapchain *swapchain;
++
++	/**
++	 * Optional single scene-buffer candidate for promotion to an output layer.
++	 * The candidate and its embedded layer state must remain valid until the
++	 * output state is finished. The scene builder always includes the layer in
++	 * the output state, disabled when promotion is unavailable or rejected.
++	 */
++	struct wlr_scene_output_layer_candidate *layer_candidate;
++};
++
++/**
++ * Caller-owned state for one scene output-layer promotion attempt.
++ */
++struct wlr_scene_output_layer_candidate {
++	struct wlr_output_layer *layer;
++	struct wlr_scene_buffer *buffer;
++
++	// Input: whether this layer was promoted by the last successful commit.
++	bool previously_promoted;
++
++	// Output: whether this build accepted and omitted the buffer from composition.
++	bool promoted;
++
++	// Internal output state. Callers must not modify this while a state is live.
++	struct wlr_output_layer_state state;
+ };
+ 
+ /**
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -2400,6 +2400,17 @@
+ 	SCANOUT_SUCCESS,
+ };
+ 
++static struct wlr_buffer *scene_buffer_get_scanout_source(
++		struct wlr_scene_buffer *buffer) {
++	struct wlr_buffer *wlr_buffer = buffer->buffer;
++	struct wlr_client_buffer *client_buffer = wlr_client_buffer_get(wlr_buffer);
++	if (client_buffer != NULL && client_buffer->source != NULL &&
++			client_buffer->source->n_locks > 0) {
++		return client_buffer->source;
++	}
++	return wlr_buffer;
++}
++
+ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
+ 		struct render_list_entry *entry, struct wlr_output_state *state,
+ 		const struct render_data *data) {
+@@ -2488,11 +2499,7 @@
+ 	scene_node_get_size(node, &width, &height);
+ 	transform_output_fbox(&pending.buffer_dst_box, x, y, width, height, data);
+ 
+-	struct wlr_buffer *wlr_buffer = buffer->buffer;
+-	struct wlr_client_buffer *client_buffer = wlr_client_buffer_get(wlr_buffer);
+-	if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
+-		wlr_buffer = client_buffer->source;
+-	}
++	struct wlr_buffer *wlr_buffer = scene_buffer_get_scanout_source(buffer);
+ 
+ 	wlr_output_state_set_buffer(&pending, wlr_buffer);
+ 	if (buffer->wait_timeline != NULL) {
+@@ -2522,6 +2529,129 @@
+ 	return SCANOUT_SUCCESS;
+ }
+ 
++static bool scene_entry_try_output_layer(struct render_list_entry *candidate_entry,
++		struct render_list_entry *list_data, int list_len,
++		struct wlr_scene_output_layer_candidate *candidate,
++		struct wlr_output_state *state, const struct render_data *data) {
++	struct wlr_scene_output *scene_output = data->output;
++	struct wlr_scene_node *node = candidate_entry->node;
++
++	if (node->type != WLR_SCENE_NODE_BUFFER || data->scale != 1.0f ||
++			data->transform != WL_OUTPUT_TRANSFORM_NORMAL ||
++			state->committed & (WLR_OUTPUT_STATE_MODE |
++				WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_RENDER_FORMAT) ||
++			!wlr_output_is_direct_scanout_allowed(scene_output->output) ||
++			scene_output->output->software_cursor_locks > 0) {
++		return false;
++	}
++
++	struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
++	if (buffer != candidate->buffer || buffer->buffer == NULL ||
++			buffer->opacity != 1.0f || buffer->force_blend ||
++			buffer->transform != WL_OUTPUT_TRANSFORM_NORMAL ||
++			!wlr_fbox_empty(&buffer->src_box)) {
++		return false;
++	}
++
++	if (scene_output->buffer_render_hook != NULL &&
++			(scene_output->buffer_needs_composition == NULL ||
++			scene_output->buffer_needs_composition(buffer,
++				scene_output->render_hook_data))) {
++		return false;
++	}
++
++	const struct wlr_output_image_description *img_desc =
++		output_pending_image_description(scene_output->output, state);
++	if (!color_management_is_scanout_allowed(img_desc, buffer)) {
++		return false;
++	}
++
++	bool is_color_repr_none = buffer->color_encoding == WLR_COLOR_ENCODING_NONE &&
++		buffer->color_range == WLR_COLOR_RANGE_NONE;
++	bool is_color_repr_identity_full =
++		buffer->color_encoding == WLR_COLOR_ENCODING_IDENTITY &&
++		buffer->color_range == WLR_COLOR_RANGE_FULL;
++	if (!(is_color_repr_none || is_color_repr_identity_full)) {
++		return false;
++	}
++
++	int width, height;
++	scene_node_get_size(node, &width, &height);
++	if (width != buffer->buffer->width || height != buffer->buffer->height ||
++			candidate_entry->x != floor(candidate_entry->x) ||
++			candidate_entry->y != floor(candidate_entry->y)) {
++		return false;
++	}
++
++	struct wlr_box scene_box = {
++		.x = candidate_entry->x,
++		.y = candidate_entry->y,
++		.width = width,
++		.height = height,
++	};
++	if (!wlr_box_contains_box(&data->logical, &scene_box)) {
++		return false;
++	}
++
++	pixman_region32_t opaque;
++	pixman_region32_init(&opaque);
++	scene_node_opaque_region(node, scene_box.x, scene_box.y, &opaque);
++	pixman_box32_t opaque_box = {
++		.x1 = scene_box.x,
++		.y1 = scene_box.y,
++		.x2 = scene_box.x + scene_box.width,
++		.y2 = scene_box.y + scene_box.height,
++	};
++	bool fully_opaque = pixman_region32_contains_rectangle(&opaque, &opaque_box) ==
++		PIXMAN_REGION_IN;
++	pixman_region32_fini(&opaque);
++	if (!fully_opaque) {
++		return false;
++	}
++
++	int candidate_index = candidate_entry - list_data;
++	for (int i = 0; i < candidate_index; i++) {
++		struct wlr_scene_node *other = list_data[i].node;
++
++		pixman_region32_t overlap;
++		pixman_region32_init_rect(&overlap, scene_box.x, scene_box.y,
++			scene_box.width, scene_box.height);
++		pixman_region32_intersect(&overlap, &overlap, &other->visible);
++		bool intersects = !pixman_region32_empty(&overlap);
++		pixman_region32_fini(&overlap);
++		if (intersects) {
++			return false;
++		}
++	}
++
++	struct wlr_output_layer_state *layer_state = &candidate->state;
++	layer_state->buffer = scene_buffer_get_scanout_source(buffer);
++	transform_output_fbox(&layer_state->dst_box,
++		candidate_entry->x - scene_output->x,
++		candidate_entry->y - scene_output->y, width, height, data);
++	if (buffer->wait_timeline != NULL) {
++		layer_state->wait_timeline = buffer->wait_timeline;
++		layer_state->wait_point = buffer->wait_point;
++	}
++
++	if (!wlr_output_test_state(scene_output->output, state) ||
++			!layer_state->accepted) {
++		layer_state->buffer = NULL;
++		layer_state->wait_timeline = NULL;
++		layer_state->wait_point = 0;
++		layer_state->accepted = false;
++		return false;
++	}
++
++	if (scene_output->out_timeline != NULL) {
++		scene_output->out_point++;
++		layer_state->signal_timeline = scene_output->out_timeline;
++		layer_state->signal_point = scene_output->out_point;
++	}
++
++	return true;
++}
++
+ bool wlr_scene_output_needs_frame(struct wlr_scene_output *scene_output) {
+ 	return scene_output->output->needs_frame ||
+ 		!pixman_region32_empty(&scene_output->pending_commit_damage) ||
+@@ -2658,6 +2788,17 @@
+ 	if (!options) {
+ 		options = &default_options;
+ 	}
++	struct wlr_scene_output_layer_candidate *layer_candidate =
++		options->layer_candidate;
++	if (layer_candidate != NULL) {
++		layer_candidate->promoted = false;
++		layer_candidate->state = (struct wlr_output_layer_state){
++			.layer = layer_candidate->layer,
++		};
++		if (layer_candidate->layer != NULL) {
++			wlr_output_state_set_layers(state, &layer_candidate->state, 1);
++		}
++	}
+ 	struct wlr_scene_timer *timer = options->timer;
+ 	struct timespec start_time;
+ 	if (timer) {
+@@ -2826,6 +2967,9 @@
+ 	}
+ 
+ 	if (scanout) {
++		if (layer_candidate != NULL && layer_candidate->previously_promoted) {
++			scene_output_damage_whole(scene_output);
++		}
+ 		scene_output_state_attempt_gamma(scene_output, state);
+ 
+ 		if (timer) {
+@@ -2852,6 +2996,36 @@
+ 	}
+ 
+ 	assert(buffer->width == resolution_width && buffer->height == resolution_height);
++	wlr_output_state_set_buffer(state, buffer);
++
++	if (layer_candidate != NULL && layer_candidate->layer != NULL &&
++			layer_candidate->buffer != NULL && options->color_transform == NULL &&
++			!render_gamma_lut &&
++			debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
++		struct render_list_entry *candidate_entry = NULL;
++		for (int i = 0; i < list_len; i++) {
++			if (list_data[i].node->type == WLR_SCENE_NODE_BUFFER &&
++					wlr_scene_buffer_from_node(list_data[i].node) ==
++					layer_candidate->buffer) {
++				candidate_entry = &list_data[i];
++				break;
++			}
++		}
++
++		if (candidate_entry != NULL) {
++			layer_candidate->promoted = scene_entry_try_output_layer(
++				candidate_entry, list_data, list_len, layer_candidate,
++				state, &render_data);
++		}
++	}
++
++	if (layer_candidate != NULL &&
++			layer_candidate->previously_promoted != layer_candidate->promoted) {
++		scene_output_damage_whole(scene_output);
++		wlr_output_state_set_damage(state, &scene_output->pending_commit_damage);
++		wlr_log(WLR_DEBUG, "Output layer promotion %s",
++			layer_candidate->promoted ? "enabled" : "disabled");
++	}
+ 
+ 	if (timer) {
+ 		timer->render_timer = wlr_render_timer_create(output->renderer);
+@@ -2961,6 +3135,12 @@
+ 
+ 	for (int i = list_len - 1; i >= 0; i--) {
+ 		struct render_list_entry *entry = &list_data[i];
++		if (layer_candidate != NULL && layer_candidate->promoted &&
++				entry->node->type == WLR_SCENE_NODE_BUFFER &&
++				wlr_scene_buffer_from_node(entry->node) ==
++				layer_candidate->buffer) {
++			continue;
++		}
+ 		scene_entry_render(entry, &render_data);
+ 
+ 		if (entry->node->type == WLR_SCENE_NODE_BUFFER) {
+@@ -3020,6 +3200,17 @@
+ 			scene_output->out_point);
+ 	}
+ 
++	if (layer_candidate != NULL && layer_candidate->promoted) {
++		struct wlr_scene_output_sample_event sample_event = {
++			.output = scene_output,
++			.direct_scanout = true,
++			.release_timeline = layer_candidate->state.signal_timeline,
++			.release_point = layer_candidate->state.signal_point,
++		};
++		wl_signal_emit_mutable(&layer_candidate->buffer->events.output_sample,
++			&sample_event);
++	}
++
+ 	if (!render_gamma_lut) {
+ 		scene_output_state_attempt_gamma(scene_output, state);
+ 	}

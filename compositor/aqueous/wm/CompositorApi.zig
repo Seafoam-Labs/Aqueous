@@ -899,6 +899,7 @@ pub fn applyRuleVisual(
     opacity: ?f64,
     hdr_expand: ?bool,
     buffer_scale_policy: scaling.BufferScalePolicy,
+    overlay_plane: @import("rules/engine.zig").OverlayPreference,
     force_ssd: bool,
 ) void {
     const ref: Window.Ref = @bitCast(handle);
@@ -907,6 +908,7 @@ pub fn applyRuleVisual(
         opacity,
         hdr_expand,
         buffer_scale_policy,
+        overlay_plane,
         force_ssd,
     );
 }

@@ -707,6 +707,10 @@ pub fn commitOutputState(om: *OutputManager) void {
             om.modesetFailed();
             return;
         }
+        for (states.items) |*state| {
+            const output: *Output = @ptrCast(@alignCast(state.output.data));
+            output.commitOverlayState();
+        }
         om.first_modeset = false;
 
         swapchain_manager.apply();

@@ -124,6 +124,11 @@ rollback_seconds = 0
 # pinch_4_in = "builtin:toggle_start_menu"
 #
 
+# DRM overlay-plane promotion is opt-in and startup-only. It is backend-neutral
+# across AMD and NVIDIA KMS drivers; rules select individual windows below.
+[render]
+overlay_planes = false
+
 # -----------------------------------------------------------------------------
 # Per-workspace layout overrides. Each [[workspace]] block forces one workspace
 # to a given layout id. Identify the workspace by its 1-based number:

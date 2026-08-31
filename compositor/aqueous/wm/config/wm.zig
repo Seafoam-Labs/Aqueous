@@ -140,6 +140,9 @@ pub const Snapshot = struct {
     buffer_scale_policy: scaling.BufferScalePolicy = .native,
     workspace_transition_enabled: bool = true,
     workspace_transition_rate: f64 = 0,
+    /// Startup-only DRM overlay-plane optimization. Selecting wlroots'
+    /// libliftoff interface must happen before backend creation.
+    overlay_planes: bool = false,
 
     pub fn resolveOutput(snapshot: *const Snapshot, identity: OutputIdentity) ?layout.LayoutId {
         // Name matches have precedence even if a metadata selector appeared first.
@@ -162,7 +165,7 @@ pub const Snapshot = struct {
     }
 };
 
-const Section = union(enum) { none, layout, rules, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
+const Section = union(enum) { none, layout, rules, render, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
     var section: Section = .none;
@@ -203,6 +206,9 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
             },
             .rules => if (std.mem.eql(u8, key, "path")) {
                 _ = snapshot.rules_path.set(value);
+            },
+            .render => if (std.mem.eql(u8, key, "overlay_planes")) {
+                snapshot.overlay_planes = parseBool(value) orelse snapshot.overlay_planes;
             },
             .struts => applyStrut(&snapshot.struts, key, value),
             .state => {
@@ -249,6 +255,7 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
 fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "layout")) return .layout;
     if (std.mem.eql(u8, name, "rules")) return .rules;
+    if (std.mem.eql(u8, name, "render")) return .render;
     if (std.mem.eql(u8, name, "struts")) return .struts;
     if (std.mem.eql(u8, name, "state")) return .state;
     if (std.mem.eql(u8, name, "blur")) return .blur;
@@ -437,6 +444,24 @@ fn parseSpeed(value: []const u8) ?f64 {
 }
 fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     return std.ascii.eqlIgnoreCase(a, b);
+}
+
+test "render config parses overlay planes and defaults off" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.overlay_planes);
+
+    var layout_snapshot: layout.Snapshot = .{};
+    apply(&snapshot, &layout_snapshot,
+        \\[render]
+        \\overlay_planes = true
+    );
+    try std.testing.expect(snapshot.overlay_planes);
+
+    apply(&snapshot, &layout_snapshot,
+        \\[render]
+        \\overlay_planes = invalid
+    );
+    try std.testing.expect(snapshot.overlay_planes);
 }
 
 test "wm and input config validates mappings, struts, and device settings" {

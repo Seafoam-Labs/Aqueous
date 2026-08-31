@@ -42,7 +42,8 @@ gaps_inner = 8             # integer >= 0
 #   app_id, class, title
 #   content_type    none | photo | video | game; matches the wp_content_type_v1
 #                   state committed by the client. Rules with this matcher only
-#                   apply blur, opacity, hdr_expand, and buffer_scale_policy -
+#                   apply blur, opacity, hdr_expand, buffer_scale_policy, and
+#                   overlay_plane -
 #                   layout and placement edits are ignored because the content
 #                   type commonly arrives long after map and must never move an
 #                   arranged window.
@@ -81,6 +82,9 @@ gaps_inner = 8             # integer >= 0
 #   hdr_expand      true/false; expand SDR highlights toward the HDR peak on
 #                   auto_hdr outputs. Unset follows the default (fullscreen
 #                   windows and game content).
+#   overlay_plane   off | prefer; request zero-copy DRM overlay promotion when
+#                   [render].overlay_planes is enabled. Aqueous tests one
+#                   topmost candidate per output and composes on rejection.
 #
 # Stateful rule properties have lifecycle ownership. A manual workspace/output
 # move, fullscreen toggle, or floating toggle overrides that property until a
@@ -137,6 +141,7 @@ gaps_inner = 8             # integer >= 0
 # blur = false
 # opacity = 1.0
 # hdr_expand = true
+# overlay_plane = "prefer"
 
 # -----------------------------------------------------------------------------
 # Layer-shell blur examples

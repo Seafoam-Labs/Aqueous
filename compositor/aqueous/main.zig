@@ -21,6 +21,7 @@ const process = @import("process.zig");
 const Server = @import("Server.zig");
 const PolicyMode = @import("wm/Mode.zig").Mode;
 const XwaylandScalingMode = @import("xwayland_projection.zig").Mode;
+const config_loader = @import("wm/config/loader.zig");
 
 const io = Io.Threaded.global_single_threaded.io();
 
@@ -35,6 +36,10 @@ const usage: []const u8 =
     \\  -no-xwayland       Disable xwayland even if built with support.
     \\  -xwayland-scaling <mode>
     \\                     Select legacy or native embedded Xwayland scaling.
+    \\  -drm-overlay-planes
+    \\                     Enable rule-controlled DRM overlay-plane promotion.
+    \\  -no-drm-overlay-planes
+    \\                     Disable DRM overlay-plane promotion.
     \\
 ;
 
@@ -45,6 +50,7 @@ const full_version = std.fmt.comptimePrint("aqueous {s} {c}xwayland", .{
 
 pub var server: Server = undefined;
 extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern fn unsetenv(name: [*:0]const u8) c_int;
 
 fn inheritAssignment(name: [*:0]const u8, assignment: [:0]const u8) void {
     const equal = mem.indexOfScalar(u8, assignment, '=') orelse return;
@@ -75,6 +81,8 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .{ .name = "log-scopes", .kind = .arg },
         .{ .name = "no-xwayland", .kind = .boolean },
         .{ .name = "xwayland-scaling", .kind = .arg },
+        .{ .name = "drm-overlay-planes", .kind = .boolean },
+        .{ .name = "no-drm-overlay-planes", .kind = .boolean },
     }).parse(args[1..]) catch {
         try stderr.writeAll(usage);
         try stderr.flush();
@@ -146,6 +154,22 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     if (!build_options.external_policy and policy_mode != .internal) {
         fatal("policy mode '{s}' requires a build with -Dexternal-policy=true", .{@tagName(policy_mode)});
     }
+    if (result.flags.@"drm-overlay-planes" and result.flags.@"no-drm-overlay-planes") {
+        fatal("-drm-overlay-planes and -no-drm-overlay-planes are mutually exclusive", .{});
+    }
+    var startup_config = config_loader.load(util.gpa);
+    const overlay_planes_enabled = if (result.flags.@"drm-overlay-planes")
+        true
+    else if (result.flags.@"no-drm-overlay-planes")
+        false
+    else
+        startup_config.wm.overlay_planes;
+    startup_config.wm.overlay_planes = overlay_planes_enabled;
+    if (overlay_planes_enabled) {
+        if (setenv("WLR_DRM_FORCE_LIBLIFTOFF", "1", 1) != 0) return error.SetEnvironmentFailed;
+    } else if (result.flags.@"no-drm-overlay-planes") {
+        if (unsetenv("WLR_DRM_FORCE_LIBLIFTOFF") != 0) return error.SetEnvironmentFailed;
+    }
     const startup_command = blk: {
         if (result.flags.c) |command| {
             break :blk try util.gpa.dupeZ(u8, command);
@@ -168,7 +192,13 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .warn, .err => .err,
     });
 
-    try server.init(runtime_xwayland, policy_mode, xwayland_scaling);
+    try server.init(
+        runtime_xwayland,
+        policy_mode,
+        xwayland_scaling,
+        overlay_planes_enabled,
+        startup_config,
+    );
     defer server.deinit();
 
     // wlroots starts the Xwayland process from an idle event source, the reasoning being that
