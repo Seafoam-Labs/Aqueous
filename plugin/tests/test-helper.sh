@@ -40,14 +40,20 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  (.fields | length) >= 130 and
-  (.fields[] | select(.id == "layout.default") | .options | index("composable") != null) and
+  .helper_version == "0.3.0" and
+  (.fields | length) >= 145 and
+  (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
+  (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
   (.fields[] | select(.id == "layout.options.scrolling.prefer_vertical_on_portrait") | .value == true and .file == "layout") and
+  (.fields[] | select(.id == "snap_center") | .value == []) and
+  (.fields[] | select(.id == "grow_floating_to_edge_right") | .value == []) and
   (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
   (.fields[] | select(.id == "reload_rules") | .value == ["Super+Shift+R"]) and
   (.fields[] | select(.id == "display.apply_on_reload") | .value == true and .inherited == true and .file == "outputs") and
   (.custom_keybinds | length) == 2 and
   (.custom_keybinds[] | select(.chord == "Super+E") | .command == "spawn:nemo") and
+  (.snap_zones[] | select(.id == "a") | .complete == true and .width > 0.66) and
+  (.window_rules[] | select(.values.title == "Dialog #1 = ready") | .values.layout == "stacking" and .values.stack_layer == "above") and
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
   .desktop_typography.families == ["Alpha Sans", "monospace", "sans-serif", "serif", "Zed Sans"] and
@@ -87,6 +93,7 @@ jq -n \
         {id: "blur.enabled", value: false},
         {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
+        {id: "layout.options.float.placement", value: "center"},
         {id: "layout.options.scrolling.prefer_vertical_on_portrait", value: false},
         {id: "input.touchpad.tap", value: false},
         {id: "spawn_terminal", value: "Super+Return, Super+Enter"}
@@ -107,6 +114,8 @@ rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = true$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = false$' "$config_root/outputs.toml"
 rg -q '^gaps_outer = 18$' "$config_root/layout.toml"
+rg -q '^placement = "center"$' "$config_root/layout.toml"
+test "$(rg -c '^\[layout\.options\.(float|floating|stack|stacking)\]$' "$config_root/layout.toml")" = 1
 rg -q '^prefer_vertical_on_portrait = false$' "$config_root/layout.toml"
 rg -q '^tap = false$' "$config_root/input.toml"
 rg -Fq 'spawn_terminal = ["Super+Return", "Super+Enter"]' "$config_root/wm.toml"
@@ -152,10 +161,12 @@ custom_id=$(jq -r '.custom_keybinds[] | select(.chord == "Super+E") | .id' "$tes
 custom_request="$test_root/custom-request.json"
 jq -n \
     --arg generation "$new_generation" \
+    --arg backups "$test_root/backups" \
     --arg custom_id "$custom_id" \
     '{
       protocol: 1,
       expected_generation: $generation,
+      backup_dir: $backups,
       changes: [
         {id: "set_layout_primary", value: "Super+P"}
       ],
@@ -172,8 +183,62 @@ rg -Fq '"Super+F" = "spawn:thunar"' "$config_root/wm.toml"
 rg -Fq 'set_layout_primary = ["Super+P"]' "$config_root/wm.toml"
 
 new_generation=$(jq -r .generation "$test_root/custom-applied.json")
+custom_delete_id=$(jq -r '.custom_keybinds[] | select(.chord == "XF86AudioMute") | .id' "$test_root/custom-applied.json")
+dialog_rule_id=$(jq -r '.window_rules[] | select(.values.title == "Dialog #1 = ready") | .id' "$test_root/custom-applied.json")
+collections_request="$test_root/collections-request.json"
+jq -n \
+    --arg generation "$new_generation" \
+    --arg backups "$test_root/backups" \
+    --arg custom_delete_id "$custom_delete_id" \
+    --arg dialog_rule_id "$dialog_rule_id" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      backup_dir: $backups,
+      custom_keybind_changes: [
+        {id: $custom_delete_id, op: "delete"},
+        {id: "new:1", op: "add", chord: "Super+Alt+A", command: "builtin:snap_zone:a"}
+      ],
+      snap_zone_changes: [
+        {id: "a", op: "update", x: 0.0, y: 0.0, width: 0.75, height: 1.0},
+        {id: "b", op: "update", x: 0.75, y: 0.0, width: 0.25, height: 1.0}
+      ],
+      window_rule_changes: [
+        {id: $dialog_rule_id, op: "update", values: {placement_policy: "minimal-overlap", fixed_position: true}},
+        {id: "new-rule:1", op: "add", values: {app_id: "org.example.Stack", layout: "stacking", stack_layer: "below", focus: false}}
+      ]
+    }' >"$collections_request"
+run_helper apply --request "$collections_request" >"$test_root/collections-applied.json"
+jq -e '
+  (.custom_keybinds[] | select(.chord == "Super+Alt+A") | .command == "builtin:snap_zone:a") and
+  ([.custom_keybinds[].chord] | index("XF86AudioMute") == null) and
+  (.snap_zones[] | select(.id == "a") | .width == 0.75) and
+  (.snap_zones[] | select(.id == "b") | .complete == true and .width == 0.25) and
+  (.window_rules[] | select(.values.title == "Dialog #1 = ready") | .values.fixed_position == true and .values.placement_policy == "minimal-overlap") and
+  (.window_rules[] | select(.values.app_id == "org.example.Stack") | .values.layout == "stacking" and .values.stack_layer == "below" and .values.focus == false)
+' "$test_root/collections-applied.json" >/dev/null
+rg -Fq '"Super+Alt+A" = "builtin:snap_zone:a"' "$config_root/wm.toml"
+! rg -q '^"XF86AudioMute"' "$config_root/wm.toml"
+rg -q '^width = 0.75$' "$config_root/layout.toml"
+rg -q '^app_id = "org.example.Stack"$' "$config_root/rules.toml"
+
+new_generation=$(jq -r .generation "$test_root/collections-applied.json")
+new_rule_id=$(jq -r '.window_rules[] | select(.values.app_id == "org.example.Stack") | .id' "$test_root/collections-applied.json")
+move_rule_request="$test_root/move-rule-request.json"
+jq -n --arg generation "$new_generation" --arg rule_id "$new_rule_id" '{protocol: 1, expected_generation: $generation, window_rule_changes: [{id: $rule_id, op: "move", direction: -1}]}' >"$move_rule_request"
+run_helper apply --request "$move_rule_request" >"$test_root/rule-moved.json"
+jq -e '([.window_rules[] | select(.values.app_id == "org.example.Stack") | .position][0]) < ([.window_rules[] | select(.values.title == "Dialog #1 = ready") | .position][0])' "$test_root/rule-moved.json" >/dev/null
+
+new_generation=$(jq -r .generation "$test_root/rule-moved.json")
+moved_rule_id=$(jq -r '.window_rules[] | select(.values.app_id == "org.example.Stack") | .id' "$test_root/rule-moved.json")
+delete_collections_request="$test_root/delete-collections-request.json"
+jq -n --arg generation "$new_generation" --arg backups "$test_root/backups" --arg rule_id "$moved_rule_id" '{protocol: 1, expected_generation: $generation, backup_dir: $backups, snap_zone_changes: [{id: "b", op: "delete"}], window_rule_changes: [{id: $rule_id, op: "delete"}]}' >"$delete_collections_request"
+run_helper apply --request "$delete_collections_request" >"$test_root/collections-deleted.json"
+jq -e '(.snap_zones[] | select(.id == "b") | .configured == false) and ([.window_rules[].values.app_id] | index("org.example.Stack") == null)' "$test_root/collections-deleted.json" >/dev/null
+
+new_generation=$(jq -r .generation "$test_root/collections-deleted.json")
 raw_request="$test_root/raw-request.json"
-raw_source=$(jq -r .raw_files.rules "$test_root/custom-applied.json")
+raw_source=$(jq -r .raw_files.rules "$test_root/collections-deleted.json")
 jq -n \
     --arg generation "$new_generation" \
     --arg backups "$test_root/backups" \
@@ -265,5 +330,59 @@ if run_helper validate --request "$invalid_font_request" >"$test_root/invalid-fo
     exit 1
 fi
 jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-font-response.json" >/dev/null
+
+# Alias conflicts are reported and can be explicitly normalized without losing
+# unknown keys. Merely editing a legacy section never creates a duplicate.
+printf '%s\n' '' '[layout.options.float]' 'placement = "under-pointer"' 'future_option = "preserve-me"' >>"$config_root/layout.toml"
+alias_snapshot="$test_root/alias-snapshot.json"
+run_helper snapshot --json >"$alias_snapshot"
+jq -e '
+  .stacking_alias_count == 2 and
+  (.fields[] | select(.id == "layout.options.float.placement") | .value == "under-pointer" and .configured_section == "layout.options.float") and
+  (.warnings | map(select(contains("Multiple stacking option aliases"))) | length == 1)
+' "$alias_snapshot" >/dev/null
+alias_generation=$(jq -r .generation "$alias_snapshot")
+normalize_request="$test_root/normalize-request.json"
+jq -n --arg generation "$alias_generation" '{protocol: 1, expected_generation: $generation, normalize_stacking: true}' >"$normalize_request"
+run_helper apply --request "$normalize_request" >"$test_root/normalized.json"
+jq -e '.stacking_alias_count == 1 and (.fields[] | select(.id == "layout.options.float.placement") | .value == "under-pointer" and .configured_section == "layout.options.stacking")' "$test_root/normalized.json" >/dev/null
+test "$(rg -c '^\[layout\.options\.stacking\]$' "$config_root/layout.toml")" = 1
+! rg -q '^\[layout\.options\.float\]$' "$config_root/layout.toml"
+rg -q '^future_option = "preserve-me"$' "$config_root/layout.toml"
+
+sed -i 's/^\[layout\.options\.stacking\]$/[layout.options.float]/' "$config_root/layout.toml"
+legacy_snapshot="$test_root/legacy-snapshot.json"
+run_helper snapshot --json >"$legacy_snapshot"
+legacy_generation=$(jq -r .generation "$legacy_snapshot")
+jq -e '(.fields[] | select(.id == "layout.options.float.placement") | .configured_section == "layout.options.float")' "$legacy_snapshot" >/dev/null
+legacy_request="$test_root/legacy-request.json"
+jq -n --arg generation "$legacy_generation" '{protocol: 1, expected_generation: $generation, changes: [{id: "layout.options.float.placement", value: "center"}]}' >"$legacy_request"
+run_helper apply --request "$legacy_request" >"$test_root/legacy-applied.json"
+test "$(rg -c '^\[layout\.options\.(float|floating|stack|stacking)\]$' "$config_root/layout.toml")" = 1
+rg -q '^\[layout\.options\.float\]$' "$config_root/layout.toml"
+rg -q '^placement = "center"$' "$config_root/layout.toml"
+
+legacy_generation=$(jq -r .generation "$test_root/legacy-applied.json")
+invalid_collections_request="$test_root/invalid-collections-request.json"
+jq -n --arg generation "$legacy_generation" '{protocol: 1, expected_generation: $generation, custom_keybind_changes: [{id: "new:duplicate", op: "add", chord: "Super+Return", command: "spawn:test"}]}' >"$invalid_collections_request"
+if run_helper validate --request "$invalid_collections_request" >"$test_root/invalid-collections-response.json"; then
+    echo "duplicate built-in chord unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-collections-response.json" >/dev/null
+
+jq -n --arg generation "$legacy_generation" '{protocol: 1, expected_generation: $generation, snap_zone_changes: [{id: "c", op: "update", x: 0, y: 0, width: 2, height: 1}]}' >"$invalid_collections_request"
+if run_helper validate --request "$invalid_collections_request" >"$test_root/invalid-collections-response.json"; then
+    echo "out-of-bounds snap zone unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-collections-response.json" >/dev/null
+
+jq -n --arg generation "$legacy_generation" '{protocol: 1, expected_generation: $generation, window_rule_changes: [{id: "new-rule:invalid", op: "add", values: {layout: "stacking"}}]}' >"$invalid_collections_request"
+if run_helper validate --request "$invalid_collections_request" >"$test_root/invalid-collections-response.json"; then
+    echo "matcher-free rule unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-collections-response.json" >/dev/null
 
 echo "aqueous-config integration tests passed"

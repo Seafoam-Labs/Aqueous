@@ -19,6 +19,11 @@ pub const Document = struct {
         value: []const u8,
     };
 
+    pub const ResolvedRaw = struct {
+        section: []const u8,
+        value: []const u8,
+    };
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !Document {
         return .{
             .allocator = allocator,
@@ -115,6 +120,42 @@ pub const Document = struct {
         return result;
     }
 
+    /// Resolve a key using compositor parse order across a canonical section
+    /// and its accepted aliases. The last assignment wins.
+    pub fn getRawAliases(self: *const Document, section: []const u8, aliases: []const []const u8, key: []const u8) ?ResolvedRaw {
+        var current_section: []const u8 = "";
+        var current_matches = false;
+        var result: ?ResolvedRaw = null;
+        var offset: usize = 0;
+        while (offset < self.source.len) {
+            const end = lineEnd(self.source, offset);
+            const line = cleanLine(self.source[offset..end]);
+            if (parseHeader(line)) |header| {
+                current_section = header.name;
+                current_matches = sectionMatches(header.name, section, aliases);
+            } else if (current_matches) {
+                if (assignment(line)) |item| {
+                    if (std.mem.eql(u8, item.key, key)) result = .{ .section = current_section, .value = item.value };
+                }
+            }
+            offset = nextLine(self.source, end);
+        }
+        return result;
+    }
+
+    pub fn countSections(self: *const Document, section: []const u8, aliases: []const []const u8) usize {
+        var count: usize = 0;
+        var offset: usize = 0;
+        while (offset < self.source.len) {
+            const end = lineEnd(self.source, offset);
+            if (parseHeader(cleanLine(self.source[offset..end]))) |header| {
+                if (!header.repeated and sectionMatches(header.name, section, aliases)) count += 1;
+            }
+            offset = nextLine(self.source, end);
+        }
+        return count;
+    }
+
     pub fn setEntryRaw(self: *Document, wanted: usize, encoded_value: []const u8) !void {
         var entry_index: usize = 0;
         var offset: usize = 0;
@@ -169,6 +210,20 @@ pub const Document = struct {
         return error.EntryNotFound;
     }
 
+    pub fn deleteTableEntry(self: *Document, table_index: usize, key: []const u8) !bool {
+        const all_entries = try self.entries(self.allocator);
+        defer self.allocator.free(all_entries);
+        var wanted: ?usize = null;
+        for (all_entries) |entry| {
+            if (entry.table_index == table_index and std.mem.eql(u8, entry.key, key)) wanted = entry.index;
+        }
+        if (wanted) |entry_index| {
+            try self.deleteEntry(entry_index);
+            return true;
+        }
+        return false;
+    }
+
     pub fn deleteTable(self: *Document, wanted: usize) !void {
         if (wanted == 0) return error.CannotDeleteRootTable;
         var table_index: usize = 0;
@@ -190,6 +245,51 @@ pub const Document = struct {
             return;
         }
         return error.TableNotFound;
+    }
+
+    /// Move one complete table block before or after another table while
+    /// preserving every byte inside both blocks.
+    pub fn moveTable(self: *Document, wanted: usize, target: usize, after: bool) !void {
+        if (wanted == 0 or target == 0 or wanted == target) return error.InvalidTableMove;
+        const wanted_bounds = self.tableBounds(wanted) orelse return error.TableNotFound;
+        const target_bounds = self.tableBounds(target) orelse return error.TableNotFound;
+        const wanted_block = self.source[wanted_bounds[0]..wanted_bounds[1]];
+
+        var updated = std.ArrayList(u8).empty;
+        errdefer updated.deinit(self.allocator);
+        try updated.ensureTotalCapacity(self.allocator, self.source.len);
+        if (wanted_bounds[0] < target_bounds[0]) {
+            if (!after) return error.InvalidTableMove;
+            try updated.appendSlice(self.allocator, self.source[0..wanted_bounds[0]]);
+            try updated.appendSlice(self.allocator, self.source[wanted_bounds[1]..target_bounds[1]]);
+            try updated.appendSlice(self.allocator, wanted_block);
+            try updated.appendSlice(self.allocator, self.source[target_bounds[1]..]);
+        } else {
+            if (after) return error.InvalidTableMove;
+            try updated.appendSlice(self.allocator, self.source[0..target_bounds[0]]);
+            try updated.appendSlice(self.allocator, wanted_block);
+            try updated.appendSlice(self.allocator, self.source[target_bounds[0]..wanted_bounds[0]]);
+            try updated.appendSlice(self.allocator, self.source[wanted_bounds[1]..]);
+        }
+        const owned = try updated.toOwnedSlice(self.allocator);
+        self.allocator.free(self.source);
+        self.source = owned;
+    }
+
+    fn tableBounds(self: *const Document, wanted: usize) ?[2]usize {
+        var table_index: usize = 0;
+        var start: ?usize = null;
+        var offset: usize = 0;
+        while (offset < self.source.len) {
+            const end = lineEnd(self.source, offset);
+            if (parseHeader(cleanLine(self.source[offset..end])) != null) {
+                table_index += 1;
+                if (table_index == wanted) start = offset else if (start != null) return .{ start.?, offset };
+            }
+            offset = nextLine(self.source, end);
+        }
+        if (start) |table_start| return .{ table_start, self.source.len };
+        return null;
     }
 
     pub fn addToTable(
@@ -259,6 +359,28 @@ pub const Document = struct {
         const header = try std.fmt.allocPrint(self.allocator, "[{s}]", .{section});
         defer self.allocator.free(header);
         try self.appendTable(header, key, encoded_value);
+    }
+
+    /// Update the section that currently supplies this key. If the key is not
+    /// configured, use the last existing alias section; create the canonical
+    /// section only when no equivalent section exists.
+    pub fn setRawAliases(
+        self: *Document,
+        section: []const u8,
+        aliases: []const []const u8,
+        key: []const u8,
+        encoded_value: []const u8,
+    ) !void {
+        if (self.getRawAliases(section, aliases, key)) |resolved| {
+            return self.setRaw(resolved.section, key, encoded_value);
+        }
+        const all_tables = try self.tables(self.allocator);
+        defer self.allocator.free(all_tables);
+        var target: ?[]const u8 = null;
+        for (all_tables) |table| {
+            if (!table.repeated and sectionMatches(table.name, section, aliases)) target = table.name;
+        }
+        return self.setRaw(target orelse section, key, encoded_value);
     }
 
     pub fn appendTable(
@@ -409,6 +531,12 @@ fn parseHeader(line: []const u8) ?Header {
         return if (name.len == 0) null else .{ .name = name, .repeated = false };
     }
     return null;
+}
+
+fn sectionMatches(value: []const u8, canonical: []const u8, aliases: []const []const u8) bool {
+    if (std.mem.eql(u8, value, canonical)) return true;
+    for (aliases) |alias| if (std.mem.eql(u8, value, alias)) return true;
+    return false;
 }
 
 fn assignment(line: []const u8) ?Assignment {
@@ -645,4 +773,41 @@ test "document deletes one entry and one repeated table" {
     try std.testing.expect(std.mem.indexOf(u8, document.source, "b = 2") == null);
     try std.testing.expect(std.mem.indexOf(u8, document.source, "first") == null);
     try std.testing.expect(std.mem.indexOf(u8, document.source, "second") != null);
+}
+
+test "document resolves and updates aliased sections in parse order" {
+    var document = try Document.init(std.testing.allocator,
+        \\[layout.options.float]
+        \\placement = "cascade"
+        \\[layout.options.stacking]
+        \\placement = "center"
+    );
+    defer document.deinit();
+
+    const aliases = &.{ "layout.options.float", "layout.options.floating", "layout.options.stack" };
+    const resolved = document.getRawAliases("layout.options.stacking", aliases, "placement").?;
+    try std.testing.expectEqualStrings("layout.options.stacking", resolved.section);
+    try std.testing.expectEqualStrings("\"center\"", resolved.value);
+    try std.testing.expectEqual(@as(usize, 2), document.countSections("layout.options.stacking", aliases));
+
+    try document.setRawAliases("layout.options.stacking", aliases, "placement", "\"minimal-overlap\"");
+    try std.testing.expectEqualStrings("\"minimal-overlap\"", document.getRaw("layout.options.stacking", "placement").?);
+    try std.testing.expectEqualStrings("\"cascade\"", document.getRaw("layout.options.float", "placement").?);
+}
+
+test "document moves complete repeated table blocks" {
+    var document = try Document.init(std.testing.allocator,
+        \\# keep
+        \\[[window]]
+        \\app_id = "one"
+        \\# second
+        \\[[window]]
+        \\app_id = "two"
+    );
+    defer document.deinit();
+    try document.moveTable(2, 1, false);
+    const two = std.mem.indexOf(u8, document.source, "app_id = \"two\"").?;
+    const one = std.mem.indexOf(u8, document.source, "app_id = \"one\"").?;
+    try std.testing.expect(two < one);
+    try std.testing.expect(std.mem.indexOf(u8, document.source, "# second") != null);
 }

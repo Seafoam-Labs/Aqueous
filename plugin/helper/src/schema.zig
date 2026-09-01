@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.2.0";
+pub const helper_version = "0.3.0";
 
 pub const FileId = enum(u8) {
     wm,
@@ -72,11 +72,13 @@ pub const Field = struct {
     min: ?f64 = null,
     max: ?f64 = null,
     options: []const []const u8 = &.{},
+    section_aliases: []const []const u8 = &.{},
     advanced: bool = false,
 };
 
-const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "stacking", "game-mode", "composable" };
-const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "stacking" };
+const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" };
+const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking" };
+const stacking_sections = &.{ "layout.options.float", "layout.options.floating", "layout.options.stack" };
 const accel_profiles = &.{ "flat", "adaptive" };
 const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
@@ -133,15 +135,15 @@ pub const fields = [_]Field{
     s("layout.options.reverse-dwindle.start_axis", .layouts, "Reverse dwindle start axis", "Direction of the first mirrored recursive split.", .layout, "layout.options.reverse-dwindle", "start_axis", "vertical", &.{ "vertical", "horizontal" }),
     b("layout.options.monocle.hide_others", .layouts, "Hide monocle stack", "Hide non-focused windows in monocle.", .layout, "layout.options.monocle", "hide_others", true),
     b("layout.options.monocle.show_borders", .layouts, "Monocle border", "Draw the configured border in monocle.", .layout, "layout.options.monocle", "show_borders", false),
-    s("layout.options.float.placement", .layouts, "Stacking placement", "Policy used for newly opened freeform windows.", .layout, "layout.options.float", "placement", "cascade", &.{ "cascade", "center", "under-pointer", "minimal-overlap" }),
-    f("layout.options.float.cascade_step", .layouts, "Cascade step", "Pixel offset between cascaded arrivals.", .layout, "layout.options.float", "cascade_step", .integer, "32", 0, 512),
-    f("layout.options.float.move_step", .layouts, "Keyboard move step", "Pixels per fine keyboard movement.", .layout, "layout.options.float", "move_step", .integer, "10", 1, 512),
-    f("layout.options.float.move_step_coarse", .layouts, "Coarse move step", "Pixels per coarse keyboard movement.", .layout, "layout.options.float", "move_step_coarse", .integer, "50", 1, 2048),
-    f("layout.options.float.resize_step", .layouts, "Keyboard resize step", "Pixels per edge-anchored keyboard resize.", .layout, "layout.options.float", "resize_step", .integer, "10", 1, 512),
-    f("layout.options.float.snap_gap", .layouts, "Snap gap", "Inset around committed snap regions.", .layout, "layout.options.float", "snap_gap", .integer, "0", 0, 512),
-    f("layout.options.float.snap_threshold", .layouts, "Snap threshold", "Pointer distance from an output edge which activates snapping.", .layout, "layout.options.float", "snap_threshold", .integer, "24", 0, 512),
-    f("layout.options.float.resistance", .layouts, "Edge resistance", "Window/output edge attraction distance.", .layout, "layout.options.float", "resistance", .integer, "12", 0, 512),
-    b("layout.options.float.top_edge_maximize", .layouts, "Top edge maximizes", "Use the full usable area when a window reaches the top edge.", .layout, "layout.options.float", "top_edge_maximize", true),
+    stackS("layout.options.float.placement", "Stacking placement", "Policy used for newly opened freeform windows.", "placement", "cascade", &.{ "cascade", "center", "under-pointer", "minimal-overlap" }),
+    stackF("layout.options.float.cascade_step", "Cascade step", "Pixel offset between cascaded arrivals.", "cascade_step", .integer, "32", 0, 512),
+    stackF("layout.options.float.move_step", "Keyboard move step", "Pixels per fine keyboard movement.", "move_step", .integer, "10", 1, 512),
+    stackF("layout.options.float.move_step_coarse", "Coarse move step", "Pixels per coarse keyboard movement.", "move_step_coarse", .integer, "50", 1, 2048),
+    stackF("layout.options.float.resize_step", "Keyboard resize step", "Pixels per edge-anchored keyboard resize.", "resize_step", .integer, "10", 1, 512),
+    stackF("layout.options.float.snap_gap", "Snap gap", "Inset around committed snap regions.", "snap_gap", .integer, "0", 0, 512),
+    stackF("layout.options.float.snap_threshold", "Snap threshold", "Pointer distance from an output edge which activates snapping.", "snap_threshold", .integer, "24", 0, 512),
+    stackF("layout.options.float.resistance", "Edge resistance", "Window/output edge attraction distance.", "resistance", .integer, "12", 0, 512),
+    stackB("layout.options.float.top_edge_maximize", "Top edge maximizes", "Use the full usable area when a window reaches the top edge.", "top_edge_maximize", true),
 
     b("input.focus_follows_mouse", .input, "Focus follows pointer", "Focus a window when the pointer enters it.", .input, "input", "focus_follows_mouse", false),
     b("input.focus_new_windows", .input, "Focus new windows", "Give keyboard focus to a newly opened focusable window.", .input, "input", "focus_new_windows", false),
@@ -256,14 +258,30 @@ pub const fields = [_]Field{
     k("resize_floating_right", ""),
     k("resize_floating_up", ""),
     k("resize_floating_down", ""),
+    k("shrink_floating_left", ""),
+    k("shrink_floating_right", ""),
+    k("shrink_floating_up", ""),
+    k("shrink_floating_down", ""),
     k("snap_left", ""),
     k("snap_right", ""),
+    k("snap_up", ""),
+    k("snap_down", ""),
+    k("snap_center", ""),
     k("snap_up_left", ""),
     k("snap_up_right", ""),
     k("snap_down_left", ""),
     k("snap_down_right", ""),
     k("unsnap", ""),
+    k("cycle_snap_zone", ""),
     k("fit_floating_to_output", ""),
+    k("move_floating_to_edge_left", ""),
+    k("move_floating_to_edge_right", ""),
+    k("move_floating_to_edge_up", ""),
+    k("move_floating_to_edge_down", ""),
+    k("grow_floating_to_edge_left", ""),
+    k("grow_floating_to_edge_right", ""),
+    k("grow_floating_to_edge_up", ""),
+    k("grow_floating_to_edge_down", ""),
     k("toggle_maximize_horizontal", ""),
     k("toggle_maximize_vertical", ""),
     k("toggle_minimize", "Super+N"),
@@ -316,6 +334,28 @@ fn c(id: []const u8, category: Category, label: []const u8, description: []const
     var result = t(id, category, label, description, file, section, key, default);
     result.kind = .color;
     return result;
+}
+
+fn stackF(id: []const u8, label: []const u8, description: []const u8, key: []const u8, kind: Kind, default_raw: []const u8, min: ?f64, max: ?f64) Field {
+    var result = f(id, .layouts, label, description, .layout, "layout.options.stacking", key, kind, default_raw, min, max);
+    result.section_aliases = stacking_sections;
+    return result;
+}
+
+fn stackB(id: []const u8, label: []const u8, description: []const u8, key: []const u8, default: bool) Field {
+    return stackF(id, label, description, key, .boolean, if (default) "true" else "false", null, null);
+}
+
+fn stackS(id: []const u8, label: []const u8, description: []const u8, key: []const u8, default: []const u8, options: []const []const u8) Field {
+    var result = stackF(id, label, description, key, .string, default, null, null);
+    result.kind = .select;
+    result.options = options;
+    return result;
+}
+
+pub fn normalizeLayout(value: []const u8) []const u8 {
+    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating") or std.mem.eql(u8, value, "stack")) return "stacking";
+    return value;
 }
 
 pub fn find(id: []const u8) ?*const Field {

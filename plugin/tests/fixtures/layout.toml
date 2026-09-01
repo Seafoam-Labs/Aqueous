@@ -14,3 +14,19 @@ column_fraction = 0.5
 center_focused = true
 prefer_vertical_on_portrait = true
 
+[layout.options.stacking]
+placement = "minimal-overlap"
+cascade_step = 36
+move_step = 12
+move_step_coarse = 60
+resize_step = 14
+snap_gap = 6
+snap_threshold = 22
+resistance = 9
+top_edge_maximize = false
+
+[layout.snap-zone.a]
+x = 0.0
+y = 0.0
+width = 0.6666667
+height = 1.0

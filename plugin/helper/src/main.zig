@@ -94,6 +94,12 @@ fn writeSnapshot(
     try field(&json, "protocol", schema.protocol_version);
     try field(&json, "helper_version", schema.helper_version);
     try field(&json, "generation", generation);
+    const stacking_schema = schema.find("layout.options.float.placement").?;
+    try field(
+        &json,
+        "stacking_alias_count",
+        files.items[@intFromEnum(schema.FileId.layout)].document.countSections(stacking_schema.section, stacking_schema.section_aliases),
+    );
 
     try json.objectField("files");
     try json.beginObject();
@@ -129,6 +135,12 @@ fn writeSnapshot(
     try json.objectField("custom_keybinds");
     try writeCustomKeybinds(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
 
+    try json.objectField("snap_zones");
+    try writeSnapZones(&json, &files.items[@intFromEnum(schema.FileId.layout)].document);
+
+    try json.objectField("window_rules");
+    try writeWindowRules(&json, &files.items[@intFromEnum(schema.FileId.rules)].document);
+
     try json.objectField("raw_files");
     try json.beginObject();
     for (files.items, 0..) |file_item, index| {
@@ -141,6 +153,11 @@ fn writeSnapshot(
     try json.beginArray();
     if (hasLegacyDisplayPolicy(&files.items[@intFromEnum(schema.FileId.wm)].document)) {
         try json.write("Display policy inherited from wm.toml remains active until the corresponding setting is written to outputs.toml.");
+    }
+    const layout_document = &files.items[@intFromEnum(schema.FileId.layout)].document;
+    const stacking_field = schema.find("layout.options.float.placement").?;
+    if (layout_document.countSections(stacking_field.section, stacking_field.section_aliases) > 1) {
+        try json.write("Multiple stacking option aliases are configured; the last assignment for each key is effective and typed edits update that section.");
     }
     try json.endArray();
 
@@ -207,10 +224,12 @@ fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: s
 
 fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles, schema_field: *const schema.Field) !void {
     const file_item = files.items[@intFromEnum(schema_field.file)];
-    var configured_raw = file_item.document.getRaw(schema_field.section, schema_field.key);
+    var resolved = resolveFieldRaw(&file_item.document, schema_field);
+    var configured_raw = if (resolved) |item| item.value else null;
     var inherited = false;
     if (configured_raw == null and schema_field.file == .outputs) {
-        configured_raw = files.items[@intFromEnum(schema.FileId.wm)].document.getRaw(schema_field.section, schema_field.key);
+        resolved = resolveFieldRaw(&files.items[@intFromEnum(schema.FileId.wm)].document, schema_field);
+        configured_raw = if (resolved) |item| item.value else null;
         inherited = configured_raw != null;
     }
     const raw = configured_raw orelse schema_field.default_raw;
@@ -221,6 +240,7 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
     try field(json, "description", schema_field.description);
     try field(json, "file", schema_field.file.name());
     try field(json, "section", schema_field.section);
+    if (resolved) |item| try field(json, "configured_section", item.section);
     try field(json, "key", schema_field.key);
     try field(json, "type", schema_field.kind.name());
     try field(json, "configured", configured_raw != null);
@@ -248,7 +268,8 @@ fn writeTomlValue(json: *std.json.Stringify, schema_field: *const schema.Field, 
         .boolean => try json.write(std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "true")),
         .integer => try json.write(std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch 0),
         .double => try json.write(std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 0),
-        .string, .select => try json.write(unquoteToml(raw)),
+        .string => try json.write(unquoteToml(raw)),
+        .select => try json.write(schema.normalizeLayout(unquoteToml(raw))),
         .string_list => try writeStringList(json, raw),
         .color => try json.write(std.mem.trim(u8, raw, " \t\r")),
     }
@@ -309,6 +330,18 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
         }
     }
 
+    if (request.get("normalize_stacking")) |normalize| {
+        if (jsonBool(normalize) != true) return error.InvalidNormalizeRequest;
+        if (request.get("raw_files")) |raw_files| {
+            if (raw_files == .object and raw_files.object.get("layout") != null) return error.ConflictingEdits;
+        }
+        try normalizeStackingSections(
+            allocator,
+            &files.items[@intFromEnum(schema.FileId.layout)].document,
+        );
+        dirty[@intFromEnum(schema.FileId.layout)] = true;
+    }
+
     // Custom binding IDs are document entry indices. Apply them before ordinary
     // keybind edits, which may insert a new key into [keybinds] and shift every
     // later [keybinds.custom] entry.
@@ -333,6 +366,42 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
         }
     }
 
+    if (request.get("snap_zone_changes")) |zone_changes| {
+        if (zone_changes == .object and zone_changes.object.count() == 0) {
+            // Nothing to apply.
+        } else if (zone_changes != .array) {
+            return error.InvalidSnapZoneChanges;
+        } else if (zone_changes.array.items.len > 0) {
+            if (request.get("raw_files")) |raw_files| {
+                if (raw_files == .object and raw_files.object.get("layout") != null) return error.ConflictingEdits;
+            }
+            try applySnapZoneChanges(
+                allocator,
+                &files.items[@intFromEnum(schema.FileId.layout)].document,
+                zone_changes.array.items,
+            );
+            dirty[@intFromEnum(schema.FileId.layout)] = true;
+        }
+    }
+
+    if (request.get("window_rule_changes")) |rule_changes| {
+        if (rule_changes == .object and rule_changes.object.count() == 0) {
+            // Nothing to apply.
+        } else if (rule_changes != .array) {
+            return error.InvalidWindowRuleChanges;
+        } else if (rule_changes.array.items.len > 0) {
+            if (request.get("raw_files")) |raw_files| {
+                if (raw_files == .object and raw_files.object.get("rules") != null) return error.ConflictingEdits;
+            }
+            try applyWindowRuleChanges(
+                allocator,
+                &files.items[@intFromEnum(schema.FileId.rules)].document,
+                rule_changes.array.items,
+            );
+            dirty[@intFromEnum(schema.FileId.rules)] = true;
+        }
+    }
+
     if (request.get("changes")) |changes| {
         if (changes == .object and changes.object.count() == 0) {
             // Nothing to apply.
@@ -345,7 +414,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
                 const schema_field = schema.find(id) orelse return error.UnknownField;
                 const value = change.object.get("value") orelse return error.MissingValue;
                 const encoded = try encodeTomlValue(allocator, schema_field, value);
-                try files.items[@intFromEnum(schema_field.file)].document.setRaw(schema_field.section, schema_field.key, encoded);
+                try setFieldRaw(&files.items[@intFromEnum(schema_field.file)].document, schema_field, encoded);
                 dirty[@intFromEnum(schema_field.file)] = true;
             }
         }
@@ -382,6 +451,8 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
         try validateBasicToml(files.items[index].document.source);
     }
     try validateKnownFields(&files);
+    try validateConfiguredSnapZones(&files.items[@intFromEnum(schema.FileId.layout)].document);
+    try validateWindowRules(&files.items[@intFromEnum(schema.FileId.rules)].document);
     const typography = desktopTypography(&files);
     try toolkit_sync.validateFamily(typography.family);
     if (dirty[@intFromEnum(schema.FileId.appearance)]) {
@@ -530,13 +601,463 @@ fn writeCustomKeybinds(json: *std.json.Stringify, document: *const config.Docume
     try json.endArray();
 }
 
+fn writeSnapZones(json: *std.json.Stringify, document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    try json.beginArray();
+    for (0..4) |index| {
+        const name = [_]u8{@as(u8, 'a') + @as(u8, @intCast(index))};
+        var canonical_buffer: [32]u8 = undefined;
+        var legacy_buffer: [32]u8 = undefined;
+        const canonical = try std.fmt.bufPrint(&canonical_buffer, "layout.snap-zone.{s}", .{&name});
+        const legacy = try std.fmt.bufPrint(&legacy_buffer, "layout.snap_zone.{s}", .{&name});
+        var table_index: ?usize = null;
+        for (tables) |table| {
+            if (!table.repeated and (std.mem.eql(u8, table.name, canonical) or std.mem.eql(u8, table.name, legacy))) table_index = table.index;
+        }
+        const x = if (table_index) |table| parseFinite(tableEntryRaw(entries, table, "x")) else null;
+        const y = if (table_index) |table| parseFinite(tableEntryRaw(entries, table, "y")) else null;
+        const width = if (table_index) |table| parseFinite(tableEntryRaw(entries, table, "width")) else null;
+        const height = if (table_index) |table| parseFinite(tableEntryRaw(entries, table, "height")) else null;
+        const complete = validSnapZone(x, y, width, height);
+        try json.beginObject();
+        try field(json, "id", &name);
+        try field(json, "configured", table_index != null);
+        try field(json, "complete", complete);
+        try field(json, "x", x orelse 0);
+        try field(json, "y", y orelse 0);
+        try field(json, "width", width orelse 0);
+        try field(json, "height", height orelse 0);
+        try json.endObject();
+    }
+    try json.endArray();
+}
+
+fn applySnapZoneChanges(allocator: Allocator, document: *config.Document, requested: []const Json) !void {
+    for (requested) |raw_change| {
+        if (raw_change != .object) return error.InvalidSnapZoneChange;
+        const id = jsonString(raw_change.object.get("id")) orelse return error.InvalidSnapZoneId;
+        if (id.len != 1 or id[0] < 'a' or id[0] > 'd') return error.InvalidSnapZoneId;
+        const operation = jsonString(raw_change.object.get("op")) orelse "update";
+        var canonical_buffer: [32]u8 = undefined;
+        var legacy_buffer: [32]u8 = undefined;
+        const canonical = try std.fmt.bufPrint(&canonical_buffer, "layout.snap-zone.{s}", .{id});
+        const legacy = try std.fmt.bufPrint(&legacy_buffer, "layout.snap_zone.{s}", .{id});
+        const aliases = &.{legacy};
+        if (std.mem.eql(u8, operation, "delete")) {
+            try deleteNamedSections(document, canonical, aliases);
+            continue;
+        }
+        if (!std.mem.eql(u8, operation, "update")) return error.InvalidSnapZoneOperation;
+        const x = jsonNumber(raw_change.object.get("x") orelse return error.InvalidSnapZoneValue) orelse return error.InvalidSnapZoneValue;
+        const y = jsonNumber(raw_change.object.get("y") orelse return error.InvalidSnapZoneValue) orelse return error.InvalidSnapZoneValue;
+        const width = jsonNumber(raw_change.object.get("width") orelse return error.InvalidSnapZoneValue) orelse return error.InvalidSnapZoneValue;
+        const height = jsonNumber(raw_change.object.get("height") orelse return error.InvalidSnapZoneValue) orelse return error.InvalidSnapZoneValue;
+        if (!validSnapZone(x, y, width, height)) return error.InvalidSnapZoneValue;
+        inline for (.{ .{ "x", x }, .{ "y", y }, .{ "width", width }, .{ "height", height } }) |item| {
+            const encoded = try std.fmt.allocPrint(allocator, "{d}", .{item[1]});
+            try document.setRawAliases(canonical, aliases, item[0], encoded);
+        }
+    }
+}
+
+fn parseFinite(raw: ?[]const u8) ?f64 {
+    const value = std.fmt.parseFloat(f64, std.mem.trim(u8, raw orelse return null, " \t\r")) catch return null;
+    return if (std.math.isFinite(value)) value else null;
+}
+
+fn validSnapZone(x: ?f64, y: ?f64, width: ?f64, height: ?f64) bool {
+    const actual_x = x orelse return false;
+    const actual_y = y orelse return false;
+    const actual_width = width orelse return false;
+    const actual_height = height orelse return false;
+    return actual_x >= 0 and actual_y >= 0 and actual_width > 0 and actual_height > 0 and
+        actual_x + actual_width <= 1 and actual_y + actual_height <= 1;
+}
+
+fn validateConfiguredSnapZones(document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    for (tables) |table| {
+        if (table.repeated or
+            (!std.mem.startsWith(u8, table.name, "layout.snap-zone.") and !std.mem.startsWith(u8, table.name, "layout.snap_zone."))) continue;
+        if (!validSnapZone(
+            parseFinite(tableEntryRaw(entries, table.index, "x")),
+            parseFinite(tableEntryRaw(entries, table.index, "y")),
+            parseFinite(tableEntryRaw(entries, table.index, "width")),
+            parseFinite(tableEntryRaw(entries, table.index, "height")),
+        )) return error.InvalidSnapZoneValue;
+    }
+}
+
+fn deleteNamedSections(document: *config.Document, canonical: []const u8, aliases: []const []const u8) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    var indices = std.ArrayList(usize).empty;
+    defer indices.deinit(document.allocator);
+    for (tables) |table| {
+        if (table.index == 0 or table.repeated) continue;
+        var matches = std.mem.eql(u8, table.name, canonical);
+        for (aliases) |alias| if (std.mem.eql(u8, table.name, alias)) {
+            matches = true;
+            break;
+        };
+        if (matches) try indices.append(document.allocator, table.index);
+    }
+    var index = indices.items.len;
+    while (index > 0) {
+        index -= 1;
+        try document.deleteTable(indices.items[index]);
+    }
+}
+
+fn normalizeStackingSections(allocator: Allocator, document: *config.Document) !void {
+    const stacking_field = schema.find("layout.options.float.placement").?;
+    const tables = try document.tables(allocator);
+    defer allocator.free(tables);
+    const entries = try document.entries(allocator);
+    defer allocator.free(entries);
+    const Item = struct { key: []const u8, value: []const u8 };
+    var effective = std.ArrayList(Item).empty;
+    defer effective.deinit(allocator);
+    for (tables) |table| {
+        if (table.repeated) continue;
+        var matches = std.mem.eql(u8, table.name, stacking_field.section);
+        for (stacking_field.section_aliases) |alias| if (std.mem.eql(u8, table.name, alias)) {
+            matches = true;
+            break;
+        };
+        if (!matches) continue;
+        for (entries) |entry| {
+            if (entry.table_index != table.index) continue;
+            var found = false;
+            for (effective.items) |*item| if (std.mem.eql(u8, item.key, entry.key)) {
+                item.value = try allocator.dupe(u8, entry.value);
+                found = true;
+                break;
+            };
+            if (!found) try effective.append(allocator, .{
+                .key = try allocator.dupe(u8, entry.key),
+                .value = try allocator.dupe(u8, entry.value),
+            });
+        }
+    }
+    if (effective.items.len == 0) return;
+    try deleteNamedSections(document, stacking_field.section, stacking_field.section_aliases);
+    const first = effective.items[0];
+    const header = try std.fmt.allocPrint(allocator, "[{s}]", .{stacking_field.section});
+    try document.appendTable(header, first.key, first.value);
+    for (effective.items[1..]) |item| try document.setRaw(stacking_field.section, item.key, item.value);
+}
+
+const rule_keys: []const []const u8 = &.{
+    "app_id",           "class",         "title",         "content_type", "layout",         "output",        "workspace",
+    "floating",         "fullscreen",    "ignore_struts", "width",        "height",         "x",             "y",
+    "placement_policy", "anchor",        "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
+    "hdr_expand",       "overlay_plane", "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
+};
+
+fn writeWindowRules(json: *std.json.Stringify, document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    try json.beginArray();
+    var position: usize = 0;
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "window")) continue;
+        var id_buffer: [40]u8 = undefined;
+        const id = try std.fmt.bufPrint(&id_buffer, "rule:{d}", .{table.index});
+        try json.beginObject();
+        try field(json, "id", id);
+        try field(json, "position", position);
+        try json.objectField("values");
+        try json.beginObject();
+        for (entries) |entry| {
+            if (entry.table_index != table.index) continue;
+            try json.objectField(entry.key);
+            try writeRuleJsonValue(json, entry.key, entry.value);
+        }
+        try json.endObject();
+        try json.endObject();
+        position += 1;
+    }
+    try json.endArray();
+}
+
+fn writeRuleJsonValue(json: *std.json.Stringify, key: []const u8, raw: []const u8) !void {
+    if (ruleBoolean(key)) {
+        if (std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "true")) return json.write(true);
+        if (std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "false")) return json.write(false);
+    }
+    if (ruleInteger(key)) {
+        if (std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10)) |value| return json.write(value) else |_| {}
+    }
+    if (ruleDouble(key)) {
+        if (std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r"))) |value| return json.write(value) else |_| {}
+    }
+    const text = if (std.mem.eql(u8, key, "layout")) schema.normalizeLayout(unquoteToml(raw)) else if (ruleKnown(key)) unquoteToml(raw) else raw;
+    try json.write(text);
+}
+
+fn applyWindowRuleChanges(allocator: Allocator, document: *config.Document, requested: []const Json) !void {
+    var move_change: ?Json = null;
+    var non_move_count: usize = 0;
+    for (requested) |change| {
+        if (change != .object) return error.InvalidWindowRuleChange;
+        const operation = jsonString(change.object.get("op")) orelse "update";
+        if (std.mem.eql(u8, operation, "move")) move_change = change else non_move_count += 1;
+    }
+    if (move_change != null and (non_move_count > 0 or requested.len > 1)) return error.ConflictingRuleOperations;
+    if (move_change) |change| {
+        const table_index = try ruleTableFromId(document, jsonString(change.object.get("id")) orelse return error.InvalidWindowRuleId);
+        const direction = jsonInteger(change.object.get("direction")) orelse return error.InvalidWindowRuleMove;
+        if (direction != -1 and direction != 1) return error.InvalidWindowRuleMove;
+        const peer = try adjacentWindowRuleTable(document, table_index, direction);
+        if (peer) |target| try document.moveTable(table_index, target, direction > 0);
+        return;
+    }
+
+    // Updates do not alter table indices, so apply them before descending
+    // deletes. Adds are appended last and receive IDs in the returned snapshot.
+    for (requested) |change| {
+        const operation = jsonString(change.object.get("op")) orelse "update";
+        if (!std.mem.eql(u8, operation, "update")) continue;
+        const table_index = try ruleTableFromId(document, jsonString(change.object.get("id")) orelse return error.InvalidWindowRuleId);
+        const values = change.object.get("values") orelse return error.InvalidWindowRuleValues;
+        if (values != .object) return error.InvalidWindowRuleValues;
+        try applyRuleValues(allocator, document, table_index, values.object);
+    }
+
+    var deletes = std.ArrayList(usize).empty;
+    defer deletes.deinit(allocator);
+    for (requested) |change| {
+        const operation = jsonString(change.object.get("op")) orelse "update";
+        if (std.mem.eql(u8, operation, "delete")) {
+            try deletes.append(allocator, try ruleTableFromId(document, jsonString(change.object.get("id")) orelse return error.InvalidWindowRuleId));
+        } else if (!std.mem.eql(u8, operation, "update") and !std.mem.eql(u8, operation, "add")) {
+            return error.InvalidWindowRuleOperation;
+        }
+    }
+    std.mem.sort(usize, deletes.items, {}, std.sort.desc(usize));
+    for (deletes.items) |table_index| try document.deleteTable(table_index);
+
+    for (requested) |change| {
+        const operation = jsonString(change.object.get("op")) orelse "update";
+        if (!std.mem.eql(u8, operation, "add")) continue;
+        const values = change.object.get("values") orelse return error.InvalidWindowRuleValues;
+        if (values != .object or values.object.count() == 0) return error.InvalidWindowRuleValues;
+        var iterator = values.object.iterator();
+        var first_key: ?[]const u8 = null;
+        var first_value: ?Json = null;
+        while (iterator.next()) |entry| {
+            if (!ruleKnown(entry.key_ptr.*)) return error.InvalidWindowRuleKey;
+            if (entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) continue;
+            first_key = entry.key_ptr.*;
+            first_value = entry.value_ptr.*;
+            break;
+        }
+        const key = first_key orelse return error.InvalidWindowRuleValues;
+        const first_encoded = try encodeRuleValue(allocator, key, first_value.?);
+        const header = "[[window]]";
+        try document.appendTable(header, key, first_encoded);
+        const table_index = try lastWindowRuleTable(document);
+        iterator = values.object.iterator();
+        while (iterator.next()) |entry| {
+            if (std.mem.eql(u8, entry.key_ptr.*, key)) continue;
+            if (!ruleKnown(entry.key_ptr.*) or entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) continue;
+            const encoded = try encodeRuleValue(allocator, entry.key_ptr.*, entry.value_ptr.*);
+            try setTableRaw(document, table_index, entry.key_ptr.*, encoded);
+        }
+    }
+    try validateWindowRules(document);
+}
+
+fn applyRuleValues(allocator: Allocator, document: *config.Document, table_index: usize, values: std.json.ObjectMap) !void {
+    var iterator = values.iterator();
+    while (iterator.next()) |entry| {
+        const key = entry.key_ptr.*;
+        if (!ruleKnown(key)) return error.InvalidWindowRuleKey;
+        if (entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) {
+            _ = try document.deleteTableEntry(table_index, key);
+        } else {
+            const encoded = try encodeRuleValue(allocator, key, entry.value_ptr.*);
+            try setTableRaw(document, table_index, key, encoded);
+        }
+    }
+}
+
+fn jsonEmptyString(value: Json) bool {
+    return value == .string and value.string.len == 0;
+}
+
+fn encodeRuleValue(allocator: Allocator, key: []const u8, value: Json) ![]const u8 {
+    if (ruleBoolean(key)) {
+        const actual = jsonBool(value) orelse return error.InvalidWindowRuleValue;
+        return if (actual) "true" else "false";
+    }
+    if (ruleInteger(key)) {
+        const actual = jsonInteger(value) orelse return error.InvalidWindowRuleValue;
+        if ((std.mem.eql(u8, key, "workspace") and (actual < 1 or actual > std.math.maxInt(u32))) or
+            ((std.mem.eql(u8, key, "width") or std.mem.eql(u8, key, "height")) and (actual < 1 or actual > 100_000)) or
+            ((std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) and (actual < -100_000 or actual > 100_000))) return error.InvalidWindowRuleValue;
+        return std.fmt.allocPrint(allocator, "{d}", .{actual});
+    }
+    if (ruleDouble(key)) {
+        const actual = jsonNumber(value) orelse return error.InvalidWindowRuleValue;
+        if (!std.math.isFinite(actual) or
+            (std.mem.eql(u8, key, "scale") and (actual <= 0 or actual > 16)) or
+            (std.mem.eql(u8, key, "opacity") and (actual < 0 or actual > 1))) return error.InvalidWindowRuleValue;
+        return std.fmt.allocPrint(allocator, "{d}", .{actual});
+    }
+    var text = jsonString(value) orelse return error.InvalidWindowRuleValue;
+    if (text.len > 1024) return error.InvalidWindowRuleValue;
+    if (std.mem.eql(u8, key, "layout")) text = schema.normalizeLayout(text);
+    if (!validRuleText(key, text)) return error.InvalidWindowRuleValue;
+    return jsonStringLiteral(allocator, text);
+}
+
+fn validateWindowRules(document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "window")) continue;
+        var matcher = false;
+        for (entries) |entry| {
+            if (entry.table_index != table.index) continue;
+            if (ruleKnown(entry.key)) try validateRuleRaw(entry.key, entry.value);
+            if ((std.mem.eql(u8, entry.key, "app_id") or std.mem.eql(u8, entry.key, "class") or std.mem.eql(u8, entry.key, "title") or std.mem.eql(u8, entry.key, "content_type")) and unquoteToml(entry.value).len > 0) matcher = true;
+        }
+        if (!matcher) return error.WindowRuleMissingMatcher;
+    }
+}
+
+fn ruleTableFromId(document: *const config.Document, id: []const u8) !usize {
+    if (!std.mem.startsWith(u8, id, "rule:")) return error.InvalidWindowRuleId;
+    const wanted = std.fmt.parseInt(usize, id["rule:".len..], 10) catch return error.InvalidWindowRuleId;
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    for (tables) |table| if (table.index == wanted and table.repeated and std.mem.eql(u8, table.name, "window")) return wanted;
+    return error.UnknownWindowRule;
+}
+
+fn lastWindowRuleTable(document: *const config.Document) !usize {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    var result: ?usize = null;
+    for (tables) |table| {
+        if (table.repeated and std.mem.eql(u8, table.name, "window")) result = table.index;
+    }
+    return result orelse error.UnknownWindowRule;
+}
+
+fn adjacentWindowRuleTable(document: *const config.Document, wanted: usize, direction: i64) !?usize {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    var previous: ?usize = null;
+    var seen = false;
+    for (tables) |table| {
+        if (!table.repeated or !std.mem.eql(u8, table.name, "window")) continue;
+        if (direction < 0 and table.index == wanted) return previous;
+        if (seen) return table.index;
+        if (table.index == wanted) seen = true;
+        previous = table.index;
+    }
+    return null;
+}
+
+fn ruleKnown(key: []const u8) bool {
+    for (rule_keys) |known| if (std.mem.eql(u8, key, known)) return true;
+    return false;
+}
+
+fn ruleBoolean(key: []const u8) bool {
+    inline for (.{ "floating", "fullscreen", "ignore_struts", "blur", "hdr_expand", "focus", "fixed_position", "skip_switcher", "skip_taskbar" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    return false;
+}
+
+fn ruleInteger(key: []const u8) bool {
+    inline for (.{ "workspace", "width", "height", "x", "y" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    return false;
+}
+
+fn ruleDouble(key: []const u8) bool {
+    return std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "opacity");
+}
+
+fn validateRuleRaw(key: []const u8, raw: []const u8) !void {
+    if (ruleBoolean(key)) {
+        const value = std.mem.trim(u8, raw, " \t\r");
+        if (!std.mem.eql(u8, value, "true") and !std.mem.eql(u8, value, "false")) return error.InvalidWindowRuleValue;
+        return;
+    }
+    if (ruleInteger(key)) {
+        const value = std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch return error.InvalidWindowRuleValue;
+        if ((std.mem.eql(u8, key, "workspace") and (value < 1 or value > std.math.maxInt(u32))) or
+            ((std.mem.eql(u8, key, "width") or std.mem.eql(u8, key, "height")) and (value < 1 or value > 100_000)) or
+            ((std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) and (value < -100_000 or value > 100_000))) return error.InvalidWindowRuleValue;
+        return;
+    }
+    if (ruleDouble(key)) {
+        const value = std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch return error.InvalidWindowRuleValue;
+        if (!std.math.isFinite(value) or
+            (std.mem.eql(u8, key, "scale") and (value <= 0 or value > 16)) or
+            (std.mem.eql(u8, key, "opacity") and (value < 0 or value > 1))) return error.InvalidWindowRuleValue;
+        return;
+    }
+    var value = unquoteToml(raw);
+    if (std.mem.eql(u8, key, "layout")) value = schema.normalizeLayout(value);
+    if (!validRuleText(key, value)) return error.InvalidWindowRuleValue;
+}
+
+fn validRuleText(key: []const u8, value: []const u8) bool {
+    if (std.mem.eql(u8, key, "layout")) return valueIn(value, &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" });
+    if (std.mem.eql(u8, key, "content_type")) return valueIn(value, &.{ "none", "photo", "video", "game" });
+    if (std.mem.eql(u8, key, "placement_policy")) return valueIn(value, &.{ "cascade", "center", "under-pointer", "minimal-overlap" });
+    if (std.mem.eql(u8, key, "anchor")) return valueIn(value, &.{ "center", "top", "bottom", "left", "right" });
+    if (std.mem.eql(u8, key, "buffer_scale_policy")) return valueIn(value, &.{ "native", "integer-ceil" });
+    if (std.mem.eql(u8, key, "overlay_plane")) return valueIn(value, &.{ "off", "prefer" });
+    if (std.mem.eql(u8, key, "stack_layer")) return valueIn(value, &.{ "below", "normal", "above" });
+    if (std.mem.eql(u8, key, "size")) return validRuleSize(value);
+    return true;
+}
+
+fn validRuleSize(value: []const u8) bool {
+    if (std.mem.eql(u8, value, "native")) return true;
+    const split = std.mem.indexOfScalar(u8, value, 'x') orelse return false;
+    const left = value[0..split];
+    const right = value[split + 1 ..];
+    if (std.mem.indexOfScalar(u8, left, '.') != null or std.mem.indexOfScalar(u8, right, '.') != null) {
+        const width = std.fmt.parseFloat(f64, left) catch return false;
+        const height = std.fmt.parseFloat(f64, right) catch return false;
+        return std.math.isFinite(width) and std.math.isFinite(height) and width > 0 and width <= 1 and height > 0 and height <= 1;
+    }
+    const width = std.fmt.parseInt(i64, left, 10) catch return false;
+    const height = std.fmt.parseInt(i64, right, 10) catch return false;
+    return width > 0 and height > 0;
+}
+
+fn valueIn(value: []const u8, options: []const []const u8) bool {
+    for (options) |option_value| if (std.mem.eql(u8, value, option_value)) return true;
+    return false;
+}
+
 const CustomKeybindChange = struct {
+    operation: enum { update, delete },
     entry_index: usize,
     table_index: usize,
-    old_chord: []const u8,
+    old_chord: []const u8 = "",
     chord: []const u8,
     command: []const u8,
 };
+
+const NewCustomKeybind = struct { chord: []const u8, command: []const u8 };
 
 fn applyCustomKeybindChanges(
     allocator: Allocator,
@@ -549,16 +1070,24 @@ fn applyCustomKeybindChanges(
     defer allocator.free(entries);
     var changes = std.ArrayList(CustomKeybindChange).empty;
     defer changes.deinit(allocator);
+    var additions = std.ArrayList(NewCustomKeybind).empty;
+    defer additions.deinit(allocator);
+    var claimed = std.StringHashMap(void).init(allocator);
+    defer claimed.deinit();
+
     for (requested) |raw_change| {
         if (raw_change != .object) return error.InvalidCustomKeybindChange;
-        const id = jsonString(raw_change.object.get("id")) orelse return error.InvalidCustomKeybindChange;
+        const operation = jsonString(raw_change.object.get("op")) orelse "update";
+        if (std.mem.eql(u8, operation, "add")) {
+            const chord = jsonString(raw_change.object.get("chord")) orelse return error.InvalidCustomKeybindChord;
+            const command = jsonString(raw_change.object.get("command")) orelse return error.InvalidCustomKeybindCommand;
+            try validateCustomKeybind(chord, command);
+            try additions.append(allocator, .{ .chord = chord, .command = command });
+            continue;
+        }
+        const id = jsonString(raw_change.object.get("id")) orelse return error.InvalidCustomKeybindId;
         if (!std.mem.startsWith(u8, id, "custom:")) return error.InvalidCustomKeybindId;
         const entry_index = std.fmt.parseInt(usize, id["custom:".len..], 10) catch return error.InvalidCustomKeybindId;
-        const chord = jsonString(raw_change.object.get("chord")) orelse return error.InvalidCustomKeybindChord;
-        const command = jsonString(raw_change.object.get("command")) orelse return error.InvalidCustomKeybindCommand;
-        if (chord.len == 0 or chord.len > 128 or command.len == 0 or command.len > 1024) {
-            return error.InvalidCustomKeybindChange;
-        }
         var found: ?config.Document.Entry = null;
         for (entries) |entry| if (entry.index == entry_index) {
             found = entry;
@@ -568,11 +1097,22 @@ fn applyCustomKeybindChanges(
         if (entry.table_index >= tables.len or
             !std.mem.eql(u8, tables[entry.table_index].name, "keybinds.custom"))
             return error.UnknownCustomKeybind;
-        for (entries) |other| {
-            if (other.index != entry.index and other.table_index == entry.table_index and
-                std.mem.eql(u8, other.key, chord)) return error.DuplicateCustomKeybind;
+        if (std.mem.eql(u8, operation, "delete")) {
+            try changes.append(allocator, .{
+                .operation = .delete,
+                .entry_index = entry_index,
+                .table_index = entry.table_index,
+                .chord = "",
+                .command = "",
+            });
+            continue;
         }
+        if (!std.mem.eql(u8, operation, "update")) return error.InvalidCustomKeybindChange;
+        const chord = jsonString(raw_change.object.get("chord")) orelse return error.InvalidCustomKeybindChord;
+        const command = jsonString(raw_change.object.get("command")) orelse return error.InvalidCustomKeybindCommand;
+        try validateCustomKeybind(chord, command);
         try changes.append(allocator, .{
+            .operation = .update,
             .entry_index = entry_index,
             .table_index = entry.table_index,
             .old_chord = try allocator.dupe(u8, entry.key),
@@ -580,12 +1120,38 @@ fn applyCustomKeybindChanges(
             .command = command,
         });
     }
+
+    // Validate the final custom chord set before changing the document.
+    for (entries) |entry| {
+        if (entry.table_index >= tables.len or !std.mem.eql(u8, tables[entry.table_index].name, "keybinds.custom")) continue;
+        var replacement: ?[]const u8 = null;
+        var removed = false;
+        for (changes.items) |change| if (change.entry_index == entry.index) {
+            removed = change.operation == .delete;
+            if (!removed) replacement = change.chord;
+        };
+        if (!removed) {
+            const chord = replacement orelse entry.key;
+            if (try chordConfiguredInBuiltins(document, chord)) return error.DuplicateCustomKeybind;
+            if (claimed.contains(chord)) return error.DuplicateCustomKeybind;
+            try claimed.put(chord, {});
+        }
+    }
+    for (additions.items) |addition| {
+        if (try chordConfiguredInBuiltins(document, addition.chord)) return error.DuplicateCustomKeybind;
+        if (claimed.contains(addition.chord)) return error.DuplicateCustomKeybind;
+        try claimed.put(addition.chord, {});
+    }
     std.mem.sort(CustomKeybindChange, changes.items, {}, struct {
         fn lessThan(_: void, left: CustomKeybindChange, right: CustomKeybindChange) bool {
             return left.entry_index > right.entry_index;
         }
     }.lessThan);
     for (changes.items) |change| {
+        if (change.operation == .delete) {
+            try document.deleteEntry(change.entry_index);
+            continue;
+        }
         const encoded_command = try jsonStringLiteral(allocator, change.command);
         if (std.mem.eql(u8, change.old_chord, change.chord)) {
             try document.setEntryRaw(change.entry_index, encoded_command);
@@ -595,6 +1161,53 @@ fn applyCustomKeybindChanges(
             try document.addToTable(change.table_index, encoded_chord, encoded_command);
         }
     }
+    if (additions.items.len > 0) {
+        var table_index = try customKeybindTable(document);
+        for (additions.items) |addition| {
+            const encoded_chord = try jsonStringLiteral(allocator, addition.chord);
+            const encoded_command = try jsonStringLiteral(allocator, addition.command);
+            if (table_index) |table| {
+                try document.addToTable(table, encoded_chord, encoded_command);
+            } else {
+                try document.appendTable("[keybinds.custom]", encoded_chord, encoded_command);
+                table_index = try customKeybindTable(document);
+            }
+        }
+    }
+}
+
+fn validateCustomKeybind(chord: []const u8, command: []const u8) !void {
+    if (chord.len == 0 or chord.len > 128) return error.InvalidCustomKeybindChord;
+    if (command.len == 0 or command.len > 1024) return error.InvalidCustomKeybindCommand;
+}
+
+fn customKeybindTable(document: *const config.Document) !?usize {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    var result: ?usize = null;
+    for (tables) |table| {
+        if (!table.repeated and std.mem.eql(u8, table.name, "keybinds.custom")) result = table.index;
+    }
+    return result;
+}
+
+fn chordConfiguredInBuiltins(document: *const config.Document, chord: []const u8) !bool {
+    for (&schema.fields) |*schema_field| {
+        if (schema_field.category != .keybinds or !std.mem.eql(u8, schema_field.section, "keybinds")) continue;
+        const raw = document.getRaw("keybinds", schema_field.key) orelse schema_field.default_raw;
+        if (rawStringListContains(raw, chord)) return true;
+    }
+    return false;
+}
+
+fn rawStringListContains(raw_value: []const u8, wanted: []const u8) bool {
+    const raw = std.mem.trim(u8, raw_value, " \t\r");
+    if (raw.len == 0) return false;
+    if (raw[0] != '[') return std.mem.eql(u8, unquoteToml(raw), wanted);
+    if (raw.len < 2 or raw[raw.len - 1] != ']') return false;
+    var items = std.mem.splitScalar(u8, raw[1 .. raw.len - 1], ',');
+    while (items.next()) |item| if (std.mem.eql(u8, unquoteToml(std.mem.trim(u8, item, " \t\r")), wanted)) return true;
+    return false;
 }
 
 fn applyMonitorChanges(
@@ -748,7 +1361,8 @@ fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, valu
         },
         .string_list => return try encodeStringList(allocator, value),
         .select => {
-            const text = jsonString(value) orelse return error.InvalidSelection;
+            const raw_text = jsonString(value) orelse return error.InvalidSelection;
+            const text = schema.normalizeLayout(raw_text);
             var valid = false;
             for (schema_field.options) |option_value| {
                 if (std.mem.eql(u8, option_value, text)) {
@@ -807,7 +1421,7 @@ fn validateRange(schema_field: *const schema.Field, value: f64) !void {
 
 fn validateKnownFields(files: *const config.ConfigFiles) !void {
     for (&schema.fields) |*schema_field| {
-        const raw = files.items[@intFromEnum(schema_field.file)].document.getRaw(schema_field.section, schema_field.key) orelse continue;
+        const raw = (resolveFieldRaw(&files.items[@intFromEnum(schema_field.file)].document, schema_field) orelse continue).value;
         switch (schema_field.kind) {
             .boolean => if (!std.mem.eql(u8, raw, "true") and !std.mem.eql(u8, raw, "false")) return error.InvalidBoolean,
             .integer => {
@@ -819,7 +1433,7 @@ fn validateKnownFields(files: *const config.ConfigFiles) !void {
                 try validateRange(schema_field, value);
             },
             .select => {
-                const text = unquoteToml(raw);
+                const text = schema.normalizeLayout(unquoteToml(raw));
                 var valid = false;
                 for (schema_field.options) |option_value| if (std.mem.eql(u8, text, option_value)) {
                     valid = true;
@@ -837,6 +1451,27 @@ fn validateKnownFields(files: *const config.ConfigFiles) !void {
             },
         }
     }
+}
+
+const FieldRaw = struct {
+    section: []const u8,
+    value: []const u8,
+};
+
+fn resolveFieldRaw(document: *const config.Document, schema_field: *const schema.Field) ?FieldRaw {
+    if (schema_field.section_aliases.len > 0) {
+        const resolved = document.getRawAliases(schema_field.section, schema_field.section_aliases, schema_field.key) orelse return null;
+        return .{ .section = resolved.section, .value = resolved.value };
+    }
+    const value = document.getRaw(schema_field.section, schema_field.key) orelse return null;
+    return .{ .section = schema_field.section, .value = value };
+}
+
+fn setFieldRaw(document: *config.Document, schema_field: *const schema.Field, encoded: []const u8) !void {
+    if (schema_field.section_aliases.len > 0) {
+        return document.setRawAliases(schema_field.section, schema_field.section_aliases, schema_field.key, encoded);
+    }
+    return document.setRaw(schema_field.section, schema_field.key, encoded);
 }
 
 fn validateBasicToml(source: []const u8) !void {
@@ -1046,6 +1681,23 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidCustomKeybindCommand,
         error.UnknownCustomKeybind,
         error.DuplicateCustomKeybind,
+        error.InvalidSnapZoneChanges,
+        error.InvalidSnapZoneChange,
+        error.InvalidSnapZoneId,
+        error.InvalidSnapZoneValue,
+        error.InvalidSnapZoneOperation,
+        error.InvalidWindowRuleChanges,
+        error.InvalidWindowRuleChange,
+        error.InvalidWindowRuleId,
+        error.InvalidWindowRuleMove,
+        error.InvalidWindowRuleValues,
+        error.InvalidWindowRuleValue,
+        error.InvalidWindowRuleKey,
+        error.InvalidWindowRuleOperation,
+        error.UnknownWindowRule,
+        error.WindowRuleMissingMatcher,
+        error.ConflictingRuleOperations,
+        error.InvalidNormalizeRequest,
         error.ConflictingEdits,
         error.InvalidAssignment,
         error.InvalidTableHeader,

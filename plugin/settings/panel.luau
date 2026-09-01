@@ -1,6 +1,7 @@
 --!nonstrict
 
 local PROTOCOL = 1
+local MIN_HELPER_VERSION = "0.3.0"
 local categories = {
 	{ id = "overview", label = "Overview", glyph = "info-circle" },
 	{ id = "appearance", label = "Appearance", glyph = "sparkles" },
@@ -19,6 +20,11 @@ local rawDrafts = {}
 local rawDirty = {}
 local monitorDrafts = {}
 local customKeybindDrafts = {}
+local snapZoneDrafts = {}
+local windowRuleDrafts = {}
+local newCustomKeybindSerial = 0
+local newWindowRuleSerial = 0
+local normalizeStackingDraft = false
 local inputRevisions = {}
 local activeCategory = "overview"
 local activeFile = "wm"
@@ -35,7 +41,7 @@ local workspaceLayouts = {
 	{ value = "dwindle", label = "Dwindle" },
 	{ value = "reverse-dwindle", label = "Reverse Dwindle" },
 	{ value = "scrolling", label = "Scrolling" },
-	{ value = "float", label = "Float" },
+	{ value = "stacking", label = "Stacking" },
 	{ value = "game-mode", label = "Game Mode" },
 	{ value = "composable", label = "Composable" },
 }
@@ -77,6 +83,32 @@ local function resultText(result)
 		return result.stdout or "", result.stderr or "", result.exitCode or -1
 	end
 	return tostring(result or ""), "", 0
+end
+
+local function normalizeLayout(value)
+	if value == "float" or value == "floating" or value == "stack" then
+		return "stacking"
+	end
+	return value
+end
+
+local function versionAtLeast(actual, required)
+	local actualParts = {}
+	local requiredParts = {}
+	for value in tostring(actual or "0"):gmatch("%d+") do
+		table.insert(actualParts, tonumber(value) or 0)
+	end
+	for value in tostring(required):gmatch("%d+") do
+		table.insert(requiredParts, tonumber(value) or 0)
+	end
+	for index = 1, 3 do
+		local left = actualParts[index] or 0
+		local right = requiredParts[index] or 0
+		if left ~= right then
+			return left > right
+		end
+	end
+	return true
 end
 
 local function runHelper(arguments, callback)
@@ -151,7 +183,7 @@ local function queryWorkspaceLayout()
 		if err then
 			workspaceLayoutMessage = err.message or tr("overview.workspace_layout.unavailable")
 		else
-			workspaceLayout = response.layout or ""
+			workspaceLayout = normalizeLayout(response.layout or "")
 			workspaceNumber = tonumber(response.workspace) or 0
 			workspaceLayoutMessage = ""
 		end
@@ -173,7 +205,7 @@ local function setWorkspaceLayout(layout)
 			if err then
 				workspaceLayoutMessage = err.message or tr("overview.workspace_layout.unavailable")
 			else
-				workspaceLayout = response.layout or layout
+				workspaceLayout = normalizeLayout(response.layout or layout)
 				workspaceNumber = tonumber(response.workspace) or workspaceNumber
 				workspaceLayoutMessage = tr("overview.workspace_layout.changed")
 			end
@@ -197,6 +229,13 @@ local function hasDrafts()
 	for _id, _keybind in pairs(customKeybindDrafts) do
 		return true
 	end
+	for _id, _zone in pairs(snapZoneDrafts) do
+		return true
+	end
+	for _id, _rule in pairs(windowRuleDrafts) do
+		return true
+	end
+	if normalizeStackingDraft then return true end
 	return false
 end
 
@@ -216,6 +255,13 @@ local function draftCount()
 	for _id, _keybind in pairs(customKeybindDrafts) do
 		count += 1
 	end
+	for _id, _zone in pairs(snapZoneDrafts) do
+		count += 1
+	end
+	for _id, _rule in pairs(windowRuleDrafts) do
+		count += 1
+	end
+	if normalizeStackingDraft then count += 1 end
 	return count
 end
 
@@ -239,6 +285,13 @@ local function needsUserOverride()
 	if next(customKeybindDrafts) ~= nil and snapshot.files.wm and snapshot.files.wm.writable == false then
 		return true
 	end
+	if next(snapZoneDrafts) ~= nil and snapshot.files.layout and snapshot.files.layout.writable == false then
+		return true
+	end
+	if next(windowRuleDrafts) ~= nil and snapshot.files.rules and snapshot.files.rules.writable == false then
+		return true
+	end
+	if normalizeStackingDraft and snapshot.files.layout and snapshot.files.layout.writable == false then return true end
 	return false
 end
 
@@ -270,6 +323,11 @@ local function resetFromSnapshot(newSnapshot)
 	rawDirty = {}
 	monitorDrafts = {}
 	customKeybindDrafts = {}
+	snapZoneDrafts = {}
+	windowRuleDrafts = {}
+	newCustomKeybindSerial = 0
+	newWindowRuleSerial = 0
+	normalizeStackingDraft = false
 	inputRevisions = {}
 	for file, source in pairs(snapshot.raw_files or {}) do
 		rawDrafts[file] = source
@@ -296,6 +354,11 @@ local function loadSnapshot(force)
 		if err then
 			status = "error"
 			statusMessage = err.message or err.code or tr("error.generic")
+		elseif response.protocol ~= PROTOCOL or not versionAtLeast(response.helper_version, MIN_HELPER_VERSION) then
+			status = "error"
+			statusMessage = tr("error.helper_incompatible")
+				:gsub("{required}", MIN_HELPER_VERSION)
+				:gsub("{actual}", tostring(response.helper_version or "unknown"))
 		else
 			resetFromSnapshot(response)
 		end
@@ -343,14 +406,24 @@ local function writeRequest(mode)
 	end)
 	local customKeybindChanges = {}
 	for _id, keybind in pairs(customKeybindDrafts) do
-		table.insert(customKeybindChanges, {
-			id = keybind.id,
-			chord = keybind.chord,
-			command = keybind.command,
-		})
+		table.insert(customKeybindChanges, keybind)
 	end
 	table.sort(customKeybindChanges, function(a, b)
 		return a.id < b.id
+	end)
+	local snapZoneChanges = {}
+	for _id, zone in pairs(snapZoneDrafts) do
+		table.insert(snapZoneChanges, zone)
+	end
+	table.sort(snapZoneChanges, function(a, b)
+		return a.id < b.id
+	end)
+	local windowRuleChanges = {}
+	for _id, rule in pairs(windowRuleDrafts) do
+		table.insert(windowRuleChanges, rule)
+	end
+	table.sort(windowRuleChanges, function(a, b)
+		return tostring(a.id or "") < tostring(b.id or "")
 	end)
 	local request = {
 		protocol = PROTOCOL,
@@ -359,6 +432,7 @@ local function writeRequest(mode)
 		backup_dir = dataDir .. "/backups",
 		create_user_override = true,
 	}
+	if normalizeStackingDraft then request.normalize_stacking = true end
 	-- Empty Luau tables are encoded as JSON objects by Noctalia. Only include
 	-- list-valued request members when they contain an item, otherwise the
 	-- helper would receive `{}` where the protocol expects `[]`.
@@ -370,6 +444,12 @@ local function writeRequest(mode)
 	end
 	if #customKeybindChanges > 0 then
 		request.custom_keybind_changes = customKeybindChanges
+	end
+	if #snapZoneChanges > 0 then
+		request.snap_zone_changes = snapZoneChanges
+	end
+	if #windowRuleChanges > 0 then
+		request.window_rule_changes = windowRuleChanges
 	end
 	local encoded = noctalia.json.encode(request)
 	if encoded == nil then
@@ -1067,11 +1147,13 @@ local function builtinKeybindCard(field)
 end
 
 local function setCustomKeybindDraft(keybind, chord, command)
-	if chord == keybind.chord and command == keybind.command then
+	local isNew = tostring(keybind.id):sub(1, 4) == "new:"
+	if not isNew and chord == keybind.chord and command == keybind.command then
 		customKeybindDrafts[keybind.id] = nil
 	else
 		customKeybindDrafts[keybind.id] = {
 			id = keybind.id,
+			op = isNew and "add" or "update",
 			chord = chord,
 			command = command,
 		}
@@ -1082,6 +1164,16 @@ end
 
 local function customKeybindCard(keybind)
 	local draft = customKeybindDrafts[keybind.id]
+	if draft and draft.op == "delete" then
+		return ui.row({ key = "custom-keybind-deleted-" .. keybind.id, gap = 8, padding = 10, radius = 9, fill = "surface_variant" }, {
+			ui.label({ text = keybind.chord .. " · " .. tr("keybind.deleted"), color = "error", flexGrow = 1 }),
+			ui.button({ text = tr("action.undo"), variant = "ghost", onClick = function()
+				customKeybindDrafts[keybind.id] = nil
+				status = hasDrafts() and "dirty" or "ready"
+				render()
+			end }),
+		})
+	end
 	local chord = draft and draft.chord or keybind.chord
 	local command = draft and draft.command or keybind.command
 	return ui.column({
@@ -1119,8 +1211,36 @@ local function customKeybindCard(keybind)
 					render()
 				end,
 			}),
+			ui.button({
+				glyph = "trash",
+				variant = "ghost",
+				tooltip = tr("action.delete"),
+				onClick = function()
+					if tostring(keybind.id):sub(1, 4) == "new:" then
+						customKeybindDrafts[keybind.id] = nil
+					else
+						customKeybindDrafts[keybind.id] = { id = keybind.id, op = "delete" }
+					end
+					status = hasDrafts() and "dirty" or "ready"
+					render()
+				end,
+			}),
 		}),
 	})
+end
+
+local function addCustomKeybind(command)
+	newCustomKeybindSerial += 1
+	local id = "new:" .. tostring(newCustomKeybindSerial)
+	customKeybindDrafts[id] = {
+		id = id,
+		op = "add",
+		chord = "",
+		command = command or "",
+	}
+	status = "dirty"
+	statusMessage = ""
+	render()
 end
 
 local function keybindsView()
@@ -1135,12 +1255,25 @@ local function keybindsView()
 		end
 	end
 	table.insert(children, ui.separator({}))
-	table.insert(children, ui.label({ text = tr("keybind.custom"), fontWeight = "bold" }))
+	table.insert(children, ui.row({ gap = 8, align = "center" }, {
+		ui.label({ text = tr("keybind.custom"), fontWeight = "bold", flexGrow = 1 }),
+		ui.button({ text = tr("keybind.add"), glyph = "plus", variant = "outline", onClick = function()
+			addCustomKeybind("")
+		end }),
+		ui.button({ text = tr("keybind.add_zone"), glyph = "layout-grid", variant = "outline", onClick = function()
+			addCustomKeybind("builtin:snap_zone:a")
+		end }),
+	}))
 	if #(snapshot.custom_keybinds or {}) == 0 then
 		table.insert(children, ui.label({ text = tr("keybind.custom_empty"), color = "on_surface_variant" }))
 	else
 		for _, keybind in ipairs(snapshot.custom_keybinds) do
 			table.insert(children, customKeybindCard(keybind))
+		end
+	end
+	for id, draft in pairs(customKeybindDrafts) do
+		if tostring(id):sub(1, 4) == "new:" then
+			table.insert(children, customKeybindCard(draft))
 		end
 	end
 	table.insert(children, ui.separator({}))
@@ -1178,6 +1311,376 @@ local function typographyTargets()
 	return ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, rows)
 end
 
+local function snapshotZone(id)
+	for _, zone in ipairs(snapshot.snap_zones or {}) do
+		if zone.id == id then
+			return zone
+		end
+	end
+	return { id = id, configured = false, x = 0, y = 0, width = 0, height = 0 }
+end
+
+local function effectiveZone(id)
+	local original = snapshotZone(id)
+	local draft = snapZoneDrafts[id]
+	if draft == nil or draft.op == "delete" then
+		return original
+	end
+	return draft
+end
+
+local function setZoneDraft(id, key, value)
+	local current = effectiveZone(id)
+	snapZoneDrafts[id] = {
+		id = id,
+		op = "update",
+		x = key == "x" and (tonumber(value) or current.x) or current.x,
+		y = key == "y" and (tonumber(value) or current.y) or current.y,
+		width = key == "width" and (tonumber(value) or current.width) or current.width,
+		height = key == "height" and (tonumber(value) or current.height) or current.height,
+	}
+	status = "dirty"
+	statusMessage = ""
+	render()
+end
+
+local function setZonePreset(id, x, y, width, height)
+	snapZoneDrafts[id] = { id = id, op = "update", x = x, y = y, width = width, height = height }
+	status = "dirty"
+	statusMessage = ""
+	render()
+end
+
+local function zoneCard(id)
+	local original = snapshotZone(id)
+	local draft = snapZoneDrafts[id]
+	local zone = effectiveZone(id)
+	local deleted = draft and draft.op == "delete"
+	local controls = {}
+	for _, item in ipairs({
+		{ key = "x", label = "X" },
+		{ key = "y", label = "Y" },
+		{ key = "width", label = tr("snap_zone.width") },
+		{ key = "height", label = tr("snap_zone.height") },
+	}) do
+		table.insert(controls, ui.column({ gap = 3, flexGrow = 1 }, {
+			ui.label({ text = item.label, fontSize = 10, color = "on_surface_variant" }),
+			ui.input({
+				key = "zone-" .. id .. "-" .. item.key,
+				value = tostring(zone[item.key] or 0),
+				controlSize = "sm",
+				onChange = function(value)
+					setZoneDraft(id, item.key, value)
+				end,
+			}),
+		}))
+	end
+	return ui.column({
+		key = "snap-zone-" .. id,
+		gap = 8,
+		padding = 10,
+		radius = 9,
+		fill = "surface_variant",
+		border = draft and "primary" or "outline",
+		borderWidth = 1,
+		align = "stretch",
+	}, {
+		ui.row({ gap = 8, align = "center" }, {
+			ui.label({ text = tr("snap_zone.zone") .. " " .. id:upper(), fontWeight = "bold", flexGrow = 1 }),
+			ui.label({
+				text = deleted and tr("snap_zone.removed") or (original.complete and tr("snap_zone.ready") or tr("snap_zone.incomplete")),
+				color = deleted and "error" or "on_surface_variant",
+				fontSize = 10,
+			}),
+			ui.button({ glyph = "trash", variant = "ghost", tooltip = tr("action.delete"), onClick = function()
+				snapZoneDrafts[id] = { id = id, op = "delete" }
+				status = "dirty"
+				render()
+			end }),
+		}),
+		ui.row({ gap = 8, align = "center" }, controls),
+		ui.label({
+			text = string.format("%.3f, %.3f · %.3f × %.3f", zone.x or 0, zone.y or 0, zone.width or 0, zone.height or 0),
+			fontSize = 10,
+			color = "on_surface_variant",
+		}),
+	})
+end
+
+local function snapZonesView()
+	local previewRows = {}
+	for _, id in ipairs({ "a", "b", "c", "d" }) do
+		local zone = effectiveZone(id)
+		local draft = snapZoneDrafts[id]
+		if not (draft and draft.op == "delete") and (zone.width or 0) > 0 and (zone.height or 0) > 0 then
+			table.insert(previewRows, ui.row({ key = "zone-preview-" .. id, width = 500, height = 28, align = "center" }, {
+				ui.box({ width = math.floor((zone.x or 0) * 500), height = 1 }),
+				ui.box({
+					width = math.max(20, math.floor((zone.width or 0) * 500)),
+					height = 24,
+					radius = 5,
+					fill = "secondary",
+					border = "primary",
+					borderWidth = 1,
+				}, {
+					ui.label({ text = id:upper() .. " · y=" .. tostring(zone.y) .. " h=" .. tostring(zone.height), fontSize = 9, maxLines = 1 }),
+				}),
+			}) )
+		end
+	end
+	local children = {
+		ui.separator({}),
+		ui.label({ text = tr("snap_zone.title"), fontWeight = "bold" }),
+		ui.label({ text = tr("snap_zone.description"), color = "on_surface_variant", fontSize = 11, maxLines = 3 }),
+		ui.column({ width = 520, padding = 10, gap = 4, radius = 8, fill = "surface_variant", align = "start" }, previewRows),
+		ui.row({ gap = 6 }, {
+			ui.button({ text = tr("snap_zone.preset_halves"), variant = "outline", onClick = function()
+				setZonePreset("a", 0, 0, 0.5, 1)
+				setZonePreset("b", 0.5, 0, 0.5, 1)
+			end }),
+			ui.button({ text = tr("snap_zone.preset_thirds"), variant = "outline", onClick = function()
+				setZonePreset("a", 0, 0, 1 / 3, 1)
+				setZonePreset("b", 1 / 3, 0, 1 / 3, 1)
+				setZonePreset("c", 2 / 3, 0, 1 / 3, 1)
+			end }),
+			ui.button({ text = tr("snap_zone.preset_quarters"), variant = "outline", onClick = function()
+				setZonePreset("a", 0, 0, 0.5, 0.5)
+				setZonePreset("b", 0.5, 0, 0.5, 0.5)
+				setZonePreset("c", 0, 0.5, 0.5, 0.5)
+				setZonePreset("d", 0.5, 0.5, 0.5, 0.5)
+			end }),
+		}),
+	}
+	if tonumber(snapshot.stacking_alias_count or 0) > 1 then
+		table.insert(children, 2, ui.row({ gap = 8, padding = 10, radius = 8, fill = "surface_variant", align = "center" }, {
+			ui.label({ text = tr("stacking.alias_warning"), color = "tertiary", flexGrow = 1, maxLines = 3 }),
+			ui.button({ text = tr("stacking.normalize"), variant = normalizeStackingDraft and "secondary" or "outline", onClick = function()
+				normalizeStackingDraft = not normalizeStackingDraft
+				status = hasDrafts() and "dirty" or "ready"
+				render()
+			end }),
+		}))
+	end
+	for _, id in ipairs({ "a", "b", "c", "d" }) do
+		table.insert(children, zoneCard(id))
+	end
+	return children
+end
+
+local ruleFieldSpecs = {
+	{ key = "app_id", label = "App ID", type = "string" },
+	{ key = "class", label = "XWayland class", type = "string" },
+	{ key = "title", label = "Title", type = "string" },
+	{ key = "content_type", label = "Content type", type = "select", options = { "none", "photo", "video", "game" } },
+	{ key = "layout", label = "Layout", type = "select", options = { "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" } },
+	{ key = "output", label = "Output", type = "string" },
+	{ key = "workspace", label = "Workspace", type = "number" },
+	{ key = "floating", label = "Freeform", type = "boolean" },
+	{ key = "fullscreen", label = "Fullscreen", type = "boolean" },
+	{ key = "ignore_struts", label = "Ignore reserved areas", type = "boolean" },
+	{ key = "width", label = "Width", type = "number" },
+	{ key = "height", label = "Height", type = "number" },
+	{ key = "x", label = "X offset", type = "number" },
+	{ key = "y", label = "Y offset", type = "number" },
+	{ key = "placement_policy", label = "Placement", type = "select", options = { "cascade", "center", "under-pointer", "minimal-overlap" } },
+	{ key = "stack_layer", label = "Stack layer", type = "select", options = { "below", "normal", "above" } },
+	{ key = "focus", label = "Focus eligible", type = "boolean" },
+	{ key = "fixed_position", label = "Fixed position", type = "boolean" },
+	{ key = "skip_switcher", label = "Skip switcher", type = "boolean" },
+	{ key = "skip_taskbar", label = "Skip taskbar", type = "boolean" },
+	{ key = "blur", label = "Blur", type = "boolean" },
+	{ key = "opacity", label = "Opacity", type = "number" },
+	{ key = "hdr_expand", label = "HDR expansion", type = "boolean" },
+	{ key = "buffer_scale_policy", label = "Buffer scaling", type = "select", options = { "native", "integer-ceil" } },
+	{ key = "overlay_plane", label = "Overlay plane", type = "select", options = { "off", "prefer" } },
+	{ key = "anchor", label = "Game anchor", type = "select", options = { "center", "top", "bottom", "left", "right" } },
+	{ key = "size", label = "Game size", type = "string" },
+	{ key = "scale", label = "Game scale", type = "number" },
+}
+
+local function cloneTable(source)
+	local result = {}
+	for key, value in pairs(source or {}) do
+		result[key] = value
+	end
+	return result
+end
+
+local function ruleValue(rule, key)
+	local draft = windowRuleDrafts[rule.id]
+	if draft and draft.values and draft.values[key] ~= nil then
+		return draft.values[key]
+	end
+	return rule.values and rule.values[key] or nil
+end
+
+local function setRuleValue(rule, key, value)
+	local isNew = tostring(rule.id):sub(1, 9) == "new-rule:"
+	local draft = windowRuleDrafts[rule.id]
+	if draft == nil or draft.op == "delete" or draft.op == "move" then
+		draft = { id = rule.id, op = isNew and "add" or "update", values = isNew and cloneTable(rule.values) or {} }
+	end
+	draft.values[key] = value
+	windowRuleDrafts[rule.id] = draft
+	status = "dirty"
+	statusMessage = ""
+	render()
+end
+
+local function ruleFieldControl(rule, spec, disabled)
+	local value = ruleValue(rule, spec.key)
+	if spec.type == "boolean" then
+		local options = { tr("rule.unset"), tr("rule.true"), tr("rule.false") }
+		local selected = value == true and 1 or (value == false and 2 or 0)
+		return ui.select({
+			key = "rule-" .. rule.id .. "-" .. spec.key,
+			options = options,
+			selectedIndex = selected,
+			enabled = not disabled,
+			onChange = function(index, _text)
+				local wanted = tonumber(index) or 0
+				setRuleValue(rule, spec.key, wanted == 1 and true or (wanted == 2 and false or ""))
+			end,
+		})
+	elseif spec.type == "select" then
+		local options = { tr("rule.unset") }
+		local selected = 0
+		for index, option in ipairs(spec.options or {}) do
+			table.insert(options, option == "stacking" and "Stacking" or option)
+			if option == value then
+				selected = index
+			end
+		end
+		return ui.select({
+			key = "rule-" .. rule.id .. "-" .. spec.key,
+			options = options,
+			selectedIndex = selected,
+			enabled = not disabled,
+			onChange = function(index, _text)
+				local wanted = tonumber(index) or 0
+				setRuleValue(rule, spec.key, wanted == 0 and "" or spec.options[wanted])
+			end,
+		})
+	end
+	return ui.input({
+		key = "rule-" .. rule.id .. "-" .. spec.key,
+		value = tostring(value or ""),
+		controlSize = "sm",
+		enabled = not disabled,
+		onChange = function(text)
+			setRuleValue(rule, spec.key, spec.type == "number" and (tonumber(text) or text) or text)
+		end,
+	})
+end
+
+local function ruleCard(rule, index, count)
+	local draft = windowRuleDrafts[rule.id]
+	if draft and draft.op == "delete" then
+		return ui.row({ key = "rule-deleted-" .. rule.id, gap = 8, padding = 10, radius = 9, fill = "surface_variant" }, {
+			ui.label({ text = tr("rule.deleted"), color = "error", flexGrow = 1 }),
+			ui.button({ text = tr("action.undo"), variant = "ghost", onClick = function()
+				windowRuleDrafts[rule.id] = nil
+				status = hasDrafts() and "dirty" or "ready"
+				render()
+			end }),
+		})
+	end
+	local fields = {}
+	local contentTypeOnly = ruleValue(rule, "content_type") ~= nil and ruleValue(rule, "content_type") ~= "" and
+		(ruleValue(rule, "app_id") == nil or ruleValue(rule, "app_id") == "") and
+		(ruleValue(rule, "class") == nil or ruleValue(rule, "class") == "") and
+		(ruleValue(rule, "title") == nil or ruleValue(rule, "title") == "")
+	local contentTypeAllowed = { content_type = true, blur = true, opacity = true, hdr_expand = true, buffer_scale_policy = true, overlay_plane = true }
+	for _, spec in ipairs(ruleFieldSpecs) do
+		local disabled = contentTypeOnly and contentTypeAllowed[spec.key] ~= true
+		table.insert(fields, ui.column({ key = "rule-field-" .. rule.id .. "-" .. spec.key, gap = 3, width = 210 }, {
+			ui.label({ text = spec.label, fontSize = 10, color = disabled and "outline" or "on_surface_variant" }),
+			ruleFieldControl(rule, spec, disabled),
+		}))
+	end
+	local values = rule.values or {}
+	local summary = values.app_id or values.class or values.title or values.content_type or tr("rule.matcher_required")
+	return ui.column({
+		key = "window-rule-" .. rule.id,
+		gap = 9,
+		padding = 10,
+		radius = 9,
+		fill = "surface_variant",
+		border = draft and "primary" or "outline",
+		borderWidth = 1,
+		align = "stretch",
+	}, {
+		ui.row({ gap = 6, align = "center" }, {
+			ui.label({ text = tr("rule.rule") .. " " .. tostring(index), fontWeight = "bold" }),
+			ui.label({ text = tostring(summary), color = "on_surface_variant", flexGrow = 1, maxLines = 1 }),
+			ui.button({ glyph = "arrow-up", variant = "ghost", enabled = index > 1, onClick = function()
+				windowRuleDrafts = { [rule.id] = { id = rule.id, op = "move", direction = -1 } }
+				status = "dirty"
+				render()
+			end }),
+			ui.button({ glyph = "arrow-down", variant = "ghost", enabled = index < count, onClick = function()
+				windowRuleDrafts = { [rule.id] = { id = rule.id, op = "move", direction = 1 } }
+				status = "dirty"
+				render()
+			end }),
+			ui.button({ glyph = "copy", variant = "ghost", tooltip = tr("action.duplicate"), onClick = function()
+				newWindowRuleSerial += 1
+				local id = "new-rule:" .. tostring(newWindowRuleSerial)
+				local copied = {}
+				for _, spec in ipairs(ruleFieldSpecs) do
+					local current = ruleValue(rule, spec.key)
+					if current ~= nil then copied[spec.key] = current end
+				end
+				windowRuleDrafts[id] = { id = id, op = "add", values = copied }
+				status = "dirty"
+				render()
+			end }),
+			ui.button({ glyph = "trash", variant = "ghost", tooltip = tr("action.delete"), onClick = function()
+				if tostring(rule.id):sub(1, 9) == "new-rule:" then
+					windowRuleDrafts[rule.id] = nil
+				else
+					windowRuleDrafts[rule.id] = { id = rule.id, op = "delete" }
+				end
+				status = hasDrafts() and "dirty" or "ready"
+				render()
+			end }),
+		}),
+		ui.row({ gap = 8, wrap = true, align = "start" }, fields),
+		contentTypeOnly and ui.label({ text = tr("rule.content_type_limited"), color = "tertiary", fontSize = 10, maxLines = 3 }) or ui.spacer({ height = 0 }),
+	})
+end
+
+local function rulesView()
+	local children = { sectionTitle(tr("rule.title"), tr("rule.description")) }
+	for _, field in ipairs(snapshot.fields or {}) do
+		if field.category == "rules" then
+			table.insert(children, fieldCard(field))
+		end
+	end
+	table.insert(children, ui.separator({}))
+	table.insert(children, ui.row({ gap = 8, align = "center" }, {
+		ui.label({ text = tr("rule.window_rules"), fontWeight = "bold", flexGrow = 1 }),
+		ui.button({ text = tr("rule.add"), glyph = "plus", variant = "outline", onClick = function()
+			newWindowRuleSerial += 1
+			local id = "new-rule:" .. tostring(newWindowRuleSerial)
+			windowRuleDrafts[id] = { id = id, op = "add", values = { app_id = "" } }
+			status = "dirty"
+			render()
+		end }),
+	}))
+	local rules = {}
+	for _, rule in ipairs(snapshot.window_rules or {}) do table.insert(rules, rule) end
+	for id, draft in pairs(windowRuleDrafts) do
+		if tostring(id):sub(1, 9) == "new-rule:" then table.insert(rules, draft) end
+	end
+	if #rules == 0 then
+		table.insert(children, ui.label({ text = tr("rule.empty"), color = "on_surface_variant" }))
+	else
+		for index, rule in ipairs(rules) do table.insert(children, ruleCard(rule, index, #rules)) end
+	end
+	return ui.scroll({ flexGrow = 1, gap = 12, align = "stretch" }, children)
+end
+
 local function categoryView()
 	local children = {
 		sectionTitle(activeCategory:sub(1, 1):upper() .. activeCategory:sub(2), tr("category." .. activeCategory)),
@@ -1187,10 +1690,21 @@ local function categoryView()
 		table.insert(children, typographyTargets())
 	end
 	local found = false
+	local stackingHeading = false
 	for _, field in ipairs(snapshot.fields or {}) do
 		if field.category == activeCategory then
+			if activeCategory == "layouts" and tostring(field.id):sub(1, 21) == "layout.options.float." and not stackingHeading then
+				table.insert(children, ui.separator({}))
+				table.insert(children, ui.label({ text = tr("stacking.title"), fontWeight = "bold" }))
+				stackingHeading = true
+			end
 			table.insert(children, fieldCard(field))
 			found = true
+		end
+	end
+	if activeCategory == "layouts" then
+		for _, child in ipairs(snapZonesView()) do
+			table.insert(children, child)
 		end
 	end
 	if not found then
@@ -1446,6 +1960,8 @@ render = function()
 		body = displaysView()
 	elseif activeCategory == "keybinds" then
 		body = keybindsView()
+	elseif activeCategory == "rules" then
+		body = rulesView()
 	elseif activeCategory == "advanced" then
 		body = advancedView()
 	else

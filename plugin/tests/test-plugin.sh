@@ -14,6 +14,7 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 manifest = tomllib.loads((root / "plugin.toml").read_text())
 assert manifest["id"] == "aqueous/settings"
+assert manifest["version"] == "0.3.0"
 assert manifest["min_noctalia"] == "5.0.0"
 assert manifest["plugin_api"] == 9
 assert manifest["widget"][0]["entry"] == "widget.luau"
@@ -45,6 +46,10 @@ for key in (
     "typography.target.noctalia",
     "typography.target.qt6ct",
     "status.typography_applied",
+    "stacking.normalize",
+    "snap_zone.title",
+    "rule.window_rules",
+    "error.helper_incompatible",
 ):
     assert key in translations, key
 
@@ -77,6 +82,14 @@ for feature in (
     'local families = typography.families or {}',
     'return selectControl(field, value, families)',
     'typographyTargets',
+    'MIN_HELPER_VERSION = "0.3.0"',
+    'value = "stacking", label = "Stacking"',
+    'snap_zone_changes',
+    'window_rule_changes',
+    'normalize_stacking',
+    'snapZonesView',
+    'rulesView',
+    'addCustomKeybind',
 ):
     assert feature in panel, feature
 PY
@@ -88,7 +101,9 @@ import tomllib
 
 catalog = tomllib.loads(pathlib.Path(sys.argv[1]).read_text())
 assert catalog["plugin"][0]["id"] == "aqueous/settings"
+assert catalog["plugin"][0]["version"] == "0.3.0"
 assert catalog["plugin"][0]["plugin_api"] == 9
+assert "aqueousctl" in catalog["plugin"][0]["dependencies"]
 PY
 
 noctalia plugins lint "$runtime"

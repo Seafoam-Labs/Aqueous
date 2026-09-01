@@ -4,11 +4,11 @@
 [[plugin]]
 id = "aqueous/settings"
 name = "Aqueous Settings"
-version = "0.1.0"
+version = "0.3.0"
 author = "Seafoam Labs"
 license = "GPL-3.0-only"
 icon = "adjustments-horizontal"
 description = "Configure the Aqueous compositor from a native Noctalia flyout."
 plugin_api = 9
 tags = ["aqueous", "compositor", "settings"]
-dependencies = ["aqueous-config"]
+dependencies = ["aqueous-config", "aqueousctl"]

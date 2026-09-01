@@ -4,7 +4,10 @@ A native Noctalia v5 flyout for configuring the Aqueous compositor.
 
 The plugin adds an **Aqueous** bar widget. Clicking it opens an attached,
 theme-native panel with typed controls for effects, layouts, input, display
-policy, desktop typography, Game Mode, and built-in action commands. The Displays page includes a
+policy, desktop typography, Game Mode, stacking snap zones and window rules,
+and built-in action commands. Legacy `float`, `floating`, and `stack` layout
+names are shown as one canonical **Stacking** choice and remain safely editable.
+The Displays page includes a
 visual monitor canvas: drag monitor cards relative to one another, select
 their rotation or flipped orientation, and use exact X/Y fields when needed.
 The canvas uses a common scale, so monitor rectangles reflect their relative
@@ -21,7 +24,8 @@ commands are all editable.
 The **Keybinds** page lists all built-in Aqueous shortcuts, including actions
 that are currently unbound. A shortcut field accepts comma-separated chords.
 Configured `[keybinds.custom]` entries expose both their chord and command, and
-the action-command section controls the commands invoked by launcher, terminal,
+may be added or removed directly; snap-zone commands have a ready-made preset.
+The action-command section controls the commands invoked by launcher, terminal,
 screenshot, and lock bindings.
 
 The **Appearance** page owns a desktop font family and point size in
@@ -45,6 +49,8 @@ This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 - `tests/` — document/protocol fixtures and Noctalia manifest checks.
 - `packaging/` — system and local-development installation helpers.
 - `PLAN.md` — the design and milestone record that drove the implementation.
+- `STACKING_SETTINGS_PLAN.md` — the compatibility, UI, rule-editor, and test
+  plan for complete stacking-layout settings coverage.
 
 The helper reuses Aqueous's existing settings document backend. It resolves the
 same environment/XDG/sidecar paths, preserves comments and unrelated text,
