@@ -10,11 +10,25 @@ const types = @import("types.zig");
 pub const maximized_band: i32 = 100;
 pub const floating_band: i32 = 200;
 pub const transient_band: i32 = 300;
+pub const below_band: i32 = -200;
+pub const above_band: i32 = 350;
 pub const fullscreen_band: i32 = 400;
 
 pub fn floatingZ(parent_depth: u32) i32 {
     if (parent_depth == 0) return floating_band;
     return transient_band + @as(i32, @intCast(@min(parent_depth, 99)));
+}
+
+/// Resolve a window's compositor-wide layer after its layout has supplied a
+/// local z-order. Transient depth is a constraint within the selected layer,
+/// not a global band that can overtake an unrelated always-above window.
+pub fn layeredZ(local_z: i32, layer: types.StackLayer, parent_depth: u32) i32 {
+    const depth: i32 = @intCast(@min(parent_depth, 49));
+    return switch (layer) {
+        .below => below_band + depth,
+        .normal => if (parent_depth == 0) local_z else transient_band + depth,
+        .above => above_band + depth,
+    };
 }
 
 pub fn lessThan(_: void, left: types.Placement, right: types.Placement) bool {
@@ -102,6 +116,13 @@ test "persistent raise order wins within a floating band" {
     std.mem.sort(types.Placement, &placements, {}, lessThan);
     try std.testing.expectEqual(@as(types.Handle, 20), placements[0].handle);
     try std.testing.expectEqual(@as(types.Handle, 10), placements[1].handle);
+}
+
+test "semantic layers retain transient constraints below fullscreen" {
+    try std.testing.expect(layeredZ(1, .below, 2) < layeredZ(1, .normal, 0));
+    try std.testing.expect(layeredZ(1, .normal, 2) < layeredZ(1, .above, 0));
+    try std.testing.expect(layeredZ(1, .above, 30) < fullscreen_band);
+    try std.testing.expect(layeredZ(1, .above, 2) > layeredZ(1, .above, 1));
 }
 
 test "transient depth follows parent chains and bounds cycles" {

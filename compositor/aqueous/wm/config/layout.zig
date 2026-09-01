@@ -19,6 +19,7 @@ pub const LayoutId = enum {
 
 pub const layout_count = std.meta.fields(LayoutId).len;
 pub const max_composable_regions = 4;
+pub const max_snap_zones = 4;
 
 /// Normalized coordinate in the strut-adjusted usable output area.
 pub const Point = struct {
@@ -56,6 +57,20 @@ pub const CompositeRegion = struct {
     }
 };
 
+pub const SnapZone = struct {
+    x: f64 = 0,
+    y: f64 = 0,
+    width: f64 = 0,
+    height: f64 = 0,
+    set: [4]bool = .{ false, false, false, false },
+
+    pub fn valid(zone: SnapZone) bool {
+        if (!std.math.isFinite(zone.x) or !std.math.isFinite(zone.y) or !std.math.isFinite(zone.width) or !std.math.isFinite(zone.height)) return false;
+        return zone.width > 0 and zone.height > 0 and zone.x >= 0 and zone.y >= 0 and zone.x + zone.width <= 1 and zone.y + zone.height <= 1 and
+            zone.set[0] and zone.set[1] and zone.set[2] and zone.set[3];
+    }
+};
+
 pub const Snapshot = struct {
     default: LayoutId = .tile,
     slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
@@ -66,6 +81,7 @@ pub const Snapshot = struct {
         .urgent = 0xFFBF616A,
     } }} ** layout_count,
     composable: [max_composable_regions]CompositeRegion = .{ .{}, .{}, .{}, .{} },
+    snap_zones: [max_snap_zones]SnapZone = .{ .{}, .{}, .{}, .{} },
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
@@ -112,6 +128,7 @@ const Section = union(enum) {
     slots,
     options: LayoutId,
     composable: usize,
+    snap_zone: usize,
 };
 
 /// Apply a validated TOML overlay to a snapshot. Unknown sections and keys are
@@ -136,6 +153,7 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
             .slots => applySlot(snapshot, key, value),
             .options => |id| applyOptions(snapshot, id, key, value),
             .composable => |index| applyComposable(&snapshot.composable[index], key, value),
+            .snap_zone => |index| applySnapZone(&snapshot.snap_zones[index], key, value),
         }
     }
 }
@@ -154,7 +172,32 @@ fn parseSection(name: []const u8) Section {
     if (std.mem.startsWith(u8, name, prefix)) {
         if (parseLayoutId(name[prefix.len..])) |id| return .{ .options = id };
     }
+    inline for (.{ "layout.snap-zone.", "layout.snap_zone." }) |zone_prefix| if (std.mem.startsWith(u8, name, zone_prefix)) {
+        const slot = name[zone_prefix.len..];
+        if (slot.len == 1 and slot[0] >= 'a' and slot[0] <= 'd') return .{ .snap_zone = slot[0] - 'a' };
+    };
     return .none;
+}
+
+fn applySnapZone(zone: *SnapZone, key: []const u8, value: []const u8) void {
+    const parsed = std.fmt.parseFloat(f64, unquote(value)) catch return;
+    if (!std.math.isFinite(parsed)) return;
+    if (std.mem.eql(u8, key, "x") and parsed >= 0 and parsed <= 1) {
+        zone.x = parsed;
+        zone.set[0] = true;
+    }
+    if (std.mem.eql(u8, key, "y") and parsed >= 0 and parsed <= 1) {
+        zone.y = parsed;
+        zone.set[1] = true;
+    }
+    if (std.mem.eql(u8, key, "width") and parsed > 0 and parsed <= 1) {
+        zone.width = parsed;
+        zone.set[2] = true;
+    }
+    if (std.mem.eql(u8, key, "height") and parsed > 0 and parsed <= 1) {
+        zone.height = parsed;
+        zone.set[3] = true;
+    }
 }
 
 fn applyComposable(region: *CompositeRegion, key: []const u8, value: []const u8) void {
@@ -219,6 +262,19 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "hide_others")) snapshot.monocle_hide_others = parseBool(plain) orelse snapshot.monocle_hide_others;
             if (std.mem.eql(u8, key, "show_borders")) snapshot.monocle_show_borders = parseBool(plain) orelse snapshot.monocle_show_borders;
         },
+        .floating => {
+            if (std.mem.eql(u8, key, "placement")) {
+                if (parseFloatingPlacement(plain)) |placement| snapshot.options[@intFromEnum(id)].floating_placement = placement;
+            }
+            if (std.mem.eql(u8, key, "cascade_step")) snapshot.options[@intFromEnum(id)].floating_cascade_step = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_cascade_step;
+            if (std.mem.eql(u8, key, "move_step")) snapshot.options[@intFromEnum(id)].floating_move_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step;
+            if (std.mem.eql(u8, key, "move_step_coarse")) snapshot.options[@intFromEnum(id)].floating_move_step_coarse = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step_coarse;
+            if (std.mem.eql(u8, key, "resize_step")) snapshot.options[@intFromEnum(id)].floating_resize_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_resize_step;
+            if (std.mem.eql(u8, key, "snap_gap")) snapshot.options[@intFromEnum(id)].floating_snap_gap = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_snap_gap;
+            if (std.mem.eql(u8, key, "snap_threshold")) snapshot.options[@intFromEnum(id)].floating_snap_threshold = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_snap_threshold;
+            if (std.mem.eql(u8, key, "resistance")) snapshot.options[@intFromEnum(id)].floating_resistance = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_resistance;
+            if (std.mem.eql(u8, key, "top_edge_maximize")) snapshot.options[@intFromEnum(id)].floating_top_edge_maximize = parseBool(plain) orelse snapshot.options[@intFromEnum(id)].floating_top_edge_maximize;
+        },
         else => {},
     }
 }
@@ -245,9 +301,17 @@ fn parseLayoutId(value: []const u8) ?LayoutId {
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
     if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
-    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
+    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating") or std.mem.eql(u8, value, "stack") or std.mem.eql(u8, value, "stacking")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
     if (std.mem.eql(u8, value, "composable")) return .composable;
+    return null;
+}
+
+fn parseFloatingPlacement(value: []const u8) ?types.FloatingPlacement {
+    if (std.mem.eql(u8, value, "cascade")) return .cascade;
+    if (std.mem.eql(u8, value, "center") or std.mem.eql(u8, value, "centred")) return .center;
+    if (std.mem.eql(u8, value, "under-pointer") or std.mem.eql(u8, value, "under_pointer") or std.mem.eql(u8, value, "cursor")) return .under_pointer;
+    if (std.mem.eql(u8, value, "minimal-overlap") or std.mem.eql(u8, value, "minimal_overlap")) return .minimal_overlap;
     return null;
 }
 
@@ -276,6 +340,11 @@ fn regionsOverlap(a: CompositeRegion, b: CompositeRegion) bool {
 fn parseNonNegative(value: []const u8) ?i32 {
     const result = std.fmt.parseInt(i32, value, 10) catch return null;
     return if (result >= 0) result else null;
+}
+
+fn parsePositive(value: []const u8) ?i32 {
+    const result = std.fmt.parseInt(i32, value, 10) catch return null;
+    return if (result > 0) result else null;
 }
 
 fn parseRatio(value: []const u8) ?f64 {
@@ -322,6 +391,16 @@ test "layout config parses defaults, aliases, extras, and colors" {
         \\[layout.options.reverse-dwindle]
         \\split_ratio = "0.3"
         \\start_axis = "horizontal"
+        \\[layout.options.stacking]
+        \\placement = "minimal-overlap"
+        \\cascade_step = 48
+        \\move_step = 12
+        \\move_step_coarse = 60
+        \\resize_step = 14
+        \\snap_gap = 6
+        \\snap_threshold = 22
+        \\resistance = 9
+        \\top_edge_maximize = false
     );
     try std.testing.expectEqual(LayoutId.game_mode, snapshot.default);
     try std.testing.expectEqual(@as(i32, 12), snapshot.layoutOptions(.tile).gaps_outer);
@@ -334,6 +413,15 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expect(!snapshot.dwindle_start_vertical);
     try std.testing.expectEqual(@as(f64, 0.3), snapshot.reverse_dwindle_split_ratio);
     try std.testing.expect(!snapshot.reverse_dwindle_start_vertical);
+    try std.testing.expectEqual(types.FloatingPlacement.minimal_overlap, snapshot.layoutOptions(.floating).floating_placement);
+    try std.testing.expectEqual(@as(i32, 48), snapshot.layoutOptions(.floating).floating_cascade_step);
+    try std.testing.expectEqual(@as(i32, 12), snapshot.layoutOptions(.floating).floating_move_step);
+    try std.testing.expectEqual(@as(i32, 60), snapshot.layoutOptions(.floating).floating_move_step_coarse);
+    try std.testing.expectEqual(@as(i32, 14), snapshot.layoutOptions(.floating).floating_resize_step);
+    try std.testing.expectEqual(@as(i32, 6), snapshot.layoutOptions(.floating).floating_snap_gap);
+    try std.testing.expectEqual(@as(i32, 22), snapshot.layoutOptions(.floating).floating_snap_threshold);
+    try std.testing.expectEqual(@as(i32, 9), snapshot.layoutOptions(.floating).floating_resistance);
+    try std.testing.expect(!snapshot.layoutOptions(.floating).floating_top_edge_maximize);
 }
 
 test "reverse dwindle accepts canonical and underscore layout ids" {
@@ -371,6 +459,24 @@ test "scrolling focus delay rejects negative and malformed overlays" {
         \\focus_follows_mouse_delay_ms = "soon"
     );
     try std.testing.expectEqual(@as(i32, 175), snapshot.scrolling_focus_follows_mouse_delay_ms);
+}
+
+test "normalized snap zones validate independently" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout.snap-zone.a]
+        \\x = 0.1
+        \\y = 0.2
+        \\width = 0.4
+        \\height = 0.6
+        \\[layout.snap_zone.b]
+        \\x = 0.8
+        \\y = 0.0
+        \\width = 0.4
+        \\height = 1.0
+    );
+    try std.testing.expect(snapshot.snap_zones[0].valid());
+    try std.testing.expect(!snapshot.snap_zones[1].valid());
 }
 
 test "scrolling portrait placement preference parses booleans and malformed values retain validated base" {

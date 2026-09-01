@@ -75,8 +75,8 @@ pub const Field = struct {
     advanced: bool = false,
 };
 
-const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "game-mode", "composable" };
-const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float" };
+const layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "stacking", "game-mode", "composable" };
+const game_mode_child_layouts = &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "float", "stacking" };
 const accel_profiles = &.{ "flat", "adaptive" };
 const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
@@ -133,9 +133,20 @@ pub const fields = [_]Field{
     s("layout.options.reverse-dwindle.start_axis", .layouts, "Reverse dwindle start axis", "Direction of the first mirrored recursive split.", .layout, "layout.options.reverse-dwindle", "start_axis", "vertical", &.{ "vertical", "horizontal" }),
     b("layout.options.monocle.hide_others", .layouts, "Hide monocle stack", "Hide non-focused windows in monocle.", .layout, "layout.options.monocle", "hide_others", true),
     b("layout.options.monocle.show_borders", .layouts, "Monocle border", "Draw the configured border in monocle.", .layout, "layout.options.monocle", "show_borders", false),
+    s("layout.options.float.placement", .layouts, "Stacking placement", "Policy used for newly opened freeform windows.", .layout, "layout.options.float", "placement", "cascade", &.{ "cascade", "center", "under-pointer", "minimal-overlap" }),
+    f("layout.options.float.cascade_step", .layouts, "Cascade step", "Pixel offset between cascaded arrivals.", .layout, "layout.options.float", "cascade_step", .integer, "32", 0, 512),
+    f("layout.options.float.move_step", .layouts, "Keyboard move step", "Pixels per fine keyboard movement.", .layout, "layout.options.float", "move_step", .integer, "10", 1, 512),
+    f("layout.options.float.move_step_coarse", .layouts, "Coarse move step", "Pixels per coarse keyboard movement.", .layout, "layout.options.float", "move_step_coarse", .integer, "50", 1, 2048),
+    f("layout.options.float.resize_step", .layouts, "Keyboard resize step", "Pixels per edge-anchored keyboard resize.", .layout, "layout.options.float", "resize_step", .integer, "10", 1, 512),
+    f("layout.options.float.snap_gap", .layouts, "Snap gap", "Inset around committed snap regions.", .layout, "layout.options.float", "snap_gap", .integer, "0", 0, 512),
+    f("layout.options.float.snap_threshold", .layouts, "Snap threshold", "Pointer distance from an output edge which activates snapping.", .layout, "layout.options.float", "snap_threshold", .integer, "24", 0, 512),
+    f("layout.options.float.resistance", .layouts, "Edge resistance", "Window/output edge attraction distance.", .layout, "layout.options.float", "resistance", .integer, "12", 0, 512),
+    b("layout.options.float.top_edge_maximize", .layouts, "Top edge maximizes", "Use the full usable area when a window reaches the top edge.", .layout, "layout.options.float", "top_edge_maximize", true),
 
     b("input.focus_follows_mouse", .input, "Focus follows pointer", "Focus a window when the pointer enters it.", .input, "input", "focus_follows_mouse", false),
     b("input.focus_new_windows", .input, "Focus new windows", "Give keyboard focus to a newly opened focusable window.", .input, "input", "focus_new_windows", false),
+    b("input.raise_on_focus", .input, "Raise focused windows", "Raise a freeform window when it receives focus.", .input, "input", "raise_on_focus", true),
+    f("input.raise_on_focus_delay_ms", .input, "Focus raise delay", "Milliseconds to wait before raising a newly focused freeform window.", .input, "input", "raise_on_focus_delay_ms", .integer, "0", 0, 10000),
     b("input.pointer_acceleration", .input, "Pointer acceleration", "Select adaptive pointer acceleration globally.", .input, "input", "pointer_acceleration", false),
     f("input.pointer_acceleration_factor", .input, "Pointer speed", "Global libinput pointer speed.", .input, "input", "pointer_acceleration_factor", .double, "0.0", -1, 1),
     t("input.xkb_layout", .input, "Keyboard layout", "Comma-separated XKB layout names.", .input, "input", "xkb_layout", "us"),
@@ -229,6 +240,32 @@ pub const fields = [_]Field{
     k("toggle_maximize", "Super+Shift+M"),
     k("toggle_scrolling_full_width", "Super+Shift+Z"),
     k("toggle_floating", "Super+Shift+Space"),
+    k("raise_window", ""),
+    k("lower_window", ""),
+    k("toggle_always_above", ""),
+    k("toggle_always_below", ""),
+    k("nudge_floating_left", ""),
+    k("nudge_floating_right", ""),
+    k("nudge_floating_up", ""),
+    k("nudge_floating_down", ""),
+    k("nudge_floating_coarse_left", ""),
+    k("nudge_floating_coarse_right", ""),
+    k("nudge_floating_coarse_up", ""),
+    k("nudge_floating_coarse_down", ""),
+    k("resize_floating_left", ""),
+    k("resize_floating_right", ""),
+    k("resize_floating_up", ""),
+    k("resize_floating_down", ""),
+    k("snap_left", ""),
+    k("snap_right", ""),
+    k("snap_up_left", ""),
+    k("snap_up_right", ""),
+    k("snap_down_left", ""),
+    k("snap_down_right", ""),
+    k("unsnap", ""),
+    k("fit_floating_to_output", ""),
+    k("toggle_maximize_horizontal", ""),
+    k("toggle_maximize_vertical", ""),
     k("toggle_minimize", "Super+N"),
     k("unminimize_last", "Super+Shift+N"),
     k("lock_screen", "Super+Ctrl+L"),

@@ -199,6 +199,27 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "overlay_plane")) {
         rule.overlay_plane = Engine.OverlayPreference.parse(value) orelse rule.overlay_plane;
     }
+    if (std.mem.eql(u8, key, "stack_layer") or std.mem.eql(u8, key, "layer")) rule.stack_layer = parseStackLayer(value) orelse rule.stack_layer;
+    if (std.mem.eql(u8, key, "placement_policy")) rule.placement_policy = parsePlacementPolicy(value) orelse rule.placement_policy;
+    if (std.mem.eql(u8, key, "focus")) rule.focus = parseBool(value) orelse rule.focus;
+    if (std.mem.eql(u8, key, "fixed_position")) rule.fixed_position = parseBool(value) orelse rule.fixed_position;
+    if (std.mem.eql(u8, key, "skip_switcher")) rule.skip_switcher = parseBool(value) orelse rule.skip_switcher;
+    if (std.mem.eql(u8, key, "skip_taskbar")) rule.skip_taskbar = parseBool(value) orelse rule.skip_taskbar;
+}
+
+fn parseStackLayer(value: []const u8) ?Engine.StackLayer {
+    if (std.mem.eql(u8, value, "below")) return .below;
+    if (std.mem.eql(u8, value, "normal")) return .normal;
+    if (std.mem.eql(u8, value, "above") or std.mem.eql(u8, value, "always-above")) return .above;
+    return null;
+}
+
+fn parsePlacementPolicy(value: []const u8) ?Engine.PlacementPolicy {
+    if (std.mem.eql(u8, value, "cascade")) return .cascade;
+    if (std.mem.eql(u8, value, "center")) return .center;
+    if (std.mem.eql(u8, value, "under-pointer") or std.mem.eql(u8, value, "cursor")) return .under_pointer;
+    if (std.mem.eql(u8, value, "minimal-overlap")) return .minimal_overlap;
+    return null;
 }
 
 fn applyLayerValue(rule: *Engine.LayerRule, key: []const u8, value: []const u8) void {
@@ -219,7 +240,7 @@ fn parseLayout(value: []const u8) ?Engine.Layout {
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
     if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
-    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
+    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating") or std.mem.eql(u8, value, "stack") or std.mem.eql(u8, value, "stacking")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
     if (std.mem.eql(u8, value, "composable")) return .composable;
     return null;
@@ -306,6 +327,12 @@ test "rules parser preserves order and parses native placement behavior" {
         \\buffer_scale_policy = "integer-ceil"
         \\hdr_expand = false
         \\overlay_plane = "prefer"
+        \\stack_layer = "above"
+        \\placement_policy = "minimal-overlap"
+        \\focus = false
+        \\fixed_position = true
+        \\skip_switcher = true
+        \\skip_taskbar = true
         \\[[window]]
         \\title = "Dialog #1"
         \\layout = "float"
@@ -326,6 +353,10 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
     try std.testing.expectEqual(Engine.OverlayPreference.prefer, game.overlay_plane);
+    try std.testing.expectEqual(Engine.StackLayer.above, game.stack_layer.?);
+    try std.testing.expectEqual(Engine.PlacementPolicy.minimal_overlap, game.placement_policy.?);
+    try std.testing.expectEqual(@as(?bool, false), game.focus);
+    try std.testing.expect(game.fixed_position and game.skip_switcher and game.skip_taskbar);
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);

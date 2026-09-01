@@ -12,6 +12,7 @@ const Output = @import("../Output.zig");
 const Seat = @import("../Seat.zig");
 const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
+const geometry = @import("geometry.zig");
 const overview_model = @import("overview/model.zig");
 const output_transfer = @import("input/output_transfer.zig");
 const scaling = @import("scaling");
@@ -80,9 +81,9 @@ pub fn policyState(handle: layout.Handle) ?*Window.PolicyState {
 }
 
 pub fn snapshot(_: CompositorApi) Trace.Snapshot {
-    var geometry = std.hash.Wyhash.init(0);
+    var geometry_hash = std.hash.Wyhash.init(0);
     var window_it = server.wm.windows.iterator();
-    while (window_it.next()) |window| window.policyTrace(&geometry);
+    while (window_it.next()) |window| window.policyTrace(&geometry_hash);
 
     var workspaces = std.hash.Wyhash.init(0);
     var output_it = server.om.outputs.iterator(.forward);
@@ -98,7 +99,7 @@ pub fn snapshot(_: CompositorApi) Trace.Snapshot {
     return .{
         .windows = server.wm.windows.count,
         .rendering_order_hash = server.wm.rendering_requested.order_hash,
-        .geometry_hash = geometry.final(),
+        .geometry_hash = geometry_hash.final(),
         .workspace_hash = workspaces.final(),
         .focus_hash = focus.final(),
     };
@@ -395,6 +396,19 @@ pub fn pointerOutputId(api: CompositorApi) ?u64 {
     ) orelse return null).id;
 }
 
+pub const PointerPosition = struct { x: i32, y: i32 };
+
+pub fn pointerPosition(_: CompositorApi) ?PointerPosition {
+    const cursor = server.input_manager.defaultSeat().cursor.wlr_cursor;
+    if (!std.math.isFinite(cursor.x) or !std.math.isFinite(cursor.y)) return null;
+    const minimum: f64 = @floatFromInt(std.math.minInt(i32));
+    const maximum: f64 = @floatFromInt(std.math.maxInt(i32));
+    return .{
+        .x = @intFromFloat(std.math.clamp(cursor.x, minimum, maximum)),
+        .y = @intFromFloat(std.math.clamp(cursor.y, minimum, maximum)),
+    };
+}
+
 fn outputTarget(output: *Output) OutputTarget {
     const box = output.policyFullBox();
     const usable = output.policyUsableBox();
@@ -515,6 +529,26 @@ pub fn windowAt(_: CompositorApi, x: f64, y: f64) ?struct { handle: layout.Handl
             .geometry = .{ .x = window.box.x, .y = window.box.y, .width = window.box.width, .height = window.box.height },
         },
         else => null,
+    };
+}
+
+pub fn windowConstraints(_: CompositorApi, handle: layout.Handle) geometry.Constraints {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return .{};
+    const hint = window.wm_scheduled.dimensions_hint;
+    return .{
+        .min_width = @intCast(@max(1, hint.min_width)),
+        .min_height = @intCast(@max(1, hint.min_height)),
+        .max_width = @intCast(hint.max_width),
+        .max_height = @intCast(hint.max_height),
+        .base_width = @intCast(hint.base_width),
+        .base_height = @intCast(hint.base_height),
+        .width_inc = @intCast(hint.width_inc),
+        .height_inc = @intCast(hint.height_inc),
+        .min_aspect_num = @intCast(hint.min_aspect_num),
+        .min_aspect_den = @intCast(hint.min_aspect_den),
+        .max_aspect_num = @intCast(hint.max_aspect_num),
+        .max_aspect_den = @intCast(hint.max_aspect_den),
     };
 }
 
@@ -660,6 +694,16 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
                 .min_height = window_snapshot.min_height,
                 .max_width = window_snapshot.max_width,
                 .max_height = window_snapshot.max_height,
+                .base_width = window_snapshot.base_width,
+                .base_height = window_snapshot.base_height,
+                .width_inc = window_snapshot.width_inc,
+                .height_inc = window_snapshot.height_inc,
+                .min_aspect_num = window_snapshot.min_aspect_num,
+                .min_aspect_den = window_snapshot.min_aspect_den,
+                .max_aspect_num = window_snapshot.max_aspect_num,
+                .max_aspect_den = window_snapshot.max_aspect_den,
+                .preferred_width = window_snapshot.preferred_width,
+                .preferred_height = window_snapshot.preferred_height,
             });
         }
         const identity = output.policyIdentity();
@@ -856,6 +900,26 @@ pub fn windowGeometry(_: CompositorApi, handle: layout.Handle) ?layout.Rect {
     const window = ref.get() orelse return null;
     if (window.box.width <= 0 or window.box.height <= 0) return null;
     return .{ .x = window.box.x, .y = window.box.y, .width = window.box.width, .height = window.box.height };
+}
+
+pub fn attractToWindowEdges(_: CompositorApi, handle: layout.Handle, rect: layout.Rect, threshold: i32) layout.Rect {
+    if (threshold <= 0) return rect;
+    const ref: Window.Ref = @bitCast(handle);
+    const origin = ref.get() orelse return rect;
+    const workspace = origin.workspace orelse return rect;
+    var result = rect;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |candidate| {
+        if (candidate == origin or candidate.workspace != workspace or candidate.state != .mapped) continue;
+        if (!candidate.policy_state.isVisible()) continue;
+        result = geometry.attractToRect(result, .{
+            .x = candidate.box.x,
+            .y = candidate.box.y,
+            .width = candidate.box.width,
+            .height = candidate.box.height,
+        }, threshold);
+    }
+    return result;
 }
 
 pub const RulePlacementResult = enum { unchanged, changed, unavailable };

@@ -50,7 +50,7 @@ gaps_inner = 8             # integer >= 0
 #
 # Layout/state:
 #   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
-#                   reverse_dwindle | scrolling | float | floating |
+#                   reverse_dwindle | scrolling | float | floating | stack | stacking |
 #                   game-mode | game_mode | composable
 #   output          exact enabled connector name from `aqueousctl outputs`;
 #                   without workspace, uses that output's active workspace
@@ -60,10 +60,16 @@ gaps_inner = 8             # integer >= 0
 #                   layout (layout="float" also sets floating=true)
 #   fullscreen      true/false
 #   ignore_struts   true/false; use the full output instead of panel struts
+#   stack_layer     below | normal | above
+#   focus           true/false; false excludes the window from focus actions
+#   fixed_position  true/false; reject pointer and keyboard geometry changes
+#   skip_switcher   true/false; omit from MRU cycling and overview
+#   skip_taskbar    true/false; exported through window-info state
 #
 # Floating placement:
 #   width, height   positive pixel sizes; 0/invalid means automatic
 #   x, y            offsets from the usable area's origin; 0 means centered
+#   placement_policy cascade | center | under-pointer | minimal-overlap
 #
 # Game Mode placement:
 #   anchor          center | top | bottom | left | right

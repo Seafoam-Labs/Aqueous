@@ -414,6 +414,12 @@ fn sendSnapshot(
         .maximized = snapshot.maximized,
         .minimized = snapshot.minimized,
         .visible = snapshot.visible,
+        .always_above = snapshot.always_above,
+        .always_below = snapshot.always_below,
+        .snapped = snapshot.snapped,
+        .fixed_position = snapshot.fixed_position,
+        .skip_switcher = snapshot.skip_switcher,
+        .skip_taskbar = snapshot.skip_taskbar,
     });
     info.sendLayout(snapshot.layout.ptr);
     // Content-type reporting was added with manager version 4; older clients

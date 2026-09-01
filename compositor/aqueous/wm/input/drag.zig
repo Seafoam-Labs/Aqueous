@@ -4,19 +4,11 @@
 const std = @import("std");
 const PolicyState = @import("../state/PolicyState.zig");
 const types = @import("../layout/types.zig");
+const geometry_policy = @import("../geometry.zig");
 
 pub const Action = enum { move_floating, resize_floating, resize_scrolling, swap_tiled };
 
-pub const ResizeEdges = struct {
-    top: bool = false,
-    bottom: bool = false,
-    left: bool = false,
-    right: bool = false,
-
-    pub fn any(edges: ResizeEdges) bool {
-        return edges.top or edges.bottom or edges.left or edges.right;
-    }
-};
+pub const ResizeEdges = geometry_policy.ResizeEdges;
 
 pub const double_click_msec: u32 = 400;
 pub const click_motion_tolerance: f64 = 4;
@@ -72,32 +64,12 @@ pub fn action(
     return if (button == 0x111) .resize_floating else .move_floating;
 }
 
-/// Resolve an edge-anchored interactive resize. Client constraints and output
-/// bounds are intentionally applied by later geometry milestones; this helper
-/// guarantees a valid positive rectangle while preserving the requested edge.
 pub fn resize(start: types.Rect, dx: i32, dy: i32, edges: ResizeEdges) types.Rect {
-    var result = start;
-    if (edges.left) {
-        result.x = start.x + dx;
-        result.width = start.width - dx;
-        if (result.width < 1) {
-            result.x = start.right() - 1;
-            result.width = 1;
-        }
-    } else if (edges.right) {
-        result.width = @max(1, start.width + dx);
-    }
-    if (edges.top) {
-        result.y = start.y + dy;
-        result.height = start.height - dy;
-        if (result.height < 1) {
-            result.y = start.bottom() - 1;
-            result.height = 1;
-        }
-    } else if (edges.bottom) {
-        result.height = @max(1, start.height + dy);
-    }
-    return result;
+    return geometry_policy.resize(start, dx, dy, edges, .{});
+}
+
+pub fn resizeConstrained(start: types.Rect, dx: i32, dy: i32, edges: ResizeEdges, constraints: geometry_policy.Constraints) types.Rect {
+    return geometry_policy.resize(start, dx, dy, edges, constraints);
 }
 
 /// Divide a tiled target into vertical stacking zones and horizontal column

@@ -17,8 +17,10 @@ const config_loader = @import("config/loader.zig");
 const action_config = @import("config/actions.zig");
 const layout_engine = @import("layout/engine.zig");
 const game_mode = @import("layout/game_mode.zig");
+const floating_layout = @import("layout/floating.zig");
 const stacking = @import("layout/stacking.zig");
 const layout_types = @import("layout/types.zig");
+const geometry = @import("geometry.zig");
 const FocusHistory = @import("focus/history.zig");
 const PendingFocus = @import("focus/pending.zig");
 const HoverDelay = @import("focus/hover_delay.zig");
@@ -27,6 +29,8 @@ const gesture_input = @import("input/gestures.zig");
 const output_transfer = @import("input/output_transfer.zig");
 const wheel_input = @import("input/wheel.zig");
 const StateStore = @import("state/store.zig");
+const PolicyState = @import("state/PolicyState.zig");
+const WorkspaceStack = @import("state/stack.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
@@ -47,12 +51,15 @@ trace: Trace = .{},
 config: config_loader.Snapshot = .{},
 rules: Rules,
 layout_states: std.AutoHashMapUnmanaged(LayoutStateKey, layout_engine.State) = .empty,
+workspace_stacks: std.AutoHashMapUnmanaged(LayoutStateKey, WorkspaceStack) = .empty,
 layout_overrides: std.AutoHashMapUnmanaged(LayoutStateKey, layout_config.LayoutId) = .empty,
 previous_workspaces: std.AutoHashMapUnmanaged(u64, u32) = .empty,
 fired_exec: std.AutoHashMapUnmanaged(u64, void) = .empty,
 reload_timer: ?*wl.EventSource = null,
 hover_focus_timer: ?*wl.EventSource = null,
+raise_focus_timer: ?*wl.EventSource = null,
 hover_focus: HoverDelay.State = .{},
+pending_raise: ?layout_types.Handle = null,
 globals_applied: bool = false,
 focus_history: FocusHistory,
 pending_focus: PendingFocus,
@@ -66,7 +73,6 @@ started: bool = false,
 drag: ?Drag = null,
 last_scrolling_click: ?ScrollingClick = null,
 untrap_keysym: ?u32 = null,
-next_stack_order: u64 = 1,
 requested_stack_focus: ?layout_types.Handle = null,
 overview: ?overview_model.State = null,
 
@@ -82,6 +88,7 @@ const Drag = struct {
     awaiting_layout: ?layout_types.Handle = null,
     click_eligible: bool = true,
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
+    constraints: geometry.Constraints = .{},
     /// A manual size overrides the full-width preset. Defer clearing its
     /// per-window owner until the pointer actually moves.
     scrolling_expanded_owner: ?layout_types.Handle = null,
@@ -117,6 +124,10 @@ pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapsho
         log.warn("unable to start scrolling pointer-focus delay timer: {}", .{err});
         break :blk null;
     };
+    aqueous.raise_focus_timer = event_loop.addTimer(*Aqueous, handleRaiseFocusTimer, aqueous) catch |err| blk: {
+        log.warn("unable to start delayed focus-raise timer: {}", .{err});
+        break :blk null;
+    };
     log.info("policy mode={s} layout={s}", .{ @tagName(mode), @tagName(aqueous.config.layout.default) });
 }
 
@@ -126,9 +137,13 @@ pub fn deinit(aqueous: *Aqueous) void {
     aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
     if (aqueous.hover_focus_timer) |timer| timer.remove();
+    if (aqueous.raise_focus_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
     while (states.next()) |state| state.deinit(util.gpa);
     aqueous.layout_states.deinit(util.gpa);
+    var stacks = aqueous.workspace_stacks.valueIterator();
+    while (stacks.next()) |stack| stack.deinit(util.gpa);
+    aqueous.workspace_stacks.deinit(util.gpa);
     aqueous.layout_overrides.deinit(util.gpa);
     aqueous.previous_workspaces.deinit(util.gpa);
     aqueous.fired_exec.deinit(util.gpa);
@@ -157,6 +172,7 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
     aqueous.cancelHoverFocus();
+    aqueous.cancelPendingRaise();
     var replacement = config_loader.load(util.gpa);
     if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
         log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
@@ -262,6 +278,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
 
     for (snapshot.outputs) |output| {
         var output_layout = aqueous.config.layout;
+        if (aqueous.api.pointerPosition()) |pointer| {
+            const floating_options = &output_layout.options[@intFromEnum(layout_config.LayoutId.floating)];
+            floating_options.pointer_x = pointer.x;
+            floating_options.pointer_y = pointer.y;
+        }
         if (aqueous.config.wm.resolveOutput(.{ .name = output.name, .make = output.make, .model = output.model, .serial = output.serial })) |configured| output_layout.default = configured;
         if (aqueous.config.wm.resolveWorkspace(output.name, output.workspace_number)) |configured| output_layout.default = configured;
         // Respect both dynamic layer-shell reservations (Noctalia, panels,
@@ -270,6 +291,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         const usable_area = aqueous.effectiveUsableArea(output.area, output.usable_area);
         const workspace_key = workspaceKey(output.id, output.workspace_number);
         const layout_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
+        const stack_entry = try aqueous.workspace_stacks.getOrPut(util.gpa, layout_key);
+        if (!stack_entry.found_existing) stack_entry.value_ptr.* = .{};
+        const workspace_stack = stack_entry.value_ptr;
         if (aqueous.layout_overrides.get(layout_key)) |override| output_layout.default = override;
         var managed: std.ArrayListUnmanaged(layout_types.Window) = .empty;
         defer managed.deinit(util.gpa);
@@ -299,6 +323,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             aqueous.api.ensureWorkspace(window.handle, output.id);
             const effect = aqueous.reconcileWindowRule(
                 window,
+                output.windows,
                 output.id,
                 output.workspace_number,
                 output.area,
@@ -308,7 +333,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             );
             if (pending_new_focus != 0 and window.handle == pending_new_focus) {
                 pending_new_focus_seen = true;
-                if (!admissionFocusEligible(window.accepts_focus, state.kind, effect.workspace_visible)) {
+                if (!admissionFocusEligible(window.accepts_focus and state.focus_allowed, state.kind(), effect.workspace_visible)) {
                     aqueous.pending_new_focus = 0;
                 } else if (!non_window_keyboard_focus) {
                     if (cycle_focus != window.handle) aqueous.requestFocus(window.handle);
@@ -324,7 +349,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 };
                 fullscreen_owner = window.handle;
             }
-            if (state.kind == .minimized) {
+            if (state.kind() == .minimized) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiled = false });
                 continue;
             }
@@ -333,49 +358,55 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .handle = window.handle,
                     .geometry = output.area,
                     .z_order = stacking.fullscreen_band,
-                    .stack_order = aqueous.ensureStackOrder(state),
+                    .stack_order = 0,
                     .visible = true,
                     .border = .none,
                     .tiled = false,
                 });
-                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
                 continue;
             }
-            if (state.kind == .maximized) {
+            if (state.kind() == .maximized) {
                 const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
                 const max_z: i32 = if (aqueous.layoutIsFloating(layout_key)) stacking.floating_band else stacking.maximized_band;
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
                     .geometry = max_area,
                     .z_order = max_z,
-                    .stack_order = aqueous.ensureStackOrder(state),
+                    .stack_order = 0,
                     .visible = true,
                     .border = output_layout.layoutOptions(.floating).border,
                     .tiled = false,
                     .maximized = true,
                 });
-                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
                 continue;
             }
-            if (state.kind == .floating) {
-                var geometry = state.floating_geometry;
-                if (geometry.width <= 0 or geometry.height <= 0) geometry = floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
+            if (state.kind() == .floating) {
+                var floating_rect = state.floating_geometry;
+                if (floating_rect.width <= 0 or floating_rect.height <= 0) floating_rect = aqueous.initialFloatingGeometry(
+                    output.windows,
+                    window,
+                    usable_area,
+                    output_layout.layoutOptions(.floating),
+                    workspace_stack.items.items.len,
+                ) catch floatingPlacement(usable_area, window.handle, .{}, output_layout.layoutOptions(.floating).border).geometry;
                 if (state.needs_output_recovery) {
-                    geometry = output_transfer.recoverGeometry(geometry, usable_area);
-                    state.floating_geometry = geometry;
+                    floating_rect = output_transfer.recoverGeometry(floating_rect, usable_area);
+                    state.floating_geometry = floating_rect;
                     state.needs_output_recovery = false;
                 }
-                if (state.stack_order == 0) new_floats.appendAssumeCapacity(window.handle);
+                if (!workspace_stack.contains(window.handle)) new_floats.appendAssumeCapacity(window.handle);
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
-                    .geometry = geometry,
-                    .z_order = stacking.floatingZ(stacking.transientDepth(output.windows, window)),
-                    .stack_order = aqueous.ensureStackOrder(state),
+                    .geometry = floating_rect,
+                    .z_order = stacking.floating_band,
+                    .stack_order = 0,
                     .visible = true,
                     .border = output_layout.layoutOptions(.floating).border,
                     .tiled = false,
                 });
-                if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
+                if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
                 continue;
             }
             if (rule) |matched| {
@@ -385,7 +416,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 }
             }
             managed.appendAssumeCapacity(window);
-            if (effect.workspace_visible and window.accepts_focus) focusable.appendAssumeCapacity(window);
+            if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
             if (rule != null and rule.?.layout == .game_mode and managed.items.len > 1) {
                 std.mem.swap(layout_types.Window, &managed.items[0], &managed.items[managed.items.len - 1]);
             }
@@ -451,24 +482,36 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         for (placements) |*placement| {
             if (!placement.tiled) {
                 placement.z_order = stacking.floating_band;
-                if (aqueous.window_states.get(placement.handle)) |state| {
-                    if (state.stack_order == 0) new_floats.appendAssumeCapacity(placement.handle);
-                    placement.stack_order = aqueous.ensureStackOrder(state);
-                }
+                if (!workspace_stack.contains(placement.handle)) new_floats.appendAssumeCapacity(placement.handle);
             }
         }
         try requested.appendSlice(util.gpa, placements);
-        aqueous.ensureFocusedPlacementOnTop(requested.items, aqueous.requested_stack_focus orelse cycle_focus);
-        // The focus raise above may have minted a newer order than a
-        // first-time float's admission order. Re-mint those orders so newly
-        // floating windows open above every other window in their band.
+        for (requested.items) |*placement| {
+            if (placement.z_order == stacking.fullscreen_band) continue;
+            const window = findLayoutWindow(output.windows, placement.handle) orelse continue;
+            const state = aqueous.window_states.get(placement.handle) orelse continue;
+            if (state.snap_state != .none) placement.tiled = true;
+            placement.z_order = stacking.layeredZ(
+                placement.z_order,
+                aqueous.effectiveStackLayer(output.windows, window, state.stack_layer),
+                stacking.transientDepth(output.windows, window),
+            );
+        }
+        var visible_handles: std.ArrayListUnmanaged(layout_types.Handle) = .empty;
+        defer visible_handles.deinit(util.gpa);
+        try visible_handles.ensureTotalCapacity(util.gpa, requested.items.len);
+        for (requested.items) |placement| {
+            if (placement.visible) visible_handles.appendAssumeCapacity(placement.handle);
+        }
+        try workspace_stack.sync(util.gpa, visible_handles.items);
+        raiseFocusedPlacement(workspace_stack, requested.items, aqueous.requested_stack_focus);
+        // New freeform presentations open above existing peers even when the
+        // same transaction also raises a previously focused window.
         for (new_floats.items) |handle| {
-            for (requested.items) |*placement| {
-                if (placement.handle != handle) continue;
-                const order = aqueous.takeStackOrder();
-                placement.stack_order = order;
-                if (aqueous.window_states.get(handle)) |state| state.stack_order = order;
-            }
+            _ = workspace_stack.raise(handle);
+        }
+        for (requested.items) |*placement| {
+            placement.stack_order = workspace_stack.rank(placement.handle);
         }
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
         for (requested.items) |*placement| {
@@ -513,6 +556,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         if (aqueous.layout_states.fetchRemove(id)) |removed| {
             var state = removed.value;
             state.deinit(util.gpa);
+        }
+        if (aqueous.workspace_stacks.fetchRemove(id)) |removed| {
+            var stack = removed.value;
+            stack.deinit(util.gpa);
         }
     }
 }
@@ -674,17 +721,18 @@ fn startClientPointerDrag(
 ) void {
     if (aqueous.drag != null) return;
     const state = aqueous.window_states.get(handle) orelse return;
-    const geometry = aqueous.api.windowGeometry(handle) orelse return;
+    if (state.fixed_position) return;
+    const window_rect = aqueous.api.windowGeometry(handle) orelse return;
     const workspace = aqueous.api.windowWorkspace(handle) orelse return;
     const layout_key: LayoutStateKey = .{
         .output = workspace.output_id,
         .workspace = workspace.workspace_number,
     };
     const uses_floating_layout = aqueous.windowUsesFloatingLayout(layout_key, handle);
-    var layout_floating = state.kind == .tiled and uses_floating_layout;
-    var drag_start = geometry;
+    var layout_floating = state.kind() == .tiled and uses_floating_layout;
+    var drag_start = window_rect;
 
-    if (state.kind == .maximized) {
+    if (state.kind() == .maximized) {
         if (action != .move_floating) return;
         const restored_kind = aqueous.window_states.maximizedMoveRestoreKind(
             handle,
@@ -697,15 +745,24 @@ fn startClientPointerDrag(
         } else state.floating_geometry;
         if (normal.width <= 0 or normal.height <= 0) return;
         drag_start = pointer_drag.restoredMoveStart(
-            geometry,
+            window_rect,
             normal,
             pointer.x,
             pointer.y,
         );
-    } else if (state.kind != .floating and !layout_floating) return;
+    } else if (state.kind() != .floating and !layout_floating) return;
+    if (state.snap_state != .none and state.snap_restore_geometry.width > 0 and state.snap_restore_geometry.height > 0) {
+        drag_start = if (action == .move_floating)
+            pointer_drag.restoredMoveStart(window_rect, state.snap_restore_geometry, pointer.x, pointer.y)
+        else
+            state.snap_restore_geometry;
+        state.snap_state = .none;
+        state.custom_snap_zone = std.math.maxInt(u8);
+        if (!aqueous.storeFreeformGeometry(layout_key, handle, state, layout_floating, drag_start)) return;
+    }
     if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
 
-    if (state.kind == .maximized) {
+    if (state.kind() == .maximized) {
         if (layout_floating) {
             const layout_state = aqueous.layout_states.getPtr(layout_key) orelse {
                 aqueous.api.endClientPointerOperation(pointer.seat);
@@ -738,6 +795,7 @@ fn startClientPointerDrag(
         .action = action,
         .layout_key = layout_key,
         .resize_edges = edges,
+        .constraints = aqueous.api.windowConstraints(handle),
         .client_seat = pointer.seat,
         .layout_floating = layout_floating,
     };
@@ -760,17 +818,17 @@ fn finishInvalidInteractiveDrag(
                 if (window.handle != drag.handle) continue;
                 const state = aqueous.window_states.get(drag.handle) orelse break;
                 const layout_floating = drag.layout_floating and
-                    state.kind == .tiled and
+                    state.kind() == .tiled and
                     aqueous.windowUsesFloatingLayout(drag.layout_key, drag.handle);
                 if (drag.action == .swap_tiled or
                     (drag.action == .resize_scrolling and
-                        state.kind == .tiled and
+                        state.kind() == .tiled and
                         !window.fullscreen and
                         if (aqueous.layout_states.get(drag.layout_key)) |layout_state|
                             layout_engine.canResizeScrolling(&layout_state, drag.handle)
                         else
                             false) or
-                    ((state.kind == .floating or layout_floating) and !window.fullscreen))
+                    ((state.kind() == .floating or layout_floating) and !window.fullscreen))
                 {
                     return false;
                 }
@@ -791,20 +849,20 @@ fn finishInvalidInteractiveDrag(
 
 fn recoverRemovedOutputDrag(aqueous: *Aqueous, drag: Drag) bool {
     const state = aqueous.window_states.get(drag.handle) orelse return false;
-    if (state.kind != .floating) return false;
+    if (state.kind() != .floating) return false;
     const target = aqueous.api.outputTargetAt(drag.last_pointer_x, drag.last_pointer_y, true) orelse {
         state.needs_output_recovery = true;
         return false;
     };
     const usable_area = aqueous.effectiveUsableArea(target.area, target.usable_area);
-    const geometry = output_transfer.recoverGeometry(state.floating_geometry, usable_area);
+    const recovered_rect = output_transfer.recoverGeometry(state.floating_geometry, usable_area);
     if (!aqueous.api.moveWindowToWorkspace(drag.handle, target.id, target.workspace_number)) {
         state.needs_output_recovery = true;
         return false;
     }
 
     state.overrideWorkspace();
-    state.floating_geometry = geometry;
+    state.floating_geometry = recovered_rect;
     state.needs_output_recovery = false;
     _ = aqueous.api.selectOutput(target.id);
     aqueous.requestFocus(drag.handle);
@@ -835,8 +893,12 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
     const before = aqueous.api.windowWorkspace(window.handle);
     aqueous.api.moveToParentWorkspace(window.handle);
     const parent_geometry = aqueous.api.windowGeometry(parent) orelse usable_area;
-    const geometry = transient.geometry(usable_area, parent_geometry, window.min_width, window.min_height);
-    _ = aqueous.window_states.setAutomaticFloating(window.handle, geometry);
+    var resolved = transient.geometry(usable_area, parent_geometry, window.min_width, window.min_height);
+    const size = geometry.constrainSize(resolved.width, resolved.height, geometry.Constraints.fromWindow(window), .{});
+    resolved.width = size.width;
+    resolved.height = size.height;
+    resolved = geometry.keepReachable(resolved, usable_area, @min(resolved.width, usable_area.width), @min(resolved.height, usable_area.height));
+    _ = aqueous.window_states.setAutomaticFloating(window.handle, resolved);
     const after = aqueous.api.windowWorkspace(window.handle);
     return !sameWorkspace(before, after);
 }
@@ -859,12 +921,15 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
     aqueous.finishInteractiveDragFor(handle);
     var layouts = aqueous.layout_states.valueIterator();
     while (layouts.next()) |state| layout_engine.forgetWindow(state, handle);
+    var stacks = aqueous.workspace_stacks.valueIterator();
+    while (stacks.next()) |stack| stack.remove(handle);
     aqueous.window_states.remove(handle);
     if (aqueous.last_scrolling_click) |click| {
         if (click.handle == handle) aqueous.last_scrolling_click = null;
     }
     if (aqueous.pending_focus.window == handle) aqueous.pending_focus.clear();
     if (aqueous.pending_new_focus == handle) aqueous.pending_new_focus = 0;
+    if (aqueous.pending_raise == handle) aqueous.cancelPendingRaise();
 }
 
 /// Record a newly admitted normal toplevel for the integrated focus policy.
@@ -954,7 +1019,7 @@ pub fn wheelNavigationAxis(aqueous: *Aqueous, modifiers: u32) ?wheel_input.Navig
         modifiers,
     ) orelse return null;
     const context = aqueous.api.focusedContext() orelse return null;
-    if (context.window.policy_state.kind != .tiled) return null;
+    if (context.window.policy_state.kind() != .tiled) return null;
     const state = aqueous.layout_states.getPtr(.{
         .output = context.output.policyId(),
         .workspace = context.workspace_number,
@@ -1007,11 +1072,12 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     }
     const target = aqueous.api.windowAt(x, y) orelse return false;
     const state = aqueous.window_states.get(target.handle) orelse return false;
+    if (state.fixed_position) return false;
     const workspace = aqueous.api.windowWorkspace(target.handle) orelse return false;
     const layout_key: LayoutStateKey = .{ .output = workspace.output_id, .workspace = workspace.workspace_number };
     const layout_state = aqueous.layout_states.getPtr(layout_key);
     const active_layout = if (layout_state) |value| value.active_layout else aqueous.config.layout.default;
-    if (button == 0x111 and state.kind == .tiled and if (layout_state) |value|
+    if (button == 0x111 and state.kind() == .tiled and if (layout_state) |value|
         layout_engine.isGameAnchor(value, target.handle)
     else
         false)
@@ -1019,19 +1085,32 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         aqueous.requestFocus(target.handle);
         return true;
     }
-    const scrolling_resizable = state.kind == .tiled and if (layout_state) |value|
+    const scrolling_resizable = state.kind() == .tiled and if (layout_state) |value|
         layout_engine.canResizeScrolling(value, target.handle)
     else
         false;
-    const layout_floating = state.kind == .tiled and if (layout_state) |value|
+    const layout_floating = state.kind() == .tiled and if (layout_state) |value|
         layout_engine.usesFloatingLayout(value, target.handle)
     else
         active_layout == .floating;
-    const drag_action = pointer_drag.action(button, state.kind, layout_floating, scrolling_resizable);
+    const drag_action = pointer_drag.action(button, state.kind(), layout_floating, scrolling_resizable);
+    var drag_geometry = target.geometry;
+    if ((drag_action == .move_floating or drag_action == .resize_floating) and
+        state.snap_state != .none and
+        state.snap_restore_geometry.width > 0 and state.snap_restore_geometry.height > 0)
+    {
+        drag_geometry = if (drag_action == .move_floating)
+            pointer_drag.restoredMoveStart(target.geometry, state.snap_restore_geometry, x, y)
+        else
+            state.snap_restore_geometry;
+        state.snap_state = .none;
+        state.custom_snap_zone = std.math.maxInt(u8);
+        if (!aqueous.storeFreeformGeometry(layout_key, target.handle, state, layout_floating, drag_geometry)) return false;
+    }
     if (drag_action == .swap_tiled) {
         aqueous.drag = .{
             .handle = target.handle,
-            .start = target.geometry,
+            .start = drag_geometry,
             .pointer_x = x,
             .pointer_y = y,
             .last_pointer_x = x,
@@ -1039,11 +1118,12 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
             .layout_floating = false,
+            .constraints = aqueous.api.windowConstraints(target.handle),
         };
     } else {
         aqueous.drag = .{
             .handle = target.handle,
-            .start = target.geometry,
+            .start = drag_geometry,
             .pointer_x = x,
             .pointer_y = y,
             .last_pointer_x = x,
@@ -1051,13 +1131,14 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
             .layout_floating = layout_floating,
+            .constraints = aqueous.api.windowConstraints(target.handle),
             .scrolling_expanded_owner = if (drag_action == .resize_scrolling)
                 layout_engine.scrollingExpandedOwner(layout_state.?, target.handle)
             else
                 null,
         };
         if (!layout_floating and drag_action != .resize_scrolling) {
-            _ = aqueous.window_states.setFloating(target.handle, target.geometry);
+            _ = aqueous.window_states.setFloating(target.handle, drag_geometry);
         }
         aqueous.api.beginInteractive(
             target.handle,
@@ -1150,7 +1231,7 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
     if (!aqueous.mode.runsInternal()) return;
     aqueous.cancelHoverFocus();
     const state = aqueous.window_states.get(handle) orelse return;
-    if (state.kind == .minimized) return;
+    if (state.kind() == .minimized) return;
     if (aqueous.api.focusedWindow() != handle) aqueous.requestFocus(handle);
 }
 
@@ -1176,7 +1257,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         }
         if (target.handle == drag.handle) return;
         const target_state = aqueous.window_states.get(target.handle) orelse return;
-        if (target_state.kind != .tiled) return;
+        if (target_state.kind() != .tiled) return;
         if (!aqueous.api.windowOnWorkspace(target.handle, drag.layout_key.output, drag.layout_key.workspace)) return;
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
         const zone = pointer_drag.dropZone(target.geometry, x, y);
@@ -1196,14 +1277,14 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             if (aqueous.window_states.get(owner)) |owner_state| owner_state.scrolling_full_width = false;
             drag.scrolling_expanded_owner = null;
         }
-        const geometry = pointer_drag.resize(drag.start, dx, dy, drag.resize_edges);
+        const resized_rect = pointer_drag.resizeConstrained(drag.start, dx, dy, drag.resize_edges, drag.constraints);
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
         if (!(layout_engine.resizeScrolling(
             util.gpa,
             layout_state,
             drag.handle,
-            geometry.width,
-            geometry.height,
+            resized_rect.width,
+            resized_rect.height,
         ) catch {
             log.err("out of memory resizing scrolling member", .{});
             return;
@@ -1211,8 +1292,8 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         aqueous.api.requestManageCycle();
         return;
     }
-    const geometry: layout_types.Rect = if (drag.action == .resize_floating)
-        pointer_drag.resize(drag.start, dx, dy, drag.resize_edges)
+    var resolved_geometry: layout_types.Rect = if (drag.action == .resize_floating)
+        pointer_drag.resizeConstrained(drag.start, dx, dy, drag.resize_edges, drag.constraints)
     else
         .{
             .x = drag.start.x + dx,
@@ -1220,18 +1301,40 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             .width = drag.start.width,
             .height = drag.start.height,
         };
-    if (drag.action == .move_floating) aqueous.transferFloatingDrag(drag, geometry, x, y);
+    if (drag.action == .move_floating) {
+        aqueous.transferFloatingDrag(drag, resolved_geometry, x, y);
+        if (aqueous.api.outputTargetAt(x, y, false)) |target| if (target.id == drag.layout_key.output) {
+            const area = aqueous.effectiveUsableArea(target.area, target.usable_area);
+            const options = aqueous.config.layout.layoutOptions(.floating);
+            resolved_geometry = geometry.attractToRect(resolved_geometry, area, options.floating_resistance);
+            resolved_geometry = aqueous.api.attractToWindowEdges(drag.handle, resolved_geometry, options.floating_resistance);
+            const pointer_x = clampI32(@intFromFloat(x));
+            const pointer_y = clampI32(@intFromFloat(y));
+            if (geometry.snapDirectionAt(area, pointer_x, pointer_y, options.floating_snap_threshold, options.floating_top_edge_maximize)) |direction| {
+                const target_geometry = geometry.snap(area, direction, options.floating_snap_gap);
+                resolved_geometry = geometry.constrainSnap(target_geometry, direction, drag.constraints);
+                if (aqueous.window_states.get(drag.handle)) |state| {
+                    state.snap_restore_geometry = drag.start;
+                    state.snap_state = snapState(direction);
+                    state.custom_snap_zone = std.math.maxInt(u8);
+                }
+            } else if (aqueous.window_states.get(drag.handle)) |state| {
+                state.snap_state = .none;
+                state.custom_snap_zone = std.math.maxInt(u8);
+            }
+        };
+    }
     if (drag.layout_floating) {
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
-        layout_engine.setFloatingGeometry(util.gpa, layout_state, drag.handle, geometry) catch {
+        layout_engine.setFloatingGeometry(util.gpa, layout_state, drag.handle, resolved_geometry) catch {
             log.err("out of memory remembering floating-layout geometry", .{});
             return;
         };
-    } else if (!aqueous.window_states.setFloating(drag.handle, geometry)) return;
+    } else if (!aqueous.window_states.setFloating(drag.handle, resolved_geometry)) return;
     aqueous.api.requestManageCycle();
 }
 
-fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, geometry: layout_types.Rect, x: f64, y: f64) void {
+fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, rect: layout_types.Rect, x: f64, y: f64) void {
     const target = aqueous.api.outputTargetAt(x, y, false) orelse return;
     if (target.id == drag.layout_key.output) return;
     const target_key: LayoutStateKey = .{ .output = target.id, .workspace = target.workspace_number };
@@ -1249,7 +1352,7 @@ fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, geometry: layout_types.R
     if (drag.layout_floating) {
         if (target_layout_state) |target_state| {
             layout_engine.commitFloatingTransfer(target_state, drag.handle);
-            layout_engine.setFloatingGeometry(util.gpa, target_state, drag.handle, geometry) catch
+            layout_engine.setFloatingGeometry(util.gpa, target_state, drag.handle, rect) catch
                 log.err("out of memory transferring floating-layout geometry", .{});
         }
     } else if (aqueous.window_states.get(drag.handle)) |state| {
@@ -1351,8 +1454,54 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "toggle_scrolling_full_width")) return aqueous.toggleScrollingFullWidth();
     if (std.mem.eql(u8, action, "toggle_fullscreen")) return aqueous.toggleFullscreen();
     if (std.mem.eql(u8, action, "toggle_maximize")) return aqueous.toggleMaximize();
+    if (std.mem.eql(u8, action, "toggle_maximize_horizontal")) return aqueous.togglePartialMaximize(true);
+    if (std.mem.eql(u8, action, "toggle_maximize_vertical")) return aqueous.togglePartialMaximize(false);
     if (std.mem.eql(u8, action, "toggle_floating")) return aqueous.toggleFloating();
     if (std.mem.eql(u8, action, "toggle_minimize")) return aqueous.toggleMinimize();
+    if (std.mem.eql(u8, action, "raise_window")) return aqueous.restackFocused(true);
+    if (std.mem.eql(u8, action, "lower_window")) return aqueous.restackFocused(false);
+    if (std.mem.eql(u8, action, "toggle_always_above")) return aqueous.toggleStackLayer(.above);
+    if (std.mem.eql(u8, action, "toggle_always_below")) return aqueous.toggleStackLayer(.below);
+    if (std.mem.eql(u8, action, "nudge_floating_left")) return aqueous.nudgeFocused(-1, 0, false);
+    if (std.mem.eql(u8, action, "nudge_floating_right")) return aqueous.nudgeFocused(1, 0, false);
+    if (std.mem.eql(u8, action, "nudge_floating_up")) return aqueous.nudgeFocused(0, -1, false);
+    if (std.mem.eql(u8, action, "nudge_floating_down")) return aqueous.nudgeFocused(0, 1, false);
+    if (std.mem.eql(u8, action, "nudge_floating_coarse_left")) return aqueous.nudgeFocused(-1, 0, true);
+    if (std.mem.eql(u8, action, "nudge_floating_coarse_right")) return aqueous.nudgeFocused(1, 0, true);
+    if (std.mem.eql(u8, action, "nudge_floating_coarse_up")) return aqueous.nudgeFocused(0, -1, true);
+    if (std.mem.eql(u8, action, "nudge_floating_coarse_down")) return aqueous.nudgeFocused(0, 1, true);
+    if (std.mem.eql(u8, action, "resize_floating_left")) return aqueous.resizeFocused(.{ .left = true }, true);
+    if (std.mem.eql(u8, action, "resize_floating_right")) return aqueous.resizeFocused(.{ .right = true }, true);
+    if (std.mem.eql(u8, action, "resize_floating_up")) return aqueous.resizeFocused(.{ .top = true }, true);
+    if (std.mem.eql(u8, action, "resize_floating_down")) return aqueous.resizeFocused(.{ .bottom = true }, true);
+    if (std.mem.eql(u8, action, "shrink_floating_left")) return aqueous.resizeFocused(.{ .left = true }, false);
+    if (std.mem.eql(u8, action, "shrink_floating_right")) return aqueous.resizeFocused(.{ .right = true }, false);
+    if (std.mem.eql(u8, action, "shrink_floating_up")) return aqueous.resizeFocused(.{ .top = true }, false);
+    if (std.mem.eql(u8, action, "shrink_floating_down")) return aqueous.resizeFocused(.{ .bottom = true }, false);
+    if (std.mem.eql(u8, action, "snap_left")) return aqueous.snapFocused(.left);
+    if (std.mem.eql(u8, action, "snap_right")) return aqueous.snapFocused(.right);
+    if (std.mem.eql(u8, action, "snap_up")) return aqueous.snapFocused(.up);
+    if (std.mem.eql(u8, action, "snap_down")) return aqueous.snapFocused(.down);
+    if (std.mem.eql(u8, action, "snap_up_left")) return aqueous.snapFocused(.up_left);
+    if (std.mem.eql(u8, action, "snap_up_right")) return aqueous.snapFocused(.up_right);
+    if (std.mem.eql(u8, action, "snap_down_left")) return aqueous.snapFocused(.down_left);
+    if (std.mem.eql(u8, action, "snap_down_right")) return aqueous.snapFocused(.down_right);
+    if (std.mem.eql(u8, action, "snap_center")) return aqueous.snapFocused(.center);
+    if (std.mem.eql(u8, action, "unsnap")) return aqueous.unsnapFocused();
+    if (std.mem.eql(u8, action, "snap_zone")) {
+        if (parseComposableSlot(argument)) |slot| aqueous.snapFocusedZone(slot);
+        return;
+    }
+    if (std.mem.eql(u8, action, "cycle_snap_zone")) return aqueous.cycleFocusedSnapZone();
+    if (std.mem.eql(u8, action, "fit_floating_to_output")) return aqueous.fitFocusedToOutput();
+    if (std.mem.eql(u8, action, "move_floating_to_edge_left")) return aqueous.moveFocusedToEdge(.left);
+    if (std.mem.eql(u8, action, "move_floating_to_edge_right")) return aqueous.moveFocusedToEdge(.right);
+    if (std.mem.eql(u8, action, "move_floating_to_edge_up")) return aqueous.moveFocusedToEdge(.up);
+    if (std.mem.eql(u8, action, "move_floating_to_edge_down")) return aqueous.moveFocusedToEdge(.down);
+    if (std.mem.eql(u8, action, "grow_floating_to_edge_left")) return aqueous.growFocusedToEdge(.left);
+    if (std.mem.eql(u8, action, "grow_floating_to_edge_right")) return aqueous.growFocusedToEdge(.right);
+    if (std.mem.eql(u8, action, "grow_floating_to_edge_up")) return aqueous.growFocusedToEdge(.up);
+    if (std.mem.eql(u8, action, "grow_floating_to_edge_down")) return aqueous.growFocusedToEdge(.down);
     if (std.mem.eql(u8, action, "unminimize_last")) {
         const handle = aqueous.window_states.restoreLastMinimized();
         if (handle != 0) aqueous.requestFocus(handle);
@@ -1439,12 +1588,12 @@ fn openOverview(aqueous: *Aqueous) void {
     for (output.windows) |window| {
         if (!window.accepts_focus) continue;
         const window_state = aqueous.window_states.get(window.handle) orelse continue;
-        if (window_state.kind == .minimized) continue;
-        const geometry = aqueous.api.windowGeometry(window.handle) orelse continue;
-        if (geometry.width <= 0 or geometry.height <= 0) continue;
+        if (window_state.kind() == .minimized or window_state.skip_switcher or !window_state.focus_allowed) continue;
+        const source_rect = aqueous.api.windowGeometry(window.handle) orelse continue;
+        if (source_rect.width <= 0 or source_rect.height <= 0) continue;
         state.cards.appendAssumeCapacity(.{
             .handle = window.handle,
-            .source = geometry,
+            .source = source_rect,
         });
     }
     if (state.cards.items.len == 0) return;
@@ -1485,7 +1634,7 @@ fn confirmOverview(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
     if (!aqueous.api.windowOnWorkspace(selected, output_id, workspace_number)) return;
     const window_state = aqueous.window_states.get(selected) orelse return;
-    if (window_state.kind == .minimized) return;
+    if (window_state.kind() == .minimized) return;
     aqueous.requestFocus(selected);
 }
 
@@ -1569,7 +1718,7 @@ fn validateOverviewSnapshot(aqueous: *Aqueous, snapshot: *const CompositorApi.Po
     while (index < state.cards.items.len) {
         const card = state.cards.items[index];
         const window_state = aqueous.window_states.get(card.handle);
-        if (window_state == null or window_state.?.kind == .minimized) {
+        if (window_state == null or window_state.?.kind() == .minimized) {
             aqueous.cancelOverview();
             return;
         }
@@ -1678,14 +1827,28 @@ fn cycleFocus(aqueous: *Aqueous, delta: i32) void {
     var snapshot = aqueous.api.policySnapshot(util.gpa) catch return;
     defer snapshot.deinit(util.gpa);
     const focused = aqueous.api.focusedWindow();
+    const selected_output = aqueous.api.selectedOutputId();
     for (snapshot.outputs) |output| {
-        if (output.windows.len == 0) continue;
-        const index = if (focused) |handle| blk: {
-            for (output.windows, 0..) |window, i| if (window.handle == handle) break :blk i;
-            continue;
-        } else 0;
-        const next = if (delta < 0) (index + output.windows.len - 1) % output.windows.len else (index + 1) % output.windows.len;
-        aqueous.requestFocus(output.windows[next].handle);
+        if (selected_output != null and output.id != selected_output.?) continue;
+        var candidates: std.ArrayListUnmanaged(layout_types.Handle) = .empty;
+        defer candidates.deinit(util.gpa);
+        candidates.ensureTotalCapacity(util.gpa, output.windows.len) catch return;
+        for (output.windows) |window| candidates.appendAssumeCapacity(window.handle);
+        const context: OutputFocusContext = .{
+            .aqueous = aqueous,
+            .windows = output.windows,
+            .output_id = output.id,
+            .workspace_number = output.workspace_number,
+        };
+        const target = aqueous.focus_history.cycle(
+            workspaceKey(output.id, output.workspace_number),
+            focused,
+            delta,
+            candidates.items,
+            context,
+            outputFocusCandidateValid,
+        ) catch return;
+        if (target != 0) aqueous.requestFocus(target);
         return;
     }
 }
@@ -1707,7 +1870,7 @@ fn focusComposableSlot(aqueous: *Aqueous, slot: u8) void {
 
 fn moveToComposableSlot(aqueous: *Aqueous, slot: u8) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     const state = aqueous.layout_states.getPtr(.{
         .output = context.output.policyId(),
         .workspace = context.workspace_number,
@@ -1719,7 +1882,7 @@ fn moveToComposableSlot(aqueous: *Aqueous, slot: u8) void {
 
 fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
@@ -1737,13 +1900,13 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
     }
     const target = aqueous.api.directionalNeighbor(handle, dx, dy) orelse return;
     const target_state = aqueous.window_states.get(target) orelse return;
-    if (target_state.kind != .tiled) return;
+    if (target_state.kind() != .tiled) return;
     if (layout_engine.swap(state, handle, target)) aqueous.api.requestManageCycle();
 }
 
 fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const state = aqueous.layout_states.getPtr(key) orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
@@ -1768,7 +1931,7 @@ fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) bool {
 
 fn consumeWindowIntoColumn(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
     if (!(layout_engine.consumeWindowIntoColumn(util.gpa, state, @bitCast(context.window.ref)) catch {
         log.err("out of memory consuming window into column", .{});
@@ -1779,7 +1942,7 @@ fn consumeWindowIntoColumn(aqueous: *Aqueous) void {
 
 fn expelWindowFromColumn(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     const state = aqueous.layout_states.getPtr(.{ .output = context.output.policyId(), .workspace = context.workspace_number }) orelse return;
     if (!(layout_engine.expelWindowFromColumn(util.gpa, state, @bitCast(context.window.ref)) catch {
         log.err("out of memory expelling window from column", .{});
@@ -1809,7 +1972,7 @@ fn toggleMaximize(aqueous: *Aqueous) void {
 
 fn toggleScrollingFullWidth(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
-    if (context.window.policy_state.kind != .tiled) return;
+    if (context.window.policy_state.kind() != .tiled) return;
     _ = context.window.policy_state.toggleScrollingFullWidth();
     aqueous.api.requestManageCycle();
 }
@@ -1819,7 +1982,7 @@ fn toggleFloating(aqueous: *Aqueous) void {
     const handle: layout_types.Handle = @bitCast(context.window.ref);
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
     const box = context.window.box;
-    const geometry: layout_types.Rect = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
+    const current_rect: layout_types.Rect = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
 
     // In a standalone or composable-child floating layout, toggling on creates
     // a deliberate per-window overlay which remains floating after a later
@@ -1827,9 +1990,9 @@ fn toggleFloating(aqueous: *Aqueous) void {
     // its latest rectangle.
     if (aqueous.windowUsesFloatingLayout(key, handle)) {
         const layout_state = aqueous.layout_states.getPtr(key) orelse return;
-        layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, geometry) catch return;
+        layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, current_rect) catch return;
     }
-    _ = aqueous.window_states.toggleFloating(handle, geometry) orelse return;
+    _ = aqueous.window_states.toggleFloating(handle, current_rect) orelse return;
     aqueous.api.requestManageCycle();
 }
 
@@ -1841,6 +2004,281 @@ fn toggleMinimize(aqueous: *Aqueous) void {
         _ = aqueous.window_states.minimize(handle) catch return;
     }
     aqueous.api.requestManageCycle();
+}
+
+fn restackFocused(aqueous: *Aqueous, raise: bool) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const key: LayoutStateKey = .{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    };
+    const stack = aqueous.workspace_stacks.getPtr(key) orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const changed = if (raise) stack.raise(handle) else stack.lower(handle);
+    if (changed) aqueous.api.requestManageCycle();
+}
+
+fn toggleStackLayer(aqueous: *Aqueous, target: layout_types.StackLayer) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const state = &context.window.policy_state;
+    state.overrideStackLayer();
+    state.stack_layer = if (state.stack_layer == target) .normal else target;
+    const key: LayoutStateKey = .{
+        .output = context.output.policyId(),
+        .workspace = context.workspace_number,
+    };
+    if (aqueous.workspace_stacks.getPtr(key)) |stack| {
+        const handle: layout_types.Handle = @bitCast(context.window.ref);
+        if (state.stack_layer == .above) {
+            _ = stack.raise(handle);
+        } else if (state.stack_layer == .below) {
+            _ = stack.lower(handle);
+        }
+    }
+    aqueous.api.requestManageCycle();
+}
+
+fn nudgeFocused(aqueous: *Aqueous, direction_x: i32, direction_y: i32, coarse: bool) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if (state.presentation != .floating and !layout_floating) return;
+    if (state.fixed_position) return;
+    var current = currentOrRestoreGeometry(context.window.box, state);
+    const options = aqueous.config.layout.layoutOptions(.floating);
+    const step = if (coarse) options.floating_move_step_coarse else options.floating_move_step;
+    current.x = clampI32(@as(i64, current.x) + @as(i64, direction_x) * step);
+    current.y = clampI32(@as(i64, current.y) + @as(i64, direction_y) * step);
+    const area = aqueous.focusedUsableArea(context.output);
+    current = geometry.keepReachable(current, area, 64, 32);
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, current)) aqueous.api.requestManageCycle();
+}
+
+fn resizeFocused(aqueous: *Aqueous, edges: geometry.ResizeEdges, grow: bool) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if (state.presentation != .floating and !layout_floating) return;
+    if (state.fixed_position) return;
+    const current = currentOrRestoreGeometry(context.window.box, state);
+    const step = aqueous.config.layout.layoutOptions(.floating).floating_resize_step * (if (grow) @as(i32, 1) else -1);
+    const dx = if (edges.left) -step else if (edges.right) step else 0;
+    const dy = if (edges.top) -step else if (edges.bottom) step else 0;
+    var resized = geometry.resize(current, dx, dy, edges, aqueous.api.windowConstraints(handle));
+    resized = geometry.keepReachable(resized, aqueous.focusedUsableArea(context.output), 64, 32);
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, resized)) aqueous.api.requestManageCycle();
+}
+
+fn snapFocused(aqueous: *Aqueous, direction: geometry.SnapDirection) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if (state.presentation != .floating and !layout_floating) return;
+    const current: layout_types.Rect = .{ .x = context.window.box.x, .y = context.window.box.y, .width = context.window.box.width, .height = context.window.box.height };
+    if (state.snap_state == .none and current.width > 0 and current.height > 0) state.snap_restore_geometry = current;
+    const area = aqueous.focusedUsableArea(context.output);
+    const target = geometry.snap(area, direction, aqueous.config.layout.layoutOptions(.floating).floating_snap_gap);
+    const snapped = geometry.constrainSnap(target, direction, aqueous.api.windowConstraints(handle));
+    state.snap_state = snapState(direction);
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, snapped)) aqueous.api.requestManageCycle();
+}
+
+fn unsnapFocused(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const state = &context.window.policy_state;
+    if (state.fixed_position) return;
+    if (state.snap_state == .none or state.snap_restore_geometry.width <= 0 or state.snap_restore_geometry.height <= 0) return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const restored = geometry.keepReachable(state.snap_restore_geometry, aqueous.focusedUsableArea(context.output), 64, 32);
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, restored)) aqueous.api.requestManageCycle();
+}
+
+fn fitFocusedToOutput(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if (state.presentation != .floating and !layout_floating) return;
+    if (state.fixed_position) return;
+    if (state.fixed_position) return;
+    const area = aqueous.focusedUsableArea(context.output);
+    const fitted = geometry.constrainSnap(area, .center, aqueous.api.windowConstraints(handle));
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, fitted)) aqueous.api.requestManageCycle();
+}
+
+fn snapFocusedZone(aqueous: *Aqueous, index: u8) void {
+    if (index >= layout_config.max_snap_zones) return;
+    const zone = aqueous.config.layout.snap_zones[index];
+    if (!zone.valid()) return;
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if ((state.presentation != .floating and !layout_floating) or state.fixed_position) return;
+    const current: layout_types.Rect = .{ .x = context.window.box.x, .y = context.window.box.y, .width = context.window.box.width, .height = context.window.box.height };
+    if (state.snap_state == .none and current.width > 0 and current.height > 0) state.snap_restore_geometry = current;
+    const area = aqueous.focusedUsableArea(context.output);
+    const target = normalizedZone(area, zone);
+    const snapped = geometry.constrainSnap(target, .center, aqueous.api.windowConstraints(handle));
+    state.snap_state = .center;
+    state.custom_snap_zone = index;
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, snapped)) aqueous.api.requestManageCycle();
+}
+
+fn cycleFocusedSnapZone(aqueous: *Aqueous) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const state = &context.window.policy_state;
+    var offset: usize = 1;
+    while (offset <= layout_config.max_snap_zones) : (offset += 1) {
+        const scan_start: usize = if (state.custom_snap_zone < layout_config.max_snap_zones) state.custom_snap_zone else layout_config.max_snap_zones - 1;
+        const index: u8 = @intCast((scan_start + offset) % layout_config.max_snap_zones);
+        if (aqueous.config.layout.snap_zones[index].valid()) return aqueous.snapFocusedZone(index);
+    }
+}
+
+fn normalizedZone(area: layout_types.Rect, zone: layout_config.SnapZone) layout_types.Rect {
+    const x_offset: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(area.width)) * zone.x));
+    const y_offset: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(area.height)) * zone.y));
+    const width: i32 = @max(1, @as(i32, @intFromFloat(@floor(@as(f64, @floatFromInt(area.width)) * zone.width))));
+    const height: i32 = @max(1, @as(i32, @intFromFloat(@floor(@as(f64, @floatFromInt(area.height)) * zone.height))));
+    return .{ .x = clampI32(@as(i64, area.x) + x_offset), .y = clampI32(@as(i64, area.y) + y_offset), .width = width, .height = height };
+}
+
+fn togglePartialMaximize(aqueous: *Aqueous, horizontal: bool) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if ((state.presentation != .floating and !layout_floating) or state.fixed_position) return;
+    const target_state: PolicyState.SnapState = if (horizontal) .maximized_horizontal else .maximized_vertical;
+    if (state.snap_state == target_state) return aqueous.unsnapFocused();
+    const current: layout_types.Rect = .{ .x = context.window.box.x, .y = context.window.box.y, .width = context.window.box.width, .height = context.window.box.height };
+    if (state.snap_state == .none and current.width > 0 and current.height > 0) state.snap_restore_geometry = current;
+    const area = aqueous.focusedUsableArea(context.output);
+    const raw: layout_types.Rect = if (horizontal)
+        .{ .x = area.x, .y = current.y, .width = area.width, .height = current.height }
+    else
+        .{ .x = current.x, .y = area.y, .width = current.width, .height = area.height };
+    const edges: geometry.ResizeEdges = if (horizontal) .{ .left = true, .right = true } else .{ .top = true, .bottom = true };
+    const size = geometry.constrainSize(raw.width, raw.height, aqueous.api.windowConstraints(handle), edges);
+    var resolved = raw;
+    resolved.width = size.width;
+    resolved.height = size.height;
+    if (horizontal) resolved.x = area.x + @divTrunc(area.width - size.width, 2) else resolved.y = area.y + @divTrunc(area.height - size.height, 2);
+    state.snap_state = target_state;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, geometry.keepReachable(resolved, area, 64, 32))) aqueous.api.requestManageCycle();
+}
+
+fn moveFocusedToEdge(aqueous: *Aqueous, direction: geometry.SnapDirection) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if ((state.presentation != .floating and !layout_floating) or state.fixed_position) return;
+    var rect = currentOrRestoreGeometry(context.window.box, state);
+    const area = aqueous.focusedUsableArea(context.output);
+    switch (direction) {
+        .left => rect.x = area.x,
+        .right => rect.x = clampI32(@as(i64, area.x) + area.width - rect.width),
+        .up => rect.y = area.y,
+        .down => rect.y = clampI32(@as(i64, area.y) + area.height - rect.height),
+        else => return,
+    }
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, geometry.keepReachable(rect, area, 64, 32))) aqueous.api.requestManageCycle();
+}
+
+fn growFocusedToEdge(aqueous: *Aqueous, direction: geometry.SnapDirection) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
+    const state = &context.window.policy_state;
+    if ((state.presentation != .floating and !layout_floating) or state.fixed_position) return;
+    const rect = currentOrRestoreGeometry(context.window.box, state);
+    const area = aqueous.focusedUsableArea(context.output);
+    const edges: geometry.ResizeEdges = switch (direction) {
+        .left => .{ .left = true },
+        .right => .{ .right = true },
+        .up => .{ .top = true },
+        .down => .{ .bottom = true },
+        else => return,
+    };
+    const dx = switch (direction) {
+        .left => area.x - rect.x,
+        .right => clampI32(@as(i64, area.x) + area.width - (@as(i64, rect.x) + rect.width)),
+        else => 0,
+    };
+    const dy = switch (direction) {
+        .up => area.y - rect.y,
+        .down => clampI32(@as(i64, area.y) + area.height - (@as(i64, rect.y) + rect.height)),
+        else => 0,
+    };
+    const resized = geometry.resize(rect, dx, dy, edges, aqueous.api.windowConstraints(handle));
+    state.snap_state = .none;
+    state.custom_snap_zone = std.math.maxInt(u8);
+    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, geometry.keepReachable(resized, area, 64, 32))) aqueous.api.requestManageCycle();
+}
+
+fn storeFreeformGeometry(aqueous: *Aqueous, key: LayoutStateKey, handle: layout_types.Handle, state: *PolicyState, layout_floating: bool, rect: layout_types.Rect) bool {
+    if (rect.width <= 0 or rect.height <= 0) return false;
+    if (layout_floating) {
+        const layout_state = aqueous.layout_states.getPtr(key) orelse return false;
+        layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, rect) catch {
+            log.err("out of memory remembering keyboard freeform geometry", .{});
+            return false;
+        };
+    } else {
+        state.floating_geometry = rect;
+    }
+    return true;
+}
+
+fn focusedUsableArea(aqueous: *const Aqueous, output: anytype) layout_types.Rect {
+    const full = output.policyFullBox();
+    const usable = output.policyUsableBox();
+    return aqueous.effectiveUsableArea(
+        .{ .x = full.x, .y = full.y, .width = full.width, .height = full.height },
+        .{ .x = usable.x, .y = usable.y, .width = usable.width, .height = usable.height },
+    );
+}
+
+fn currentOrRestoreGeometry(box: anytype, state: *const PolicyState) layout_types.Rect {
+    if (state.snap_state != .none and state.snap_restore_geometry.width > 0 and state.snap_restore_geometry.height > 0) return state.snap_restore_geometry;
+    return .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
+}
+
+fn snapState(direction: geometry.SnapDirection) PolicyState.SnapState {
+    return switch (direction) {
+        inline else => |value| @enumFromInt(@intFromEnum(value) + 1),
+    };
+}
+
+fn clampI32(value: i64) i32 {
+    return @intCast(std.math.clamp(value, std.math.minInt(i32), std.math.maxInt(i32)));
 }
 
 fn setLayout(aqueous: *Aqueous, name: []const u8) void {
@@ -1857,7 +2295,7 @@ fn setLayout(aqueous: *Aqueous, name: []const u8) void {
 fn parseLayoutName(name: []const u8) ?layout_config.LayoutId {
     return std.meta.stringToEnum(
         layout_config.LayoutId,
-        if (std.mem.eql(u8, name, "float")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else if (std.mem.eql(u8, name, "reverse-dwindle")) "reverse_dwindle" else name,
+        if (std.mem.eql(u8, name, "float") or std.mem.eql(u8, name, "stack") or std.mem.eql(u8, name, "stacking")) "floating" else if (std.mem.eql(u8, name, "game-mode")) "game_mode" else if (std.mem.eql(u8, name, "reverse-dwindle")) "reverse_dwindle" else name,
     );
 }
 
@@ -2065,7 +2503,7 @@ fn outputFocusCandidateValid(context: OutputFocusContext, handle: layout_types.H
     if (!containsWindow(context.windows, handle)) return false;
     if (!context.aqueous.api.windowOnWorkspace(handle, context.output_id, context.workspace_number)) return false;
     const state = context.aqueous.window_states.get(handle) orelse return false;
-    return state.kind != .minimized;
+    return state.kind() != .minimized and state.focus_allowed and !state.skip_switcher;
 }
 
 fn workspaceKey(output_id: u64, workspace_number: u32) u64 {
@@ -2075,6 +2513,32 @@ fn workspaceKey(output_id: u64, workspace_number: u32) u64 {
 fn containsWindow(windows: []const layout_types.Window, handle: layout_types.Handle) bool {
     for (windows) |window| if (window.handle == handle) return true;
     return false;
+}
+
+fn findLayoutWindow(windows: []const layout_types.Window, handle: layout_types.Handle) ?layout_types.Window {
+    for (windows) |window| if (window.handle == handle) return window;
+    return null;
+}
+
+/// A transient may request a higher layer than its parent, but never a lower
+/// one: doing so would violate the requirement that it remain reachable above
+/// the parent group. Bound traversal by the snapshot size to tolerate cycles.
+fn effectiveStackLayer(
+    aqueous: *Aqueous,
+    windows: []const layout_types.Window,
+    window: layout_types.Window,
+    own: layout_types.StackLayer,
+) layout_types.StackLayer {
+    var result = own;
+    var parent = window.parent;
+    var remaining = windows.len;
+    while (parent != null and remaining > 0) : (remaining -= 1) {
+        const state = aqueous.window_states.get(parent.?) orelse break;
+        if (@intFromEnum(state.stack_layer) > @intFromEnum(result)) result = state.stack_layer;
+        const ancestor = findLayoutWindow(windows, parent.?) orelse break;
+        parent = ancestor.parent;
+    }
+    return result;
 }
 
 const RuleEffect = struct {
@@ -2157,6 +2621,11 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
         }
     }
     _ = aqueous.window_states.restoreRuleFloating(window.handle);
+    if (state.rule_stack_layer_owned) state.stack_layer = state.rule_stack_layer_previous;
+    state.focus_allowed = true;
+    state.fixed_position = false;
+    state.skip_switcher = false;
+    state.skip_taskbar = false;
     state.acceptRuleMatch(match);
     return true;
 }
@@ -2174,6 +2643,7 @@ fn sameWorkspace(
 fn reconcileWindowRule(
     aqueous: *Aqueous,
     window: layout_types.Window,
+    all_windows: []const layout_types.Window,
     output_id: u64,
     active_workspace: u32,
     output_area: layout_types.Rect,
@@ -2188,6 +2658,26 @@ fn reconcileWindowRule(
     };
 
     const matched = rule orelse return effect;
+
+    state.focus_allowed = matched.focus orelse true;
+    state.fixed_position = matched.fixed_position;
+    state.skip_switcher = matched.skip_switcher;
+    state.skip_taskbar = matched.skip_taskbar;
+    const requested_stack_layer: ?layout_types.StackLayer = if (matched.stack_layer) |layer| @enumFromInt(@intFromEnum(layer)) else null;
+    if (requested_stack_layer != state.rule_stack_layer_requested) {
+        if (requested_stack_layer) |requested| {
+            if (!state.rule_stack_layer_overridden) {
+                if (!state.rule_stack_layer_owned) state.rule_stack_layer_previous = state.stack_layer;
+                state.stack_layer = requested;
+                state.rule_stack_layer_owned = true;
+            }
+        } else if (state.rule_stack_layer_owned) {
+            state.stack_layer = state.rule_stack_layer_previous;
+            state.rule_stack_layer_owned = false;
+            state.rule_stack_layer_overridden = false;
+        }
+        state.rule_stack_layer_requested = requested_stack_layer;
+    }
 
     if (matched.fullscreen != state.rule_fullscreen_requested) {
         if (matched.fullscreen) {
@@ -2224,8 +2714,32 @@ fn reconcileWindowRule(
         if (matched.placement.floating) {
             if (!state.rule_floating_overridden) {
                 const area = if (matched.ignore_struts) output_area else usable_area;
-                const geometry = floatingRulePlacement(area, window, matched, border).geometry;
-                _ = aqueous.window_states.setRuleFloating(window.handle, geometry);
+                var options = aqueous.config.layout.layoutOptions(.floating);
+                if (matched.placement_policy) |policy| options.floating_placement = @enumFromInt(@intFromEnum(policy));
+                var preferred = window;
+                var rule_placement = matched.placement;
+                switch (matched.size) {
+                    .native => {},
+                    .pixels => |size| {
+                        rule_placement.width = size.width;
+                        rule_placement.height = size.height;
+                    },
+                    .fraction => |size| {
+                        rule_placement.width = @intFromFloat(@as(f64, @floatFromInt(area.width)) * size.width);
+                        rule_placement.height = @intFromFloat(@as(f64, @floatFromInt(area.height)) * size.height);
+                    },
+                }
+                if (rule_placement.width > 0) preferred.preferred_width = rule_placement.width;
+                if (rule_placement.height > 0) preferred.preferred_height = rule_placement.height;
+                var resolved = if (rule_placement.x == 0 and rule_placement.y == 0)
+                    aqueous.initialFloatingGeometry(all_windows, preferred, area, options, 0) catch floatingRulePlacement(area, preferred, matched, border).geometry
+                else
+                    floatingRulePlacement(area, preferred, matched, border).geometry;
+                const constrained = geometry.constrainSize(resolved.width, resolved.height, geometry.Constraints.fromWindow(preferred), .{});
+                resolved.width = constrained.width;
+                resolved.height = constrained.height;
+                resolved = geometry.keepReachable(resolved, area, @min(resolved.width, area.width), @min(resolved.height, area.height));
+                _ = aqueous.window_states.setRuleFloating(window.handle, resolved);
             }
         } else {
             _ = aqueous.window_states.restoreRuleFloating(window.handle);
@@ -2326,28 +2840,13 @@ fn applyGlobalConfig(aqueous: *Aqueous) void {
     );
 }
 
-fn ensureFocusedPlacementOnTop(aqueous: *Aqueous, placements: []layout_types.Placement, focused: ?layout_types.Handle) void {
+fn raiseFocusedPlacement(stack: *WorkspaceStack, placements: []const layout_types.Placement, focused: ?layout_types.Handle) void {
     const handle = focused orelse return;
-    var target: ?*layout_types.Placement = null;
-    for (placements) |*placement| {
-        if (placement.handle == handle and !placement.tiled and placement.visible) {
-            target = placement;
-            break;
-        }
-    }
-    const focused_placement = target orelse return;
-
-    var greatest_order = focused_placement.stack_order;
     for (placements) |placement| {
-        if (placement.z_order == focused_placement.z_order) {
-            greatest_order = @max(greatest_order, placement.stack_order);
-        }
+        if (placement.handle != handle or placement.tiled or !placement.visible) continue;
+        _ = stack.raise(handle);
+        return;
     }
-    if (focused_placement.stack_order >= greatest_order) return;
-
-    const order = aqueous.takeStackOrder();
-    focused_placement.stack_order = order;
-    if (aqueous.window_states.get(handle)) |state| state.stack_order = order;
 }
 
 /// Raise at request time because the compositor applies keyboard focus in
@@ -2355,10 +2854,38 @@ fn ensureFocusedPlacementOnTop(aqueous: *Aqueous, placements: []layout_types.Pla
 /// order. Waiting to observe the new focus would make click-to-raise lag by one
 /// unrelated manage cycle.
 fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.window_states.get(handle)) |state| if (!state.focus_allowed) return;
     aqueous.cancelHoverFocus();
-    if (aqueous.window_states.get(handle)) |state| state.stack_order = aqueous.takeStackOrder();
-    aqueous.requested_stack_focus = handle;
+    aqueous.cancelPendingRaise();
     aqueous.api.requestFocus(handle);
+    if (!aqueous.config.wm.input.raise_on_focus) return;
+    const delay = aqueous.config.wm.input.raise_on_focus_delay_ms;
+    if (delay == 0 or aqueous.raise_focus_timer == null) {
+        aqueous.requested_stack_focus = handle;
+        return;
+    }
+    aqueous.pending_raise = handle;
+    aqueous.raise_focus_timer.?.timerUpdate(@intCast(delay)) catch {
+        log.warn("unable to arm delayed focus raise; raising immediately", .{});
+        aqueous.pending_raise = null;
+        aqueous.requested_stack_focus = handle;
+    };
+}
+
+fn cancelPendingRaise(aqueous: *Aqueous) void {
+    aqueous.pending_raise = null;
+    if (aqueous.raise_focus_timer) |timer| {
+        timer.timerUpdate(0) catch log.warn("unable to disarm delayed focus raise", .{});
+    }
+}
+
+fn handleRaiseFocusTimer(aqueous: *Aqueous) c_int {
+    const handle = aqueous.pending_raise orelse return 0;
+    aqueous.pending_raise = null;
+    if (aqueous.api.focusedWindow() != handle) return 0;
+    aqueous.requested_stack_focus = handle;
+    aqueous.api.requestManageCycle();
+    return 0;
 }
 
 fn clearFocus(aqueous: *Aqueous) void {
@@ -2408,17 +2935,6 @@ fn transactionFocus(
     return requested orelse committed;
 }
 
-fn ensureStackOrder(aqueous: *Aqueous, state: *StateStore.Entry) u64 {
-    if (state.stack_order == 0) state.stack_order = aqueous.takeStackOrder();
-    return state.stack_order;
-}
-
-fn takeStackOrder(aqueous: *Aqueous) u64 {
-    const order = aqueous.next_stack_order;
-    aqueous.next_stack_order += 1;
-    return order;
-}
-
 fn intersectRects(a: layout_types.Rect, b: layout_types.Rect) layout_types.Rect {
     const left = @max(a.x, b.x);
     const top = @max(a.y, b.y);
@@ -2466,12 +2982,38 @@ fn floatingPlacement(area: layout_types.Rect, handle: layout_types.Handle, place
     };
 }
 
+fn initialFloatingGeometry(
+    aqueous: *Aqueous,
+    all_windows: []const layout_types.Window,
+    target: layout_types.Window,
+    area: layout_types.Rect,
+    options: layout_types.Options,
+    cascade_index: usize,
+) !layout_types.Rect {
+    var freeform: std.ArrayListUnmanaged(layout_types.Window) = .empty;
+    defer freeform.deinit(util.gpa);
+    var temporary: floating_layout.State = .{ .next_cascade = @truncate(cascade_index) };
+    defer temporary.deinit(util.gpa);
+    for (all_windows) |window| {
+        const state = aqueous.window_states.get(window.handle) orelse continue;
+        if (window.handle != target.handle and state.presentation != .floating) continue;
+        try freeform.append(util.gpa, if (window.handle == target.handle) target else window);
+        if (window.handle != target.handle and state.floating_geometry.width > 0 and state.floating_geometry.height > 0) {
+            try floating_layout.setGeometry(&temporary, util.gpa, window.handle, state.floating_geometry);
+        }
+    }
+    const placements = try floating_layout.arrange(util.gpa, &temporary, area, freeform.items, null, options);
+    defer util.gpa.free(placements);
+    for (placements) |placement| if (placement.handle == target.handle) return placement.geometry;
+    return error.WindowNotPlaced;
+}
+
 fn floatingRulePlacement(area: layout_types.Rect, window: layout_types.Window, rule: Rules.Rule, border: layout_types.Border) layout_types.Placement {
     var placement = rule.placement;
     switch (rule.size) {
         .native => {
-            if (placement.width == 0) placement.width = window.min_width;
-            if (placement.height == 0) placement.height = window.min_height;
+            if (placement.width == 0) placement.width = if (window.preferred_width > 0) window.preferred_width else window.min_width;
+            if (placement.height == 0) placement.height = if (window.preferred_height > 0) window.preferred_height else window.min_height;
         },
         .pixels => |size| {
             placement.width = size.width;

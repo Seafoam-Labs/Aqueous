@@ -514,8 +514,20 @@ fn handleSetSizeHints(listener: *wl.Listener(void)) void {
             .max_width = max_width,
             .min_height = min_height,
             .max_height = max_height,
+            .base_width = scaleSizeHint(size_hints.base_width, scale),
+            .base_height = scaleSizeHint(size_hints.base_height, scale),
+            .width_inc = scaleSizeHint(size_hints.width_inc, scale),
+            .height_inc = scaleSizeHint(size_hints.height_inc, scale),
+            .min_aspect_num = @intCast(@max(0, size_hints.min_aspect_num)),
+            .min_aspect_den = @intCast(@max(0, size_hints.min_aspect_den)),
+            .max_aspect_num = @intCast(@max(0, size_hints.max_aspect_num)),
+            .max_aspect_den = @intCast(@max(0, size_hints.max_aspect_den)),
         });
     }
+}
+
+fn scaleSizeHint(value: i32, scale: f64) u31 {
+    return @intFromFloat(@max(0, @round(@as(f64, @floatFromInt(value)) / scale)));
 }
 
 fn handleSetTitle(listener: *wl.Listener(void)) void {

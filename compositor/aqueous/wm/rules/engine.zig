@@ -8,6 +8,9 @@ const glob = @import("glob.zig");
 const wp = @import("wayland").server.wp;
 const scaling = @import("scaling");
 
+pub const StackLayer = enum { below, normal, above };
+pub const PlacementPolicy = enum { cascade, center, under_pointer, minimal_overlap };
+
 pub const Identity = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
@@ -87,6 +90,12 @@ pub const Rule = struct {
     hdr_expand: ?bool = null,
     /// Request zero-copy promotion when the output/backend accepts it.
     overlay_plane: OverlayPreference = .off,
+    stack_layer: ?StackLayer = null,
+    placement_policy: ?PlacementPolicy = null,
+    focus: ?bool = null,
+    fixed_position: bool = false,
+    skip_switcher: bool = false,
+    skip_taskbar: bool = false,
 
     /// Stable semantic identity used by per-window lifecycle reconciliation.
     /// It deliberately excludes source addresses and struct padding.
@@ -126,6 +135,12 @@ pub const Rule = struct {
         hashOptionalEnum(&hash, rule.buffer_scale_policy);
         hashOptionalBool(&hash, rule.hdr_expand);
         hash.update(std.mem.asBytes(&rule.overlay_plane));
+        hashOptionalEnum(&hash, rule.stack_layer);
+        hashOptionalEnum(&hash, rule.placement_policy);
+        hashOptionalBool(&hash, rule.focus);
+        hash.update(std.mem.asBytes(&rule.fixed_position));
+        hash.update(std.mem.asBytes(&rule.skip_switcher));
+        hash.update(std.mem.asBytes(&rule.skip_taskbar));
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
@@ -154,6 +169,11 @@ pub const Rule = struct {
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
         placement_only.overlay_plane = .off;
+        placement_only.stack_layer = null;
+        placement_only.focus = null;
+        placement_only.fixed_position = false;
+        placement_only.skip_switcher = false;
+        placement_only.skip_taskbar = false;
         return placement_only.fingerprint();
     }
 
@@ -234,6 +254,12 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
         visual.scale = 1;
         visual.fullscreen = false;
         visual.ignore_struts = false;
+        visual.stack_layer = null;
+        visual.placement_policy = null;
+        visual.focus = null;
+        visual.fixed_position = false;
+        visual.skip_switcher = false;
+        visual.skip_taskbar = false;
         return visual;
     }
     return null;

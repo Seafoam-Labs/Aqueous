@@ -452,6 +452,14 @@ fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
         base.focus_new_windows = overlay.focus_new_windows;
         base.focus_new_windows_set = true;
     }
+    if (overlay.raise_on_focus_set) {
+        base.raise_on_focus = overlay.raise_on_focus;
+        base.raise_on_focus_set = true;
+    }
+    if (overlay.raise_on_focus_delay_set) {
+        base.raise_on_focus_delay_ms = overlay.raise_on_focus_delay_ms;
+        base.raise_on_focus_delay_set = true;
+    }
     if (overlay.pointer_acceleration != defaults.pointer_acceleration) base.pointer_acceleration = overlay.pointer_acceleration;
     if (overlay.pointer_acceleration_factor != defaults.pointer_acceleration_factor) base.pointer_acceleration_factor = overlay.pointer_acceleration_factor;
     if (overlay.repeat_rate_set) {

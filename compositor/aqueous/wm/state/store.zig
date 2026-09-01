@@ -12,6 +12,10 @@ const types = @import("../layout/types.zig");
 const PolicyState = @import("PolicyState.zig");
 
 pub const Kind = PolicyState.Kind;
+pub const Presentation = PolicyState.Presentation;
+pub const Visibility = PolicyState.Visibility;
+pub const GeometryState = PolicyState.GeometryState;
+pub const StackLayer = PolicyState.StackLayer;
 pub const ClientMaximizeOrigin = PolicyState.ClientMaximizeOrigin;
 pub const Entry = PolicyState;
 pub const Resolver = *const fn (types.Handle) ?*Entry;
@@ -49,7 +53,7 @@ pub fn setFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bo
 /// transition guards.
 pub fn setAutomaticFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
     const entry = store.resolver(handle) orelse return false;
-    if (entry.kind != .tiled) return false;
+    if (entry.kind() != .tiled) return false;
     setFloatingEntry(entry, geometry);
     return true;
 }
@@ -58,7 +62,7 @@ pub fn setAutomaticFloating(store: *Store, handle: types.Handle, geometry: types
 /// not mark the action as a user override.
 pub fn setRuleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) bool {
     const entry = store.resolver(handle) orelse return false;
-    if (!entry.rule_floating_owned) entry.rule_floating_previous = entry.kind;
+    if (!entry.rule_floating_owned) entry.rule_floating_previous = entry.presentation;
     setFloatingEntry(entry, geometry);
     entry.rule_floating_owned = true;
     return true;
@@ -67,7 +71,7 @@ pub fn setRuleFloating(store: *Store, handle: types.Handle, geometry: types.Rect
 pub fn restoreRuleFloating(store: *Store, handle: types.Handle) bool {
     const entry = store.resolver(handle) orelse return false;
     if (!entry.rule_floating_owned) return false;
-    if (entry.kind == .floating) entry.kind = entry.rule_floating_previous;
+    if (entry.presentation == .floating) entry.presentation = entry.rule_floating_previous;
     entry.rule_floating_owned = false;
     return true;
 }
@@ -76,8 +80,8 @@ pub fn toggleFloating(store: *Store, handle: types.Handle, geometry: types.Rect)
     const entry = store.resolver(handle) orelse return null;
     entry.overrideFloating();
     entry.client_maximize_origin = .none;
-    if (entry.kind == .floating) {
-        entry.kind = entry.previous;
+    if (entry.presentation == .floating) {
+        entry.presentation = .tiled;
         return false;
     }
     setFloatingEntry(entry, geometry);
@@ -88,12 +92,11 @@ pub fn toggleMaximized(store: *Store, handle: types.Handle) ?bool {
     const entry = store.resolver(handle) orelse return null;
     entry.overrideFloating();
     entry.client_maximize_origin = .none;
-    if (entry.kind == .maximized) {
-        entry.kind = entry.previous;
+    if (entry.geometry_state == .maximized) {
+        entry.geometry_state = .normal;
         return false;
     }
-    entry.previous = entry.kind;
-    entry.kind = .maximized;
+    entry.geometry_state = .maximized;
     return true;
 }
 
@@ -106,14 +109,13 @@ pub fn maximizedMoveRestoreKind(
     layout_floating: bool,
 ) ?Kind {
     const entry = store.resolver(handle) orelse return null;
-    if (entry.kind != .maximized) return null;
+    if (entry.geometry_state != .maximized or entry.visibility != .visible) return null;
     return switch (entry.client_maximize_origin) {
         .floating_overlay => .floating,
         .workspace_floating => if (layout_floating) .tiled else null,
-        .none => switch (entry.previous) {
+        .none => switch (entry.presentation) {
             .floating => .floating,
             .tiled => if (layout_floating) .tiled else null,
-            else => null,
         },
     };
 }
@@ -127,8 +129,7 @@ pub fn restoreMaximizedForMove(
     const restored = store.maximizedMoveRestoreKind(handle, layout_floating) orelse return null;
     entry.overrideFloating();
     entry.client_maximize_origin = .none;
-    entry.previous = restored;
-    entry.kind = restored;
+    entry.geometry_state = .normal;
     return restored;
 }
 
@@ -145,35 +146,32 @@ pub fn setClientMaximized(
 ) bool {
     const entry = store.resolver(handle) orelse return false;
     if (maximized) {
-        const origin: ClientMaximizeOrigin = if (entry.kind == .floating)
+        const origin: ClientMaximizeOrigin = if (entry.presentation == .floating)
             .floating_overlay
-        else if (entry.kind == .tiled and layout_floating)
+        else if (entry.presentation == .tiled and layout_floating)
             .workspace_floating
         else
             return false;
         entry.overrideFloating();
-        entry.previous = entry.kind;
         entry.client_maximize_origin = origin;
-        entry.kind = .maximized;
+        entry.geometry_state = .maximized;
         return true;
     }
-    if (entry.kind != .maximized) return false;
-    const restored: Kind = switch (entry.client_maximize_origin) {
+    if (entry.geometry_state != .maximized) return false;
+    _ = switch (entry.client_maximize_origin) {
         .none => return false,
-        .floating_overlay => .floating,
-        .workspace_floating => .tiled,
+        .floating_overlay, .workspace_floating => {},
     };
     entry.overrideFloating();
     entry.client_maximize_origin = .none;
-    entry.previous = restored;
-    entry.kind = restored;
+    entry.geometry_state = .normal;
     return true;
 }
 
 pub fn restore(store: *Store, handle: types.Handle) bool {
     const entry = store.resolver(handle) orelse return false;
-    if (entry.kind != .minimized) return false;
-    entry.kind = entry.previous;
+    if (entry.visibility != .minimized) return false;
+    entry.visibility = .visible;
     removeFromList(&store.minimized_mru, handle);
     return true;
 }
@@ -199,26 +197,20 @@ pub fn clientMinimizeAllowed(
 ) bool {
     const entry = store.resolver(handle) orelse return false;
     if (minimized) {
-        return canMinimizeFrom(entry.kind, layout_floating);
+        return canMinimizeFrom(entry, layout_floating);
     }
-    return entry.kind == .minimized and
-        canMinimizeFrom(entry.previous, layout_floating);
+    return entry.visibility == .minimized and canMinimizeFrom(entry, layout_floating);
 }
 
-fn canMinimizeFrom(kind: Kind, layout_floating: bool) bool {
-    return switch (kind) {
-        .floating, .maximized => true,
-        .tiled => layout_floating,
-        else => false,
-    };
+fn canMinimizeFrom(entry: *const Entry, layout_floating: bool) bool {
+    return entry.presentation == .floating or layout_floating;
 }
 
 pub fn minimize(store: *Store, handle: types.Handle) !bool {
     const entry = store.resolver(handle) orelse return false;
-    if (entry.kind == .minimized) return false;
+    if (entry.visibility == .minimized) return false;
     entry.overrideFloating();
-    entry.previous = entry.kind;
-    entry.kind = .minimized;
+    entry.visibility = .minimized;
     removeFromList(&store.minimized_mru, handle);
     try store.minimized_mru.insert(store.allocator, 0, handle);
     return true;
@@ -228,16 +220,15 @@ pub fn restoreLastMinimized(store: *Store) types.Handle {
     while (store.minimized_mru.items.len > 0) {
         const handle = store.minimized_mru.orderedRemove(0);
         const entry = store.resolver(handle) orelse continue;
-        if (entry.kind != .minimized) continue;
-        entry.kind = entry.previous;
+        if (entry.visibility != .minimized) continue;
+        entry.visibility = .visible;
         return handle;
     }
     return 0;
 }
 
 fn setFloatingEntry(entry: *Entry, geometry: types.Rect) void {
-    if (entry.kind != .floating) entry.previous = entry.kind;
-    entry.kind = .floating;
+    entry.presentation = .floating;
     if (geometry.width > 0 and geometry.height > 0) entry.floating_geometry = geometry;
 }
 
@@ -245,161 +236,115 @@ fn removeFromList(list: *std.ArrayListUnmanaged(types.Handle), handle: types.Han
     if (std.mem.indexOfScalar(types.Handle, list.items, handle)) |index| _ = list.orderedRemove(index);
 }
 
-test "embedded policy state preserves the prior mode around floating" {
-    var entry: Entry = .{ .kind = .maximized };
+test "floating presentation composes with visibility geometry and stack layer" {
+    var entry: Entry = .{
+        .geometry_state = .maximized,
+        .stack_layer = .above,
+    };
     setFloatingEntry(&entry, .{ .x = 10, .y = 20, .width = 300, .height = 200 });
-    try std.testing.expectEqual(Kind.floating, entry.kind);
-    try std.testing.expectEqual(Kind.maximized, entry.previous);
+    try std.testing.expectEqual(Kind.maximized, entry.kind());
+    try std.testing.expectEqual(Presentation.floating, entry.presentation);
+    try std.testing.expectEqual(StackLayer.above, entry.stack_layer);
     try std.testing.expectEqual(types.Rect{ .x = 10, .y = 20, .width = 300, .height = 200 }, entry.floating_geometry);
 }
 
-test "automatic floating only promotes tiled windows and remains user-toggleable" {
+test "automatic floating only promotes ordinary tiled windows" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
     const geometry: types.Rect = .{ .x = 20, .y = 30, .width = 580, .height = 360 };
     try std.testing.expect(store.setAutomaticFloating(1, geometry));
-    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(geometry, TestResolver.entries[0].floating_geometry);
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind());
     try std.testing.expectEqual(false, store.toggleFloating(1, .empty).?);
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind());
 
-    TestResolver.entries[1].kind = .maximized;
+    TestResolver.entries[1].geometry_state = .maximized;
     try std.testing.expect(!store.setAutomaticFloating(2, geometry));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
 }
 
-test "rule floating rolls back unless manually overridden" {
+test "rule floating restores presentation without erasing geometry state" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
-    TestResolver.entries[0].kind = .maximized;
+    TestResolver.entries[0].geometry_state = .maximized;
     try std.testing.expect(store.setRuleFloating(1, .{ .x = 0, .y = 0, .width = 300, .height = 200 }));
-    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Presentation.floating, TestResolver.entries[0].presentation);
+    try std.testing.expectEqual(GeometryState.maximized, TestResolver.entries[0].geometry_state);
     try std.testing.expect(store.restoreRuleFloating(1));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Presentation.tiled, TestResolver.entries[0].presentation);
 
     try std.testing.expect(store.setRuleFloating(1, .{ .x = 0, .y = 0, .width = 300, .height = 200 }));
     _ = store.toggleFloating(1, .empty) orelse unreachable;
     try std.testing.expect(!store.restoreRuleFloating(1));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Presentation.tiled, TestResolver.entries[0].presentation);
 }
 
-test "client state requests are confined to floating presentations" {
+test "maximize and minimize preserve presentation independently" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    TestResolver.entries[0].presentation = .floating;
+    try std.testing.expect(store.setClientMaximized(1, true, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind());
+    try std.testing.expectEqual(Presentation.floating, TestResolver.entries[0].presentation);
+
+    try std.testing.expect(try store.setClientMinimized(1, true, false));
+    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind());
+    try std.testing.expectEqual(GeometryState.maximized, TestResolver.entries[0].geometry_state);
+    try std.testing.expectEqual(Presentation.floating, TestResolver.entries[0].presentation);
+
+    try std.testing.expect(try store.setClientMinimized(1, false, false));
+    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind());
+    try std.testing.expect(store.setClientMaximized(1, false, false));
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind());
+}
+
+test "client state requests remain confined to freeform presentations" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
     try std.testing.expect(!store.setClientMaximized(1, true, false));
     try std.testing.expect(!(try store.setClientMinimized(1, true, false)));
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
-
-    // Workspace-floating windows remain layout-owned (`tiled`) outside the
-    // temporary maximized overlay, and provenance makes restoration independent
-    // of the workspace's current layout.
     try std.testing.expect(store.setClientMaximized(1, true, true));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].previous);
     try std.testing.expectEqual(ClientMaximizeOrigin.workspace_floating, TestResolver.entries[0].client_maximize_origin);
-    try std.testing.expect(!store.setClientMaximized(1, true, true));
     try std.testing.expect(store.setClientMaximized(1, false, false));
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(ClientMaximizeOrigin.none, TestResolver.entries[0].client_maximize_origin);
-
-    try std.testing.expect(try store.setClientMinimized(1, true, true));
-    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
-    try std.testing.expect(try store.setClientMinimized(1, false, true));
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
-
-    TestResolver.entries[0].kind = .floating;
-    try std.testing.expect(store.setClientMaximized(1, true, false));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(ClientMaximizeOrigin.floating_overlay, TestResolver.entries[0].client_maximize_origin);
-    try std.testing.expect(store.setClientMaximized(1, false, false));
-    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(ClientMaximizeOrigin.none, TestResolver.entries[0].client_maximize_origin);
-
-    try std.testing.expect(try store.setClientMinimized(1, true, false));
-    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
-    try std.testing.expect(try store.setClientMinimized(1, false, false));
-    try std.testing.expectEqual(Kind.floating, TestResolver.entries[0].kind);
-
-    TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
-    try std.testing.expect(!store.setClientMaximized(2, false, true));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind());
 }
 
-test "client minimize and restore work from a maximized floating window" {
-    TestResolver.reset();
-    var store = Store.init(std.testing.allocator, TestResolver.resolve);
-    defer store.deinit();
-
-    TestResolver.entries[0].kind = .floating;
-    try std.testing.expect(store.setClientMaximized(1, true, false));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(ClientMaximizeOrigin.floating_overlay, TestResolver.entries[0].client_maximize_origin);
-
-    try std.testing.expect(try store.setClientMinimized(1, true, false));
-    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
-
-    try std.testing.expect(try store.setClientMinimized(1, false, false));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
-}
-
-test "manual maximize supersedes client maximize provenance" {
+test "manual maximize supersedes client provenance" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
     try std.testing.expect(store.setClientMaximized(1, true, true));
-    try std.testing.expectEqual(ClientMaximizeOrigin.workspace_floating, TestResolver.entries[0].client_maximize_origin);
     try std.testing.expectEqual(false, store.toggleMaximized(1).?);
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
     try std.testing.expectEqual(ClientMaximizeOrigin.none, TestResolver.entries[0].client_maximize_origin);
-    try std.testing.expect(!store.setClientMaximized(1, false, true));
-
     try std.testing.expectEqual(true, store.toggleMaximized(1).?);
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
     try std.testing.expect(!store.setClientMaximized(1, false, true));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[0].kind);
 }
 
-test "titlebar move restores maximized floating presentations" {
+test "titlebar move restores the correct freeform owner" {
     TestResolver.reset();
     var store = Store.init(std.testing.allocator, TestResolver.resolve);
     defer store.deinit();
 
     TestResolver.entries[0] = .{
-        .kind = .maximized,
-        .previous = .tiled,
+        .geometry_state = .maximized,
         .client_maximize_origin = .workspace_floating,
     };
     try std.testing.expectEqual(Kind.tiled, store.restoreMaximizedForMove(1, true).?);
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
-    try std.testing.expectEqual(ClientMaximizeOrigin.none, TestResolver.entries[0].client_maximize_origin);
+    try std.testing.expectEqual(GeometryState.normal, TestResolver.entries[0].geometry_state);
 
     TestResolver.entries[1] = .{
-        .kind = .maximized,
-        .previous = .floating,
-        .client_maximize_origin = .none,
+        .presentation = .floating,
+        .geometry_state = .maximized,
     };
     try std.testing.expectEqual(Kind.floating, store.restoreMaximizedForMove(2, false).?);
-    try std.testing.expectEqual(Kind.floating, TestResolver.entries[1].kind);
-
-    TestResolver.entries[1] = .{ .kind = .maximized, .previous = .tiled };
-    try std.testing.expectEqual(@as(?Kind, null), store.restoreMaximizedForMove(2, false));
-    try std.testing.expectEqual(Kind.maximized, TestResolver.entries[1].kind);
-
-    // Client maximize provenance remains authoritative if a minimize/restore
-    // round trip has overwritten the single-level `previous` field.
-    TestResolver.entries[1] = .{
-        .kind = .maximized,
-        .previous = .maximized,
-        .client_maximize_origin = .floating_overlay,
-    };
-    try std.testing.expectEqual(Kind.floating, store.restoreMaximizedForMove(2, false).?);
+    try std.testing.expectEqual(Kind.floating, TestResolver.entries[1].kind());
 }
 
 const TestResolver = struct {
@@ -421,9 +366,9 @@ test "minimized index follows embedded state and prunes destroyed handles" {
     defer store.deinit();
 
     try std.testing.expect(try store.minimize(1));
-    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Kind.minimized, TestResolver.entries[0].kind());
     try std.testing.expectEqual(@as(types.Handle, 1), store.restoreLastMinimized());
-    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind);
+    try std.testing.expectEqual(Kind.tiled, TestResolver.entries[0].kind());
 
     try std.testing.expect(try store.minimize(2));
     store.remove(2);

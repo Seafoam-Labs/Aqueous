@@ -59,6 +59,12 @@ pub const Input = struct {
     focus_follows_mouse: bool = false,
     focus_new_windows: bool = false,
     focus_new_windows_set: bool = false,
+    /// Focus and visual stacking are independent. This defaults to the current
+    /// Aqueous click-to-raise behavior but may be disabled for sloppy focus.
+    raise_on_focus: bool = true,
+    raise_on_focus_set: bool = false,
+    raise_on_focus_delay_ms: u31 = 0,
+    raise_on_focus_delay_set: bool = false,
     pointer_acceleration: bool = false,
     pointer_acceleration_factor: f64 = 0,
     /// Keyboard repeat rate in characters per second. Zero disables repeat.
@@ -291,6 +297,14 @@ fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
         input.focus_new_windows = parsed;
         input.focus_new_windows_set = true;
     };
+    if (std.mem.eql(u8, key, "raise_on_focus")) if (parseBool(value)) |parsed| {
+        input.raise_on_focus = parsed;
+        input.raise_on_focus_set = true;
+    };
+    if (std.mem.eql(u8, key, "raise_on_focus_delay_ms")) if (parseU31(value)) |parsed| {
+        input.raise_on_focus_delay_ms = parsed;
+        input.raise_on_focus_delay_set = true;
+    };
     if (std.mem.eql(u8, key, "pointer_acceleration")) input.pointer_acceleration = parseBool(value) orelse input.pointer_acceleration;
     if (std.mem.eql(u8, key, "pointer_acceleration_factor")) input.pointer_acceleration_factor = parseSpeed(value) orelse input.pointer_acceleration_factor;
     if (std.mem.eql(u8, key, "repeat_rate") or std.mem.eql(u8, key, "repeat-rate")) if (parseU31(value)) |parsed| {
@@ -409,7 +423,7 @@ fn parseLayout(value: []const u8) ?layout.LayoutId {
     if (std.mem.eql(u8, value, "dwindle")) return .dwindle;
     if (std.mem.eql(u8, value, "reverse-dwindle") or std.mem.eql(u8, value, "reverse_dwindle")) return .reverse_dwindle;
     if (std.mem.eql(u8, value, "scrolling")) return .scrolling;
-    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating")) return .floating;
+    if (std.mem.eql(u8, value, "float") or std.mem.eql(u8, value, "floating") or std.mem.eql(u8, value, "stack") or std.mem.eql(u8, value, "stacking")) return .floating;
     if (std.mem.eql(u8, value, "game-mode") or std.mem.eql(u8, value, "game_mode")) return .game_mode;
     if (std.mem.eql(u8, value, "composable")) return .composable;
     return null;
@@ -474,6 +488,8 @@ test "wm and input config validates mappings, struts, and device settings" {
         \\[input]
         \\focus_follows_mouse = true
         \\focus_new_windows = true
+        \\raise_on_focus = false
+        \\raise_on_focus_delay_ms = 175
         \\repeat_rate = 30
         \\repeat_delay = 275
         \\xkb_layout = "us,de"
@@ -502,6 +518,10 @@ test "wm and input config validates mappings, struts, and device settings" {
     try std.testing.expect(wm_snapshot.input.focus_follows_mouse);
     try std.testing.expect(wm_snapshot.input.focus_new_windows);
     try std.testing.expect(wm_snapshot.input.focus_new_windows_set);
+    try std.testing.expect(!wm_snapshot.input.raise_on_focus);
+    try std.testing.expect(wm_snapshot.input.raise_on_focus_set);
+    try std.testing.expectEqual(@as(u31, 175), wm_snapshot.input.raise_on_focus_delay_ms);
+    try std.testing.expect(wm_snapshot.input.raise_on_focus_delay_set);
     try std.testing.expectEqual(@as(u31, 30), wm_snapshot.input.repeat_rate);
     try std.testing.expectEqual(@as(u31, 275), wm_snapshot.input.repeat_delay);
     try std.testing.expectEqualStrings("us,de", wm_snapshot.input.xkb_layout.slice());

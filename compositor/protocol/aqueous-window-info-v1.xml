@@ -87,6 +87,8 @@
   <interface name="aqueous_window_info_v1" version="2">
     <description summary="one-shot window information snapshot">
       A read-only snapshot of compositor-owned state for one mapped toplevel.
+      The state bitfield also reports stacking layer, snap, fixed-position,
+      switcher, and taskbar policy without adding event opcodes.
     </description>
 
     <enum name="backend">
@@ -101,6 +103,12 @@
       <entry name="maximized" value="8"/>
       <entry name="minimized" value="16"/>
       <entry name="visible" value="32"/>
+      <entry name="always_above" value="64"/>
+      <entry name="always_below" value="128"/>
+      <entry name="snapped" value="256"/>
+      <entry name="fixed_position" value="512"/>
+      <entry name="skip_switcher" value="1024"/>
+      <entry name="skip_taskbar" value="2048"/>
     </enum>
 
     <enum name="matcher">

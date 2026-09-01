@@ -48,6 +48,14 @@ pub const DimensionsHint = struct {
     max_width: u31 = 0,
     min_height: u31 = 0,
     max_height: u31 = 0,
+    base_width: u31 = 0,
+    base_height: u31 = 0,
+    width_inc: u31 = 0,
+    height_inc: u31 = 0,
+    min_aspect_num: u31 = 0,
+    min_aspect_den: u31 = 0,
+    max_aspect_num: u31 = 0,
+    max_aspect_den: u31 = 0,
 };
 
 /// Window-manager metadata that has the exact same lifetime as this Window.
@@ -215,6 +223,16 @@ pub const PolicySnapshot = struct {
     min_height: i32,
     max_width: i32,
     max_height: i32,
+    base_width: i32,
+    base_height: i32,
+    width_inc: i32,
+    height_inc: i32,
+    min_aspect_num: i32,
+    min_aspect_den: i32,
+    max_aspect_num: i32,
+    max_aspect_den: i32,
+    preferred_width: i32,
+    preferred_height: i32,
 };
 
 pub const InfoBackend = enum { xdg, xwayland };
@@ -237,6 +255,12 @@ pub const InfoSnapshot = struct {
     maximized: bool,
     minimized: bool,
     visible: bool,
+    always_above: bool,
+    always_below: bool,
+    snapped: bool,
+    fixed_position: bool,
+    skip_switcher: bool,
+    skip_taskbar: bool,
     layout: [:0]const u8,
 };
 
@@ -528,6 +552,16 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         .min_height = @intCast(window.wm_scheduled.dimensions_hint.min_height),
         .max_width = @intCast(window.wm_scheduled.dimensions_hint.max_width),
         .max_height = @intCast(window.wm_scheduled.dimensions_hint.max_height),
+        .base_width = @intCast(window.wm_scheduled.dimensions_hint.base_width),
+        .base_height = @intCast(window.wm_scheduled.dimensions_hint.base_height),
+        .width_inc = @intCast(window.wm_scheduled.dimensions_hint.width_inc),
+        .height_inc = @intCast(window.wm_scheduled.dimensions_hint.height_inc),
+        .min_aspect_num = @intCast(window.wm_scheduled.dimensions_hint.min_aspect_num),
+        .min_aspect_den = @intCast(window.wm_scheduled.dimensions_hint.min_aspect_den),
+        .max_aspect_num = @intCast(window.wm_scheduled.dimensions_hint.max_aspect_num),
+        .max_aspect_den = @intCast(window.wm_scheduled.dimensions_hint.max_aspect_den),
+        .preferred_width = window.box.width,
+        .preferred_height = window.box.height,
     };
 }
 
@@ -2601,7 +2635,7 @@ pub fn infoSnapshot(window: *const Window) InfoSnapshot {
         break :blk false;
     };
     const visible_workspace = if (workspace) |ws| ws.isActive() else true;
-    const kind = window.policy_state.kind;
+    const kind = window.policy_state.kind();
     return .{
         .backend = backend,
         .app_id = app_id,
@@ -2620,6 +2654,12 @@ pub fn infoSnapshot(window: *const Window) InfoSnapshot {
         .maximized = kind == .maximized or window.wm_requested.maximized,
         .minimized = kind == .minimized or window.rendering_requested.hidden,
         .visible = window.state == .mapped and visible_workspace and !window.rendering_requested.hidden,
+        .always_above = window.policy_state.stack_layer == .above,
+        .always_below = window.policy_state.stack_layer == .below,
+        .snapped = window.policy_state.snap_state != .none,
+        .fixed_position = window.policy_state.fixed_position,
+        .skip_switcher = window.policy_state.skip_switcher,
+        .skip_taskbar = window.policy_state.skip_taskbar,
         .layout = @tagName(kind),
     };
 }

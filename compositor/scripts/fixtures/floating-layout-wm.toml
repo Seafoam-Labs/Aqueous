@@ -1,11 +1,18 @@
 [layout]
-default = "floating"
+default = "stacking"
 gaps_outer = 0
 gaps_inner = 0
 
 [layout.slots]
 primary = "floating"
 secondary = "tile"
+
+[layout.options.stacking]
+placement = "cascade"
+move_step = 10
+snap_gap = 0
+snap_threshold = 24
+resistance = 12
 
 [struts]
 top = 0
@@ -23,3 +30,6 @@ focus_follows_mouse = false
 set_layout_primary = "Super+F"
 set_layout_secondary = "Super+T"
 toggle_floating = "Super+V"
+nudge_floating_right = "Super+Alt+D"
+snap_left = "Super+Alt+H"
+unsnap = "Super+Alt+U"

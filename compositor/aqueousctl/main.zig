@@ -1056,6 +1056,12 @@ fn writeStates(writer: *Io.Writer, states: aqueous.WindowInfoV1.State) !void {
     try writeState(writer, &first, "maximized", states.maximized);
     try writeState(writer, &first, "minimized", states.minimized);
     try writeState(writer, &first, "visible", states.visible);
+    try writeState(writer, &first, "always_above", states.always_above);
+    try writeState(writer, &first, "always_below", states.always_below);
+    try writeState(writer, &first, "snapped", states.snapped);
+    try writeState(writer, &first, "fixed_position", states.fixed_position);
+    try writeState(writer, &first, "skip_switcher", states.skip_switcher);
+    try writeState(writer, &first, "skip_taskbar", states.skip_taskbar);
 }
 
 fn writeState(writer: *Io.Writer, first: *bool, name: []const u8, enabled: bool) !void {
@@ -1308,7 +1314,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
         .workspace = 2,
         .geometry = .{ .x = 1, .y = -2, .width = 3, .height = 4 },
         .matched_rule = 7,
-        .states = .{ .floating = true, .minimized = true },
+        .states = .{ .floating = true, .minimized = true, .always_above = true, .snapped = true },
     };
     var closed: Window = .{
         .state = &state,
@@ -1331,7 +1337,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
 
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\"]}\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
             "]\n",
         writer.buffered(),
     );

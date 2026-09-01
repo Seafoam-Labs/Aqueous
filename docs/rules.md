@@ -64,6 +64,12 @@ matters.
 | `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
+| `placement_policy` | string | no | Per-rule `cascade`, `center`, `under-pointer`, or `minimal-overlap` initial placement. |
+| `stack_layer` | string | no | Place the window in the `below`, `normal`, or `above` semantic stack layer. |
+| `focus` | bool | no | When false, exclude the window from compositor focus selection. |
+| `fixed_position` | bool | no | Reject compositor pointer and keyboard geometry changes. |
+| `skip_switcher` | bool | no | Exclude from MRU cycling and overview. |
+| `skip_taskbar` | bool | no | Export a taskbar-suppression hint through the window-info state. |
 | `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
 | `workspace` | integer | no | Open the window on this 1-based workspace number. Without `output`, the window's normal admission output is used. |
 | `width`, `height` | integer | no | Floating placement dimensions. |

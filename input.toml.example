@@ -28,6 +28,10 @@ pinch_4_in = "builtin:toggle_start_menu"
 # Focus a window when the pointer enters it.
 focus_follows_mouse = false
 focus_new_windows = false
+# Focus and raising are independent. A nonzero delay is especially useful with
+# focus_follows_mouse, where briefly crossing a window should not restack it.
+raise_on_focus = true
+raise_on_focus_delay_ms = 0
 
 # Legacy global mouse acceleration controls. Per-device accel_profile and
 # accel_speed below take precedence. pointer_acceleration=true selects the

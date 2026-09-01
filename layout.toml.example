@@ -29,7 +29,7 @@
 [layout]
 # Layout used when there is no runtime, output, or workspace override.
 # Accepted: tile | monocle | grid | rows | dwindle | reverse-dwindle |
-#           reverse_dwindle | scrolling | float | floating | game-mode |
+#           reverse_dwindle | scrolling | float | floating | stack | stacking | game-mode |
 #           game_mode | composable
 default = "tile"
 
@@ -165,9 +165,35 @@ allow_overscroll = true
 focus_follows_mouse_delay_ms = 0
 
 [layout.options.float]
-# Floating has no engine-only keys. Common borders apply; each window otherwise
-# uses remembered, native, or rule-provided geometry.
+# `stack` and `stacking` are aliases for this layout.
+# New-window policy: cascade | center | under-pointer | minimal-overlap.
+placement = "cascade"
+cascade_step = 32
+# Opt-in keyboard actions use these pixel increments.
+move_step = 10
+move_step_coarse = 50
+resize_step = 10
+# Pointer snapping uses half/quarter regions. Reaching the top edge maximizes
+# to the usable area by default; false selects the top half instead.
+snap_gap = 0
+snap_threshold = 24
+resistance = 12
+top_edge_maximize = true
 border_width = 2
+
+# Optional normalized custom regions. Names are a through d and are resolved
+# independently on every output's current usable area.
+[layout.snap-zone.a]
+x = 0.0
+y = 0.0
+width = 0.6666667
+height = 1.0
+
+[layout.snap-zone.b]
+x = 0.6666667
+y = 0.0
+width = 0.3333333
+height = 1.0
 
 [layout.options.game-mode]
 # Only common geometry/border keys are accepted here. Game Mode's

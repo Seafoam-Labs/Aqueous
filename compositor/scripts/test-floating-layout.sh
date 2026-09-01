@@ -250,6 +250,18 @@ read -r final_x final_y final_w final_h < <(geometry <<<"$(window_json "$APP_ONE
     [ "$final_h" -eq $((moved_h + 15)) ] ||
     die "client resize did not update floating-layout geometry"
 
+# The stacking alias exposes the same remembered geometry plus keyboard
+# movement and snap/restore behavior. Snapping reports tiled-edge state to the
+# client but keeps workspace floating ownership.
+click_at $((final_x + 5)) $((final_y + 5))
+press d SUPER ALT
+final_x=$((final_x + 10))
+wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
+press h SUPER ALT
+wait_geometry "$APP_ONE" $'0\t0\t640\t720'
+press u SUPER ALT
+wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
+
 ONE_FLOAT="$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
 TWO_FLOAT="$two_x"$'\t'"$two_y"$'\t'"$two_w"$'\t'"$two_h"
 THREE_FLOAT="$three_x"$'\t'"$three_y"$'\t'"$three_w"$'\t'"$three_h"
@@ -364,4 +376,4 @@ for index in "${!CLIENT_PIDS[@]}"; do
 done
 CLIENT_PIDS=()
 
-echo "PASS: floating layout cascade, ownership, switching, maximize-drag, and toggle semantics"
+echo "PASS: stacking alias, cascade, keyboard snap/restore, ownership, switching, maximize-drag, and toggle semantics"

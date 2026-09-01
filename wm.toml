@@ -100,6 +100,8 @@ rollback_seconds = 0
 # path = "~/.config/aqueous/input.toml"
 # focus_follows_mouse = false
 # focus_new_windows = false
+# raise_on_focus = true
+# raise_on_focus_delay_ms = 0
 # pointer_acceleration = false
 # pointer_acceleration_factor = 0.0
 # num_lock_state = true
@@ -262,7 +264,7 @@ reload_config         = "Super+R"          # immediately reload all TOML snapsho
 #                       remainder joins columns like scrolling (anchor immovable)
 #   composable        → delegate to the focused window's configured child;
 #                       cross-region drops exchange region membership
-#   float             → no-op (use rules.toml / future nudge_floating_*)
+#   float/stacking    → use the nudge/resize/snap actions documented below
 move_window_left      = "Super+Shift+Left"   # default
 move_window_right     = "Super+Shift+Right"  # default
 move_window_up        = "Super+Shift+Up"     # default
@@ -332,6 +334,20 @@ toggle_floating       = "Super+Shift+Space"    # default
 toggle_minimize       = "Super+N"              # default — hide from layout
 unminimize_last       = "Super+Shift+N"        # default — restore most-recent minimized
 
+# Stacking/freeform actions are opt-in so existing chords remain unchanged:
+# raise_window = "Super+PageUp"
+# lower_window = "Super+PageDown"
+# toggle_always_above = "Super+Shift+A"
+# toggle_always_below = "Super+Shift+B"
+# nudge_floating_left/right/up/down
+# nudge_floating_coarse_left/right/up/down
+# resize_floating_left/right/up/down and shrink_floating_left/right/up/down
+# snap_left/right/up/down, snap_up_left/up_right/down_left/down_right, unsnap
+# toggle_maximize_horizontal, toggle_maximize_vertical
+# fit_floating_to_output, move_floating_to_edge_<direction>,
+# grow_floating_to_edge_<direction>
+# Custom bindings use `builtin:snap_zone:a` and `builtin:cycle_snap_zone`.
+
 # --- Pointer ---
 # Hold-to-untrap: while this chord is held down any active pointer constraint
 # (mouse "trap" from games etc.) is released; on release the trap re-engages.
@@ -350,7 +366,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child
 #   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
-#                             dwindle, reverse-dwindle, scrolling, float/floating, game-mode,
+#                             dwindle, reverse-dwindle, scrolling, float/floating/stack/stacking, game-mode,
 #                             composable;
 #                             slots are primary..quaternary
 #   builtin:<action_name>   — invoke any canonical [keybinds] action name

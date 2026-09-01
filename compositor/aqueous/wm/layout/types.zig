@@ -5,6 +5,8 @@ const wp = @import("wayland").server.wp;
 
 pub const Handle = u64;
 
+pub const StackLayer = enum { below, normal, above };
+
 pub const Rect = struct {
     x: i32,
     y: i32,
@@ -36,9 +38,28 @@ pub const Window = struct {
     min_height: i32 = 0,
     max_width: i32 = 0,
     max_height: i32 = 0,
+    base_width: i32 = 0,
+    base_height: i32 = 0,
+    width_inc: i32 = 0,
+    height_inc: i32 = 0,
+    min_aspect_num: i32 = 0,
+    min_aspect_den: i32 = 0,
+    max_aspect_num: i32 = 0,
+    max_aspect_den: i32 = 0,
+    /// Client's current/natural content size. Floating placement prefers this
+    /// over a compositor-chosen fraction when it is usable.
+    preferred_width: i32 = 0,
+    preferred_height: i32 = 0,
     floating: bool = false,
     fullscreen: bool = false,
     scrolling_full_width: bool = false,
+};
+
+pub const FloatingPlacement = enum {
+    cascade,
+    center,
+    under_pointer,
+    minimal_overlap,
 };
 
 pub const Border = struct {
@@ -56,6 +77,19 @@ pub const Options = struct {
     master_ratio: f64 = 0.55,
     master_count: u32 = 1,
     border: Border = .none,
+    floating_placement: FloatingPlacement = .cascade,
+    floating_cascade_step: i32 = 32,
+    /// Runtime pointer coordinates injected into the per-output snapshot.
+    /// They are deliberately optional so layout/config tests remain pure.
+    pointer_x: ?i32 = null,
+    pointer_y: ?i32 = null,
+    floating_move_step: i32 = 10,
+    floating_move_step_coarse: i32 = 50,
+    floating_resize_step: i32 = 10,
+    floating_snap_gap: i32 = 0,
+    floating_snap_threshold: i32 = 24,
+    floating_resistance: i32 = 12,
+    floating_top_edge_maximize: bool = true,
 };
 
 pub const Placement = struct {

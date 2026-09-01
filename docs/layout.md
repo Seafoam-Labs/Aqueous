@@ -9,7 +9,9 @@ Aqueous ships ten in-process layout modes:
 - `dwindle` — alternating recursive splits.
 - `reverse-dwindle` — a horizontal mirror of dwindle, splitting from the right and top.
 - `scrolling` — horizontally scrolling columns.
-- `float` — free placement using remembered/native geometry.
+- `float` / `stacking` — a full stacking layout with remembered geometry,
+  workspace-local z-order, MRU focus, constrained movement/resizing, snapping,
+  custom normalized zones, and KDE/labwc-style placement policies.
 - `game-mode` — an anchor window with remaining windows arranged beside it.
 - `composable` — up to four independently stateful layouts assigned to fixed
   monitor regions.
@@ -31,6 +33,14 @@ column_fraction = "0.5"
 center_focused = "true"
 prefer_vertical_on_portrait = "false"
 focus_follows_mouse_delay_ms = 0
+
+[layout.options.stacking]
+placement = "minimal-overlap"
+move_step = 10
+move_step_coarse = 50
+resize_step = 10
+snap_threshold = 24
+resistance = 12
 
 [[workspace]]
 workspace = 2
