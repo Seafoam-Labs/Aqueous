@@ -45,6 +45,7 @@ jq -e '
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
   (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
   (.fields[] | select(.id == "layout.options.scrolling.prefer_vertical_on_portrait") | .value == true and .file == "layout") and
+  (.fields[] | select(.id == "layout.border_focused") | .type == "color" and .value == "0xFF88C0D0") and
   (.fields[] | select(.id == "snap_center") | .value == []) and
   (.fields[] | select(.id == "grow_floating_to_edge_right") | .value == []) and
   (.fields[] | select(.id == "spawn_terminal") | .value == ["Super+Return", "Super+T"]) and
@@ -83,6 +84,21 @@ jq -n \
 run_helper validate --request "$empty_table_request" |
     jq -e '.ok == true and .generation == "'"$generation"'"' >/dev/null
 
+invalid_color_request="$test_root/invalid-color-request.json"
+jq -n \
+    --arg generation "$generation" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [{id: "layout.border_focused", value: "#80112233"}]
+    }' >"$invalid_color_request"
+if run_helper validate --request "$invalid_color_request" >"$test_root/invalid-color-response.json"; then
+    echo "eight-digit picker color unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-color-response.json" >/dev/null
+rg -q '^border_focused = 0xFF88C0D0$' "$config_root/layout.toml"
+
 request="$test_root/request.json"
 jq -n \
     --arg generation "$generation" \
@@ -96,6 +112,7 @@ jq -n \
         {id: "blur.enabled", value: false},
         {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
+        {id: "layout.border_focused", value: "0x4088c0d0"},
         {id: "layout.options.float.placement", value: "center"},
         {id: "layout.options.scrolling.prefer_vertical_on_portrait", value: false},
         {id: "input.touchpad.tap", value: false},
@@ -110,13 +127,20 @@ jq -e '.ok == true and .generation != "'"$generation"'"' "$validated" >/dev/null
 
 applied="$test_root/applied.json"
 run_helper apply --request "$request" >"$applied"
-jq -e '.ok == true and .generation != "'"$generation"'"' "$applied" >/dev/null
+jq -e '
+  .ok == true and
+  .generation != "'"$generation"'" and
+  (.fields[] | select(.id == "layout.border_focused") | .value == "0x4088C0D0")
+' "$applied" >/dev/null
 
 rg -q '^# fixture comment must survive$' "$config_root/wm.toml"
 rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = true$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = false$' "$config_root/outputs.toml"
 rg -q '^gaps_outer = 18$' "$config_root/layout.toml"
+rg -q '^border_focused = 0x4088C0D0$' "$config_root/layout.toml"
+rg -q '^border_normal = 0xFF3B4252$' "$config_root/layout.toml"
+rg -q '^border_urgent = 0xFFBF616A$' "$config_root/layout.toml"
 rg -q '^placement = "center"$' "$config_root/layout.toml"
 test "$(rg -c '^\[layout\.options\.(float|floating|stack|stacking)\]$' "$config_root/layout.toml")" = 1
 rg -q '^prefer_vertical_on_portrait = false$' "$config_root/layout.toml"

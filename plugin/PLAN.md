@@ -232,7 +232,7 @@ it. Draft persistence across a Noctalia restart is not required for v1.
 | Bounded integer/double | `ui.slider` plus numeric `ui.input` |
 | Enum | `ui.select` |
 | Short string/path/command | `ui.input` |
-| Color | hex input plus a color preview |
+| Color | native RGB picker and preview plus a same-line numeric alpha input |
 | Repeated table | keyed cards with Add, Duplicate, Reorder, Delete |
 | Raw TOML | multiline `ui.input` with explicit validation |
 

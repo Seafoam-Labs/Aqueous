@@ -1574,8 +1574,8 @@ fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, valu
         },
         .color => {
             const text = jsonString(value) orelse return error.InvalidColor;
-            if (!validColor(text)) return error.InvalidColor;
-            return allocator.dupe(u8, text);
+            const color = parseTypedColor(text) orelse return error.InvalidColor;
+            return std.fmt.allocPrint(allocator, "0x{X:0>8}", .{color});
         },
     }
 }
@@ -1759,11 +1759,24 @@ fn unquoteToml(raw_value: []const u8) []const u8 {
 }
 
 fn validColor(raw_value: []const u8) bool {
+    return parseConfigColor(raw_value) != null;
+}
+
+fn parseConfigColor(raw_value: []const u8) ?u32 {
     var value = unquoteToml(raw_value);
     if (std.mem.startsWith(u8, value, "0x") or std.mem.startsWith(u8, value, "0X")) value = value[2..];
-    if (value.len != 8) return false;
-    for (value) |byte| if (!std.ascii.isHex(byte)) return false;
-    return true;
+    if (value.len != 8) return null;
+    return std.fmt.parseInt(u32, value, 16) catch null;
+}
+
+fn parseTypedColor(raw_value: []const u8) ?u32 {
+    const value = unquoteToml(raw_value);
+    if (std.mem.startsWith(u8, value, "#")) {
+        if (value.len != 7) return null;
+        const rgb = std.fmt.parseInt(u32, value[1..], 16) catch return null;
+        return 0xff000000 | rgb;
+    }
+    return parseConfigColor(value);
 }
 
 fn jsonString(value: ?Json) ?[]const u8 {
@@ -1941,5 +1954,33 @@ test "schema ids are unique and defaults validate" {
             .string_list => .{ .string = @constCast(left.default_raw) },
         };
         _ = try encodeTomlValue(arena.allocator(), left, json_value);
+    }
+}
+
+test "typed colors serialize as canonical AARRGGBB" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const color_field = schema.find("layout.border_focused").?;
+    const cases = [_]struct { input: []const u8, expected: []const u8 }{
+        .{ .input = "0xFF88C0D0", .expected = "0xFF88C0D0" },
+        .{ .input = "0x4088c0d0", .expected = "0x4088C0D0" },
+        .{ .input = "00112233", .expected = "0x00112233" },
+        .{ .input = "#112233", .expected = "0xFF112233" },
+    };
+    for (cases) |case| {
+        const encoded = try encodeTomlValue(
+            arena.allocator(),
+            color_field,
+            .{ .string = @constCast(case.input) },
+        );
+        try std.testing.expectEqualStrings(case.expected, encoded);
+    }
+
+    for ([_][]const u8{ "#12345", "#80112233", "0xGG112233", "0x112233" }) |invalid| {
+        try std.testing.expectError(
+            error.InvalidColor,
+            encodeTomlValue(arena.allocator(), color_field, .{ .string = @constCast(invalid) }),
+        );
     }
 }

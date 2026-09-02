@@ -53,6 +53,9 @@ for key in (
     "keybind.add_layout",
     "rule.window_rules",
     "error.helper_incompatible",
+    "color.choose",
+    "color.alpha",
+    "error.color_alpha",
 ):
     assert key in translations, key
 
@@ -100,6 +103,9 @@ for feature in (
     'snapZonesView',
     'rulesView',
     'addCustomKeybind',
+    'noctalia.openColorPicker',
+    'local function colorControl',
+    'key = "color-alpha-"',
 ):
     assert feature in panel, feature
 PY

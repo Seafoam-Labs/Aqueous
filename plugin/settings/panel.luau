@@ -32,6 +32,9 @@ local newCustomKeybindSerial = 0
 local newWindowRuleSerial = 0
 local normalizeStackingDraft = false
 local inputRevisions = {}
+local colorAlphaInputs = {}
+local colorAlphaErrors = {}
+local colorPickerPending = nil
 local activeCategory = "overview"
 local activeFile = "wm"
 local busy = false
@@ -96,6 +99,81 @@ local function normalizeLayout(value)
 		return "stacking"
 	end
 	return value
+end
+
+local function parseConfigColor(value)
+	local text = tostring(value or ""):match("^%s*(.-)%s*$") or ""
+	if #text >= 2 then
+		local first = text:sub(1, 1)
+		local last = text:sub(-1)
+		if (first == '"' and last == '"') or (first == "'" and last == "'") then
+			text = text:sub(2, -2)
+		end
+	end
+	if text:sub(1, 2):lower() == "0x" then
+		text = text:sub(3)
+	end
+	if #text ~= 8 or text:find("[^0-9A-Fa-f]") ~= nil then
+		return nil
+	end
+	local normalized = text:upper()
+	local alpha = tonumber(normalized:sub(1, 2), 16)
+	if alpha == nil then
+		return nil
+	end
+	return {
+		argb = normalized,
+		alpha = alpha,
+		rgb = "#" .. normalized:sub(3),
+	}
+end
+
+local function pickerColor(value, fallback)
+	local parsed = parseConfigColor(value) or parseConfigColor(fallback)
+	return parsed and parsed.rgb or "#000000"
+end
+
+local function alphaValue(value, fallback)
+	local parsed = parseConfigColor(value) or parseConfigColor(fallback)
+	return parsed and parsed.alpha or 255
+end
+
+local function parseAlphaInput(value)
+	local text = tostring(value or ""):match("^%s*(.-)%s*$") or ""
+	if text == "" or text:find("[^0-9]") ~= nil then
+		return nil
+	end
+	local alpha = tonumber(text)
+	if alpha == nil or alpha < 0 or alpha > 255 or alpha ~= math.floor(alpha) then
+		return nil
+	end
+	return alpha
+end
+
+local function configColor(rgb, alpha)
+	local text = tostring(rgb or "")
+	if #text ~= 7 or text:sub(1, 1) ~= "#" or text:find("[^0-9A-Fa-f]", 2) ~= nil then
+		return nil
+	end
+	if type(alpha) ~= "number" or alpha < 0 or alpha > 255 or alpha ~= math.floor(alpha) then
+		return nil
+	end
+	return string.format("0x%02X%s", alpha, text:sub(2):upper())
+end
+
+local function colorsEqual(left, right)
+	local leftColor = parseConfigColor(left)
+	local rightColor = parseConfigColor(right)
+	return leftColor ~= nil and rightColor ~= nil and leftColor.argb == rightColor.argb
+end
+
+local function hasColorInputErrors()
+	for _id, invalid in pairs(colorAlphaErrors) do
+		if invalid then
+			return true
+		end
+	end
+	return false
 end
 
 local function versionAtLeast(actual, required)
@@ -313,13 +391,17 @@ local function currentValue(field)
 end
 
 local function setDraft(field, value, shouldRender)
-	if value == field.value then
+	local unchanged = value == field.value
+	if field.type == "color" then
+		unchanged = colorsEqual(value, field.value)
+	end
+	if unchanged then
 		drafts[field.id] = nil
 	else
 		drafts[field.id] = value
 	end
 	status = hasDrafts() and "dirty" or "ready"
-	statusMessage = ""
+	statusMessage = hasColorInputErrors() and tr("error.color_alpha") or ""
 	if shouldRender ~= false then
 		render()
 	end
@@ -342,6 +424,9 @@ local function resetFromSnapshot(newSnapshot)
 	newWindowRuleSerial = 0
 	normalizeStackingDraft = false
 	inputRevisions = {}
+	colorAlphaInputs = {}
+	colorAlphaErrors = {}
+	colorPickerPending = nil
 	for file, source in pairs(snapshot.raw_files or {}) do
 		rawDrafts[file] = source
 	end
@@ -381,6 +466,11 @@ end
 
 local function writeRequest(mode)
 	if snapshot == nil or busy then
+		return
+	end
+	if hasColorInputErrors() then
+		statusMessage = tr("error.color_alpha")
+		render()
 		return
 	end
 	dataDir = dataDir or noctalia.pluginDataDir()
@@ -1032,6 +1122,117 @@ local function selectControl(field, value, suppliedOptions)
 	})
 end
 
+local function openFieldColorPicker(field)
+	if busy or colorPickerPending ~= nil then
+		return
+	end
+	colorPickerPending = field.id
+	local accepted = noctalia.openColorPicker(pickerColor(currentValue(field), field.default), function(selected)
+		if colorPickerPending ~= field.id then
+			return
+		end
+		colorPickerPending = nil
+		if selected == nil then
+			render()
+			return
+		end
+		local alpha = alphaValue(currentValue(field), field.default)
+		local combined = configColor(selected, alpha)
+		if combined == nil then
+			statusMessage = tr("error.color_picker")
+			render()
+			return
+		end
+		colorAlphaInputs[field.id] = tostring(alpha)
+		colorAlphaErrors[field.id] = nil
+		setDraft(field, combined)
+	end)
+	if not accepted then
+		colorPickerPending = nil
+		statusMessage = tr("error.color_picker")
+		render()
+	end
+end
+
+local function updateColorAlpha(field, text, submitted)
+	colorAlphaInputs[field.id] = tostring(text or "")
+	local alpha = parseAlphaInput(text)
+	if alpha == nil then
+		colorAlphaErrors[field.id] = true
+		status = hasDrafts() and "dirty" or "ready"
+		statusMessage = tr("error.color_alpha")
+		if submitted then
+			colorAlphaInputs[field.id] = tostring(alphaValue(currentValue(field), field.default))
+			colorAlphaErrors[field.id] = nil
+			inputRevisions[field.id] = (inputRevisions[field.id] or 0) + 1
+			statusMessage = hasColorInputErrors() and tr("error.color_alpha") or ""
+		end
+		render()
+		return
+	end
+
+	colorAlphaInputs[field.id] = tostring(alpha)
+	colorAlphaErrors[field.id] = nil
+	local combined = configColor(pickerColor(currentValue(field), field.default), alpha)
+	if combined == nil then
+		statusMessage = tr("error.color_alpha")
+		render()
+		return
+	end
+	setDraft(field, combined)
+end
+
+local function colorControl(field, value)
+	local rgb = pickerColor(value, field.default)
+	local revision = inputRevisions[field.id] or 0
+	if colorAlphaInputs[field.id] == nil then
+		colorAlphaInputs[field.id] = tostring(alphaValue(value, field.default))
+	end
+	local row = ui.row({ gap = 10, align = "center" }, {
+		ui.box({
+			width = 32,
+			height = 32,
+			radius = 8,
+			fill = rgb,
+			border = "outline",
+			borderWidth = 1,
+		}),
+		ui.button({
+			key = "color-picker-" .. field.id,
+			text = rgb,
+			glyph = "palette",
+			variant = "outline",
+			tooltip = tr("color.choose"),
+			enabled = not busy and colorPickerPending == nil,
+			onClick = function()
+				openFieldColorPicker(field)
+			end,
+		}),
+		ui.spacer({ flexGrow = 1 }),
+		ui.label({ text = tr("color.alpha"), color = "on_surface_variant", fontSize = 12 }),
+		ui.input({
+			key = "color-alpha-" .. field.id .. "-" .. revision,
+			value = colorAlphaInputs[field.id],
+			width = 76,
+			controlSize = "sm",
+			enabled = not busy,
+			onChange = function(changed)
+				updateColorAlpha(field, changed, false)
+			end,
+			onSubmit = function(changed)
+				updateColorAlpha(field, changed, true)
+			end,
+		}),
+	})
+	if colorAlphaErrors[field.id] then
+		return ui.column({ gap = 4, align = "stretch" }, {
+			row,
+			ui.label({ text = tr("error.color_alpha"), color = "error", fontSize = 11 }),
+		})
+	end
+	return row
+end
+
 local function fieldControl(field)
 	local value = currentValue(field)
 	if field.type == "boolean" then
@@ -1048,6 +1249,8 @@ local function fieldControl(field)
 		return numericControl(field, value)
 	elseif field.type == "select" then
 		return selectControl(field, value)
+	elseif field.type == "color" then
+		return colorControl(field, value)
 	elseif field.id == "desktop.font.family" then
 		local typography = snapshot.desktop_typography or {}
 		local families = typography.families or {}
@@ -1056,7 +1259,7 @@ local function fieldControl(field)
 		end
 	end
 	local revision = inputRevisions[field.id] or 0
-	local children = {
+	return ui.row({ gap = 10, align = "center" }, {
 		ui.input({
 			key = "text-" .. field.id .. "-" .. revision,
 			value = tostring(value or ""),
@@ -1069,18 +1272,7 @@ local function fieldControl(field)
 				setDraft(field, text)
 			end,
 		}),
-	}
-	if field.type == "color" then
-		table.insert(children, 1, ui.box({
-			width = 30,
-			height = 30,
-			radius = 8,
-			fill = tostring(value),
-			border = "outline",
-			borderWidth = 1,
-		}))
-	end
-	return ui.row({ gap = 10, align = "center" }, children)
+	})
 end
 
 fieldCard = function(field)
@@ -2095,7 +2287,7 @@ local function advancedView()
 end
 
 local function statusColor()
-	if status == "error" or status == "conflict" then
+	if hasColorInputErrors() or status == "error" or status == "conflict" then
 		return "error"
 	elseif status == "success" then
 		return "primary"
@@ -2139,7 +2331,7 @@ local function footer()
 	table.insert(actions, ui.button({
 		text = tr("action.validate"),
 		variant = "outline",
-		enabled = hasDrafts() and not busy,
+		enabled = hasDrafts() and not busy and not hasColorInputErrors(),
 		onClick = function()
 			writeRequest("validate")
 		end,
@@ -2148,7 +2340,7 @@ local function footer()
 		text = needsUserOverride() and tr("action.create_override") or tr("action.apply"),
 		glyph = "check",
 		variant = "primary",
-		enabled = hasDrafts() and not busy,
+		enabled = hasDrafts() and not busy and not hasColorInputErrors(),
 		onClick = function()
 			writeRequest("apply")
 		end,

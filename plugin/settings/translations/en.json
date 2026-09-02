@@ -33,6 +33,8 @@
   "typography.active": "active",
   "typography.inactive": "inactive",
   "category.layouts": "Global layout geometry, layout slots, and engine behavior.",
+  "color.choose": "Choose color",
+  "color.alpha": "Alpha (0–255)",
   "stacking.title": "Stacking layout",
   "stacking.alias_warning": "Multiple legacy stacking option sections are active. Aqueous uses the last value for each key.",
   "stacking.normalize": "Normalize sections",
@@ -134,5 +136,7 @@
   "error.data_dir": "Noctalia could not create the plugin data directory",
   "error.encode": "Could not encode the apply request",
   "error.request_write": "Could not write the temporary apply request",
+  "error.color_picker": "Noctalia could not open or return a valid color from the color picker",
+  "error.color_alpha": "Alpha must be a whole number from 0 through 255",
   "error.generic": "The configuration helper reported an error"
 }
