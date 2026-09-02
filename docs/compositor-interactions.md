@@ -85,6 +85,15 @@ and `log` affect whether and how a child is launched. Restarting commands use
 bounded backoff in a shell loop. The compositor itself does not synchronously
 wait for these children.
 
+`[[application]]` entries are the shell-free path for per-application launch
+policy. Each profile has a name, an absolute `command`, an `args` array, an
+inline `env` table, and optional `desktop_id` metadata. A custom key binding
+with `launch:<name>` executes the command directly with `execve(2)`, preserving
+argument boundaries and inheriting the compositor environment except where the
+profile overrides a variable. This is the appropriate place for toolkit- or
+version-specific decoration switches; it does not rewrite an installed desktop
+entry or application preferences.
+
 ## Window inspection protocols
 
 Mapped windows are published through both `ext_foreign_toplevel_list_v1` and
@@ -96,10 +105,13 @@ working while integrated policy is active.
 `aqueous_window_info_v1` is a read-only extension of an
 `ext_foreign_toplevel_handle_v1`. A request returns a one-shot snapshot of the
 window backend, native app ID or XWayland class, output, workspace, geometry,
-placement state, and matched rule. Enumeration and stable identifiers stay in
-the standard ext protocol. `aqueousctl` combines the two protocols for table,
-JSON, and ready-to-paste rule output. All three foreign-window globals are
-hidden from Wayland security contexts.
+placement state, matched rule, and xdg-decoration negotiation state. The JSON
+form reports decoration capability, the client's requested mode, the effective
+mode last sent by Aqueous, and whether a configure response is pending.
+Enumeration and stable identifiers stay in the standard ext protocol.
+`aqueousctl` combines the two protocols for table, JSON, and ready-to-paste rule
+output. All three foreign-window globals are hidden from Wayland security
+contexts.
 
 `aqueousctl outputs` binds the event side of `zwlr_output_manager_v1` and waits
 for its `done` boundary to obtain an atomic snapshot. It reports the complete

@@ -42,24 +42,25 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
 }
 
 fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
-    const Section = enum { none, action, keybinds, custom, gestures, exec };
+    const Section = enum { none, action, keybinds, custom, gestures, exec, application };
     var section: Section = .none;
-    var pending: ?actions.Exec = null;
+    var pending_exec: ?actions.Exec = null;
+    var pending_application: ?actions.Application = null;
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw| {
         const line = wm.cleanLine(raw);
         if (line.len == 0) continue;
         if (line[0] == '[') {
-            if (pending) |entry| {
-                if (!entry.name.empty() and !entry.command.empty() and snapshot.exec_count < actions.max_exec) {
-                    snapshot.exec[snapshot.exec_count] = entry;
-                    snapshot.exec_count += 1;
-                }
-                pending = null;
-            }
+            appendExec(snapshot, pending_exec);
+            appendApplication(snapshot, pending_application);
+            pending_exec = null;
+            pending_application = null;
             if (std.mem.eql(u8, line, "[[exec]]")) {
                 section = .exec;
-                pending = .{};
+                pending_exec = .{};
+            } else if (std.mem.eql(u8, line, "[[application]]")) {
+                section = .application;
+                pending_application = .{};
             } else if (std.mem.eql(u8, line, "[actions]")) section = .action else if (std.mem.eql(u8, line, "[keybinds]")) section = .keybinds else if (std.mem.eql(u8, line, "[keybinds.custom]")) section = .custom else if (std.mem.eql(u8, line, "[gestures]")) section = .gestures else section = .none;
             continue;
         }
@@ -80,7 +81,7 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
                 var decoded: [256]u8 = undefined;
                 actions.addBinding(snapshot, key, decodeBasic(value, &decoded) orelse value);
             },
-            .exec => if (pending) |*entry| {
+            .exec => if (pending_exec) |*entry| {
                 if (std.mem.eql(u8, key, "name")) _ = entry.name.set(value);
                 if (std.mem.eql(u8, key, "command")) _ = entry.command.set(value);
                 if (std.mem.eql(u8, key, "when")) entry.when = if (std.mem.eql(u8, value, "reload")) .reload else if (std.mem.eql(u8, value, "always")) .always else .startup;
@@ -88,6 +89,13 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
                 if (std.mem.eql(u8, key, "restart")) entry.restart = parseBool(value) orelse entry.restart;
                 if (std.mem.eql(u8, key, "log")) _ = entry.log_path.set(value);
                 if (std.mem.eql(u8, key, "env")) _ = entry.env.set(raw_value);
+            },
+            .application => if (pending_application) |*application| {
+                if (std.mem.eql(u8, key, "name")) _ = application.name.set(value);
+                if (std.mem.eql(u8, key, "desktop_id")) _ = application.desktop_id.set(value);
+                if (std.mem.eql(u8, key, "command")) _ = application.command.set(value);
+                if (std.mem.eql(u8, key, "args")) parseApplicationArgs(application, raw_value);
+                if (std.mem.eql(u8, key, "env")) parseApplicationEnv(application, raw_value);
             },
             .gestures => {
                 const gesture = parseGestureKey(key) orelse continue;
@@ -97,10 +105,81 @@ fn applyActions(snapshot: *actions.Snapshot, source: []const u8) void {
             .none => {},
         }
     }
-    if (pending) |entry| if (!entry.name.empty() and !entry.command.empty() and snapshot.exec_count < actions.max_exec) {
-        snapshot.exec[snapshot.exec_count] = entry;
-        snapshot.exec_count += 1;
-    };
+    appendExec(snapshot, pending_exec);
+    appendApplication(snapshot, pending_application);
+}
+
+fn appendExec(snapshot: *actions.Snapshot, pending: ?actions.Exec) void {
+    const entry = pending orelse return;
+    if (entry.name.empty() or entry.command.empty() or snapshot.exec_count == actions.max_exec) return;
+    snapshot.exec[snapshot.exec_count] = entry;
+    snapshot.exec_count += 1;
+}
+
+fn appendApplication(snapshot: *actions.Snapshot, pending: ?actions.Application) void {
+    const application = pending orelse return;
+    if (application.name.empty() or application.command.empty() or application.command.slice()[0] != '/') return;
+    for (snapshot.applications[0..snapshot.application_count], 0..) |existing, index| {
+        if (std.mem.eql(u8, existing.name.slice(), application.name.slice())) {
+            snapshot.applications[index] = application;
+            return;
+        }
+    }
+    if (snapshot.application_count == actions.max_applications) return;
+    snapshot.applications[snapshot.application_count] = application;
+    snapshot.application_count += 1;
+}
+
+fn parseApplicationArgs(application: *actions.Application, raw_value: []const u8) void {
+    application.arg_count = 0;
+    var rest = std.mem.trim(u8, raw_value, " \t");
+    if (rest.len < 2 or rest[0] != '[' or rest[rest.len - 1] != ']') return;
+    rest = rest[1 .. rest.len - 1];
+    while (rest.len != 0 and application.arg_count < actions.max_application_args) {
+        const comma = wm.indexUnquoted(rest, ',') orelse rest.len;
+        const raw_item = std.mem.trim(u8, rest[0..comma], " \t");
+        if (raw_item.len != 0) {
+            const value = wm.unquote(raw_item);
+            var decoded: [256]u8 = undefined;
+            if (application.args[application.arg_count].set(decodeBasic(value, &decoded) orelse value)) {
+                application.arg_count += 1;
+            }
+        }
+        if (comma == rest.len) break;
+        rest = rest[comma + 1 ..];
+    }
+}
+
+fn parseApplicationEnv(application: *actions.Application, raw_value: []const u8) void {
+    application.env_count = 0;
+    var rest = std.mem.trim(u8, raw_value, " \t");
+    if (rest.len < 2 or rest[0] != '{' or rest[rest.len - 1] != '}') return;
+    rest = rest[1 .. rest.len - 1];
+    while (rest.len != 0 and application.env_count < actions.max_application_env) {
+        const comma = wm.indexUnquoted(rest, ',') orelse rest.len;
+        const pair = std.mem.trim(u8, rest[0..comma], " \t");
+        if (wm.indexUnquoted(pair, '=')) |equal| {
+            const name = std.mem.trim(u8, pair[0..equal], " \t");
+            const raw_env_value = std.mem.trim(u8, pair[equal + 1 ..], " \t");
+            if (validEnvironmentName(name)) {
+                var variable: actions.EnvironmentVariable = .{};
+                const value = wm.unquote(raw_env_value);
+                var decoded: [256]u8 = undefined;
+                if (variable.name.set(name) and variable.value.set(decodeBasic(value, &decoded) orelse value)) {
+                    application.env[application.env_count] = variable;
+                    application.env_count += 1;
+                }
+            }
+        }
+        if (comma == rest.len) break;
+        rest = rest[comma + 1 ..];
+    }
+}
+
+fn validEnvironmentName(name: []const u8) bool {
+    if (name.len == 0 or !(std.ascii.isAlphabetic(name[0]) or name[0] == '_')) return false;
+    for (name[1..]) |char| if (!(std.ascii.isAlphanumeric(char) or char == '_')) return false;
+    return true;
 }
 
 fn applyGestures(snapshot: *actions.Snapshot, source: []const u8) void {
@@ -268,6 +347,47 @@ test "actions custom bindings and exec are immutable snapshot data" {
         snapshot.gestures[2].direction,
     );
     try std.testing.expectEqual(@as(u8, 4), snapshot.gestures[2].fingers);
+}
+
+test "application profiles parse typed argv and environment without a shell" {
+    var snapshot: actions.Snapshot = .{};
+    applyActions(&snapshot,
+        \\[[application]]
+        \\name = "vesktop-ssd"
+        \\desktop_id = "vesktop.desktop"
+        \\command = "/usr/bin/vesktop"
+        \\args = ["--enable-features=WaylandWindowDecorations", "two words"]
+        \\env = { ELECTRON_OZONE_PLATFORM_HINT = "auto", APP_MODE = "native" }
+    );
+
+    try std.testing.expectEqual(@as(u8, 1), snapshot.application_count);
+    const application = snapshot.findApplication("vesktop-ssd").?;
+    try std.testing.expectEqualStrings("vesktop.desktop", application.desktop_id.slice());
+    try std.testing.expectEqualStrings("/usr/bin/vesktop", application.command.slice());
+    try std.testing.expectEqual(@as(u8, 2), application.arg_count);
+    try std.testing.expectEqualStrings("--enable-features=WaylandWindowDecorations", application.args[0].slice());
+    try std.testing.expectEqualStrings("two words", application.args[1].slice());
+    try std.testing.expectEqual(@as(u8, 2), application.env_count);
+    try std.testing.expectEqualStrings("ELECTRON_OZONE_PLATFORM_HINT", application.env[0].name.slice());
+    try std.testing.expectEqualStrings("auto", application.env[0].value.slice());
+}
+
+test "application profiles require absolute commands and replace duplicate names" {
+    var snapshot: actions.Snapshot = .{};
+    applyActions(&snapshot,
+        \\[[application]]
+        \\name = "ignored"
+        \\command = "vesktop"
+        \\[[application]]
+        \\name = "editor"
+        \\command = "/usr/bin/zed"
+        \\[[application]]
+        \\name = "editor"
+        \\command = "/usr/bin/zeditor"
+    );
+
+    try std.testing.expectEqual(@as(u8, 1), snapshot.application_count);
+    try std.testing.expectEqualStrings("/usr/bin/zeditor", snapshot.findApplication("editor").?.command.slice());
 }
 
 test "overview binding supports defaults overrides unbinds and duplicate chords" {

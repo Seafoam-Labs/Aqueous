@@ -674,7 +674,28 @@ pub fn policyApplyVisualRule(
     window.hdr_expand_rule = hdr_expand;
     window.rendering_requested.buffer_scale_policy = buffer_scale_policy;
     window.rendering_requested.overlay_plane = overlay_plane;
-    if (force_ssd and window.wm_scheduled.decoration_hint != .only_supports_csd) window.wm_requested.ssd = true;
+    // Integrated policy owns this value outright. Recompute it on every cycle
+    // so disabling force_ssd or losing the xdg-decoration object cannot leave
+    // server-side mode stuck on from an earlier transaction.
+    window.wm_requested.ssd = integratedSsdMode(force_ssd, window.hasXdgDecoration());
+}
+
+fn integratedSsdMode(force_ssd: bool, has_xdg_decoration: bool) bool {
+    return force_ssd and has_xdg_decoration;
+}
+
+fn hasXdgDecoration(window: *const Window) bool {
+    return switch (window.impl) {
+        .toplevel => |*toplevel| toplevel.decoration != null,
+        .xwayland, .destroying => false,
+    };
+}
+
+test "integrated SSD policy follows force setting and protocol capability" {
+    try std.testing.expect(!integratedSsdMode(false, false));
+    try std.testing.expect(!integratedSsdMode(false, true));
+    try std.testing.expect(!integratedSsdMode(true, false));
+    try std.testing.expect(integratedSsdMode(true, true));
 }
 
 pub fn overlayPreference(window: *const Window) OverlayPreference {

@@ -28,7 +28,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            5,
+            6,
             *WindowInfoManager,
             manager,
             bind,
@@ -428,6 +428,7 @@ fn sendSnapshot(
     if (supports_content_type and snapshot.content_type != .none) {
         info.sendContentType(@intCast(@intFromEnum(snapshot.content_type)));
     }
+    if (manager.getVersion() >= 6) sendDecorationSnapshot(info, window);
 
     const fingerprint = window.matchedRuleFingerprint();
     if (fingerprint != 0) {
@@ -444,6 +445,33 @@ fn sendSnapshot(
         }
     }
     info.sendDone();
+}
+
+fn sendDecorationSnapshot(info: *aqueous.WindowInfoV1, window: *const Window) void {
+    const unavailable = .{
+        aqueous.WindowInfoV1.DecorationCapability.unavailable,
+        aqueous.WindowInfoV1.DecorationMode.client_side,
+        aqueous.WindowInfoV1.DecorationMode.client_side,
+        false,
+    };
+    const capability, const requested, const effective, const pending = switch (window.impl) {
+        .toplevel => |*toplevel| if (toplevel.decoration) |decoration| .{
+            aqueous.WindowInfoV1.DecorationCapability.xdg_decoration,
+            decorationMode(decoration.wlr_decoration.requested_mode),
+            decorationMode(decoration.wlr_decoration.current.mode),
+            toplevel.decoration_configure_pending,
+        } else unavailable,
+        .xwayland, .destroying => unavailable,
+    };
+    info.sendDecoration(capability, requested, effective, @intFromBool(pending));
+}
+
+fn decorationMode(mode: wlr.XdgToplevelDecorationV1.Mode) aqueous.WindowInfoV1.DecorationMode {
+    return switch (mode) {
+        .none => .none,
+        .client_side => .client_side,
+        .server_side => .server_side,
+    };
 }
 
 fn handleInfoRequest(

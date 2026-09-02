@@ -1493,6 +1493,7 @@ fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
     const head = verb[0..colon];
     const argument = std.mem.trim(u8, verb[colon + 1 ..], " \t");
     if (std.mem.eql(u8, head, "spawn")) return aqueous.spawn(argument);
+    if (std.mem.eql(u8, head, "launch")) return aqueous.launchApplication(argument);
     if (std.mem.eql(u8, head, "set_layout")) return aqueous.setLayout(argument);
     if (std.mem.eql(u8, head, "builtin")) return aqueous.runBuiltin(argument);
     log.warn("unknown action verb '{s}'", .{head});
@@ -2712,6 +2713,74 @@ fn spawn(_: *Aqueous, command: []const u8) void {
         if (posix.errno(posix.system.execve("/bin/sh", &argv, envp)) != .SUCCESS) posix.system.exit(127);
     }
     util.gpa.free(owned);
+}
+
+fn launchApplication(aqueous: *Aqueous, name: []const u8) void {
+    const application = aqueous.config.actions.findApplication(name) orelse {
+        log.warn("unknown application launch profile '{s}'", .{name});
+        return;
+    };
+    aqueous.execApplication(application) catch |err| {
+        log.err("failed to launch application profile '{s}': {s}", .{ name, @errorName(err) });
+    };
+}
+
+fn execApplication(_: *Aqueous, application: *const action_config.Application) !void {
+    const command = try util.gpa.dupeZ(u8, application.command.slice());
+    defer util.gpa.free(command);
+
+    var owned_args: [action_config.max_application_args]?[:0]u8 =
+        [_]?[:0]u8{null} ** action_config.max_application_args;
+    defer for (&owned_args) |owned| if (owned) |value| util.gpa.free(value);
+
+    var argv = [_]?[*:0]const u8{null} ** (action_config.max_application_args + 2);
+    argv[0] = command.ptr;
+    for (application.args[0..application.arg_count], 0..) |arg, index| {
+        const owned = try util.gpa.dupeZ(u8, arg.slice());
+        owned_args[index] = owned;
+        argv[index + 1] = owned.ptr;
+    }
+
+    var owned_env: [action_config.max_application_env]?[:0]u8 =
+        [_]?[:0]u8{null} ** action_config.max_application_env;
+    defer for (&owned_env) |owned| if (owned) |value| util.gpa.free(value);
+
+    var env_list: std.ArrayList(?[*:0]const u8) = .empty;
+    defer env_list.deinit(util.gpa);
+    const inherited: [*:null]const ?[*:0]const u8 = @ptrCast(std.c.environ);
+    var inherited_index: usize = 0;
+    while (inherited[inherited_index]) |entry| : (inherited_index += 1) {
+        const inherited_name = std.mem.sliceTo(entry, '=');
+        if (applicationOverridesEnvironment(application, inherited_name)) continue;
+        try env_list.append(util.gpa, entry);
+    }
+    for (application.env[0..application.env_count], 0..) |variable, index| {
+        const assignment = try std.fmt.allocPrintSentinel(
+            util.gpa,
+            "{s}={s}",
+            .{ variable.name.slice(), variable.value.slice() },
+            0,
+        );
+        owned_env[index] = assignment;
+        try env_list.append(util.gpa, assignment.ptr);
+    }
+    try env_list.append(util.gpa, null);
+
+    const rc = posix.system.fork();
+    if (posix.errno(rc) != .SUCCESS) return error.ForkFailed;
+    if (rc == 0) {
+        process.cleanupChild();
+        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(env_list.items.ptr);
+        const child_argv: [*:null]const ?[*:0]const u8 = @ptrCast(&argv);
+        if (posix.errno(posix.system.execve(command.ptr, child_argv, envp)) != .SUCCESS) posix.system.exit(127);
+    }
+}
+
+fn applicationOverridesEnvironment(application: *const action_config.Application, name: []const u8) bool {
+    for (application.env[0..application.env_count]) |variable| {
+        if (std.mem.eql(u8, variable.name.slice(), name)) return true;
+    }
+    return false;
 }
 
 fn notify(aqueous: *Aqueous, summary: []const u8, body: ?[]const u8, is_error: bool) void {

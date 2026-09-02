@@ -6,6 +6,9 @@ const wm = @import("wm.zig");
 
 pub const max_bindings = 160;
 pub const max_exec = 32;
+pub const max_applications = 16;
+pub const max_application_args = 16;
+pub const max_application_env = 16;
 pub const max_gestures = 16;
 pub const default_screenshot_command = "grim -g \"$(slurp)\" - | wl-copy";
 
@@ -37,11 +40,30 @@ pub const Exec = struct {
     env: wm.Text = .{},
 };
 
+pub const EnvironmentVariable = struct {
+    name: wm.Text = .{},
+    value: wm.Text = .{},
+};
+
+/// A shell-free application launch profile. Commands are required to be
+/// absolute paths so launch behavior is stable across session PATH changes.
+pub const Application = struct {
+    name: wm.Text = .{},
+    desktop_id: wm.Text = .{},
+    command: wm.Text = .{},
+    args: [max_application_args]wm.Text = undefined,
+    arg_count: u8 = 0,
+    env: [max_application_env]EnvironmentVariable = undefined,
+    env_count: u8 = 0,
+};
+
 pub const Snapshot = struct {
     bindings: [max_bindings]Binding = undefined,
     binding_count: u16 = 0,
     exec: [max_exec]Exec = undefined,
     exec_count: u8 = 0,
+    applications: [max_applications]Application = undefined,
+    application_count: u8 = 0,
     gestures: [max_gestures]GestureBinding = undefined,
     gestures_count: u8 = 0,
     toggle_start_menu: wm.Text = .{},
@@ -67,6 +89,13 @@ pub const Snapshot = struct {
     pub fn findGesture(snapshot: *const Snapshot, kind: GestureKind, direction: GestureDirection, fingers: u8) ?[]const u8 {
         for (snapshot.gestures[0..snapshot.gestures_count]) |*gesture| {
             if (gesture.kind == kind and gesture.direction == direction and gesture.fingers == fingers) return gesture.verb.slice();
+        }
+        return null;
+    }
+
+    pub fn findApplication(snapshot: *const Snapshot, name: []const u8) ?*const Application {
+        for (snapshot.applications[0..snapshot.application_count]) |*application| {
+            if (std.mem.eql(u8, application.name.slice(), name)) return application;
         }
         return null;
     }

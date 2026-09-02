@@ -368,6 +368,8 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 #
 # Action verbs:
 #   spawn:<command>         — run through /bin/sh -c as a detached child
+#   launch:<profile>        — launch a typed [[application]] profile directly,
+#                             without shell parsing
 #   set_layout:<id-or-slot> — switch layout; IDs are tile, monocle, grid, rows,
 #                             dwindle, reverse-dwindle, scrolling, float/floating/stack/stacking, game-mode,
 #                             composable;
@@ -410,6 +412,23 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 
 # Re-route a built-in onto an extra chord:
 "Alt+F4"             = "builtin:close_focused"
+
+# -----------------------------------------------------------------------------
+# Shell-free application launch profiles
+# -----------------------------------------------------------------------------
+# Use these for application-specific Wayland/decorations flags. `command` must
+# be an absolute executable path. `args` and `env` are passed as distinct argv
+# and environment entries, so shell quoting and expansion do not apply.
+# `desktop_id` is optional metadata for matching a desktop launcher override.
+# Bind a profile with, for example:
+#   "Super+Shift+V" = "launch:vesktop-ssd"
+#
+# [[application]]
+# name = "vesktop-ssd"
+# desktop_id = "vesktop.desktop"
+# command = "/usr/bin/vesktop"
+# args = ["--enable-features=WaylandWindowDecorations"]
+# env = { ELECTRON_OZONE_PLATFORM_HINT = "auto" }
 
 # -----------------------------------------------------------------------------
 # Managed startup/reload commands

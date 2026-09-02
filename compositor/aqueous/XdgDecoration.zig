@@ -27,9 +27,7 @@ pub fn init(wlr_decoration: *wlr.XdgToplevelDecorationV1) void {
     wlr_decoration.events.destroy.add(&decoration.destroy);
     wlr_decoration.events.request_mode.add(&decoration.request_mode);
 
-    if (toplevel.wlr_toplevel.base.initialized) {
-        handleRequestMode(&decoration.request_mode, wlr_decoration);
-    }
+    decoration.syncRequestedMode();
 }
 
 pub fn deinit(decoration: *XdgDecoration) void {
@@ -40,6 +38,24 @@ pub fn deinit(decoration: *XdgDecoration) void {
 
     assert(toplevel.decoration != null);
     toplevel.decoration = null;
+    toplevel.decoration_configure_pending = false;
+    toplevel.window.setDecorationHint(.only_supports_csd);
+}
+
+fn syncRequestedMode(decoration: *XdgDecoration) void {
+    const toplevel: *XdgToplevel = @ptrCast(@alignCast(decoration.wlr_decoration.toplevel.base.data));
+    const window = toplevel.window;
+
+    window.setDecorationHint(switch (decoration.wlr_decoration.requested_mode) {
+        .none => .no_preference,
+        .client_side => .prefers_csd,
+        .server_side => .prefers_ssd,
+    });
+    toplevel.decoration_configure_pending = true;
+    // setDecorationHint() intentionally suppresses redundant policy updates,
+    // but every mode request needs a protocol response even when the hint is
+    // unchanged.
+    server.wm.dirtyWindowing();
 }
 
 fn handleDestroy(
@@ -57,12 +73,5 @@ fn handleRequestMode(
 ) void {
     const decoration: *XdgDecoration = @fieldParentPtr("request_mode", listener);
 
-    const toplevel: *XdgToplevel = @ptrCast(@alignCast(decoration.wlr_decoration.toplevel.base.data));
-    const window = toplevel.window;
-
-    window.setDecorationHint(switch (decoration.wlr_decoration.requested_mode) {
-        .none => .no_preference,
-        .client_side => .prefers_csd,
-        .server_side => .prefers_ssd,
-    });
+    decoration.syncRequestedMode();
 }

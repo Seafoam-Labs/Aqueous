@@ -13,10 +13,11 @@
     ext_foreign_toplevel_list_v1. Version 3 adds narrowly scoped control of the
     active workspace layout on a named output. Version 4 reports the window's
     committed wp_content_type_v1 state and content-type rule matchers. Version
-    5 adds a read-only DRM overlay-plane diagnostic snapshot.
+    5 adds a read-only DRM overlay-plane diagnostic snapshot. Version 6 adds
+    xdg-decoration negotiation state to window snapshots.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="5">
+  <interface name="aqueous_window_info_manager_v1" version="6">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -84,7 +85,7 @@
     </request>
   </interface>
 
-  <interface name="aqueous_window_info_v1" version="2">
+  <interface name="aqueous_window_info_v1" version="3">
     <description summary="one-shot window information snapshot">
       A read-only snapshot of compositor-owned state for one mapped toplevel.
       The state bitfield also reports stacking layer, snap, fixed-position,
@@ -116,6 +117,19 @@
       <entry name="class" value="1"/>
       <entry name="title" value="2"/>
       <entry name="content_type" value="3" since="2"/>
+    </enum>
+
+    <enum name="decoration_capability">
+      <entry name="unavailable" value="0"
+             summary="the client has no xdg-decoration object"/>
+      <entry name="xdg_decoration" value="1"
+             summary="the client created an xdg-decoration object"/>
+    </enum>
+
+    <enum name="decoration_mode">
+      <entry name="none" value="0"/>
+      <entry name="client_side" value="1"/>
+      <entry name="server_side" value="2"/>
     </enum>
 
     <event name="backend">
@@ -166,6 +180,18 @@
     <event name="matched_rule">
       <description summary="one-based index in rules.toml"/>
       <arg name="index" type="uint"/>
+    </event>
+
+    <event name="decoration" since="3">
+      <description summary="xdg-decoration negotiation state">
+        requested is the client's latest preference. effective is the last
+        mode committed through the xdg-decoration object. configure_pending is
+        one when the client request still requires a compositor response.
+      </description>
+      <arg name="capability" type="uint" enum="decoration_capability"/>
+      <arg name="requested" type="uint" enum="decoration_mode"/>
+      <arg name="effective" type="uint" enum="decoration_mode"/>
+      <arg name="configure_pending" type="uint"/>
     </event>
 
     <event name="rule_matcher">

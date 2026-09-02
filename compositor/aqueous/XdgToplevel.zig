@@ -27,6 +27,12 @@ wlr_toplevel: *wlr.XdgToplevel,
 
 decoration: ?XdgDecoration = null,
 
+/// A zxdg_toplevel_decoration_v1 request must receive a configure even when
+/// policy keeps the same effective mode. This is also set for a newly-created
+/// decoration object so object recreation cannot inherit the configure state
+/// of its predecessor.
+decoration_configure_pending: bool = false,
+
 geometry: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 
 configure_state: union(enum) {
@@ -160,6 +166,7 @@ pub fn configure(toplevel: *XdgToplevel) bool {
     _ = wlr_toplevel.setResizing(scheduled.resizing);
     if (toplevel.decoration) |decoration| {
         _ = decoration.wlr_decoration.setMode(if (scheduled.ssd) .server_side else .client_side);
+        toplevel.decoration_configure_pending = false;
     }
     if (scheduled.bounds.width != sent.bounds.width or
         scheduled.bounds.height != sent.bounds.height)
@@ -215,12 +222,17 @@ fn needsConfigure(toplevel: *XdgToplevel) bool {
     const scheduled = &toplevel.window.configure_scheduled;
     const sent = &toplevel.window.configure_sent;
 
+    if (decorationNeedsConfigure(
+        toplevel.decoration_configure_pending,
+        scheduled.ssd,
+        sent.ssd,
+    )) return true;
+
     if (scheduled.width != null and scheduled.width != sent.width) return true;
     if (scheduled.height != null and scheduled.height != sent.height) return true;
     if (scheduled.bounds.width != sent.bounds.width or
         scheduled.bounds.height != sent.bounds.height) return true;
     if (scheduled.activated != sent.activated) return true;
-    if (scheduled.ssd != sent.ssd) return true;
     if (!std.meta.eql(scheduled.tiled, sent.tiled)) return true;
     if (!std.meta.eql(scheduled.capabilities, sent.capabilities)) return true;
     if (scheduled.maximized != sent.maximized) return true;
@@ -228,6 +240,17 @@ fn needsConfigure(toplevel: *XdgToplevel) bool {
     if ((scheduled.resizing) != (sent.resizing)) return true;
 
     return false;
+}
+
+fn decorationNeedsConfigure(pending_response: bool, scheduled_ssd: bool, sent_ssd: bool) bool {
+    return pending_response or scheduled_ssd != sent_ssd;
+}
+
+test "xdg-decoration request is configured even when effective mode is unchanged" {
+    try std.testing.expect(decorationNeedsConfigure(true, true, true));
+    try std.testing.expect(decorationNeedsConfigure(true, false, false));
+    try std.testing.expect(decorationNeedsConfigure(false, true, false));
+    try std.testing.expect(!decorationNeedsConfigure(false, true, true));
 }
 
 pub fn destroyPopups(toplevel: XdgToplevel) void {

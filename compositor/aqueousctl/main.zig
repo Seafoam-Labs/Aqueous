@@ -135,6 +135,10 @@ const Window = struct {
     geometry: Geometry = .{},
     states: aqueous.WindowInfoV1.State = .{},
     matched_rule: u32 = 0,
+    decoration_capability: aqueous.WindowInfoV1.DecorationCapability = .unavailable,
+    decoration_requested: aqueous.WindowInfoV1.DecorationMode = .client_side,
+    decoration_effective: aqueous.WindowInfoV1.DecorationMode = .client_side,
+    decoration_configure_pending: bool = false,
     rule_app_id: ?[]u8 = null,
     rule_class: ?[]u8 = null,
     rule_title: ?[]u8 = null,
@@ -724,6 +728,12 @@ fn infoListener(_: *aqueous.WindowInfoV1, event: aqueous.WindowInfoV1.Event, win
         .layout => |value| replaceString(&window.layout, mem.span(value.layout)),
         .content_type => |value| window.content_type = contentTypeName(value.content_type),
         .matched_rule => |value| window.matched_rule = value.index,
+        .decoration => |value| {
+            window.decoration_capability = value.capability;
+            window.decoration_requested = value.requested;
+            window.decoration_effective = value.effective;
+            window.decoration_configure_pending = value.configure_pending != 0;
+        },
         .rule_matcher => |value| switch (value.matcher) {
             .app_id => replaceString(&window.rule_app_id, mem.span(value.pattern)),
             .class => replaceString(&window.rule_class, mem.span(value.pattern)),
@@ -1090,6 +1100,13 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
         });
         try jsonField(writer, "layout", window.layout, false);
         try jsonField(writer, "content_type", window.content_type, false);
+        try writer.writeAll(",\"decoration\":{\"capability\":");
+        try jsonString(writer, decorationCapabilityName(window.decoration_capability));
+        try writer.writeAll(",\"requested\":");
+        try jsonString(writer, decorationModeName(window.decoration_requested));
+        try writer.writeAll(",\"effective\":");
+        try jsonString(writer, decorationModeName(window.decoration_effective));
+        try writer.print(",\"configure_pending\":{s}}}", .{if (window.decoration_configure_pending) "true" else "false"});
         try writer.print(",\"matched_rule\":{d},\"states\":[", .{window.matched_rule});
         var states_buffer: [128]u8 = undefined;
         var states_writer = Io.Writer.fixed(&states_buffer);
@@ -1105,6 +1122,23 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
         try writer.writeAll("]}");
     }
     try writer.writeAll("\n]\n");
+}
+
+fn decorationCapabilityName(capability: aqueous.WindowInfoV1.DecorationCapability) []const u8 {
+    return switch (capability) {
+        .unavailable => "unavailable",
+        .xdg_decoration => "xdg-decoration",
+        _ => "unknown",
+    };
+}
+
+fn decorationModeName(mode: aqueous.WindowInfoV1.DecorationMode) []const u8 {
+    return switch (mode) {
+        .none => "none",
+        .client_side => "client-side",
+        .server_side => "server-side",
+        _ => "unknown",
+    };
 }
 
 fn jsonField(writer: *Io.Writer, name: []const u8, value: ?[]const u8, first: bool) !void {
@@ -1337,7 +1371,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
 
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"decoration\":{\"capability\":\"unavailable\",\"requested\":\"client-side\",\"effective\":\"client-side\",\"configure_pending\":false},\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
             "]\n",
         writer.buffered(),
     );
