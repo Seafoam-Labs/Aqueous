@@ -34,6 +34,12 @@ for key in (
     "widget.tooltip",
     "settings.helper_path.label",
     "settings.helper_path.description",
+    "search.placeholder",
+    "search.clear",
+    "search.title",
+    "search.results",
+    "search.empty",
+    "search.open",
     "action.apply",
     "error.external_change",
     "display.drag_hint",
@@ -110,6 +116,11 @@ for feature in (
     'noctalia.openColorPicker',
     'local function colorControl',
     'key = "color-alpha-"',
+    'local function matchesSearch',
+    'local function fieldMatchesSearch',
+    'local function searchResultsView',
+    'key = "settings-search"',
+    'body = searchResultsView()',
 ):
     assert feature in panel, feature
 PY

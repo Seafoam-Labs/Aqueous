@@ -37,6 +37,7 @@ local colorAlphaErrors = {}
 local colorPickerPending = nil
 local activeCategory = "overview"
 local activeFile = "wm"
+local searchQuery = ""
 local busy = false
 local status = "loading"
 local statusMessage = ""
@@ -66,6 +67,32 @@ local fieldCard
 
 local function tr(key)
 	return noctalia.tr(key)
+end
+
+local function normalizedSearch(value)
+	return (tostring(value or ""):lower():match("^%s*(.-)%s*$") or "")
+end
+
+local function appendSearchText(parts, value)
+	if type(value) == "table" then
+		for _, item in ipairs(value) do
+			appendSearchText(parts, item)
+		end
+	elseif value ~= nil then
+		table.insert(parts, tostring(value):lower())
+	end
+end
+
+local function matchesSearch(values)
+	local query = normalizedSearch(searchQuery)
+	if query == "" then return true end
+	local parts = {}
+	appendSearchText(parts, values)
+	local haystack = table.concat(parts, " ")
+	for token in query:gmatch("%S+") do
+		if haystack:find(token, 1, true) == nil then return false end
+	end
+	return true
 end
 
 local function shellQuote(value)
@@ -1053,14 +1080,16 @@ local function displaysView()
 end
 
 local function categoryButton(category)
+	local searching = normalizedSearch(searchQuery) ~= ""
 	return ui.button({
 		key = "category-" .. category.id,
 		text = category.label,
 		glyph = category.glyph,
-		variant = activeCategory == category.id and "secondary" or "ghost",
-		selected = activeCategory == category.id,
+		variant = not searching and activeCategory == category.id and "secondary" or "ghost",
+		selected = not searching and activeCategory == category.id,
 		contentAlign = "start",
 		onClick = function()
+			searchQuery = ""
 			activeCategory = category.id
 			render()
 		end,
@@ -2383,6 +2412,215 @@ local function advancedView()
 	})
 end
 
+local function categoryById(id)
+	for _, category in ipairs(categories) do
+		if category.id == id then return category end
+	end
+	return { id = id, label = id, glyph = "settings" }
+end
+
+local function searchDestination(categoryId, title, description, glyph, onOpen)
+	return ui.column({
+		key = "search-destination-" .. categoryId .. "-" .. title,
+		gap = 8,
+		padding = 12,
+		radius = 10,
+		fill = "surface_variant",
+		border = "outline",
+		borderWidth = 1,
+		align = "stretch",
+	}, {
+		ui.row({ gap = 10, align = "center" }, {
+			ui.glyph({ name = glyph or categoryById(categoryId).glyph, color = "primary" }),
+			ui.column({ gap = 2, flexGrow = 1, align = "stretch" }, {
+				ui.label({ text = title, fontWeight = "medium" }),
+				ui.label({ text = description, color = "on_surface_variant", fontSize = 11, maxLines = 2 }),
+			}),
+			ui.button({
+				text = tr("search.open"),
+				glyph = "arrow-right",
+				variant = "ghost",
+				onClick = function()
+					searchQuery = ""
+					activeCategory = categoryId
+					if onOpen ~= nil then onOpen() end
+					render()
+				end,
+			}),
+		}),
+	})
+end
+
+local function fieldMatchesSearch(field)
+	return matchesSearch({
+		field.label,
+		field.description,
+		field.id,
+		field.category,
+		field.file,
+		field.section,
+		field.configured_section,
+		field.key,
+		field.options,
+		categoryById(field.category).label,
+		tr("category." .. tostring(field.category)),
+	})
+end
+
+local function searchableCustomKeybinds()
+	local keybinds = {}
+	for _, keybind in ipairs(snapshot.custom_keybinds or {}) do table.insert(keybinds, keybind) end
+	for id, draft in pairs(customKeybindDrafts) do
+		if tostring(id):sub(1, 4) == "new:" then table.insert(keybinds, draft) end
+	end
+	return keybinds
+end
+
+local function searchableRules()
+	local rules = {}
+	for _, rule in ipairs(snapshot.window_rules or {}) do table.insert(rules, rule) end
+	for id, draft in pairs(windowRuleDrafts) do
+		if tostring(id):sub(1, 9) == "new-rule:" then table.insert(rules, draft) end
+	end
+	return rules
+end
+
+local function searchResultsView()
+	local results = {}
+	local resultCount = 0
+	for _, category in ipairs(categories) do results[category.id] = {} end
+
+	local function add(categoryId, node)
+		table.insert(results[categoryId], node)
+		resultCount += 1
+	end
+
+	if matchesSearch({
+		"overview health integration resolved files workspace layout",
+		tr("overview.title"), tr("overview.description"), tr("overview.workspace_layout"),
+		tr("overview.workspace_layout.description"), tr("overview.resolved_files"), tr("category.overview"),
+		fileOrder,
+	}) then
+		add("overview", searchDestination(
+			"overview", tr("overview.title"), tr("overview.description"), "info-circle"
+		))
+	end
+
+	for _, field in ipairs(snapshot.fields or {}) do
+		local fontMetadata = field.id == "desktop.font.weight" or field.id == "desktop.font.slant" or field.id == "desktop.font.width"
+		if not fontMetadata and fieldMatchesSearch(field) then
+			if field.category == "keybinds" and field.section == "keybinds" then
+				add(field.category, builtinKeybindCard(field))
+			else
+				add(field.category, fieldCard(field))
+			end
+		end
+	end
+
+	for _, monitor in ipairs(monitorLayout()) do
+		if matchesSearch({
+			"display monitor output position coordinates rotation transform",
+			monitor.id, monitor.name, monitor.width, monitor.height, monitor.x, monitor.y, monitor.transform,
+			monitor.connected and tr("display.connected") or tr("display.offline"),
+			tr("display.title"), tr("display.description"), tr("category.displays"),
+		}) then
+			add("displays", monitorDetails(monitor))
+		end
+	end
+
+	for _, keybind in ipairs(searchableCustomKeybinds()) do
+		local draft = customKeybindDrafts[keybind.id]
+		if matchesSearch({
+			"keybind shortcut custom command binding wm.toml",
+			keybind.id, keybind.chord, keybind.command,
+			draft and draft.chord, draft and draft.command,
+			tr("keybind.title"), tr("keybind.custom"), tr("category.keybinds"),
+		}) then
+			add("keybinds", customKeybindCard(keybind))
+		end
+	end
+
+	local rules = searchableRules()
+	for index, rule in ipairs(rules) do
+		local values = { rule.id, "window rule matcher placement visual policy", tr("rule.title"), tr("category.rules") }
+		for _, spec in ipairs(ruleFieldSpecs) do
+			table.insert(values, spec.key)
+			table.insert(values, spec.label)
+			table.insert(values, spec.options)
+			table.insert(values, ruleValue(rule, spec.key))
+		end
+		if matchesSearch(values) then add("rules", ruleCard(rule, index, #rules)) end
+	end
+
+	for _, layout in ipairs(ensureSnapLayoutsDraft()) do
+		local values = {
+			"layout stacking snap zone named padding", layout.id, layout.name, layout.padding,
+			tr("snap_layout.title"), tr("snap_layout.description"), tr("category.layouts"),
+		}
+		for _, zone in ipairs(layout.zones or {}) do
+			table.insert(values, { zone.id, zone.name, zone.x, zone.y, zone.width, zone.height })
+		end
+		if matchesSearch(values) then
+			add("layouts", searchDestination(
+				"layouts",
+				layout.name .. " (" .. layout.id .. ")",
+				tr("snap_layout.description"),
+				"layout-dashboard",
+				function() activeSnapLayoutId = layout.id end
+			))
+		end
+	end
+
+	for _, id in ipairs({ "a", "b", "c", "d" }) do
+		local zone = effectiveZone(id)
+		if matchesSearch({
+			"legacy snap zone", id, zone.x, zone.y, zone.width, zone.height,
+			tr("snap_zone.title"), tr("snap_zone.description"), tr("category.layouts"),
+		}) then
+			add("layouts", zoneCard(id))
+		end
+	end
+
+	if matchesSearch({
+		"advanced raw toml files editor", tr("advanced.title"), tr("advanced.description"),
+		tr("category.advanced"), fileOrder,
+	}) then
+		add("advanced", searchDestination(
+			"advanced", tr("advanced.title"), tr("advanced.description"), "code"
+		))
+	end
+
+	local children = {
+		sectionTitle(tr("search.title"), tr("search.results"):gsub("{count}", tostring(resultCount))),
+	}
+	if resultCount == 0 then
+		table.insert(children, ui.column({ gap = 8, padding = 28, align = "center", radius = 10, fill = "surface_variant" }, {
+			ui.glyph({ name = "search-off", size = 30, color = "on_surface_variant" }),
+			ui.label({ text = tr("search.empty"), color = "on_surface_variant", textAlign = "center" }),
+		}))
+	else
+		for _, category in ipairs(categories) do
+			local categoryResults = results[category.id]
+			if #categoryResults > 0 then
+				local categoryChildren = {
+					ui.row({ gap = 8, align = "center" }, {
+						ui.glyph({ name = category.glyph, color = "primary" }),
+						ui.label({ text = category.label, fontWeight = "bold", color = "primary", flexGrow = 1 }),
+						ui.label({ text = tostring(#categoryResults), color = "on_surface_variant", fontSize = 11 }),
+					}),
+				}
+				for _, node in ipairs(categoryResults) do table.insert(categoryChildren, node) end
+				table.insert(children, ui.column({
+					key = "search-category-" .. category.id,
+					gap = 10,
+					align = "stretch",
+				}, categoryChildren))
+			end
+		end
+	end
+	return ui.scroll({ flexGrow = 1, gap = 12, align = "stretch" }, children)
+end
+
 local function statusColor()
 	if hasColorInputErrors() or status == "error" or status == "conflict" then
 		return "error"
@@ -2478,7 +2716,9 @@ render = function()
 		table.insert(navigation, categoryButton(category))
 	end
 	local body
-	if activeCategory == "overview" then
+	if normalizedSearch(searchQuery) ~= "" then
+		body = searchResultsView()
+	elseif activeCategory == "overview" then
 		body = overviewView()
 	elseif activeCategory == "displays" then
 		body = displaysView()
@@ -2495,6 +2735,31 @@ render = function()
 		ui.row({ gap = 8, align = "center" }, {
 			ui.glyph({ name = "droplet", size = 22, color = "primary" }),
 			ui.label({ text = tr("title"), fontSize = 18, fontWeight = "bold", flexGrow = 1 }),
+			ui.input({
+				key = "settings-search",
+				value = searchQuery,
+				placeholder = tr("search.placeholder"),
+				width = 260,
+				controlSize = "sm",
+				onChange = function(value)
+					searchQuery = value
+					render()
+				end,
+				onSubmit = function(value)
+					searchQuery = value
+					render()
+				end,
+			}),
+			ui.button({
+				glyph = "close",
+				variant = "ghost",
+				tooltip = tr("search.clear"),
+				enabled = normalizedSearch(searchQuery) ~= "",
+				onClick = function()
+					searchQuery = ""
+					render()
+				end,
+			}),
 			ui.button({
 				glyph = "refresh",
 				variant = "ghost",
@@ -2545,6 +2810,7 @@ function onIpc(event, payload)
 	elseif event == "category" then
 		for _, category in ipairs(categories) do
 			if category.id == payload then
+				searchQuery = ""
 				activeCategory = payload
 				render()
 				return
