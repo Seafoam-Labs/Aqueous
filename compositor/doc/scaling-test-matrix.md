@@ -62,6 +62,24 @@ Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 
 Checks whose tools are missing degrade to `SKIP` rather than failing.
 
+### Cursor ownership and backend targets
+
+Cursor scaling has separate integration entry points so a failure identifies
+the ownership/backend path instead of being hidden by the compositor-owned
+Xcursor check above:
+
+| Command | Target and oracle |
+|---|---|
+| `bash scripts/test-wayland-cursor-scaling.sh` | Native client cursor surface. A generated client consumes `preferred_scale`, renders a ceil-sized buffer through `wp_viewporter`, and verifies the exact 12–72px physical footprint over 0.5–3x. |
+| `bash scripts/test-xwayland-cursor-scaling.sh` | X11 application cursor in both `legacy` and `native` XWayland scaling modes. A solid 24px Xcursor must render at 24/30/36/48/60/72px from 1–3x. Requires an Aqueous build with `-Dxwayland`. |
+| `bash scripts/test-mixed-scale-cursor-crossing.sh` | One persistent cursor crosses 1.25x → 2.5x → 1.25x outputs. It verifies 30px → 60px → 30px and synchronizes against compositor-reported pointer coordinates before each capture. |
+| `bash scripts/test-hardware-cursor-scaling.sh` | Real DRM cursor plane. The opt-in test queries the output service's read-only `cursor_state`, verifies hardware-plane ownership and exact buffer dimensions, and restores the original output scale. Set `AQUEOUS_HARDWARE_CURSOR_OUTPUT` to the output currently under the pointer. |
+
+The mixed-scale test inspects the cursor-including capture directly. A prior
+cursor-excluding capture can force a temporary hardware/software cursor-path
+transition and would test screencopy exclusion state rather than boundary
+scaling.
+
 ### Client-buffer policy integration (`bash scripts/test-client-buffer-scaling.sh`)
 
 At output scale 1.25, a generated xdg-shell client asserts that
@@ -75,10 +93,11 @@ ensure later scene notifications retain and inherit the selected policy.
 
 ## Manual matrix
 
-The headless test now validates the exact software-cursor footprint using a
-generated, fully opaque cursor theme and screencopy with cursor overlay. Manual
-testing remains necessary for hardware-cursor planes, theme-specific artwork,
-and subjective visual crispness.
+The headless tests validate exact compositor-owned, client-owned, XWayland,
+and mixed-output cursor footprints using solid opaque fixtures and screencopy
+with cursor overlay. A real DRM session remains necessary for the opt-in
+hardware-plane test; theme-specific artwork and subjective visual crispness
+remain manual checks.
 
 | Axis | Values |
 |---|---|
@@ -108,5 +127,5 @@ has been retired; the daemon's socket protocol is unchanged.)
   rendering on a fractional output remains expected. Matching niri here also
   requires a native-resolution Xwayland strategy (such as its satellite
   process), which is independent of Wayland fractional scene placement.
-- The headless backend can confirm protocol events but not pixel crispness;
-  that part of the matrix stays manual.
+- Headless pixel comparisons confirm cursor dimensions and resampling coverage,
+  but subjective crispness for real theme artwork remains manual.

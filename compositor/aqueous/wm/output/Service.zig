@@ -352,6 +352,7 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     const op = op_value.string;
     if (std.mem.eql(u8, op, "version")) return service.sendStatic(client, "{\"ok\":true,\"daemon\":\"aqueous-outputd\",\"version\":\"0.0.1\",\"protocol\":1}\n");
     if (std.mem.eql(u8, op, "list")) return service.sendList(client, true, null);
+    if (std.mem.eql(u8, op, "cursor_state")) return service.sendCursorState(client);
     if (std.mem.eql(u8, op, "reload")) {
         const report = service.reload(true);
         service.broadcastOutputChanged();
@@ -538,6 +539,41 @@ fn sendList(service: *Service, client: *Client, ok: bool, report: ?*const Output
     }
     json.objectField("outputs") catch return;
     service.writeOutputs(&json) catch return;
+    json.endObject() catch return;
+    writer.writeByte('\n') catch return;
+    service.sendStatic(client, writer.buffered());
+}
+
+/// Exposes only the wlroots output-cursor state needed to qualify a real DRM
+/// cursor plane. Screen-copy protocols force software cursors, so pixels from
+/// grim cannot prove that the hardware plane received the scaled buffer.
+fn sendCursorState(service: *Service, client: *Client) void {
+    var buffer: [max_response]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var json: std.json.Stringify = .{ .writer = &writer };
+    json.beginObject() catch return;
+    field(&json, "ok", true) catch return;
+    const seat_cursor = server.input_manager.defaultSeat().cursor.wlr_cursor;
+    field(&json, "x", seat_cursor.x) catch return;
+    field(&json, "y", seat_cursor.y) catch return;
+    json.objectField("outputs") catch return;
+    json.beginArray() catch return;
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |output| {
+        const wlr_output = output.wlr_output orelse continue;
+        const cursor = wlr_output.hardware_cursor;
+        json.beginObject() catch return;
+        field(&json, "name", std.mem.span(wlr_output.name)) catch return;
+        field(&json, "scale", output.scheduled.scale) catch return;
+        field(&json, "hardware_active", cursor != null) catch return;
+        field(&json, "software_cursor_locks", wlr_output.software_cursor_locks) catch return;
+        json.objectField("width") catch return;
+        if (cursor) |value| json.write(value.width) catch return else json.write(null) catch return;
+        json.objectField("height") catch return;
+        if (cursor) |value| json.write(value.height) catch return else json.write(null) catch return;
+        json.endObject() catch return;
+    }
+    json.endArray() catch return;
     json.endObject() catch return;
     writer.writeByte('\n') catch return;
     service.sendStatic(client, writer.buffered());
