@@ -346,7 +346,10 @@ unminimize_last       = "Super+Shift+N"        # default — restore most-recent
 # toggle_maximize_horizontal, toggle_maximize_vertical
 # fit_floating_to_output, move_floating_to_edge_<direction>,
 # grow_floating_to_edge_<direction>
-# Custom bindings use `builtin:snap_zone:a` and `builtin:cycle_snap_zone`.
+# Named stacking zones use `builtin:snap_zone:<layout>/<zone>`,
+# `builtin:set_snap_layout:<layout>`, `builtin:cycle_snap_layout`, and
+# `builtin:cycle_snap_layout_reverse`. Legacy `builtin:snap_zone:a` and
+# `builtin:cycle_snap_zone` remain available.
 
 # --- Pointer ---
 # Hold-to-untrap: while this chord is held down any active pointer constraint

@@ -2,6 +2,7 @@
 default = "stacking"
 gaps_outer = 0
 gaps_inner = 0
+snap_layout = "work"
 
 [layout.slots]
 primary = "floating"
@@ -13,6 +14,22 @@ move_step = 10
 snap_gap = 0
 snap_threshold = 24
 resistance = 12
+
+[layout.snap-layout.work]
+name = "Work"
+padding = 8
+
+[layout.snap-layout.work.zone.left]
+x = 0.0
+y = 0.0
+width = 0.5
+height = 1.0
+
+[layout.snap-layout.work.zone.right]
+x = 0.5
+y = 0.0
+width = 0.5
+height = 1.0
 
 [struts]
 top = 0
@@ -30,6 +47,9 @@ focus_follows_mouse = false
 set_layout_primary = "Super+F"
 set_layout_secondary = "Super+T"
 toggle_floating = "Super+V"
-nudge_floating_right = "Super+Alt+D"
-snap_left = "Super+Alt+H"
-unsnap = "Super+Alt+U"
+nudge_floating_right = "Super+Ctrl+D"
+snap_left = "Super+Ctrl+H"
+unsnap = "Super+Ctrl+U"
+
+[keybinds.custom]
+"Super+Ctrl+J" = "builtin:snap_zone:work/right"

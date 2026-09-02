@@ -40,7 +40,7 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  .helper_version == "0.3.0" and
+  .helper_version == "0.4.0" and
   (.fields | length) >= 145 and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
   (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
@@ -53,6 +53,9 @@ jq -e '
   (.custom_keybinds | length) == 2 and
   (.custom_keybinds[] | select(.chord == "Super+E") | .command == "spawn:nemo") and
   (.snap_zones[] | select(.id == "a") | .complete == true and .width > 0.66) and
+  .default_snap_layout == "work" and
+  (.snap_layouts[] | select(.id == "work") | .name == "Work" and .padding == 8 and (.zones | length) == 2) and
+  (.snap_layouts[] | select(.id == "work") | .zones[] | select(.id == "terminal") | .complete == true) and
   (.window_rules[] | select(.values.title == "Dialog #1 = ready") | .values.layout == "stacking" and .values.stack_layer == "above") and
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
@@ -203,6 +206,13 @@ jq -n \
         {id: "a", op: "update", x: 0.0, y: 0.0, width: 0.75, height: 1.0},
         {id: "b", op: "update", x: 0.75, y: 0.0, width: 0.25, height: 1.0}
       ],
+      default_snap_layout: "focus",
+      snap_layouts: [
+        {id: "focus", name: "Focus", padding: 12, zones: [
+          {id: "main", name: "Main", x: 0.0, y: 0.0, width: 0.7, height: 1.0},
+          {id: "side", name: "Side", x: 0.7, y: 0.0, width: 0.3, height: 1.0}
+        ]}
+      ],
       window_rule_changes: [
         {id: $dialog_rule_id, op: "update", values: {placement_policy: "minimal-overlap", fixed_position: true}},
         {id: "new-rule:1", op: "add", values: {app_id: "org.example.Stack", layout: "stacking", stack_layer: "below", focus: false}}
@@ -214,6 +224,8 @@ jq -e '
   ([.custom_keybinds[].chord] | index("XF86AudioMute") == null) and
   (.snap_zones[] | select(.id == "a") | .width == 0.75) and
   (.snap_zones[] | select(.id == "b") | .complete == true and .width == 0.25) and
+  .default_snap_layout == "focus" and
+  (.snap_layouts[] | select(.id == "focus") | .padding == 12 and (.zones | length) == 2) and
   (.window_rules[] | select(.values.title == "Dialog #1 = ready") | .values.fixed_position == true and .values.placement_policy == "minimal-overlap") and
   (.window_rules[] | select(.values.app_id == "org.example.Stack") | .values.layout == "stacking" and .values.stack_layer == "below" and .values.focus == false)
 ' "$test_root/collections-applied.json" >/dev/null

@@ -1,7 +1,7 @@
 --!nonstrict
 
 local PROTOCOL = 1
-local MIN_HELPER_VERSION = "0.3.0"
+local MIN_HELPER_VERSION = "0.4.0"
 local categories = {
 	{ id = "overview", label = "Overview", glyph = "info-circle" },
 	{ id = "appearance", label = "Appearance", glyph = "sparkles" },
@@ -21,6 +21,10 @@ local rawDirty = {}
 local monitorDrafts = {}
 local customKeybindDrafts = {}
 local snapZoneDrafts = {}
+local snapLayoutsDraft = nil
+local snapLayoutsDirty = false
+local activeSnapLayoutId = ""
+local defaultSnapLayoutDraft = ""
 local windowRuleDrafts = {}
 local newCustomKeybindSerial = 0
 local newWindowRuleSerial = 0
@@ -232,6 +236,7 @@ local function hasDrafts()
 	for _id, _zone in pairs(snapZoneDrafts) do
 		return true
 	end
+	if snapLayoutsDirty then return true end
 	for _id, _rule in pairs(windowRuleDrafts) do
 		return true
 	end
@@ -258,6 +263,7 @@ local function draftCount()
 	for _id, _zone in pairs(snapZoneDrafts) do
 		count += 1
 	end
+	if snapLayoutsDirty then count += 1 end
 	for _id, _rule in pairs(windowRuleDrafts) do
 		count += 1
 	end
@@ -288,6 +294,7 @@ local function needsUserOverride()
 	if next(snapZoneDrafts) ~= nil and snapshot.files.layout and snapshot.files.layout.writable == false then
 		return true
 	end
+	if snapLayoutsDirty and snapshot.files.layout and snapshot.files.layout.writable == false then return true end
 	if next(windowRuleDrafts) ~= nil and snapshot.files.rules and snapshot.files.rules.writable == false then
 		return true
 	end
@@ -324,6 +331,10 @@ local function resetFromSnapshot(newSnapshot)
 	monitorDrafts = {}
 	customKeybindDrafts = {}
 	snapZoneDrafts = {}
+	snapLayoutsDraft = nil
+	snapLayoutsDirty = false
+	activeSnapLayoutId = tostring(snapshot.default_snap_layout or "")
+	defaultSnapLayoutDraft = activeSnapLayoutId
 	windowRuleDrafts = {}
 	newCustomKeybindSerial = 0
 	newWindowRuleSerial = 0
@@ -447,6 +458,10 @@ local function writeRequest(mode)
 	end
 	if #snapZoneChanges > 0 then
 		request.snap_zone_changes = snapZoneChanges
+	end
+	if snapLayoutsDirty then
+		request.snap_layouts = snapLayoutsDraft or {}
+		request.default_snap_layout = defaultSnapLayoutDraft
 	end
 	if #windowRuleChanges > 0 then
 		request.window_rule_changes = windowRuleChanges
@@ -1311,6 +1326,179 @@ local function typographyTargets()
 	return ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, rows)
 end
 
+local function ensureSnapLayoutsDraft()
+	if snapLayoutsDraft ~= nil then return snapLayoutsDraft end
+	snapLayoutsDraft = {}
+	for _, sourceLayout in ipairs(snapshot.snap_layouts or {}) do
+		local copy = {
+			id = tostring(sourceLayout.id or ""),
+			name = tostring(sourceLayout.name or sourceLayout.id or ""),
+			padding = tonumber(sourceLayout.padding) or 0,
+			zones = {},
+		}
+		for _, sourceZone in ipairs(sourceLayout.zones or {}) do
+			table.insert(copy.zones, {
+				id = tostring(sourceZone.id or ""),
+				name = tostring(sourceZone.name or sourceZone.id or ""),
+				x = tonumber(sourceZone.x) or 0,
+				y = tonumber(sourceZone.y) or 0,
+				width = tonumber(sourceZone.width) or 0.5,
+				height = tonumber(sourceZone.height) or 1,
+			})
+		end
+		table.insert(snapLayoutsDraft, copy)
+	end
+	if activeSnapLayoutId == "" and #snapLayoutsDraft > 0 then activeSnapLayoutId = snapLayoutsDraft[1].id end
+	if defaultSnapLayoutDraft == "" and #snapLayoutsDraft > 0 then defaultSnapLayoutDraft = snapLayoutsDraft[1].id end
+	return snapLayoutsDraft
+end
+
+local function activeSnapLayoutDraft()
+	for _, layout in ipairs(ensureSnapLayoutsDraft()) do
+		if layout.id == activeSnapLayoutId then return layout end
+	end
+	return nil
+end
+
+local function markSnapLayoutsDirty()
+	snapLayoutsDirty = true
+	status = "dirty"
+	statusMessage = ""
+	render()
+end
+
+local function addSnapLayout(copyLegacy)
+	local layouts = ensureSnapLayoutsDraft()
+	local serial = #layouts + 1
+	local id = "layout" .. tostring(serial)
+	local used = true
+	while used do
+		used = false
+		for _, layout in ipairs(layouts) do if layout.id == id then used = true break end end
+		if used then
+			serial += 1
+			id = "layout" .. tostring(serial)
+		end
+	end
+	local zones = {}
+	if copyLegacy then
+		for _, legacy in ipairs(snapshot.snap_zones or {}) do
+			if legacy.complete then table.insert(zones, {
+				id = tostring(legacy.id), name = "Zone " .. tostring(legacy.id):upper(),
+				x = legacy.x, y = legacy.y, width = legacy.width, height = legacy.height,
+			}) end
+		end
+	end
+	if #zones == 0 then
+		zones = {
+			{ id = "left", name = "Left", x = 0, y = 0, width = 0.5, height = 1 },
+			{ id = "right", name = "Right", x = 0.5, y = 0, width = 0.5, height = 1 },
+		}
+	end
+	table.insert(layouts, { id = id, name = "Layout " .. tostring(serial), padding = 8, zones = zones })
+	activeSnapLayoutId = id
+	if #layouts == 1 then defaultSnapLayoutDraft = id end
+	markSnapLayoutsDirty()
+end
+
+local function deleteActiveSnapLayout()
+	local layouts = ensureSnapLayoutsDraft()
+	local deletedId = activeSnapLayoutId
+	for index, layout in ipairs(layouts) do
+		if layout.id == activeSnapLayoutId then table.remove(layouts, index) break end
+	end
+	activeSnapLayoutId = #layouts > 0 and layouts[1].id or ""
+	if defaultSnapLayoutDraft == "" or defaultSnapLayoutDraft == deletedId then
+		defaultSnapLayoutDraft = activeSnapLayoutId
+	else
+		local found = false
+		for _, layout in ipairs(layouts) do if layout.id == defaultSnapLayoutDraft then found = true end end
+		if not found then defaultSnapLayoutDraft = activeSnapLayoutId end
+	end
+	markSnapLayoutsDirty()
+end
+
+local function setNamedZonePreset(kind)
+	local layout = activeSnapLayoutDraft()
+	if layout == nil then return end
+	if kind == "halves" then layout.zones = {
+		{ id = "left", name = "Left", x = 0, y = 0, width = 0.5, height = 1 },
+		{ id = "right", name = "Right", x = 0.5, y = 0, width = 0.5, height = 1 },
+	} elseif kind == "thirds" then layout.zones = {
+		{ id = "left", name = "Left", x = 0, y = 0, width = 1 / 3, height = 1 },
+		{ id = "center", name = "Center", x = 1 / 3, y = 0, width = 1 / 3, height = 1 },
+		{ id = "right", name = "Right", x = 2 / 3, y = 0, width = 1 / 3, height = 1 },
+	} elseif kind == "quarters" then layout.zones = {
+		{ id = "top-left", name = "Top left", x = 0, y = 0, width = 0.5, height = 0.5 },
+		{ id = "top-right", name = "Top right", x = 0.5, y = 0, width = 0.5, height = 0.5 },
+		{ id = "bottom-left", name = "Bottom left", x = 0, y = 0.5, width = 0.5, height = 0.5 },
+		{ id = "bottom-right", name = "Bottom right", x = 0.5, y = 0.5, width = 0.5, height = 0.5 },
+	} end
+	markSnapLayoutsDirty()
+end
+
+local function namedSnapLayoutsView()
+	local layouts = ensureSnapLayoutsDraft()
+	local options = {}
+	for _, layout in ipairs(layouts) do table.insert(options, { value = layout.id, label = layout.name .. " (" .. layout.id .. ")" }) end
+	local children = {
+		ui.separator({}),
+		ui.row({ gap = 8, align = "center" }, {
+			ui.label({ text = tr("snap_layout.title"), fontWeight = "bold", flexGrow = 1 }),
+			ui.button({ text = tr("snap_layout.add"), variant = "outline", onClick = function() addSnapLayout(false) end }),
+		}),
+		ui.label({ text = tr("snap_layout.description"), color = "on_surface_variant", fontSize = 11, maxLines = 3 }),
+	}
+	if #layouts == 0 then
+		table.insert(children, ui.row({ gap = 8 }, {
+			ui.button({ text = tr("snap_layout.create"), variant = "secondary", onClick = function() addSnapLayout(false) end }),
+			ui.button({ text = tr("snap_layout.migrate"), variant = "outline", onClick = function() addSnapLayout(true) end }),
+		}))
+		return children
+	end
+	table.insert(children, ui.row({ gap = 8, align = "center" }, {
+		ui.select({ value = activeSnapLayoutId, options = options, flexGrow = 1, onChange = function(value) activeSnapLayoutId = value render() end }),
+		ui.button({ glyph = "trash", variant = "ghost", tooltip = tr("action.delete"), onClick = deleteActiveSnapLayout }),
+	}))
+	table.insert(children, ui.row({ gap = 8, align = "center" }, {
+		ui.label({ text = tr("snap_layout.default"), width = 130 }),
+		ui.select({ value = defaultSnapLayoutDraft, options = options, flexGrow = 1, onChange = function(value) defaultSnapLayoutDraft = value markSnapLayoutsDirty() end }),
+	}))
+	local layout = activeSnapLayoutDraft()
+	if layout == nil then return children end
+	table.insert(children, ui.row({ gap = 8 }, {
+		ui.input({ key = "snap-layout-name-" .. layout.id, value = layout.name, placeholder = tr("snap_layout.name"), flexGrow = 1, onChange = function(value) layout.name = value markSnapLayoutsDirty() end }),
+		ui.input({ key = "snap-layout-padding-" .. layout.id, value = tostring(layout.padding), placeholder = tr("snap_layout.padding"), width = 110, onChange = function(value) layout.padding = math.max(0, tonumber(value) or layout.padding) markSnapLayoutsDirty() end }),
+	}))
+	table.insert(children, ui.row({ gap = 6 }, {
+		ui.button({ text = tr("snap_zone.preset_halves"), variant = "outline", onClick = function() setNamedZonePreset("halves") end }),
+		ui.button({ text = tr("snap_zone.preset_thirds"), variant = "outline", onClick = function() setNamedZonePreset("thirds") end }),
+		ui.button({ text = tr("snap_zone.preset_quarters"), variant = "outline", onClick = function() setNamedZonePreset("quarters") end }),
+		ui.button({ text = tr("snap_layout.add_zone"), variant = "outline", onClick = function()
+			local serial = #layout.zones + 1
+			table.insert(layout.zones, { id = "zone" .. tostring(serial), name = "Zone " .. tostring(serial), x = 0, y = 0, width = 0.5, height = 0.5 })
+			markSnapLayoutsDirty()
+		end }),
+	}))
+	for zoneIndex, zone in ipairs(layout.zones) do
+		local controls = {}
+		for _, key in ipairs({ "x", "y", "width", "height" }) do table.insert(controls, ui.input({
+			key = "named-zone-" .. layout.id .. "-" .. zone.id .. "-" .. key,
+			value = tostring(zone[key]), width = 92, placeholder = key,
+			onChange = function(value) zone[key] = tonumber(value) or zone[key] markSnapLayoutsDirty() end,
+		})) end
+		table.insert(children, ui.column({ gap = 6, padding = 9, radius = 8, fill = "surface_variant", align = "stretch" }, {
+			ui.row({ gap = 8, align = "center" }, {
+				ui.input({ key = "named-zone-name-" .. layout.id .. "-" .. zone.id, value = zone.name, flexGrow = 1, onChange = function(value) zone.name = value markSnapLayoutsDirty() end }),
+				ui.label({ text = zone.id, color = "on_surface_variant", fontSize = 10 }),
+				ui.button({ glyph = "trash", variant = "ghost", onClick = function() table.remove(layout.zones, zoneIndex) markSnapLayoutsDirty() end }),
+			}),
+			ui.row({ gap = 6 }, controls),
+		}))
+	end
+	return children
+end
+
 local function snapshotZone(id)
 	for _, zone in ipairs(snapshot.snap_zones or {}) do
 		if zone.id == id then
@@ -1703,6 +1891,9 @@ local function categoryView()
 		end
 	end
 	if activeCategory == "layouts" then
+		for _, child in ipairs(namedSnapLayoutsView()) do
+			table.insert(children, child)
+		end
 		for _, child in ipairs(snapZonesView()) do
 			table.insert(children, child)
 		end

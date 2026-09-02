@@ -13,6 +13,7 @@ const zwlr = @import("wayland").server.zwlr;
 const server = &@import("main.zig").server;
 
 const SceneNodeData = @import("SceneNodeData.zig");
+const SnapOverlay = @import("SnapOverlay.zig");
 const fx = @import("fx.zig");
 
 wlr_scene: *wlr.Scene,
@@ -21,6 +22,7 @@ interactive_tree: *wlr.SceneTree,
 /// Drag icons, which cannot recieve e.g. pointer events and are therefore kept
 /// in a separate tree from the interactive tree.
 drag_icons: *wlr.SceneTree,
+snap_overlay: ?SnapOverlay,
 /// Always disabled, used for staging changes
 /// TODO can this be refactored away?
 hidden_tree: *wlr.SceneTree,
@@ -71,6 +73,7 @@ pub fn init(scene: *Scene) !void {
         .wlr_scene = wlr_scene,
         .interactive_tree = interactive_tree,
         .drag_icons = drag_icons,
+        .snap_overlay = null,
         .hidden_tree = hidden_tree,
         .normal_tree = normal_tree,
         .locked_tree = locked_tree,

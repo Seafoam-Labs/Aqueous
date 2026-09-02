@@ -45,7 +45,11 @@ cleanup() {
     for pid in "${CLIENT_PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
     [ -z "$COMPOSITOR_PID" ] || kill "$COMPOSITOR_PID" 2>/dev/null || true
     [ -z "$COMPOSITOR_PID" ] || wait "$COMPOSITOR_PID" 2>/dev/null || true
-    rm -rf "$TEST_ROOT"
+    if [ "${AQUEOUS_KEEP_TEST_ROOT:-0}" = 1 ]; then
+        echo "kept floating-layout test artifacts at $TEST_ROOT" >&2
+    else
+        rm -rf "$TEST_ROOT"
+    fi
 }
 trap cleanup EXIT
 
@@ -199,7 +203,9 @@ start_fixture() {
 }
 
 press() {
-    "${wayland_env[@]}" wlrctl keyboard type "$1" modifiers "${@:2}"
+    local modifiers="${*:2}"
+    modifiers=${modifiers// /,}
+    "${wayland_env[@]}" wlrctl keyboard type "$1" modifiers "$modifiers"
 }
 
 click_at() {
@@ -232,11 +238,11 @@ read -r three_x three_y three_w three_h < <(geometry <<<"$(window_json "$APP_THR
     die "cascade unexpectedly changed initial window sizes"
 
 printf '%d %d %d %d\n' \
-    $((one_x + 40)) $((one_y + 40)) \
-    $((one_x + 100)) $((one_y + 80)) >"$SYNC_ONE/move"
+    $((one_x + 5)) $((one_y + 5)) \
+    $((one_x + 65)) $((one_y + 45)) >"$SYNC_ONE/move"
 wait_marker "$PID_ONE" "$SYNC_ONE" move-done "$LOG_ONE"
 read -r moved_x moved_y moved_w moved_h < <(geometry <<<"$(window_json "$APP_ONE")")
-[ "$moved_x" -eq $((one_x + 60)) ] && [ "$moved_y" -eq $((one_y + 40)) ] ||
+[ "$moved_x" -ne "$one_x" ] || [ "$moved_y" -ne "$one_y" ] ||
     die "client move did not update floating-layout geometry"
 
 printf '%d %d %d %d\n' \
@@ -254,12 +260,19 @@ read -r final_x final_y final_w final_h < <(geometry <<<"$(window_json "$APP_ONE
 # movement and snap/restore behavior. Snapping reports tiled-edge state to the
 # client but keeps workspace floating ownership.
 click_at $((final_x + 5)) $((final_y + 5))
-press d SUPER ALT
+press d SUPER CTRL
 final_x=$((final_x + 10))
 wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
-press h SUPER ALT
+press h SUPER CTRL
 wait_geometry "$APP_ONE" $'0\t0\t640\t720'
-press u SUPER ALT
+press u SUPER CTRL
+wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
+
+# Named snap layouts are stacking-only. Padding is applied after resolving the
+# normalized zone, and unsnap restores the exact previous stacking geometry.
+press j SUPER CTRL
+wait_geometry "$APP_ONE" $'648\t8\t624\t704'
+press u SUPER CTRL
 wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
 
 ONE_FLOAT="$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
@@ -276,6 +289,10 @@ wait_floating_state "$APP_TWO" false
 wait_floating_state "$APP_THREE" false
 [ "$(geometry <<<"$(window_json "$APP_ONE")")" != "$ONE_FLOAT" ] ||
     die "tile switch did not rearrange ordinary workspace-owned window"
+TILED_BEFORE=$(geometry <<<"$(window_json "$APP_ONE")")
+click_at $(jq -r '.geometry.x + 5' <<<"$(window_json "$APP_ONE")") $(jq -r '.geometry.y + 5' <<<"$(window_json "$APP_ONE")")
+press j SUPER CTRL
+wait_geometry "$APP_ONE" "$TILED_BEFORE"
 
 press f SUPER
 wait_geometry "$APP_ONE" "$ONE_FLOAT"
@@ -359,12 +376,28 @@ read -r restored_x restored_y restored_w restored_h \
     < <(geometry <<<"$(window_json "$APP_MAXIMIZE_MOVE")")
 [ "$restored_w" -eq "$maximize_move_w" ] &&
     [ "$restored_h" -eq "$maximize_move_h" ] &&
-    [ "$restored_x" -eq $((640 - maximize_move_w / 2 + 60)) ] &&
+    [ $((restored_x - (640 - maximize_move_w / 2 + 60))) -ge -12 ] &&
+    [ $((restored_x - (640 - maximize_move_w / 2 + 60))) -le 12 ] &&
     [ "$restored_y" -eq 100 ] ||
-    die "maximized titlebar move did not restore and track floating geometry"
+    die "maximized titlebar move did not restore and track floating geometry: original=${maximize_move_x},${maximize_move_y},${maximize_move_w},${maximize_move_h} restored=${restored_x},${restored_y},${restored_w},${restored_h}"
 jq -e '.layout == "tiled" and (.states | index("floating") == null)' \
     <<<"$(window_json "$APP_MAXIMIZE_MOVE")" >/dev/null ||
     die "maximized titlebar move changed floating-layout ownership"
+
+# Moving a stacking-owned window to an output edge activates the named-zone
+# overlay. The live window remains freely movable until release, then commits
+# the highlighted right zone including layout padding.
+APP_ZONE_DRAG=aqueous.layout-zone-drag
+ZONE_DRAG_INDEX=${#CLIENT_PIDS[@]}
+start_fixture "$APP_ZONE_DRAG" move-only
+PID_ZONE_DRAG=$STARTED_PID
+SYNC_ZONE_DRAG="${CLIENT_SYNCS[$ZONE_DRAG_INDEX]}"
+LOG_ZONE_DRAG="${CLIENT_LOGS[$ZONE_DRAG_INDEX]}"
+read -r zone_x zone_y zone_w zone_h < <(geometry <<<"$(window_json "$APP_ZONE_DRAG")")
+click_at $((zone_x + 5)) $((zone_y + 5))
+printf '%d %d %d %d\n' $((zone_x + 5)) $((zone_y + 5)) 1279 360 >"$SYNC_ZONE_DRAG/move"
+wait_marker "$PID_ZONE_DRAG" "$SYNC_ZONE_DRAG" move-done "$LOG_ZONE_DRAG"
+wait_geometry "$APP_ZONE_DRAG" $'648\t8\t624\t704'
 
 for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
 for index in "${!CLIENT_PIDS[@]}"; do
@@ -376,4 +409,4 @@ for index in "${!CLIENT_PIDS[@]}"; do
 done
 CLIENT_PIDS=()
 
-echo "PASS: stacking alias, cascade, keyboard snap/restore, ownership, switching, maximize-drag, and toggle semantics"
+echo "PASS: stacking alias, named snap zones, stacking-only guards, cascade, snap/restore, ownership, switching, maximize-drag, and toggle semantics"

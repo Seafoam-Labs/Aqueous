@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
+const layout_config = @import("../config/layout.zig");
 const types = @import("../layout/types.zig");
 const PolicyState = @This();
 
@@ -40,6 +41,8 @@ stack_layer: StackLayer = .normal,
 snap_state: SnapState = .none,
 snap_restore_geometry: types.Rect = .empty,
 custom_snap_zone: u8 = std.math.maxInt(u8),
+snap_layout_id: layout_config.SnapId = .{},
+snap_zone_id: layout_config.SnapId = .{},
 /// Records only maximizes accepted from a client request. This distinguishes a
 /// workspace-floating presentation (whose policy kind remains tiled) from a
 /// persistent floating overlay and prevents client unmaximize from undoing a

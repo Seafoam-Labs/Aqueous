@@ -19,7 +19,45 @@ pub const LayoutId = enum {
 
 pub const layout_count = std.meta.fields(LayoutId).len;
 pub const max_composable_regions = 4;
-pub const max_snap_zones = 4;
+pub const max_legacy_snap_zones = 4;
+pub const max_snap_layouts = 8;
+pub const max_snap_zones = 16;
+
+pub const SnapId = struct {
+    bytes: [32]u8 = [_]u8{0} ** 32,
+    len: u8 = 0,
+
+    pub fn set(id: *SnapId, value: []const u8) bool {
+        if (!validSnapId(value) or value.len > id.bytes.len) return false;
+        @memcpy(id.bytes[0..value.len], value);
+        id.len = @intCast(value.len);
+        return true;
+    }
+
+    pub fn slice(id: *const SnapId) []const u8 {
+        return id.bytes[0..id.len];
+    }
+
+    pub fn eql(id: *const SnapId, value: []const u8) bool {
+        return std.mem.eql(u8, id.slice(), value);
+    }
+};
+
+pub const SnapName = struct {
+    bytes: [64]u8 = [_]u8{0} ** 64,
+    len: u8 = 0,
+
+    pub fn set(name: *SnapName, value: []const u8) bool {
+        if (value.len > name.bytes.len) return false;
+        @memcpy(name.bytes[0..value.len], value);
+        name.len = @intCast(value.len);
+        return true;
+    }
+
+    pub fn slice(name: *const SnapName) []const u8 {
+        return name.bytes[0..name.len];
+    }
+};
 
 /// Normalized coordinate in the strut-adjusted usable output area.
 pub const Point = struct {
@@ -58,6 +96,8 @@ pub const CompositeRegion = struct {
 };
 
 pub const SnapZone = struct {
+    id: SnapId = .{},
+    name: SnapName = .{},
     x: f64 = 0,
     y: f64 = 0,
     width: f64 = 0,
@@ -71,6 +111,25 @@ pub const SnapZone = struct {
     }
 };
 
+pub const SnapLayout = struct {
+    id: SnapId = .{},
+    name: SnapName = .{},
+    padding: i32 = 0,
+    zones: [max_snap_zones]SnapZone = [_]SnapZone{.{}} ** max_snap_zones,
+    zone_count: u8 = 0,
+
+    pub fn configured(snap_layout: *const SnapLayout) bool {
+        return snap_layout.id.len != 0;
+    }
+
+    pub fn zoneById(snap_layout: *const SnapLayout, id: []const u8) ?*const SnapZone {
+        for (snap_layout.zones[0..snap_layout.zone_count]) |*zone| {
+            if (zone.id.eql(id) and zone.valid()) return zone;
+        }
+        return null;
+    }
+};
+
 pub const Snapshot = struct {
     default: LayoutId = .tile,
     slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
@@ -81,7 +140,11 @@ pub const Snapshot = struct {
         .urgent = 0xFFBF616A,
     } }} ** layout_count,
     composable: [max_composable_regions]CompositeRegion = .{ .{}, .{}, .{}, .{} },
-    snap_zones: [max_snap_zones]SnapZone = .{ .{}, .{}, .{}, .{} },
+    /// Compatibility storage for `[layout.snap-zone.a]` through `.d`.
+    snap_zones: [max_legacy_snap_zones]SnapZone = .{ .{}, .{}, .{}, .{} },
+    snap_layouts: [max_snap_layouts]SnapLayout = [_]SnapLayout{.{}} ** max_snap_layouts,
+    snap_layout_count: u8 = 0,
+    default_snap_layout: SnapId = .{},
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
@@ -120,6 +183,20 @@ pub const Snapshot = struct {
         }
         return null;
     }
+
+    pub fn snapLayoutById(snapshot: *const Snapshot, id: []const u8) ?*const SnapLayout {
+        for (snapshot.snap_layouts[0..snapshot.snap_layout_count]) |*snap_layout| {
+            if (snap_layout.id.eql(id)) return snap_layout;
+        }
+        return null;
+    }
+
+    pub fn configuredSnapLayout(snapshot: *const Snapshot, preferred: []const u8) ?*const SnapLayout {
+        if (preferred.len != 0) if (snapshot.snapLayoutById(preferred)) |snap_layout| return snap_layout;
+        if (snapshot.default_snap_layout.len != 0) if (snapshot.snapLayoutById(snapshot.default_snap_layout.slice())) |snap_layout| return snap_layout;
+        if (snapshot.snap_layout_count != 0) return &snapshot.snap_layouts[0];
+        return null;
+    }
 };
 
 const Section = union(enum) {
@@ -129,6 +206,8 @@ const Section = union(enum) {
     options: LayoutId,
     composable: usize,
     snap_zone: usize,
+    snap_layout: usize,
+    snap_layout_zone: struct { layout: usize, zone: usize },
 };
 
 /// Apply a validated TOML overlay to a snapshot. Unknown sections and keys are
@@ -141,7 +220,7 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
         const line = std.mem.trim(u8, without_comment, " \t\r");
         if (line.len == 0) continue;
         if (line[0] == '[' and line[line.len - 1] == ']') {
-            section = parseSection(std.mem.trim(u8, line[1 .. line.len - 1], " \t"));
+            section = parseSection(snapshot, std.mem.trim(u8, line[1 .. line.len - 1], " \t"));
             continue;
         }
         const equal = std.mem.indexOfScalar(u8, line, '=') orelse continue;
@@ -154,11 +233,13 @@ pub fn apply(snapshot: *Snapshot, source: []const u8) void {
             .options => |id| applyOptions(snapshot, id, key, value),
             .composable => |index| applyComposable(&snapshot.composable[index], key, value),
             .snap_zone => |index| applySnapZone(&snapshot.snap_zones[index], key, value),
+            .snap_layout => |index| applySnapLayout(&snapshot.snap_layouts[index], key, value),
+            .snap_layout_zone => |entry| applyNamedSnapZone(&snapshot.snap_layouts[entry.layout].zones[entry.zone], key, value),
         }
     }
 }
 
-fn parseSection(name: []const u8) Section {
+fn parseSection(snapshot: *Snapshot, name: []const u8) Section {
     if (std.mem.eql(u8, name, "layout")) return .layout;
     if (std.mem.eql(u8, name, "layout.slots")) return .slots;
     const composable_prefix = "layout.composable.";
@@ -176,7 +257,53 @@ fn parseSection(name: []const u8) Section {
         const slot = name[zone_prefix.len..];
         if (slot.len == 1 and slot[0] >= 'a' and slot[0] <= 'd') return .{ .snap_zone = slot[0] - 'a' };
     };
+    inline for (.{ "layout.snap-layout.", "layout.snap_layout." }) |snap_prefix| if (std.mem.startsWith(u8, name, snap_prefix)) {
+        const path = name[snap_prefix.len..];
+        const zone_separator = std.mem.indexOf(u8, path, ".zone.");
+        const layout_id = if (zone_separator) |separator| path[0..separator] else path;
+        const layout_index = ensureSnapLayout(snapshot, layout_id) orelse return .none;
+        if (zone_separator) |separator| {
+            const zone_id = path[separator + ".zone.".len ..];
+            const zone_index = ensureNamedSnapZone(&snapshot.snap_layouts[layout_index], zone_id) orelse return .none;
+            return .{ .snap_layout_zone = .{ .layout = layout_index, .zone = zone_index } };
+        }
+        return .{ .snap_layout = layout_index };
+    };
     return .none;
+}
+
+fn ensureSnapLayout(snapshot: *Snapshot, id: []const u8) ?usize {
+    if (!validSnapId(id)) return null;
+    for (snapshot.snap_layouts[0..snapshot.snap_layout_count], 0..) |*snap_layout, index| {
+        if (snap_layout.id.eql(id)) return index;
+    }
+    if (snapshot.snap_layout_count == max_snap_layouts) return null;
+    const index = snapshot.snap_layout_count;
+    snapshot.snap_layouts[index] = .{};
+    if (!snapshot.snap_layouts[index].id.set(id)) return null;
+    _ = snapshot.snap_layouts[index].name.set(id);
+    snapshot.snap_layout_count += 1;
+    return index;
+}
+
+fn ensureNamedSnapZone(snap_layout: *SnapLayout, id: []const u8) ?usize {
+    if (!validSnapId(id)) return null;
+    for (snap_layout.zones[0..snap_layout.zone_count], 0..) |*zone, index| {
+        if (zone.id.eql(id)) return index;
+    }
+    if (snap_layout.zone_count == max_snap_zones) return null;
+    const index = snap_layout.zone_count;
+    snap_layout.zones[index] = .{};
+    if (!snap_layout.zones[index].id.set(id)) return null;
+    _ = snap_layout.zones[index].name.set(id);
+    snap_layout.zone_count += 1;
+    return index;
+}
+
+fn validSnapId(value: []const u8) bool {
+    if (value.len == 0) return false;
+    for (value) |char| if (!std.ascii.isAlphanumeric(char) and char != '-' and char != '_') return false;
+    return true;
 }
 
 fn applySnapZone(zone: *SnapZone, key: []const u8, value: []const u8) void {
@@ -197,6 +324,24 @@ fn applySnapZone(zone: *SnapZone, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "height") and parsed > 0 and parsed <= 1) {
         zone.height = parsed;
         zone.set[3] = true;
+    }
+}
+
+fn applyNamedSnapZone(zone: *SnapZone, key: []const u8, value: []const u8) void {
+    if (std.mem.eql(u8, key, "name")) {
+        _ = zone.name.set(unquote(value));
+        return;
+    }
+    applySnapZone(zone, key, value);
+}
+
+fn applySnapLayout(snap_layout: *SnapLayout, key: []const u8, value: []const u8) void {
+    if (std.mem.eql(u8, key, "name")) {
+        _ = snap_layout.name.set(unquote(value));
+        return;
+    }
+    if (std.mem.eql(u8, key, "padding")) {
+        snap_layout.padding = parseNonNegative(unquote(value)) orelse snap_layout.padding;
     }
 }
 
@@ -226,6 +371,10 @@ fn applySlot(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
 fn applyLayout(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "default")) {
         if (parseLayoutId(unquote(value))) |id| snapshot.default = id;
+        return;
+    }
+    if (std.mem.eql(u8, key, "snap_layout")) {
+        _ = snapshot.default_snap_layout.set(unquote(value));
         return;
     }
     for (&snapshot.options) |*options| applyCommon(options, key, value);
@@ -477,6 +626,56 @@ test "normalized snap zones validate independently" {
     );
     try std.testing.expect(snapshot.snap_zones[0].valid());
     try std.testing.expect(!snapshot.snap_zones[1].valid());
+}
+
+test "named stacking snap layouts retain stable zone identities" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout]
+        \\snap_layout = "work"
+        \\[layout.snap-layout.work]
+        \\name = "Work"
+        \\padding = 8
+        \\[layout.snap-layout.work.zone.editor]
+        \\name = "Editor"
+        \\x = 0.0
+        \\y = 0.0
+        \\width = 0.66
+        \\height = 1.0
+        \\[layout.snap-layout.work.zone.terminal]
+        \\x = 0.66
+        \\y = 0.0
+        \\width = 0.34
+        \\height = 1.0
+    );
+
+    try std.testing.expectEqual(@as(u8, 1), snapshot.snap_layout_count);
+    const snap_layout = snapshot.configuredSnapLayout("").?;
+    try std.testing.expectEqualStrings("work", snap_layout.id.slice());
+    try std.testing.expectEqualStrings("Work", snap_layout.name.slice());
+    try std.testing.expectEqual(@as(i32, 8), snap_layout.padding);
+    try std.testing.expectEqual(@as(u8, 2), snap_layout.zone_count);
+    try std.testing.expect(snap_layout.zoneById("editor") != null);
+    try std.testing.expect(snap_layout.zoneById("terminal") != null);
+}
+
+test "invalid and overflowing named snap layouts are ignored" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot,
+        \\[layout.snap-layout.bad.id]
+        \\padding = 10
+        \\[layout.snap-layout.good]
+        \\padding = -1
+        \\[layout.snap-layout.good.zone.outside]
+        \\x = 0.9
+        \\y = 0.0
+        \\width = 0.2
+        \\height = 1.0
+    );
+    try std.testing.expectEqual(@as(u8, 1), snapshot.snap_layout_count);
+    const snap_layout = snapshot.snapLayoutById("good").?;
+    try std.testing.expectEqual(@as(i32, 0), snap_layout.padding);
+    try std.testing.expect(snap_layout.zoneById("outside") == null);
 }
 
 test "scrolling portrait placement preference parses booleans and malformed values retain validated base" {

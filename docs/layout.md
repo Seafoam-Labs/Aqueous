@@ -57,6 +57,61 @@ The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
 
+## Stacking snap layouts
+
+Named snap layouts apply only when the workspace's effective layout is
+`stacking` (the `float` and `floating` names remain compatibility aliases).
+They do not promote tiled windows or affect persistent floating overlays on a
+tile, grid, scrolling, composable, monocle, or game-mode workspace.
+
+```toml
+[layout]
+default = "stacking"
+snap_layout = "work"
+
+[layout.snap-layout.work]
+name = "Work"
+padding = 8
+
+[layout.snap-layout.work.zone.editor]
+name = "Editor"
+x = 0.0
+y = 0.0
+width = 0.6666667
+height = 1.0
+
+[layout.snap-layout.work.zone.terminal]
+name = "Terminal"
+x = 0.6666667
+y = 0.0
+width = 0.3333333
+height = 1.0
+```
+
+Zone rectangles use normalized coordinates in the strut-adjusted usable area.
+During a stacking move, reaching an output edge within `snap_threshold` shows
+an input-inert preview of the active layout. The pointer selects a zone using
+its unpadded rectangle; releasing commits the padded geometry. Moving away
+from the edge hides the preview and preserves ordinary free movement.
+
+The active named layout is tracked independently for each output at runtime.
+Use custom bindings to address stable layout and zone IDs or cycle the current
+output's layouts:
+
+```toml
+[keybinds]
+cycle_snap_layout = "Super+Ctrl+Bracketright"
+cycle_snap_layout_reverse = "Super+Ctrl+Bracketleft"
+cycle_snap_zone = "Super+Ctrl+backslash"
+
+[keybinds.custom]
+"Super+Ctrl+1" = "builtin:set_snap_layout:work"
+"Super+Ctrl+2" = "builtin:snap_zone:work/editor"
+```
+
+Legacy `[layout.snap-zone.a]` through `.d` tables and
+`builtin:snap_zone:a` remain supported when no named layouts are configured.
+
 ## Tile resize
 
 `Super`+right-drag resizes a tile member without making it floating.

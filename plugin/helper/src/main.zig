@@ -138,6 +138,12 @@ fn writeSnapshot(
     try json.objectField("snap_zones");
     try writeSnapZones(&json, &files.items[@intFromEnum(schema.FileId.layout)].document);
 
+    try json.objectField("snap_layouts");
+    try writeSnapLayouts(&json, &files.items[@intFromEnum(schema.FileId.layout)].document);
+    try field(&json, "default_snap_layout", unquoteToml(
+        files.items[@intFromEnum(schema.FileId.layout)].document.getRaw("layout", "snap_layout") orelse "",
+    ));
+
     try json.objectField("window_rules");
     try writeWindowRules(&json, &files.items[@intFromEnum(schema.FileId.rules)].document);
 
@@ -382,6 +388,21 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
             );
             dirty[@intFromEnum(schema.FileId.layout)] = true;
         }
+    }
+
+    if (request.get("snap_layouts")) |snap_layouts| {
+        if (snap_layouts != .array) return error.InvalidSnapLayouts;
+        if (request.get("raw_files")) |raw_files| {
+            if (raw_files == .object and raw_files.object.get("layout") != null) return error.ConflictingEdits;
+        }
+        const default_id = jsonString(request.get("default_snap_layout")) orelse "";
+        try replaceSnapLayouts(
+            allocator,
+            &files.items[@intFromEnum(schema.FileId.layout)].document,
+            snap_layouts.array.items,
+            default_id,
+        );
+        dirty[@intFromEnum(schema.FileId.layout)] = true;
     }
 
     if (request.get("window_rule_changes")) |rule_changes| {
@@ -635,6 +656,182 @@ fn writeSnapZones(json: *std.json.Stringify, document: *const config.Document) !
     try json.endArray();
 }
 
+const SnapTablePath = struct {
+    layout_id: []const u8,
+    zone_id: ?[]const u8 = null,
+};
+
+fn parseSnapTablePath(name: []const u8) ?SnapTablePath {
+    const prefixes = [_][]const u8{ "layout.snap-layout.", "layout.snap_layout." };
+    var suffix: ?[]const u8 = null;
+    for (prefixes) |prefix| if (std.mem.startsWith(u8, name, prefix)) {
+        suffix = name[prefix.len..];
+        break;
+    };
+    const path = suffix orelse return null;
+    if (std.mem.indexOf(u8, path, ".zone.")) |separator| {
+        const layout_id = path[0..separator];
+        const zone_id = path[separator + ".zone.".len ..];
+        if (!validSnapId(layout_id) or !validSnapId(zone_id)) return null;
+        return .{ .layout_id = layout_id, .zone_id = zone_id };
+    }
+    if (!validSnapId(path)) return null;
+    return .{ .layout_id = path };
+}
+
+fn writeSnapLayouts(json: *std.json.Stringify, document: *const config.Document) !void {
+    const tables = try document.tables(document.allocator);
+    defer document.allocator.free(tables);
+    const entries = try document.entries(document.allocator);
+    defer document.allocator.free(entries);
+    var ids = std.ArrayList([]const u8).empty;
+    defer ids.deinit(document.allocator);
+    for (tables) |table| {
+        if (table.repeated) continue;
+        const path = parseSnapTablePath(table.name) orelse continue;
+        var seen = false;
+        for (ids.items) |id| if (std.mem.eql(u8, id, path.layout_id)) {
+            seen = true;
+            break;
+        };
+        if (!seen) try ids.append(document.allocator, path.layout_id);
+    }
+
+    try json.beginArray();
+    for (ids.items) |layout_id| {
+        var base_table: ?usize = null;
+        for (tables) |table| {
+            const path = parseSnapTablePath(table.name) orelse continue;
+            if (path.zone_id == null and std.mem.eql(u8, path.layout_id, layout_id)) base_table = table.index;
+        }
+        const raw_name = if (base_table) |index| tableEntryRaw(entries, index, "name") else null;
+        const padding = if (base_table) |index| std.fmt.parseInt(i64, std.mem.trim(u8, tableEntryRaw(entries, index, "padding") orelse "0", " \t\r"), 10) catch 0 else 0;
+        try json.beginObject();
+        try field(json, "id", layout_id);
+        try field(json, "name", if (raw_name) |name| unquoteToml(name) else layout_id);
+        try field(json, "padding", padding);
+        try json.objectField("zones");
+        try json.beginArray();
+        for (tables) |table| {
+            const path = parseSnapTablePath(table.name) orelse continue;
+            const zone_id = path.zone_id orelse continue;
+            if (!std.mem.eql(u8, path.layout_id, layout_id)) continue;
+            const x = parseFinite(tableEntryRaw(entries, table.index, "x"));
+            const y = parseFinite(tableEntryRaw(entries, table.index, "y"));
+            const width = parseFinite(tableEntryRaw(entries, table.index, "width"));
+            const height = parseFinite(tableEntryRaw(entries, table.index, "height"));
+            try json.beginObject();
+            try field(json, "id", zone_id);
+            try field(json, "name", if (tableEntryRaw(entries, table.index, "name")) |name| unquoteToml(name) else zone_id);
+            try field(json, "complete", validSnapZone(x, y, width, height));
+            try field(json, "x", x orelse 0);
+            try field(json, "y", y orelse 0);
+            try field(json, "width", width orelse 0);
+            try field(json, "height", height orelse 0);
+            try json.endObject();
+        }
+        try json.endArray();
+        try json.endObject();
+    }
+    try json.endArray();
+}
+
+fn replaceSnapLayouts(
+    allocator: Allocator,
+    document: *config.Document,
+    requested: []const Json,
+    requested_default: []const u8,
+) !void {
+    if (requested.len > 8) return error.TooManySnapLayouts;
+    for (requested, 0..) |raw_layout, layout_index| {
+        if (raw_layout != .object) return error.InvalidSnapLayout;
+        const id = jsonString(raw_layout.object.get("id")) orelse return error.InvalidSnapLayoutId;
+        if (!validSnapId(id)) return error.InvalidSnapLayoutId;
+        for (requested[0..layout_index]) |prior| {
+            if (prior == .object and std.mem.eql(u8, jsonString(prior.object.get("id")) orelse "", id)) return error.DuplicateSnapLayoutId;
+        }
+        const zones = raw_layout.object.get("zones") orelse return error.InvalidSnapZones;
+        if (zones != .array or zones.array.items.len > 16) return error.InvalidSnapZones;
+        for (zones.array.items, 0..) |raw_zone, zone_index| {
+            if (raw_zone != .object) return error.InvalidSnapZoneChange;
+            const zone_id = jsonString(raw_zone.object.get("id")) orelse return error.InvalidSnapZoneId;
+            if (!validSnapId(zone_id)) return error.InvalidSnapZoneId;
+            for (zones.array.items[0..zone_index]) |prior| {
+                if (prior == .object and std.mem.eql(u8, jsonString(prior.object.get("id")) orelse "", zone_id)) return error.DuplicateSnapZoneId;
+            }
+            if (!validSnapZone(
+                jsonNumber(raw_zone.object.get("x") orelse return error.InvalidSnapZoneValue),
+                jsonNumber(raw_zone.object.get("y") orelse return error.InvalidSnapZoneValue),
+                jsonNumber(raw_zone.object.get("width") orelse return error.InvalidSnapZoneValue),
+                jsonNumber(raw_zone.object.get("height") orelse return error.InvalidSnapZoneValue),
+            )) return error.InvalidSnapZoneValue;
+        }
+    }
+    if (requested.len != 0) {
+        if (!validSnapId(requested_default)) return error.InvalidDefaultSnapLayout;
+        var found_default = false;
+        for (requested) |raw_layout| if (std.mem.eql(u8, jsonString(raw_layout.object.get("id")) orelse "", requested_default)) {
+            found_default = true;
+            break;
+        };
+        if (!found_default) return error.InvalidDefaultSnapLayout;
+    }
+
+    const old_tables = try document.tables(allocator);
+    defer allocator.free(old_tables);
+    var delete_indices = std.ArrayList(usize).empty;
+    defer delete_indices.deinit(allocator);
+    for (old_tables) |table| if (!table.repeated and parseSnapTablePath(table.name) != null) try delete_indices.append(allocator, table.index);
+    var delete_index = delete_indices.items.len;
+    while (delete_index > 0) {
+        delete_index -= 1;
+        try document.deleteTable(delete_indices.items[delete_index]);
+    }
+
+    if (requested.len == 0) {
+        const tables = try document.tables(allocator);
+        defer allocator.free(tables);
+        for (tables) |table| {
+            if (!table.repeated and std.mem.eql(u8, table.name, "layout")) {
+                _ = try document.deleteTableEntry(table.index, "snap_layout");
+                break;
+            }
+        }
+        return;
+    }
+    const encoded_default = try jsonStringLiteral(allocator, requested_default);
+    try document.setRaw("layout", "snap_layout", encoded_default);
+    for (requested) |raw_layout| {
+        const id = jsonString(raw_layout.object.get("id")).?;
+        const name = jsonString(raw_layout.object.get("name")) orelse id;
+        const padding = jsonInteger(raw_layout.object.get("padding") orelse .{ .integer = 0 }) orelse return error.InvalidSnapLayoutPadding;
+        if (padding < 0 or padding > 512) return error.InvalidSnapLayoutPadding;
+        const section = try std.fmt.allocPrint(allocator, "layout.snap-layout.{s}", .{id});
+        const encoded_name = try jsonStringLiteral(allocator, name);
+        try document.setRaw(section, "name", encoded_name);
+        const encoded_padding = try std.fmt.allocPrint(allocator, "{d}", .{padding});
+        try document.setRaw(section, "padding", encoded_padding);
+        for (raw_layout.object.get("zones").?.array.items) |raw_zone| {
+            const zone_id = jsonString(raw_zone.object.get("id")).?;
+            const zone_name = jsonString(raw_zone.object.get("name")) orelse zone_id;
+            const zone_section = try std.fmt.allocPrint(allocator, "layout.snap-layout.{s}.zone.{s}", .{ id, zone_id });
+            const encoded_zone_name = try jsonStringLiteral(allocator, zone_name);
+            try document.setRaw(zone_section, "name", encoded_zone_name);
+            inline for (.{ "x", "y", "width", "height" }) |key| {
+                const value = jsonNumber(raw_zone.object.get(key).?).?;
+                const encoded = try std.fmt.allocPrint(allocator, "{d}", .{value});
+                try document.setRaw(zone_section, key, encoded);
+            }
+        }
+    }
+}
+
+fn validSnapId(value: []const u8) bool {
+    if (value.len == 0 or value.len > 32) return false;
+    for (value) |char| if (!std.ascii.isAlphanumeric(char) and char != '-' and char != '_') return false;
+    return true;
+}
+
 fn applySnapZoneChanges(allocator: Allocator, document: *config.Document, requested: []const Json) !void {
     for (requested) |raw_change| {
         if (raw_change != .object) return error.InvalidSnapZoneChange;
@@ -683,8 +880,10 @@ fn validateConfiguredSnapZones(document: *const config.Document) !void {
     const entries = try document.entries(document.allocator);
     defer document.allocator.free(entries);
     for (tables) |table| {
-        if (table.repeated or
-            (!std.mem.startsWith(u8, table.name, "layout.snap-zone.") and !std.mem.startsWith(u8, table.name, "layout.snap_zone."))) continue;
+        if (table.repeated) continue;
+        const legacy = std.mem.startsWith(u8, table.name, "layout.snap-zone.") or std.mem.startsWith(u8, table.name, "layout.snap_zone.");
+        const named_zone = if (parseSnapTablePath(table.name)) |path| path.zone_id != null else false;
+        if (!legacy and !named_zone) continue;
         if (!validSnapZone(
             parseFinite(tableEntryRaw(entries, table.index, "x")),
             parseFinite(tableEntryRaw(entries, table.index, "y")),

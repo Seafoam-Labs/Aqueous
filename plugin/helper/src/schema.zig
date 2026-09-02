@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.3.0";
+pub const helper_version = "0.4.0";
 
 pub const FileId = enum(u8) {
     wm,
@@ -273,6 +273,8 @@ pub const fields = [_]Field{
     k("snap_down_right", ""),
     k("unsnap", ""),
     k("cycle_snap_zone", ""),
+    k("cycle_snap_layout", ""),
+    k("cycle_snap_layout_reverse", ""),
     k("fit_floating_to_output", ""),
     k("move_floating_to_edge_left", ""),
     k("move_floating_to_edge_right", ""),

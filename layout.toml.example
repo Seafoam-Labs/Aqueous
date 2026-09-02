@@ -32,6 +32,8 @@
 #           reverse_dwindle | scrolling | float | floating | stack | stacking | game-mode |
 #           game_mode | composable
 default = "tile"
+# Default named snap layout for stacking workspaces.
+snap_layout = "work"
 
 # Common geometry applied to every layout. Layout-specific sections below can
 # override any common field for one engine.
@@ -181,8 +183,29 @@ resistance = 12
 top_edge_maximize = true
 border_width = 2
 
-# Optional normalized custom regions. Names are a through d and are resolved
-# independently on every output's current usable area.
+# Named zone sets are available only while the workspace uses stacking. The
+# active set is tracked per output; padding is applied after resolving each
+# normalized region against that output's usable area.
+[layout.snap-layout.work]
+name = "Work"
+padding = 8
+
+[layout.snap-layout.work.zone.editor]
+name = "Editor"
+x = 0.0
+y = 0.0
+width = 0.6666667
+height = 1.0
+
+[layout.snap-layout.work.zone.terminal]
+name = "Terminal"
+x = 0.6666667
+y = 0.0
+width = 0.3333333
+height = 1.0
+
+# Legacy normalized regions remain supported for existing a-d bindings when
+# no named snap layout is configured.
 [layout.snap-zone.a]
 x = 0.0
 y = 0.0

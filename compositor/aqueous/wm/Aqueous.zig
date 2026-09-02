@@ -53,6 +53,7 @@ rules: Rules,
 layout_states: std.AutoHashMapUnmanaged(LayoutStateKey, layout_engine.State) = .empty,
 workspace_stacks: std.AutoHashMapUnmanaged(LayoutStateKey, WorkspaceStack) = .empty,
 layout_overrides: std.AutoHashMapUnmanaged(LayoutStateKey, layout_config.LayoutId) = .empty,
+snap_layout_overrides: std.AutoHashMapUnmanaged(u64, layout_config.SnapId) = .empty,
 previous_workspaces: std.AutoHashMapUnmanaged(u64, u32) = .empty,
 fired_exec: std.AutoHashMapUnmanaged(u64, void) = .empty,
 reload_timer: ?*wl.EventSource = null,
@@ -95,6 +96,24 @@ const Drag = struct {
     client_seat: ?usize = null,
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
+    snap_candidate: ?SnapCandidate = null,
+};
+
+const SnapCandidate = struct {
+    output_id: u64,
+    geometry: layout_types.Rect,
+    layout_id: layout_config.SnapId = .{},
+    zone_id: layout_config.SnapId = .{},
+    zone_index: u8,
+};
+
+const SnapTargets = struct {
+    geometries: [layout_config.max_snap_zones]layout_types.Rect = undefined,
+    hit_geometries: [layout_config.max_snap_zones]layout_types.Rect = undefined,
+    zone_indices: [layout_config.max_snap_zones]u8 = undefined,
+    count: u8 = 0,
+    layout_id: layout_config.SnapId = .{},
+    zone_ids: [layout_config.max_snap_zones]layout_config.SnapId = [_]layout_config.SnapId{.{}} ** layout_config.max_snap_zones,
 };
 
 const ScrollingClick = struct {
@@ -145,6 +164,7 @@ pub fn deinit(aqueous: *Aqueous) void {
     while (stacks.next()) |stack| stack.deinit(util.gpa);
     aqueous.workspace_stacks.deinit(util.gpa);
     aqueous.layout_overrides.deinit(util.gpa);
+    aqueous.snap_layout_overrides.deinit(util.gpa);
     aqueous.previous_workspaces.deinit(util.gpa);
     aqueous.fired_exec.deinit(util.gpa);
     aqueous.focus_history.deinit();
@@ -171,6 +191,7 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
 
 pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.cancelOverview();
+    aqueous.cancelSnapPreview();
     aqueous.cancelHoverFocus();
     aqueous.cancelPendingRaise();
     var replacement = config_loader.load(util.gpa);
@@ -750,7 +771,10 @@ fn startClientPointerDrag(
             pointer.x,
             pointer.y,
         );
-    } else if (state.kind() != .floating and !layout_floating) return;
+    } else if (state.kind() != .floating and !layout_floating) {
+        log.debug("client pointer drag rejected handle={} kind={s} floating_layout={}", .{ handle, @tagName(state.kind()), uses_floating_layout });
+        return;
+    }
     if (state.snap_state != .none and state.snap_restore_geometry.width > 0 and state.snap_restore_geometry.height > 0) {
         drag_start = if (action == .move_floating)
             pointer_drag.restoredMoveStart(window_rect, state.snap_restore_geometry, pointer.x, pointer.y)
@@ -799,6 +823,7 @@ fn startClientPointerDrag(
         .client_seat = pointer.seat,
         .layout_floating = layout_floating,
     };
+    log.debug("client pointer drag started handle={} action={s} stacking_owned={}", .{ handle, @tagName(action), layout_floating });
     aqueous.api.beginInteractive(handle, action == .resize_floating);
     aqueous.requestFocus(handle);
 }
@@ -949,8 +974,41 @@ pub fn interactiveDragActive(aqueous: *const Aqueous) bool {
     return drag.action != .swap_tiled;
 }
 
+pub fn cancelSnapPreview(aqueous: *Aqueous) void {
+    if (aqueous.drag) |*drag| drag.snap_candidate = null;
+    aqueous.api.hideSnapOverlay();
+}
+
 fn finishInteractiveDrag(aqueous: *Aqueous) void {
     const drag = aqueous.drag orelse return;
+    aqueous.api.hideSnapOverlay();
+    if (drag.snap_candidate) |candidate| {
+        if (drag.layout_floating and aqueous.layoutIsFloating(drag.layout_key) and
+            candidate.output_id == drag.layout_key.output)
+        {
+            if (aqueous.window_states.get(drag.handle) != null) {
+                const committed = if (aqueous.layout_states.getPtr(drag.layout_key)) |layout_state| commit: {
+                    layout_engine.setFloatingGeometry(util.gpa, layout_state, drag.handle, candidate.geometry) catch {
+                        log.err("out of memory committing stacking snap zone", .{});
+                        break :commit false;
+                    };
+                    break :commit true;
+                } else false;
+                if (committed) if (aqueous.window_states.get(drag.handle)) |state| {
+                    if (state.snap_state == .none and drag.start.width > 0 and drag.start.height > 0) {
+                        state.snap_restore_geometry = drag.start;
+                    }
+                    state.snap_state = .center;
+                    state.custom_snap_zone = candidate.zone_index;
+                    state.snap_layout_id = candidate.layout_id;
+                    state.snap_zone_id = candidate.zone_id;
+                };
+                if (committed) {
+                    aqueous.api.requestManageCycle();
+                }
+            }
+        }
+    }
     if (drag.action != .swap_tiled) aqueous.api.endInteractive(drag.handle);
     if (drag.client_seat) |seat| aqueous.api.endClientPointerOperation(seat);
     aqueous.drag = null;
@@ -1303,14 +1361,25 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         };
     if (drag.action == .move_floating) {
         aqueous.transferFloatingDrag(drag, resolved_geometry, x, y);
-        if (aqueous.api.outputTargetAt(x, y, false)) |target| if (target.id == drag.layout_key.output) {
+        const pointer_target = aqueous.api.outputTargetAt(x, y, false);
+        if (pointer_target == null or pointer_target.?.id != drag.layout_key.output) {
+            drag.snap_candidate = null;
+            aqueous.api.hideSnapOverlay();
+        }
+        if (pointer_target) |target| if (target.id == drag.layout_key.output) {
             const area = aqueous.effectiveUsableArea(target.area, target.usable_area);
             const options = aqueous.config.layout.layoutOptions(.floating);
             resolved_geometry = geometry.attractToRect(resolved_geometry, area, options.floating_resistance);
             resolved_geometry = aqueous.api.attractToWindowEdges(drag.handle, resolved_geometry, options.floating_resistance);
             const pointer_x = clampI32(@intFromFloat(x));
             const pointer_y = clampI32(@intFromFloat(y));
-            if (geometry.snapDirectionAt(area, pointer_x, pointer_y, options.floating_snap_threshold, options.floating_top_edge_maximize)) |direction| {
+            const zone_candidate = drag.layout_floating and aqueous.layoutIsFloating(drag.layout_key) and
+                aqueous.updateStackingSnapPreview(drag, target.id, area, pointer_x, pointer_y, options.floating_snap_threshold);
+            const edge_direction = if (!zone_candidate)
+                geometry.snapDirectionAt(area, pointer_x, pointer_y, options.floating_snap_threshold, options.floating_top_edge_maximize)
+            else
+                null;
+            if (edge_direction) |direction| {
                 const target_geometry = geometry.snap(area, direction, options.floating_snap_gap);
                 resolved_geometry = geometry.constrainSnap(target_geometry, direction, drag.constraints);
                 if (aqueous.window_states.get(drag.handle)) |state| {
@@ -1323,6 +1392,10 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
                 state.custom_snap_zone = std.math.maxInt(u8);
             }
         };
+        if (!drag.layout_floating or !aqueous.layoutIsFloating(drag.layout_key)) {
+            drag.snap_candidate = null;
+            aqueous.api.hideSnapOverlay();
+        }
     }
     if (drag.layout_floating) {
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
@@ -1332,6 +1405,54 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         };
     } else if (!aqueous.window_states.setFloating(drag.handle, resolved_geometry)) return;
     aqueous.api.requestManageCycle();
+}
+
+fn updateStackingSnapPreview(
+    aqueous: *Aqueous,
+    drag: *Drag,
+    output_id: u64,
+    area: layout_types.Rect,
+    pointer_x: i32,
+    pointer_y: i32,
+    activation_distance: i32,
+) bool {
+    const distance = @max(0, activation_distance);
+    const edge_active = pointer_x <= area.x + distance or pointer_x >= area.right() - distance or
+        pointer_y <= area.y + distance or pointer_y >= area.bottom() - distance;
+    if (!edge_active) {
+        drag.snap_candidate = null;
+        aqueous.api.hideSnapOverlay();
+        return false;
+    }
+    const targets = aqueous.stackingSnapTargets(output_id, area);
+    if (targets.count == 0) {
+        drag.snap_candidate = null;
+        aqueous.api.hideSnapOverlay();
+        return false;
+    }
+
+    var selected: ?usize = null;
+    for (targets.hit_geometries[0..targets.count], 0..) |target, index| {
+        if (pointer_x >= target.x and pointer_x < target.right() and
+            pointer_y >= target.y and pointer_y < target.bottom())
+        {
+            selected = index;
+            break;
+        }
+    }
+    aqueous.api.showSnapOverlay(output_id, targets.geometries[0..targets.count], selected);
+    if (selected) |index| {
+        drag.snap_candidate = .{
+            .output_id = output_id,
+            .geometry = geometry.constrainSnap(targets.geometries[index], .center, drag.constraints),
+            .layout_id = targets.layout_id,
+            .zone_id = targets.zone_ids[index],
+            .zone_index = targets.zone_indices[index],
+        };
+        return true;
+    }
+    drag.snap_candidate = null;
+    return false;
 }
 
 fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, rect: layout_types.Rect, x: f64, y: f64) void {
@@ -1489,10 +1610,12 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "snap_center")) return aqueous.snapFocused(.center);
     if (std.mem.eql(u8, action, "unsnap")) return aqueous.unsnapFocused();
     if (std.mem.eql(u8, action, "snap_zone")) {
-        if (parseComposableSlot(argument)) |slot| aqueous.snapFocusedZone(slot);
-        return;
+        return aqueous.snapFocusedZoneArgument(argument);
     }
     if (std.mem.eql(u8, action, "cycle_snap_zone")) return aqueous.cycleFocusedSnapZone();
+    if (std.mem.eql(u8, action, "set_snap_layout")) return aqueous.setSnapLayout(argument);
+    if (std.mem.eql(u8, action, "cycle_snap_layout")) return aqueous.cycleSnapLayout(false);
+    if (std.mem.eql(u8, action, "cycle_snap_layout_reverse")) return aqueous.cycleSnapLayout(true);
     if (std.mem.eql(u8, action, "fit_floating_to_output")) return aqueous.fitFocusedToOutput();
     if (std.mem.eql(u8, action, "move_floating_to_edge_left")) return aqueous.moveFocusedToEdge(.left);
     if (std.mem.eql(u8, action, "move_floating_to_edge_right")) return aqueous.moveFocusedToEdge(.right);
@@ -2124,43 +2247,157 @@ fn fitFocusedToOutput(aqueous: *Aqueous) void {
     if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, fitted)) aqueous.api.requestManageCycle();
 }
 
-fn snapFocusedZone(aqueous: *Aqueous, index: u8) void {
-    if (index >= layout_config.max_snap_zones) return;
-    const zone = aqueous.config.layout.snap_zones[index];
-    if (!zone.valid()) return;
+fn snapFocusedZoneArgument(aqueous: *Aqueous, argument: []const u8) void {
     const context = aqueous.api.focusedContext() orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
     const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
-    const layout_floating = aqueous.windowUsesFloatingLayout(key, handle);
-    const state = &context.window.policy_state;
-    if ((state.presentation != .floating and !layout_floating) or state.fixed_position) return;
-    const current: layout_types.Rect = .{ .x = context.window.box.x, .y = context.window.box.y, .width = context.window.box.width, .height = context.window.box.height };
-    if (state.snap_state == .none and current.width > 0 and current.height > 0) state.snap_restore_geometry = current;
+    if (!aqueous.layoutIsFloating(key)) return;
+    var zone_id = argument;
+    if (std.mem.indexOfAny(u8, argument, "/:")) |separator| {
+        const layout_id = std.mem.trim(u8, argument[0..separator], " \t");
+        zone_id = std.mem.trim(u8, argument[separator + 1 ..], " \t");
+        const snap_layout = aqueous.config.layout.snapLayoutById(layout_id) orelse return;
+        if (snap_layout.zoneById(zone_id) == null) return;
+        var active: layout_config.SnapId = .{};
+        if (!active.set(layout_id)) return;
+        aqueous.snap_layout_overrides.put(util.gpa, context.output.policyId(), active) catch return;
+    }
     const area = aqueous.focusedUsableArea(context.output);
-    const target = normalizedZone(area, zone);
-    const snapped = geometry.constrainSnap(target, .center, aqueous.api.windowConstraints(handle));
+    const targets = aqueous.stackingSnapTargets(context.output.policyId(), area);
+    if (targets.count == 0) return;
+    var selected: ?usize = null;
+    for (targets.zone_ids[0..targets.count], 0..) |id, index| {
+        if (id.eql(zone_id)) {
+            selected = index;
+            break;
+        }
+    }
+    if (selected == null) if (parseComposableSlot(zone_id)) |legacy_index| {
+        if (legacy_index < targets.count) selected = legacy_index;
+    };
+    const index = selected orelse return;
+    aqueous.snapFocusedTarget(key, handle, &context.window.policy_state, .{
+        .x = context.window.box.x,
+        .y = context.window.box.y,
+        .width = context.window.box.width,
+        .height = context.window.box.height,
+    }, targets, index);
+}
+
+fn snapFocusedTarget(
+    aqueous: *Aqueous,
+    key: LayoutStateKey,
+    handle: layout_types.Handle,
+    state: *PolicyState,
+    current: layout_types.Rect,
+    targets: SnapTargets,
+    index: usize,
+) void {
+    if (index >= targets.count or !aqueous.layoutIsFloating(key)) return;
+    if (state.fixed_position or !aqueous.windowUsesFloatingLayout(key, handle)) return;
+    if (state.snap_state == .none and current.width > 0 and current.height > 0) state.snap_restore_geometry = current;
+    const snapped = geometry.constrainSnap(targets.geometries[index], .center, aqueous.api.windowConstraints(handle));
     state.snap_state = .center;
-    state.custom_snap_zone = index;
-    if (aqueous.storeFreeformGeometry(key, handle, state, layout_floating, snapped)) aqueous.api.requestManageCycle();
+    state.custom_snap_zone = targets.zone_indices[index];
+    state.snap_layout_id = targets.layout_id;
+    state.snap_zone_id = targets.zone_ids[index];
+    if (aqueous.storeFreeformGeometry(key, handle, state, true, snapped)) aqueous.api.requestManageCycle();
 }
 
 fn cycleFocusedSnapZone(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
+    const handle: layout_types.Handle = @bitCast(context.window.ref);
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    if (!aqueous.layoutIsFloating(key)) return;
     const state = &context.window.policy_state;
-    var offset: usize = 1;
-    while (offset <= layout_config.max_snap_zones) : (offset += 1) {
-        const scan_start: usize = if (state.custom_snap_zone < layout_config.max_snap_zones) state.custom_snap_zone else layout_config.max_snap_zones - 1;
-        const index: u8 = @intCast((scan_start + offset) % layout_config.max_snap_zones);
-        if (aqueous.config.layout.snap_zones[index].valid()) return aqueous.snapFocusedZone(index);
+    const targets = aqueous.stackingSnapTargets(context.output.policyId(), aqueous.focusedUsableArea(context.output));
+    if (targets.count == 0) return;
+    var current: ?usize = null;
+    for (targets.zone_ids[0..targets.count], 0..) |id, index| {
+        if (state.custom_snap_zone < layout_config.max_snap_zones and
+            id.eql(state.snap_zone_id.slice()) and targets.layout_id.eql(state.snap_layout_id.slice()))
+        {
+            current = index;
+            break;
+        }
     }
+    const next = if (current) |index| (index + 1) % targets.count else 0;
+    aqueous.snapFocusedTarget(key, handle, &context.window.policy_state, .{
+        .x = context.window.box.x,
+        .y = context.window.box.y,
+        .width = context.window.box.width,
+        .height = context.window.box.height,
+    }, targets, next);
 }
 
-fn normalizedZone(area: layout_types.Rect, zone: layout_config.SnapZone) layout_types.Rect {
+fn setSnapLayout(aqueous: *Aqueous, id: []const u8) void {
+    const context = aqueous.api.focusedContext() orelse return;
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    if (!aqueous.layoutIsFloating(key) or aqueous.config.layout.snapLayoutById(id) == null) return;
+    var stored: layout_config.SnapId = .{};
+    if (!stored.set(id)) return;
+    aqueous.snap_layout_overrides.put(util.gpa, context.output.policyId(), stored) catch return;
+}
+
+fn cycleSnapLayout(aqueous: *Aqueous, reverse: bool) void {
+    if (aqueous.config.layout.snap_layout_count == 0) return;
+    const context = aqueous.api.focusedContext() orelse return;
+    const key: LayoutStateKey = .{ .output = context.output.policyId(), .workspace = context.workspace_number };
+    if (!aqueous.layoutIsFloating(key)) return;
+    const output_id = context.output.policyId();
+    const current = aqueous.activeSnapLayout(output_id) orelse return;
+    var current_index: usize = 0;
+    for (aqueous.config.layout.snap_layouts[0..aqueous.config.layout.snap_layout_count], 0..) |*snap_layout, index| {
+        if (snap_layout.id.eql(current.id.slice())) current_index = index;
+    }
+    const count: usize = aqueous.config.layout.snap_layout_count;
+    const next = if (reverse) (current_index + count - 1) % count else (current_index + 1) % count;
+    aqueous.snap_layout_overrides.put(util.gpa, output_id, aqueous.config.layout.snap_layouts[next].id) catch return;
+}
+
+fn activeSnapLayout(aqueous: *const Aqueous, output_id: u64) ?*const layout_config.SnapLayout {
+    const preferred = if (aqueous.snap_layout_overrides.get(output_id)) |id| id.slice() else "";
+    return aqueous.config.layout.configuredSnapLayout(preferred);
+}
+
+fn stackingSnapTargets(aqueous: *const Aqueous, output_id: u64, area: layout_types.Rect) SnapTargets {
+    var targets: SnapTargets = .{};
+    if (aqueous.activeSnapLayout(output_id)) |snap_layout| {
+        targets.layout_id = snap_layout.id;
+        for (snap_layout.zones[0..snap_layout.zone_count], 0..) |zone, zone_index| {
+            if (!zone.valid() or targets.count == layout_config.max_snap_zones) continue;
+            const index = targets.count;
+            targets.hit_geometries[index] = normalizedZone(area, zone, 0);
+            targets.geometries[index] = normalizedZone(area, zone, snap_layout.padding);
+            targets.zone_indices[index] = @intCast(zone_index);
+            targets.zone_ids[index] = zone.id;
+            targets.count += 1;
+        }
+        return targets;
+    }
+    for (aqueous.config.layout.snap_zones, 0..) |zone, zone_index| {
+        if (!zone.valid()) continue;
+        const index = targets.count;
+        targets.geometries[index] = normalizedZone(area, zone, 0);
+        targets.hit_geometries[index] = targets.geometries[index];
+        targets.zone_indices[index] = @intCast(zone_index);
+        var id: layout_config.SnapId = .{};
+        var text: [1]u8 = .{@intCast('a' + zone_index)};
+        _ = id.set(&text);
+        targets.zone_ids[index] = id;
+        targets.count += 1;
+    }
+    return targets;
+}
+
+fn normalizedZone(area: layout_types.Rect, zone: layout_config.SnapZone, padding: i32) layout_types.Rect {
     const x_offset: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(area.width)) * zone.x));
     const y_offset: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(area.height)) * zone.y));
     const width: i32 = @max(1, @as(i32, @intFromFloat(@floor(@as(f64, @floatFromInt(area.width)) * zone.width))));
     const height: i32 = @max(1, @as(i32, @intFromFloat(@floor(@as(f64, @floatFromInt(area.height)) * zone.height))));
-    return .{ .x = clampI32(@as(i64, area.x) + x_offset), .y = clampI32(@as(i64, area.y) + y_offset), .width = width, .height = height };
+    const raw: layout_types.Rect = .{ .x = clampI32(@as(i64, area.x) + x_offset), .y = clampI32(@as(i64, area.y) + y_offset), .width = width, .height = height };
+    const inset = @min(padding, @min(@divTrunc(raw.width - 1, 2), @divTrunc(raw.height - 1, 2)));
+    return .{ .x = raw.x + inset, .y = raw.y + inset, .width = raw.width - 2 * inset, .height = raw.height - 2 * inset };
 }
 
 fn togglePartialMaximize(aqueous: *Aqueous, horizontal: bool) void {
@@ -2762,6 +2999,7 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
 
     aqueous.cancelOverview();
     if (config_changed) {
+        aqueous.cancelSnapPreview();
         aqueous.cancelHoverFocus();
         if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
             log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});

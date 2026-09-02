@@ -109,6 +109,30 @@ pub fn requestManageCycle(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+pub fn showSnapOverlay(_: CompositorApi, output_id: u64, geometries: []const layout.Rect, selected: ?usize) void {
+    var rects: [@import("../SnapOverlay.zig").max_zones]@import("../SnapOverlay.zig").Rect = undefined;
+    const count = @min(geometries.len, rects.len);
+    for (geometries[0..count], 0..) |rect, index| rects[index] = .{
+        .x = rect.x,
+        .y = rect.y,
+        .width = rect.width,
+        .height = rect.height,
+    };
+    if (server.scene.snap_overlay == null) {
+        server.scene.snap_overlay = @import("../SnapOverlay.zig").init(&server.scene.wlr_scene.tree) catch return;
+    }
+    server.scene.snap_overlay.?.show(output_id, rects[0..count], selected);
+    server.wm.dirtyWindowing();
+}
+
+pub fn hideSnapOverlay(_: CompositorApi) void {
+    if (server.scene.snap_overlay) |*overlay| {
+        overlay.deinit();
+        server.scene.snap_overlay = null;
+    } else return;
+    server.wm.dirtyWindowing();
+}
+
 pub fn beginInteractive(_: CompositorApi, handle: layout.Handle, resize: bool) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.policyBeginInteractive(resize);

@@ -85,6 +85,7 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
 
     if (manager.state == .unlocked) {
         server.aqueous.cancelOverview();
+        server.aqueous.cancelSnapPreview();
         manager.state = .waiting_for_lock_surfaces;
 
         assert(!server.scene.locked_tree.node.enabled);
