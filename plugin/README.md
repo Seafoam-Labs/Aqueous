@@ -9,7 +9,9 @@ and built-in action commands. Legacy `float`, `floating`, and `stack` layout
 names are shown as one canonical **Stacking** choice and remain safely editable.
 Stacking snap zones support multiple named layouts, stable zone IDs, per-layout
 padding, presets, migration from legacy A-D zones, and layout/zone add-remove
-controls. The helper writes the nested snap-layout tables atomically.
+controls. Layout IDs and zone IDs are editable, and the panel can create custom
+bindings for a selected layout, zone, or layout cycle. The helper writes the
+nested snap-layout tables atomically.
 The Displays page includes a
 visual monitor canvas: drag monitor cards relative to one another, select
 their rotation or flipped orientation, and use exact X/Y fields when needed.

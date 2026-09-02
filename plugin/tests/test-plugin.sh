@@ -14,7 +14,7 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 manifest = tomllib.loads((root / "plugin.toml").read_text())
 assert manifest["id"] == "aqueous/settings"
-assert manifest["version"] == "0.4.0"
+assert manifest["version"] == "0.4.1"
 assert manifest["min_noctalia"] == "5.0.0"
 assert manifest["plugin_api"] == 9
 assert manifest["widget"][0]["entry"] == "widget.luau"
@@ -49,6 +49,8 @@ for key in (
     "stacking.normalize",
     "snap_zone.title",
     "snap_layout.title",
+    "snap_layout.bind_zone",
+    "keybind.add_layout",
     "rule.window_rules",
     "error.helper_incompatible",
 ):
@@ -88,6 +90,11 @@ for feature in (
     'snap_zone_changes',
     'request.snap_layouts',
     'namedSnapLayoutsView',
+    'preferredSnapZoneCommand',
+    'builtin:set_snap_layout:',
+    'builtin:cycle_snap_layout',
+    'MAX_SNAP_LAYOUTS = 8',
+    'MAX_SNAP_ZONES = 16',
     'window_rule_changes',
     'normalize_stacking',
     'snapZonesView',
@@ -104,7 +111,7 @@ import tomllib
 
 catalog = tomllib.loads(pathlib.Path(sys.argv[1]).read_text())
 assert catalog["plugin"][0]["id"] == "aqueous/settings"
-assert catalog["plugin"][0]["version"] == "0.4.0"
+assert catalog["plugin"][0]["version"] == "0.4.1"
 assert catalog["plugin"][0]["plugin_api"] == 9
 assert "aqueousctl" in catalog["plugin"][0]["dependencies"]
 PY

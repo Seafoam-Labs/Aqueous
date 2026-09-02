@@ -2,6 +2,8 @@
 
 local PROTOCOL = 1
 local MIN_HELPER_VERSION = "0.4.0"
+local MAX_SNAP_LAYOUTS = 8
+local MAX_SNAP_ZONES = 16
 local categories = {
 	{ id = "overview", label = "Overview", glyph = "info-circle" },
 	{ id = "appearance", label = "Appearance", glyph = "sparkles" },
@@ -1258,6 +1260,29 @@ local function addCustomKeybind(command)
 	render()
 end
 
+local function preferredSnapLayout()
+	local layouts = snapLayoutsDraft or snapshot.snap_layouts or {}
+	local preferred = activeSnapLayoutId ~= "" and activeSnapLayoutId or defaultSnapLayoutDraft
+	for _, layout in ipairs(layouts) do
+		if tostring(layout.id) == preferred then return layout end
+	end
+	return layouts[1]
+end
+
+local function preferredSnapZoneCommand()
+	local layout = preferredSnapLayout()
+	if layout ~= nil and #(layout.zones or {}) > 0 then
+		return "builtin:snap_zone:" .. tostring(layout.id) .. "/" .. tostring(layout.zones[1].id)
+	end
+	return "builtin:snap_zone:a"
+end
+
+local function preferredSnapLayoutCommand()
+	local layout = preferredSnapLayout()
+	if layout ~= nil then return "builtin:set_snap_layout:" .. tostring(layout.id) end
+	return "builtin:cycle_snap_layout"
+end
+
 local function keybindsView()
 	local children = {
 		sectionTitle(tr("keybind.title"), tr("keybind.description")),
@@ -1276,7 +1301,10 @@ local function keybindsView()
 			addCustomKeybind("")
 		end }),
 		ui.button({ text = tr("keybind.add_zone"), glyph = "layout-grid", variant = "outline", onClick = function()
-			addCustomKeybind("builtin:snap_zone:a")
+			addCustomKeybind(preferredSnapZoneCommand())
+		end }),
+		ui.button({ text = tr("keybind.add_layout"), glyph = "layout-dashboard", variant = "outline", onClick = function()
+			addCustomKeybind(preferredSnapLayoutCommand())
 		end }),
 	}))
 	if #(snapshot.custom_keybinds or {}) == 0 then
@@ -1367,8 +1395,17 @@ local function markSnapLayoutsDirty()
 	render()
 end
 
+local function renameActiveSnapLayout(layout, value)
+	local previous = layout.id
+	layout.id = tostring(value)
+	if activeSnapLayoutId == previous then activeSnapLayoutId = layout.id end
+	if defaultSnapLayoutDraft == previous then defaultSnapLayoutDraft = layout.id end
+	markSnapLayoutsDirty()
+end
+
 local function addSnapLayout(copyLegacy)
 	local layouts = ensureSnapLayoutsDraft()
+	if #layouts >= MAX_SNAP_LAYOUTS then return end
 	local serial = #layouts + 1
 	local id = "layout" .. tostring(serial)
 	local used = true
@@ -1445,7 +1482,7 @@ local function namedSnapLayoutsView()
 		ui.separator({}),
 		ui.row({ gap = 8, align = "center" }, {
 			ui.label({ text = tr("snap_layout.title"), fontWeight = "bold", flexGrow = 1 }),
-			ui.button({ text = tr("snap_layout.add"), variant = "outline", onClick = function() addSnapLayout(false) end }),
+			ui.button({ text = tr("snap_layout.add"), variant = "outline", enabled = #layouts < MAX_SNAP_LAYOUTS, onClick = function() addSnapLayout(false) end }),
 		}),
 		ui.label({ text = tr("snap_layout.description"), color = "on_surface_variant", fontSize = 11, maxLines = 3 }),
 	}
@@ -1467,14 +1504,20 @@ local function namedSnapLayoutsView()
 	local layout = activeSnapLayoutDraft()
 	if layout == nil then return children end
 	table.insert(children, ui.row({ gap = 8 }, {
+		ui.input({ key = "snap-layout-id-" .. layout.id, value = layout.id, placeholder = tr("snap_layout.id"), width = 150, onChange = function(value) renameActiveSnapLayout(layout, value) end }),
 		ui.input({ key = "snap-layout-name-" .. layout.id, value = layout.name, placeholder = tr("snap_layout.name"), flexGrow = 1, onChange = function(value) layout.name = value markSnapLayoutsDirty() end }),
 		ui.input({ key = "snap-layout-padding-" .. layout.id, value = tostring(layout.padding), placeholder = tr("snap_layout.padding"), width = 110, onChange = function(value) layout.padding = math.max(0, tonumber(value) or layout.padding) markSnapLayoutsDirty() end }),
+	}))
+	table.insert(children, ui.row({ gap = 6 }, {
+		ui.button({ text = tr("snap_layout.bind"), variant = "outline", onClick = function() addCustomKeybind("builtin:set_snap_layout:" .. layout.id) end }),
+		ui.button({ text = tr("snap_layout.bind_cycle"), variant = "outline", onClick = function() addCustomKeybind("builtin:cycle_snap_layout") end }),
 	}))
 	table.insert(children, ui.row({ gap = 6 }, {
 		ui.button({ text = tr("snap_zone.preset_halves"), variant = "outline", onClick = function() setNamedZonePreset("halves") end }),
 		ui.button({ text = tr("snap_zone.preset_thirds"), variant = "outline", onClick = function() setNamedZonePreset("thirds") end }),
 		ui.button({ text = tr("snap_zone.preset_quarters"), variant = "outline", onClick = function() setNamedZonePreset("quarters") end }),
-		ui.button({ text = tr("snap_layout.add_zone"), variant = "outline", onClick = function()
+		ui.button({ text = tr("snap_layout.add_zone"), variant = "outline", enabled = #layout.zones < MAX_SNAP_ZONES, onClick = function()
+			if #layout.zones >= MAX_SNAP_ZONES then return end
 			local serial = #layout.zones + 1
 			table.insert(layout.zones, { id = "zone" .. tostring(serial), name = "Zone " .. tostring(serial), x = 0, y = 0, width = 0.5, height = 0.5 })
 			markSnapLayoutsDirty()
@@ -1489,8 +1532,9 @@ local function namedSnapLayoutsView()
 		})) end
 		table.insert(children, ui.column({ gap = 6, padding = 9, radius = 8, fill = "surface_variant", align = "stretch" }, {
 			ui.row({ gap = 8, align = "center" }, {
+				ui.input({ key = "named-zone-id-" .. layout.id .. "-" .. zone.id, value = zone.id, placeholder = tr("snap_layout.zone_id"), width = 130, onChange = function(value) zone.id = tostring(value) markSnapLayoutsDirty() end }),
 				ui.input({ key = "named-zone-name-" .. layout.id .. "-" .. zone.id, value = zone.name, flexGrow = 1, onChange = function(value) zone.name = value markSnapLayoutsDirty() end }),
-				ui.label({ text = zone.id, color = "on_surface_variant", fontSize = 10 }),
+				ui.button({ text = tr("snap_layout.bind_zone"), variant = "ghost", onClick = function() addCustomKeybind("builtin:snap_zone:" .. layout.id .. "/" .. zone.id) end }),
 				ui.button({ glyph = "trash", variant = "ghost", onClick = function() table.remove(layout.zones, zoneIndex) markSnapLayoutsDirty() end }),
 			}),
 			ui.row({ gap = 6 }, controls),
