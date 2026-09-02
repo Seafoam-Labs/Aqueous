@@ -151,6 +151,8 @@ start_axis = "vertical" # vertical | horizontal
 # Width of each scrolling column as a fraction of the usable output.
 column_fraction = 0.5
 # Automatically pan to keep the focused column centered.
+# When false, pan only enough to keep it visible, preserving other columns that
+# fit beside it in the viewport.
 center_focused = true
 # Pan to a newly managed window when it extends the column order.
 follow_new_windows = true

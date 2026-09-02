@@ -127,7 +127,7 @@ pub const fields = [_]Field{
     s("layout.slots.tertiary", .layouts, "Tertiary slot", "Layout selected by the tertiary layout action.", .layout, "layout.slots", "tertiary", "monocle", layouts),
     s("layout.slots.quaternary", .layouts, "Quaternary slot", "Layout selected by the quaternary layout action.", .layout, "layout.slots", "quaternary", "grid", layouts),
     f("layout.options.scrolling.column_fraction", .layouts, "Scrolling column width", "Fraction of usable output width for each column.", .layout, "layout.options.scrolling", "column_fraction", .double, "0.5", 0.01, 0.99),
-    b("layout.options.scrolling.center_focused", .layouts, "Center focused column", "Pan to keep the focused column centered.", .layout, "layout.options.scrolling", "center_focused", true),
+    b("layout.options.scrolling.center_focused", .layouts, "Center focused column", "Center the focused column; when disabled, pan minimally so other columns remain visible.", .layout, "layout.options.scrolling", "center_focused", true),
     b("layout.options.scrolling.follow_new_windows", .layouts, "Follow new windows", "Pan when a new window extends the column order.", .layout, "layout.options.scrolling", "follow_new_windows", true),
     b("layout.options.scrolling.prefer_vertical_on_portrait", .layouts, "Prefer portrait stacks", "Add new windows to a vertical column when this scrolling instance is taller than wide.", .layout, "layout.options.scrolling", "prefer_vertical_on_portrait", false),
     b("layout.options.scrolling.snap_to_columns", .layouts, "Snap viewport", "Quantize manual viewport movement to columns.", .layout, "layout.options.scrolling", "snap_to_columns", false),

@@ -151,7 +151,20 @@ pub fn arrange(
     state.focused_column = @min(state.focused_column, state.columns.items.len - 1);
     state.viewport_column = @min(state.viewport_column, state.columns.items.len - 1);
     state.last_focused = focused;
-    if (scrolling_options.center_focused or scrolling_options.snap_to_columns or state.viewport_dirty) {
+    const packs_visible_columns = !scrolling_options.center_focused and !scrolling_options.snap_to_columns;
+    if (packs_visible_columns) {
+        const column_start = offsets[state.viewport_column];
+        const column_end = column_start + outerLength(widths[state.viewport_column], border_width);
+        if (column_start < state.viewport_x) {
+            state.viewport_x = column_start;
+        } else if (column_end > state.viewport_x + area.width) {
+            state.viewport_x = column_end - area.width;
+        }
+        // A non-centering viewport should not retain blank overscroll space
+        // from a previous centered arrangement or configuration reload.
+        state.viewport_x = std.math.clamp(state.viewport_x, 0, @max(0, total_width - area.width));
+        state.viewport_dirty = false;
+    } else if (scrolling_options.center_focused or scrolling_options.snap_to_columns or state.viewport_dirty) {
         state.viewport_x = offsets[state.viewport_column] +
             @divTrunc(outerLength(widths[state.viewport_column], border_width), 2) -
             @divTrunc(area.width, 2);
@@ -860,6 +873,61 @@ test "scrolling centres focus and hides off-screen columns" {
     try std.testing.expect(!placements[0].visible);
     try std.testing.expectEqual(types.Rect{ .x = 75, .y = 0, .width = 100, .height = 80 }, placements[0].clip.?);
     try std.testing.expect(placements[2].visible);
+}
+
+test "disabled focus centering keeps multiple narrow columns in the viewport" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: Options = .{
+        .column_width = 0.5,
+        .center_focused = false,
+    };
+
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, test_gaps, options);
+    defer std.testing.allocator.free(initial);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(initial, 1).geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(initial, 2).geometry.x);
+    try std.testing.expect(findPlacement(initial, 1).visible);
+    try std.testing.expect(findPlacement(initial, 2).visible);
+
+    try std.testing.expect(scrollViewport(&state, 1));
+    const middle = try arrange(std.testing.allocator, &state, area, &windows, 2, test_gaps, options);
+    defer std.testing.allocator.free(middle);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(middle, 1).geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(middle, 2).geometry.x);
+
+    try std.testing.expect(scrollViewport(&state, 1));
+    const advanced = try arrange(std.testing.allocator, &state, area, &windows, 3, test_gaps, options);
+    defer std.testing.allocator.free(advanced);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(advanced, 2).geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(advanced, 3).geometry.x);
+
+    try std.testing.expect(scrollViewport(&state, -2));
+    const returned = try arrange(std.testing.allocator, &state, area, &windows, 1, test_gaps, options);
+    defer std.testing.allocator.free(returned);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(returned, 1).geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(returned, 2).geometry.x);
+}
+
+test "disabling focus centering removes retained edge overscroll" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+
+    const centered = try arrange(std.testing.allocator, &state, area, &windows, 1, test_gaps, .{ .column_width = 0.5 });
+    defer std.testing.allocator.free(centered);
+    try std.testing.expectEqual(@as(i32, 25), findPlacement(centered, 1).geometry.x);
+
+    const uncentered = try arrange(std.testing.allocator, &state, area, &windows, 1, test_gaps, .{
+        .column_width = 0.5,
+        .center_focused = false,
+    });
+    defer std.testing.allocator.free(uncentered);
+    try std.testing.expectEqual(@as(i32, 0), findPlacement(uncentered, 1).geometry.x);
+    try std.testing.expectEqual(@as(i32, 50), findPlacement(uncentered, 2).geometry.x);
 }
 
 test "column members retain full viewport height" {

@@ -210,6 +210,12 @@ Horizontal viewport movement operates on columns; left/right focus moves
 between columns and up/down focus moves within a column. Focusing a clipped
 member automatically reveals it.
 
+With `center_focused = false`, horizontal navigation pans only when the target
+column would otherwise be clipped. A column fraction of `0.5` therefore keeps
+two columns together in the viewport, and smaller fractions can expose more.
+The viewport also removes blank edge overscroll in this mode so all available
+space can be used by columns.
+
 When global `input.focus_follows_mouse` is enabled,
 `focus_follows_mouse_delay_ms` delays focus caused by real pointer motion over
 a scrolling member. Keyboard viewport navigation and pointer clicks still
