@@ -52,7 +52,9 @@ Launches `aqueous` under `WLR_BACKENDS=headless` and asserts:
 | Check | Proves | Requires |
 |---|---|---|
 | `commit affects layout (scale=true …)` after output socket `set` | P3 relayout | native output service |
-| no `failed to load xcursor` after scale change | P5 cursor reload | native output service |
+| deterministic 24px cursor captures as 12/18/24/30/36/42/48/60/72px across 0.5–3× | P5 exact cursor scale over the accepted range | grim + ImageMagick + wlrctl + Xcursor development files |
+| cursor changes size across those captures without another pointer event | P5 live stationary-cursor reload | same pixel oracle |
+| no `failed to load xcursor` after scale change | cursor theme load health | native output service |
 | reverse `scale=1` relayouts | symmetry | native output service |
 | re-applying current scale → no relayout | no-op guard (P2 predicate idles) | native output service |
 | client receives `wl_output.scale(2)` + `done` | P2 fan-out | Ghostty |
@@ -73,8 +75,10 @@ ensure later scene notifications retain and inherit the selected policy.
 
 ## Manual matrix
 
-The headless backend renders no real pixels, so visual crispness and cursor
-pixel-size must be checked by hand on a real session.
+The headless test now validates the exact software-cursor footprint using a
+generated, fully opaque cursor theme and screencopy with cursor overlay. Manual
+testing remains necessary for hardware-cursor planes, theme-specific artwork,
+and subjective visual crispness.
 
 | Axis | Values |
 |---|---|
