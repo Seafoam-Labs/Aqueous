@@ -203,7 +203,7 @@ rate = 0.0
 [actions]
 toggle_start_menu = "noctalia msg panel-toggle launcher"
 spawn_terminal = "ghostty"
-screenshot = "grim -g \"$(slurp)\" - | wl-copy"
+screenshot = "noctalia msg screenshot-region"
 
 # -----------------------------------------------------------------------------
 # Keybindings.
@@ -249,7 +249,7 @@ move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 toggle_scrolling_full_width = "Super+Shift+Z" # expand only the focused column; press again to restore
 consume_window_into_column  = "Super+Ctrl+J"   # pull the first window from the right into this column
-expel_window_from_column    = "Super+Ctrl+K"   # move the focused stacked window into a new column
+expel_window_from_column    = "Super+Ctrl+K"   # move the focused stac  ked window into a new column
 
 # --- Opt-in actions (no default chord) ---
 reload_config         = "Super+R"          # immediately reload all TOML snapshots
@@ -379,7 +379,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
-"Super+Shift+S"      = "builtin:screenshot"
+"Super+Shift+S"      = "spawn:noctalia msg screenshot-region"
 "Super+B"            = "spawn:zen-browser"
 "XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
 "XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
