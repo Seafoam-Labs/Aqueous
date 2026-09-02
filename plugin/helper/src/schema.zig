@@ -85,6 +85,10 @@ const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
 
 pub const fields = [_]Field{
     t("desktop.font.family", .appearance, "Desktop font", "Font family synchronized across Noctalia, GTK, qt5ct, and qt6ct.", .appearance, "desktop.font", "family", "sans-serif"),
+    t("desktop.font.style", .appearance, "Desktop font face", "Installed face within the selected family. Empty uses the toolkit's automatic match.", .appearance, "desktop.font", "style", ""),
+    f("desktop.font.weight", .appearance, "Desktop font weight", "Portable font weight selected with the installed face.", .appearance, "desktop.font", "weight", .integer, "400", 1, 1000),
+    s("desktop.font.slant", .appearance, "Desktop font slant", "Portable slant selected with the installed face.", .appearance, "desktop.font", "slant", "normal", &.{ "normal", "italic", "oblique" }),
+    s("desktop.font.width", .appearance, "Desktop font width", "Portable width selected with the installed face.", .appearance, "desktop.font", "width", "normal", &.{ "ultra-condensed", "extra-condensed", "condensed", "semi-condensed", "normal", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded" }),
     f("desktop.font.size_pt", .appearance, "Desktop font size", "Point size for toolkit UI text. Noctalia maps 12 pt to its default text scale.", .appearance, "desktop.font", "size_pt", .integer, "12", 6, 30),
     f("struts.top", .appearance, "Top reserved space", "Pixels reserved above windows.", .wm, "struts", "top", .integer, "32", 0, 4096),
     f("struts.bottom", .appearance, "Bottom reserved space", "Pixels reserved below windows.", .wm, "struts", "bottom", .integer, "0", 0, 4096),

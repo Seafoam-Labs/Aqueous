@@ -35,9 +35,9 @@ noctalia msg panel-toggle aqueous/settings:panel
 
 - A Noctalia v5 bar widget and declarative panel written in Luau.
 - Typed controls for every recognized Aqueous configuration family.
-- Desktop font family and point-size controls backed by an Aqueous-owned
-  appearance sidecar and synchronized to Noctalia, GTK, GSettings, qt5ct, and
-  qt6ct.
+- Desktop font family, installed face, and point-size controls backed by an
+  Aqueous-owned appearance sidecar and synchronized to Noctalia, GTK,
+  GSettings, qt5ct, and qt6ct.
 - A visual output canvas for dragging connected/configured monitors into place,
   choosing rotations and flips, and entering exact coordinates.
 - Draft, validation, apply, reload, and conflict handling.
@@ -103,12 +103,15 @@ in the repository should be limited to installing and seeding the completed
 bundle.
 
 Desktop typography is a synchronization layer rather than a compositor
-rendering option. `appearance.toml` is owned by Aqueous, while the helper
-applies its font to the formats consumed by each toolkit. Noctalia receives the
-family directly and maps the point size relative to a 12 pt baseline through
-its UI and default-bar scales. GTK receives `Family Size` through GSettings and
-GTK 3/4 configuration. qt5ct and qt6ct receive their serialized general
-`QFont`; fixed-width fonts remain untouched.
+rendering option. `appearance.toml` is owned by Aqueous and records family,
+style, weight, slant, width, and size. The settings panel discovers installed
+Fontconfig faces and filters them by family; an empty style retains automatic
+toolkit matching for backward compatibility. GTK receives a Pango font
+description through GSettings and GTK 3/4 configuration. qt5ct and qt6ct
+receive their serialized general `QFont`; fixed-width fonts remain untouched.
+Noctalia receives the family directly and maps point size relative to a 12 pt
+baseline, so it reports a family-only partial result for exact faces. Qt 5 also
+reports partial synchronization for non-normal widths.
 
 ## 4. Target directory layout
 

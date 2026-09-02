@@ -33,15 +33,17 @@ may be added or removed directly; snap-zone commands have a ready-made preset.
 The action-command section controls the commands invoked by launcher, terminal,
 screenshot, and lock bindings.
 
-The **Appearance** page owns a desktop font family and point size in
-`~/.config/aqueous/appearance.toml`. Applying either value synchronizes
-Noctalia's shell settings, GSettings, GTK 3 and GTK 4 `settings.ini`, plus
-qt5ct/qt6ct when those adapters are installed or already configured. Each
-target reports whether it is available, active, and synchronized. An inactive
-Qt label means applications currently use another `QT_QPA_PLATFORMTHEME`.
-The family control lists installed Fontconfig families and retains the current
-configured family as an option. KDE/Plasma-specific configuration is
-deliberately not touched.
+The **Appearance** page owns a desktop font family, installed face, and point
+size in `~/.config/aqueous/appearance.toml`. The face selector is filtered to
+the selected Fontconfig family and stores portable style, weight, slant, and
+width metadata. Applying typography synchronizes GSettings, GTK 3 and GTK 4
+`settings.ini`, plus qt5ct/qt6ct when those adapters are installed or already
+configured. Each target reports whether it is available, active, and
+synchronized. An inactive Qt label means applications currently use another
+`QT_QPA_PLATFORMTHEME`. Noctalia currently accepts only a family and is marked
+**Family only** when an exact face is selected. Qt 5 is likewise marked partial
+for non-normal width because its persisted format does not carry stretch.
+KDE/Plasma-specific configuration is deliberately not touched.
 
 This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 `ui.*` controls. It does not contain the v4 QML plugin API.
@@ -156,8 +158,9 @@ after a user intentionally disables it.
 - Every request includes the loaded generation; a manual edit blocks stale
   Apply and leaves the draft intact.
 - Known numeric, enum, boolean, and color values are validated.
-- Desktop font families reject empty or structurally ambiguous values and are
-  checked through Fontconfig when available; point size is limited to 6–30.
+- Desktop font families and face names reject structurally ambiguous values.
+  Specific faces are checked against installed Fontconfig family, style,
+  weight, slant, and width metadata; point size is limited to 6–30.
 - Raw files receive structural validation and the 1 MiB Aqueous size limit.
 - Existing comments, ordering, whitespace, and unknown keys survive typed
   edits.

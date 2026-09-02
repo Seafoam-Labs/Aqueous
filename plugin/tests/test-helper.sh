@@ -15,7 +15,10 @@ printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$3"' >"$test_root/bin/fc-match"
 chmod +x "$test_root/bin/fc-match"
 printf '%s\n' \
     '#!/bin/sh' \
-    'printf "%s\n" "Zed Sans" "Alpha Sans" "zed sans" "Bad, Alternate" ""' \
+    'case "$2" in' \
+    '  *style*) printf "%b\n" "Test Sans\tRegular\t80\t0\t100" "Test Sans\tSemiBold Italic\t180\t100\t100" "Test Sans\tCondensed Black\t210\t110\t75" ;;' \
+    '  *) printf "%s\n" "Zed Sans" "Alpha Sans" "zed sans" "Bad, Alternate" "" ;;' \
+    'esac' \
     >"$test_root/bin/fc-list"
 chmod +x "$test_root/bin/fc-list"
 
@@ -61,6 +64,7 @@ jq -e '
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
   .desktop_typography.families == ["Alpha Sans", "monospace", "sans-serif", "serif", "Zed Sans"] and
+  (.desktop_typography.faces[] | select(.family == "Test Sans" and .style == "SemiBold Italic") | .weight == 600 and .slant == "italic" and .width == "normal") and
   .files.wm.path != "" and
   (.raw_files.wm | contains("fixture comment"))
 ' "$snapshot" >/dev/null
@@ -322,6 +326,10 @@ jq -n \
       expected_generation: $generation,
       changes: [
         {id: "desktop.font.family", value: "Test Sans"},
+        {id: "desktop.font.style", value: "SemiBold Italic"},
+        {id: "desktop.font.weight", value: 600},
+        {id: "desktop.font.slant", value: "italic"},
+        {id: "desktop.font.width", value: "normal"},
         {id: "desktop.font.size_pt", value: 14}
       ],
       raw_files: {}
@@ -333,22 +341,31 @@ fi
 jq -e '
   .desktop_typography.family == "Test Sans" and
   (.desktop_typography.families | index("Test Sans") != null) and
+  .desktop_typography.style == "SemiBold Italic" and
+  .desktop_typography.weight == 600 and
+  .desktop_typography.slant == "italic" and
+  .desktop_typography.width == "normal" and
   .desktop_typography.size_pt == 14 and
-  (.desktop_typography.targets[] | select(.id == "noctalia") | .synced == true) and
+  .desktop_typography.failed_count == 0 and
+  (.desktop_typography.targets[] | select(.id == "noctalia") | .synced == false and .state == "partial") and
   (.desktop_typography.targets[] | select(.id == "gtk3") | .synced == true) and
   (.desktop_typography.targets[] | select(.id == "gtk4") | .synced == true) and
   (.desktop_typography.targets[] | select(.id == "qt5ct") | .synced == true) and
   (.desktop_typography.targets[] | select(.id == "qt6ct") | .synced == true)
 ' "$test_root/typography-applied.json" >/dev/null
 rg -q '^family = "Test Sans"$' "$config_root/appearance.toml"
+rg -q '^style = "SemiBold Italic"$' "$config_root/appearance.toml"
+rg -q '^weight = 600$' "$config_root/appearance.toml"
+rg -q '^slant = "italic"$' "$config_root/appearance.toml"
+rg -q '^width = "normal"$' "$config_root/appearance.toml"
 rg -q '^size_pt = 14$' "$config_root/appearance.toml"
 rg -q '^font_family = "Test Sans"$' "$test_root/state/noctalia/settings.toml"
 rg -q '^ui_scale = 1.166' "$test_root/state/noctalia/settings.toml"
 rg -q '^font_scale = 1.166' "$test_root/state/noctalia/settings.toml"
-rg -q '^gtk-font-name = Test Sans 14$' "$test_root/config/gtk-3.0/settings.ini"
-rg -q '^gtk-font-name = Test Sans 14$' "$test_root/config/gtk-4.0/settings.ini"
-rg -Fq 'general = "Test Sans,14,-1,5,50,0,0,0,0,0"' "$test_root/config/qt5ct/qt5ct.conf"
-rg -Fq 'general = "Test Sans,14,-1,5,400,0,0,0,0,0,0,0,0,0,1"' "$test_root/config/qt6ct/qt6ct.conf"
+rg -q '^gtk-font-name = Test Sans SemiBold Italic 14$' "$test_root/config/gtk-3.0/settings.ini"
+rg -q '^gtk-font-name = Test Sans SemiBold Italic 14$' "$test_root/config/gtk-4.0/settings.ini"
+rg -Fq 'general = "Test Sans,14,-1,5,63,1,0,0,0,0"' "$test_root/config/qt5ct/qt5ct.conf"
+rg -Fq 'general = "Test Sans,14,-1,5,600,1,0,0,0,0,0,0,0,100,1"' "$test_root/config/qt6ct/qt6ct.conf"
 rg -q '^style=Fusion$' "$test_root/config/qt5ct/qt5ct.conf"
 
 invalid_font_request="$test_root/invalid-font.json"
@@ -366,6 +383,21 @@ if run_helper validate --request "$invalid_font_request" >"$test_root/invalid-fo
     exit 1
 fi
 jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-font-response.json" >/dev/null
+
+missing_face_request="$test_root/missing-face.json"
+jq -n \
+    --arg generation "$typography_generation" \
+    '{
+      protocol: 1,
+      expected_generation: $generation,
+      changes: [{id: "desktop.font.style", value: "Missing Face"}],
+      raw_files: {}
+    }' >"$missing_face_request"
+if run_helper validate --request "$missing_face_request" >"$test_root/missing-face-response.json"; then
+    echo "missing exact font face unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/missing-face-response.json" >/dev/null
 
 # Alias conflicts are reported and can be explicitly normalized without losing
 # unknown keys. Merely editing a legacy section never creates a duplicate.

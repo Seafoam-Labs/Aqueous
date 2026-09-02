@@ -390,6 +390,13 @@ local function currentValue(field)
 	return field.value
 end
 
+local function findField(id)
+	for _, field in ipairs(snapshot and snapshot.fields or {}) do
+		if field.id == id then return field end
+	end
+	return nil
+end
+
 local function setDraft(field, value, shouldRender)
 	local unchanged = value == field.value
 	if field.type == "color" then
@@ -481,7 +488,10 @@ local function writeRequest(mode)
 		return
 	end
 	local changes = {}
-	local appliesTypography = drafts["desktop.font.family"] ~= nil or drafts["desktop.font.size_pt"] ~= nil or rawDirty.appearance == true
+	local appliesTypography = rawDirty.appearance == true
+	for id, _value in pairs(drafts) do
+		if tostring(id):sub(1, 13) == "desktop.font." then appliesTypography = true break end
+	end
 	for id, value in pairs(drafts) do
 		table.insert(changes, { id = id, value = value })
 	end
@@ -1122,6 +1132,91 @@ local function selectControl(field, value, suppliedOptions)
 	})
 end
 
+local function setFontDraft(id, value)
+	local field = findField(id)
+	if field ~= nil then setDraft(field, value, false) end
+end
+
+local function fontFamilyControl(field, value)
+	local typography = snapshot.desktop_typography or {}
+	local families = typography.families or {}
+	if #families == 0 then return nil end
+	local selected = 0
+	for index, family in ipairs(families) do
+		if family == value then selected = index - 1 break end
+	end
+	return ui.select({
+		key = "select-" .. field.id,
+		options = families,
+		selectedIndex = selected,
+		onChange = function(index, _text)
+			local wanted = families[(tonumber(index) or 0) + 1] or value
+			setFontDraft("desktop.font.family", wanted)
+			setFontDraft("desktop.font.style", "")
+			setFontDraft("desktop.font.weight", 400)
+			setFontDraft("desktop.font.slant", "normal")
+			setFontDraft("desktop.font.width", "normal")
+			render()
+		end,
+	})
+end
+
+local function fontFaceControl(field)
+	local typography = snapshot.desktop_typography or {}
+	local familyField = findField("desktop.font.family")
+	local family = familyField and tostring(currentValue(familyField)) or tostring(typography.family or "")
+	local style = tostring(currentValue(field) or "")
+	local weightField = findField("desktop.font.weight")
+	local slantField = findField("desktop.font.slant")
+	local widthField = findField("desktop.font.width")
+	local weight = tonumber(weightField and currentValue(weightField)) or 400
+	local slant = tostring(slantField and currentValue(slantField) or "normal")
+	local width = tostring(widthField and currentValue(widthField) or "normal")
+	local options = { tr("typography.face.automatic") }
+	local optionFaces = { false }
+	local selected = style == "" and 0 or nil
+	for _, face in ipairs(typography.faces or {}) do
+		if tostring(face.family):lower() == family:lower() then
+			local label = tostring(face.style)
+			if tonumber(face.weight) ~= 400 or tostring(face.slant) ~= "normal" or tostring(face.width) ~= "normal" then
+				label = label .. " · " .. tostring(face.weight) .. " " .. tostring(face.slant)
+				if tostring(face.width) ~= "normal" then label = label .. " " .. tostring(face.width) end
+			end
+			table.insert(options, label)
+			table.insert(optionFaces, face)
+			if tostring(face.style):lower() == style:lower() and tonumber(face.weight) == weight and tostring(face.slant) == slant and tostring(face.width) == width then
+				selected = #options - 1
+			end
+		end
+	end
+	if selected == nil then
+		table.insert(options, style .. " · " .. tr("typography.face.unavailable"))
+		table.insert(optionFaces, { style = style, weight = weight, slant = slant, width = width })
+		selected = #options - 1
+	end
+	return ui.select({
+		key = "select-" .. field.id .. "-" .. family,
+		options = options,
+		selectedIndex = selected,
+		onChange = function(index, _text)
+			local wanted = (tonumber(index) or 0) + 1
+			local face = optionFaces[wanted]
+			if face == false or face == nil then
+				setFontDraft("desktop.font.style", "")
+				setFontDraft("desktop.font.weight", 400)
+				setFontDraft("desktop.font.slant", "normal")
+				setFontDraft("desktop.font.width", "normal")
+			else
+				setFontDraft("desktop.font.style", tostring(face.style))
+				setFontDraft("desktop.font.weight", tonumber(face.weight) or 400)
+				setFontDraft("desktop.font.slant", tostring(face.slant or "normal"))
+				setFontDraft("desktop.font.width", tostring(face.width or "normal"))
+			end
+			render()
+		end,
+	})
+end
+
 local function openFieldColorPicker(field)
 	if busy or colorPickerPending ~= nil then
 		return
@@ -1235,7 +1330,12 @@ end
 
 local function fieldControl(field)
 	local value = currentValue(field)
-	if field.type == "boolean" then
+	if field.id == "desktop.font.family" then
+		local control = fontFamilyControl(field, value)
+		if control ~= nil then return control end
+	elseif field.id == "desktop.font.style" then
+		return fontFaceControl(field)
+	elseif field.type == "boolean" then
 		return ui.row({ align = "center", justify = "start" }, {
 			ui.toggle({
 				key = "toggle-" .. field.id,
@@ -1251,12 +1351,6 @@ local function fieldControl(field)
 		return selectControl(field, value)
 	elseif field.type == "color" then
 		return colorControl(field, value)
-	elseif field.id == "desktop.font.family" then
-		local typography = snapshot.desktop_typography or {}
-		local families = typography.families or {}
-		if #families > 0 then
-			return selectControl(field, value, families)
-		end
 	end
 	local revision = inputRevisions[field.id] or 0
 	return ui.row({ gap = 10, align = "center" }, {
@@ -2117,13 +2211,16 @@ local function categoryView()
 	local stackingHeading = false
 	for _, field in ipairs(snapshot.fields or {}) do
 		if field.category == activeCategory then
+			local fontMetadata = field.id == "desktop.font.weight" or field.id == "desktop.font.slant" or field.id == "desktop.font.width"
 			if activeCategory == "layouts" and tostring(field.id):sub(1, 21) == "layout.options.float." and not stackingHeading then
 				table.insert(children, ui.separator({}))
 				table.insert(children, ui.label({ text = tr("stacking.title"), fontWeight = "bold" }))
 				stackingHeading = true
 			end
-			table.insert(children, fieldCard(field))
-			found = true
+			if not fontMetadata then
+				table.insert(children, fieldCard(field))
+				found = true
+			end
 		end
 	end
 	if activeCategory == "layouts" then

@@ -169,8 +169,9 @@ fn writeSnapshot(
 
     const typography = desktopTypography(files);
     const families = try toolkit_sync.installedFamilies(files.allocator, io, typography.family);
+    const faces = try toolkit_sync.installedFaces(files.allocator, io);
     const inspected = if (applied_report == null)
-        toolkit_sync.inspect(files.allocator, io, typography.family, typography.size_pt)
+        toolkit_sync.inspect(files.allocator, io, &typography)
     else
         undefined;
     const report = applied_report orelse &inspected;
@@ -178,7 +179,23 @@ fn writeSnapshot(
     try json.beginObject();
     try field(&json, "family", typography.family);
     try field(&json, "families", families);
+    try field(&json, "style", typography.style);
+    try field(&json, "weight", typography.weight);
+    try field(&json, "slant", typography.slant);
+    try field(&json, "width", typography.width);
     try field(&json, "size_pt", typography.size_pt);
+    try json.objectField("faces");
+    try json.beginArray();
+    for (faces) |face| {
+        try json.beginObject();
+        try field(&json, "family", face.family);
+        try field(&json, "style", face.style);
+        try field(&json, "weight", face.weight);
+        try field(&json, "slant", face.slant);
+        try field(&json, "width", face.width);
+        try json.endObject();
+    }
+    try json.endArray();
     try field(&json, "baseline_size_pt", toolkit_sync.baseline_size_pt);
     try field(&json, "failed_count", report.failedCount());
     try json.objectField("targets");
@@ -197,19 +214,28 @@ fn writeSnapshot(
     try json.endObject();
 }
 
-const DesktopTypography = struct {
-    family: []const u8,
-    size_pt: i64,
-};
+const DesktopTypography = toolkit_sync.FontSpec;
 
 fn desktopTypography(files: *const config.ConfigFiles) DesktopTypography {
     const document = &files.items[@intFromEnum(schema.FileId.appearance)].document;
     const family_field = schema.find("desktop.font.family").?;
+    const style_field = schema.find("desktop.font.style").?;
+    const weight_field = schema.find("desktop.font.weight").?;
+    const slant_field = schema.find("desktop.font.slant").?;
+    const width_field = schema.find("desktop.font.width").?;
     const size_field = schema.find("desktop.font.size_pt").?;
     const family = unquoteToml(document.getRaw(family_field.section, family_field.key) orelse family_field.default_raw);
+    const style = unquoteToml(document.getRaw(style_field.section, style_field.key) orelse style_field.default_raw);
+    const weight_raw = document.getRaw(weight_field.section, weight_field.key) orelse weight_field.default_raw;
+    const slant = unquoteToml(document.getRaw(slant_field.section, slant_field.key) orelse slant_field.default_raw);
+    const width = unquoteToml(document.getRaw(width_field.section, width_field.key) orelse width_field.default_raw);
     const size_raw = document.getRaw(size_field.section, size_field.key) orelse size_field.default_raw;
     return .{
         .family = family,
+        .style = style,
+        .weight = std.fmt.parseInt(i64, std.mem.trim(u8, weight_raw, " \t\r"), 10) catch 400,
+        .slant = slant,
+        .width = width,
         .size_pt = std.fmt.parseInt(i64, std.mem.trim(u8, size_raw, " \t\r"), 10) catch 12,
     };
 }
@@ -476,8 +502,9 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
     try validateWindowRules(&files.items[@intFromEnum(schema.FileId.rules)].document);
     const typography = desktopTypography(&files);
     try toolkit_sync.validateFamily(typography.family);
+    try toolkit_sync.validateStyle(typography.style);
     if (dirty[@intFromEnum(schema.FileId.appearance)]) {
-        try toolkit_sync.validateInstalledFamily(allocator, io, typography.family);
+        try toolkit_sync.validateInstalledFont(allocator, io, &typography);
     }
 
     var sync_report: ?toolkit_sync.Report = null;
@@ -493,7 +520,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
             return save_error;
         };
         if (dirty[@intFromEnum(schema.FileId.appearance)]) {
-            sync_report = toolkit_sync.apply(allocator, io, typography.family, typography.size_pt);
+            sync_report = toolkit_sync.apply(allocator, io, &typography);
         }
     }
 
@@ -1917,8 +1944,11 @@ fn errorCode(err: anyerror) []const u8 {
         error.EmptyFontFamily,
         error.FontFamilyTooLong,
         error.InvalidFontFamily,
+        error.FontStyleTooLong,
+        error.InvalidFontStyle,
         error.FontLookupFailed,
         error.FontFamilyNotInstalled,
+        error.FontFaceNotInstalled,
         => "invalid_value",
         error.UnknownField => "unknown_field",
         error.UnknownFile => "unknown_file",
