@@ -4,7 +4,7 @@
 # Usage:
 #   sudo scripts/gentoo-install.sh [all]       deps + build + install (default)
 #   sudo scripts/gentoo-install.sh deps        emerge runtime/build deps, fetch zig
-#   scripts/gentoo-install.sh build            build compositor + helper into dist/
+#   scripts/gentoo-install.sh build            build compositor + helper + portal into dist/
 #   sudo scripts/gentoo-install.sh install     install into /usr + /etc
 #   sudo scripts/gentoo-install.sh uninstall   remove everything this script installed
 #
@@ -25,6 +25,9 @@ dist="${AQUEOUS_DIST:-$root/dist}"
 destdir="${AQUEOUS_PREFIX:-}"
 zig_required=0.16.0
 zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.16.0}"
+xdpw_version=0.8.4
+xdpw_sha256=3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
+xdpw_url="https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v$xdpw_version.tar.gz"
 
 die() { echo "gentoo-install: ERROR: $*" >&2; exit 1; }
 say() { echo "gentoo-install: $*"; }
@@ -72,8 +75,11 @@ emerge_atoms=(
     sys-apps/systemd
     sys-apps/seatd
     sys-libs/libdisplay-info
-    gnome-extra/xdg-desktop-portal-wlr
-    gnome-extra/xdg-desktop-portal-gtk
+    sys-apps/xdg-desktop-portal
+    gui-libs/xdg-desktop-portal-gtk
+    media-video/pipewire
+    media-video/wireplumber
+    dev-libs/inih
     # build
     app-text/scdoc
     dev-build/meson
@@ -171,6 +177,28 @@ cmd_build() {
             --prefix "$dist/aqueous-plugin-dist" install
     )
 
+    local portal_tmp
+    portal_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-portal.XXXXXX")
+    say "building bundled Aqueous portal backend $xdpw_version..."
+    curl -L --fail --silent --show-error "$xdpw_url" \
+        -o "$portal_tmp/xdpw.tar.gz"
+    (
+        cd "$portal_tmp"
+        printf '%s  %s\n' "$xdpw_sha256" xdpw.tar.gz | sha256sum --check -
+    )
+    mkdir -p "$portal_tmp/source"
+    tar -xzf "$portal_tmp/xdpw.tar.gz" --strip-components=1 \
+        -C "$portal_tmp/source"
+    patch --fuzz=0 -d "$portal_tmp/source" -Np1 < \
+        "$root/packaging/portal/0001-rename-backend-for-aqueous.patch"
+    sh "$root/packaging/portal/build-aqueous-portal.sh" \
+        "$portal_tmp/source" \
+        "$portal_tmp/build" \
+        "$dist/aqueous-portal-dist"
+    install -Dm644 "$portal_tmp/source/LICENSE" \
+        "$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE"
+    rm -rf -- "$portal_tmp"
+
     verify_build
 }
 
@@ -198,9 +226,13 @@ verify_build() {
     fi
     [ -x "$dist/aqueous-plugin-dist/bin/aqueous-config" ] ||
         die "build output missing: aqueous-plugin-dist/bin/aqueous-config"
+    [ -x "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" ] ||
+        die "build output missing: aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
     "$root/plugin/tests/test-helper.sh" "$dist/aqueous-plugin-dist/bin/aqueous-config"
     "$root/plugin/tests/test-noctalia.sh"
     "$root/packaging/tests/test-enable-noctalia-plugin.sh"
+    "$root/packaging/tests/test-portal-packaging.sh" \
+        "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
     say "build verified"
 }
 
@@ -247,6 +279,9 @@ install_into() {
         "$D/usr/bin/aqueous-config"
     install -Dm755 "$dist/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$D/usr/lib/aqueous/libwlroots-0.20.so"
+    install -Dm755 \
+        "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+        "$D/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 
     # Man pages + protocol metadata from the zig build.
     if [ -d "$dist/aqueous-dist/share" ]; then
@@ -260,6 +295,11 @@ install_into() {
     install -Dm644 "$root/aqueous.desktop" "$D/usr/share/wayland-sessions/aqueous.desktop"
     install -Dm644 "$root/packaging/aqueous-portals.conf" \
         "$D/usr/share/xdg-desktop-portal/aqueous-portals.conf"
+    install -Dm644 "$root/packaging/portal/aqueous.portal" \
+        "$D/usr/share/xdg-desktop-portal/portals/aqueous.portal"
+    install -Dm644 \
+        "$root/packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service" \
+        "$D/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service"
     install -Dm644 "$root/wm.toml" "$D/usr/share/aqueous/wm.toml"
     install -Dm644 "$root/outputs.toml" "$D/usr/share/aqueous/outputs.toml"
 
@@ -271,6 +311,8 @@ install_into() {
     # systemd user units.
     install -Dm644 "$root/packaging/aqueous-session.target" \
         "$D/usr/lib/systemd/user/aqueous-session.target"
+    install -Dm644 "$root/packaging/portal/xdg-desktop-portal-aqueous.service" \
+        "$D/usr/lib/systemd/user/xdg-desktop-portal-aqueous.service"
     install -Dm644 "$root/packaging/noctalia.service" \
         "$D/usr/lib/systemd/user/noctalia.service"
     install -Dm755 "$root/packaging/enable-noctalia-plugin.sh" \
@@ -318,11 +360,15 @@ install_into() {
         cp -dr --no-preserve=ownership "$root/compositor/LICENSES/." \
             "$D/usr/share/licenses/aqueous/compositor/"
     fi
+    install -Dm644 \
+        "$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE" \
+        "$D/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE"
 }
 
 cmd_install() {
     [ -d "$dist/aqueous-dist" ] || die "compositor not built (run: $0 build)"
     [ -d "$dist/aqueous-plugin-dist" ] || die "settings helper not built (run: $0 build)"
+    [ -d "$dist/aqueous-portal-dist" ] || die "portal backend not built (run: $0 build)"
     if [ -z "$destdir" ] && ! is_root; then
         die "install needs root (dry run: AQUEOUS_PREFIX=/tmp/aq $0 install)"
     fi
@@ -375,6 +421,9 @@ Aqueous is installed.
         aqueousctl layout --output <name> --json
 
     Session log: $XDG_RUNTIME_DIR/aqueous-wm.log
+
+    Screen recording and sharing use the packaged Aqueous portal backend;
+    xdg-desktop-portal-wlr does not need to be installed separately.
 
     If you were logged in during the install, log out and back in.
     Without logging out:  systemctl --user daemon-reload
@@ -459,7 +508,7 @@ Usage: sudo $0 [all|deps|build|install|uninstall]
 
   all        deps + build + install (default)
   deps       emerge runtime/build deps, fetch zig if missing
-  build      build compositor + settings helper into $dist
+  build      build compositor + settings helper + portal backend into $dist
   install    install into /usr + /etc (root; AQUEOUS_PREFIX for dry run)
   uninstall  remove everything this script installed
 EOF

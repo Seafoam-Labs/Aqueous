@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.aqueous
+Exec=/usr/lib/aqueous/xdg-desktop-portal-aqueous
+SystemdService=xdg-desktop-portal-aqueous.service

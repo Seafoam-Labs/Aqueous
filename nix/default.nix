@@ -9,13 +9,19 @@
   gzip,
   glib,
   gnutar,
+  inih,
   jq,
+  libdrm,
   libevdev,
   libinput,
   libxkbcommon,
   linkFarm,
   makeWrapper,
+  mesa,
+  meson,
+  ninja,
   noctalia-shell,
+  pipewire,
   pixman,
   pkg-config,
   python3,
@@ -121,6 +127,11 @@ let
     };
   });
 
+  xdpwSource = fetchurl {
+    url = "https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz";
+    hash = "sha256-MSKWbUarEI9QVSW8skmPkSG0Ru6EOPv863Onofoa1AA=";
+  };
+
   wlrootsLibrary = "${lib.getLib aqueousWlroots}/lib/libwlroots-0.20.so";
 in
 stdenv.mkDerivation (finalAttrs: {
@@ -131,7 +142,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     binutils
+    gzip
     makeWrapper
+    meson
+    ninja
     pkg-config
     scdoc
     wayland-scanner
@@ -141,10 +155,15 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildInputs = [
     aqueousWlroots
+    inih
+    libdrm
     libevdev
     libinput
     libxkbcommon
+    mesa
     pixman
+    pipewire
+    systemd
     vulkan-loader
     wayland
     wayland-protocols
@@ -181,6 +200,11 @@ stdenv.mkDerivation (finalAttrs: {
       --replace-fail "/usr/bin/noctalia" "${lib.getExe noctalia-shell}" \
       --replace-fail "/usr/lib/aqueous/enable-noctalia-plugin" \
         "$out/libexec/aqueous/enable-noctalia-plugin"
+    substituteInPlace \
+      packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service \
+      packaging/portal/xdg-desktop-portal-aqueous.service \
+      --replace-fail "/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+        "$out/libexec/aqueous/xdg-desktop-portal-aqueous"
     substituteInPlace aqueous.desktop \
       --replace-fail "Exec=uwsm start -- aqueous-wm" \
         "Exec=${lib.getExe uwsm} start -- $out/bin/aqueous-wm" \
@@ -216,6 +240,16 @@ stdenv.mkDerivation (finalAttrs: {
       install
     popd
 
+    mkdir -p "$TMPDIR/xdpw-src"
+    ${gnutar}/bin/tar -xzf "${xdpwSource}" \
+      --strip-components=1 -C "$TMPDIR/xdpw-src"
+    patch --fuzz=0 -d "$TMPDIR/xdpw-src" -Np1 < \
+      packaging/portal/0001-rename-backend-for-aqueous.patch
+    sh packaging/portal/build-aqueous-portal.sh \
+      "$TMPDIR/xdpw-src" \
+      "$TMPDIR/aqueous-portal-build" \
+      "$TMPDIR/aqueous-portal-dist"
+
     runHook postBuild
   '';
 
@@ -234,6 +268,8 @@ stdenv.mkDerivation (finalAttrs: {
     for path in "''${required[@]}"; do
       test -e "$TMPDIR/aqueous-dist/$path"
     done
+    test -x \
+      "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 
     cmp "$TMPDIR/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
       "${wlrootsLibrary}"
@@ -246,6 +282,9 @@ stdenv.mkDerivation (finalAttrs: {
 
     plugin/tests/test-helper.sh \
       "$TMPDIR/aqueous-helper-dist/bin/aqueous-config"
+    AQUEOUS_PORTAL_EXEC="$out/libexec/aqueous/xdg-desktop-portal-aqueous" \
+      packaging/tests/test-portal-packaging.sh \
+      "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 
     runHook postCheck
   '';
@@ -257,6 +296,9 @@ stdenv.mkDerivation (finalAttrs: {
     cp -a "$TMPDIR/aqueous-dist/." "$out/"
     install -Dm755 "$TMPDIR/aqueous-helper-dist/bin/aqueous-config" \
       "$out/bin/aqueous-config"
+    install -Dm755 \
+      "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+      "$out/libexec/aqueous/xdg-desktop-portal-aqueous"
 
     install -Dm755 packaging/aqueous-init "$out/bin/aqueous-init"
     install -Dm755 packaging/aqueous-wm.sh "$out/bin/aqueous-wm"
@@ -267,6 +309,11 @@ stdenv.mkDerivation (finalAttrs: {
       "$out/share/wayland-sessions/aqueous.desktop"
     install -Dm644 packaging/aqueous-portals.conf \
       "$out/share/xdg-desktop-portal/aqueous-portals.conf"
+    install -Dm644 packaging/portal/aqueous.portal \
+      "$out/share/xdg-desktop-portal/portals/aqueous.portal"
+    install -Dm644 \
+      packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service \
+      "$out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service"
     install -Dm644 packaging/uwsm/env-aqueous \
       "$out/share/aqueous/uwsm/env-aqueous"
 
@@ -275,6 +322,8 @@ stdenv.mkDerivation (finalAttrs: {
 
     install -Dm644 packaging/aqueous-session.target \
       "$out/lib/systemd/user/aqueous-session.target"
+    install -Dm644 packaging/portal/xdg-desktop-portal-aqueous.service \
+      "$out/lib/systemd/user/xdg-desktop-portal-aqueous.service"
     install -Dm644 packaging/noctalia.service \
       "$out/lib/systemd/user/noctalia.service"
     install -Dm644 packaging/aqueous.tmpfiles \
@@ -306,6 +355,8 @@ stdenv.mkDerivation (finalAttrs: {
     install -Dm644 README.md "$out/share/doc/aqueous/README.md"
     mkdir -p "$out/share/licenses"
     cp -a compositor/LICENSES "$out/share/licenses/aqueous"
+    install -Dm644 "$TMPDIR/xdpw-src/LICENSE" \
+      "$out/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE"
 
     patchShebangs "$out/bin" "$out/libexec/aqueous"
 
@@ -332,7 +383,7 @@ stdenv.mkDerivation (finalAttrs: {
     description = "Single-process Wayland compositor with native tiling and Vulkan effects";
     homepage = "https://github.com/Seafoam-Labs/Aqueous";
     changelog = "https://github.com/Seafoam-Labs/Aqueous/releases/tag/v${finalAttrs.version}";
-    license = lib.licenses.gpl3Only;
+    license = [ lib.licenses.gpl3Only lib.licenses.mit ];
     mainProgram = "aqueous";
     maintainers = [
       {

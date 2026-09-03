@@ -1,0 +1,37 @@
+diff --git a/meson.build b/meson.build
+index f05d0f0..8ec9c32 100644
+--- a/meson.build
++++ b/meson.build
+@@ -68,7 +68,7 @@ xdpw_files = files(
+ )
+ 
+ executable(
+-	'xdg-desktop-portal-wlr',
++	'xdg-desktop-portal-aqueous',
+ 	[xdpw_files, wl_proto_files],
+ 	dependencies: [
+ 		wayland_client,
+diff --git a/src/core/config.c b/src/core/config.c
+--- a/src/core/config.c
++++ b/src/core/config.c
+@@ -111,7 +111,7 @@ static char *config_path(const char *prefix, const char *filename) {
+ 		return NULL;
+ 	}
+ 
+-	char *config_folder = "xdg-desktop-portal-wlr";
++	char *config_folder = "xdg-desktop-portal-aqueous";
+ 
+ 	size_t size = 3 + strlen(prefix) + strlen(config_folder) + strlen(filename);
+ 	char *path = calloc(size, sizeof(char));
+diff --git a/src/core/main.c b/src/core/main.c
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -21,1 +21,1 @@
+-static const char service_name[] = "org.freedesktop.impl.portal.desktop.wlr";
++static const char service_name[] = "org.freedesktop.impl.portal.desktop.aqueous";
+@@ -25,1 +25,1 @@
+-		"Usage: xdg-desktop-portal-wlr [options]\n"
++		"Usage: xdg-desktop-portal-aqueous [options]\n"
+@@ -30,1 +30,1 @@
+-		"                                     (default is $XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config)\n"
++		"                                     (default is $XDG_CONFIG_HOME/xdg-desktop-portal-aqueous/config)\n"

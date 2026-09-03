@@ -37,7 +37,7 @@ jobs:
             wayland wayland-protocols wayland-utils \
             libxkbcommon libinput \
             pixman libdrm libevdev \
-            mesa libglvnd systemd-libs seatd \
+            mesa libglvnd systemd-libs seatd pipewire libinih \
             libdecor \
             pkgconf ninja meson \
             wlroots0.20 \
@@ -105,6 +105,25 @@ jobs:
             -Dcpu=baseline -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-plugin" install
 
+      - name: Build bundled Aqueous portal backend
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --silent --show-error \
+            https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz \
+            -o /tmp/xdg-desktop-portal-wlr-0.8.4.tar.gz
+          echo '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400  /tmp/xdg-desktop-portal-wlr-0.8.4.tar.gz' | \
+            sha256sum --check -
+          tar -xzf /tmp/xdg-desktop-portal-wlr-0.8.4.tar.gz -C /tmp
+          patch --fuzz=0 -d /tmp/xdg-desktop-portal-wlr-0.8.4 -Np1 < \
+            packaging/portal/0001-rename-backend-for-aqueous.patch
+          sh packaging/portal/build-aqueous-portal.sh \
+            /tmp/xdg-desktop-portal-wlr-0.8.4 \
+            /tmp/aqueous-portal-build \
+            "$GITHUB_WORKSPACE/publish/aqueous-portal"
+          packaging/tests/test-portal-packaging.sh \
+            "$GITHUB_WORKSPACE/publish/aqueous-portal/usr/lib/aqueous/xdg-desktop-portal-aqueous"
+
       - name: Build Welcome to Aqueous
         shell: bash
         run: |
@@ -131,6 +150,9 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/etc/xdg/autostart
           mkdir -p publish/aqueous-linux-x64/etc/xdg/uwsm
           mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal
+          mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal/portals
+          mkdir -p publish/aqueous-linux-x64/share/dbus-1/services
+          mkdir -p publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr
 
           # Binaries
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
@@ -138,6 +160,8 @@ jobs:
           cp publish/aqueous-plugin/bin/aqueous-config publish/aqueous-linux-x64/bin/
           cp publish/aqueous-welcome/bin/aqueous-welcome publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
+            publish/aqueous-linux-x64/lib/aqueous/
+          cp publish/aqueous-portal/usr/lib/aqueous/xdg-desktop-portal-aqueous \
             publish/aqueous-linux-x64/lib/aqueous/
 
           # Compositor share data (man pages and protocol ABI metadata) if present
@@ -159,6 +183,14 @@ jobs:
           cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/xdg/uwsm/
           cp packaging/aqueous-portals.conf \
              publish/aqueous-linux-x64/share/xdg-desktop-portal/aqueous-portals.conf
+          cp packaging/portal/aqueous.portal \
+             publish/aqueous-linux-x64/share/xdg-desktop-portal/portals/
+          cp packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service \
+             publish/aqueous-linux-x64/share/dbus-1/services/
+          cp packaging/portal/xdg-desktop-portal-aqueous.service \
+             publish/aqueous-linux-x64/lib/systemd/user/
+          cp /tmp/xdg-desktop-portal-wlr-0.8.4/LICENSE \
+             publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr/
           cp packaging/aqueous.tmpfiles publish/aqueous-linux-x64/lib/tmpfiles.d/aqueous.conf
           cp packaging/aqueous-session.target publish/aqueous-linux-x64/lib/systemd/user/
           # Noctalia shell unit + its graphical-session.target.wants symlink, so a

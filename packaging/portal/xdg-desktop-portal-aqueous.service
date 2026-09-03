@@ -1,0 +1,11 @@
+[Unit]
+Description=Portal service (Aqueous implementation)
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.aqueous
+ExecStart=/usr/lib/aqueous/xdg-desktop-portal-aqueous
+Restart=on-failure

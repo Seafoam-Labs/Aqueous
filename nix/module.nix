@@ -52,7 +52,6 @@ in
         pkgs.uwsm
         pkgs.wl-clipboard
         pkgs.xdg-desktop-portal-gtk
-        pkgs.xdg-desktop-portal-wlr
       ]
       ++ lib.optional cfg.noctalia.enable pkgs.noctalia-shell
       ++ cfg.extraPackages;
@@ -60,6 +59,11 @@ in
     services.displayManager.sessionPackages = lib.optional (cfg.package != null) cfg.package;
     programs.uwsm.enable = true;
     programs.xwayland.enable = true;
+
+    services.pipewire = {
+      enable = true;
+      wireplumber.enable = true;
+    };
 
     services.udev.packages = lib.optional (cfg.package != null) cfg.package;
 
@@ -71,14 +75,12 @@ in
 
     xdg.portal = {
       enable = true;
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gtk
-        pkgs.xdg-desktop-portal-wlr
-      ];
+      extraPortals = lib.optional (cfg.package != null) cfg.package
+        ++ [ pkgs.xdg-desktop-portal-gtk ];
       config.aqueous = {
         default = [ "gtk" ];
-        "org.freedesktop.impl.portal.ScreenCast" = [ "wlr" ];
-        "org.freedesktop.impl.portal.Screenshot" = [ "wlr" ];
+        "org.freedesktop.impl.portal.ScreenCast" = [ "aqueous" ];
+        "org.freedesktop.impl.portal.Screenshot" = [ "aqueous" ];
       };
     };
 

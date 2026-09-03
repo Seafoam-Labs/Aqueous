@@ -3,15 +3,15 @@
 pkgname=aqueous
 pkgbase=aqueous
 pkgver=0.4.8
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
-license=('GPL3')
+license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
-         'xdg-desktop-portal-wlr' 'wl-clipboard'
+         'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
          # clean teardown). The aqueous.desktop session entry execs `uwsm start`.
@@ -28,18 +28,24 @@ optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'nemo: recommended file manager'
             'firefox: web browser'
             'qt5ct: synchronize the Aqueous desktop font with Qt 5 applications'
-            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications'
-            'wireplumber: volume/media key bindings (wpctl)')
+            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
 conflicts=('aqueous-git' 'aqueous-bin')
 install=aqueous.install
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
+    "xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz"
 )
 sha256sums=(
     'SKIP'
     '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
+    '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
 )
+
+prepare() {
+    patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
+        -i "$srcdir/aqueous/packaging/portal/0001-rename-backend-for-aqueous.patch"
+}
 
 build() {
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
@@ -85,6 +91,12 @@ build() {
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local-v2" \
     zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
         --prefix "$srcdir/aqueous-plugin-dist" install
+
+    msg2 "Building bundled xdg-desktop-portal-aqueous 0.8.4..."
+    sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
+        "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
+        "$srcdir/aqueous-portal-build" \
+        "$srcdir/aqueous-portal-dist"
 }
 
 check() {
@@ -104,6 +116,10 @@ check() {
             return 1
         fi
     done
+    if [[ ! -x "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" ]]; then
+        error "build output is missing required portal backend"
+        return 1
+    fi
     cmp "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$srcdir/aqueous/compositor/.deps/wlroots-render-hook/lib/libwlroots-0.20.so"
     readelf -d "$srcdir/aqueous-dist/bin/aqueous" |
@@ -122,6 +138,8 @@ check() {
         "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
     "$srcdir/aqueous/plugin/tests/test-noctalia.sh"
     "$srcdir/aqueous/packaging/tests/test-enable-noctalia-plugin.sh"
+    "$srcdir/aqueous/packaging/tests/test-portal-packaging.sh" \
+        "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 }
 
 package() {
@@ -132,6 +150,8 @@ package() {
         "$pkgdir/usr/bin/aqueous-config"
     install -Dm755 "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$pkgdir/usr/lib/aqueous/libwlroots-0.20.so"
+    install -Dm755 "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+        "$pkgdir/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 
     # Install compositor share data (man pages and protocol ABI metadata).
     if [ -d "$srcdir/aqueous-dist/share" ]; then
@@ -153,12 +173,20 @@ package() {
         "$pkgdir/etc/xdg/uwsm/env-aqueous"
 
     # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
-    # wlroots backend (xdg-desktop-portal-wlr) so screen sharing works out of
-    # the box and is not silently won by a competing backend (cosmic/gtk).
+    # bundled Aqueous backend so screen sharing works out of the box and is
+    # not silently won by a competing backend (cosmic/gtk).
     # Installed system-wide; the 'aqueous' filename stem is applied because the
     # session sets XDG_CURRENT_DESKTOP=Aqueous (see packaging/aqueous-init).
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-portals.conf" \
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
+    install -Dm644 "$srcdir/aqueous/packaging/portal/aqueous.portal" \
+        "$pkgdir/usr/share/xdg-desktop-portal/portals/aqueous.portal"
+    install -Dm644 "$srcdir/aqueous/packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service" \
+        "$pkgdir/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service"
+    install -Dm644 "$srcdir/aqueous/packaging/portal/xdg-desktop-portal-aqueous.service" \
+        "$pkgdir/usr/lib/systemd/user/xdg-desktop-portal-aqueous.service"
+    install -Dm644 "$srcdir/xdg-desktop-portal-wlr-0.8.4/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/xdg-desktop-portal-wlr/LICENSE"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
     install -Dm644 "$srcdir/aqueous/outputs.toml" "$pkgdir/etc/xdg/aqueous/outputs.toml"

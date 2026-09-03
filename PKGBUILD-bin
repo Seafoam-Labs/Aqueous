@@ -3,15 +3,15 @@
 pkgname=aqueous-bin
 pkgbase=aqueous
 pkgver=0.4.8
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
-license=('GPL3')
+license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'noctalia' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
-         'xdg-desktop-portal-wlr' 'wl-clipboard'
+         'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
          # uwsm manages the session lifecycle; the aqueous.desktop session
          # entry execs `uwsm start`.
@@ -24,8 +24,7 @@ optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'nemo: recommended file manager'
             'firefox: web browser'
             'qt5ct: synchronize the Aqueous desktop font with Qt 5 applications'
-            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications'
-            'wireplumber: volume/media key bindings (wpctl)')
+            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
 provides=('aqueous')
 conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
@@ -45,6 +44,7 @@ check() {
         bin/aqueousctl
         bin/aqueous-config
         lib/aqueous/libwlroots-0.20.so
+        lib/aqueous/xdg-desktop-portal-aqueous
         lib/aqueous/enable-noctalia-plugin
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
         share/aqueous/noctalia-plugins/catalog.toml
@@ -57,9 +57,13 @@ check() {
         bin/aqueous-wm
         share/wayland-sessions/aqueous.desktop
         share/xdg-desktop-portal/aqueous-portals.conf
+        share/xdg-desktop-portal/portals/aqueous.portal
+        share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service
         etc/xdg/aqueous/wm.toml
         etc/xdg/uwsm/env-aqueous
         lib/systemd/user/aqueous-session.target
+        lib/systemd/user/xdg-desktop-portal-aqueous.service
+        share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE
         lib/systemd/user/noctalia.service
         lib/tmpfiles.d/aqueous.conf
         lib/udev/rules.d/70-aqueous-uaccess.rules
@@ -71,6 +75,13 @@ check() {
             return 1
         fi
     done
+    strings "$srcdir/lib/aqueous/xdg-desktop-portal-aqueous" |
+        grep -F 'org.freedesktop.impl.portal.desktop.aqueous' >/dev/null
+    if strings "$srcdir/lib/aqueous/xdg-desktop-portal-aqueous" |
+        grep -E 'org\.freedesktop\.impl\.portal\.desktop\.wlr|XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config' >/dev/null; then
+        error "release portal backend still contains the wlr backend identity"
+        return 1
+    fi
     readelf -d "$srcdir/bin/aqueous" |
         grep -F '$ORIGIN/../lib/aqueous' >/dev/null
     if readelf -d "$srcdir/bin/aqueous" |

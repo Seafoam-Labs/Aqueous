@@ -20,6 +20,9 @@ print_session_information() {
     Session log:
         $XDG_RUNTIME_DIR/aqueous-wm.log
 
+    Screen recording and sharing use the packaged Aqueous portal backend;
+    xdg-desktop-portal-wlr does not need to be installed separately.
+
     The optional noctalia-greeter is the recommended display-manager frontend.
     SDDM and other Wayland-capable display managers also work.
 EOF
@@ -61,8 +64,9 @@ post_upgrade() {
     cat <<'EOF'
 
     Restart the Aqueous session to load the new compositor, bundled wlroots,
-    environment, and user units. Existing files in ~/.config/aqueous are not
-    overwritten by the session launcher. Review any pacnew files created for
+    Aqueous portal backend, environment, and user units. Existing files in
+    ~/.config/aqueous are not overwritten by the session launcher. Review any
+    pacnew files created for
     system-wide configuration before merging them.
 
     If upgrading while logged in, refresh the user-unit cache first:
