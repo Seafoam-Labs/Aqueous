@@ -1762,15 +1762,23 @@ pub fn renderFinish(window: *Window) void {
     // animation clone and keeps the live surfaces invisible at the target so
     // scene hit-testing / input stay correct.
     window.applySurfaceVisualState();
+    // Snap the settled animation target, not the requested layout position:
+    // outgoing workspace windows keep their requested position but use an
+    // off-screen box target until the transition is finalized.
+    const grid = scaling.PhysicalGrid.init(requested.output_scale);
+    const output_origin_x: f64 = @floatFromInt(requested.output_origin_x);
+    const output_origin_y: f64 = @floatFromInt(requested.output_origin_y);
+    const live_x = grid.snapFromOrigin(@floatFromInt(window.box.x), output_origin_x);
+    const live_y = grid.snapFromOrigin(@floatFromInt(window.box.y), output_origin_y);
     wlr_scene_node_set_position_f64(
         &window.tree.node,
-        requested.precise_x,
-        requested.precise_y,
+        live_x,
+        live_y,
     );
     wlr_scene_node_set_position_f64(
         &window.popup_tree.node,
-        requested.precise_x,
-        requested.precise_y,
+        live_x,
+        live_y,
     );
 
     switch (window.impl) {
