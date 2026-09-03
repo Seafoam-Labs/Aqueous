@@ -919,6 +919,14 @@ pub fn moveToParentWorkspace(_: CompositorApi, handle: layout.Handle) void {
     window.setWorkspace(workspace);
 }
 
+/// Ask a native XDG toplevel to choose its own initial size. The subsequent
+/// committed buffer becomes the preferred size in the next policy snapshot.
+pub fn requestNaturalSize(_: CompositorApi, handle: layout.Handle) bool {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return false;
+    return window.policyRequestNaturalSize();
+}
+
 pub fn windowGeometry(_: CompositorApi, handle: layout.Handle) ?layout.Rect {
     const ref: Window.Ref = @bitCast(handle);
     const window = ref.get() orelse return null;

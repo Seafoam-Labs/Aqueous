@@ -404,6 +404,15 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 continue;
             }
             if (state.kind() == .floating) {
+                // Keep a newly parented XDG transient out of ordinary floating
+                // placement while its initial 0x0 configure asks the client for
+                // a natural size. Otherwise the generic floating fallback would
+                // become the client's apparent natural size.
+                if (transient.waitingForNaturalSize(state, window.parent) and
+                    (window.preferred_width <= 0 or window.preferred_height <= 0))
+                {
+                    continue;
+                }
                 var floating_rect = state.floating_geometry;
                 if (floating_rect.width <= 0 or floating_rect.height <= 0) floating_rect = aqueous.initialFloatingGeometry(
                     output.windows,
@@ -912,18 +921,41 @@ fn reconcileTransientParents(aqueous: *Aqueous, snapshot: *const CompositorApi.P
 
 fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usable_area: layout_types.Rect) bool {
     const state = aqueous.window_states.get(window.handle) orelse return false;
-    if (!transient.parentChanged(state, window.parent)) return false;
+    if (!transient.placementPending(state, window.parent)) return false;
     const parent = window.parent.?;
 
     const before = aqueous.api.windowWorkspace(window.handle);
     aqueous.api.moveToParentWorkspace(window.handle);
     const parent_geometry = aqueous.api.windowGeometry(parent) orelse usable_area;
-    var resolved = transient.geometry(usable_area, parent_geometry, window.min_width, window.min_height);
-    const size = geometry.constrainSize(resolved.width, resolved.height, geometry.Constraints.fromWindow(window), .{});
-    resolved.width = size.width;
-    resolved.height = size.height;
-    resolved = geometry.keepReachable(resolved, usable_area, @min(resolved.width, usable_area.width), @min(resolved.height, usable_area.height));
-    _ = aqueous.window_states.setAutomaticFloating(window.handle, resolved);
+    const resolved = transient.geometry(
+        usable_area,
+        parent_geometry,
+        window.preferred_width,
+        window.preferred_height,
+        geometry.Constraints.fromWindow(window),
+    ) orelse {
+        if (!transient.waitingForNaturalSize(state, window.parent)) {
+            if (aqueous.window_states.setAutomaticFloating(window.handle, .empty) and
+                aqueous.api.requestNaturalSize(window.handle))
+            {
+                transient.deferForNaturalSize(state, parent);
+            } else {
+                // Preserve edge-triggered behavior when an overlay or explicit
+                // floating state has precedence over this heuristic.
+                transient.finishPlacement(state, parent);
+            }
+        }
+        const after = aqueous.api.windowWorkspace(window.handle);
+        return !sameWorkspace(before, after);
+    };
+    if (transient.waitingForNaturalSize(state, window.parent)) {
+        state.floating_geometry = resolved;
+    } else {
+        _ = aqueous.window_states.setAutomaticFloating(window.handle, resolved);
+    }
+    // The edge is complete even when a higher-priority overlay rejected the
+    // automatic floating transition; do not reassert it every manage cycle.
+    transient.finishPlacement(state, parent);
     const after = aqueous.api.windowWorkspace(window.handle);
     return !sameWorkspace(before, after);
 }

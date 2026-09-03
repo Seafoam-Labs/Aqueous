@@ -60,6 +60,9 @@ scrolling_full_width: bool = false,
 /// applied. Keeping this edge-triggered lets a user tile the dialog manually
 /// without the next manage cycle immediately forcing it floating again.
 auto_float_parent: types.Handle = 0,
+/// Parent whose native transient is waiting for its first client-selected
+/// buffer size after an unspecified-size XDG configure.
+pending_natural_parent: types.Handle = 0,
 
 /// Semantic identity of the rule last reconciled for this window. A zero hash
 /// represents no match. `rule_initialized` distinguishes that from a window
@@ -112,6 +115,22 @@ pub fn isFloating(state: *const PolicyState) bool {
 
 pub fn isVisible(state: *const PolicyState) bool {
     return state.visibility == .visible;
+}
+
+/// Cancel an unfinished initial natural-size handshake. If that handshake was
+/// the only reason the window became floating, restore its tiled presentation
+/// so a later remap or parent removal can be admitted normally.
+pub fn cancelPendingNaturalSize(state: *PolicyState) void {
+    if (state.pending_natural_parent == 0) return;
+    state.pending_natural_parent = 0;
+    if (state.auto_float_parent == 0 and
+        state.presentation == .floating and
+        state.floating_geometry.width <= 0 and
+        state.floating_geometry.height <= 0 and
+        !state.rule_floating_owned)
+    {
+        state.presentation = .tiled;
+    }
 }
 
 pub fn isMaximized(state: *const PolicyState) bool {
@@ -199,6 +218,24 @@ test "scrolling full width toggles independently of window kind" {
     try std.testing.expectEqual(Kind.tiled, state.kind());
     try std.testing.expect(!state.toggleScrollingFullWidth());
     try std.testing.expectEqual(Kind.tiled, state.kind());
+}
+
+test "cancelling a pending natural size rolls back only its automatic float" {
+    var state: PolicyState = .{
+        .presentation = .floating,
+        .pending_natural_parent = 12,
+    };
+    state.cancelPendingNaturalSize();
+    try std.testing.expectEqual(Presentation.tiled, state.presentation);
+    try std.testing.expectEqual(@as(types.Handle, 0), state.pending_natural_parent);
+
+    state = .{
+        .presentation = .floating,
+        .pending_natural_parent = 12,
+        .rule_floating_owned = true,
+    };
+    state.cancelPendingNaturalSize();
+    try std.testing.expectEqual(Presentation.floating, state.presentation);
 }
 
 test "presentation visibility geometry and stack layer compose" {

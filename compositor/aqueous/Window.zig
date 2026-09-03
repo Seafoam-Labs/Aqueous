@@ -560,9 +560,21 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         .min_aspect_den = @intCast(window.wm_scheduled.dimensions_hint.min_aspect_den),
         .max_aspect_num = @intCast(window.wm_scheduled.dimensions_hint.max_aspect_num),
         .max_aspect_den = @intCast(window.wm_scheduled.dimensions_hint.max_aspect_den),
-        .preferred_width = window.box.width,
-        .preferred_height = window.box.height,
+        // rendering_scheduled tracks the newest client-committed dimensions,
+        // including the first natural-size buffer before renderFinish has
+        // copied it into box.
+        .preferred_width = @intCast(window.rendering_scheduled.width),
+        .preferred_height = @intCast(window.rendering_scheduled.height),
     };
+}
+
+/// Send an unspecified-size initial configure so a native XDG client can
+/// choose its natural dimensions. XWayland windows already have a mapped
+/// client-selected size before integrated policy admits them.
+pub fn policyRequestNaturalSize(window: *Window) bool {
+    if (window.state != .ready or window.impl != .toplevel) return false;
+    window.wm_requested.dimensions = .{ .width = 0, .height = 0 };
+    return true;
 }
 
 pub fn policyApplyPlacement(
@@ -1139,6 +1151,7 @@ pub fn makeInert(window: *Window) void {
 pub fn finishUnmap(window: *Window) void {
     assert(window.state == .closing);
 
+    window.policy_state.cancelPendingNaturalSize();
     window.state = .init;
     window.wm_sent = .{};
     window.wm_requested = .init;
@@ -2809,6 +2822,11 @@ pub fn map(window: *Window) !void {
     assert(window.impl != .destroying);
     assert(window.state == .initialized);
     window.state = .mapped;
+
+    // Complete a deferred natural-size transient placement using the buffer
+    // which caused this map. The commit listener updates rendering_scheduled
+    // before the coalesced manage cycle reads its policy snapshot.
+    if (window.policy_state.pending_natural_parent != 0) server.wm.dirtyWindowing();
 
     // The first buffer was just committed. Apply compositor-owned opacity and
     // corner metadata before its first rendered frame.

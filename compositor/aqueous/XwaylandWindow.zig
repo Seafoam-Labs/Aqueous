@@ -542,7 +542,10 @@ fn handleSetClass(listener: *wl.Listener(void)) void {
 
 fn handleSetParent(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("set_parent", listener);
-    if (xwindow.xsurface.parent == null) xwindow.window.policy_state.auto_float_parent = 0;
+    if (xwindow.xsurface.parent == null) {
+        xwindow.window.policy_state.cancelPendingNaturalSize();
+        xwindow.window.policy_state.auto_float_parent = 0;
+    }
     server.wm.dirtyWindowing();
 }
 
