@@ -87,6 +87,7 @@ scripts/test-policy-parity.sh
 scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
+scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
@@ -116,7 +117,9 @@ client-originated move, edge-aware resize, maximize, and minimize requests for
 persistent floats and workspace-floating windows, while ordinary windows in
 non-floating layouts ignore those requests. It also maps overlapping floats and
 verifies that focusing either exposed edge raises that window for subsequent
-overlap hit testing. The policy and floating harnesses require
+overlap hit testing. The Qt transient harness requires Qt 6 Widgets development
+files and verifies that a portal-style dialog reaches its natural size without
+pointer input. The policy and floating harnesses require
 `wlrctl`; the policy harness also requires Ghostty and maps real windows instead
 of testing an idle compositor. The floating-output harness verifies pointer-led
 workspace transfer across rotated mixed-scale outputs and recovery when the

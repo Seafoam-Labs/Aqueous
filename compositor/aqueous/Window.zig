@@ -977,10 +977,17 @@ pub fn setDimensions(window: *Window, width: u31, height: u31) void {
     window.rendering_scheduled.width = width;
     window.rendering_scheduled.height = height;
 
-    if (window.rendering_scheduled.resend_dimensions or
+    const rendering_changed = window.rendering_scheduled.resend_dimensions or
         window.rendering_scheduled.width != window.rendering_sent.width or
-        window.rendering_scheduled.height != window.rendering_sent.height)
-    {
+        window.rendering_scheduled.height != window.rendering_sent.height;
+
+    // A transient waiting for its toolkit-selected natural size was omitted
+    // from the previous layout. Once a real size arrives it needs policy to
+    // place it; invalidating rendering alone leaves the placeholder geometry
+    // in place until unrelated input (commonly pointer motion) starts a cycle.
+    if (window.policy_state.pending_natural_parent != 0 and width > 0 and height > 0) {
+        server.wm.dirtyWindowing();
+    } else if (rendering_changed) {
         server.wm.dirtyRendering();
     }
 }

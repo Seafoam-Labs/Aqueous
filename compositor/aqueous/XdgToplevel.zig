@@ -394,9 +394,16 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         return;
     }
 
-    if (window.state != .mapped) {
-        return;
-    }
+    // wlroots emits map from the same surface commit, but the relative order
+    // of map and commit listeners is not an xdg-shell guarantee applications
+    // should have to depend on. In particular, Qt transient dialogs can expose
+    // the commit while our Window is still initialized. Record that commit and
+    // finish any acked configure transaction before the map listener runs.
+    const mapped = switch (window.state) {
+        .initialized => false,
+        .mapped => true,
+        .init, .ready, .closing => return,
+    };
 
     switch (toplevel.configure_state) {
         .idle, .committed, .timed_out => {
@@ -413,8 +420,8 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
                 );
 
                 window.setDimensions(@intCast(toplevel.geometry.width), @intCast(toplevel.geometry.height));
-            } else if (old_geometry.x != toplevel.geometry.x or
-                old_geometry.y != toplevel.geometry.y)
+            } else if (mapped and (old_geometry.x != toplevel.geometry.x or
+                old_geometry.y != toplevel.geometry.y))
             {
                 // We need to update the surface clip box to reflect the geometry change.
                 window.renderFinish();
@@ -424,12 +431,17 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         // frame done event so that it commits another buffer. These
         // buffers won't be rendered since we are still rendering our
         // stashed buffer from when the transaction started.
-        .inflight => window.sendFrameDone(),
+        .inflight => if (mapped) window.sendFrameDone(),
         .acked, .timed_out_acked => {
             toplevel.geometry = toplevel.wlr_toplevel.base.geometry;
 
-            window.rendering_scheduled.width = @intCast(toplevel.geometry.width);
-            window.rendering_scheduled.height = @intCast(toplevel.geometry.height);
+            // Besides updating render state, setDimensions schedules a policy
+            // cycle when this is the natural-size response for a transient.
+            // A repaint alone cannot complete its deferred placement.
+            window.setDimensions(
+                @intCast(toplevel.geometry.width),
+                @intCast(toplevel.geometry.height),
+            );
 
             switch (toplevel.configure_state) {
                 .acked => {
@@ -447,7 +459,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
 
     // A surface commit may create or replace scene buffers. Restore the
     // compositor-owned opacity and corner metadata after wlroots updates them.
-    window.applySurfaceVisualState();
+    if (mapped) window.applySurfaceVisualState();
 }
 
 fn handleRequestShowWindowMenu(

@@ -254,6 +254,7 @@ scripts/test-policy-parity.sh
 scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
+scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
@@ -265,9 +266,11 @@ xdg floating harness covers client-side move, edge-aware resize, maximize,
 unmaximize, and minimize requests for persistent floats and workspace-floating
 windows, and verifies that identical requests do not affect ordinary windows in
 non-floating layouts. It also verifies persistent focus raising and hit testing
-with overlapping floats. The floating-output harness covers active-workspace
-transfer across mixed scale/transform output geometry and source-output removal
-during a drag. The integration harness maps real Ghostty windows and injects
+with overlapping floats. The Qt transient harness verifies that a portal-style
+Qt dialog reaches its natural size without pointer input. The floating-output
+harness covers active-workspace transfer across mixed scale/transform output
+geometry and source-output removal during a drag. The integration harness maps
+real Ghostty windows and injects
 virtual keyboard and pointer input to exercise layouts, rules, focus, fullscreen,
 keybindings, and repeated workspace changes. The scaling harness checks
 client-side `wl_output` events, the embedded output service, and the headless

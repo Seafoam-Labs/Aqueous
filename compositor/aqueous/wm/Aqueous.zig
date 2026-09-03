@@ -411,6 +411,20 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (transient.waitingForNaturalSize(state, window.parent) and
                     (window.preferred_width <= 0 or window.preferred_height <= 0))
                 {
+                    // Keep the window in the compositor's requested list even
+                    // though it has no visible placement yet. manageFinish()
+                    // only configures windows in this list, so omitting it
+                    // would also omit the 0x0 natural-size configure and leave
+                    // Qt dialogs waiting indefinitely.
+                    requested.appendAssumeCapacity(.{
+                        .handle = window.handle,
+                        .geometry = .empty,
+                        .z_order = stacking.floating_band,
+                        .stack_order = 0,
+                        .visible = false,
+                        .border = .none,
+                        .tiled = false,
+                    });
                     continue;
                 }
                 var floating_rect = state.floating_geometry;
