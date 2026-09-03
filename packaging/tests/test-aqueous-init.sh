@@ -35,3 +35,27 @@ run_init
 test "$(cat "$ghostty_config")" = 'window-decoration = client'
 
 echo "Aqueous first-launch config seeding tests passed"
+
+# System session defaults must not pin every login to Adwaita. Cursor values
+# belong to the user environment and should remain either absent or unchanged.
+(
+    unset XCURSOR_THEME XCURSOR_SIZE
+    # shellcheck source=../uwsm/env-aqueous
+    source "$repo_root/packaging/uwsm/env-aqueous"
+    test -z "${XCURSOR_THEME+x}"
+    test -z "${XCURSOR_SIZE+x}"
+)
+(
+    export XCURSOR_THEME=Bibata-Modern-Ice
+    export XCURSOR_SIZE=32
+    # shellcheck source=../uwsm/env-aqueous
+    source "$repo_root/packaging/uwsm/env-aqueous"
+    test "$XCURSOR_THEME" = Bibata-Modern-Ice
+    test "$XCURSOR_SIZE" = 32
+)
+
+! grep -Eq 'XCURSOR_(THEME|SIZE)=.*Adwaita|XCURSOR_(THEME|SIZE).*:-' \
+    "$repo_root/packaging/aqueous-wm.sh" \
+    "$repo_root/packaging/uwsm/env-aqueous"
+
+echo "Aqueous cursor environment tests passed"

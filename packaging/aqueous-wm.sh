@@ -26,10 +26,10 @@ export _JAVA_AWT_WM_NONREPARENTING=1
 # exports the correct DISPLAY to its session init command after startup.
 unset DISPLAY
 
-# XWayland reads cursor settings only at server startup — set them here so
-# X11 apps get a sane cursor on first map.
-export XCURSOR_THEME="${XCURSOR_THEME:-Adwaita}"
-export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+# Do not manufacture XCURSOR_THEME/XCURSOR_SIZE here. The compositor and
+# XWayland inherit user-provided values, while leaving them unset lets
+# libXcursor follow the user's normal default-theme lookup instead of pinning
+# every new session to an Aqueous-owned Adwaita default.
 
 export AQUEOUS_MOD="${AQUEOUS_MOD:-Super}"
 

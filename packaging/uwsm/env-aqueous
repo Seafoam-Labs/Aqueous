@@ -33,8 +33,9 @@ export MOZ_ENABLE_WAYLAND=1
 # non-reparenting WM, including Aqueous's native XWayland integration.
 export _JAVA_AWT_WM_NONREPARENTING=1
 
-# XWayland reads cursor settings only at server startup.
-export XCURSOR_THEME="${XCURSOR_THEME:-Adwaita}"
-export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+# Cursor variables are deliberately not defaulted here. A user can set them in
+# ~/.config/uwsm/env (or env-aqueous); otherwise libXcursor follows the normal
+# default-theme lookup. Setting a system value here would republish Adwaita at
+# every login and overwrite cursor choices made by desktop settings tools.
 
 export AQUEOUS_NESTED=0
