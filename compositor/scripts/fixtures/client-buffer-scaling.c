@@ -312,7 +312,12 @@ int main(int argc, char **argv) {
 	xdg_surface_add_listener(popup_xdg, &popup_surface_listener, &state);
 	struct xdg_positioner *positioner = xdg_wm_base_create_positioner(state.wm_base);
 	xdg_positioner_set_size(positioner, 64, 40);
-	xdg_positioner_set_anchor_rect(positioner, 0, 0, 32, 24);
+	/*
+	 * Qt may anchor a bottom-edge menu just beyond the parent's/output's
+	 * logical bounds. A compositor must still send the popup's initial
+	 * configure when no output overlaps that anchor rectangle.
+	 */
+	xdg_positioner_set_anchor_rect(positioner, 0, 100000, 32, 24);
 	struct xdg_popup *popup = xdg_surface_get_popup(popup_xdg, root_xdg,
 		positioner);
 	xdg_popup_add_listener(popup, &popup_listener, &state);

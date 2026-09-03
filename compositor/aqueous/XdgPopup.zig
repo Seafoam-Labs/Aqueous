@@ -171,14 +171,38 @@ fn handleReposition(listener: *wl.Listener(void)) void {
     var anchor = wlr_popup.scheduled.rules.anchor_rect;
     anchor.x += parent_lx;
     anchor.y += parent_ly;
-    const wlr_output = server.om.maxOverlapOutput(&anchor) orelse return;
 
-    var constraint: wlr.Box = undefined;
-    server.om.output_layout.getBox(wlr_output, &constraint);
-    constraint.x -= parent_lx;
-    constraint.y -= parent_ly;
+    // Qt can place the anchor rectangle for a bottom-edge menu just outside
+    // the parent's output. This happens with OBS's Add Source menu on some
+    // output geometries. Do not withhold the mandatory initial configure just
+    // because the anchor itself has no output overlap. Prefer the owning
+    // window's output in that case, then the output nearest the parent origin.
+    const constraint_output = server.om.maxOverlapOutput(&anchor) orelse blk: {
+        if (xdg_popup.owner) |owner_ref| {
+            if (owner_ref.get()) |owner| {
+                if (owner.workspace) |workspace| {
+                    if (workspace.output.wlr_output) |wlr_output| {
+                        var output_box: wlr.Box = undefined;
+                        server.om.output_layout.getBox(wlr_output, &output_box);
+                        if (!output_box.empty()) break :blk wlr_output;
+                    }
+                }
+            }
+        }
+        break :blk server.om.outputAt(
+            @floatFromInt(parent_lx),
+            @floatFromInt(parent_ly),
+        );
+    };
 
-    wlr_popup.scheduled.rules.unconstrainBox(&constraint, &wlr_popup.scheduled.geometry);
+    if (constraint_output) |wlr_output| {
+        var constraint: wlr.Box = undefined;
+        server.om.output_layout.getBox(wlr_output, &constraint);
+        constraint.x -= parent_lx;
+        constraint.y -= parent_ly;
+
+        wlr_popup.scheduled.rules.unconstrainBox(&constraint, &wlr_popup.scheduled.geometry);
+    }
     _ = wlr_popup.base.scheduleConfigure();
 }
 
