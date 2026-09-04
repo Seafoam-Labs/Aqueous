@@ -84,10 +84,10 @@ trap cleanup EXIT
 
 cursor_env=()
 if [ "$cursor_pixel_test" -eq 1 ]; then
-    # Cursor.setTheme(null, ...) asks wlroots for the theme named "default";
-    # XCURSOR_THEME is a client-side convention and is not consulted by that
-    # API. Put the deterministic theme at the exact lookup name.
-    CURSOR_THEME_DIR="$TEST_ROOT/icons/default/cursors"
+    # Use a non-default name so this test proves Aqueous consumes
+    # XCURSOR_THEME rather than accidentally finding the fallback theme.
+    CURSOR_THEME_NAME=aqueous-scale-test
+    CURSOR_THEME_DIR="$TEST_ROOT/icons/$CURSOR_THEME_NAME/cursors"
     CURSOR_THEME_GENERATOR="$TEST_ROOT/xcursor-scale-theme"
     mkdir -p "$CURSOR_THEME_DIR"
     cc -std=c11 -Wall -Wextra -Werror -O2 \
@@ -96,7 +96,7 @@ if [ "$cursor_pixel_test" -eq 1 ]; then
     "$CURSOR_THEME_GENERATOR" "$CURSOR_THEME_DIR/default"
     cursor_env=(
         XCURSOR_PATH="$TEST_ROOT/icons"
-        XCURSOR_THEME=default
+        XCURSOR_THEME="$CURSOR_THEME_NAME"
         XCURSOR_SIZE=24
     )
 fi

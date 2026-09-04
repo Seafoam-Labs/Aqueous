@@ -14,10 +14,11 @@
     active workspace layout on a named output. Version 4 reports the window's
     committed wp_content_type_v1 state and content-type rule matchers. Version
     5 adds a read-only DRM overlay-plane diagnostic snapshot. Version 6 adds
-    xdg-decoration negotiation state to window snapshots.
+    xdg-decoration negotiation state to window snapshots. Version 7 adds
+    query and live control of the compositor-owned cursor theme.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="6">
+  <interface name="aqueous_window_info_manager_v1" version="7">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -32,6 +33,14 @@
       <entry name="output_not_found" value="1"/>
       <entry name="invalid_layout" value="2"/>
       <entry name="unavailable" value="3"/>
+    </enum>
+
+    <enum name="cursor_status">
+      <entry name="success" value="0"/>
+      <entry name="invalid_theme" value="1"/>
+      <entry name="invalid_size" value="2"/>
+      <entry name="load_failed" value="3"/>
+      <entry name="environment_failed" value="4"/>
     </enum>
 
     <request name="get_window_info">
@@ -83,6 +92,31 @@
       <description summary="snapshot per-output DRM overlay-plane state"/>
       <arg name="id" type="new_id" interface="aqueous_overlay_plane_snapshot_v1"/>
     </request>
+
+    <request name="get_cursor_theme" since="7">
+      <description summary="query the compositor-owned cursor theme"/>
+    </request>
+
+    <request name="set_cursor_theme" since="7">
+      <description summary="change the compositor-owned cursor theme">
+        Apply the theme immediately to every seat and make the selected values
+        available to applications subsequently launched by Aqueous. Clients
+        are responsible for updating systemd and D-Bus activation environments
+        when they need launch paths outside Aqueous to inherit the values.
+      </description>
+      <arg name="name" type="string" summary="Xcursor theme name"/>
+      <arg name="size" type="uint" summary="base cursor size in pixels"/>
+    </request>
+
+    <event name="cursor_theme" since="7">
+      <description summary="result of a cursor query or change">
+        Name and size always report the effective compositor configuration,
+        including after a rejected change.
+      </description>
+      <arg name="status" type="uint" enum="cursor_status"/>
+      <arg name="name" type="string"/>
+      <arg name="size" type="uint"/>
+    </event>
   </interface>
 
   <interface name="aqueous_window_info_v1" version="3">

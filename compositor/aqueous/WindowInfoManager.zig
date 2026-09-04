@@ -16,6 +16,7 @@ const server = &@import("main.zig").server;
 const SceneNodeData = @import("SceneNodeData.zig");
 const Window = @import("Window.zig");
 const Aqueous = @import("wm/Aqueous.zig");
+const InputManager = @import("InputManager.zig");
 const util = @import("util.zig");
 
 const log = std.log.scoped(.wm);
@@ -28,7 +29,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            6,
+            7,
             *WindowInfoManager,
             manager,
             bind,
@@ -74,8 +75,24 @@ fn handleManagerRequest(
                 );
             }
         },
+        .get_cursor_theme => sendCursorTheme(resource, .success),
+        .set_cursor_theme => |args| {
+            const status = server.input_manager.setCursorConfig(std.mem.span(args.name), args.size);
+            sendCursorTheme(resource, status);
+        },
         .destroy => {},
     }
+}
+
+fn sendCursorTheme(manager: *aqueous.WindowInfoManagerV1, status: InputManager.CursorConfigStatus) void {
+    const config = &server.input_manager.cursor_config;
+    manager.sendCursorTheme(switch (status) {
+        .success => .success,
+        .invalid_theme => .invalid_theme,
+        .invalid_size => .invalid_size,
+        .load_failed => .load_failed,
+        .environment_failed => .environment_failed,
+    }, config.themeZ().ptr, config.size);
 }
 
 fn splitU64(value: u64) struct { u32, u32 } {

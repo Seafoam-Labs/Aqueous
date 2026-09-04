@@ -5,7 +5,7 @@ AQUEOUSCTL(1)
 
 # NAME
 
-aqueousctl - inspect Aqueous state and control workspace layouts
+aqueousctl - inspect and control Aqueous compositor state
 
 # SYNOPSIS
 
@@ -21,13 +21,17 @@ aqueousctl - inspect Aqueous state and control workspace layouts
 
 *aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
 
+*aqueousctl cursor*
+
+*aqueousctl cursor set --theme* _NAME_ *--size* _SIZE_
+
 # DESCRIPTION
 
 *aqueousctl* is a Wayland client for Aqueous's window information protocol. It
 enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
 stable identifiers to request compositor-owned state. Output information is
-read from the event stream of zwlr_output_manager_v1. Its only mutating
-operation is an output-scoped active-workspace layout change.
+read from the event stream of zwlr_output_manager_v1. Its mutating operations
+change an output-scoped active-workspace layout or the live compositor cursor.
 
 # COMMANDS
 
@@ -83,13 +87,29 @@ operation is an output-scoped active-workspace layout change.
 	*composable*, then print the resulting state. This creates a runtime override
 	and does not edit configuration files.
 
+*cursor*
+	Print the effective compositor cursor theme and base size.
+
+*cursor set --theme NAME --size SIZE*
+	Immediately apply an Xcursor theme and base size from 1 through 512 to every
+	seat. The compositor and XWayland default cursors update without a restart,
+	and applications subsequently launched by Aqueous inherit matching
+	*XCURSOR_THEME* and *XCURSOR_SIZE* values. Native Wayland clients may provide
+	their own cursor surfaces and are not forcibly restyled.
+
+	Environment files are read when a session starts and cannot mutate an
+	existing compositor. Desktop settings tools making a live change should
+	invoke this command and separately update the systemd user and D-Bus
+	activation environments for other application launch paths.
+
 # SECURITY
 
 The Aqueous protocol is hidden from clients running through a Wayland security
 context, along with the foreign-toplevel protocols it extends. The output
 management global used by *outputs* is also hidden because the protocol contains
 configuration requests, although aqueousctl only reads its event stream. Layout
-mutation is limited to the active workspace of an explicitly named output.
+mutation is limited to the active workspace of an explicitly named output;
+cursor mutation accepts only validated theme names and sizes.
 
 # SEE ALSO
 

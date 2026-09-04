@@ -17,6 +17,7 @@ const server = &@import("main.zig").server;
 const util = @import("util.zig");
 const scene_surface_projection = @import("scene_surface_projection.zig");
 const cursor_lock_restore = @import("cursor_lock_restore.zig");
+const cursor_config = @import("cursor_config.zig");
 
 const DragIcon = @import("DragIcon.zig");
 const InputDevice = @import("InputDevice.zig");
@@ -61,8 +62,6 @@ const Mode = union(enum) {
         delta_y: f64 = 0,
     },
 };
-
-const default_size = 24;
 
 const Image = union(enum) {
     /// No cursor image
@@ -171,7 +170,7 @@ pub fn init(cursor: *Cursor, seat: *Seat) !void {
     // This is here so that cursor.xcursor_manager doesn't need to be an
     // optional pointer. This isn't optimal as it does a needless allocation,
     // but this is not a hot path.
-    const xcursor_manager = try wlr.XcursorManager.create(null, default_size);
+    const xcursor_manager = try wlr.XcursorManager.create(null, cursor_config.default_size);
     errdefer xcursor_manager.destroy();
 
     cursor.* = .{
@@ -179,7 +178,21 @@ pub fn init(cursor: *Cursor, seat: *Seat) !void {
         .wlr_cursor = wlr_cursor,
         .xcursor_manager = xcursor_manager,
     };
-    try cursor.setTheme(null, null);
+    const configured = &server.input_manager.cursor_config;
+    cursor.setTheme(configured.themeZ().ptr, configured.size) catch |err| {
+        const fallback = cursor_config.Config.defaults();
+        if (std.mem.eql(u8, configured.theme(), fallback.theme()) and configured.size == fallback.size) {
+            return err;
+        }
+        log.warn("failed to load configured cursor theme '{s}' at size {d}; falling back to {s} at {d}", .{
+            configured.theme(),
+            configured.size,
+            fallback.theme(),
+            fallback.size,
+        });
+        try cursor.setTheme(fallback.themeZ().ptr, fallback.size);
+        server.input_manager.cursor_config = fallback;
+    };
 
     seat.wlr_seat.events.request_set_cursor.add(&cursor.request_set_cursor);
 
@@ -249,19 +262,24 @@ pub fn deinit(cursor: *Cursor) void {
 /// this is the default seat. Either argument may be null, in which case a
 /// default will be used.
 pub fn setTheme(cursor: *Cursor, theme: ?[*:0]const u8, _size: ?u32) !void {
-    const size = _size orelse default_size;
+    const size = _size orelse cursor_config.default_size;
 
     const xcursor_manager = try wlr.XcursorManager.create(theme, size);
     errdefer xcursor_manager.destroy();
+
+    // Validate the base-scale default cursor before replacing the working
+    // manager. This keeps a missing or malformed live-selected theme from
+    // making the cursor disappear.
+    try xcursor_manager.load(1);
+    const default_xcursor = xcursor_manager.getXcursor("default", 1) orelse
+        return error.InvalidTheme;
 
     // If this cursor belongs to the default seat, update the Xwayland cursor to match the theme.
     // This cursor is communicated to Xwayland clients through the XCB_CW_CURSOR window attribute.
     if (cursor.seat == server.input_manager.defaultSeat()) {
         if (build_options.xwayland) {
             if (server.xwayland) |xwayland| {
-                try xcursor_manager.load(1);
-                const wlr_xcursor = xcursor_manager.getXcursor("default", 1).?;
-                const image = wlr_xcursor.images[0];
+                const image = default_xcursor.images[0];
                 xwayland.setCursor(
                     image.getBuffer(),
                     @intCast(image.hotspot_x),

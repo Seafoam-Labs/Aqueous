@@ -34,8 +34,10 @@ export MOZ_ENABLE_WAYLAND=1
 export _JAVA_AWT_WM_NONREPARENTING=1
 
 # Cursor variables are deliberately not defaulted here. A user can set them in
-# ~/.config/uwsm/env (or env-aqueous); otherwise libXcursor follows the normal
-# default-theme lookup. Setting a system value here would republish Adwaita at
-# every login and overwrite cursor choices made by desktop settings tools.
+# ~/.config/uwsm/env (or env-aqueous); Aqueous reads them when it starts and
+# otherwise uses the normal "default" cursor-theme lookup at 24px. Setting a
+# system value here would republish Adwaita at every login and overwrite cursor
+# choices made by desktop settings tools. Runtime changes use `aqueousctl cursor
+# set`; environment files cannot mutate an already-running process.
 
 export AQUEOUS_NESTED=0

@@ -20,11 +20,22 @@ const Keyboard = @import("Keyboard.zig");
 const PointerConstraint = @import("PointerConstraint.zig");
 const Seat = @import("Seat.zig");
 const TextInput = @import("TextInput.zig");
+const CursorConfig = @import("cursor_config.zig");
 const XwaylandKeyboardGrab = @import("XwaylandKeyboardGrab.zig");
 
 const default_seat_name = "default";
 
 const log = std.log.scoped(.input);
+
+extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+pub const CursorConfigStatus = enum {
+    success,
+    invalid_theme,
+    invalid_size,
+    load_failed,
+    environment_failed,
+};
 
 global: *wl.Global,
 objects: wl.list.Head(river.InputManagerV1, null),
@@ -45,6 +56,8 @@ xwayland_keyboard_grabs: XwaylandKeyboardGrab.Manager,
 devices: wl.list.Head(InputDevice, .link),
 seats: wl.list.Head(Seat, .link),
 
+cursor_config: CursorConfig.Config,
+
 new_virtual_pointer: wl.Listener(*wlr.VirtualPointerManagerV1.event.NewPointer) = .init(handleNewVirtualPointer),
 new_virtual_keyboard: wl.Listener(*wlr.VirtualKeyboardV1) = .init(handleNewVirtualKeyboard),
 new_constraint: wl.Listener(*wlr.PointerConstraintV1) = .init(handleNewConstraint),
@@ -52,6 +65,13 @@ new_input_method: wl.Listener(*wlr.InputMethodV2) = .init(handleNewInputMethod),
 new_text_input: wl.Listener(*wlr.TextInputV3) = .init(handleNewTextInput),
 
 pub fn init(input_manager: *InputManager) !void {
+    const cursor_resolution = CursorConfig.fromProcessEnvironment();
+    if (cursor_resolution.invalid_theme) {
+        log.warn("invalid XCURSOR_THEME; using '{s}'", .{CursorConfig.default_theme});
+    }
+    if (cursor_resolution.invalid_size) {
+        log.warn("invalid XCURSOR_SIZE; using {d}", .{CursorConfig.default_size});
+    }
     input_manager.* = .{
         .global = try wl.Global.create(server.wl_server, river.InputManagerV1, 2, *InputManager, input_manager, bind),
         // These are automatically freed when the display is destroyed
@@ -69,12 +89,18 @@ pub fn init(input_manager: *InputManager) !void {
         .objects = undefined,
         .devices = undefined,
         .seats = undefined,
+        .cursor_config = cursor_resolution.config,
     };
     input_manager.objects.init();
     input_manager.devices.init();
     input_manager.seats.init();
 
     try Seat.create(default_seat_name);
+
+    log.info("cursor theme={s} size={d}", .{
+        input_manager.cursor_config.theme(),
+        input_manager.cursor_config.size,
+    });
 
     if (build_options.xwayland) {
         try input_manager.xwayland_keyboard_grabs.init();
@@ -92,6 +118,42 @@ pub fn init(input_manager: *InputManager) !void {
     input_manager.pointer_constraints.events.new_constraint.add(&input_manager.new_constraint);
     input_manager.input_method_manager.events.new_input_method.add(&input_manager.new_input_method);
     input_manager.text_input_manager.events.new_text_input.add(&input_manager.new_text_input);
+}
+
+/// Apply a validated cursor theme to all seats and publish the new values to
+/// children launched by the compositor. Updating another process's environment
+/// is impossible, so callers must use this explicit live-control path.
+pub fn setCursorConfig(input_manager: *InputManager, theme: []const u8, size: u32) CursorConfigStatus {
+    const replacement = CursorConfig.Config.init(theme, size) catch |err| return switch (err) {
+        error.InvalidTheme => .invalid_theme,
+        error.InvalidSize => .invalid_size,
+    };
+
+    var seats = input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        seat.cursor.setTheme(replacement.themeZ().ptr, replacement.size) catch |err| {
+            log.warn("unable to load cursor theme '{s}' at size {d}: {s}", .{
+                replacement.theme(),
+                replacement.size,
+                @errorName(err),
+            });
+            return .load_failed;
+        };
+    }
+
+    input_manager.cursor_config = replacement;
+
+    var size_buffer: [16]u8 = undefined;
+    const size_z = std.fmt.bufPrintZ(&size_buffer, "{d}", .{replacement.size}) catch unreachable;
+    if (setenv("XCURSOR_THEME", replacement.themeZ().ptr, 1) != 0 or
+        setenv("XCURSOR_SIZE", size_z.ptr, 1) != 0)
+    {
+        log.err("cursor changed, but its environment could not be updated", .{});
+        return .environment_failed;
+    }
+
+    log.info("cursor theme changed to {s} at size {d}", .{ replacement.theme(), replacement.size });
+    return .success;
 }
 
 pub fn deinit(input_manager: *InputManager) void {
@@ -171,6 +233,10 @@ fn handleRequest(
                     error.OutOfMemory => {
                         im_v1.getClient().postNoMemory();
                         log.err("out of memory", .{});
+                        return;
+                    },
+                    error.InvalidTheme => {
+                        log.err("unable to create seat because the fallback cursor theme is invalid", .{});
                         return;
                     },
                 };

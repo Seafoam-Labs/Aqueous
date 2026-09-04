@@ -52,7 +52,7 @@ transaction coordinator will configure and render.
 | `Server.zig` | Owns wlroots globals and all major managers; creates XDG and XWayland windows and exposes screencopy and foreign-toplevel protocols. |
 | `WindowManager.zig` | Coalesces dirty events and runs the manage/configure/render transaction state machine. |
 | `Window.zig` | Owns a native or XWayland window, its lifecycle, workspace, requested configuration, rendering state, and embedded policy metadata. |
-| `WindowInfoManager.zig` | Extends standard foreign-toplevel handles with one-shot, read-only backend, workspace, geometry, state, and matched-rule snapshots. |
+| `WindowInfoManager.zig` | Extends standard foreign-toplevel handles with diagnostics plus narrowly scoped layout and cursor control. |
 | `Aqueous.zig` | Implements rules, layouts, focus, workspace actions, window state actions, bindings, startup commands, and reload behavior. |
 | `CompositorApi.zig` | Builds policy snapshots and translates policy decisions back into compositor operations. |
 | `Output.zig` / `Workspace.zig` | Own output geometry, nine per-output workspaces, active workspace state, and workspace transitions. |
@@ -94,6 +94,26 @@ profile overrides a variable. This is the appropriate place for toolkit- or
 version-specific decoration switches; it does not rewrite an installed desktop
 entry or application preferences.
 
+## Cursor themes
+
+Aqueous reads `XCURSOR_THEME` and `XCURSOR_SIZE` when the compositor starts.
+The fallback is the theme named `default` at 24px. Empty variables use the
+fallback; malformed sizes, sizes outside 1–512, and overlong theme names are
+rejected with a warning. The resolved theme is passed explicitly to wlroots.
+
+Environment updates cannot change an existing process. Use
+`aqueousctl cursor set --theme NAME --size SIZE` for a live update. The command
+replaces the compositor-owned cursor on every seat, refreshes its image without
+requiring pointer motion, updates the XWayland default cursor, and changes the
+environment inherited by applications launched afterward by Aqueous. Query the
+effective state with `aqueousctl cursor`.
+
+Desktop settings tools should also update the systemd user and D-Bus activation
+environments so applications launched through those paths inherit the same
+values. Native Wayland applications remain free to supply their own cursor
+surfaces; an existing client may retain its cursor until it reloads its toolkit
+settings or restarts.
+
 ## Window inspection protocols
 
 Mapped windows are published through both `ext_foreign_toplevel_list_v1` and
@@ -112,6 +132,10 @@ Enumeration and stable identifiers stay in the standard ext protocol.
 `aqueousctl` combines the two protocols for table, JSON, and ready-to-paste rule
 output. All three foreign-window globals are hidden from Wayland security
 contexts.
+
+Manager version 7 adds effective cursor-theme queries and live cursor control.
+Every response includes a status plus the effective theme and size, including
+after a rejected update.
 
 `aqueousctl outputs` binds the event side of `zwlr_output_manager_v1` and waits
 for its `done` boundary to obtain an atomic snapshot. It reports the complete

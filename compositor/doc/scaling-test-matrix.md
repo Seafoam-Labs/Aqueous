@@ -73,6 +73,7 @@ Xcursor check above:
 | `bash scripts/test-wayland-cursor-scaling.sh` | Native client cursor surface. A generated client consumes `preferred_scale`, renders a ceil-sized buffer through `wp_viewporter`, and verifies the exact 12–72px physical footprint over 0.5–3x. |
 | `bash scripts/test-xwayland-cursor-scaling.sh` | X11 application cursor in both `legacy` and `native` XWayland scaling modes. A solid 24px Xcursor must render at 24/30/36/48/60/72px from 1–3x. Requires an Aqueous build with `-Dxwayland`. |
 | `bash scripts/test-mixed-scale-cursor-crossing.sh` | One persistent cursor crosses 1.25x → 2.5x → 1.25x outputs. It verifies 30px → 60px → 30px and synchronizes against compositor-reported pointer coordinates before each capture. |
+| `bash scripts/test-cursor-theme.sh` | Starts with a non-default `XCURSOR_THEME` at 30px, changes the live stationary cursor to another theme at 48px through `aqueousctl`, and verifies subsequent compositor children inherit both updated variables. |
 | `bash scripts/test-hardware-cursor-scaling.sh` | Real DRM cursor plane. The opt-in test queries the output service's read-only `cursor_state`, verifies hardware-plane ownership and exact buffer dimensions, and restores the original output scale. Set `AQUEOUS_HARDWARE_CURSOR_OUTPUT` to the output currently under the pointer. |
 
 The mixed-scale test inspects the cursor-including capture directly. A prior

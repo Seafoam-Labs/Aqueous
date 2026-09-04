@@ -21,14 +21,30 @@ const usage =
     \\       aqueousctl outputs [--json]
     \\       aqueousctl overlay-planes [--json]
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
+    \\       aqueousctl cursor
+    \\       aqueousctl cursor set --theme NAME --size SIZE
     \\
-    \\Inspect compositor state or change the active workspace layout on one output.
+    \\Inspect compositor state or change layout and cursor settings.
     \\
 ;
 
 const Geometry = struct { x: i32 = 0, y: i32 = 0, width: i32 = 0, height: i32 = 0 };
 
-const Mode = enum { windows, json, rules, scene, scene_dot, outputs, outputs_json, overlay_planes, overlay_planes_json, layout_query, layout_set };
+const Mode = enum {
+    windows,
+    json,
+    rules,
+    scene,
+    scene_dot,
+    outputs,
+    outputs_json,
+    overlay_planes,
+    overlay_planes_json,
+    layout_query,
+    layout_set,
+    cursor_query,
+    cursor_set,
+};
 
 const OutputMode = struct {
     handle: *zwlr.OutputModeV1,
@@ -188,6 +204,10 @@ const State = struct {
     layout_output: ?[]u8 = null,
     layout_workspace: u32 = 0,
     layout_name: ?[]u8 = null,
+    cursor_done: bool = false,
+    cursor_status: aqueous.WindowInfoManagerV1.CursorStatus = .success,
+    cursor_theme: ?[]u8 = null,
+    cursor_size: u32 = 0,
 
     fn deinit(state: *State) void {
         for (state.windows.items) |window| window.deinit();
@@ -203,6 +223,7 @@ const State = struct {
         }
         if (state.layout_output) |value| allocator.free(value);
         if (state.layout_name) |value| allocator.free(value);
+        if (state.cursor_theme) |value| allocator.free(value);
         state.registry.destroy();
     }
 
@@ -281,13 +302,50 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     const scene_mode = mode == .scene or mode == .scene_dot;
     const overlay_mode = mode == .overlay_planes or mode == .overlay_planes_json;
-    if (state.info_name == 0 or (!scene_mode and !overlay_mode and state.list_name == 0)) {
+    const cursor_mode = mode == .cursor_query or mode == .cursor_set;
+    if (state.info_name == 0 or (!scene_mode and !overlay_mode and !cursor_mode and state.list_name == 0)) {
         try stderr.writeAll("aqueousctl: compositor does not expose Aqueous window introspection\n");
         try stderr.flush();
         std.process.exit(1);
     }
 
     state.info_manager = try registry.bind(state.info_name, aqueous.WindowInfoManagerV1, state.info_version);
+    if (cursor_mode) {
+        if (state.info_version < 7) {
+            try stderr.writeAll("aqueousctl: compositor does not expose live cursor control\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        state.info_manager.?.setListener(*State, managerListener, &state);
+        if (mode == .cursor_set) {
+            const theme = cursorTheme(args) orelse unreachable;
+            const size = cursorSize(args) orelse {
+                try stderr.writeAll("aqueousctl: SIZE must be an integer from 1 through 512\n");
+                try stderr.flush();
+                std.process.exit(2);
+            };
+            const theme_z = try allocator.dupeZ(u8, theme);
+            defer allocator.free(theme_z);
+            state.info_manager.?.setCursorTheme(theme_z.ptr, size);
+        } else {
+            state.info_manager.?.getCursorTheme();
+        }
+        var cursor_rounds: usize = 0;
+        while (!state.cursor_done and cursor_rounds < 8) : (cursor_rounds += 1) tryRoundtrip(display, stderr);
+        if (!state.cursor_done) {
+            try stderr.writeAll("aqueousctl: timed out waiting for cursor state\n");
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        try stdout.print("Theme: {s}\nSize: {d}\n", .{ state.cursor_theme orelse "", state.cursor_size });
+        try stdout.flush();
+        if (state.cursor_status != .success) {
+            try stderr.print("aqueousctl: cursor update failed: {s}\n", .{@tagName(state.cursor_status)});
+            try stderr.flush();
+            std.process.exit(1);
+        }
+        return;
+    }
     if (overlay_mode) {
         if (state.info_version < 5) {
             try stderr.writeAll("aqueousctl: compositor does not expose overlay-plane diagnostics\n");
@@ -378,7 +436,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot, .outputs, .outputs_json, .overlay_planes, .overlay_planes_json, .layout_query, .layout_set => unreachable,
+        .scene, .scene_dot, .outputs, .outputs_json, .overlay_planes, .overlay_planes_json, .layout_query, .layout_set, .cursor_query, .cursor_set => unreachable,
     }
     try stdout.flush();
 }
@@ -398,7 +456,21 @@ fn parseMode(args: anytype) ?Mode {
     if (args.len == 7 and mem.eql(u8, args[1], "layout") and
         mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--set") and
         mem.eql(u8, args[6], "--json")) return .layout_set;
+    if (args.len == 2 and mem.eql(u8, args[1], "cursor")) return .cursor_query;
+    if (args.len == 7 and mem.eql(u8, args[1], "cursor") and
+        mem.eql(u8, args[2], "set") and mem.eql(u8, args[3], "--theme") and
+        mem.eql(u8, args[5], "--size")) return .cursor_set;
     return null;
+}
+
+fn cursorTheme(args: []const []const u8) ?[]const u8 {
+    return if (args.len == 7) args[4] else null;
+}
+
+fn cursorSize(args: []const []const u8) ?u32 {
+    if (args.len != 7) return null;
+    const size = std.fmt.parseInt(u32, args[6], 10) catch return null;
+    return if (size >= 1 and size <= 512) size else null;
 }
 
 fn layoutOutput(args: []const []const u8) ?[]const u8 {
@@ -456,6 +528,12 @@ fn managerListener(
             replaceString(&state.layout_output, mem.span(value.output));
             replaceString(&state.layout_name, mem.span(value.layout));
             state.layout_done = true;
+        },
+        .cursor_theme => |value| {
+            state.cursor_status = value.status;
+            replaceString(&state.cursor_theme, mem.span(value.name));
+            state.cursor_size = value.size;
+            state.cursor_done = true;
         },
     }
 }
@@ -1201,6 +1279,9 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.overlay_planes_json, parseMode(&.{ "aqueousctl", "overlay-planes", "--json" }).?);
     try testing.expectEqual(Mode.layout_query, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--json" }).?);
     try testing.expectEqual(Mode.layout_set, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--set", "grid", "--json" }).?);
+    try testing.expectEqual(Mode.cursor_query, parseMode(&.{ "aqueousctl", "cursor" }).?);
+    try testing.expectEqual(Mode.cursor_set, parseMode(&.{ "aqueousctl", "cursor", "set", "--theme", "Bibata-Modern-Ice", "--size", "32" }).?);
+    try testing.expectEqual(@as(?u32, 32), cursorSize(&.{ "aqueousctl", "cursor", "set", "--theme", "Bibata-Modern-Ice", "--size", "32" }));
 
     try testing.expect(parseMode(&.{"aqueousctl"}) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "windows", "--dot" }) == null);
@@ -1208,6 +1289,9 @@ test "command modes accept only documented argument forms" {
     try testing.expect(parseMode(&.{ "aqueousctl", "outputs", "--dot" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "inspect" }) == null);
     try testing.expect(parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1" }) == null);
+    try testing.expect(parseMode(&.{ "aqueousctl", "cursor", "set", "--theme", "default" }) == null);
+    try testing.expect(cursorSize(&.{ "aqueousctl", "cursor", "set", "--theme", "default", "--size", "0" }) == null);
+    try testing.expect(cursorSize(&.{ "aqueousctl", "cursor", "set", "--theme", "default", "--size", "513" }) == null);
 }
 
 test "outputs render advertised refresh rates and mode flags" {

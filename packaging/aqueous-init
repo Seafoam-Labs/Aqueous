@@ -67,6 +67,9 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
     # pinned in the user manager.
     # The GPU-pin vars (set by Aqueous only on multi-GPU systems) are forwarded
     # in bare KEY form so uwsm silently skips any that are unset on single-GPU.
+    # Cursor values affect subsequently activated applications. Environment
+    # export cannot restyle the running compositor; use `aqueousctl cursor set`
+    # for that live update.
     # shellcheck disable=SC2086
     uwsm finalize \
         WAYLAND_DISPLAY \

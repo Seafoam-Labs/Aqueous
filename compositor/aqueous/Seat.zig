@@ -781,6 +781,10 @@ fn handleRequest(
                     log.err("out of memory", .{});
                     return;
                 },
+                error.InvalidTheme => {
+                    log.warn("window manager requested an invalid xcursor theme", .{});
+                    return;
+                },
             };
         },
         .pointer_warp => |args| {

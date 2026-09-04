@@ -258,6 +258,7 @@ scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 scripts/test-scaling.sh
+scripts/test-cursor-theme.sh
 ```
 
 The xdg fullscreen harness covers application-originated `xdg_toplevel`
