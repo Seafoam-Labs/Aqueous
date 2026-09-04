@@ -1,0 +1,114 @@
+# Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
+# Maintainer: Caroline Snyder <hirpeng@gmail.com>
+
+# This is intentionally a dependency-only package. Keep application choices
+# here, rather than in the compositor package, so minimal Aqueous installs stay
+# possible while `aqueous-meta` provides a complete desktop in one operation.
+pkgname=aqueous-meta
+pkgver=1.0
+pkgrel=1
+pkgdesc='Complete GTK-first desktop environment built around Aqueous'
+arch=(any)
+url='https://github.com/Seafoam-Labs/Aqueous'
+license=(None)
+install=aqueous-meta.install
+
+depends=(
+    # Aqueous compositor, Noctalia shell, portals, screenshots, clipboard,
+    # XWayland, session management, and the packaged configuration UI.
+    aqueous
+
+    # Aqueous requires Vulkan at runtime. This virtual dependency lets pacman
+    # select the correct ICD for Intel, AMD, NVIDIA, or another GPU.
+    vulkan-driver
+
+    # Applications named by the shipped Aqueous defaults.
+    ghostty
+    nemo
+    nemo-fileroller
+
+    # Core desktop applications. These are GTK/libadwaita applications except
+    # Firefox, which uses its native GTK Wayland frontend.
+    firefox
+    loupe
+    papers
+    celluloid
+    gnome-text-editor
+    gnome-calculator
+    gnome-calendar
+    gnome-clocks
+    gnome-characters
+    gnome-font-viewer
+    snapshot
+    simple-scan
+
+    # Desktop utilities and graphical administration.
+    gnome-system-monitor
+    gnome-disk-utility
+    baobab
+    pavucontrol
+    seahorse
+    system-config-printer
+
+    # Audio and media-session compatibility. Aqueous already requires
+    # PipeWire audio and WirePlumber; these cover ALSA and PulseAudio clients.
+    pipewire-alsa
+    pipewire-pulse
+    playerctl
+    upower
+
+    # Network and Bluetooth services plus GTK configuration frontends.
+    networkmanager
+    network-manager-applet
+    bluez
+    bluez-utils
+    blueman
+
+    # Authentication, secrets, removable media, phones, cameras, and common
+    # network filesystems. No second polkit agent is installed: Noctalia owns
+    # the graphical authentication agent for the Aqueous session.
+    polkit
+    gnome-keyring
+    gvfs
+    gvfs-afc
+    gvfs-dnssd
+    gvfs-gphoto2
+    gvfs-mtp
+    gvfs-nfs
+    gvfs-smb
+    udiskie
+
+    # File previews and archive handling from Nemo and File Roller.
+    ffmpegthumbnailer
+    7zip
+    zip
+    unzip
+
+    # User directories, MIME launching, screen recording, and laptop controls.
+    xdg-user-dirs
+    xdg-user-dirs-gtk
+    xdg-utils
+    wf-recorder
+    brightnessctl
+
+    # Coherent GTK icon/theme coverage and broadly useful default fonts.
+    adwaita-icon-theme
+    gnome-themes-extra
+    noto-fonts
+    noto-fonts-emoji
+    ttf-liberation
+
+    # Printing. cups.socket remains administrator-controlled per Arch policy.
+    cups
+)
+
+optdepends=(
+    'noctalia-greeter: graphical login screen tailored to the Aqueous shell'
+    'greetd: minimal display manager for launching the packaged Aqueous session'
+    'greetd-tuigreet: terminal greeter frontend for greetd'
+    'power-profiles-daemon: laptop power-profile integration; omit when using TLP or tuned'
+    'ddcutil: external-monitor brightness control from Noctalia'
+    'noto-fonts-cjk: complete Chinese, Japanese, and Korean font coverage'
+    'flatpak: install sandboxed desktop applications'
+    'lib32-vulkan-driver: Vulkan support for 32-bit games and applications'
+)

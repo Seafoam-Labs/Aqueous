@@ -1,0 +1,29 @@
+desktop_setup_message() {
+    cat <<'EOF'
+
+    Aqueous's complete GTK-first desktop suite is installed.
+
+    Enable the system services you intend to use:
+        systemctl enable --now NetworkManager.service
+        systemctl enable --now bluetooth.service     # Bluetooth hardware
+        systemctl enable --now cups.socket           # Printing
+
+    Then select "Aqueous" in an installed display manager, or start it from a
+    login shell with:
+        uwsm start aqueous.desktop
+
+    No separate PolicyKit agent should be started. Noctalia supplies the agent
+    for the Aqueous session; running another agent at the same time conflicts
+    with it.
+EOF
+}
+
+post_install() {
+    desktop_setup_message
+}
+
+post_upgrade() {
+    if (( $(vercmp "$2" 1.0) < 0 )); then
+        desktop_setup_message
+    fi
+}
