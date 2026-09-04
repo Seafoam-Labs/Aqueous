@@ -1329,8 +1329,9 @@ pub fn handleClientDragStarted(aqueous: *Aqueous) void {
     aqueous.cancelHoverFocus();
 }
 
-/// Focus a window after an explicit, unmodified pointer interaction. The
-/// compositor historically forwarded this only through river_seat_v1, so the
+/// Focus and, when configured, raise a window after an explicit, unmodified
+/// pointer interaction. The compositor historically forwarded this only
+/// through river_seat_v1, so the
 /// integrated policy silently discarded click-to-focus when focus-follows-mouse
 /// was disabled. Xwayland games can then receive pointer input while keyboard
 /// events continue going to the previously focused client.
@@ -1339,7 +1340,14 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
     aqueous.cancelHoverFocus();
     const state = aqueous.window_states.get(handle) orelse return;
     if (state.kind() == .minimized) return;
-    if (aqueous.api.focusedWindow() != handle) aqueous.requestFocus(handle);
+    if (aqueous.api.focusedWindow() != handle) {
+        aqueous.requestFocus(handle);
+    } else {
+        // A focused window can still be below a newer peer when admission
+        // focus is disabled. An explicit click must remain a raise gesture
+        // even though it does not need another keyboard-focus request.
+        aqueous.requestFocusRaise(handle);
+    }
 }
 
 pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
@@ -3226,8 +3234,12 @@ fn raiseFocusedPlacement(stack: *WorkspaceStack, placements: []const layout_type
 fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (aqueous.window_states.get(handle)) |state| if (!state.focus_allowed) return;
     aqueous.cancelHoverFocus();
-    aqueous.cancelPendingRaise();
     aqueous.api.requestFocus(handle);
+    aqueous.requestFocusRaise(handle);
+}
+
+fn requestFocusRaise(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    aqueous.cancelPendingRaise();
     if (!aqueous.config.wm.input.raise_on_focus) return;
     const delay = aqueous.config.wm.input.raise_on_focus_delay_ms;
     if (delay == 0 or aqueous.raise_focus_timer == null) {

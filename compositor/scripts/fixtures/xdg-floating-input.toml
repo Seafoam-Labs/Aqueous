@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: © 2026 Seafoam Labs
+# SPDX-License-Identifier: GPL-3.0-only
+
+[input]
+focus_follows_mouse = false
+raise_on_focus = true
+raise_on_focus_delay_ms = 0

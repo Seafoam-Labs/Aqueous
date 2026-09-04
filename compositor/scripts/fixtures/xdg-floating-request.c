@@ -54,6 +54,7 @@ struct app {
     int32_t last_width;
     int32_t last_height;
     uint32_t time_msec;
+    unsigned int button_press_count;
 };
 
 static void fail(struct app *app, const char *message) {
@@ -222,6 +223,17 @@ static void pointer_button(
     (void)time;
     struct app *app = data;
     if (button != BTN_LEFT || state != WL_POINTER_BUTTON_STATE_PRESSED) return;
+    char marker[32];
+    const int written = snprintf(
+        marker,
+        sizeof(marker),
+        "button-%u",
+        ++app->button_press_count);
+    if (written < 0 || (size_t)written >= sizeof(marker) ||
+        !publish_marker(app, marker)) {
+        fail(app, "unable to publish pointer-button marker");
+        return;
+    }
     switch (app->operation) {
         case OP_MOVE:
             xdg_toplevel_move(app->toplevel, app->seat, serial);
@@ -420,18 +432,43 @@ static bool request_state(struct app *app, const char *command) {
     return roundtrip(app) && roundtrip(app);
 }
 
+static bool run_click_sequence(struct app *app) {
+    for (unsigned int index = 1; index <= 4; index++) {
+        char command[32];
+        char done[32];
+        const int command_written = snprintf(
+            command,
+            sizeof(command),
+            "click-%u",
+            index);
+        const int done_written = snprintf(
+            done,
+            sizeof(done),
+            "click-%u-done",
+            index);
+        if (command_written < 0 || (size_t)command_written >= sizeof(command) ||
+            done_written < 0 || (size_t)done_written >= sizeof(done) ||
+            !run_pointer_operation(app, command, OP_NONE, false) ||
+            !publish_marker(app, done)) {
+            return false;
+        }
+    }
+    return wait_for_marker(app, "finish");
+}
+
 int main(int argc, char **argv) {
     const char *mode = argc == 4 ? argv[3] : "sequence";
     if (argc < 3 || argc > 4 ||
         (strcmp(mode, "sequence") != 0 &&
          strcmp(mode, "idle") != 0 &&
+         strcmp(mode, "clicks") != 0 &&
          strcmp(mode, "move-only") != 0 &&
          strcmp(mode, "move-resize") != 0 &&
          strcmp(mode, "move-hold") != 0 &&
          strcmp(mode, "maximize") != 0 &&
          strcmp(mode, "maximize-move") != 0 &&
          strcmp(mode, "minimize") != 0)) {
-        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|move-only|move-resize|move-hold|maximize|maximize-move|minimize]\n", argv[0]);
+        fprintf(stderr, "usage: %s SYNC_DIR APP_ID [idle|clicks|move-only|move-resize|move-hold|maximize|maximize-move|minimize]\n", argv[0]);
         return 2;
     }
     struct app app = {
@@ -486,6 +523,8 @@ int main(int argc, char **argv) {
 
     if (strcmp(mode, "idle") == 0) {
         if (!wait_for_marker(&app, "finish")) fail(&app, "idle command failed");
+    } else if (strcmp(mode, "clicks") == 0) {
+        if (!run_click_sequence(&app)) fail(&app, "click sequence failed");
     } else if (strcmp(mode, "maximize") == 0) {
         if (!request_state(&app, "maximize") ||
             !publish_marker(&app, "maximize-done") ||

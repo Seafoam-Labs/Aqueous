@@ -12,6 +12,7 @@ AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/xdg-floating-request.c"
 ACTIVATE_SOURCE="$here/scripts/fixtures/foreign-toplevel-activate.c"
 RULES="$here/scripts/fixtures/xdg-floating-rules.toml"
+INPUT_CONFIG=${AQUEOUS_INPUT_CONFIG:-"$here/scripts/fixtures/xdg-floating-input.toml"}
 PROTOCOLS="$(pkg-config --variable=pkgdatadir wayland-protocols)"
 XDG_SHELL_PROTOCOL="$PROTOCOLS/stable/xdg-shell/xdg-shell.xml"
 VIRTUAL_POINTER_PROTOCOL="$here/protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"
@@ -25,9 +26,10 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [ -r "$FIXTURE_SOURCE" ] || die "missing xdg floating fixture"
 [ -r "$ACTIVATE_SOURCE" ] || die "missing foreign-toplevel activation fixture"
 [ -r "$RULES" ] || die "missing xdg floating rules"
+[ -r "$INPUT_CONFIG" ] || die "missing xdg floating input config"
 [ -r "$VIRTUAL_POINTER_PROTOCOL" ] || die "wlr virtual pointer protocol XML is unavailable"
 [ -r "$FOREIGN_TOPLEVEL_PROTOCOL" ] || die "wlr foreign-toplevel protocol XML is unavailable"
-for tool in cc jq pkg-config timeout wayland-scanner wlrctl; do
+for tool in cc jq pkg-config timeout wayland-scanner; do
     have "$tool" || die "$tool is required for xdg floating integration tests"
 done
 pkg-config --exists wayland-client wayland-protocols || \
@@ -80,7 +82,8 @@ cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$TEST_ROOT/wlr-foreign-toplevel-management-unstable-v1-protocol.c" \
     -o "$ACTIVATE_BIN" $(pkg-config --cflags --libs wayland-client)
 
-mkdir -p "$RUNTIME/config" "$RUNTIME/home"
+mkdir -p "$RUNTIME/config/aqueous" "$RUNTIME/home"
+cp "$INPUT_CONFIG" "$RUNTIME/config/aqueous/input.toml"
 chmod 700 "$RUNTIME"
 WLR_BACKENDS=headless \
 WLR_HEADLESS_OUTPUTS=1 \
@@ -189,16 +192,6 @@ expect_focused() {
         tail -120 "$COMPOSITOR_LOG" >&2
         die "overlap click did not stay on raised float $app_id"
     fi
-}
-
-click_at() {
-    local x=$1 y=$2
-    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
-        wlrctl pointer move -10000 -10000
-    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
-        wlrctl pointer move "$x" "$y"
-    XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
-        wlrctl pointer click left
 }
 
 geometry() {
@@ -311,10 +304,10 @@ run_case aqueous.floating-request true
 run_case aqueous.tiled-request false
 
 start_idle_fixture() {
-    local app_id=$1 sync_dir=$2 log_file=$3 pid=""
+    local app_id=$1 sync_dir=$2 log_file=$3 mode=${4:-idle} pid=""
     mkdir -p "$sync_dir"
     XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket" \
-        timeout 30 "$FIXTURE_BIN" "$sync_dir" "$app_id" idle >"$log_file" 2>&1 &
+        timeout 30 "$FIXTURE_BIN" "$sync_dir" "$app_id" "$mode" >"$log_file" 2>&1 &
     pid=$!
     STACK_PIDS+=("$pid")
     for _ in $(seq 1 200); do
@@ -328,9 +321,38 @@ start_idle_fixture() {
     die "timed out waiting for $app_id idle fixture"
 }
 
+wait_stack_marker() {
+    local pid=$1 sync_dir=$2 marker=$3 log_file=$4
+    for _ in $(seq 1 200); do
+        kill -0 "$pid" 2>/dev/null || {
+            cat "$log_file" >&2
+            die "stacking fixture exited before $marker"
+        }
+        [ -f "$sync_dir/$marker" ] && return 0
+        sleep 0.05
+    done
+    cat "$log_file" >&2
+    tail -160 "$COMPOSITOR_LOG" >&2
+    die "timed out waiting for stacking fixture marker $marker"
+}
+
+STACK_CLICK_INDEX=0
+stack_click_at() {
+    local x=$1 y=$2
+    STACK_CLICK_INDEX=$((STACK_CLICK_INDEX + 1))
+    printf '%d %d %d %d %d %d\n' \
+        "$x" "$y" "$x" "$y" 1280 720 \
+        >"$STACK_ONE_SYNC/click-$STACK_CLICK_INDEX"
+    wait_stack_marker \
+        "${STACK_PIDS[0]}" \
+        "$STACK_ONE_SYNC" \
+        "click-$STACK_CLICK_INDEX-done" \
+        "$TEST_ROOT/stack-one.log"
+}
+
 STACK_ONE_SYNC="$TEST_ROOT/stack-one-sync"
 STACK_TWO_SYNC="$TEST_ROOT/stack-two-sync"
-start_idle_fixture aqueous.stack-one "$STACK_ONE_SYNC" "$TEST_ROOT/stack-one.log"
+start_idle_fixture aqueous.stack-one "$STACK_ONE_SYNC" "$TEST_ROOT/stack-one.log" clicks
 start_idle_fixture aqueous.stack-two "$STACK_TWO_SYNC" "$TEST_ROOT/stack-two.log"
 
 stack_one=$(wait_window aqueous.stack-one)
@@ -343,15 +365,19 @@ overlap_y=$(( (one_y > two_y ? one_y : two_y) + 30 ))
 
 # Focus the lower-left-only portion of the first float. The following overlap
 # click must still hit it after the focus-triggered raise.
-click_at $((one_x + 20)) $((one_y + 20))
+stack_click_at $((one_x + 20)) $((one_y + 20))
+wait_stack_marker "${STACK_PIDS[0]}" "$STACK_ONE_SYNC" button-1 "$TEST_ROOT/stack-one.log"
 wait_focused aqueous.stack-one
-click_at "$overlap_x" "$overlap_y"
+stack_click_at "$overlap_x" "$overlap_y"
+wait_stack_marker "${STACK_PIDS[0]}" "$STACK_ONE_SYNC" button-2 "$TEST_ROOT/stack-one.log"
 expect_focused aqueous.stack-one
 
 # Repeat in the opposite direction from the second float's exposed right edge.
-click_at $((two_x + two_w - 20)) $((two_y + 20))
+stack_click_at $((two_x + two_w - 20)) $((two_y + 20))
+wait_stack_marker "${STACK_PIDS[1]}" "$STACK_TWO_SYNC" button-1 "$TEST_ROOT/stack-two.log"
 wait_focused aqueous.stack-two
-click_at "$overlap_x" "$overlap_y"
+stack_click_at "$overlap_x" "$overlap_y"
+wait_stack_marker "${STACK_PIDS[1]}" "$STACK_TWO_SYNC" button-2 "$TEST_ROOT/stack-two.log"
 expect_focused aqueous.stack-two
 
 touch "$STACK_ONE_SYNC/finish" "$STACK_TWO_SYNC/finish"
