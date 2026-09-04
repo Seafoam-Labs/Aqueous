@@ -1,6 +1,6 @@
 .{
     .name = .aqueous_config_helper,
-    .version = "0.4.0",
+    .version = "0.5.0",
     .fingerprint = 0xdae35fe3b045289e,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},

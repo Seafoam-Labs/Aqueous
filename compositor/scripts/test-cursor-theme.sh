@@ -70,6 +70,9 @@ client_env=(env XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$socket")
 query=$("${client_env[@]}" "$AQUEOUSCTL_BIN" cursor)
 grep -Fxq 'Theme: aqueous-cursor-initial' <<<"$query" || die "startup theme was not read from XCURSOR_THEME: $query"
 grep -Fxq 'Size: 30' <<<"$query" || die "startup size was not read from XCURSOR_SIZE: $query"
+query_json=$("${client_env[@]}" "$AQUEOUSCTL_BIN" cursor --json)
+jq -e '.ok == true and .status == "success" and .theme == "aqueous-cursor-initial" and .size == 30' <<<"$query_json" >/dev/null ||
+    die "cursor JSON query did not report startup state: $query_json"
 
 OUTPUT_SOCKET="$RUNTIME/aqueous/outputd.sock"
 output_request() { printf '%s\n' "$1" | nc -U -q 1 "$OUTPUT_SOCKET" 2>/dev/null | head -1; }
@@ -102,6 +105,10 @@ grep -Fxq 'Theme: aqueous-cursor-updated' <<<"$set_result" || die "live theme up
 grep -Fxq 'Size: 48' <<<"$set_result" || die "live size update was not acknowledged: $set_result"
 sleep 0.1
 [ "$(cursor_extent updated)" = 48x48 ] || die "stationary cursor did not update to 48x48"
+set_json=$("${client_env[@]}" "$AQUEOUSCTL_BIN" cursor set \
+    --theme aqueous-cursor-updated --size 48 --json)
+jq -e '.ok == true and .theme == "aqueous-cursor-updated" and .size == 48' <<<"$set_json" >/dev/null ||
+    die "cursor JSON update did not acknowledge live state: $set_json"
 
 # A reload-time child is forked after the live change, proving Aqueous updated
 # the environment inherited by its own future launch paths.

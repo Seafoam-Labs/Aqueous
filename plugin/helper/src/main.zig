@@ -1,6 +1,7 @@
 const std = @import("std");
 const config = @import("aqueous_config_document");
 const toolkit_sync = @import("aqueous_toolkit_sync");
+const cursor_sync = @import("aqueous_cursor_sync");
 const schema = @import("schema.zig");
 
 const Allocator = std.mem.Allocator;
@@ -41,7 +42,7 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
         .snapshot => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
-            try writeSnapshot(io, writer, &files, null);
+            try writeSnapshot(io, writer, &files, null, null);
         },
         .raw => {
             const wanted = option(args, "--file") orelse return error.MissingFile;
@@ -85,6 +86,7 @@ fn writeSnapshot(
     writer: *std.Io.Writer,
     files: *const config.ConfigFiles,
     applied_report: ?*const toolkit_sync.Report,
+    applied_cursor_report: ?*const cursor_sync.Report,
 ) !void {
     var generation_buffer: [16]u8 = undefined;
     const generation = generationText(files, &generation_buffer);
@@ -177,6 +179,7 @@ fn writeSnapshot(
     const report = applied_report orelse &inspected;
     try json.objectField("desktop_typography");
     try json.beginObject();
+    try field(&json, "applied", applied_report != null);
     try field(&json, "family", typography.family);
     try field(&json, "families", families);
     try field(&json, "style", typography.style);
@@ -211,13 +214,31 @@ fn writeSnapshot(
     }
     try json.endArray();
     try json.endObject();
+    try writeDesktopCursor(io, &json, files, applied_cursor_report);
     try json.endObject();
 }
 
 const DesktopTypography = toolkit_sync.FontSpec;
 
 fn desktopTypography(files: *const config.ConfigFiles) DesktopTypography {
-    const document = &files.items[@intFromEnum(schema.FileId.appearance)].document;
+    return desktopTypographyFromDocument(&files.items[@intFromEnum(schema.FileId.appearance)].document);
+}
+
+fn desktopTypographyFromSource(allocator: Allocator, source: []const u8) !DesktopTypography {
+    var document = try config.Document.init(allocator, source);
+    defer document.deinit();
+    const spec = desktopTypographyFromDocument(&document);
+    return .{
+        .family = try allocator.dupe(u8, spec.family),
+        .style = try allocator.dupe(u8, spec.style),
+        .weight = spec.weight,
+        .slant = try allocator.dupe(u8, spec.slant),
+        .width = try allocator.dupe(u8, spec.width),
+        .size_pt = spec.size_pt,
+    };
+}
+
+fn desktopTypographyFromDocument(document: *const config.Document) DesktopTypography {
     const family_field = schema.find("desktop.font.family").?;
     const style_field = schema.find("desktop.font.style").?;
     const weight_field = schema.find("desktop.font.weight").?;
@@ -238,6 +259,87 @@ fn desktopTypography(files: *const config.ConfigFiles) DesktopTypography {
         .width = width,
         .size_pt = std.fmt.parseInt(i64, std.mem.trim(u8, size_raw, " \t\r"), 10) catch 12,
     };
+}
+
+fn typographySpecsEqual(a: *const DesktopTypography, b: *const DesktopTypography) bool {
+    return std.mem.eql(u8, a.family, b.family) and std.mem.eql(u8, a.style, b.style) and
+        a.weight == b.weight and std.mem.eql(u8, a.slant, b.slant) and
+        std.mem.eql(u8, a.width, b.width) and a.size_pt == b.size_pt;
+}
+
+fn desktopCursor(files: *const config.ConfigFiles) cursor_sync.CursorSpec {
+    return desktopCursorFromDocument(&files.items[@intFromEnum(schema.FileId.appearance)].document);
+}
+
+fn desktopCursorFromSource(allocator: Allocator, source: []const u8) !cursor_sync.CursorSpec {
+    var document = try config.Document.init(allocator, source);
+    defer document.deinit();
+    const spec = desktopCursorFromDocument(&document);
+    return .{
+        .managed = spec.managed,
+        .theme = try allocator.dupe(u8, spec.theme),
+        .size = spec.size,
+    };
+}
+
+fn desktopCursorFromDocument(document: *const config.Document) cursor_sync.CursorSpec {
+    const managed_field = schema.find("desktop.cursor.managed").?;
+    const theme_field = schema.find("desktop.cursor.theme").?;
+    const size_field = schema.find("desktop.cursor.size").?;
+    const managed_raw = document.getRaw(managed_field.section, managed_field.key) orelse managed_field.default_raw;
+    const theme_raw = document.getRaw(theme_field.section, theme_field.key) orelse theme_field.default_raw;
+    const size_raw = document.getRaw(size_field.section, size_field.key) orelse size_field.default_raw;
+    return .{
+        .managed = std.mem.eql(u8, std.mem.trim(u8, managed_raw, " \t\r"), "true"),
+        .theme = unquoteToml(theme_raw),
+        .size = std.fmt.parseInt(u32, std.mem.trim(u8, size_raw, " \t\r"), 10) catch 24,
+    };
+}
+
+fn cursorSpecsEqual(a: *const cursor_sync.CursorSpec, b: *const cursor_sync.CursorSpec) bool {
+    return a.managed == b.managed and a.size == b.size and std.mem.eql(u8, a.theme, b.theme);
+}
+
+fn writeDesktopCursor(
+    io: std.Io,
+    json: *std.json.Stringify,
+    files: *const config.ConfigFiles,
+    applied_report: ?*const cursor_sync.Report,
+) !void {
+    const spec = desktopCursor(files);
+    const themes = try cursor_sync.installedThemes(files.allocator, io, spec.theme);
+    const live = cursor_sync.queryLive(files.allocator, io);
+    const inspected = if (applied_report == null) cursor_sync.inspect(files.allocator, io, &spec) else undefined;
+    const report = applied_report orelse &inspected;
+
+    try json.objectField("desktop_cursor");
+    try json.beginObject();
+    try field(json, "applied", applied_report != null);
+    try field(json, "managed", spec.managed);
+    try field(json, "theme", spec.theme);
+    try field(json, "theme_available", cursor_sync.themeExists(files.allocator, spec.theme));
+    try field(json, "size", spec.size);
+    try field(json, "effective_available", live.available);
+    try field(json, "effective_theme", live.theme);
+    try field(json, "effective_size", live.size);
+    try field(json, "failed_count", report.failedCount());
+    try json.objectField("themes");
+    try json.beginArray();
+    for (themes) |theme| try json.write(theme);
+    try json.endArray();
+    try json.objectField("targets");
+    try json.beginArray();
+    for (report.targets) |target| {
+        try json.beginObject();
+        try field(json, "id", target.id);
+        try field(json, "available", target.available);
+        try field(json, "active", target.active);
+        try field(json, "synced", target.synced);
+        try field(json, "state", target.state);
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.endObject();
 }
 
 fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: schema.FileId) !void {
@@ -338,6 +440,10 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
     const protocol = jsonInteger(request.get("protocol")) orelse return error.MissingProtocol;
     if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
     const expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
+    const cursor_sync_requested = if (request.get("sync_cursor")) |value|
+        jsonBool(value) orelse return error.InvalidCursorSyncRequest
+    else
+        false;
 
     var files = try config.ConfigFiles.init(allocator);
     defer files.deinit();
@@ -501,30 +607,49 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
     try validateConfiguredSnapZones(&files.items[@intFromEnum(schema.FileId.layout)].document);
     try validateWindowRules(&files.items[@intFromEnum(schema.FileId.rules)].document);
     const typography = desktopTypography(&files);
+    const original_typography = try desktopTypographyFromSource(allocator, originals[@intFromEnum(schema.FileId.appearance)]);
+    const typography_changed = !typographySpecsEqual(&original_typography, &typography);
+    const original_cursor = try desktopCursorFromSource(allocator, originals[@intFromEnum(schema.FileId.appearance)]);
+    const cursor = desktopCursor(&files);
+    const cursor_changed = !cursorSpecsEqual(&original_cursor, &cursor);
     try toolkit_sync.validateFamily(typography.family);
     try toolkit_sync.validateStyle(typography.style);
-    if (dirty[@intFromEnum(schema.FileId.appearance)]) {
+    try cursor_sync.validateTheme(cursor.theme);
+    if (cursor.managed and (cursor_changed or cursor_sync_requested)) try cursor_sync.validateInstalledTheme(allocator, cursor.theme);
+    if (typography_changed) {
         try toolkit_sync.validateInstalledFont(allocator, io, &typography);
     }
 
     var sync_report: ?toolkit_sync.Report = null;
+    var cursor_report: ?cursor_sync.Report = null;
 
-    if (do_apply and changed_count > 0) {
+    if (do_apply and (changed_count > 0 or cursor_sync_requested)) {
         if (changed_count > 1) {
             const backup_dir = jsonString(request.get("backup_dir")) orelse return error.BackupDirRequired;
             try backupOriginals(allocator, backup_dir, expected, &files, originals, dirty);
         }
-        for (&files.items, 0..) |*file_item, index| file_item.dirty = dirty[index];
-        files.save() catch |save_error| {
-            rollbackOriginals(allocator, &files, originals, dirty);
-            return save_error;
-        };
-        if (dirty[@intFromEnum(schema.FileId.appearance)]) {
+        if (changed_count > 0) {
+            for (&files.items, 0..) |*file_item, index| file_item.dirty = dirty[index];
+            files.save() catch |save_error| {
+                rollbackOriginals(allocator, &files, originals, dirty);
+                return save_error;
+            };
+        }
+        if (typography_changed) {
             sync_report = toolkit_sync.apply(allocator, io, &typography);
+        }
+        if (cursor_changed or cursor_sync_requested) {
+            cursor_report = cursor_sync.apply(allocator, io, &cursor);
         }
     }
 
-    try writeSnapshot(io, writer, &files, if (sync_report) |*report| report else null);
+    try writeSnapshot(
+        io,
+        writer,
+        &files,
+        if (sync_report) |*report| report else null,
+        if (cursor_report) |*report| report else null,
+    );
 }
 
 fn writeConfiguredMonitors(
@@ -1949,6 +2074,11 @@ fn errorCode(err: anyerror) []const u8 {
         error.FontLookupFailed,
         error.FontFamilyNotInstalled,
         error.FontFaceNotInstalled,
+        error.EmptyCursorTheme,
+        error.CursorThemeTooLong,
+        error.InvalidCursorTheme,
+        error.CursorThemeNotInstalled,
+        error.InvalidCursorSyncRequest,
         => "invalid_value",
         error.UnknownField => "unknown_field",
         error.UnknownFile => "unknown_file",

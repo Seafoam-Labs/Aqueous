@@ -33,8 +33,15 @@ may be added or removed directly; snap-zone commands have a ready-made preset.
 The action-command section controls the commands invoked by launcher, terminal,
 screenshot, and lock bindings.
 
-The **Appearance** page owns a desktop font family, installed face, and point
-size in `~/.config/aqueous/appearance.toml`. The face selector is filtered to
+The **Appearance** page owns cursor and desktop typography preferences in
+`~/.config/aqueous/appearance.toml`. Cursor management is opt-in. When enabled,
+the helper applies the theme and size live through `aqueousctl`, updates GTK and
+the systemd/D-Bus activation environment, and atomically writes
+`~/.config/uwsm/env-aqueous.d/90-aqueous-cursor` for the next Aqueous session.
+It never edits a user's general UWSM environment file. Existing applications
+may retain client-owned cursor surfaces until restarted.
+
+The font face selector is filtered to
 the selected Fontconfig family and stores portable style, weight, slant, and
 width metadata. Applying typography synchronizes GSettings, GTK 3 and GTK 4
 `settings.ini`, plus qt5ct/qt6ct when those adapters are installed or already

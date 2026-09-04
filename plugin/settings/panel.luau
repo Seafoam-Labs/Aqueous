@@ -1,7 +1,7 @@
 --!nonstrict
 
 local PROTOCOL = 1
-local MIN_HELPER_VERSION = "0.4.0"
+local MIN_HELPER_VERSION = "0.5.0"
 local MAX_SNAP_LAYOUTS = 8
 local MAX_SNAP_ZONES = 16
 local categories = {
@@ -31,6 +31,8 @@ local windowRuleDrafts = {}
 local newCustomKeybindSerial = 0
 local newWindowRuleSerial = 0
 local normalizeStackingDraft = false
+local cursorSyncRequested = false
+local cursorThemeFilter = ""
 local inputRevisions = {}
 local colorAlphaInputs = {}
 local colorAlphaErrors = {}
@@ -348,6 +350,7 @@ local function hasDrafts()
 		return true
 	end
 	if normalizeStackingDraft then return true end
+	if cursorSyncRequested then return true end
 	return false
 end
 
@@ -375,6 +378,7 @@ local function draftCount()
 		count += 1
 	end
 	if normalizeStackingDraft then count += 1 end
+	if cursorSyncRequested then count += 1 end
 	return count
 end
 
@@ -457,6 +461,8 @@ local function resetFromSnapshot(newSnapshot)
 	newCustomKeybindSerial = 0
 	newWindowRuleSerial = 0
 	normalizeStackingDraft = false
+	cursorSyncRequested = false
+	cursorThemeFilter = ""
 	inputRevisions = {}
 	colorAlphaInputs = {}
 	colorAlphaErrors = {}
@@ -516,8 +522,12 @@ local function writeRequest(mode)
 	end
 	local changes = {}
 	local appliesTypography = rawDirty.appearance == true
+	local appliesCursor = false
 	for id, _value in pairs(drafts) do
 		if tostring(id):sub(1, 13) == "desktop.font." then appliesTypography = true break end
+	end
+	for id, _value in pairs(drafts) do
+		if tostring(id):sub(1, 15) == "desktop.cursor." then appliesCursor = true break end
 	end
 	for id, value in pairs(drafts) do
 		table.insert(changes, { id = id, value = value })
@@ -573,6 +583,7 @@ local function writeRequest(mode)
 		create_user_override = true,
 	}
 	if normalizeStackingDraft then request.normalize_stacking = true end
+	if cursorSyncRequested then request.sync_cursor = true end
 	-- Empty Luau tables are encoded as JSON objects by Noctalia. Only include
 	-- list-valued request members when they contain an item, otherwise the
 	-- helper would receive `{}` where the protocol expects `[]`.
@@ -628,11 +639,20 @@ local function writeRequest(mode)
 			end
 		else
 			if mode == "apply" then
+				appliesTypography = response.desktop_typography and response.desktop_typography.applied == true
+				appliesCursor = response.desktop_cursor and response.desktop_cursor.applied == true
 				local failedTargets = appliesTypography and response.desktop_typography and tonumber(response.desktop_typography.failed_count) or 0
+				local failedCursorTargets = appliesCursor and response.desktop_cursor and tonumber(response.desktop_cursor.failed_count) or 0
 				resetFromSnapshot(response)
 				status = "success"
-				if failedTargets > 0 then
+				if failedCursorTargets > 0 then
+					statusMessage = tr("status.cursor_partial"):gsub("{count}", tostring(failedCursorTargets))
+				elseif failedTargets > 0 then
 					statusMessage = tr("status.typography_partial"):gsub("{count}", tostring(failedTargets))
+				elseif appliesCursor and response.desktop_cursor.managed == false then
+					statusMessage = tr("status.cursor_disabled")
+				elseif appliesCursor then
+					statusMessage = tr("status.cursor_applied")
 				else
 					statusMessage = appliesTypography and tr("status.typography_applied") or tr("status.applied")
 				end
@@ -1113,9 +1133,17 @@ local function numericControl(field, value)
 			controlSize = "sm",
 			width = 110,
 			onChange = function(text)
+				if field.id == "desktop.cursor.size" then
+					local managed = findField("desktop.cursor.managed")
+					if managed ~= nil then setDraft(managed, true, false) end
+				end
 				setDraft(field, text)
 			end,
 			onSubmit = function(text)
+				if field.id == "desktop.cursor.size" then
+					local managed = findField("desktop.cursor.managed")
+					if managed ~= nil then setDraft(managed, true, false) end
+				end
 				setDraft(field, text)
 			end,
 		}),
@@ -1134,6 +1162,10 @@ local function numericControl(field, value)
 					changed = math.floor(changed + 0.5)
 				end
 				inputRevisions[field.id] = revision + 1
+				if field.id == "desktop.cursor.size" then
+					local managed = findField("desktop.cursor.managed")
+					if managed ~= nil then setDraft(managed, true, false) end
+				end
 				setDraft(field, changed)
 			end,
 		}))
@@ -1156,6 +1188,10 @@ local function selectControl(field, value, suppliedOptions)
 		selectedIndex = selected,
 		onChange = function(index, _text)
 			local wanted = (tonumber(index) or 0) + 1
+			if field.id == "desktop.cursor.theme" then
+				local managed = findField("desktop.cursor.managed")
+				if managed ~= nil then setDraft(managed, true, false) end
+			end
 			setDraft(field, options[wanted] or value)
 		end,
 	})
@@ -1164,6 +1200,43 @@ end
 local function setFontDraft(id, value)
 	local field = findField(id)
 	if field ~= nil then setDraft(field, value, false) end
+end
+
+local function cursorThemeControl(field, value)
+	local cursor = snapshot.desktop_cursor or {}
+	local themes = cursor.themes or { value }
+	local filtered = {}
+	local wanted = normalizedSearch(cursorThemeFilter)
+	for _, theme in ipairs(themes) do
+		if wanted == "" or tostring(theme):lower():find(wanted, 1, true) ~= nil or theme == value then
+			table.insert(filtered, theme)
+		end
+	end
+	return ui.column({ gap = 8, align = "stretch" }, {
+		ui.input({
+			key = "cursor-theme-filter",
+			value = cursorThemeFilter,
+			placeholder = tr("cursor.search_theme"),
+			onChange = function(text)
+				cursorThemeFilter = tostring(text or "")
+				render()
+			end,
+		}),
+		selectControl(field, value, filtered),
+	})
+end
+
+local function setCursorManaged(field, enabled)
+	if enabled and currentValue(field) ~= true then
+		local cursor = snapshot.desktop_cursor or {}
+		local themeField = findField("desktop.cursor.theme")
+		local sizeField = findField("desktop.cursor.size")
+		if cursor.effective_available == true then
+			if themeField ~= nil then setDraft(themeField, tostring(cursor.effective_theme or "default"), false) end
+			if sizeField ~= nil then setDraft(sizeField, tonumber(cursor.effective_size) or 24, false) end
+		end
+	end
+	setDraft(field, enabled)
 end
 
 local function fontFamilyControl(field, value)
@@ -1359,7 +1432,9 @@ end
 
 local function fieldControl(field)
 	local value = currentValue(field)
-	if field.id == "desktop.font.family" then
+	if field.id == "desktop.cursor.theme" then
+		return cursorThemeControl(field, value)
+	elseif field.id == "desktop.font.family" then
 		local control = fontFamilyControl(field, value)
 		if control ~= nil then return control end
 	elseif field.id == "desktop.font.style" then
@@ -1370,7 +1445,11 @@ local function fieldControl(field)
 				key = "toggle-" .. field.id,
 				checked = value == true,
 				onChange = function(text)
-					setDraft(field, text == "true")
+					if field.id == "desktop.cursor.managed" then
+						setCursorManaged(field, text == "true")
+					else
+						setDraft(field, text == "true")
+					end
 				end,
 			}),
 		})
@@ -1664,6 +1743,27 @@ local function typographyTargets()
 				fontSize = 10,
 				color = "on_surface_variant",
 			}) or ui.spacer({ width = 0 }),
+		}))
+	end
+	return ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, rows)
+end
+
+local function cursorTargets()
+	local cursor = snapshot.desktop_cursor or {}
+	local rows = {}
+	for _, target in ipairs(cursor.targets or {}) do
+		local stateKey = "cursor.state." .. tostring(target.state or "unavailable")
+		local unmanaged = target.state == "unmanaged"
+		local stateColor = target.synced and "primary" or (target.available and not unmanaged and "tertiary" or "on_surface_variant")
+		table.insert(rows, ui.row({
+			key = "cursor-target-" .. tostring(target.id),
+			gap = 8,
+			paddingV = 5,
+			align = "center",
+		}, {
+			ui.glyph({ name = target.synced and "check" or (target.available and not unmanaged and "alert-triangle" or "minus"), color = stateColor }),
+			ui.label({ text = tr("cursor.target." .. tostring(target.id)), fontWeight = "medium", width = 160 }),
+			ui.label({ text = tr(stateKey), color = stateColor, flexGrow = 1 }),
 		}))
 	end
 	return ui.column({ gap = 2, padding = 10, radius = 10, fill = "surface_variant", align = "stretch" }, rows)
@@ -2233,6 +2333,41 @@ local function categoryView()
 		sectionTitle(activeCategory:sub(1, 1):upper() .. activeCategory:sub(2), tr("category." .. activeCategory)),
 	}
 	if activeCategory == "appearance" then
+		table.insert(children, ui.label({ text = tr("cursor.title"), fontWeight = "bold" }))
+		for _, cursorId in ipairs({ "desktop.cursor.managed", "desktop.cursor.theme", "desktop.cursor.size" }) do
+			local cursorField = findField(cursorId)
+			if cursorField ~= nil then table.insert(children, fieldCard(cursorField)) end
+		end
+		local cursor = snapshot.desktop_cursor or {}
+		local effective = cursor.effective_available and
+			(tr("cursor.effective"):gsub("{theme}", tostring(cursor.effective_theme)):gsub("{size}", tostring(cursor.effective_size))) or
+			tr("cursor.effective_unavailable")
+		table.insert(children, ui.label({ text = effective, color = "on_surface_variant", fontSize = 11 }))
+		if cursor.managed and cursor.theme_available == false then
+			table.insert(children, ui.label({ text = tr("cursor.theme_unavailable"), color = "error", fontSize = 11 }))
+		end
+		table.insert(children, cursorTargets())
+		local cursorDrifted = false
+		if cursor.managed then
+			for _, target in ipairs(cursor.targets or {}) do
+				if target.available and not target.synced then cursorDrifted = true break end
+			end
+		end
+		if cursorDrifted then
+			table.insert(children, ui.button({
+				text = tr("cursor.retry"),
+				glyph = "refresh",
+				variant = "outline",
+				enabled = not busy,
+				onClick = function()
+					cursorSyncRequested = true
+					status = "dirty"
+					render()
+				end,
+			}))
+		end
+		table.insert(children, ui.label({ text = tr("cursor.restart_hint"), color = "on_surface_variant", fontSize = 11, maxLines = 3 }))
+		table.insert(children, ui.separator({}))
 		table.insert(children, ui.label({ text = tr("typography.targets"), fontWeight = "bold" }))
 		table.insert(children, typographyTargets())
 	end
@@ -2241,12 +2376,13 @@ local function categoryView()
 	for _, field in ipairs(snapshot.fields or {}) do
 		if field.category == activeCategory then
 			local fontMetadata = field.id == "desktop.font.weight" or field.id == "desktop.font.slant" or field.id == "desktop.font.width"
+			local cursorField = tostring(field.id):sub(1, 15) == "desktop.cursor."
 			if activeCategory == "layouts" and tostring(field.id):sub(1, 21) == "layout.options.float." and not stackingHeading then
 				table.insert(children, ui.separator({}))
 				table.insert(children, ui.label({ text = tr("stacking.title"), fontWeight = "bold" }))
 				stackingHeading = true
 			end
-			if not fontMetadata then
+			if not fontMetadata and not cursorField then
 				table.insert(children, fieldCard(field))
 				found = true
 			end

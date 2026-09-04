@@ -77,6 +77,8 @@ Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
 `aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
 `aqueousctl layout --output DP-1 --json` reports an output's active workspace
 layout; add `--set grid` before `--json` to change it immediately.
+`aqueousctl cursor --json` reports the effective cursor theme and size; use
+`aqueousctl cursor set --theme NAME --size SIZE --json` for a live update.
 `aqueousctl overlay-planes [--json]` reports per-output overlay eligibility,
 rejection backoff, promotion transitions, and composed fallback counters.
 

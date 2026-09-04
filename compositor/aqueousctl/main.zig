@@ -21,8 +21,8 @@ const usage =
     \\       aqueousctl outputs [--json]
     \\       aqueousctl overlay-planes [--json]
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
-    \\       aqueousctl cursor
-    \\       aqueousctl cursor set --theme NAME --size SIZE
+    \\       aqueousctl cursor [--json]
+    \\       aqueousctl cursor set --theme NAME --size SIZE [--json]
     \\
     \\Inspect compositor state or change layout and cursor settings.
     \\
@@ -43,7 +43,9 @@ const Mode = enum {
     layout_query,
     layout_set,
     cursor_query,
+    cursor_query_json,
     cursor_set,
+    cursor_set_json,
 };
 
 const OutputMode = struct {
@@ -302,7 +304,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     const scene_mode = mode == .scene or mode == .scene_dot;
     const overlay_mode = mode == .overlay_planes or mode == .overlay_planes_json;
-    const cursor_mode = mode == .cursor_query or mode == .cursor_set;
+    const cursor_mode = mode == .cursor_query or mode == .cursor_query_json or
+        mode == .cursor_set or mode == .cursor_set_json;
     if (state.info_name == 0 or (!scene_mode and !overlay_mode and !cursor_mode and state.list_name == 0)) {
         try stderr.writeAll("aqueousctl: compositor does not expose Aqueous window introspection\n");
         try stderr.flush();
@@ -317,7 +320,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             std.process.exit(1);
         }
         state.info_manager.?.setListener(*State, managerListener, &state);
-        if (mode == .cursor_set) {
+        if (mode == .cursor_set or mode == .cursor_set_json) {
             const theme = cursorTheme(args) orelse unreachable;
             const size = cursorSize(args) orelse {
                 try stderr.writeAll("aqueousctl: SIZE must be an integer from 1 through 512\n");
@@ -337,7 +340,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
             try stderr.flush();
             std.process.exit(1);
         }
-        try stdout.print("Theme: {s}\nSize: {d}\n", .{ state.cursor_theme orelse "", state.cursor_size });
+        if (mode == .cursor_query_json or mode == .cursor_set_json) {
+            try writeCursorJson(stdout, &state);
+        } else {
+            try stdout.print("Theme: {s}\nSize: {d}\n", .{ state.cursor_theme orelse "", state.cursor_size });
+        }
         try stdout.flush();
         if (state.cursor_status != .success) {
             try stderr.print("aqueousctl: cursor update failed: {s}\n", .{@tagName(state.cursor_status)});
@@ -436,7 +443,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
         .rules => try writeRules(stdout, &state),
-        .scene, .scene_dot, .outputs, .outputs_json, .overlay_planes, .overlay_planes_json, .layout_query, .layout_set, .cursor_query, .cursor_set => unreachable,
+        .scene, .scene_dot, .outputs, .outputs_json, .overlay_planes, .overlay_planes_json, .layout_query, .layout_set, .cursor_query, .cursor_query_json, .cursor_set, .cursor_set_json => unreachable,
     }
     try stdout.flush();
 }
@@ -457,20 +464,34 @@ fn parseMode(args: anytype) ?Mode {
         mem.eql(u8, args[2], "--output") and mem.eql(u8, args[4], "--set") and
         mem.eql(u8, args[6], "--json")) return .layout_set;
     if (args.len == 2 and mem.eql(u8, args[1], "cursor")) return .cursor_query;
+    if (args.len == 3 and mem.eql(u8, args[1], "cursor") and mem.eql(u8, args[2], "--json")) return .cursor_query_json;
     if (args.len == 7 and mem.eql(u8, args[1], "cursor") and
         mem.eql(u8, args[2], "set") and mem.eql(u8, args[3], "--theme") and
         mem.eql(u8, args[5], "--size")) return .cursor_set;
+    if (args.len == 8 and mem.eql(u8, args[1], "cursor") and
+        mem.eql(u8, args[2], "set") and mem.eql(u8, args[3], "--theme") and
+        mem.eql(u8, args[5], "--size") and mem.eql(u8, args[7], "--json")) return .cursor_set_json;
     return null;
 }
 
 fn cursorTheme(args: []const []const u8) ?[]const u8 {
-    return if (args.len == 7) args[4] else null;
+    return if (args.len == 7 or args.len == 8) args[4] else null;
 }
 
 fn cursorSize(args: []const []const u8) ?u32 {
-    if (args.len != 7) return null;
+    if (args.len != 7 and args.len != 8) return null;
     const size = std.fmt.parseInt(u32, args[6], 10) catch return null;
     return if (size >= 1 and size <= 512) size else null;
+}
+
+fn writeCursorJson(writer: *Io.Writer, state: *const State) !void {
+    try writer.writeAll("{\"ok\":");
+    try writer.writeAll(if (state.cursor_status == .success) "true" else "false");
+    try writer.writeAll(",\"status\":");
+    try jsonString(writer, @tagName(state.cursor_status));
+    try writer.writeAll(",\"theme\":");
+    try jsonString(writer, state.cursor_theme orelse "");
+    try writer.print(",\"size\":{d}}}\n", .{state.cursor_size});
 }
 
 fn layoutOutput(args: []const []const u8) ?[]const u8 {
@@ -1280,7 +1301,9 @@ test "command modes accept only documented argument forms" {
     try testing.expectEqual(Mode.layout_query, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--json" }).?);
     try testing.expectEqual(Mode.layout_set, parseMode(&.{ "aqueousctl", "layout", "--output", "DP-1", "--set", "grid", "--json" }).?);
     try testing.expectEqual(Mode.cursor_query, parseMode(&.{ "aqueousctl", "cursor" }).?);
+    try testing.expectEqual(Mode.cursor_query_json, parseMode(&.{ "aqueousctl", "cursor", "--json" }).?);
     try testing.expectEqual(Mode.cursor_set, parseMode(&.{ "aqueousctl", "cursor", "set", "--theme", "Bibata-Modern-Ice", "--size", "32" }).?);
+    try testing.expectEqual(Mode.cursor_set_json, parseMode(&.{ "aqueousctl", "cursor", "set", "--theme", "Bibata Modern Ice", "--size", "32", "--json" }).?);
     try testing.expectEqual(@as(?u32, 32), cursorSize(&.{ "aqueousctl", "cursor", "set", "--theme", "Bibata-Modern-Ice", "--size", "32" }));
 
     try testing.expect(parseMode(&.{"aqueousctl"}) == null);

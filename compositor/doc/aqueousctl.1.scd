@@ -21,9 +21,9 @@ aqueousctl - inspect and control Aqueous compositor state
 
 *aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
 
-*aqueousctl cursor*
+*aqueousctl cursor* [*--json*]
 
-*aqueousctl cursor set --theme* _NAME_ *--size* _SIZE_
+*aqueousctl cursor set --theme* _NAME_ *--size* _SIZE_ [*--json*]
 
 # DESCRIPTION
 
@@ -87,15 +87,17 @@ change an output-scoped active-workspace layout or the live compositor cursor.
 	*composable*, then print the resulting state. This creates a runtime override
 	and does not edit configuration files.
 
-*cursor*
-	Print the effective compositor cursor theme and base size.
+*cursor [--json]*
+	Print the effective compositor cursor theme and base size. With *--json*,
+	print a stable object containing *ok*, *status*, *theme*, and *size*.
 
-*cursor set --theme NAME --size SIZE*
+*cursor set --theme NAME --size SIZE [--json]*
 	Immediately apply an Xcursor theme and base size from 1 through 512 to every
 	seat. The compositor and XWayland default cursors update without a restart,
 	and applications subsequently launched by Aqueous inherit matching
 	*XCURSOR_THEME* and *XCURSOR_SIZE* values. Native Wayland clients may provide
 	their own cursor surfaces and are not forcibly restyled.
+	With *--json*, print the resulting state using the same fields as the query.
 
 	Environment files are read when a session starts and cannot mutate an
 	existing compositor. Desktop settings tools making a live change should

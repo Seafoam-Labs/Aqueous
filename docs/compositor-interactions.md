@@ -106,7 +106,8 @@ Environment updates cannot change an existing process. Use
 replaces the compositor-owned cursor on every seat, refreshes its image without
 requiring pointer motion, updates the XWayland default cursor, and changes the
 environment inherited by applications launched afterward by Aqueous. Query the
-effective state with `aqueousctl cursor`.
+effective state with `aqueousctl cursor`; add `--json` to either the query or
+set form for machine-readable output.
 
 Desktop settings tools should also update the systemd user and D-Bus activation
 environments so applications launched through those paths inherit the same

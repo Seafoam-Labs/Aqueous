@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.4.0";
+pub const helper_version = "0.5.0";
 
 pub const FileId = enum(u8) {
     wm,
@@ -84,6 +84,9 @@ const click_methods = &.{ "clickfinger", "button-areas" };
 const scroll_methods = &.{ "two-finger", "edge", "no-scroll" };
 
 pub const fields = [_]Field{
+    b("desktop.cursor.managed", .appearance, "Manage cursor settings", "Synchronize this cursor theme and size across the Aqueous session.", .appearance, "desktop.cursor", "managed", false),
+    t("desktop.cursor.theme", .appearance, "Cursor theme", "Installed XCursor theme used by Aqueous and desktop applications.", .appearance, "desktop.cursor", "theme", "default"),
+    f("desktop.cursor.size", .appearance, "Cursor size", "Base cursor size in pixels before output scaling.", .appearance, "desktop.cursor", "size", .integer, "24", 1, 512),
     t("desktop.font.family", .appearance, "Desktop font", "Font family synchronized across Noctalia, GTK, qt5ct, and qt6ct.", .appearance, "desktop.font", "family", "sans-serif"),
     t("desktop.font.style", .appearance, "Desktop font face", "Installed face within the selected family. Empty uses the toolkit's automatic match.", .appearance, "desktop.font", "style", ""),
     f("desktop.font.weight", .appearance, "Desktop font weight", "Portable font weight selected with the installed face.", .appearance, "desktop.font", "weight", .integer, "400", 1, 1000),

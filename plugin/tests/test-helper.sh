@@ -29,6 +29,7 @@ run_helper() {
         XDG_STATE_HOME="$test_root/state" \
         NOCTALIA_STATE_HOME="$test_root/state" \
         GSETTINGS_BACKEND=memory \
+        XCURSOR_PATH="$test_root/icons" \
         PATH="$test_root/bin:$PATH" \
         AQUEOUS_CONFIG="$config_root/wm.toml" \
         AQUEOUS_OUTPUTS="$config_root/outputs.toml" \
@@ -43,7 +44,7 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  .helper_version == "0.4.0" and
+  .helper_version == "0.5.0" and
   (.fields | length) >= 145 and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
   (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
@@ -64,6 +65,11 @@ jq -e '
   (.monitors | length) == 2 and
   (.monitors[] | select(.name == "DP-1") | .x == 0 and .transform == "normal") and
   .desktop_typography.families == ["Alpha Sans", "monospace", "sans-serif", "serif", "Zed Sans"] and
+  .desktop_cursor.managed == false and
+  .desktop_cursor.theme == "default" and
+  .desktop_cursor.size == 24 and
+  (.desktop_cursor.themes | index("default") != null) and
+  (.desktop_cursor.targets[] | select(.id == "uwsm") | .state == "unmanaged") and
   (.desktop_typography.faces[] | select(.family == "Test Sans" and .style == "SemiBold Italic") | .weight == 600 and .slant == "italic" and .width == "normal") and
   .files.wm.path != "" and
   (.raw_files.wm | contains("fixture comment"))
@@ -398,6 +404,114 @@ if run_helper validate --request "$missing_face_request" >"$test_root/missing-fa
     exit 1
 fi
 jq -e '.ok == false and .code == "invalid_value"' "$test_root/missing-face-response.json" >/dev/null
+
+# Cursor settings remain unmanaged until explicitly enabled. Validation is
+# side-effect free; Apply updates the live compositor, activation environment,
+# GTK files, and the helper-owned UWSM drop-in.
+mkdir -p "$test_root/icons/Space Theme/cursors"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'state=${CURSOR_TEST_STATE:?}' \
+    'log=${CURSOR_TEST_LOG:?}' \
+    'if [ "$2" = set ]; then printf "%s|%s\n" "$4" "$6" >"$state"; printf "%s\n" "$*" >>"$log"; fi' \
+    'IFS="|" read -r theme size <"$state"' \
+    'printf "{\"ok\":true,\"status\":\"success\",\"theme\":\"%s\",\"size\":%s}\n" "$theme" "$size"' \
+    >"$test_root/bin/aqueousctl"
+chmod +x "$test_root/bin/aqueousctl"
+printf '%s\n' 'default|24' >"$test_root/cursor-state"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'log=${CURSOR_TEST_LOG:?}' \
+    'envfile=${CURSOR_TEST_ENV:?}' \
+    'if [ "$2" = show-environment ]; then [ ! -f "$envfile" ] || cat "$envfile"; exit 0; fi' \
+    'printf "%s\n" "$*" >>"$log"' \
+    'printf "%s\n%s\n" "$3" "$4" >"$envfile"' \
+    >"$test_root/bin/systemctl"
+chmod +x "$test_root/bin/systemctl"
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >>"${CURSOR_TEST_LOG:?}"' '[ "${CURSOR_TEST_FAIL_DBUS:-0}" != 1 ]' >"$test_root/bin/dbus-update-activation-environment"
+chmod +x "$test_root/bin/dbus-update-activation-environment"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'printf "%s\n" "$*" >>"${CURSOR_TEST_LOG:?}"' \
+    'if [ "$1" = get ]; then case "$3" in cursor-theme) printf "'"'"'Space Theme'"'"'\n" ;; cursor-size) printf "32\n" ;; *) printf "'"'"'Test Sans 14'"'"'\n" ;; esac; fi' \
+    >"$test_root/bin/gsettings"
+chmod +x "$test_root/bin/gsettings"
+export CURSOR_TEST_STATE="$test_root/cursor-state"
+export CURSOR_TEST_LOG="$test_root/cursor-commands.log"
+export CURSOR_TEST_ENV="$test_root/activation-environment"
+: >"$CURSOR_TEST_LOG"
+
+cursor_snapshot="$test_root/cursor-snapshot.json"
+run_helper snapshot --json >"$cursor_snapshot"
+jq -e '
+  .desktop_cursor.effective_theme == "default" and
+  .desktop_cursor.effective_size == 24 and
+  (.desktop_cursor.themes | index("Space Theme") != null)
+' "$cursor_snapshot" >/dev/null
+cursor_generation=$(jq -r .generation "$cursor_snapshot")
+cursor_request="$test_root/cursor-request.json"
+jq -n --arg generation "$cursor_generation" '{
+  protocol: 1,
+  expected_generation: $generation,
+  changes: [
+    {id: "desktop.cursor.managed", value: true},
+    {id: "desktop.cursor.theme", value: "Space Theme"},
+    {id: "desktop.cursor.size", value: 32}
+  ]
+}' >"$cursor_request"
+run_helper validate --request "$cursor_request" >"$test_root/cursor-validated.json"
+test ! -e "$test_root/config/uwsm/env-aqueous.d/90-aqueous-cursor"
+! rg -q 'cursor set|set-environment|^set .*cursor-theme' "$CURSOR_TEST_LOG"
+
+run_helper apply --request "$cursor_request" >"$test_root/cursor-applied.json"
+jq -e '
+  .desktop_cursor.managed == true and
+  .desktop_cursor.theme == "Space Theme" and
+  .desktop_cursor.size == 32 and
+  .desktop_cursor.failed_count == 0 and
+  ([.desktop_cursor.targets[] | select(.available == true and .synced != true)] | length) == 0
+' "$test_root/cursor-applied.json" >/dev/null
+rg -Fq "export XCURSOR_THEME='Space Theme'" "$test_root/config/uwsm/env-aqueous.d/90-aqueous-cursor"
+rg -Fq "export XCURSOR_SIZE='32'" "$test_root/config/uwsm/env-aqueous.d/90-aqueous-cursor"
+rg -Fq 'cursor set --theme Space Theme --size 32 --json' "$CURSOR_TEST_LOG"
+rg -Fq -- '--user set-environment XCURSOR_THEME=Space Theme XCURSOR_SIZE=32' "$CURSOR_TEST_LOG"
+rg -Fq -- '--systemd XCURSOR_THEME=Space Theme XCURSOR_SIZE=32' "$CURSOR_TEST_LOG"
+! rg -q '^set .*font-name' "$CURSOR_TEST_LOG"
+rg -q '^gtk-cursor-theme-name = Space Theme$' "$test_root/config/gtk-3.0/settings.ini"
+rg -q '^gtk-cursor-theme-size = 32$' "$test_root/config/gtk-4.0/settings.ini"
+run_helper snapshot --json >"$test_root/cursor-resnapshot.json"
+jq -e '([.desktop_cursor.targets[] | select(.available == true and .synced != true)] | length) == 0' "$test_root/cursor-resnapshot.json" >/dev/null
+
+cursor_generation=$(jq -r .generation "$test_root/cursor-resnapshot.json")
+jq -n --arg generation "$cursor_generation" '{protocol: 1, expected_generation: $generation, changes: [{id: "desktop.cursor.theme", value: "Missing Theme"}]}' >"$test_root/missing-cursor-request.json"
+if run_helper validate --request "$test_root/missing-cursor-request.json" >"$test_root/missing-cursor-response.json"; then
+    echo "missing cursor theme unexpectedly validated" >&2
+    exit 1
+fi
+jq -e '.ok == false and .code == "invalid_value"' "$test_root/missing-cursor-response.json" >/dev/null
+
+printf '%s\n' 'default|24' >"$test_root/cursor-state"
+run_helper snapshot --json >"$test_root/cursor-drifted.json"
+jq -e '(.desktop_cursor.targets[] | select(.id == "aqueous") | .state == "drifted")' "$test_root/cursor-drifted.json" >/dev/null
+cursor_generation=$(jq -r .generation "$test_root/cursor-drifted.json")
+jq -n --arg generation "$cursor_generation" '{protocol: 1, expected_generation: $generation, sync_cursor: true}' >"$test_root/cursor-retry-request.json"
+run_helper apply --request "$test_root/cursor-retry-request.json" >"$test_root/cursor-retried.json"
+test "$(cat "$test_root/cursor-state")" = 'Space Theme|32'
+test "$(jq -r .generation "$test_root/cursor-retried.json")" = "$cursor_generation"
+
+export CURSOR_TEST_FAIL_DBUS=1
+cursor_generation=$(jq -r .generation "$test_root/cursor-retried.json")
+jq -n --arg generation "$cursor_generation" '{protocol: 1, expected_generation: $generation, changes: [{id: "desktop.cursor.size", value: 36}]}' >"$test_root/cursor-partial-request.json"
+run_helper apply --request "$test_root/cursor-partial-request.json" >"$test_root/cursor-partial.json"
+jq -e '.desktop_cursor.size == 36 and .desktop_cursor.failed_count == 1 and (.desktop_cursor.targets[] | select(.id == "activation") | .state == "failed")' "$test_root/cursor-partial.json" >/dev/null
+rg -q '^size = 36$' "$config_root/appearance.toml"
+unset CURSOR_TEST_FAIL_DBUS
+
+cursor_generation=$(jq -r .generation "$test_root/cursor-partial.json")
+jq -n --arg generation "$cursor_generation" '{protocol: 1, expected_generation: $generation, changes: [{id: "desktop.cursor.managed", value: false}]}' >"$cursor_request"
+run_helper apply --request "$cursor_request" >"$test_root/cursor-disabled.json"
+test ! -e "$test_root/config/uwsm/env-aqueous.d/90-aqueous-cursor"
+jq -e '.desktop_cursor.managed == false and (.desktop_cursor.targets[] | select(.id == "uwsm") | .synced == true)' "$test_root/cursor-disabled.json" >/dev/null
 
 # Alias conflicts are reported and can be explicitly normalized without losing
 # unknown keys. Merely editing a legacy section never creates a duplicate.
