@@ -23,6 +23,7 @@ const EffectMetadata = if (build_options.vulkan_effects) @import("render/EffectM
 const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
 const LockManager = @import("LockManager.zig");
+const LegacyServerDecoration = @import("LegacyServerDecoration.zig");
 const Output = @import("Output.zig");
 const OutputManager = @import("OutputManager.zig");
 const Overview = @import("Overview.zig");
@@ -107,6 +108,7 @@ cursor_shape_manager: *wlr.CursorShapeManagerV1,
 
 xdg_shell: *wlr.XdgShell,
 xdg_decoration_manager: *wlr.XdgDecorationManagerV1,
+legacy_server_decoration: LegacyServerDecoration,
 xdg_activation: *wlr.XdgActivationV1,
 xdg_foreign_registry: *wlr.XdgForeignRegistry,
 xdg_foreign_v2: *wlr.XdgForeignV2,
@@ -435,6 +437,7 @@ pub fn init(
 
         .xdg_shell = try wlr.XdgShell.create(wl_server, 5),
         .xdg_decoration_manager = try wlr.XdgDecorationManagerV1.create(wl_server),
+        .legacy_server_decoration = try LegacyServerDecoration.init(wl_server, startup_config.wm.force_ssd),
         .xdg_activation = try wlr.XdgActivationV1.create(wl_server),
         .xdg_foreign_registry = xdg_foreign_registry,
         .xdg_foreign_v2 = try wlr.XdgForeignV2.create(wl_server, xdg_foreign_registry),
@@ -717,6 +720,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.cursor_shape_manager.global or
         global == server.xdg_shell.global or
         global == server.xdg_decoration_manager.global or
+        global == server.legacy_server_decoration.global() or
         global == server.xdg_activation.global or
         global == server.xdg_foreign_v2.exporter.global or
         global == server.xdg_foreign_v2.importer.global or

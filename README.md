@@ -251,6 +251,7 @@ zig build test
 scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
 scripts/test-policy-parity.sh
+scripts/test-server-decoration.sh
 scripts/test-rule-output-placement.sh
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh

@@ -105,6 +105,20 @@ press() {
     wlrctl keyboard type "$text" modifiers "$modifiers"
 }
 
+wait_toplevel_title() {
+    local title=$1 n=0 listing=""
+    while [ "$n" -lt 100 ]; do
+        listing=$(wlrctl toplevel list)
+        grep -q "$title" <<<"$listing" && {
+            printf '%s\n' "$listing"
+            return 0
+        }
+        sleep 0.05
+        n=$((n + 1))
+    done
+    return 1
+}
+
 launch_ghostty() {
     local identity=$1
     ghostty \
@@ -181,8 +195,7 @@ exercise_session() {
     echo "CHECK: real Ghostty mapping and pointer focus"
     launch_ghostty aq-parity-one
     wait_windows 1
-    legacy_list=$(wlrctl toplevel list)
-    grep -q 'aq-parity-one' <<<"$legacy_list" || die "wlrctl did not enumerate the mapped window"
+    legacy_list=$(wait_toplevel_title aq-parity-one) || die "wlrctl did not enumerate the mapped window"
     info_json=$("$AQUEOUSCTL_BIN" windows --json)
     grep -q '"app_id":"com.mitchellh.ghostty"' <<<"$info_json" || die "aqueousctl JSON omitted the native app_id"
     grep -q '"workspace":1' <<<"$info_json" || die "aqueousctl JSON omitted the workspace"

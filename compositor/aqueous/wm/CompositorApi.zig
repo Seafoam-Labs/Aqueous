@@ -109,6 +109,13 @@ pub fn requestManageCycle(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+/// Publish the display-wide compatibility preference consumed by GTK's
+/// native Wayland backend. XDG-decoration-capable clients continue through
+/// the per-window transaction path.
+pub fn setLegacyServerDecorationForce(_: CompositorApi, force_ssd: bool) void {
+    server.legacy_server_decoration.setForceSsd(force_ssd);
+}
+
 pub fn showSnapOverlay(_: CompositorApi, output_id: u64, geometries: []const layout.Rect, selected: ?usize) void {
     var rects: [@import("../SnapOverlay.zig").max_zones]@import("../SnapOverlay.zig").Rect = undefined;
     const count = @min(geometries.len, rects.len);

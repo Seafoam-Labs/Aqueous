@@ -134,6 +134,15 @@ Enumeration and stable identifiers stay in the standard ext protocol.
 output. All three foreign-window globals are hidden from Wayland security
 contexts.
 
+The decoration snapshot describes per-window `xdg-decoration` negotiation.
+Aqueous also advertises the legacy KDE server-decoration manager because GTK 3
+and GTK 4 use its display-wide default instead of `xdg-decoration`. That
+default follows `[layout].force_ssd` immediately on startup and reload, while
+GTK applies a changed preference only to newly created windows. Consequently a
+normal GTK window can honor server-side mode while its snapshot still reports
+`capability: "unavailable"`. Explicit `GtkHeaderBar` and `AdwHeaderBar` widgets
+are application content and are not removed.
+
 Manager version 7 adds effective cursor-theme queries and live cursor control.
 Every response includes a status plus the effective theme and size, including
 after a rejected update.

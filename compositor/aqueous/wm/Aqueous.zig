@@ -131,6 +131,7 @@ pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapsho
         .window_states = StateStore.init(util.gpa, CompositorApi.policyState),
         .output_service = undefined,
     };
+    aqueous.api.setLegacyServerDecorationForce(aqueous.config.wm.force_ssd);
     aqueous.output_service.init();
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     const event_loop = @import("../main.zig").server.wl_server.getEventLoop();
@@ -200,6 +201,7 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
     }
     aqueous.config = replacement;
+    aqueous.api.setLegacyServerDecorationForce(aqueous.config.wm.force_ssd);
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
     aqueous.applyLayerRules();
@@ -3121,6 +3123,7 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
             replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
         }
         aqueous.config = replacement;
+        aqueous.api.setLegacyServerDecorationForce(aqueous.config.wm.force_ssd);
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     }
     if (config_changed or rules_changed) {

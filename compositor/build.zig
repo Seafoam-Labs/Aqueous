@@ -407,6 +407,18 @@ pub fn build(b: *Build) !void {
         });
         const run_global_filter_test = b.addRunArtifact(global_filter_test);
 
+        const legacy_server_decoration_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/LegacyServerDecoration.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        legacy_server_decoration_test.root_module.addImport("wayland", wayland);
+        const run_legacy_server_decoration_test = b.addRunArtifact(legacy_server_decoration_test);
+
         const blur_cache_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/render/BlurCache.zig"),
@@ -622,6 +634,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_auto_hdr_test.step);
         test_step.dependOn(&run_color_management_test.step);
         test_step.dependOn(&run_global_filter_test.step);
+        test_step.dependOn(&run_legacy_server_decoration_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_xwayland_projection_test.step);

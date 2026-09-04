@@ -8,6 +8,14 @@ registries. Verified against protocol manager creation in
 `LayerShell.zig`, `LockManager.zig`, `IdleInhibitManager.zig`,
 `WorkspaceManager.zig`, and `XwaylandKeyboardGrab.zig` (wlroots 0.20).
 
+## Supported compatibility protocols
+
+`org_kde_kwin_server_decoration_manager` is advertised through wlroots for
+GTK 3/4 and older Qt clients. Its display-wide default follows
+`[layout].force_ssd`: client-side when disabled and server-side when enabled.
+The protocol is obsolete, so its wlroots binding is isolated in
+`LegacyServerDecoration.zig` for straightforward removal or replacement.
+
 ## Not supported
 
 ### wayland-protocols stable (wlroots implements these)
@@ -59,7 +67,6 @@ Not expected for a wlroots-based compositor; listed for completeness.
 **KDE Plasma** (wl_registry globals used by Plasma-specific clients):
 
 - `org_kde_plasma_shell` — Plasma panel/shell behavior
-- `org_kde_kwin_server_decoration_manager` — server-side decoration fallback (older Qt)
 - `org_kde_kwin_shadow_manager` — client-drawn shadows
 - `org_kde_kwin_appmenu_manager` — global menus
 - `org_kde_kwin_blur_manager` — blur

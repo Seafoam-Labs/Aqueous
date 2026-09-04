@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="server_decoration">
+  <copyright><![CDATA[
+    Copyright (C) 2015 Martin Gräßlin
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2.1 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with this program. If not, see <http://www.gnu.org/licenses/>.
+  ]]></copyright>
+  <interface name="org_kde_kwin_server_decoration_manager" version="1">
+    <description summary="Server side window decoration manager">
+      This interface allows coordinating whether the server should create a
+      server-side decoration around a wl_surface representing a shell surface.
+    </description>
+    <request name="create">
+      <arg name="id" type="new_id" interface="org_kde_kwin_server_decoration"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+    <event name="default_mode">
+      <description summary="The default mode used on the server">
+        This event is emitted after binding and whenever the server changes its
+        default decoration policy.
+      </description>
+      <arg name="mode" type="uint"/>
+    </event>
+  </interface>
+  <interface name="org_kde_kwin_server_decoration" version="1">
+    <request name="release" type="destructor"/>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+    <request name="request_mode">
+      <arg name="mode" type="uint"/>
+    </request>
+    <event name="mode">
+      <arg name="mode" type="uint"/>
+    </event>
+  </interface>
+</protocol>
