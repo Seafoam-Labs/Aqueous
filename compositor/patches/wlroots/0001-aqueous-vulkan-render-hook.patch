@@ -1088,3 +1088,18 @@
 @@ -778 +779 @@
 -	scene_damage_outputs(scene, damage);
 +	scene_damage_outputs(scene, damage, node);
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -16 +16 @@
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 9
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 10
+@@ -33 +33,2 @@ struct wlr_vk_render_texture_attribs {
+-	VkPipelineLayout pipeline_layout;
++	VkPipelineLayout pipeline_layout;
++	VkDescriptorSetLayout descriptor_set_layout;
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -969 +969,2 @@ static void render_pass_add_texture(struct wlr_render_pass *wlr_pass,
+-			.pipeline_layout = pipe->layout->vk,
++			.pipeline_layout = pipe->layout->vk,
++			.descriptor_set_layout = view->layout->ds,

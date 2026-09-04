@@ -377,6 +377,26 @@ pub fn init(
     wl_display_set_default_max_buffer_size(wl_server, 1024 * 1024);
     const loop = wl_server.getEventLoop();
 
+    // wl_event_loop_add_signal() blocks each signal in the calling thread and
+    // consumes it through signalfd. Register these before renderer/backend
+    // initialization can create driver threads: threads inherit their creator's
+    // mask, whereas a thread created first could receive SIGINT/SIGTERM with the
+    // default fatal disposition and bypass orderly compositor/Vulkan teardown.
+    const sigint_source = try loop.addSignal(
+        *wl.Server,
+        @intFromEnum(posix.SIG.INT),
+        terminate,
+        wl_server,
+    );
+    errdefer sigint_source.remove();
+    const sigterm_source = try loop.addSignal(
+        *wl.Server,
+        @intFromEnum(posix.SIG.TERM),
+        terminate,
+        wl_server,
+    );
+    errdefer sigterm_source.remove();
+
     var scanout_buf: [64]u8 = undefined;
     if (resolveScanoutCard(&scanout_buf)) |card| {
         if (std.c.getenv("WLR_DRM_DEVICES") == null) {
@@ -403,8 +423,8 @@ pub fn init(
 
     server.* = .{
         .wl_server = wl_server,
-        .sigint_source = try loop.addSignal(*wl.Server, @intFromEnum(posix.SIG.INT), terminate, wl_server),
-        .sigterm_source = try loop.addSignal(*wl.Server, @intFromEnum(posix.SIG.TERM), terminate, wl_server),
+        .sigint_source = sigint_source,
+        .sigterm_source = sigterm_source,
 
         .fixes = try wlr.Fixes.create(wl_server, 1),
 

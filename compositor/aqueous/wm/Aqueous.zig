@@ -511,7 +511,12 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
             if (target != 0 and target != aqueous.pending_focus.window) {
                 aqueous.pending_focus.setWindow(target, 1);
-                aqueous.requestFocus(target);
+                // Restoring focus after a workspace switch (or replacing a
+                // window which disappeared) is not a user stacking gesture.
+                // Keep the workspace's established bottom-to-top order: in
+                // particular, do not lift an older focused background above
+                // newer floating windows when returning to the workspace.
+                aqueous.requestFocusPreservingStack(target);
                 cycle_focus = target;
                 replacement_focus_requested = true;
             }
@@ -3236,6 +3241,17 @@ fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
     aqueous.cancelHoverFocus();
     aqueous.api.requestFocus(handle);
     aqueous.requestFocusRaise(handle);
+}
+
+/// Assign keyboard focus without treating automatic focus recovery as a
+/// raise-on-focus interaction. Explicit pointer, directional, cycle, and
+/// activation requests continue to use requestFocus() and retain their normal
+/// stacking behavior.
+fn requestFocusPreservingStack(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.window_states.get(handle)) |state| if (!state.focus_allowed) return;
+    aqueous.cancelHoverFocus();
+    aqueous.cancelPendingRaise();
+    aqueous.api.requestFocus(handle);
 }
 
 fn requestFocusRaise(aqueous: *Aqueous, handle: layout_types.Handle) void {

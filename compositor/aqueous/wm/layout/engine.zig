@@ -573,3 +573,44 @@ test "vertical scroll preference routes to the focused composable child" {
     try std.testing.expect(prefersVerticalScroll(&state, 1));
     try std.testing.expect(!prefersVerticalScroll(&state, 2));
 }
+
+test "tile admission preserves natural size for a later floating layout" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_inner = 0;
+    snapshot.options[@intFromEnum(config.LayoutId.floating)].gaps_outer = 0;
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1280, .height = 720 };
+
+    var placements = try arrange(
+        std.testing.allocator,
+        &state,
+        &snapshot,
+        area,
+        &.{.{ .handle = 1, .preferred_width = 320, .preferred_height = 200 }},
+        1,
+        .{},
+    );
+    std.testing.allocator.free(placements);
+
+    // The next snapshot reflects the policy-directed tiled buffer. Entering
+    // floating must still recover the natural rectangle captured above.
+    snapshot.default = .floating;
+    placements = try arrange(
+        std.testing.allocator,
+        &state,
+        &snapshot,
+        area,
+        &.{.{ .handle = 1, .preferred_width = 1280, .preferred_height = 720 }},
+        1,
+        .{},
+    );
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(
+        types.Rect{ .x = 480, .y = 260, .width = 320, .height = 200 },
+        placements[0].geometry,
+    );
+    try std.testing.expect(!placements[0].tiled);
+}

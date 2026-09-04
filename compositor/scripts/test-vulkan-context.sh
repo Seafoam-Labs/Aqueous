@@ -3,6 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
+TEST_POLICY=${AQUEOUS_TEST_POLICY:-internal}
 EXIT_FIXTURE_SOURCE="$here/scripts/fixtures/exit-session.c"
 WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/river-window-management-v1.xml"
 WORKSPACE_PROTOCOL="$here/protocol/upstream/ext-workspace-v1.xml"
@@ -11,6 +12,8 @@ die() { echo "FAIL: $*" >&2; exit 1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] ||
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
+[[ "$TEST_POLICY" = internal || "$TEST_POLICY" = compare ]] ||
+    die "AQUEOUS_TEST_POLICY must be internal or compare"
 for tool in cc grim jq nc pkg-config readelf wayland-scanner; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
@@ -75,7 +78,7 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     HOME="$RUNTIME_DIR/home" \
     WAYLAND_DISPLAY=aqueous-vulkan-host \
     "$AQUEOUS_COMPOSITOR_BIN" \
-        -no-xwayland -policy compare -log-level info -c true \
+        -no-xwayland -policy "$TEST_POLICY" -log-level info -c true \
         >"$COMPOSITOR_LOG" 2>&1 &
 COMPOSITOR_PID=$!
 
@@ -155,10 +158,14 @@ env -u LD_PRELOAD \
     grim -o "$OUTPUT_NAME" "$CAPTURE"
 [ -s "$CAPTURE" ] || die "Vulkan output capture is empty"
 
-env -u LD_PRELOAD \
-    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-    WAYLAND_DISPLAY="$socket" \
-    "$EXIT_FIXTURE"
+if [ "$TEST_POLICY" = compare ]; then
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        "$EXIT_FIXTURE"
+else
+    kill -TERM "$COMPOSITOR_PID"
+fi
 shutdown_status=0
 wait "$COMPOSITOR_PID" || shutdown_status=$?
 COMPOSITOR_PID=""

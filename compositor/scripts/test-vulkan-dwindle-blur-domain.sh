@@ -21,6 +21,7 @@ TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
 REFERENCE_TOLERANCE=${AQUEOUS_VULKAN_BLUR_REFERENCE_TOLERANCE:-0.0002}
 CROSS_BLEED_LIMIT=${AQUEOUS_VULKAN_BLUR_CROSS_BLEED_LIMIT:-0.020}
 EDGE_EXCESS_LIMIT=${AQUEOUS_VULKAN_BLUR_EDGE_EXCESS_LIMIT:-0.015}
+TEST_POLICY=${AQUEOUS_TEST_POLICY:-internal}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -31,6 +32,8 @@ have() { command -v "$1" >/dev/null 2>&1; }
 [[ "$TEST_BACKEND" = auto || "$TEST_BACKEND" = wayland ||
     "$TEST_BACKEND" = headless ]] ||
     die "AQUEOUS_VULKAN_EFFECTS_BACKEND must be auto, wayland, or headless"
+[[ "$TEST_POLICY" = internal || "$TEST_POLICY" = compare ]] ||
+    die "AQUEOUS_TEST_POLICY must be internal or compare"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] ||
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] ||
@@ -170,7 +173,7 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     XDG_CONFIG_HOME="$RUNTIME_DIR/config" \
     HOME="$SANDBOX_HOME" \
     "$AQUEOUS_COMPOSITOR_BIN" \
-        -no-xwayland -policy compare -log-level debug -c true \
+        -no-xwayland -policy "$TEST_POLICY" -log-level debug -c true \
         >"$COMPOSITOR_LOG" 2>&1 &
 COMPOSITOR_PID=$!
 
@@ -515,8 +518,12 @@ if grep -Eq \
     die "the Vulkan blur renderer reported a runtime failure"
 fi
 
-"${nested_env[@]}" "$EXIT_BIN" >"$ARTIFACT_DIR/exit.log" 2>&1 &
-EXIT_PID=$!
+if [ "$TEST_POLICY" = compare ]; then
+    "${nested_env[@]}" "$EXIT_BIN" >"$ARTIFACT_DIR/exit.log" 2>&1 &
+    EXIT_PID=$!
+else
+    kill -TERM "$COMPOSITOR_PID"
+fi
 shutdown_status=0
 wait "$COMPOSITOR_PID" || shutdown_status=$?
 COMPOSITOR_PID=""

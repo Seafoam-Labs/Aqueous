@@ -53,6 +53,9 @@ const TexturePipeline = struct {
     render_pass: c.VkRenderPass,
     subpass: u32,
     texture_transform: u32,
+    /// Borrowed from wlroots and valid for the renderer lifetime.
+    descriptor_set_layout: c.VkDescriptorSetLayout,
+    pipeline_layout: c.VkPipelineLayout,
     pipeline: c.VkPipeline,
 };
 
@@ -65,8 +68,6 @@ const RectPipeline = struct {
 device: c.VkDevice,
 pipeline_cache: c.VkPipelineCache,
 rect_pipeline_layout: c.VkPipelineLayout,
-texture_descriptor_set_layout: c.VkDescriptorSetLayout,
-texture_pipeline_layout: c.VkPipelineLayout,
 texture_pipelines: std.ArrayList(TexturePipeline) = .empty,
 rect_pipelines: std.ArrayList(RectPipeline) = .empty,
 texture_draw_count: u64 = 0,
@@ -104,82 +105,11 @@ pub fn init(
         return error.VulkanRoundedRectPipelineLayoutCreateFailed;
     }
 
-    // The texture pipeline cannot reuse wlroots' pipeline layout: the Auto
-    // HDR push constants extend past its push constant range. A descriptor
-    // set layout matching wlroots' texture layout keeps the descriptor sets
-    // wlroots allocates compatible with this one (immutable samplers are
-    // ignored for pipeline layout compatibility).
-    var texture_binding = std.mem.zeroes(c.VkDescriptorSetLayoutBinding);
-    texture_binding.binding = 0;
-    texture_binding.descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    texture_binding.descriptorCount = 1;
-    texture_binding.stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    var texture_ds_info = std.mem.zeroes(c.VkDescriptorSetLayoutCreateInfo);
-    texture_ds_info.sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    texture_ds_info.bindingCount = 1;
-    texture_ds_info.pBindings = &texture_binding;
-
-    var texture_descriptor_set_layout: c.VkDescriptorSetLayout = null;
-    const ds_result = c.vkCreateDescriptorSetLayout(
-        device,
-        &texture_ds_info,
-        null,
-        &texture_descriptor_set_layout,
-    );
-    if (ds_result != c.VK_SUCCESS) {
-        c.vkDestroyPipelineLayout(device, rect_pipeline_layout, null);
-        std.log.err(
-            "failed to create Vulkan rounded-texture descriptor set layout: {s}",
-            .{resultName(ds_result)},
-        );
-        return error.VulkanRoundedTexturePipelineLayoutCreateFailed;
-    }
-    errdefer c.vkDestroyDescriptorSetLayout(device, texture_descriptor_set_layout, null);
-
-    var texture_push_ranges = [_]c.VkPushConstantRange{
-        .{
-            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size = @sizeOf(TextureVertexPush),
-        },
-        .{
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .offset = @sizeOf(TextureVertexPush),
-            .size = @sizeOf(TextureFragmentPush),
-        },
-    };
-
-    var texture_layout_info = std.mem.zeroes(c.VkPipelineLayoutCreateInfo);
-    texture_layout_info.sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    texture_layout_info.setLayoutCount = 1;
-    texture_layout_info.pSetLayouts = &texture_descriptor_set_layout;
-    texture_layout_info.pushConstantRangeCount = texture_push_ranges.len;
-    texture_layout_info.pPushConstantRanges = &texture_push_ranges;
-
-    var texture_pipeline_layout: c.VkPipelineLayout = null;
-    const texture_layout_result = c.vkCreatePipelineLayout(
-        device,
-        &texture_layout_info,
-        null,
-        &texture_pipeline_layout,
-    );
-    if (texture_layout_result != c.VK_SUCCESS) {
-        c.vkDestroyPipelineLayout(device, rect_pipeline_layout, null);
-        std.log.err(
-            "failed to create Vulkan rounded-texture pipeline layout: {s}",
-            .{resultName(texture_layout_result)},
-        );
-        return error.VulkanRoundedTexturePipelineLayoutCreateFailed;
-    }
-
     std.log.info("Vulkan rounded effects pipeline initialized", .{});
     return .{
         .device = device,
         .pipeline_cache = pipeline_cache,
         .rect_pipeline_layout = rect_pipeline_layout,
-        .texture_descriptor_set_layout = texture_descriptor_set_layout,
-        .texture_pipeline_layout = texture_pipeline_layout,
     };
 }
 
@@ -188,22 +118,13 @@ pub fn deinit(pipeline: *RoundedPipeline) void {
     const rect_pipeline_count = pipeline.rect_pipelines.items.len;
     for (pipeline.texture_pipelines.items) |entry| {
         c.vkDestroyPipeline(pipeline.device, entry.pipeline, null);
+        c.vkDestroyPipelineLayout(pipeline.device, entry.pipeline_layout, null);
     }
     for (pipeline.rect_pipelines.items) |entry| {
         c.vkDestroyPipeline(pipeline.device, entry.pipeline, null);
     }
     pipeline.texture_pipelines.deinit(util.gpa);
     pipeline.rect_pipelines.deinit(util.gpa);
-    c.vkDestroyPipelineLayout(
-        pipeline.device,
-        pipeline.texture_pipeline_layout,
-        null,
-    );
-    c.vkDestroyDescriptorSetLayout(
-        pipeline.device,
-        pipeline.texture_descriptor_set_layout,
-        null,
-    );
     c.vkDestroyPipelineLayout(
         pipeline.device,
         pipeline.rect_pipeline_layout,
@@ -236,6 +157,7 @@ pub fn drawTexture(
 ) !bool {
     if (!validPass(&attributes.render_pass) or
         attributes.pipeline_layout == null or
+        attributes.descriptor_set_layout == null or
         attributes.descriptor_set == null)
     {
         return error.VulkanRoundedTextureAttributesInvalid;
@@ -253,7 +175,7 @@ pub fn drawTexture(
     // with zero radii degenerates to full coverage.
     if (!hasRadius(physical_radii) and itm == null) return false;
 
-    const graphics_pipeline = try pipeline.texturePipelineFor(attributes);
+    const texture_pipeline = try pipeline.texturePipelineFor(attributes);
     var vertex_push: TextureVertexPush = .{
         .projection = attributes.projection,
         .uv_offset = attributes.uv_offset,
@@ -274,13 +196,13 @@ pub fn drawTexture(
     c.vkCmdBindPipeline(
         command_buffer,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        graphics_pipeline,
+        texture_pipeline.pipeline,
     );
     setViewport(command_buffer, attributes.render_pass.extent);
     c.vkCmdBindDescriptorSets(
         command_buffer,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pipeline.texture_pipeline_layout,
+        texture_pipeline.pipeline_layout,
         0,
         1,
         &attributes.descriptor_set,
@@ -289,7 +211,7 @@ pub fn drawTexture(
     );
     c.vkCmdPushConstants(
         command_buffer,
-        pipeline.texture_pipeline_layout,
+        texture_pipeline.pipeline_layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(TextureVertexPush),
@@ -297,7 +219,7 @@ pub fn drawTexture(
     );
     c.vkCmdPushConstants(
         command_buffer,
-        pipeline.texture_pipeline_layout,
+        texture_pipeline.pipeline_layout,
         c.VK_SHADER_STAGE_FRAGMENT_BIT,
         @sizeOf(TextureVertexPush),
         @sizeOf(TextureFragmentPush),
@@ -416,32 +338,85 @@ fn recordDraw(
 fn texturePipelineFor(
     pipeline: *RoundedPipeline,
     attributes: *const c.struct_wlr_vk_render_texture_attribs,
-) !c.VkPipeline {
+) !TexturePipeline {
     for (pipeline.texture_pipelines.items) |entry| {
         if (entry.render_pass == attributes.render_pass.render_pass and
             entry.subpass == attributes.render_pass.subpass and
-            entry.texture_transform == attributes.texture_transform)
+            entry.texture_transform == attributes.texture_transform and
+            entry.descriptor_set_layout == attributes.descriptor_set_layout)
         {
-            return entry.pipeline;
+            return entry;
         }
     }
 
+    // The texture shader needs a larger push-constant range than wlroots'
+    // stock pipeline. Reuse the exact descriptor-set layout that allocated the
+    // incoming set, including its immutable sampler, and extend only the push
+    // constants in an Aqueous-owned pipeline layout.
+    const pipeline_layout = try createTexturePipelineLayout(
+        pipeline.device,
+        attributes.descriptor_set_layout,
+    );
+    errdefer c.vkDestroyPipelineLayout(pipeline.device, pipeline_layout, null);
     const graphics_pipeline = try pipeline.createGraphicsPipeline(
         attributes.render_pass.render_pass,
         attributes.render_pass.subpass,
-        pipeline.texture_pipeline_layout,
+        pipeline_layout,
         &texture_vertex_shader,
         &texture_fragment_shader,
         attributes.texture_transform,
     );
     errdefer c.vkDestroyPipeline(pipeline.device, graphics_pipeline, null);
-    try pipeline.texture_pipelines.append(util.gpa, .{
+    const entry: TexturePipeline = .{
         .render_pass = attributes.render_pass.render_pass,
         .subpass = attributes.render_pass.subpass,
         .texture_transform = attributes.texture_transform,
+        .descriptor_set_layout = attributes.descriptor_set_layout,
+        .pipeline_layout = pipeline_layout,
         .pipeline = graphics_pipeline,
-    });
-    return graphics_pipeline;
+    };
+    try pipeline.texture_pipelines.append(util.gpa, entry);
+    return entry;
+}
+
+fn createTexturePipelineLayout(
+    device: c.VkDevice,
+    descriptor_set_layout: c.VkDescriptorSetLayout,
+) !c.VkPipelineLayout {
+    var push_ranges = [_]c.VkPushConstantRange{
+        .{
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = @sizeOf(TextureVertexPush),
+        },
+        .{
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .offset = @sizeOf(TextureVertexPush),
+            .size = @sizeOf(TextureFragmentPush),
+        },
+    };
+    var create_info = std.mem.zeroes(c.VkPipelineLayoutCreateInfo);
+    create_info.sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    create_info.setLayoutCount = 1;
+    create_info.pSetLayouts = &descriptor_set_layout;
+    create_info.pushConstantRangeCount = push_ranges.len;
+    create_info.pPushConstantRanges = &push_ranges;
+
+    var pipeline_layout: c.VkPipelineLayout = null;
+    const result = c.vkCreatePipelineLayout(
+        device,
+        &create_info,
+        null,
+        &pipeline_layout,
+    );
+    if (result != c.VK_SUCCESS) {
+        std.log.err(
+            "failed to create Vulkan rounded-texture pipeline layout: {s}",
+            .{resultName(result)},
+        );
+        return error.VulkanRoundedTexturePipelineLayoutCreateFailed;
+    }
+    return pipeline_layout;
 }
 
 fn rectPipelineFor(

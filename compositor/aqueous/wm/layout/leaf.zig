@@ -56,6 +56,15 @@ pub fn arrange(
 ) ![]types.Placement {
     std.debug.assert(id != .composable);
     state.active_layout = id;
+    // Seed the dormant floating layout before a tiled configure replaces a
+    // client's natural size in the next policy snapshot.
+    try floating.prepare(
+        allocator,
+        &state.floating,
+        area,
+        windows,
+        snapshot.layoutOptions(.floating),
+    );
     const options = snapshot.layoutOptions(id);
     return switch (id) {
         .tile => tile.arrange(allocator, &state.tile, area, windows, options),

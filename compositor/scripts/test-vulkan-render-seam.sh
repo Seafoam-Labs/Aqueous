@@ -3,6 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
+AQUEOUSCTL_BIN=${AQUEOUSCTL_BIN:-"$here/zig-out/bin/aqueousctl"}
 FIXTURE_SOURCE="$here/scripts/fixtures/visual-effects-reference.c"
 EXIT_FIXTURE_SOURCE="$here/scripts/fixtures/exit-session.c"
 WM_CONFIG="$here/scripts/fixtures/visual-effects-wm.toml"
@@ -14,9 +15,10 @@ STRESS_FRAMES=${AQUEOUS_VULKAN_PROBE_FRAMES:-4096}
 STRESS_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS:-240}
 OUTPUT_REQUEST_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_OUTPUT_REQUEST_TIMEOUT_SECONDS:-5}
 REQUIRE_VALIDATION=${AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION:-1}
-REQUIRE_EXPLICIT_SYNC=${AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC:-1}
+REQUIRE_EXPLICIT_SYNC=${AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC:-auto}
 TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
 UNCACHED_ORACLE=${AQUEOUS_VULKAN_BLUR_UNCACHED:-0}
+TEST_POLICY=${AQUEOUS_TEST_POLICY:-internal}
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -30,15 +32,20 @@ have() { command -v "$1" >/dev/null 2>&1; }
     die "AQUEOUS_VULKAN_PROBE_OUTPUT_REQUEST_TIMEOUT_SECONDS must be a positive integer"
 [[ "$REQUIRE_VALIDATION" = 0 || "$REQUIRE_VALIDATION" = 1 ]] ||
     die "AQUEOUS_VULKAN_PROBE_REQUIRE_VALIDATION must be 0 or 1"
-[[ "$REQUIRE_EXPLICIT_SYNC" = 0 || "$REQUIRE_EXPLICIT_SYNC" = 1 ]] ||
-    die "AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC must be 0 or 1"
+[[ "$REQUIRE_EXPLICIT_SYNC" = auto || "$REQUIRE_EXPLICIT_SYNC" = 0 ||
+    "$REQUIRE_EXPLICIT_SYNC" = 1 ]] ||
+    die "AQUEOUS_VULKAN_PROBE_REQUIRE_EXPLICIT_SYNC must be auto, 0, or 1"
 [[ "$TEST_BACKEND" = auto || "$TEST_BACKEND" = wayland ||
     "$TEST_BACKEND" = headless ]] ||
     die "AQUEOUS_VULKAN_EFFECTS_BACKEND must be auto, wayland, or headless"
 [[ "$UNCACHED_ORACLE" = 0 || "$UNCACHED_ORACLE" = 1 ]] ||
     die "AQUEOUS_VULKAN_BLUR_UNCACHED must be 0 or 1"
+[[ "$TEST_POLICY" = internal || "$TEST_POLICY" = compare ]] ||
+    die "AQUEOUS_TEST_POLICY must be internal or compare"
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] ||
     die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
+[ -x "$AQUEOUSCTL_BIN" ] ||
+    die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
 for file in \
     "$FIXTURE_SOURCE" \
     "$EXIT_FIXTURE_SOURCE" \
@@ -96,6 +103,12 @@ if [ "$TEST_BACKEND" = auto ]; then
     else
         TEST_BACKEND=headless
     fi
+fi
+if [ "$REQUIRE_EXPLICIT_SYNC" = auto ]; then
+    # A headless output has no downstream acquire/release timeline to pass into
+    # wlroots' render pass. Nested Wayland does, and remains the path which
+    # requires every custom draw to participate in explicit synchronization.
+    REQUIRE_EXPLICIT_SYNC=$([ "$TEST_BACKEND" = wayland ] && echo 1 || echo 0)
 fi
 
 validation_manifest=$(
@@ -210,7 +223,7 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     XDG_CONFIG_HOME="$RUNTIME_DIR/config" \
     HOME="$SANDBOX_HOME" \
     "$AQUEOUS_COMPOSITOR_BIN" \
-        -no-xwayland -policy compare -log-level info -c true \
+        -no-xwayland -policy "$TEST_POLICY" -log-level info -c true \
         >"$COMPOSITOR_LOG" 2>&1 &
 COMPOSITOR_PID=$!
 
@@ -336,6 +349,20 @@ capture_output_with_cursor() {
         WAYLAND_DISPLAY="$socket" \
         grim -c -o "$OUTPUT_NAME" "$destination"
     [ -s "$destination" ] || die "empty cursor capture: $destination"
+}
+
+capture_compositor_state() {
+    local label=$1
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        "$AQUEOUSCTL_BIN" windows --json \
+        >"$ARTIFACT_DIR/$label-windows.json"
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        "$AQUEOUSCTL_BIN" scene \
+        >"$ARTIFACT_DIR/$label-scene.txt"
 }
 
 move_pointer() {
@@ -700,6 +727,7 @@ awk -v changed="$overlap_difference" \
     die "the overlapping blur window did not change the composited output"
 
 capture_output "$ARTIFACT_DIR/workspace-animation-before.png"
+capture_compositor_state workspace-animation-before
 send_key x
 sleep 0.25
 capture_output "$ARTIFACT_DIR/workspace-animation-outgoing.png"
@@ -725,6 +753,7 @@ awk -v pixels="$workspace_incoming_pixels" \
     die "workspace animation did not render incoming rounded snapshots"
 sleep 2.5
 capture_output "$ARTIFACT_DIR/workspace-animation-after.png"
+capture_compositor_state workspace-animation-after
 workspace_roundtrip_difference=$(
     magick \
         "$ARTIFACT_DIR/workspace-animation-before.png" \
@@ -752,11 +781,19 @@ awk -v difference="$resume_difference" \
     die "output resume did not rebuild the composited effects"
 output_request '{"op":"list"}' | jq . >"$ARTIFACT_DIR/output.json"
 
-env -u LD_PRELOAD \
-    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-    WAYLAND_DISPLAY="$socket" \
-    "$EXIT_FIXTURE" &
-EXIT_PID=$!
+if [ "$TEST_POLICY" = compare ]; then
+    env -u LD_PRELOAD \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        WAYLAND_DISPLAY="$socket" \
+        "$EXIT_FIXTURE" &
+    EXIT_PID=$!
+else
+    # The exit-session request belongs to the external policy protocol and is
+    # intentionally ignored when the shipping integrated policy owns the
+    # session. SIGTERM follows the compositor's graceful shutdown path and
+    # still exercises all Vulkan teardown/resource accounting below.
+    kill -TERM "$COMPOSITOR_PID"
+fi
 shutdown_status=0
 wait "$COMPOSITOR_PID" || shutdown_status=$?
 COMPOSITOR_PID=""

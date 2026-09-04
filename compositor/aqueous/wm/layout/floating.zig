@@ -15,24 +15,33 @@ pub const State = struct {
     }
 };
 
-pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, focused: ?types.Handle, options: types.Options) ![]types.Placement {
+/// Remember a freeform rectangle as soon as policy first observes a window,
+/// even while another workspace layout is active. XWayland clients are already
+/// mapped at their natural size when they are admitted; after the first tiled
+/// configure that size is no longer recoverable from the client buffer.
+pub fn prepare(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, options: types.Options) !void {
     const area = math.shrink(usable_area, options.gaps_outer);
+    for (windows) |window| {
+        const entry = try state.rects.getOrPut(allocator, window.handle);
+        if (entry.found_existing) continue;
+        const initial = initialGeometry(area, window);
+        entry.value_ptr.* = switch (options.floating_placement) {
+            .center => initial,
+            .under_pointer => underPointer(initial, area, options.pointer_x, options.pointer_y),
+            .minimal_overlap => minimalOverlap(state, windows, window.handle, initial, area),
+            .cascade => cascade(initial, area, state.next_cascade, options.floating_cascade_step),
+        };
+        state.next_cascade +%= 1;
+    }
+}
+
+pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, focused: ?types.Handle, options: types.Options) ![]types.Placement {
+    try prepare(allocator, state, usable_area, windows, options);
     const result = try allocator.alloc(types.Placement, windows.len);
     for (result, windows) |*placement, window| {
-        const entry = try state.rects.getOrPut(allocator, window.handle);
-        if (!entry.found_existing) {
-            const initial = initialGeometry(area, window);
-            entry.value_ptr.* = switch (options.floating_placement) {
-                .center => initial,
-                .under_pointer => underPointer(initial, area, options.pointer_x, options.pointer_y),
-                .minimal_overlap => minimalOverlap(state, windows, window.handle, initial, area),
-                .cascade => cascade(initial, area, state.next_cascade, options.floating_cascade_step),
-            };
-            state.next_cascade +%= 1;
-        }
         placement.* = .{
             .handle = window.handle,
-            .geometry = entry.value_ptr.*,
+            .geometry = state.rects.get(window.handle).?,
             .z_order = if (focused != null and focused.? == window.handle) 1 else 0,
             .visible = true,
             .border = options.border,

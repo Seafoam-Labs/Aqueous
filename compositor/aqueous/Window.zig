@@ -860,6 +860,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     // by the effects shader. Exclude it from hit-testing so the shader-only
     // transparent area cannot block pointer focus on the client surface.
     fx.setRectInputEnabled(window.border.rounded_outline, false);
+    fx.setRectInputEnabled(window.anim_blur_marker, false);
     inline for (.{
         "rounded_outline",
         "left",
@@ -2212,6 +2213,11 @@ fn captureAnimBuffer(
 ) void {
     const capture: *AnimBufferCapture = @ptrCast(@alignCast(data));
     if (capture.failed) return;
+    // Snapshot buffers are visual overlays only. A null callback means
+    // "accept every point" in wlroots, so merely omitting SceneNodeData lets
+    // the clone swallow hit testing instead of falling through to the live
+    // window at its settled position.
+    buffer.point_accepts_input = rejectAnimationBufferInput;
     const source = effectiveSourceBox(source_buffer) orelse {
         capture.failed = true;
         return;
@@ -2238,6 +2244,14 @@ fn captureAnimBuffer(
     }) catch {
         capture.failed = true;
     };
+}
+
+fn rejectAnimationBufferInput(
+    _: *wlr.SceneBuffer,
+    _: *f64,
+    _: *f64,
+) callconv(.c) bool {
+    return false;
 }
 
 fn effectiveSourceBox(buffer: *const wlr.SceneBuffer) ?wlr.FBox {
