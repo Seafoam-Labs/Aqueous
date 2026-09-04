@@ -490,19 +490,26 @@ pub fn resize(
     state: *State,
     allocator: std.mem.Allocator,
     handle: types.Handle,
-    width: i32,
-    height: i32,
+    update: types.ResizeUpdate,
 ) !bool {
     const location = locate(state, handle) orelse return false;
-    const requested_width = @max(1, width);
-    const requested_height = @max(1, height);
     const column = &state.columns.items[location.column];
-    const old_width = column.width_override;
-    const old_height = state.height_overrides.get(handle);
-    if (old_width == requested_width and old_height == requested_height) return false;
-    try state.height_overrides.put(allocator, handle, requested_height);
-    column.width_override = requested_width;
-    return true;
+    var changed = false;
+    if (update.height) |height| {
+        const requested_height = @max(1, height);
+        if (state.height_overrides.get(handle) != requested_height) {
+            try state.height_overrides.put(allocator, handle, requested_height);
+            changed = true;
+        }
+    }
+    if (update.width) |width| {
+        const requested_width = @max(1, width);
+        if (column.width_override != requested_width) {
+            column.width_override = requested_width;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 /// Restore the configured column width and the selected member's default full
@@ -967,7 +974,15 @@ test "pointer resize changes a whole column width and one member height" {
     const initial = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     std.testing.allocator.free(initial);
     try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
-    try std.testing.expect(try resize(&state, std.testing.allocator, 1, 90, 10));
+    try std.testing.expect(try resize(&state, std.testing.allocator, 1, .{ .width = 90 }));
+
+    const width_only = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    defer std.testing.allocator.free(width_only);
+    try std.testing.expectEqual(@as(i32, 65), findPlacement(width_only, 1).geometry.width);
+    try std.testing.expectEqual(@as(i32, 80), findPlacement(width_only, 1).geometry.height);
+    try std.testing.expect(!state.height_overrides.contains(1));
+
+    try std.testing.expect(try resize(&state, std.testing.allocator, 1, .{ .height = 10 }));
 
     const resized = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
     defer std.testing.allocator.free(resized);
@@ -980,7 +995,7 @@ test "pointer resize changes a whole column width and one member height" {
     try std.testing.expectEqual(@as(i32, 20), first.geometry.height);
     try std.testing.expectEqual(@as(i32, 80), second.geometry.height);
     try std.testing.expectEqual(@as(i32, 20), second.geometry.y);
-    try std.testing.expect(!try resize(&state, std.testing.allocator, 99, 50, 50));
+    try std.testing.expect(!try resize(&state, std.testing.allocator, 99, .{ .width = 50 }));
 
     try std.testing.expect(resetSize(&state, 1));
     const reset = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});

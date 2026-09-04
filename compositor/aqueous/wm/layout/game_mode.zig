@@ -305,13 +305,12 @@ pub fn resizeScrolling(
     state: *State,
     allocator: std.mem.Allocator,
     handle: types.Handle,
-    width: i32,
-    height: i32,
+    update: types.ResizeUpdate,
 ) !bool {
     if (state.active_remainder != .scrolling or state.anchor == handle) return false;
     for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
         if (!scrolling.containsHandle(&side.scrolling, handle)) continue;
-        return scrolling.resize(&side.scrolling, allocator, handle, width, height);
+        return scrolling.resize(&side.scrolling, allocator, handle, update);
     }
     return false;
 }
@@ -391,7 +390,8 @@ test "game mode resizes a tiled member in a scrolling fallback" {
     std.testing.allocator.free(initial);
 
     try std.testing.expect(canResizeScrolling(&state, 1));
-    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 1, 70, 30));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 1, .{ .width = 70 }));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 1, .{ .height = 30 }));
     const resized = try arrange(std.testing.allocator, &state, area, &windows, 1, options, game_options);
     defer std.testing.allocator.free(resized);
     try std.testing.expectEqual(@as(i32, 70), findPlacement(resized, 1).geometry.width);
@@ -473,9 +473,10 @@ test "game mode routes resize to a side remainder and rejects its anchor" {
     std.testing.allocator.free(initial);
 
     try std.testing.expect(!canResizeScrolling(&state, 1));
-    try std.testing.expect(!(try resizeScrolling(&state, std.testing.allocator, 1, 40, 40)));
+    try std.testing.expect(!(try resizeScrolling(&state, std.testing.allocator, 1, .{ .width = 40 })));
     try std.testing.expect(canResizeScrolling(&state, 2));
-    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 2, 40, 35));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 2, .{ .width = 40 }));
+    try std.testing.expect(try resizeScrolling(&state, std.testing.allocator, 2, .{ .height = 35 }));
     const resized = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
     defer std.testing.allocator.free(resized);
     try std.testing.expectEqual(@as(i32, 40), findPlacement(resized, 2).geometry.width);

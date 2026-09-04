@@ -24,6 +24,13 @@ pub const Rect = struct {
     }
 };
 
+/// A pointer-driven tiled resize changes at most one dimension per
+/// interaction. Null dimensions retain the layout's existing override state.
+pub const ResizeUpdate = struct {
+    width: ?i32 = null,
+    height: ?i32 = null,
+};
+
 pub const Window = struct {
     handle: Handle,
     /// Toplevel parent, when the client declared this window as a transient.

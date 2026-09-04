@@ -225,13 +225,12 @@ pub fn resizeScrolling(
     allocator: std.mem.Allocator,
     state: *State,
     handle: types.Handle,
-    width: i32,
-    height: i32,
+    update: types.ResizeUpdate,
 ) !bool {
     return switch (state.active_layout) {
-        .tile => tile.resize(allocator, &state.tile, handle, width, height),
-        .scrolling => scrolling.resize(&state.scrolling, allocator, handle, width, height),
-        .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, width, height),
+        .tile => tile.resize(allocator, &state.tile, handle, update),
+        .scrolling => scrolling.resize(&state.scrolling, allocator, handle, update),
+        .game_mode => game_mode.resizeScrolling(&state.game_mode, allocator, handle, update),
         else => false,
     };
 }

@@ -115,13 +115,14 @@ Legacy `[layout.snap-zone.a]` through `.d` tables and
 ## Tile resize
 
 `Super`+right-drag resizes a tile member without making it floating.
-Horizontal motion moves the master/stack split shared by every member;
-vertical motion changes only the selected member's height within its column,
-while unmodified members share the remaining space. The split persists as a
-ratio of the usable area, so it survives output mode changes and applies to
-tile regions inside composable layouts. `Super`+double-left-click restores the
-configured `master_ratio` and the selected member's default even column
-height. Other members retain their independent height overrides.
+The dominant axis of the first non-tied pointer movement locks the resize for
+the rest of that drag. A horizontal drag moves the master/stack split shared by
+every member; a vertical drag changes only the selected member's height within
+its column, while unmodified members share the remaining space. The split
+persists as a ratio of the usable area, so it survives output mode changes and
+applies to tile regions inside composable layouts. `Super`+double-left-click
+restores the configured `master_ratio` and the selected member's default even
+column height. Other members retain their independent height overrides.
 
 ## Composable layouts
 
@@ -266,9 +267,11 @@ owned by the window that triggered it, but all members share their column's
 horizontal width.
 
 `Super`+right-drag resizes a scrolling member without making it floating.
-Horizontal motion changes the whole column's width; vertical motion changes
-only the selected member's height. This works identically in a scrolling game
-mode remainder or fallback, while the game anchor remains fixed. Beginning an
-actual resize replaces the column's full-width preset with the dragged size.
-`Super`+double-left-click restores the configured column width and the selected
-member's default full-viewport height.
+The dominant axis of the first non-tied pointer movement locks the resize for
+the rest of that drag. Horizontal motion changes the whole column's width;
+vertical motion changes only the selected member's height. This works
+identically in a scrolling game mode remainder or fallback, while the game
+anchor remains fixed. Beginning a horizontal resize replaces the column's
+full-width preset with the dragged size; a vertical resize preserves it.
+`Super`+double-left-click restores the configured column width and the
+selected member's default full-viewport height.

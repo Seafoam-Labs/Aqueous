@@ -414,12 +414,14 @@ window's child membership rather than by the workspace's top-level layout ID.
    copied into initialized dormant layout orders, so the order survives layout
    switches.
 
-Super+right-drag on an ordinary tiled window promotes it to floating and
-updates remembered floating geometry. In a scrolling layout it instead keeps
-the member tiled: horizontal motion resizes the whole column and vertical
-motion resizes that member. Game mode delegates this operation to an active
-scrolling remainder or fallback and rejects its anchor. Every pointer update
-requests a manage cycle.
+Super+right-drag keeps members tiled in tile and scrolling layouts. The
+dominant axis of the first non-tied pointer movement is locked for the
+interaction. In tile, horizontal motion moves the master/stack split; in
+scrolling, it resizes the whole column. Vertical motion resizes only the
+selected member in either layout. Game mode delegates this operation to an
+active scrolling remainder or fallback and rejects its anchor. Other tiled
+layouts still promote the window to floating. Motion events request a manage
+cycle only after an axis is selected and the relevant state changes.
 
 A `Super`+double-left-click with no drag restores a scrolling member's standard
 size: the configured width for its column and full viewport height for that

@@ -89,6 +89,7 @@ const Drag = struct {
     awaiting_layout: ?layout_types.Handle = null,
     click_eligible: bool = true,
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
+    resize_axis: ?pointer_drag.ResizeAxis = null,
     constraints: geometry.Constraints = .{},
     /// A manual size overrides the full-width preset. Defer clearing its
     /// per-window owner until the pointer actually moves.
@@ -1379,22 +1380,35 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
     const dx: i32 = @intFromFloat(x - drag.pointer_x);
     const dy: i32 = @intFromFloat(y - drag.pointer_y);
     if (drag.action == .resize_scrolling) {
-        if (drag.scrolling_expanded_owner) |owner| {
-            if (aqueous.window_states.get(owner)) |owner_state| owner_state.scrolling_full_width = false;
-            drag.scrolling_expanded_owner = null;
-        }
-        const resized_rect = pointer_drag.resizeConstrained(drag.start, dx, dy, drag.resize_edges, drag.constraints);
+        drag.resize_axis = pointer_drag.selectResizeAxis(drag.resize_axis, dx, dy);
+        const axis = drag.resize_axis orelse return;
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
-        if (!(layout_engine.resizeScrolling(
+        var cleared_expanded = false;
+        if (axis == .horizontal) {
+            if (drag.scrolling_expanded_owner) |owner| {
+                if (aqueous.window_states.get(owner)) |owner_state| {
+                    cleared_expanded = owner_state.scrolling_full_width;
+                    owner_state.scrolling_full_width = false;
+                }
+                drag.scrolling_expanded_owner = null;
+            }
+        }
+        const resize_edges = pointer_drag.edgesForAxis(drag.resize_edges, axis);
+        const resized_rect = pointer_drag.resizeConstrained(drag.start, dx, dy, resize_edges, drag.constraints);
+        const update: layout_types.ResizeUpdate = switch (axis) {
+            .horizontal => .{ .width = resized_rect.width },
+            .vertical => .{ .height = resized_rect.height },
+        };
+        const resized = layout_engine.resizeScrolling(
             util.gpa,
             layout_state,
             drag.handle,
-            resized_rect.width,
-            resized_rect.height,
+            update,
         ) catch {
             log.err("out of memory resizing scrolling member", .{});
             return;
-        })) return;
+        };
+        if (!resized and !cleared_expanded) return;
         aqueous.api.requestManageCycle();
         return;
     }

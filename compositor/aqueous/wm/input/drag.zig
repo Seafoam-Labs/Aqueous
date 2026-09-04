@@ -7,11 +7,37 @@ const types = @import("../layout/types.zig");
 const geometry_policy = @import("../geometry.zig");
 
 pub const Action = enum { move_floating, resize_floating, resize_scrolling, swap_tiled };
+pub const ResizeAxis = enum { horizontal, vertical };
 
 pub const ResizeEdges = geometry_policy.ResizeEdges;
 
 pub const double_click_msec: u32 = 400;
 pub const click_motion_tolerance: f64 = 4;
+
+/// Latch the first axis with a larger cumulative displacement. An exact tie
+/// remains undecided until a later motion event establishes a majority.
+pub fn selectResizeAxis(current: ?ResizeAxis, dx: i32, dy: i32) ?ResizeAxis {
+    if (current) |axis| return axis;
+    const horizontal = @abs(@as(i64, dx));
+    const vertical = @abs(@as(i64, dy));
+    if (horizontal == vertical) return null;
+    return if (horizontal > vertical) .horizontal else .vertical;
+}
+
+pub fn edgesForAxis(edges: ResizeEdges, axis: ResizeAxis) ResizeEdges {
+    var selected = edges;
+    switch (axis) {
+        .horizontal => {
+            selected.top = false;
+            selected.bottom = false;
+        },
+        .vertical => {
+            selected.left = false;
+            selected.right = false;
+        },
+    }
+    return selected;
+}
 
 pub fn stayedClick(pointer_x: f64, pointer_y: f64, last_x: f64, last_y: f64) bool {
     return @abs(last_x - pointer_x) <= click_motion_tolerance and
@@ -95,6 +121,27 @@ test "modified left drag swaps tiled windows without forcing floating" {
 test "modified right drag keeps scrolling members tiled" {
     try std.testing.expectEqual(Action.resize_scrolling, action(0x111, .tiled, false, true));
     try std.testing.expectEqual(Action.resize_floating, action(0x111, .floating, false, true));
+}
+
+test "tiled resize locks to the first dominant axis" {
+    try std.testing.expectEqual(@as(?ResizeAxis, null), selectResizeAxis(null, 0, 0));
+    try std.testing.expectEqual(@as(?ResizeAxis, null), selectResizeAxis(null, 4, -4));
+    try std.testing.expectEqual(@as(?ResizeAxis, .horizontal), selectResizeAxis(null, -5, 4));
+    try std.testing.expectEqual(@as(?ResizeAxis, .vertical), selectResizeAxis(null, 2, -3));
+    try std.testing.expectEqual(@as(?ResizeAxis, .horizontal), selectResizeAxis(.horizontal, 1, 50));
+    try std.testing.expectEqual(@as(?ResizeAxis, .vertical), selectResizeAxis(.vertical, 50, 1));
+}
+
+test "tiled resize edges retain only the selected axis" {
+    const all: ResizeEdges = .{ .top = true, .bottom = true, .left = true, .right = true };
+    try std.testing.expectEqual(
+        ResizeEdges{ .left = true, .right = true },
+        edgesForAxis(all, .horizontal),
+    );
+    try std.testing.expectEqual(
+        ResizeEdges{ .top = true, .bottom = true },
+        edgesForAxis(all, .vertical),
+    );
 }
 
 test "double click timing and motion reject drags" {

@@ -247,9 +247,9 @@ pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]cons
     return leaf.scrollingColumnMembers(child, handle);
 }
 
-pub fn resizeScrolling(allocator: std.mem.Allocator, state: *State, handle: types.Handle, width: i32, height: i32) !bool {
+pub fn resizeScrolling(allocator: std.mem.Allocator, state: *State, handle: types.Handle, update: types.ResizeUpdate) !bool {
     const child = childForHandle(state, handle) orelse return false;
-    return leaf.resizeScrolling(allocator, child, handle, width, height);
+    return leaf.resizeScrolling(allocator, child, handle, update);
 }
 
 pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {

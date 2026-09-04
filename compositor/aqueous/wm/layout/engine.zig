@@ -125,13 +125,12 @@ pub fn resizeScrolling(
     allocator: std.mem.Allocator,
     state: *State,
     handle: types.Handle,
-    width: i32,
-    height: i32,
+    update: types.ResizeUpdate,
 ) !bool {
     return if (state.active_layout == .composable)
-        composable.resizeScrolling(allocator, &state.composite, handle, width, height)
+        composable.resizeScrolling(allocator, &state.composite, handle, update)
     else
-        leaf.resizeScrolling(allocator, &state.standalone, handle, width, height);
+        leaf.resizeScrolling(allocator, &state.standalone, handle, update);
 }
 
 pub fn resetScrollingSize(state: *State, handle: types.Handle) bool {
@@ -370,8 +369,13 @@ test "tile members resize through the engine like scrolling members" {
     std.testing.allocator.free(placements);
     try std.testing.expect(canResizeScrolling(&state, 1));
     try std.testing.expect(!canResizeScrolling(&state, 99));
-    try std.testing.expect(try resizeScrolling(std.testing.allocator, &state, 1, 70, 60));
+    try std.testing.expect(try resizeScrolling(std.testing.allocator, &state, 1, .{ .width = 70 }));
 
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 70, .height = 80 }, placements[0].geometry);
+    std.testing.allocator.free(placements);
+
+    try std.testing.expect(try resizeScrolling(std.testing.allocator, &state, 1, .{ .height = 60 }));
     placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
     try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 70, .height = 60 }, placements[0].geometry);
     std.testing.allocator.free(placements);

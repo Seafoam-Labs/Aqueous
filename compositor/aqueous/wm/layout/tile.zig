@@ -135,30 +135,32 @@ pub fn resize(
     allocator: std.mem.Allocator,
     state: *State,
     handle: types.Handle,
-    width: i32,
-    height: i32,
+    update: types.ResizeUpdate,
 ) !bool {
     const index = std.mem.indexOfScalar(types.Handle, state.order.items.items, handle) orelse return false;
-    if (state.last_area_width <= 0) return false;
     var changed = false;
 
-    const has_stack = state.order.items.items.len > state.master_count;
-    if (has_stack) {
-        const master_width: i32 = if (index < state.master_count)
-            width
-        else
-            state.last_area_width - state.last_gaps_inner - width;
-        const ratio = @as(f64, @floatFromInt(master_width)) / @as(f64, @floatFromInt(state.last_area_width));
-        if (ratio > 0 and ratio < 1 and state.master_ratio_override != ratio) {
-            state.master_ratio_override = ratio;
-            changed = true;
+    if (update.width) |width| {
+        const has_stack = state.order.items.items.len > state.master_count;
+        if (has_stack and state.last_area_width > 0) {
+            const master_width: i32 = if (index < state.master_count)
+                width
+            else
+                state.last_area_width - state.last_gaps_inner - width;
+            const ratio = @as(f64, @floatFromInt(master_width)) / @as(f64, @floatFromInt(state.last_area_width));
+            if (ratio > 0 and ratio < 1 and state.master_ratio_override != ratio) {
+                state.master_ratio_override = ratio;
+                changed = true;
+            }
         }
     }
 
-    const requested_height = @max(1, height);
-    if (state.height_overrides.get(handle) != requested_height) {
-        try state.height_overrides.put(allocator, handle, requested_height);
-        changed = true;
+    if (update.height) |height| {
+        const requested_height = @max(1, height);
+        if (state.height_overrides.get(handle) != requested_height) {
+            try state.height_overrides.put(allocator, handle, requested_height);
+            changed = true;
+        }
     }
     return changed;
 }
@@ -219,8 +221,9 @@ test "tile resize from the master column moves the shared split" {
     std.testing.allocator.free(placements);
     try std.testing.expect(canResize(&state, 1));
     try std.testing.expect(!canResize(&state, 99));
-    try std.testing.expect(try resize(std.testing.allocator, &state, 1, 70, 80));
-    try std.testing.expect(!try resize(std.testing.allocator, &state, 99, 70, 80));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 1, .{ .width = 70 }));
+    try std.testing.expect(!state.height_overrides.contains(1));
+    try std.testing.expect(!try resize(std.testing.allocator, &state, 99, .{ .width = 70 }));
 
     placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     defer std.testing.allocator.free(placements);
@@ -240,7 +243,8 @@ test "tile resize from the stack column derives the same split" {
     std.testing.allocator.free(placements);
     // Dragging the stack's left edge rightward by ten pixels shrinks the
     // stack width from 46 to 36, so the master grows to 60.
-    try std.testing.expect(try resize(std.testing.allocator, &state, 2, 36, 38));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 2, .{ .width = 36 }));
+    try std.testing.expect(!state.height_overrides.contains(2));
 
     placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     defer std.testing.allocator.free(placements);
@@ -257,12 +261,11 @@ test "tile resize rejects splits outside the usable area" {
 
     const placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     defer std.testing.allocator.free(placements);
-    // Overshooting either edge leaves the configured split untouched, but
-    // the vertical motion still records the member height.
-    try std.testing.expect(try resize(std.testing.allocator, &state, 1, 500, 60));
+    // Overshooting either edge leaves the configured split untouched.
+    try std.testing.expect(!try resize(std.testing.allocator, &state, 1, .{ .width = 500 }));
     try std.testing.expectEqual(@as(?f64, null), state.master_ratio_override);
-    try std.testing.expectEqual(@as(?i32, 60), state.height_overrides.get(1));
-    try std.testing.expect(try resize(std.testing.allocator, &state, 2, 500, 38));
+    try std.testing.expect(!state.height_overrides.contains(1));
+    try std.testing.expect(!try resize(std.testing.allocator, &state, 2, .{ .width = 500 }));
     try std.testing.expectEqual(@as(?f64, null), state.master_ratio_override);
 }
 
@@ -275,7 +278,8 @@ test "tile height override keeps explicit sizes while siblings share the rest" {
 
     var placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     std.testing.allocator.free(placements);
-    try std.testing.expect(try resize(std.testing.allocator, &state, 2, 46, 60));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 2, .{ .height = 60 }));
+    try std.testing.expectEqual(@as(?f64, null), state.master_ratio_override);
 
     placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     defer std.testing.allocator.free(placements);
@@ -292,7 +296,8 @@ test "tile reset restores the configured ratio and member height" {
 
     var placements = try arrange(std.testing.allocator, &state, area, &windows, options);
     std.testing.allocator.free(placements);
-    try std.testing.expect(try resize(std.testing.allocator, &state, 1, 70, 60));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 1, .{ .width = 70 }));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 1, .{ .height = 60 }));
     // The split is shared, so resetting from any member restores it. Other
     // members retain their independent height overrides.
     try std.testing.expect(resetSize(&state, 2));
@@ -318,7 +323,7 @@ test "tile drops height overrides when windows close" {
 
     var placements = try arrange(std.testing.allocator, &state, area, &.{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } }, options);
     std.testing.allocator.free(placements);
-    try std.testing.expect(try resize(std.testing.allocator, &state, 3, 46, 20));
+    try std.testing.expect(try resize(std.testing.allocator, &state, 3, .{ .height = 20 }));
 
     placements = try arrange(std.testing.allocator, &state, area, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, options);
     defer std.testing.allocator.free(placements);
