@@ -3,6 +3,8 @@
 
 const KeyboardGroup = @This();
 
+var next_shell_id: u64 = 1;
+
 const std = @import("std");
 const assert = std.debug.assert;
 const wlr = @import("wlroots");
@@ -51,6 +53,7 @@ comptime {
     assert(pressed_count_max == @typeInfo(std.meta.fieldInfo(wlr.Keyboard, .keycodes).type).array.len);
 }
 
+shell_id: u64 = 0,
 ref_count: u32 = 1,
 
 seat: *Seat,
@@ -74,15 +77,18 @@ key: wl.Listener(*wlr.Keyboard.event.Key) = .init(handleKey),
 modifiers: wl.Listener(*wlr.Keyboard) = .init(handleModifiers),
 
 pub fn create(seat: *Seat, config: Keyboard.Config, virtual: bool) !*KeyboardGroup {
+    defer server.shell_manager.dirty();
     const group = try util.gpa.create(KeyboardGroup);
     errdefer util.gpa.destroy(group);
     group.* = .{
+        .shell_id = next_shell_id,
         .seat = seat,
         .virtual = virtual,
         .config = config,
         .state = undefined,
         .link = undefined,
     };
+    next_shell_id = std.math.add(u64, next_shell_id, 1) catch @panic("shell identity exhausted");
 
     try group.pressed.ensureTotalCapacity(util.gpa, pressed_count_max);
     errdefer comptime unreachable;
@@ -117,6 +123,7 @@ pub fn ref(group: *KeyboardGroup) *KeyboardGroup {
 }
 
 pub fn unref(group: *KeyboardGroup, to_release: []u32) void {
+    defer server.shell_manager.dirty();
     for (to_release) |keycode| {
         group.processKey(&.{
             .time_msec = util.msecTimestamp(),
@@ -231,6 +238,7 @@ fn keycodeIsCapsLock(group: *KeyboardGroup, keycode: u32) bool {
 }
 
 fn boundCapsLock(group: *KeyboardGroup, keycode: u32) bool {
+    if (server.shortcuts.active(group.seat.wlr_seat)) return false;
     if (!group.keycodeIsCapsLock(keycode)) return false;
     const modifiers: u32 = @bitCast(group.state.getModifiers());
     return server.aqueous.hasKeyBinding(@intFromEnum(xkb.Keysym.Caps_Lock), modifiers);
@@ -274,6 +282,7 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
                 break :blk .builtin;
             }
         }
+        if (server.shortcuts.active(group.seat.wlr_seat)) break :blk .focus;
         // Policy chords are written in terms of the base key on the active
         // layout. For example, `Super+Shift+1` names the 1 key, not the `!`
         // keysym produced after applying Shift. Match level zero first, just
@@ -415,6 +424,7 @@ pub fn processModifiers(group: *KeyboardGroup, modifiers: wlr.Keyboard.Modifiers
 }
 
 fn handleModifiers(listener: *wl.Listener(*wlr.Keyboard), _: *wlr.Keyboard) void {
+    defer server.shell_manager.dirty();
     const group: *KeyboardGroup = @fieldParentPtr("modifiers", listener);
 
     {

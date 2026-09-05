@@ -992,6 +992,7 @@ pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
             if (overview.cards.items.len == 0) {
                 close_overview = true;
             } else {
+                serverShellDirty();
                 aqueous.api.updateOverviewSelection(overview.selected);
             }
         }
@@ -1742,6 +1743,11 @@ pub fn toggleOverview(aqueous: *Aqueous) void {
 }
 
 fn openOverview(aqueous: *Aqueous) void {
+    aqueous.openOverviewOnOutput(null);
+}
+
+pub fn openOverviewOnOutput(aqueous: *Aqueous, explicit_output: ?u64) void {
+    defer serverShellDirty();
     if (!aqueous.mode.runsInternal() or !aqueous.api.sessionUnlocked()) return;
     if (aqueous.drag != null or aqueous.api.hasNonWindowKeyboardFocus()) return;
 
@@ -1753,7 +1759,13 @@ fn openOverview(aqueous: *Aqueous) void {
 
     const focused = aqueous.api.focusedWindow();
     var target: ?*const CompositorApi.PolicyOutput = null;
-    if (focused) |handle| {
+    if (explicit_output) |id| {
+        for (snapshot.outputs) |*output| if (output.id == id) {
+            target = output;
+            break;
+        };
+        if (target == null) return;
+    } else if (focused) |handle| {
         for (snapshot.outputs) |*output| {
             if (containsWindow(output.windows, handle)) {
                 target = output;
@@ -1816,7 +1828,12 @@ fn openOverview(aqueous: *Aqueous) void {
     aqueous.api.refreshPointerFocus();
 }
 
+fn serverShellDirty() void {
+    @import("../main.zig").server.shell_manager.dirty();
+}
+
 pub fn cancelOverview(aqueous: *Aqueous) void {
+    defer serverShellDirty();
     var state = aqueous.overview orelse return;
     aqueous.overview = null;
     aqueous.api.hideOverview();
@@ -1842,6 +1859,7 @@ fn moveOverviewSelection(aqueous: *Aqueous, direction: overview_model.Direction)
     const selected = overview_model.neighbor(state.cards.items, state.selected, direction) orelse return;
     if (selected == state.selected) return;
     state.selected = selected;
+    serverShellDirty();
     aqueous.api.updateOverviewSelection(selected);
 }
 
@@ -1850,6 +1868,7 @@ fn cycleOverviewSelection(aqueous: *Aqueous, delta: i32) void {
     const selected = overview_model.cycle(state.cards.items, state.selected, delta) orelse return;
     if (selected == state.selected) return;
     state.selected = selected;
+    serverShellDirty();
     aqueous.api.updateOverviewSelection(selected);
 }
 
@@ -1858,6 +1877,7 @@ fn updateOverviewHover(aqueous: *Aqueous, x: f64, y: f64) bool {
     const selected = overview_model.hitTest(state.cards.items, x, y) orelse return false;
     if (selected != state.selected) {
         state.selected = selected;
+        serverShellDirty();
         aqueous.api.updateOverviewSelection(selected);
     }
     return true;
@@ -1932,6 +1952,7 @@ fn validateOverviewSnapshot(aqueous: *Aqueous, snapshot: *const CompositorApi.Po
                 aqueous.cancelOverview();
                 return;
             }
+            serverShellDirty();
             aqueous.api.updateOverviewSelection(state.selected);
             continue;
         }
@@ -2698,7 +2719,7 @@ fn windowUsesFloatingLayout(aqueous: *const Aqueous, key: LayoutStateKey, handle
     return aqueous.layoutIsFloating(key);
 }
 
-fn clientWindowUsesFloatingLayout(
+pub fn clientWindowUsesFloatingLayout(
     aqueous: *const Aqueous,
     handle: layout_types.Handle,
 ) bool {

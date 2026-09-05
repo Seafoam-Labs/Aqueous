@@ -80,6 +80,7 @@ fn writeVersion(writer: *std.Io.Writer) !void {
     try field(&json, "ok", true);
     try field(&json, "protocol", schema.protocol_version);
     try field(&json, "version", schema.helper_version);
+    try field(&json, "capabilities", schema.capabilities);
     try json.endObject();
 }
 
@@ -98,6 +99,7 @@ fn writeSnapshot(
     try field(&json, "ok", true);
     try field(&json, "protocol", schema.protocol_version);
     try field(&json, "helper_version", schema.helper_version);
+    try field(&json, "capabilities", schema.capabilities);
     try field(&json, "generation", generation);
     const stacking_schema = schema.find("layout.options.float.placement").?;
     try field(

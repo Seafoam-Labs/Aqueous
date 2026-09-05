@@ -1,0 +1,555 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seafoam.dev/aqueous/aqueous-shell-v1.schema.json",
+  "title": "Aqueous shell JSON batch schema 1",
+  "type": "object",
+  "required": [
+    "schema",
+    "session",
+    "sequence",
+    "base_sequence",
+    "type",
+    "upsert",
+    "removed"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "session": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "base_sequence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]+$"
+    },
+    "type": {
+      "enum": [
+        "snapshot",
+        "delta"
+      ]
+    },
+    "upsert": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/output"
+          },
+          {
+            "$ref": "#/$defs/workspace"
+          },
+          {
+            "$ref": "#/$defs/window"
+          },
+          {
+            "$ref": "#/$defs/seat"
+          },
+          {
+            "$ref": "#/$defs/keyboard"
+          },
+          {
+            "$ref": "#/$defs/keyboard_device"
+          },
+          {
+            "$ref": "#/$defs/session"
+          }
+        ]
+      }
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(output|workspace|window|seat|keyboard|keyboard_device|session):.+"
+      },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "snapshot"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "base_sequence": {
+            "type": "null"
+          },
+          "removed": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "base_sequence": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "output": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "name",
+        "bounds",
+        "usable_bounds",
+        "scale",
+        "transform",
+        "active_workspace"
+      ],
+      "properties": {
+        "kind": {
+          "const": "output"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "bounds": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            }
+          }
+        },
+        "usable_bounds": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            }
+          }
+        },
+        "scale": {
+          "type": "number"
+        },
+        "transform": {
+          "type": "string"
+        },
+        "active_workspace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "output",
+        "name",
+        "number",
+        "active",
+        "urgent"
+      ],
+      "properties": {
+        "kind": {
+          "const": "workspace"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "urgent": {
+          "type": "boolean"
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "backend",
+        "app_id",
+        "class",
+        "title",
+        "workspace",
+        "output",
+        "geometry",
+        "outer_geometry",
+        "layout",
+        "focused",
+        "visible",
+        "floating",
+        "minimized",
+        "maximized",
+        "fullscreen",
+        "skip_taskbar",
+        "skip_switcher",
+        "always_above",
+        "always_below",
+        "snapped",
+        "fixed_position",
+        "can_minimize",
+        "can_maximize"
+      ],
+      "properties": {
+        "kind": {
+          "const": "window"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "xdg",
+            "xwayland"
+          ]
+        },
+        "app_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geometry": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            }
+          }
+        },
+        "outer_geometry": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            }
+          }
+        },
+        "layout": {
+          "type": "string"
+        },
+        "focused": {
+          "type": "boolean"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "floating": {
+          "type": "boolean"
+        },
+        "minimized": {
+          "type": "boolean"
+        },
+        "maximized": {
+          "type": "boolean"
+        },
+        "fullscreen": {
+          "type": "boolean"
+        },
+        "skip_taskbar": {
+          "type": "boolean"
+        },
+        "skip_switcher": {
+          "type": "boolean"
+        },
+        "always_above": {
+          "type": "boolean"
+        },
+        "always_below": {
+          "type": "boolean"
+        },
+        "snapped": {
+          "type": "boolean"
+        },
+        "fixed_position": {
+          "type": "boolean"
+        },
+        "can_minimize": {
+          "type": "boolean"
+        },
+        "can_maximize": {
+          "type": "boolean"
+        }
+      }
+    },
+    "seat": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "output",
+        "window",
+        "focus_kind",
+        "keyboard"
+      ],
+      "properties": {
+        "kind": {
+          "const": "seat"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "window": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "focus_kind": {
+          "enum": [
+            "window",
+            "shell_surface",
+            "layer_surface",
+            "override_redirect",
+            "lock_surface",
+            "none"
+          ]
+        },
+        "keyboard": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "keyboard": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "seat",
+        "layouts",
+        "index"
+      ],
+      "properties": {
+        "kind": {
+          "const": "keyboard"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seat": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layouts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "keyboard_device": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "name",
+        "seat",
+        "group",
+        "virtual"
+      ],
+      "properties": {
+        "kind": {
+          "const": "keyboard_device"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seat": {
+          "type": "string",
+          "minLength": 1
+        },
+        "group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "virtual": {
+          "type": "boolean"
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "locked",
+        "default_seat",
+        "overview_output",
+        "overview_window"
+      ],
+      "properties": {
+        "kind": {
+          "const": "session"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "default_seat": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overview_output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overview_window": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

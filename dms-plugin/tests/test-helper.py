@@ -36,7 +36,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
         assert (p.returncode == 0) == success, result
         return result
     snap = call('snapshot')
-    assert snap['helper_version'] == '0.7.0'
+    assert snap['helper_version'] == '0.7.1'
+    assert {'generation_check', 'monitor_modes', 'cursor_sync', 'typography_sync', 'shell_dms'} <= set(snap['capabilities'])
     assert next(t for t in snap['desktop_typography']['targets'] if t['id']=='noctalia')['active'] is False
     before = (config/'layout.toml').read_bytes()
     req = dict(protocol=1,expected_generation=snap['generation'],backup_dir=str(root/'backups'),

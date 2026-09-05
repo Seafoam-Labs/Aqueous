@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const InputDevice = @This();
+var next_shell_id: u64 = 1;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -40,6 +41,7 @@ config: struct {
 
 /// InputManager.devices
 link: wl.list.Link,
+shell_id: u64,
 
 pub fn init(
     device: *InputDevice,
@@ -48,6 +50,7 @@ pub fn init(
     virtual: bool,
 ) !void {
     device.* = .{
+        .shell_id = next_shell_id,
         .seat = seat,
         .wlr_device = wlr_device,
         .virtual = virtual,
@@ -56,6 +59,7 @@ pub fn init(
         .objects = undefined,
         .link = undefined,
     };
+    next_shell_id = std.math.add(u64, next_shell_id, 1) catch @panic("shell identity exhausted");
     device.objects.init();
     server.input_manager.devices.append(device);
 

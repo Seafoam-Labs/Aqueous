@@ -114,6 +114,7 @@ pub fn build(b: *Build) !void {
 
     scanner.addCustomProtocol(b.path("protocol/river-window-management-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-window-info-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-shell-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-xkb-bindings-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-layer-shell-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/river-input-management-v1.xml"));
@@ -160,6 +161,7 @@ pub fn build(b: *Build) !void {
 
     scanner.generate("river_window_manager_v1", 10);
     scanner.generate("aqueous_window_info_manager_v1", 7);
+    scanner.generate("aqueous_shell_manager_v1", 1);
     scanner.generate("river_xkb_bindings_v1", 3);
     scanner.generate("river_layer_shell_v1", 1);
     scanner.generate("river_input_manager_v1", 2);
@@ -307,6 +309,7 @@ pub fn build(b: *Build) !void {
         inline for (&.{
             "river-window-management-v1.xml",
             "aqueous-window-info-v1.xml",
+            "aqueous-shell-v1.xml",
             "river-xkb-bindings-v1.xml",
             "river-layer-shell-v1.xml",
             "river-input-management-v1.xml",

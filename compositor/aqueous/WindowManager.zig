@@ -713,6 +713,8 @@ fn renderFinish(wm: *WindowManager) void {
 
     server.idle_inhibit_manager.checkActive();
 
+    server.shell_manager.dirty();
+    server.shortcuts.refresh();
     log.debug("finished committing transaction", .{});
 
     if (wm.scheduled.dirty or wm.scheduled.dirty_lazy or wm.rendering_scheduled.dirty) {

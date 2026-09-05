@@ -3,6 +3,8 @@
 
 const Output = @This();
 
+var next_shell_id: u64 = 1;
+
 const std = @import("std");
 const build_options = @import("build_options");
 const assert = std.debug.assert;
@@ -189,6 +191,7 @@ const RenderingState = struct {
 };
 
 /// Set to null when the wlr_output is destroyed.
+shell_id: u64 = 0,
 wlr_output: ?*wlr.Output,
 scene_output: ?*wlr.SceneOutput,
 
@@ -548,6 +551,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .position_source = .automatic,
     };
     output.* = .{
+        .shell_id = next_shell_id,
         .wlr_output = wlr_output,
         .scene_output = scene_output,
         .scheduled = initial,
@@ -557,6 +561,8 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .link_sent = undefined,
         .workspaces = undefined,
     };
+    next_shell_id = std.math.add(u64, next_shell_id, 1) catch @panic("shell identity exhausted");
+
     if (server.overlay_planes_enabled and wlr_output.isDrm()) {
         output.overlay_layer = c.wlr_output_layer_create(@ptrCast(wlr_output));
         if (output.overlay_layer == null) {

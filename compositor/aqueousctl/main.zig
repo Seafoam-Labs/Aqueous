@@ -258,6 +258,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
+    if (@import("Shell.zig").handles(args)) {
+        @import("Shell.zig").run(args, stdout) catch |err| {
+            try stderr.print("aqueousctl: shell: {s}\n", .{@errorName(err)});
+            try stderr.flush();
+            std.process.exit(if (err == error.InvalidArguments) 2 else 1);
+        };
+        return;
+    }
+
     const mode = parseMode(args) orelse {
         try stderr.writeAll(usage);
         try stderr.flush();
@@ -1562,4 +1571,8 @@ test "scene dot escapes labels and styles node types" {
     try std.testing.expect(mem.indexOf(u8, output, "leaf\\nbuffer · disabled\\n0,0 10x20") != null);
     try std.testing.expect(mem.indexOf(u8, output, "fillcolor=\"#94a3b8\", style=\"rounded,filled,dashed\"") != null);
     try std.testing.expect(mem.indexOf(u8, output, "n1 -> n2;") != null);
+}
+
+test {
+    _ = @import("Shell.zig");
 }

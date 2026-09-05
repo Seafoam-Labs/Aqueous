@@ -192,10 +192,12 @@ pub fn policyClearFocus(seat: *Seat) void {
 }
 
 pub fn policySelectOutput(seat: *Seat, output: *Output) void {
+    defer server.shell_manager.dirty();
     seat.selected_output = output;
 }
 
 pub fn policyForgetOutput(seat: *Seat, output: *Output) void {
+    defer server.shell_manager.dirty();
     if (seat.selected_output == output) seat.selected_output = null;
 }
 
@@ -858,6 +860,7 @@ pub fn manageFinish(seat: *Seat) void {
 }
 
 pub fn focus(seat: *Seat, new_focus: Focus) void {
+    defer server.shell_manager.dirty();
     const target_surface = new_focus.surface();
 
     // A session lock always supersedes application-level keyboard grabs. End
@@ -965,6 +968,7 @@ pub fn focusFromClient(seat: *Seat, new_focus: Focus) void {
 /// This should never normally be called from outside of focus(), but we make an exception for
 /// XwaylandOverrideRedirect surfaces as they don't conform to the Wayland focus model.
 pub fn keyboardEnterOrLeave(seat: *Seat, target_surface: ?*wlr.Surface) void {
+    defer server.shortcuts.refresh();
     if (target_surface) |wlr_surface| {
         seat.keyboardNotifyEnter(wlr_surface);
     } else {
@@ -1149,6 +1153,7 @@ pub fn attachDevice(seat: *Seat, device: *InputDevice) void {
 /// latter is required when a configuration reload replaces the active group's
 /// keymap/repeat state while keyboard focus itself remains unchanged.
 pub fn activateKeyboardGroup(seat: *Seat, group: *KeyboardGroup) void {
+    defer server.shell_manager.dirty();
     seat.wlr_seat.setKeyboard(&group.state);
     if (seat.wlr_seat.keyboard_state.focused_surface) |wlr_surface| {
         seat.keyboardNotifyEnter(wlr_surface);

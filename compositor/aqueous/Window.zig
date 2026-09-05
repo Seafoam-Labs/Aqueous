@@ -3042,14 +3042,26 @@ pub fn getContentType(window: *Window) wp.ContentTypeV1.Type {
 // client sees them as ordinary requests and can react identically.
 // ---------------------------------------------------------------------------
 
+pub fn requestMaximized(window: *Window, maximized: bool) void {
+    window.wm_scheduled.maximize_requested = if (maximized) .maximize else .unmaximize;
+    server.wm.dirtyWindowing();
+}
+pub fn requestMinimized(window: *Window, minimized: bool) void {
+    window.wm_scheduled.minimize_requested = if (minimized) .minimize else .unminimize;
+    server.wm.dirtyWindowing();
+}
+pub fn requestFullscreen(window: *Window, fullscreen: bool, output: ?*Output) void {
+    window.wm_scheduled.fullscreen_requested = if (fullscreen) .{ .fullscreen = output } else .exit;
+    server.wm.dirtyWindowing();
+}
+
 fn handleFtmRequestMaximize(
     listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Maximized),
     event: *wlr.ForeignToplevelHandleV1.event.Maximized,
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_maximize", listener);
     if (window.state != .mapped and window.state != .initialized) return;
-    window.wm_scheduled.maximize_requested = if (event.maximized) .maximize else .unmaximize;
-    server.wm.dirtyWindowing();
+    window.requestMaximized(event.maximized);
 }
 
 fn handleFtmRequestMinimize(
@@ -3058,17 +3070,7 @@ fn handleFtmRequestMinimize(
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_minimize", listener);
     if (window.state != .mapped and window.state != .initialized) return;
-    if (event.minimized) {
-        // "Please minimize" — schedule it for the next manage sequence; the wm
-        // client receives it via river_window_v1.minimize_requested.
-        window.wm_scheduled.minimize_requested = .minimize;
-        server.wm.dirtyWindowing();
-    } else {
-        // The integrated policy and protocol compatibility path consume the
-        // same explicit request during the next management transaction.
-        window.wm_scheduled.minimize_requested = .unminimize;
-        server.wm.dirtyWindowing();
-    }
+    window.requestMinimized(event.minimized);
 }
 
 fn handleFtmRequestActivate(
@@ -3098,16 +3100,11 @@ fn handleFtmRequestFullscreen(
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_fullscreen", listener);
     if (window.state != .mapped and window.state != .initialized) return;
-    if (event.fullscreen) {
-        const output_hint: ?*Output = if (@intFromPtr(event.output) != 0)
-            @ptrCast(@alignCast(event.output.data))
-        else
-            null;
-        window.wm_scheduled.fullscreen_requested = .{ .fullscreen = output_hint };
-    } else {
-        window.wm_scheduled.fullscreen_requested = .exit;
-    }
-    server.wm.dirtyWindowing();
+    const output_hint: ?*Output = if (@intFromPtr(event.output) != 0)
+        @ptrCast(@alignCast(event.output.data))
+    else
+        null;
+    window.requestFullscreen(event.fullscreen, output_hint);
 }
 
 fn handleFtmRequestClose(

@@ -142,6 +142,8 @@ wm: WindowManager,
 aqueous: Aqueous,
 workspace_manager: WorkspaceManager,
 window_info_manager: WindowInfoManager,
+shell_manager: @import("ShellManager.zig") = .{},
+shortcuts: @import("ShortcutInhibitManager.zig") = .{},
 xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
 
@@ -559,6 +561,8 @@ pub fn init(
     try server.xkb_config.init();
     try server.idle_inhibit_manager.init();
     try server.lock_manager.init();
+    try server.shell_manager.init();
+    try server.shortcuts.init();
 
     server.renderer.events.lost.add(&server.renderer_lost);
     server.xdg_shell.events.new_toplevel.add(&server.new_xdg_toplevel);
@@ -756,7 +760,8 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.input_manager.pointer_gestures.global or
         global == server.idle_inhibit_manager.wlr_manager.global or
         global == server.workspace_manager.global or
-        global == server.screencopy_manager.global or global == server.content_type_manager.global;
+        global == server.screencopy_manager.global or global == server.content_type_manager.global or
+        (server.shortcuts.manager != null and global == server.shortcuts.manager.?.global);
 }
 
 /// Returns true if the global is blocked for security contexts
@@ -771,6 +776,7 @@ fn blocklist(server: *Server, global: *const wl.Global) bool {
         global == server.wlr_foreign_toplevel_manager.global or
         global == server.foreign_toplevel_list.global or
         global == server.window_info_manager.global or
+        global == server.shell_manager.global or
         global == server.toplevel_capture_source_manager.global or
         global == server.export_dmabuf_manager.global or
         global == server.data_control_manager.global or

@@ -343,6 +343,7 @@ fn publishIdle(wsm: *WorkspaceManager) void {
     reapAllOutputs();
     var it = wsm.managers.iterator(.forward);
     while (it.next()) |manager| manager.publish();
+    server.shell_manager.dirty();
 }
 
 /// Reap empty, non-active, non-trailing workspaces on every output, then ensure

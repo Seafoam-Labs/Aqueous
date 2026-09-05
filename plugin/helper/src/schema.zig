@@ -1,7 +1,12 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.7.0";
+pub const helper_version = "0.7.1";
+pub const capabilities: []const []const u8 = &.{
+    "schema_fields",       "validate",      "generation_check", "stdin_requests",
+    "atomic_file_replace", "monitor_modes", "live_outputs",     "keybinds",
+    "window_rules",        "cursor_sync",   "typography_sync",  "shell_dms",
+};
 
 pub const FileId = enum(u8) {
     wm,
