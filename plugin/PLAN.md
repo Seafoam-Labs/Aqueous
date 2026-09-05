@@ -1,7 +1,8 @@
 # Aqueous Settings Flyout — Noctalia v5 Plan
 
-Status: implemented through `0.5.0`, including opt-in cursor management,
-desktop typography synchronization, a visual output layout editor, typed
+Status: implemented through `0.6.0`, including opt-in cursor management,
+desktop typography synchronization, a visual output layout editor with
+resolution and refresh-rate selection, typed
 stacking layout configuration, and named stacking snap-layout editing
 Target: Noctalia v5 native Luau plugin system  
 Provisional plugin id: `aqueous/settings`  

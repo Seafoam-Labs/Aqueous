@@ -1,0 +1,29 @@
+{
+  "id": "aqueousSettings",
+  "name": "Aqueous Settings",
+  "description": "Configure Aqueous layouts, displays, input, appearance, rules and shortcuts.",
+  "version": "0.2.0",
+  "author": "Seafoam Labs",
+  "type": "composite",
+  "capabilities": [
+    "dankbar-widget",
+    "daemon"
+  ],
+  "components": {
+    "widget": "./AqueousWidget.qml",
+    "daemon": "./AqueousDaemon.qml"
+  },
+  "settings": "./Settings.qml",
+  "icon": "tune",
+  "requires_dms": ">=1.6.0",
+  "dependencies": [
+    "aqueous-config",
+    "aqueousctl"
+  ],
+  "permissions": [
+    "settings_read",
+    "settings_write",
+    "process"
+  ],
+  "startupCheck": "./StartupCheck.qml"
+}

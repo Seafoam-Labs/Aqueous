@@ -168,5 +168,12 @@
   "error.request_write": "Could not write the temporary apply request",
   "error.color_picker": "Noctalia could not open or return a valid color from the color picker",
   "error.color_alpha": "Alpha must be a whole number from 0 through 255",
-  "error.generic": "The configuration helper reported an error"
+  "error.generic": "The configuration helper reported an error",
+  "display.resolution": "Resolution",
+  "display.refresh_rate": "Refresh rate (Hz)",
+  "display.refresh_auto": "Automatic",
+  "display.custom_mode": "Custom mode",
+  "display.mode_inherited": "Mode inherited from wm.toml. Editing creates an outputs.toml override on Apply.",
+  "display.mode_hint": "Advertised modes are listed when available. Enter custom values for offline outputs; Automatic lets Aqueous choose the refresh rate.",
+  "display.invalid_mode": "Enter WIDTHxHEIGHT (1–100000 pixels) and a refresh rate between 0.001 and 1000 Hz, or leave the rate empty for Automatic."
 }

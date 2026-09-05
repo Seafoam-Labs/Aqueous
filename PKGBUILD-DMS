@@ -10,7 +10,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-shell>=1.6.0' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -20,16 +20,17 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
 makedepends=('clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf'
-             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
+             'python' 'jq' 'ripgrep' 'qt6-declarative' 'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
 optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
             'nemo: recommended file manager'
             'firefox: web browser')
-conflicts=('aqueous-git' 'aqueous-bin')
+provides=('aqueous')
+conflicts=('aqueous' 'aqueous-git' 'aqueous-bin' 'aqueous-git-intel')
 install=aqueous.install
 source=(
-    "aqueous::git+${url}.git#tag=v${pkgver}"
+    "aqueous::git+${url}.git"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
     "xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz"
 )
@@ -38,6 +39,11 @@ sha256sums=(
     '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
     '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
 )
+
+pkgver() {
+    cd "$srcdir/aqueous"
+    git describe --long --tags --match 'v[0-9]*' | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
 
 prepare() {
     patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
@@ -81,6 +87,10 @@ build() {
         -Dman-pages=true \
         --prefix "$srcdir/aqueous-dist" install
 
+    msg2 "Building shared Aqueous configuration helper..."
+    zig build --build-file "$srcdir/aqueous/plugin/helper/build.zig" \
+        -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-plugin-dist"
+
     msg2 "Building bundled xdg-desktop-portal-aqueous 0.8.4..."
     sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
         "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
@@ -118,11 +128,15 @@ check() {
         error "compositor still links SceneFX"
         return 1
     fi
+    "$srcdir/aqueous/plugin/tests/test-helper.sh" "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
+    "$srcdir/aqueous/dms-plugin/tests/test-all.sh" "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
     "$srcdir/aqueous/packaging/tests/test-portal-packaging.sh" \
         "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 }
 
 package() {
+    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-plugin-dist/bin/aqueous-config" \
+        DESTDIR="$pkgdir" PREFIX=/usr "$srcdir/aqueous/dms-plugin/packaging/install.sh"
     # Install the compositor/window-manager and read-only inspection client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueousctl" "$pkgdir/usr/bin/aqueousctl"

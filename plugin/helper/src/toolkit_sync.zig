@@ -3,6 +3,7 @@ const config = @import("aqueous_config_document");
 
 const Allocator = std.mem.Allocator;
 
+pub const Shell = enum { noctalia, dms };
 pub const target_count = 6;
 pub const baseline_size_pt: f64 = 12.0;
 
@@ -282,6 +283,10 @@ fn familyLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
 }
 
 pub fn inspect(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
+    return inspectForShell(allocator, io, spec, .noctalia);
+}
+
+pub fn inspectForShell(allocator: Allocator, io: std.Io, spec: *const FontSpec, shell: Shell) Report {
     const gtk_value = gtkFontValue(allocator, spec) catch "";
     const qfont5_value = qfont5Value(allocator, spec) catch "";
     const qfont6_value = qfont6Value(allocator, spec) catch "";
@@ -301,7 +306,7 @@ pub fn inspect(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
     const gsettings_available = commandExists("gsettings");
 
     return .{ .targets = .{
-        statusWithCapability("noctalia", true, true, documentMatches3(allocator, noctalia_path, .{
+        if (shell == .dms) status("noctalia", false, false, false) else statusWithCapability("noctalia", true, true, documentMatches3(allocator, noctalia_path, .{
             .{ "shell", "font_family", family_raw },
             .{ "accessibility", "ui_scale", scale_raw },
             .{ "bar.default", "font_scale", scale_raw },
@@ -315,6 +320,10 @@ pub fn inspect(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
 }
 
 pub fn apply(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
+    return applyForShell(allocator, io, spec, .noctalia);
+}
+
+pub fn applyForShell(allocator: Allocator, io: std.Io, spec: *const FontSpec, shell: Shell) Report {
     const gtk_value = gtkFontValue(allocator, spec) catch "";
     const qfont5_value = qfont5Value(allocator, spec) catch "";
     const qfont6_value = qfont6Value(allocator, spec) catch "";
@@ -329,7 +338,7 @@ pub fn apply(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
     const qt5_path = configPath(allocator, "qt5ct/qt5ct.conf") catch "";
     const qt6_path = configPath(allocator, "qt6ct/qt6ct.conf") catch "";
 
-    const noctalia_ok = updateDocument3(allocator, noctalia_path, .{
+    const noctalia_ok = shell == .noctalia and updateDocument3(allocator, noctalia_path, .{
         .{ "shell", "font_family", family_raw },
         .{ "accessibility", "ui_scale", scale_raw },
         .{ "bar.default", "font_scale", scale_raw },
@@ -351,7 +360,7 @@ pub fn apply(allocator: Allocator, io: std.Io, spec: *const FontSpec) Report {
     const qt6_ok = !qt6_available or updateDocument(allocator, qt6_path, "Fonts", "general", qfont6_value);
 
     return .{ .targets = .{
-        appliedStatusWithCapability("noctalia", true, true, noctalia_ok, spec.isSpecific()),
+        if (shell == .dms) status("noctalia", false, false, false) else appliedStatusWithCapability("noctalia", true, true, noctalia_ok, spec.isSpecific()),
         appliedStatus("gtk3", true, true, gtk3_ok),
         appliedStatus("gtk4", true, true, gtk4_ok),
         appliedStatus("gsettings", gsettings_available, gsettings_available, gsettings_ok),

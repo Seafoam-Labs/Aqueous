@@ -37,12 +37,14 @@ pub fn main(init: std.process.Init) !void {
 fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.Io.Writer) !void {
     if (args.len < 2) return error.MissingCommand;
     const command = parseCommand(args[1]) orelse return error.UnknownCommand;
+    const shell_name = option(args, "--shell") orelse "noctalia";
+    const shell: toolkit_sync.Shell = if (std.mem.eql(u8, shell_name, "dms")) .dms else if (std.mem.eql(u8, shell_name, "noctalia")) .noctalia else return error.UnknownShell;
     switch (command) {
         .version => try writeVersion(writer),
         .snapshot => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
-            try writeSnapshot(io, writer, &files, null, null);
+            try writeSnapshot(io, writer, &files, null, null, shell);
         },
         .raw => {
             const wanted = option(args, "--file") orelse return error.MissingFile;
@@ -53,7 +55,7 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
         },
         .validate, .apply => {
             const request_path = option(args, "--request") orelse return error.MissingRequest;
-            try handleRequest(allocator, io, writer, request_path, command == .apply);
+            try handleRequest(allocator, io, writer, request_path, command == .apply, shell);
         },
     }
 }
@@ -87,6 +89,7 @@ fn writeSnapshot(
     files: *const config.ConfigFiles,
     applied_report: ?*const toolkit_sync.Report,
     applied_cursor_report: ?*const cursor_sync.Report,
+    shell: toolkit_sync.Shell,
 ) !void {
     var generation_buffer: [16]u8 = undefined;
     const generation = generationText(files, &generation_buffer);
@@ -134,6 +137,9 @@ fn writeSnapshot(
         &files.items[@intFromEnum(schema.FileId.wm)].document,
     );
 
+    try json.objectField("live_outputs");
+    try writeLiveOutputs(io, &json, files.allocator);
+
     try json.objectField("custom_keybinds");
     try writeCustomKeybinds(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
 
@@ -173,7 +179,7 @@ fn writeSnapshot(
     const families = try toolkit_sync.installedFamilies(files.allocator, io, typography.family);
     const faces = try toolkit_sync.installedFaces(files.allocator, io);
     const inspected = if (applied_report == null)
-        toolkit_sync.inspect(files.allocator, io, &typography)
+        toolkit_sync.inspectForShell(files.allocator, io, &typography, shell)
     else
         undefined;
     const report = applied_report orelse &inspected;
@@ -431,8 +437,13 @@ fn writeStringList(json: *std.json.Stringify, raw_value: []const u8) !void {
     try json.endArray();
 }
 
-fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool) !void {
-    const source = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, request_path, allocator, .limited(max_request_bytes));
+fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, request_path: []const u8, do_apply: bool, shell: toolkit_sync.Shell) !void {
+    var stdin_buffer: [4096]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
+    const source = if (std.mem.eql(u8, request_path, "-"))
+        try stdin_reader.interface.allocRemaining(allocator, .limited(max_request_bytes))
+    else
+        try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, request_path, allocator, .limited(max_request_bytes));
     var parsed = try std.json.parseFromSlice(Json, allocator, source, .{});
     defer parsed.deinit();
     if (parsed.value != .object) return error.InvalidRequest;
@@ -440,6 +451,10 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
     const protocol = jsonInteger(request.get("protocol")) orelse return error.MissingProtocol;
     if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
     const expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
+    const typography_sync_requested = if (request.get("sync_typography")) |value|
+        jsonBool(value) orelse return error.InvalidTypographySyncRequest
+    else
+        false;
     const cursor_sync_requested = if (request.get("sync_cursor")) |value|
         jsonBool(value) orelse return error.InvalidCursorSyncRequest
     else
@@ -616,14 +631,14 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
     try toolkit_sync.validateStyle(typography.style);
     try cursor_sync.validateTheme(cursor.theme);
     if (cursor.managed and (cursor_changed or cursor_sync_requested)) try cursor_sync.validateInstalledTheme(allocator, cursor.theme);
-    if (typography_changed) {
+    if (typography_changed or typography_sync_requested) {
         try toolkit_sync.validateInstalledFont(allocator, io, &typography);
     }
 
     var sync_report: ?toolkit_sync.Report = null;
     var cursor_report: ?cursor_sync.Report = null;
 
-    if (do_apply and (changed_count > 0 or cursor_sync_requested)) {
+    if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested)) {
         if (changed_count > 1) {
             const backup_dir = jsonString(request.get("backup_dir")) orelse return error.BackupDirRequired;
             try backupOriginals(allocator, backup_dir, expected, &files, originals, dirty);
@@ -635,8 +650,8 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
                 return save_error;
             };
         }
-        if (typography_changed) {
-            sync_report = toolkit_sync.apply(allocator, io, &typography);
+        if (typography_changed or typography_sync_requested) {
+            sync_report = toolkit_sync.applyForShell(allocator, io, &typography, shell);
         }
         if (cursor_changed or cursor_sync_requested) {
             cursor_report = cursor_sync.apply(allocator, io, &cursor);
@@ -649,6 +664,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, reque
         &files,
         if (sync_report) |*report| report else null,
         if (cursor_report) |*report| report else null,
+        shell,
     );
 }
 
@@ -717,6 +733,9 @@ fn writeConfiguredMonitor(
     }
     try field(json, "transform", transform);
     try field(json, "scale", scale);
+    try field(json, "scale_configured", raw_scale != null);
+    try field(json, "mode", if (raw_mode) |raw| unquoteToml(raw) else "");
+    try field(json, "mode_inherited", tableEntryRaw(entries, table_index, "mode") == null and raw_mode != null or (std.mem.eql(u8, id_prefix, "wm-output") and raw_mode != null));
     if (dimensions) |size| {
         try field(json, "width", size[0]);
         try field(json, "height", size[1]);
@@ -1578,6 +1597,9 @@ fn applyMonitorChanges(
         const transform = jsonString(change.object.get("transform")) orelse return error.InvalidMonitorTransform;
         if (!validMonitorTransform(transform)) return error.InvalidMonitorTransform;
 
+        const mode = if (change.object.get("mode")) |value| jsonString(value) orelse return error.InvalidMonitorMode else null;
+        if (mode) |value| if (!validMonitorMode(value)) return error.InvalidMonitorMode;
+
         var table_index: ?usize = null;
         if (std.mem.startsWith(u8, id, "output:")) {
             table_index = std.fmt.parseInt(usize, id["output:".len..], 10) catch return error.InvalidMonitorId;
@@ -1605,6 +1627,10 @@ fn applyMonitorChanges(
         const encoded_transform = try jsonStringLiteral(allocator, transform);
         try setTableRaw(document, table_index.?, "position", encoded_position);
         try setTableRaw(document, table_index.?, "transform", encoded_transform);
+        if (mode) |value| {
+            const encoded_mode = try jsonStringLiteral(allocator, value);
+            try setTableRaw(document, table_index.?, "mode", encoded_mode);
+        }
     }
 }
 
@@ -1670,6 +1696,38 @@ fn parsePosition(raw_value: []const u8) ?[2]i64 {
         std.fmt.parseInt(i64, std.mem.trim(u8, value[1..comma], " \t"), 10) catch return null,
         std.fmt.parseInt(i64, std.mem.trim(u8, value[comma + 1 .. value.len - 1], " \t"), 10) catch return null,
     };
+}
+
+// The compositor accepts WxH or WxH@Hz. Bound values before its conversion
+// to integer millihertz and reject malformed strings before touching a file.
+fn validMonitorMode(value: []const u8) bool {
+    const dimensions = parseModeDimensions(value) orelse return false;
+    if (dimensions[0] > 100_000 or dimensions[1] > 100_000) return false;
+    if (std.mem.indexOfScalar(u8, value, '@')) |at| {
+        const hz = std.fmt.parseFloat(f64, value[at + 1 ..]) catch return false;
+        return std.math.isFinite(hz) and hz >= 0.001 and hz <= 1000;
+    }
+    return true;
+}
+
+fn writeLiveOutputs(io: std.Io, json: *std.json.Stringify, allocator: Allocator) !void {
+    const process_allocator = std.heap.c_allocator;
+    const result = std.process.run(process_allocator, io, .{
+        .argv = &.{ "aqueousctl", "outputs", "--json" },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    }) catch return json.write([_]Json{});
+    defer process_allocator.free(result.stdout);
+    defer process_allocator.free(result.stderr);
+    const success = switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!success) return json.write([_]Json{});
+    var parsed = std.json.parseFromSlice(Json, allocator, result.stdout, .{}) catch return json.write([_]Json{});
+    defer parsed.deinit();
+    if (parsed.value != .array) return json.write([_]Json{});
+    try json.write(parsed.value);
 }
 
 fn parseModeDimensions(value: []const u8) ?[2]i64 {
@@ -2036,6 +2094,7 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidMonitorName,
         error.InvalidMonitorPosition,
         error.InvalidMonitorTransform,
+        error.InvalidMonitorMode,
         error.InvalidMonitorId,
         error.UnknownMonitor,
         error.InvalidCustomKeybindChanges,
@@ -2143,4 +2202,9 @@ test "typed colors serialize as canonical AARRGGBB" {
             encodeTomlValue(arena.allocator(), color_field, .{ .string = @constCast(invalid) }),
         );
     }
+}
+
+test "monitor modes retain fractional rates and reject invalid values" {
+    for ([_][]const u8{ "1920x1080", "2560x1440@59.94", "3840x2160@143.999", "1920x1080@600" }) |mode| try std.testing.expect(validMonitorMode(mode));
+    for ([_][]const u8{ "", "0x1080", "1920x-1", "100001x1080", "1920x1080@0", "1920x1080@nan", "1920x1080@inf", "1920x1080@1001", "1920x1080@60@75", "1920x1080\"\nfoo=1" }) |mode| try std.testing.expect(!validMonitorMode(mode));
 }

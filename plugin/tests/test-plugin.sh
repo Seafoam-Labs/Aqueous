@@ -14,7 +14,7 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 manifest = tomllib.loads((root / "plugin.toml").read_text())
 assert manifest["id"] == "aqueous/settings"
-assert manifest["version"] == "0.5.0"
+assert manifest["version"] == "0.6.0"
 assert manifest["min_noctalia"] == "5.0.0"
 assert manifest["plugin_api"] == 9
 assert manifest["widget"][0]["entry"] == "widget.luau"
@@ -98,7 +98,7 @@ for feature in (
     'local function fontFaceControl',
     'typography.faces or {}',
     'typographyTargets',
-    'MIN_HELPER_VERSION = "0.5.0"',
+    'MIN_HELPER_VERSION = "0.7.0"',
     'desktop.cursor.managed',
     'cursorThemeControl',
     'cursor-theme-filter',
@@ -137,7 +137,7 @@ import tomllib
 
 catalog = tomllib.loads(pathlib.Path(sys.argv[1]).read_text())
 assert catalog["plugin"][0]["id"] == "aqueous/settings"
-assert catalog["plugin"][0]["version"] == "0.5.0"
+assert catalog["plugin"][0]["version"] == "0.6.0"
 assert catalog["plugin"][0]["plugin_api"] == 9
 assert "aqueousctl" in catalog["plugin"][0]["dependencies"]
 PY

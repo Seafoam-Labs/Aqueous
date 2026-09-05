@@ -44,7 +44,7 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  .helper_version == "0.5.0" and
+  .helper_version == "0.7.0" and
   (.fields | length) >= 145 and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
   (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
@@ -568,3 +568,5 @@ fi
 jq -e '.ok == false and .code == "invalid_value"' "$test_root/invalid-collections-response.json" >/dev/null
 
 echo "aqueous-config integration tests passed"
+
+python3 "$plugin_root/tests/test-modes.py" "$helper"

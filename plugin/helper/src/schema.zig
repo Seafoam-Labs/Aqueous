@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.5.0";
+pub const helper_version = "0.7.0";
 
 pub const FileId = enum(u8) {
     wm,

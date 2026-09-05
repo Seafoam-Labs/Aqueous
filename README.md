@@ -75,6 +75,8 @@ model; they do not replace it.
   [Noctalia](https://github.com/noctalia-dev/noctalia) as its shell, while
   Aqueous continues to use standard layer-shell interfaces and does not embed
   the shell into the compositor.
+  The DMS package includes a native [Aqueous Settings plugin for Dank Material
+  Shell](dms-plugin/README.md), with a bar popout and IPC-accessible window.
 
 ## Performance by design
 

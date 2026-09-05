@@ -1,7 +1,7 @@
 --!nonstrict
 
 local PROTOCOL = 1
-local MIN_HELPER_VERSION = "0.5.0"
+local MIN_HELPER_VERSION = "0.7.0"
 local MAX_SNAP_LAYOUTS = 8
 local MAX_SNAP_ZONES = 16
 local categories = {
@@ -549,6 +549,7 @@ local function writeRequest(mode)
 			x = monitor.x,
 			y = monitor.y,
 			transform = monitor.transform,
+			mode = monitor.mode,
 		})
 	end
 	table.sort(monitorChanges, function(a, b)
@@ -673,6 +674,45 @@ local function configuredMonitorByName()
 	return result
 end
 
+local function modeParts(mode)
+	local resolution, refresh = tostring(mode or ""):match("^(%d+x%d+)@([%d%.]+)$")
+	if resolution then return resolution, refresh end
+	return tostring(mode or ""):match("^(%d+x%d+)$") or "", ""
+end
+
+local function refreshText(value)
+	return string.format("%.3f", tonumber(value) or 0):gsub("0+$", ""):gsub("%.$", "")
+end
+
+local function withMonitorMode(monitor, saved)
+	local live = nil
+	for _, output in ipairs(snapshot.live_outputs or {}) do
+		if output.name == monitor.name then live = output break end
+	end
+	monitor.modes = live and live.modes or {}
+	monitor.scale = saved and saved.scale_configured and saved.scale or (live and live.scale) or 1
+	monitor.mode = saved and saved.mode or ""
+	monitor.mode_inherited = saved and saved.mode_inherited or false
+	if monitor.mode == "" then
+		for _, mode in ipairs(monitor.modes) do
+			if mode.current then
+				monitor.mode = tostring(mode.width) .. "x" .. tostring(mode.height)
+				if (tonumber(mode.refresh) or 0) > 0 then monitor.mode ..= "@" .. refreshText(mode.refresh) end
+				break
+			end
+		end
+	end
+	local draft = monitorDrafts[monitor.id]
+	if draft and draft.mode then monitor.mode = draft.mode end
+	local resolution = modeParts(monitor.mode)
+	local width, height = resolution:match("^(%d+)x(%d+)$")
+	if width and height then
+		monitor.width = tonumber(width) / monitor.scale
+		monitor.height = tonumber(height) / monitor.scale
+	end
+	return monitor
+end
+
 local function monitorLayout()
 	local result = {}
 	local seen = {}
@@ -697,7 +737,7 @@ local function monitorLayout()
 			monitor.y = monitorDrafts[monitor.id].y
 			monitor.transform = monitorDrafts[monitor.id].transform
 		end
-		table.insert(result, monitor)
+		table.insert(result, withMonitorMode(monitor, saved))
 		seen[live.name] = true
 	end
 	for _, saved in ipairs(snapshot.monitors or {}) do
@@ -720,7 +760,7 @@ local function monitorLayout()
 				monitor.y = monitorDrafts[monitor.id].y
 				monitor.transform = monitorDrafts[monitor.id].transform
 			end
-			table.insert(result, monitor)
+			table.insert(result, withMonitorMode(monitor, saved))
 		end
 	end
 	table.sort(result, function(a, b)
@@ -732,13 +772,15 @@ local function monitorLayout()
 	return result
 end
 
-local function setMonitorDraft(monitor, x, y, transform)
+local function setMonitorDraft(monitor, x, y, transform, mode)
+	local previous = monitorDrafts[monitor.id]
 	monitorDrafts[monitor.id] = {
 		id = monitor.id,
 		name = monitor.name,
 		x = math.floor((tonumber(x) or monitor.x) + 0.5),
 		y = math.floor((tonumber(y) or monitor.y) + 0.5),
 		transform = transform or monitor.transform or "normal",
+		mode = mode or (previous and previous.mode),
 	}
 	status = "dirty"
 	statusMessage = ""
@@ -1005,6 +1047,64 @@ local function monitorCanvas(monitors)
 	}, children)
 end
 
+local function setMonitorMode(monitor, resolution, refresh)
+	local width, height = tostring(resolution):match("^(%d+)x(%d+)$")
+	local hz = refresh ~= "" and tonumber(refresh) or nil
+	if not width or not height or tonumber(width) < 1 or tonumber(height) < 1 or tonumber(width) > 100000 or tonumber(height) > 100000
+		or (refresh ~= "" and (not hz or hz ~= hz or hz < 0.001 or hz > 1000)) then
+		status = "error"
+		statusMessage = tr("display.invalid_mode")
+		render()
+		return
+	end
+	local mode = resolution .. (hz and "@" .. refreshText(hz) or "")
+	setMonitorDraft(monitor, monitor.x, monitor.y, monitor.transform, mode)
+end
+
+local function monitorModeControls(monitor)
+	local resolution, refresh = modeParts(monitor.mode)
+	local resolutions, rates = {}, { tr("display.refresh_auto") }
+	local seenResolution, seenRate = {}, {}
+	for _, mode in ipairs(monitor.modes or {}) do
+		local size = tostring(mode.width) .. "x" .. tostring(mode.height)
+		if not seenResolution[size] then table.insert(resolutions, size) seenResolution[size] = true end
+		local hz = refreshText(mode.refresh)
+		if size == resolution and (tonumber(mode.refresh) or 0) > 0 and not seenRate[hz] then
+			table.insert(rates, hz) seenRate[hz] = true
+		end
+	end
+	if resolution ~= "" and not seenResolution[resolution] then table.insert(resolutions, resolution) end
+	if refresh ~= "" and not seenRate[refresh] then table.insert(rates, refresh) end
+	local selectedResolution, selectedRate = 0, 0
+	for index, value in ipairs(resolutions) do if value == resolution then selectedResolution = index - 1 end end
+	for index, value in ipairs(rates) do if value == refresh then selectedRate = index - 1 end end
+	return ui.column({ gap = 6 }, {
+		ui.row({ gap = 8, align = "center" }, {
+			ui.label({ text = tr("display.resolution"), width = 88 }),
+			ui.select({ key = "monitor-resolution-" .. monitor.id, options = resolutions, selectedIndex = selectedResolution, enabled = #resolutions > 0, flexGrow = 1,
+				onChange = function(index, _text)
+					local value = resolutions[(tonumber(index) or 0) + 1]
+					if value then setMonitorMode(monitor, value, "") end
+				end }),
+			ui.label({ text = tr("display.refresh_rate"), width = 88 }),
+			ui.select({ key = "monitor-refresh-" .. monitor.id, options = rates, selectedIndex = selectedRate, enabled = resolution ~= "", flexGrow = 1,
+				onChange = function(index, _text)
+					local selectedIndex = tonumber(index) or 0
+					setMonitorMode(monitor, resolution, selectedIndex == 0 and "" or rates[selectedIndex + 1] or "")
+				end }),
+		}),
+		ui.row({ gap = 8, align = "center" }, {
+			ui.label({ text = tr("display.custom_mode"), width = 88 }),
+			ui.input({ key = "monitor-custom-resolution-" .. monitor.id .. "-" .. resolution, value = resolution, placeholder = "WIDTHxHEIGHT", flexGrow = 1,
+				onSubmit = function(value) setMonitorMode(monitor, value, "") end }),
+			ui.label({ text = "Hz", width = 24 }),
+			ui.input({ key = "monitor-custom-refresh-" .. monitor.id .. "-" .. refresh, value = refresh, placeholder = tr("display.refresh_auto"), flexGrow = 1,
+				onSubmit = function(value) setMonitorMode(monitor, resolution, value) end }),
+		}),
+		ui.label({ text = monitor.mode_inherited and tr("display.mode_inherited") or tr("display.mode_hint"), fontSize = 11, color = "on_surface_variant", maxLines = 3 }),
+	})
+end
+
 local function monitorDetails(monitor)
 	local transforms = { "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" }
 	local selected = 0
@@ -1039,6 +1139,7 @@ local function monitorDetails(monitor)
 			fontSize = 11,
 			color = "on_surface_variant",
 		}),
+		monitorModeControls(monitor),
 		ui.row({ gap = 8, align = "center" }, {
 			ui.label({ text = "X", fontSize = 11 }),
 			ui.input({

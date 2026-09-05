@@ -12,9 +12,13 @@ padding, presets, migration from legacy A-D zones, and layout/zone add-remove
 controls. Layout IDs and zone IDs are editable, and the panel can create custom
 bindings for a selected layout, zone, or layout cycle. The helper writes the
 nested snap-layout tables atomically.
-The Displays page includes a
-visual monitor canvas: drag monitor cards relative to one another, select
-their rotation or flipped orientation, and use exact X/Y fields when needed.
+The Displays page includes resolution and refresh-rate selectors populated
+from `aqueousctl outputs --json`, plus custom mode entry for offline monitors.
+Fractional rates such as 59.94 Hz are preserved. Automatic refresh saves only
+`WIDTHxHEIGHT`; selecting a rate saves `WIDTHxHEIGHT@Hz`. These controls require
+`aqueous-config` 0.7.0 or newer and stay staged with position and rotation until
+Apply. A visual monitor canvas lets you drag monitor cards relative to one
+another, select their rotation or flipped orientation, and use exact X/Y fields when needed.
 The canvas uses a common scale, so monitor rectangles reflect their relative
 logical resolutions and expand to use the available preview area. Connected
 monitors appear even before they have an `[[output]]` block. Changes remain
@@ -59,7 +63,9 @@ This is a v5 plugin: it uses `plugin.toml`, Luau entry scripts, and declarative
 
 - `settings/` — the Noctalia widget, panel, manifest, and translations; v5 maps the `aqueous/settings` ID to its second path segment.
 - `catalog.toml` — the v5 source index for `aqueous/settings`.
-- `helper/` — `aqueous-config`, a small Zig helper used by the panel.
+- `helper/` — `aqueous-config`, the shared Zig helper used by this panel and
+  the [DMS plugin](../dms-plugin/README.md). Version 0.6.0 adds explicit DMS
+  shell selection and stdin requests while preserving Noctalia defaults.
 - `tests/` — document/protocol fixtures and Noctalia manifest checks.
 - `packaging/` — system and local-development installation helpers.
 - `PLAN.md` — the design and milestone record that drove the implementation.
