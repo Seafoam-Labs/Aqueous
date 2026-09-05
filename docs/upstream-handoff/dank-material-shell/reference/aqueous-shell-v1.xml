@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="aqueous_shell_v1">
+  <copyright>SPDX-FileCopyrightText: © 2026 Seafoam Labs
+SPDX-License-Identifier: MIT</copyright>
+  <description summary="Aqueous shell state and typed policy operations">
+    Privileged same-session shell interface. JSON schema 1 is documented in
+    aqueous-shell-v1.md. IDs are opaque strings scoped to the session token.
+    State is committed policy state, not animation frame geometry. Clients
+    acknowledge each bounded batch before another is sent. Intermediate states
+    may be coalesced; base_sequence identifies the state to which a delta applies.
+  </description>
+  <interface name="aqueous_shell_manager_v1" version="1">
+    <enum name="action">
+      <entry name="window_activate" value="0"/>
+      <entry name="window_close" value="1"/>
+      <entry name="window_minimized" value="2"/>
+      <entry name="window_maximized" value="3"/>
+      <entry name="window_fullscreen" value="4"/>
+      <entry name="window_move_workspace" value="5"/>
+      <entry name="window_move_output" value="6"/>
+      <entry name="workspace_activate" value="7"/>
+      <entry name="workspace_rename" value="8"/>
+      <entry name="session_exit" value="9"/>
+      <entry name="keyboard_set" value="10"/>
+      <entry name="keyboard_next" value="11"/>
+      <entry name="overview_show" value="12"/>
+      <entry name="overview_hide" value="13"/>
+      <entry name="overview_toggle" value="14"/>
+    </enum>
+    <enum name="status">
+      <entry name="applied" value="0"/>
+      <entry name="accepted" value="1"/>
+      <entry name="invalid" value="2"/>
+      <entry name="not_found" value="3"/>
+      <entry name="locked" value="4"/>
+      <entry name="unsupported" value="5"/>
+      <entry name="busy" value="6"/>
+      <entry name="ambiguous_seat" value="7"/>
+      <entry name="unavailable" value="8"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="subscribe">
+      <description summary="request an initial snapshot and subsequent changes">
+        May be sent once. The server sends at most one unacknowledged batch.
+      </description>
+    </request>
+    <request name="ack">
+      <arg name="serial" type="uint"/>
+    </request>
+    <request name="command">
+      <description summary="perform a typed operation">
+        One outstanding command per object. Empty strings select documented
+        defaults. Targets are opaque window/workspace/group IDs; output values
+        are connector names. State values are true/false. Strings are bounded
+        to 1024 bytes. Failures are recoverable result events. Window and session
+        mutations are unavailable while locked or under external or comparison policy.
+      </description>
+      <arg name="request_id" type="uint"/>
+      <arg name="action" type="uint" enum="action"/>
+      <arg name="target" type="string"/>
+      <arg name="seat" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+    <request name="identify_workspace">
+      <arg name="request_id" type="uint"/>
+      <arg name="workspace" type="object" interface="ext_workspace_handle_v1"/>
+    </request>
+    <event name="capabilities">
+      <arg name="json" type="string"/>
+    </event>
+    <event name="begin">
+      <arg name="serial" type="uint"/>
+    </event>
+    <event name="data">
+      <description summary="UTF-8 JSON batch fragment">
+        Concatenate fragments until done. At most 4 MiB per complete batch.
+        A fragment may split a UTF-8 codepoint; parse only the complete batch.
+      </description>
+      <arg name="bytes" type="array"/>
+    </event>
+    <event name="done">
+      <arg name="serial" type="uint"/>
+    </event>
+    <event name="result">
+      <arg name="request_id" type="uint"/>
+      <arg name="status" type="uint" enum="status"/>
+      <arg name="sequence" type="string"/>
+    </event>
+    <event name="workspace_id">
+      <arg name="request_id" type="uint"/>
+      <arg name="id" type="string" summary="empty if removed"/>
+    </event>
+  </interface>
+</protocol>
