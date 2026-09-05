@@ -12,6 +12,7 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 #include "xdg-shell-client-protocol.h"
+#include "xdg-activation-client-protocol.h"
 #include "virtual-keyboard-client-protocol.h"
 #include "shortcuts-client-protocol.h"
 #include "layer-shell-client-protocol.h"
@@ -27,6 +28,8 @@ static struct wl_keyboard *keyboard;
 static struct wl_output *outputs[16];
 static size_t noutputs;
 static struct xdg_wm_base *wm;
+static struct xdg_activation_v1 *activation;
+static int token_on_key;
 static struct zwp_virtual_keyboard_manager_v1 *virtual_manager;
 static struct zwp_virtual_keyboard_v1 *virtual_keyboard;
 static struct zwp_keyboard_shortcuts_inhibit_manager_v1 *inhibit_manager;
@@ -78,7 +81,27 @@ static const struct xdg_toplevel_listener top_listener = { .configure = top_conf
 static void keymap(void *data, struct wl_keyboard *k, uint32_t format, int32_t fd, uint32_t size) { (void)data; (void)k; (void)format; (void)size; close(fd); }
 static void enter(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *surface, struct wl_array *keys) { (void)data; (void)k; (void)serial; (void)surface; (void)keys; puts("enter"); }
 static void leave(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *surface) { (void)data; (void)k; (void)serial; (void)surface; puts("leave"); }
-static void key(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t code, uint32_t state) { (void)data; (void)k; (void)serial; (void)time; printf("key %u %u\n", code, state); }
+static void token_done(void *data, struct xdg_activation_token_v1 *token, const char *value) {
+    (void)data; printf("token %s\n", value); xdg_activation_token_v1_destroy(token);
+}
+static const struct xdg_activation_token_v1_listener token_listener = { .done = token_done };
+static void request_token(int with_seat, uint32_t serial) {
+    assert(activation);
+    struct xdg_activation_token_v1 *token = xdg_activation_v1_get_activation_token(activation);
+    xdg_activation_token_v1_add_listener(token, &token_listener, NULL);
+    if (with_seat) {
+        xdg_activation_token_v1_set_serial(token, serial, seat);
+        xdg_activation_token_v1_set_surface(token, window);
+    }
+    xdg_activation_token_v1_commit(token);
+}
+static void key(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t code, uint32_t state) {
+    (void)data; (void)k; (void)time; printf("key %u %u\n", code, state);
+    if (token_on_key && code == 30 && state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        token_on_key = 0;
+        request_token(1, serial);
+    }
+}
 static void modifiers(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t depressed, uint32_t latched, uint32_t locked, uint32_t group) { (void)data; (void)k; (void)serial; (void)depressed; (void)latched; (void)locked; printf("layout %u\n", group); }
 static void repeat(void *data, struct wl_keyboard *k, int32_t rate, int32_t delay) { (void)data; (void)k; (void)rate; (void)delay; }
 static const struct wl_keyboard_listener key_listener = { .keymap = keymap, .enter = enter, .leave = leave, .key = key, .modifiers = modifiers, .repeat_info = repeat };
@@ -133,6 +156,7 @@ static void global(void *data, struct wl_registry *r, uint32_t name, const char 
     else BIND(wl_shm, shm, 1);
     else BIND(wl_seat, seat, 5);
     else BIND(xdg_wm_base, wm, 1);
+    else BIND(xdg_activation_v1, activation, 1);
     else BIND(zwp_virtual_keyboard_manager_v1, virtual_manager, 1);
     else BIND(zwp_keyboard_shortcuts_inhibit_manager_v1, inhibit_manager, 1);
     else BIND(zwlr_layer_shell_v1, layer_manager, 1);
@@ -229,6 +253,19 @@ int main(int argc, char **argv) {
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
             } else if (!strncmp(command, "layout", 6)) zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 1);
             else if (!strncmp(command, "reload", 6)) make_keyboard("us,fr,de");
+            else if (!strcmp(command, "token\n")) {
+                token_on_key = 1;
+                zwp_virtual_keyboard_v1_key(virtual_keyboard, 3, 30, WL_KEYBOARD_KEY_STATE_PRESSED);
+                zwp_virtual_keyboard_v1_key(virtual_keyboard, 4, 30, WL_KEYBOARD_KEY_STATE_RELEASED);
+            }
+            else if (!strcmp(command, "token-no-seat\n")) request_token(0, 0);
+            else if (!strcmp(command, "token-invalid-serial\n")) request_token(1, 0);
+            else if (!strncmp(command, "activate ", 9) && window) {
+                command[strcspn(command, "\n")] = 0;
+                xdg_activation_v1_activate(activation, command + 9, window);
+                assert(wl_display_roundtrip(display) >= 0);
+                puts("activation sent");
+            }
             else if (!strncmp(command, "title ", 6) && toplevel) { command[strcspn(command, "\n")] = 0; xdg_toplevel_set_title(toplevel, command + 6); }
             else if (!strncmp(command, "ack", 3)) aqueous_shell_manager_v1_ack(shell, batch_serial);
             else if (!strncmp(command, "unlock", 6) && lock) { ext_session_lock_v1_unlock_and_destroy(lock); lock = NULL; assert(wl_display_roundtrip(display) >= 0); running = 0; }

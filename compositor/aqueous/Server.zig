@@ -935,26 +935,17 @@ fn handleRequestActivate(
     listener: *wl.Listener(*wlr.XdgActivationV1.event.RequestActivate),
     event: *wlr.XdgActivationV1.event.RequestActivate,
 ) void {
-    const server: *Server = @fieldParentPtr("request_activate", listener);
+    _ = listener;
     const node_data = SceneNodeData.fromSurface(event.surface) orelse return;
     switch (node_data.data) {
         .window => |window| {
-            // Focus-stealing prevention for xdg-activation-v1 self-raises (e.g. a chat client
-            // raising itself when a message arrives). wlroots leaves the activation token's
-            // `seat` null (and its serial invalid) unless the token was minted from a real,
-            // recent input event on a seat. Only forward user-driven activations to the wm
-            // client as activate_requested; silently drop spontaneous ones so a background app
-            // cannot pull keyboard focus. The wm still applies its own workspace/rule policy
-            // when it receives activate_requested.
+            // wlroots validates supplied serials when committing tokens, but
+            // also permits tokens without a seat. Reject those self-raises.
             if (event.token.seat == null) {
                 log.info("xdg-activation: dropping spontaneous activate request (focus-stealing prevention)", .{});
                 return;
             }
-            const window_v1 = window.object orelse return;
-            if (window_v1.getVersion() >= 5) {
-                window_v1.sendActivateRequested();
-                server.wm.dirtyWindowing();
-            }
+            window.requestActivate();
         },
         else => |tag| {
             log.info("ignoring xdg-activation-v1 activate request of {s} surface", .{@tagName(tag)});

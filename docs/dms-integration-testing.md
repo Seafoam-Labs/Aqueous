@@ -56,6 +56,10 @@ Verified coverage:
   IDs and bounded delivery to a client withholding acknowledgements.
 - Workspace rename/activation, empty workspace output selection, window
   activation/state/close, move without workspace activation and output movement.
+- XDG activation using a token minted by a separate client from a delivered
+  keyboard event: background-window focus and keyboard enter, minimized restore,
+  workspace/output selection, and rejection of seatless or invalid-serial tokens.
+  This exercises `xdg_activation_v1.activate`, independently of shell CLI actions.
 - Keyboard layout switching through CLI and client modifier events, two
   independent groups, device/group removal, keymap reload and invalid indices.
 - Focus-scoped shortcut inhibition, focus loss/re-entry, inhibitor destruction

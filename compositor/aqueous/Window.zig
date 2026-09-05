@@ -376,7 +376,7 @@ wm_scheduled: struct {
         minimize,
         unminimize,
     } = .no_request,
-    /// Foreign-toplevel controllers use activation for dock/taskbar clicks.
+    /// XDG clients and foreign-toplevel controllers request activation.
     /// The integrated policy consumes this as a one-shot focus request.
     activate_requested: bool = false,
     dirty_app_id: bool = false,
@@ -3055,6 +3055,19 @@ pub fn requestFullscreen(window: *Window, fullscreen: bool, output: ?*Output) vo
     server.wm.dirtyWindowing();
 }
 
+/// Dispatch activation after the caller has applied its protocol's authorization.
+pub fn requestActivate(window: *Window) void {
+    if (window.state != .mapped and window.state != .initialized) return;
+
+    if (server.aqueous.mode.runsInternal()) {
+        window.wm_scheduled.activate_requested = true;
+    }
+    if (window.object) |window_v1| {
+        if (window_v1.getVersion() >= 5) window_v1.sendActivateRequested();
+    }
+    server.wm.dirtyWindowing();
+}
+
 fn handleFtmRequestMaximize(
     listener: *wl.Listener(*wlr.ForeignToplevelHandleV1.event.Maximized),
     event: *wlr.ForeignToplevelHandleV1.event.Maximized,
@@ -3079,19 +3092,7 @@ fn handleFtmRequestActivate(
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_activate", listener);
     _ = event; // seat is informational; the wm picks the focus seat itself.
-    if (window.state != .mapped and window.state != .initialized) return;
-
-    // Integrated policy must receive activation too: docks generally restore a
-    // minimized item by activating it rather than sending explicit unminimize.
-    if (server.aqueous.mode.runsInternal()) {
-        window.wm_scheduled.activate_requested = true;
-    }
-
-    // Preserve the protocol compatibility path for external policy clients.
-    if (window.object) |window_v1| {
-        if (window_v1.getVersion() >= 5) window_v1.sendActivateRequested();
-    }
-    server.wm.dirtyWindowing();
+    window.requestActivate();
 }
 
 fn handleFtmRequestFullscreen(

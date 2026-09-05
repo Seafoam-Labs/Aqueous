@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
     env.pop('DBUS_SESSION_BUS_ADDRESS', None)
     protocols = {
         'xdg-shell': '/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml',
+        'xdg-activation': '/usr/share/wayland-protocols/staging/xdg-activation/xdg-activation-v1.xml',
         'shortcuts': '/usr/share/wayland-protocols/unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml',
         'virtual-keyboard': ROOT / 'protocol/upstream/virtual-keyboard-unstable-v1.xml',
         'layer-shell': ROOT / 'protocol/upstream/wlr-layer-shell-unstable-v1.xml',
@@ -161,7 +162,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
                     line = messages.get(timeout=.1)
                     seen.append(line)
                     if line == text:
-                        return
+                        return seen
                 except queue.Empty:
                     pass
             raise AssertionError((text, seen))
@@ -322,6 +323,71 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         ctl('overview', 'hide')
         assert records('session')[0]['overview_output'] is None
         ctl('overview', 'hide')
+
+        # A notification daemon hands a user-input token to another client.
+        # Activate through XDG here: CLI/dock activation bypasses that handler.
+        donor, donor_messages = probe('window')
+        donor_win = wait_for(lambda: next((w for w in records('window') if w['id'] != win['id']), None))
+        ctl('window', 'move', '--id', donor_win['id'], '--output', target['name'])
+
+        def current_window(identifier):
+            return next(w for w in records('window') if w['id'] == identifier)
+
+        def mint_token(command='token'):
+            ctl('window', 'activate', '--id', donor_win['id'], '--seat', seat)
+            wait_for(lambda: current_window(donor_win['id'])['focused'])
+            send(donor, command)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    message = donor_messages.get(timeout=.1)
+                except queue.Empty:
+                    continue
+                if message.startswith('token '):
+                    return message.split(' ', 1)[1]
+            raise AssertionError('donor did not receive an activation token')
+
+        def activate_with_token(token):
+            while not window_messages.empty():
+                window_messages.get_nowait()
+            send(window, 'activate ' + token)
+            return expect(window_messages, 'activation sent')
+
+        def expect_xdg_focus(token):
+            messages = activate_with_token(token)
+            wait_for(lambda: current_window(win['id'])['focused'])
+            wait_for(lambda: current_window(win['id'])['visible'])
+            if 'enter' not in messages:
+                expect(window_messages, 'enter')
+            assert not current_window(win['id'])['minimized']
+            assert records('seat')[0]['output'] == current_window(win['id'])['output']
+
+        expect_xdg_focus(mint_token())
+        print('PASS: XDG token from another client focuses a background window')
+        for command in ['token-no-seat', 'token-invalid-serial']:
+            activate_with_token(mint_token(command))
+            time.sleep(.2)
+            assert current_window(donor_win['id'])['focused'], command
+            assert not current_window(win['id'])['focused'], command
+
+        ctl('layout', '--output', target['name'], '--set', 'float')
+        ctl('window', 'state', '--id', win['id'], '--minimized', 'true')
+        wait_for(lambda: current_window(win['id'])['minimized'])
+        expect_xdg_focus(mint_token())
+
+        inactive = next(w for w in records('workspace') if w['output'] == target['id'] and not w['active'])
+        ctl('window', 'move', '--id', win['id'], '--workspace-id', inactive['id'])
+        assert not current_window(win['id'])['visible']
+        expect_xdg_focus(mint_token())
+        assert next(w for w in records('workspace') if w['id'] == inactive['id'])['active']
+
+        ctl('window', 'move', '--id', donor_win['id'], '--output', owner['name'])
+        expect_xdg_focus(mint_token())
+        ctl('window', 'close', '--id', donor_win['id'])
+        assert donor.wait(timeout=5) == 0
+        wait_for(lambda: len(records('window')) == 1)
+        print('PASS: XDG activation restores minimized windows, selects workspace/output and rejects invalid tokens')
+
         # Output-management changes retain runtime identity and expose actual
         # logical bounds on negative-origin, fractional, rotated configurations.
         # Existing XWayland policy disallows negative output coordinates.
