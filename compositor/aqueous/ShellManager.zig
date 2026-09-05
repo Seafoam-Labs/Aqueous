@@ -107,9 +107,9 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         .session = manager.session[0..32],
         .max_batch_bytes = limit,
         .state = true,
-        .commands = server.aqueous.mode.runsInternal(),
-        .keyboard = server.aqueous.mode.runsInternal(),
-        .overview = server.aqueous.mode.runsInternal(),
+        .commands = server.aqueous.mode == .internal,
+        .keyboard = server.aqueous.mode == .internal,
+        .overview = server.aqueous.mode == .internal,
         .shortcut_inhibition = true,
         .geometry = "committed-content-global-logical",
     }, .{}) catch {
@@ -194,16 +194,20 @@ fn span(value: ?[*:0]const u8) ?[]const u8 {
 fn windowId(window: *Window) ?[]const u8 {
     return if (window.foreign_toplevel_handle) |h| std.mem.span(h.identifier) else null;
 }
-fn add(map: *Map, kind: []const u8, id: []const u8, value: anytype) !void {
+fn add(map: *Map, total: *usize, kind: []const u8, id: []const u8, value: anytype) !void {
     const key = try std.fmt.allocPrint(util.gpa, "{s}:{s}", .{ kind, id });
     errdefer util.gpa.free(key);
     const json = try std.json.Stringify.valueAlloc(util.gpa, value, .{});
     errdefer util.gpa.free(json);
+    const size = key.len + json.len + 64;
+    if (size > limit / 2 - total.*) return error.StateTooLarge;
     try map.put(util.gpa, key, json);
+    total.* += size;
 }
 
 fn refresh(manager: *ShellManager) !void {
     var next: Map = .empty;
+    var total: usize = 0;
     errdefer clear(&next);
     var arena = std.heap.ArenaAllocator.init(util.gpa);
     defer arena.deinit();
@@ -211,12 +215,12 @@ fn refresh(manager: *ShellManager) !void {
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| {
         const id = try idString(a, output.shell_id);
-        try add(&next, "output", id, .{ .kind = "output", .id = id, .name = output.policyName(), .bounds = output.policyFullBox(), .usable_bounds = output.policyUsableBox(), .scale = output.current.scale, .transform = @tagName(output.current.transform), .active_workspace = try optionalId(a, if (output.active_workspace) |ws| ws.id else null) });
+        try add(&next, &total, "output", id, .{ .kind = "output", .id = id, .name = output.policyName(), .enabled = output.current.state == .enabled or output.current.state == .disabled_soft, .powered = output.current.state == .enabled, .bounds = output.current.box(), .usable_bounds = output.policyUsableBox(), .scale = output.current.scale, .transform = @tagName(output.current.transform), .active_workspace = try optionalId(a, if (output.active_workspace) |ws| ws.id else null) });
         var workspaces = output.workspaces.iterator(.forward);
         while (workspaces.next()) |ws| {
             const ws_id = try idString(a, ws.id);
             const number = ws.policyNumber();
-            try add(&next, "workspace", ws_id, .{ .kind = "workspace", .id = ws_id, .output = id, .name = if (ws.name.len > 0) ws.name else try idString(a, number), .number = number, .active = ws.isActive(), .urgent = ws.urgent });
+            try add(&next, &total, "workspace", ws_id, .{ .kind = "workspace", .id = ws_id, .output = id, .name = if (ws.name.len > 0) ws.name else try idString(a, number), .number = number, .active = ws.isActive(), .urgent = ws.urgent });
         }
     }
     var windows = server.wm.windows.iterator();
@@ -232,14 +236,14 @@ fn refresh(manager: *ShellManager) !void {
         const bottom: i32 = if (!info.fullscreen and border.edges.bottom) @intCast(border.width) else 0;
         const outer = .{ .x = @as(i64, info.geometry.x) - left, .y = @as(i64, info.geometry.y) - top, .width = @as(i64, info.geometry.width) + left + right, .height = @as(i64, info.geometry.height) + top + bottom };
         const freeform = window.policy_state.presentation == .floating or server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref));
-        try add(&next, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform });
+        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
     }
     var devices = server.input_manager.devices.iterator(.forward);
     while (devices.next()) |device| {
         if (device.wlr_device.type != .keyboard) continue;
         const keyboard: *@import("Keyboard.zig") = @fieldParentPtr("device", device);
         const id = try idString(a, device.shell_id);
-        try add(&next, "keyboard_device", id, .{ .kind = "keyboard_device", .id = id, .name = span(device.wlr_device.name), .seat = std.mem.span(device.seat.wlr_seat.name), .group = try optionalId(a, if (keyboard.group) |g| g.shell_id else null), .virtual = device.virtual });
+        try add(&next, &total, "keyboard_device", id, .{ .kind = "keyboard_device", .id = id, .name = span(device.wlr_device.name), .seat = std.mem.span(device.seat.wlr_seat.name), .group = try optionalId(a, if (keyboard.group) |g| g.shell_id else null), .virtual = device.virtual });
     }
     var seat_count: usize = 0;
     var default_seat: ?[]const u8 = null;
@@ -256,9 +260,9 @@ fn refresh(manager: *ShellManager) !void {
             const names = try a.alloc([]const u8, keymap.numLayouts());
             for (names, 0..) |*name_ptr, i| name_ptr.* = span(keymap.layoutGetName(@intCast(i))) orelse "";
             const id = try idString(a, group.shell_id);
-            try add(&next, "keyboard", id, .{ .kind = "keyboard", .id = id, .seat = name, .layouts = names, .index = if (group.state.xkb_state) |state| state.serializeLayout(@enumFromInt(1 << 7)) else 0 });
+            try add(&next, &total, "keyboard", id, .{ .kind = "keyboard", .id = id, .seat = name, .layouts = names, .index = if (group.state.xkb_state) |state| state.serializeLayout(@enumFromInt(1 << 7)) else 0 });
         }
-        try add(&next, "seat", name, .{ .kind = "seat", .id = name, .output = try optionalId(a, if (seat.selected_output) |o| o.shell_id else null), .window = if (seat.focused == .window) windowId(seat.focused.window) else null, .focus_kind = @tagName(seat.focused), .keyboard = try optionalId(a, active_group) });
+        try add(&next, &total, "seat", name, .{ .kind = "seat", .id = name, .output = try optionalId(a, if (seat.selected_output) |o| o.shell_id else null), .window = if (seat.focused == .window) windowId(seat.focused.window) else null, .focus_kind = @tagName(seat.focused), .keyboard = try optionalId(a, active_group) });
     }
     var overview_output: ?u64 = null;
     var overview_window: ?[]const u8 = null;
@@ -271,13 +275,10 @@ fn refresh(manager: *ShellManager) !void {
         const ref: Window.Ref = @bitCast(overview.selected);
         if (ref.get()) |window| overview_window = windowId(window);
     }
-    try add(&next, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window });
-    var total: usize = 0;
+    try add(&next, &total, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window });
     var changed = next.count() != manager.state.count();
     var it = next.iterator();
     while (it.next()) |entry| {
-        total += entry.key_ptr.len + entry.value_ptr.len + 64;
-        if (total > limit / 2) return error.StateTooLarge;
         const old = manager.state.get(entry.key_ptr.*);
         if (old == null or !std.mem.eql(u8, old.?, entry.value_ptr.*)) changed = true;
     }
@@ -372,6 +373,16 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
             resource.sendWorkspaceId(args.request_id, id);
         },
         .command => |args| {
+            // These decisions do not require a settled policy transaction.
+            // An absent external controller must not turn unsupported into a timeout.
+            if (server.lock_manager.state != .unlocked) {
+                result(client, args.request_id, .locked);
+                return;
+            }
+            if (server.aqueous.mode != .internal) {
+                result(client, args.request_id, .unsupported);
+                return;
+            }
             if (client.pending != null or client.queued != null) {
                 result(client, args.request_id, .busy);
                 return;
@@ -435,19 +446,20 @@ fn findSeat(name: []const u8) ?*Seat {
 fn execute(action: protocol.Action, target: []const u8, seat_name: []const u8, value: []const u8) Status {
     if (target.len > 1024 or seat_name.len > 1024 or value.len > 1024) return .invalid;
     if (server.lock_manager.state != .unlocked) return .locked;
-    if (!server.aqueous.mode.runsInternal()) return .unsupported;
+    if (server.aqueous.mode != .internal) return .unsupported;
     switch (action) {
         .session_exit => return .applied,
         .window_activate, .workspace_activate => {
             const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
             if (action == .window_activate) {
                 const window = findWindow(target) orelse return .not_found;
+                if (!window.wm_scheduled.accepts_focus or !window.policy_state.focus_allowed) return .unsupported;
+                if (window.workspace) |ws| if (!ws.output.policyExposed()) return .unavailable;
                 server.aqueous.cancelOverview();
-                if (window.workspace) |ws| ws.output.activateWorkspace(ws);
-                window.requestMinimized(false);
-                seat.policyRequestFocus(@bitCast(window.ref));
+                if (!server.aqueous.activateShellWindow(@bitCast(window.ref), std.mem.span(seat.wlr_seat.name))) return .unavailable;
             } else {
                 const ws = findWorkspace(target) orelse return .not_found;
+                if (!ws.output.policyExposed()) return .unavailable;
                 server.aqueous.cancelOverview();
                 seat.policySelectOutput(ws.output);
                 ws.output.activateWorkspace(ws);
@@ -486,6 +498,7 @@ fn execute(action: protocol.Action, target: []const u8, seat_name: []const u8, v
         .window_move_workspace, .window_move_output => {
             const window = findWindow(target) orelse return .not_found;
             const ws = if (action == .window_move_workspace) findWorkspace(value) orelse return .not_found else (findOutput(value) orelse return .not_found).active_workspace orelse return .unavailable;
+            if (!ws.output.policyExposed()) return .unavailable;
             server.aqueous.cancelOverview();
             window.setWorkspace(ws);
         },

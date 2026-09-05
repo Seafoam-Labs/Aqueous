@@ -1,5 +1,9 @@
 # Aqueous Settings for Dank Material Shell
 
+`aqueous-config` 0.7.1 adds capability discovery in version and snapshot JSON;
+existing protocol-1 clients retain their 0.7.0 minimum. See the
+[shared DMS configuration contract](../docs/dms-configuration-contract.md).
+
 A DMS plugin for editing Aqueous configuration, based on the Noctalia v5
 Aqueous Settings plugin. It provides a DankBar popout and a separate settings
 window, sharing one draft model across all bar instances.

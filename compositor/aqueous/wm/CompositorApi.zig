@@ -241,10 +241,18 @@ pub fn hasNonWindowKeyboardFocus(_: CompositorApi) bool {
     };
 }
 
-pub fn requestFocus(_: CompositorApi, handle: layout.Handle) void {
+pub fn requestFocus(api: CompositorApi, handle: layout.Handle) void {
+    api.requestFocusOnSeat(handle, null);
+}
+
+pub fn requestFocusOnSeat(_: CompositorApi, handle: layout.Handle, name: ?[]const u8) void {
     var seats = server.input_manager.seats.iterator(.forward);
-    if (seats.next()) |seat| seat.policyRequestFocus(handle);
-    server.wm.dirtyWindowing();
+    while (seats.next()) |seat| {
+        if (name) |value| if (!std.mem.eql(u8, value, std.mem.span(seat.wlr_seat.name))) continue;
+        seat.policyRequestFocus(handle);
+        server.wm.dirtyWindowing();
+        return;
+    }
 }
 
 pub fn clearFocus(_: CompositorApi) void {
@@ -253,14 +261,21 @@ pub fn clearFocus(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
-pub fn selectOutput(_: CompositorApi, output_id: u64) bool {
+pub fn selectOutput(api: CompositorApi, output_id: u64) bool {
+    return api.selectOutputOnSeat(output_id, null);
+}
+
+pub fn selectOutputOnSeat(_: CompositorApi, output_id: u64, name: ?[]const u8) bool {
     const output = outputById(output_id) orelse return false;
     const box = output.policyFullBox();
     if (output.active_workspace == null or box.width <= 0 or box.height <= 0) return false;
     var seats = server.input_manager.seats.iterator(.forward);
-    const seat = seats.next() orelse return false;
-    seat.policySelectOutput(output);
-    return true;
+    while (seats.next()) |seat| {
+        if (name) |value| if (!std.mem.eql(u8, value, std.mem.span(seat.wlr_seat.name))) continue;
+        seat.policySelectOutput(output);
+        return true;
+    }
+    return false;
 }
 
 pub fn closeWindow(_: CompositorApi, handle: layout.Handle) void {

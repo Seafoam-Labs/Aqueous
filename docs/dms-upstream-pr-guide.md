@@ -4,8 +4,10 @@ Status: proposed PR breakdown. No upstream issues, comments, branches or PRs
 have been created by this document.
 
 Companion: [Aqueous implementation plan](dms-integration-implementation-plan.md).
-The A1–A6 labels below refer to its delivery phases. Proposed `aqueousctl shell`
-and action commands do not exist yet.
+The A1–A6 labels below refer to its delivery phases. The Aqueous prerequisites
+are now implemented: see the [shell protocol and CLI contract](../compositor/protocol/aqueous-shell-v1.md)
+and [configuration contract](dms-configuration-contract.md). The PRs below remain
+upstream work; the local settings plugin is not a DMS core shell adapter.
 
 ## Baseline and upstream approach
 

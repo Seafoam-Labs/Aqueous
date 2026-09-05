@@ -17,6 +17,7 @@
 #include "layer-shell-client-protocol.h"
 #include "session-lock-client-protocol.h"
 #include "aqueous-shell-client-protocol.h"
+#include "ext-workspace-client-protocol.h"
 
 static struct wl_display *display;
 static struct wl_compositor *compositor;
@@ -34,6 +35,8 @@ static struct zwlr_layer_shell_v1 *layer_manager;
 static struct ext_session_lock_manager_v1 *lock_manager;
 static struct ext_session_lock_v1 *lock;
 static struct aqueous_shell_manager_v1 *shell;
+static struct ext_workspace_manager_v1 *workspaces;
+static int want_workspaces;
 static struct wl_surface *window;
 static uint32_t batch_serial;
 static int width = 400, height = 300;
@@ -103,8 +106,26 @@ static void begin(void *data, struct aqueous_shell_manager_v1 *s, uint32_t seria
 static void bytes(void *data, struct aqueous_shell_manager_v1 *s, struct wl_array *array) { (void)data; (void)s; (void)array; }
 static void done(void *data, struct aqueous_shell_manager_v1 *s, uint32_t serial) { (void)data; (void)s; assert(serial == batch_serial); puts("batch"); }
 static void result(void *data, struct aqueous_shell_manager_v1 *s, uint32_t id, uint32_t status, const char *sequence) { (void)data; (void)s; (void)id; (void)status; (void)sequence; }
-static void workspace_id(void *data, struct aqueous_shell_manager_v1 *s, uint32_t id, const char *value) { (void)data; (void)s; (void)id; (void)value; }
+static void workspace_id(void *data, struct aqueous_shell_manager_v1 *s, uint32_t id, const char *value) { (void)data; (void)s; printf("workspace %u %s\n", id, value); }
 static const struct aqueous_shell_manager_v1_listener shell_listener = { .capabilities = capabilities, .begin = begin, .data = bytes, .done = done, .result = result, .workspace_id = workspace_id };
+static void ws_string(void *d, struct ext_workspace_handle_v1 *w, const char *v) { (void)d; (void)w; (void)v; }
+static void ws_uint(void *d, struct ext_workspace_handle_v1 *w, uint32_t v) { (void)d; (void)w; (void)v; }
+static void ws_array(void *d, struct ext_workspace_handle_v1 *w, struct wl_array *v) { (void)d; (void)w; (void)v; }
+static void ws_removed(void *d, struct ext_workspace_handle_v1 *w) { (void)d; ext_workspace_handle_v1_destroy(w); }
+static const struct ext_workspace_handle_v1_listener ws_listener = { .id = ws_string, .name = ws_string, .coordinates = ws_array, .state = ws_uint, .capabilities = ws_uint, .removed = ws_removed };
+static void group_uint(void *d, struct ext_workspace_group_handle_v1 *g, uint32_t v) { (void)d; (void)g; (void)v; }
+static void group_output(void *d, struct ext_workspace_group_handle_v1 *g, struct wl_output *v) { (void)d; (void)g; (void)v; }
+static void group_ws(void *d, struct ext_workspace_group_handle_v1 *g, struct ext_workspace_handle_v1 *v) { (void)d; (void)g; (void)v; }
+static void group_removed(void *d, struct ext_workspace_group_handle_v1 *g) { (void)d; ext_workspace_group_handle_v1_destroy(g); }
+static const struct ext_workspace_group_handle_v1_listener group_listener = { .capabilities = group_uint, .output_enter = group_output, .output_leave = group_output, .workspace_enter = group_ws, .workspace_leave = group_ws, .removed = group_removed };
+static void workspace_group(void *d, struct ext_workspace_manager_v1 *m, struct ext_workspace_group_handle_v1 *g) { (void)d; (void)m; ext_workspace_group_handle_v1_add_listener(g, &group_listener, NULL); }
+static void workspace_created(void *d, struct ext_workspace_manager_v1 *m, struct ext_workspace_handle_v1 *w) {
+    (void)d; (void)m; static uint32_t id;
+    ext_workspace_handle_v1_add_listener(w, &ws_listener, NULL);
+    aqueous_shell_manager_v1_identify_workspace(shell, ++id, w);
+}
+static void workspace_done(void *d, struct ext_workspace_manager_v1 *m) { (void)d; (void)m; }
+static const struct ext_workspace_manager_v1_listener workspace_listener = { .workspace_group = workspace_group, .workspace = workspace_created, .done = workspace_done, .finished = workspace_done };
 static void global(void *data, struct wl_registry *r, uint32_t name, const char *interface, uint32_t version) {
     (void)data; (void)version;
 #define BIND(iface, dest, v) if (!strcmp(interface, iface##_interface.name)) dest = wl_registry_bind(r, name, &iface##_interface, v)
@@ -117,26 +138,28 @@ static void global(void *data, struct wl_registry *r, uint32_t name, const char 
     else BIND(zwlr_layer_shell_v1, layer_manager, 1);
     else BIND(ext_session_lock_manager_v1, lock_manager, 1);
     else BIND(aqueous_shell_manager_v1, shell, 1);
+    else if (want_workspaces && !strcmp(interface, ext_workspace_manager_v1_interface.name)) workspaces = wl_registry_bind(r, name, &ext_workspace_manager_v1_interface, 1);
     else if (!strcmp(interface, wl_output_interface.name) && noutputs < 16) outputs[noutputs++] = wl_registry_bind(r, name, &wl_output_interface, 1);
 #undef BIND
 }
 static void global_remove(void *data, struct wl_registry *r, uint32_t name) { (void)data; (void)r; (void)name; }
 static const struct wl_registry_listener registry_listener = { .global = global, .global_remove = global_remove };
-static void make_keyboard(void) {
+static void make_keyboard(const char *layouts) {
     struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS); assert(context);
-    struct xkb_rule_names names = { .layout = "us,de" };
+    struct xkb_rule_names names = { .layout = layouts };
     struct xkb_keymap *map = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS); assert(map);
     char *text = xkb_keymap_get_as_string(map, XKB_KEYMAP_FORMAT_TEXT_V1); assert(text);
     size_t size = strlen(text) + 1;
     int fd = memfd_create("shell-keymap", MFD_CLOEXEC); assert(fd >= 0);
     assert(write(fd, text, size) == (ssize_t)size);
-    virtual_keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(virtual_manager, seat);
+    if (!virtual_keyboard) virtual_keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(virtual_manager, seat);
     zwp_virtual_keyboard_v1_keymap(virtual_keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
     close(fd); free(text); xkb_keymap_unref(map); xkb_context_unref(context);
     zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
 }
 int main(int argc, char **argv) {
     assert(argc == 2); setvbuf(stdout, NULL, _IOLBF, 0); setvbuf(stdin, NULL, _IONBF, 0);
+    want_workspaces = !strcmp(argv[1], "workspaces");
     display = wl_display_connect(NULL); assert(display);
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, NULL);
@@ -145,9 +168,10 @@ int main(int argc, char **argv) {
     wl_seat_add_listener(seat, &seat_listener, NULL);
     xdg_wm_base_add_listener(wm, &wm_listener, NULL);
     aqueous_shell_manager_v1_add_listener(shell, &shell_listener, NULL);
+    if (workspaces) ext_workspace_manager_v1_add_listener(workspaces, &workspace_listener, NULL);
     struct xdg_toplevel *toplevel = NULL;
     if (!strcmp(argv[1], "window")) {
-        make_keyboard();
+        make_keyboard("us,de");
         window = wl_compositor_create_surface(compositor);
         struct xdg_surface *xdg = xdg_wm_base_get_xdg_surface(wm, window);
         xdg_surface_add_listener(xdg, &surface_listener, NULL);
@@ -179,8 +203,9 @@ int main(int argc, char **argv) {
             ext_session_lock_surface_v1_add_listener(s, &lock_surface_listener, surface);
         }
     } else if (!strcmp(argv[1], "watch")) aqueous_shell_manager_v1_subscribe(shell);
-    else abort();
+    else if (!want_workspaces) abort();
     assert(wl_display_roundtrip(display) >= 0);
+    if (want_workspaces) assert(wl_display_roundtrip(display) >= 0);
     puts("ready");
     while (running) {
         assert(wl_display_dispatch_pending(display) >= 0);
@@ -203,9 +228,10 @@ int main(int argc, char **argv) {
                 zwp_virtual_keyboard_v1_key(virtual_keyboard, 2, 17, WL_KEYBOARD_KEY_STATE_RELEASED);
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
             } else if (!strncmp(command, "layout", 6)) zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 1);
+            else if (!strncmp(command, "reload", 6)) make_keyboard("us,fr,de");
             else if (!strncmp(command, "title ", 6) && toplevel) { command[strcspn(command, "\n")] = 0; xdg_toplevel_set_title(toplevel, command + 6); }
             else if (!strncmp(command, "ack", 3)) aqueous_shell_manager_v1_ack(shell, batch_serial);
-            else if (!strncmp(command, "unlock", 6) && lock) { ext_session_lock_v1_unlock_and_destroy(lock); lock = NULL; running = 0; }
+            else if (!strncmp(command, "unlock", 6) && lock) { ext_session_lock_v1_unlock_and_destroy(lock); lock = NULL; assert(wl_display_roundtrip(display) >= 0); running = 0; }
         }
     }
     wl_display_flush(display); wl_display_disconnect(display);

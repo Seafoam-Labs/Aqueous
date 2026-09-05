@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import queue
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -12,6 +13,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('AQUEOUS_COMPOSITOR_BIN', ROOT / 'zig-out/bin/aqueous'))
 CTL = Path(os.environ.get('AQUEOUSCTL_BIN', ROOT / 'zig-out/bin/aqueousctl'))
+XWAYLAND = os.environ.get('AQUEOUS_SHELL_TEST_XWAYLAND') == '1'
+POLICY = os.environ.get('AQUEOUS_SHELL_TEST_POLICY', 'internal')
 
 
 def wait_for(check, timeout=10):
@@ -36,6 +39,9 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
                HOME=str(home), WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2',
                WLR_RENDERER='pixman', GDK_BACKEND='wayland',
                AQUEOUS_CONFIG=str(ROOT / 'scripts/fixtures/overview-wm.toml'))
+    for key in list(env):
+        if key.startswith('AQUEOUS_') and key != 'AQUEOUS_CONFIG':
+            env.pop(key)
     env.pop('WAYLAND_DISPLAY', None)
     env.pop('DISPLAY', None)
     env.pop('LD_PRELOAD', None)
@@ -59,9 +65,11 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
     subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-I' + str(base),
                     str(ROOT / 'scripts/fixtures/shell-client.c'), *generated,
                     '-lwayland-client', '-lxkbcommon', '-o', str(fixture)], check=True)
+    if XWAYLAND:
+        subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', str(ROOT / 'scripts/fixtures/shell-x11.c'), '-lX11', '-o', str(base / 'shell-x11')], check=True)
     children = []
     log = (base / 'compositor.log').open('w+')
-    compositor = subprocess.Popen([str(BIN), '-no-xwayland', '-c', 'true'], env=env,
+    compositor = subprocess.Popen([str(BIN), *([] if XWAYLAND else ['-no-xwayland']), '-policy', POLICY, '-c', 'printf %s "$DISPLAY" > "$XDG_RUNTIME_DIR/test-display"'], env=env,
                                   stdout=log, stderr=log)
     children.append(compositor)
     try:
@@ -85,7 +93,13 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
             return [r for r in snapshot() if r['kind'] == kind]
 
         caps = ctl('shell', 'capabilities')
-        assert caps['schema'] == 1 and caps['commands']
+        assert caps['schema'] == 1
+        if POLICY != 'internal':
+            assert not caps['commands'] and not caps['keyboard'] and not caps['overview']
+            assert ctl('session', 'exit', ok=False)['status'] == 'unsupported'
+            print(f'PASS: {POLICY} capability discovery and immediate mutation rejection')
+            sys.exit(0)
+        assert caps['commands']
         initial = snapshot()
         outputs = [r for r in initial if r['kind'] == 'output']
         assert len(outputs) == 2 and len({r['id'] for r in outputs}) == 2
@@ -152,6 +166,18 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
                     pass
             raise AssertionError((text, seen))
 
+        bridge, bridge_messages = probe('workspaces')
+        bridged = set()
+        while True:
+            message = bridge_messages.get(timeout=5)
+            if message == 'ready':
+                break
+            if message.startswith('workspace '):
+                bridged.add(message.split(' ', 2)[2])
+        assert bridged == {w['id'] for w in records('workspace')}
+        send(bridge, 'quit')
+        assert bridge.wait(timeout=3) == 0
+
         window, window_messages = probe('window')
         wins = wait_for(lambda: records('window'))
         win = wins[0]
@@ -194,6 +220,50 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         wait_for(lambda: records('session')[0]['overview_output'] is not None)
         ctl('overview', 'hide')
 
+        # Two equal-title windows remain distinct, as do their virtual groups.
+        second, second_messages = probe('window')
+        other = wait_for(lambda: next((w for w in records('window') if w['id'] != win['id']), None))
+        assert other['title'] == win['title'] and other['app_id'] == win['app_id']
+        groups = records('keyboard')
+        other_group = next(k for k in groups if k['id'] != kb['id'] and len(k['layouts']) == 2)
+        ctl('keyboard', 'set', '--seat', seat, '--group', other_group['id'], '--index', '1')
+        assert next(k for k in records('keyboard') if k['id'] == kb['id'])['index'] == 0
+        devices = records('keyboard_device')
+        other_device = next(d for d in devices if d['group'] == other_group['id'])
+        assert other_device['virtual']
+        send(second, 'title changed 🐟 "quoted"')
+        wait_for(lambda: next(w for w in records('window') if w['id'] == other['id'])['title'] == 'changed 🐟 "quoted"')
+        ctl('window', 'activate', '--id', win['id'], '--seat', seat)
+        send(window, 'inhibit')
+        expect(window_messages, 'inhibit active')
+        ctl('window', 'activate', '--id', other['id'], '--seat', seat)
+        expect(window_messages, 'inhibit inactive')
+        ctl('window', 'activate', '--id', win['id'], '--seat', seat)
+        expect(window_messages, 'inhibit active')
+        send(window, 'uninhibit')
+        ctl('window', 'close', '--id', other['id'])
+        assert second.wait(timeout=3) == 0
+        wait_for(lambda: all(k['id'] != other_group['id'] for k in records('keyboard')))
+        assert all(d['id'] != other_device['id'] for d in records('keyboard_device'))
+        assert ctl('keyboard', 'set', '--seat', seat, '--group', other_group['id'], '--index', '0', ok=False)['status'] == 'not_found'
+        first_device = next(d for d in records('keyboard_device') if d['group'] == kb['id'])
+        while not updates.empty():
+            updates.get_nowait()
+        send(window, 'reload')
+        while True:
+            changed = updates.get(timeout=5)
+            if any(k['kind'] == 'keyboard' and len(k['layouts']) == 3 for k in changed['upsert']):
+                break
+        reloaded = wait_for(lambda: next((k for k in records('keyboard') if len(k['layouts']) == 3), None))
+        assert next(d for d in records('keyboard_device') if d['id'] == first_device['id'])['group'] == reloaded['id']
+        assert 0 <= reloaded['index'] < 3
+        ctl('keyboard', 'set', '--seat', seat, '--group', reloaded['id'], '--index', '2')
+        assert next(k for k in records('keyboard') if k['id'] == reloaded['id'])['index'] == 2
+        # A reconnect starts with a complete snapshot, never an orphaned delta.
+        reconnect = ctl('shell', 'snapshot')
+        assert reconnect['type'] == 'snapshot' and reconnect['base_sequence'] is None
+        assert reconnect['session'] == caps['session']
+
         # Flow control sends nothing more until the client acknowledges its batch.
         slow, slow_messages = probe('watch')
         expect(slow_messages, 'batch')
@@ -234,6 +304,14 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         assert locker.wait(timeout=3) == 0
         wait_for(lambda: not records('session')[0]['locked'])
 
+        inactive = next(w for w in records('workspace') if w['output'] == win['output'] and not w['active'])
+        previous_active = next(w['id'] for w in records('workspace') if w['output'] == win['output'] and w['active'])
+        ctl('window', 'move', '--id', win['id'], '--workspace-id', inactive['id'])
+        assert next(w for w in records('window') if w['id'] == win['id'])['visible'] is False
+        assert next(w['id'] for w in records('workspace') if w['output'] == win['output'] and w['active']) == previous_active
+        ctl('window', 'activate', '--id', win['id'], '--seat', seat)
+        assert next(w for w in records('workspace') if w['id'] == inactive['id'])['active']
+
         target = next(o for o in outputs if o['id'] != win['output'])
         ctl('window', 'move', '--id', win['id'], '--output', target['name'])
         assert wait_for(lambda: next((r for r in records('window') if r['id'] == win['id'] and r['output'] == target['id']), None))
@@ -244,6 +322,30 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         ctl('overview', 'hide')
         assert records('session')[0]['overview_output'] is None
         ctl('overview', 'hide')
+        # Output-management changes retain runtime identity and expose actual
+        # logical bounds on negative-origin, fractional, rotated configurations.
+        # Existing XWayland policy disallows negative output coordinates.
+        origin = (3000, 100) if XWAYLAND else (-3000, -100)
+        subprocess.run(['wlr-randr', '--output', target['name'], '--scale', '1.25', '--transform', '90', f'--pos={origin[0]},{origin[1]}'], env=env, check=True, capture_output=True)
+        transformed = wait_for(lambda: next((o for o in records('output') if o['id'] == target['id'] and o['scale'] == 1.25 and o['bounds']['x'] == origin[0]), None))
+        assert transformed['bounds']['y'] == origin[1]
+
+        if XWAYLAND:
+            display_file = runtime / 'test-display'
+            xdisplay = wait_for(lambda: display_file.read_text() if display_file.exists() else None)
+            xclient = subprocess.Popen([str(base / 'shell-x11')], env=dict(env, DISPLAY=xdisplay), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            children.append(xclient)
+            xwin = wait_for(lambda: next((w for w in records('window') if w['backend'] == 'xwayland'), None))
+            assert xwin['class'] == 'aq-shell-x11' and xwin['id'] != win['id']
+            ctl('window', 'activate', '--id', xwin['id'], '--seat', seat)
+            assert next(w for w in records('window') if w['id'] == xwin['id'])['focused']
+            ctl('window', 'move', '--id', xwin['id'], '--output', owner['name'])
+            ctl('window', 'activate', '--id', xwin['id'], '--seat', seat)
+            ctl('window', 'state', '--id', xwin['id'], '--fullscreen', 'true')
+            assert next(w for w in records('window') if w['id'] == xwin['id'])['fullscreen']
+            ctl('window', 'close', '--id', xwin['id'])
+            assert xclient.wait(timeout=5) == 0
+
         ctl('window', 'close', '--id', win['id'])
         wait_for(lambda: not records('window'))
         assert ctl('window', 'activate', '--id', win['id'], '--seat', seat, ok=False)['status'] == 'not_found'

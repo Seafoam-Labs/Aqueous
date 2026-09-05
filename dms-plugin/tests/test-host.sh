@@ -6,9 +6,13 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source_root=${DMS_SOURCE:?Set DMS_SOURCE to a DMS 1.7 checkout with dank-qml-common initialized}
 compositor=${AQUEOUS_COMPOSITOR_BIN:-"$root/../compositor/zig-out/bin/aqueous"}
 work=$(mktemp -d /tmp/aqueous-dms-host.XXXXXX)
+ctl=${AQUEOUSCTL_BIN:-"$(dirname "$compositor")/aqueousctl"}
+watch_pid=''
 compositor_pid=''
 shell_pid=''
 cleanup() {
+    [[ -z "$watch_pid" ]] || kill "$watch_pid" 2>/dev/null || true
+    [[ -z "$watch_pid" ]] || wait "$watch_pid" 2>/dev/null || true
     [[ -z "$shell_pid" ]] || kill "$shell_pid" 2>/dev/null || true
     [[ -z "$compositor_pid" ]] || kill "$compositor_pid" 2>/dev/null || true
     [[ -z "$shell_pid" ]] || wait "$shell_pid" 2>/dev/null || true
@@ -46,6 +50,9 @@ done
 : "${socket:?Headless compositor did not start}"
 export WAYLAND_DISPLAY="$socket" QT_QPA_PLATFORM=wayland QT_QUICK_BACKEND=software
 export AQUEOUS_CONFIG="$work/config/aqueous/wm.toml" AQUEOUS_LAYOUT="$work/config/aqueous/layout.toml" AQUEOUS_INPUT="$work/config/aqueous/input.toml" AQUEOUS_OUTPUTS="$work/config/aqueous/outputs.toml" AQUEOUS_RULES="$work/config/aqueous/rules.toml"
+"$ctl" shell capabilities --json > "$work/capabilities.json"
+"$ctl" shell watch --json > "$work/watch.jsonl" 2> "$work/watch.log" &
+watch_pid=$!
 python3 - "$root" "$work/quickshell/AqueousTest.qml" <<'PY'
 import pathlib,sys
 plugin=pathlib.Path(sys.argv[1]).as_uri()
@@ -138,4 +145,38 @@ if ! rg -q 'AQUEOUS_HOST_PASS' "$work/shell.log" || rg -q 'AQUEOUS_HOST_FAIL|Typ
     cat "$work/shell.log" >&2
     exit 1
 fi
+kill -0 "$watch_pid"
+kill "$watch_pid"
+wait "$watch_pid" 2>/dev/null || true
+watch_pid=''
+python3 - "$work" <<'PY_SHELL'
+import json, pathlib, sys
+work = pathlib.Path(sys.argv[1])
+caps = json.loads((work / 'capabilities.json').read_text())
+assert caps['schema'] == 1 and caps['commands']
+batches = [json.loads(line) for line in (work / 'watch.jsonl').read_text().splitlines()]
+assert len(batches) > 1 and batches[0]['type'] == 'snapshot'
+model = {}
+last = None
+saw_window = False
+for batch in batches:
+    assert batch['schema'] == 1 and batch['session'] == caps['session']
+    assert batch['base_sequence'] == last
+    if last is not None:
+        assert batch['type'] == 'delta' and int(batch['sequence']) > int(last)
+    for key in batch['removed']:
+        assert key in model
+        del model[key]
+    for entity in batch['upsert']:
+        model[entity['kind'] + ':' + entity['id']] = entity
+        saw_window |= entity['kind'] == 'window'
+    for entity in model.values():
+        for field, kind in [('workspace', 'workspace'), ('output', 'output')]:
+            if entity.get(field) is not None:
+                assert kind + ':' + entity[field] in model
+    assert len([v for v in model.values() if v['kind'] == 'output']) == 2
+    last = batch['sequence']
+assert saw_window
+print('DMS host shell stream passed: capabilities, atomic identity references, live window lifecycle.')
+PY_SHELL
 printf '%s\n' 'DMS host checks passed: eight pages, four bar edges, real helper Validate/Apply, DMS typography, IPC open.'

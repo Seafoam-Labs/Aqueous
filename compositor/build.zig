@@ -310,6 +310,8 @@ pub fn build(b: *Build) !void {
             "river-window-management-v1.xml",
             "aqueous-window-info-v1.xml",
             "aqueous-shell-v1.xml",
+            "aqueous-shell-v1.md",
+            "aqueous-shell-v1.schema.json",
             "river-xkb-bindings-v1.xml",
             "river-layer-shell-v1.xml",
             "river-input-management-v1.xml",

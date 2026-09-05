@@ -53,7 +53,7 @@ SPDX-License-Identifier: MIT</copyright>
         defaults. Targets are opaque window/workspace/group IDs; output values
         are connector names. State values are true/false. Strings are bounded
         to 1024 bytes. Failures are recoverable result events. Window and session
-        mutations are unavailable while locked or under external policy.
+        mutations are unavailable while locked or under external or comparison policy.
       </description>
       <arg name="request_id" type="uint"/>
       <arg name="action" type="uint" enum="action"/>

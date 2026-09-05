@@ -728,7 +728,7 @@ fn applyClientWindowRequests(
             ) catch unreachable;
         },
         .activate => {
-            snapshot_dirty = aqueous.activateClientWindow(snapshot, request.handle) or snapshot_dirty;
+            snapshot_dirty = aqueous.activateClientWindow(snapshot, request.handle, null) or snapshot_dirty;
         },
     };
     return snapshot_dirty;
@@ -737,10 +737,17 @@ fn applyClientWindowRequests(
 /// A foreign-toplevel activation is the compositor-side equivalent of clicking
 /// a dock/taskbar item: reveal its workspace, restore it if minimized, then
 /// raise and focus it.
+pub fn activateShellWindow(aqueous: *Aqueous, handle: layout_types.Handle, seat: []const u8) bool {
+    var snapshot = aqueous.api.policySnapshot(util.gpa) catch return false;
+    defer snapshot.deinit(util.gpa);
+    return aqueous.activateClientWindow(&snapshot, handle, seat);
+}
+
 fn activateClientWindow(
     aqueous: *Aqueous,
     snapshot: *const CompositorApi.PolicySnapshot,
     handle: layout_types.Handle,
+    seat: ?[]const u8,
 ) bool {
     _ = aqueous.window_states.get(handle) orelse return false;
     const workspace = aqueous.api.windowWorkspace(handle) orelse return false;
@@ -758,9 +765,13 @@ fn activateClientWindow(
         }
     }
 
-    _ = aqueous.api.selectOutput(workspace.output_id);
+    if (!aqueous.api.selectOutputOnSeat(workspace.output_id, seat)) return false;
     if (!aqueous.api.activateWorkspace(workspace.output_id, workspace.workspace_number)) return false;
-    aqueous.requestFocus(handle);
+    if (seat) |_| {
+        aqueous.cancelHoverFocus();
+        aqueous.api.requestFocusOnSeat(handle, seat);
+        aqueous.requestFocusRaise(handle);
+    } else aqueous.requestFocus(handle);
     return true;
 }
 
@@ -1830,6 +1841,7 @@ pub fn openOverviewOnOutput(aqueous: *Aqueous, explicit_output: ?u64) void {
 
 fn serverShellDirty() void {
     @import("../main.zig").server.shell_manager.dirty();
+    @import("../main.zig").server.shortcuts.refresh();
 }
 
 pub fn cancelOverview(aqueous: *Aqueous) void {

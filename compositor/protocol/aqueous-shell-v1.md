@@ -54,7 +54,7 @@ handles return an empty string.
 
 | Kind | Principal fields |
 | --- | --- |
-| `output` | `id`, connector `name`, `bounds`, `usable_bounds`, `scale`, `transform`, `active_workspace` |
+| `output` | `id`, connector `name`, `enabled`, `powered`, `bounds`, `usable_bounds`, `scale`, `transform`, `active_workspace` |
 | `workspace` | `id`, `output`, `name`, `number`, `active`, `urgent` |
 | `window` | `id`, `backend`, `app_id`, `class`, `title`, `workspace`, `output`, `geometry`, `outer_geometry`, presentation/visibility flags and per-window capabilities |
 | `seat` | name as `id`, selected `output`, focused `window`, `focus_kind`, active `keyboard` group |
@@ -65,6 +65,9 @@ handles return an empty string.
 Cleared optional values are `null`. Full entity replacements are sent on change;
 missing optional values must not preserve an earlier value. Backend `xwayland`
 uses `class` for application identity when `app_id` is null.
+
+`enabled` includes temporarily powered-off outputs; `powered` reports whether
+the output is currently on. `can_activate` reflects focus eligibility.
 
 `visible` means mapped on an active workspace and not policy-hidden, not that
 pixels are unoccluded. `can_minimize` and `can_maximize` describe eligibility for

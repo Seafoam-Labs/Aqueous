@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://seafoam.dev/aqueous/aqueous-shell-v1.schema.json",
   "title": "Aqueous shell JSON batch schema 1",
   "type": "object",
   "required": [
@@ -113,7 +112,9 @@
         "usable_bounds",
         "scale",
         "transform",
-        "active_workspace"
+        "active_workspace",
+        "enabled",
+        "powered"
       ],
       "properties": {
         "kind": {
@@ -183,6 +184,12 @@
             "string",
             "null"
           ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "powered": {
+          "type": "boolean"
         }
       }
     },
@@ -251,7 +258,8 @@
         "snapped",
         "fixed_position",
         "can_minimize",
-        "can_maximize"
+        "can_maximize",
+        "can_activate"
       ],
       "properties": {
         "kind": {
@@ -386,6 +394,9 @@
           "type": "boolean"
         },
         "can_maximize": {
+          "type": "boolean"
+        },
+        "can_activate": {
           "type": "boolean"
         }
       }

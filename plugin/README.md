@@ -1,5 +1,9 @@
 # Aqueous Settings for Noctalia v5
 
+`aqueous-config` 0.7.1 adds capability discovery in version and snapshot JSON;
+existing protocol-1 clients retain their 0.7.0 minimum. See the
+[shared DMS configuration contract](../docs/dms-configuration-contract.md).
+
 A native Noctalia v5 flyout for configuring the Aqueous compositor.
 
 The plugin adds an **Aqueous** bar widget. Clicking it opens an attached,

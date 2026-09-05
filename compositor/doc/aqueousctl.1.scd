@@ -25,13 +25,26 @@ aqueousctl - inspect and control Aqueous compositor state
 
 *aqueousctl cursor set --theme* _NAME_ *--size* _SIZE_ [*--json*]
 
+*aqueousctl shell* _capabilities|snapshot|watch_ *--json*
+
+*aqueousctl window* _activate|close|state|move_ *--id* _ID_ [_OPTIONS_] *--json*
+
+*aqueousctl workspace* _activate|rename_ *--id* _ID_ [_OPTIONS_] *--json*
+
+*aqueousctl keyboard* _query|set|next_ [_OPTIONS_] *--json*
+
+*aqueousctl overview* _show|hide|toggle_ [*--output* _NAME_] *--json*
+
+*aqueousctl session exit --json*
+
 # DESCRIPTION
 
 *aqueousctl* is a Wayland client for Aqueous's window information protocol. It
 enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
 stable identifiers to request compositor-owned state. Output information is
 read from the event stream of zwlr_output_manager_v1. Its mutating operations
-change an output-scoped active-workspace layout or the live compositor cursor.
+include layout and cursor updates. Shell commands use the separate versioned
+aqueous_shell_manager_v1 protocol for live state and typed policy actions.
 
 # COMMANDS
 
@@ -103,6 +116,56 @@ change an output-scoped active-workspace layout or the live compositor cursor.
 	existing compositor. Desktop settings tools making a live change should
 	invoke this command and separately update the systemd user and D-Bus
 	activation environments for other application launch paths.
+
+*shell capabilities|snapshot|watch --json*
+	Discover schema and capabilities, read one atomic snapshot, or subscribe to
+	a snapshot followed by deltas as newline-delimited JSON. Window, workspace,
+	output, seat, keyboard group/device and session records use runtime IDs
+	scoped to a compositor session token. Apply deltas atomically and require
+	base_sequence to match the last accepted sequence. Restart a failed watch
+	with bounded backoff and replace the model with its new snapshot.
+
+*window activate|close --id ID [--seat SEAT] --json*
+	Activate a stable window ID or request client close. Activation accepts an
+	optional seat, reveals the workspace and restores a minimized window.
+	Close does not accept a seat and reports acceptance, not client termination.
+
+*window state --id ID --minimized|--maximized|--fullscreen true|false --json*
+	Set exactly one presentation state. Minimize/maximize eligibility follows
+	the existing floating-window policy; unsupported requests fail explicitly.
+
+*window move --id ID --workspace-id ID|--output NAME --json*
+	Move to a runtime workspace ID or the named output's active workspace.
+	This does not request focus-following or workspace activation.
+
+*workspace activate --id ID [--seat SEAT] --json*
+	Activate a workspace and select its output for the seat, including when empty.
+
+*workspace rename --id ID --name NAME --json*
+	Change a workspace display name without changing its runtime identity.
+
+*keyboard query|set|next [--seat SEAT] [--group ID] [--index INDEX] --json*
+	Query returns the complete shell snapshot and takes no extra options. Set
+	requires a zero-based index; next wraps. Control defaults to the seat's
+	active group. Changes affect live XKB state and do not rewrite configuration.
+
+*overview show|hide|toggle [--output NAME] --json*
+	Control Aqueous's existing overview. Show and toggle require an output;
+	hide takes no output. Repeated show/hide are idempotent.
+
+*session exit --json*
+	Request orderly compositor termination after an accepted acknowledgement.
+
+Shell commands requiring a seat may omit it only when exactly one seat exists.
+Mutations fail while locked or under external/comparison policy. JSON results
+include ok, status and sequence. Initial state and commands have a five-second
+deadline; an established watch has no idle timeout. Do not automatically retry
+a timed-out mutation because it may already have executed. Exit codes are 0 for
+success, 2 for malformed arguments and 1 for operation/transport failure.
+
+The full wire contract and schema are installed under
+_share/aqueous-protocols/stable/aqueous-shell-v1.md_ and
+_share/aqueous-protocols/stable/aqueous-shell-v1.schema.json_.
 
 # SECURITY
 

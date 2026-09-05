@@ -153,3 +153,10 @@ semantics, and the current blur-cache behavior.
 
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.
+
+Shell integrations use `aqueousctl shell capabilities --json`,
+`aqueousctl shell snapshot --json`, and the persistent
+`aqueousctl shell watch --json` stream. Typed window, workspace, keyboard,
+overview and session commands share stable runtime identities. See the
+[protocol and CLI contract](protocol/aqueous-shell-v1.md) and
+[isolated regression instructions](../docs/dms-integration-testing.md).

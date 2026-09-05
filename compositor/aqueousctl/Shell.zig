@@ -214,6 +214,10 @@ fn handleEvent(manager: *Protocol, event: Protocol.Event, state: *State) !void {
             if (parsed.value != .object) return error.InvalidCapabilities;
             const schema = parsed.value.object.get("schema") orelse return error.InvalidCapabilities;
             if (schema != .integer or schema.integer != 1) return error.UnsupportedSchema;
+            if (state.ready) return error.InvalidCapabilities;
+            const session = try string(parsed.value.object, "session");
+            if (!validSession(session)) return error.InvalidCapabilities;
+            state.session = try a.dupe(u8, session);
             state.ready = true;
             if (state.mode == .capabilities) {
                 try state.output.writeAll(json);
@@ -244,6 +248,10 @@ fn handleEvent(manager: *Protocol, event: Protocol.Event, state: *State) !void {
         },
         .result => |v| {
             if (state.mode != .command or v.request_id != 1) return error.InvalidResult;
+            switch (v.status) {
+                .applied, .accepted, .invalid, .not_found, .locked, .unsupported, .busy, .ambiguous_seat, .unavailable => {},
+                else => return error.InvalidResult,
+            }
             const ok = v.status == .applied or v.status == .accepted;
             try std.json.Stringify.value(.{ .ok = ok, .status = @tagName(v.status), .sequence = std.mem.span(v.sequence) }, .{}, state.output);
             try state.output.writeByte('\n');
@@ -258,6 +266,17 @@ fn string(object: std.json.ObjectMap, key: []const u8) ![]const u8 {
     const v = object.get(key) orelse return error.InvalidBatch;
     return if (v == .string) v.string else error.InvalidBatch;
 }
+fn validSession(value: []const u8) bool {
+    if (value.len != 32) return false;
+    for (value) |c| if (!std.ascii.isDigit(c) and !(c >= 'a' and c <= 'f')) return false;
+    return true;
+}
+fn validSequence(value: []const u8) bool {
+    if (value.len == 0 or value[0] == '0') return false;
+    for (value) |c| if (!std.ascii.isDigit(c)) return false;
+    _ = std.fmt.parseInt(u64, value, 10) catch return false;
+    return true;
+}
 fn validateBatch(state: *State) !void {
     const parsed = try std.json.parseFromSlice(std.json.Value, a, state.buffer.items, .{});
     defer parsed.deinit();
@@ -266,8 +285,10 @@ fn validateBatch(state: *State) !void {
     const schema = obj.get("schema") orelse return error.InvalidBatch;
     if (schema != .integer or schema.integer != 1) return error.UnsupportedSchema;
     const sequence = try string(obj, "sequence");
-    _ = try std.fmt.parseInt(u64, sequence, 10);
+    if (!validSequence(sequence)) return error.InvalidBatch;
     const session = try string(obj, "session");
+    if (!validSession(session)) return error.InvalidBatch;
+    if (state.session) |expected| if (!std.mem.eql(u8, session, expected)) return error.InvalidBatch;
     const kind = try string(obj, "type");
     const base = obj.get("base_sequence") orelse return error.InvalidBatch;
     if (state.sequence) |previous| {
@@ -277,6 +298,28 @@ fn validateBatch(state: *State) !void {
     for ([_][]const u8{ "upsert", "removed" }) |key| {
         const v = obj.get(key) orelse return error.InvalidBatch;
         if (v != .array) return error.InvalidBatch;
+    }
+    const upsert = obj.get("upsert").?.array.items;
+    const removed = obj.get("removed").?.array.items;
+    if (state.sequence == null and removed.len != 0) return error.InvalidBatch;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var keys: std.StringHashMapUnmanaged(void) = .empty;
+    for (upsert) |entity| {
+        if (entity != .object) return error.InvalidBatch;
+        const entity_kind = try string(entity.object, "kind");
+        const id = try string(entity.object, "id");
+        if (entity_kind.len == 0 or id.len == 0 or std.mem.indexOfScalar(u8, entity_kind, ':') != null) return error.InvalidBatch;
+        const key = try std.fmt.allocPrint(arena.allocator(), "{s}:{s}", .{ entity_kind, id });
+        const entry = try keys.getOrPut(arena.allocator(), key);
+        if (entry.found_existing) return error.InvalidBatch;
+    }
+    for (removed) |entity| {
+        if (entity != .string) return error.InvalidBatch;
+        const colon = std.mem.indexOfScalar(u8, entity.string, ':') orelse return error.InvalidBatch;
+        if (colon == 0 or colon == entity.string.len - 1) return error.InvalidBatch;
+        const entry = try keys.getOrPut(arena.allocator(), entity.string);
+        if (entry.found_existing) return error.InvalidBatch;
     }
     const next = try a.dupe(u8, sequence);
     errdefer a.free(next);
@@ -304,9 +347,39 @@ test "batch continuity requires exact base and session" {
         if (state.sequence) |v| a.free(v);
         if (state.session) |v| a.free(v);
     }
-    try state.buffer.appendSlice(a, "{\"schema\":1,\"session\":\"a\",\"sequence\":\"1\",\"base_sequence\":null,\"type\":\"snapshot\",\"upsert\":[],\"removed\":[]}");
+    try state.buffer.appendSlice(a, "{\"schema\":1,\"session\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sequence\":\"1\",\"base_sequence\":null,\"type\":\"snapshot\",\"upsert\":[],\"removed\":[]}");
     try validateBatch(&state);
     state.buffer.clearRetainingCapacity();
-    try state.buffer.appendSlice(a, "{\"schema\":1,\"session\":\"a\",\"sequence\":\"4\",\"base_sequence\":\"2\",\"type\":\"delta\",\"upsert\":[],\"removed\":[]}");
+    try state.buffer.appendSlice(a, "{\"schema\":1,\"session\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sequence\":\"4\",\"base_sequence\":\"2\",\"type\":\"delta\",\"upsert\":[],\"removed\":[]}");
     try std.testing.expectError(error.InvalidBatch, validateBatch(&state));
+}
+
+test "shell batches reject malformed identity and accept sequence coalescing" {
+    var state: State = .{ .mode = .watch, .output = undefined };
+    defer {
+        state.buffer.deinit(a);
+        if (state.sequence) |v| a.free(v);
+        if (state.session) |v| a.free(v);
+    }
+    const prefix = "{\"schema\":1,\"session\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sequence\":\"1\",\"base_sequence\":null,\"type\":\"snapshot\",\"removed\":[],\"upsert\":";
+    for ([_][]const u8{
+        "[7]}",
+        "[{\"kind\":\"window\",\"id\":\"\"}]}",
+        "[{\"kind\":\"window\",\"id\":\"x\"},{\"kind\":\"window\",\"id\":\"x\"}]}",
+    }) |bad| {
+        state.buffer.clearRetainingCapacity();
+        try state.buffer.appendSlice(a, prefix);
+        try state.buffer.appendSlice(a, bad);
+        try std.testing.expectError(error.InvalidBatch, validateBatch(&state));
+    }
+    state.buffer.clearRetainingCapacity();
+    try state.buffer.appendSlice(a, prefix ++ "[]}");
+    try validateBatch(&state);
+    state.buffer.clearRetainingCapacity();
+    try state.buffer.appendSlice(a, "{\"schema\":1,\"session\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sequence\":\"42\",\"base_sequence\":\"1\",\"type\":\"delta\",\"upsert\":[],\"removed\":[]}");
+    try validateBatch(&state);
+    try std.testing.expectEqualStrings("42", state.sequence.?);
+    try std.testing.expect(!validSequence("01"));
+    try std.testing.expect(!validSequence("+1"));
+    try std.testing.expect(!validSession("invalid"));
 }

@@ -16,6 +16,11 @@ GTK 3/4 and older Qt clients. Its display-wide default follows
 The protocol is obsolete, so its wlroots binding is isolated in
 `LegacyServerDecoration.zig` for straightforward removal or replacement.
 
+`keyboard-shortcuts-inhibit-v1` is implemented in
+`ShortcutInhibitManager.zig`, with focus/seat eligibility and keyboard dispatch
+integration. Normal bindings are inhibited; built-in VT switching remains
+reserved. See the [shell contract](../compositor/protocol/aqueous-shell-v1.md).
+
 ## Not supported
 
 ### wayland-protocols stable (wlroots implements these)
@@ -23,7 +28,6 @@ The protocol is obsolete, so its wlroots binding is isolated in
 | Protocol | Global interface | wlroots implementation | Notes |
 |---|---|---|---|
 | drm-lease-v1 | `wp_drm_lease_manager_v1` | `wlr.DrmLeaseV1` | Leases DRM connectors to clients. Required for VR headsets (SteamVR, Monado, OpenComposite). Needs DRM backend wiring. |
-| keyboard-shortcuts-inhibit-v1 | `zwp_keyboard_shortcuts_inhibit_manager_v1` | `wlr.KeyboardShortcutsInhibitManagerV1` | Lets fullscreen apps (games) receive reserved combos like Alt+Tab. Drop-in. |
 
 ### wlr-protocols (wlroots implements this)
 
@@ -117,11 +121,9 @@ zwlr_virtual_keyboard_manager_v1, xwayland_shell_v1.
 
 Priority order among the actionable gaps (all wlroots-ready):
 
-1. **keyboard-shortcuts-inhibit-v1** — easy drop-in; fullscreen games
-   currently cannot capture reserved shortcuts.
-2. **wlr-input-inhibitor** — easy drop-in; compatibility with older
+1. **wlr-input-inhibitor** — easy drop-in; compatibility with older
    lock/overlay tooling.
-3. **drm-lease-v1** — moderate effort (DRM backend wiring); the only gap
+2. **drm-lease-v1** — moderate effort (DRM backend wiring); the only gap
    with hardware implications (VR headsets).
 
 content-type-v1 was implemented in the content-type-v1 change: the protocol

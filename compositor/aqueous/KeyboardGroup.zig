@@ -486,6 +486,7 @@ fn getInputMethodGrab(group: *KeyboardGroup) ?*wlr.InputMethodV2.KeyboardGrab {
 }
 
 pub fn processKeymap(group: *KeyboardGroup, keymap: *xkb.Keymap) void {
+    defer server.shell_manager.dirty();
     // wlroots will log an error on failure, there's not much we can do to recover unfortunately.
     _ = group.state.setKeymap(keymap);
 }

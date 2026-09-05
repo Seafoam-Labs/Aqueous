@@ -21,6 +21,8 @@ const usage =
     \\       aqueousctl outputs [--json]
     \\       aqueousctl overlay-planes [--json]
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
+    \\       aqueousctl shell capabilities|snapshot|watch --json
+    \\       aqueousctl window|workspace|keyboard|overview|session ACTION ... --json
     \\       aqueousctl cursor [--json]
     \\       aqueousctl cursor set --theme NAME --size SIZE [--json]
     \\

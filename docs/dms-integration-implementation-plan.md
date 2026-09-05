@@ -1,6 +1,8 @@
 # Aqueous shell integration implementation plan
 
-Status: proposed; no runtime changes implemented by this document.
+Status: Aqueous implementation delivered; DMS upstream consumers and hardware
+release verification remain separate work. The phase descriptions below preserve
+the original plan. See the implementation record at the end for actual scope.
 
 Created 2026-09-05. Companion: [DMS upstream PR guide](dms-upstream-pr-guide.md).
 
@@ -17,7 +19,7 @@ The source audit covered this Aqueous checkout and the DMS checkout recorded in
 `26396ce432d6c71c3f5367438f96f4a8d667e160`. Selected upstream master files were
 also inspected. This is a design baseline, not an end-to-end compatibility
 certification or a claim that DMS 1.7 has been released. Pin and retest the
-actual target revision before implementation and release.
+actual target revision before upstream integration and release.
 
 Already available:
 
@@ -35,8 +37,8 @@ Already available:
 - Configuration validation/persistence in `aqueous-config`, a DMS settings
   plugin, and an independent portal chooser plugin.
 
-The missing integration is live policy metadata, shell access to selected
-operations, shortcut inhibition, and upstream consumers. Do not duplicate
+At that baseline, the missing integration was live policy metadata, shell access
+to selected operations, shortcut inhibition, and upstream consumers. Do not duplicate
 working standard protocols or make an external policy client the shell backend.
 
 ## Architecture decision
@@ -273,3 +275,30 @@ restart, lock/unlock and suspend/resume, active-window screenshots, and a real
 browser/recorder portal stream. Headless component success does not establish
 hardware DPMS, gamma/HDR behavior or PipeWire stream startup. Record unsupported
 hardware/backend combinations rather than claiming universal protocol success.
+
+## Implementation record
+
+- A1–A3: implemented `aqueous-shell-v1`, runtime identities, atomic bounded
+  snapshot/delta delivery, `aqueousctl` transport and typed actions. Existing
+  snapshot commands remain compatible. See the [protocol, schema and examples](../compositor/protocol/aqueous-shell-v1.md).
+- A4: implemented effective keyboard group/device state, live switching, and
+  focused-surface shortcut inhibition with existing key-release ownership.
+- A5: exposed the existing overview and its output/selection state.
+- A6: helper 0.7.1 advertises capabilities in version and snapshot responses.
+  The [configuration contract](dms-configuration-contract.md) maps existing
+  fields and defines provider ownership, preview/Apply and rollback requirements.
+  Four standard layer-shell edge reservations were verified to update usable
+  bounds and disappear on client crash, so no extra margin lease is needed for
+  the audited DMS frame implementation. Upstream settings providers still need
+  to implement the documented UI behavior.
+
+The stream rebuilds/diffs committed state on dirty transactions rather than
+maintaining a second per-field invalidation cache. Idle sessions produce no
+heartbeat or polling traffic. A slow subscriber retains one bounded baseline
+and pauses at one unacknowledged batch.
+
+Automated verification and reproducible commands are recorded in
+[the shell integration testing notes](dms-integration-testing.md). Headless
+regressions do not certify real DMS daemon support, GPU capture, hardware hotplug,
+suspend/resume or physical multi-seat behavior. Those remain release gates above;
+this change does not claim full upstream DMS support.
