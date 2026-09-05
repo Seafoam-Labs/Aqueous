@@ -15,7 +15,7 @@
   },
   "settings": "./Settings.qml",
   "icon": "tune",
-  "requires_dms": ">=1.6.0",
+  "requires_dms": ">=1.7.0",
   "dependencies": [
     "aqueous-config",
     "aqueousctl"

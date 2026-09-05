@@ -32,7 +32,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
-            base-devel git curl patch tar xz nodejs \
+            base-devel git curl patch tar xz nodejs python \
             clang llvm lld \
             wayland wayland-protocols wayland-utils \
             libxkbcommon libinput \
@@ -181,6 +181,8 @@ jobs:
           cp wm.toml         publish/aqueous-linux-x64/etc/xdg/aqueous/
           cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
           cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/xdg/uwsm/
+          install -Dm644 packaging/portal/noctalia.conf \
+            publish/aqueous-linux-x64/etc/xdg/xdg-desktop-portal-aqueous/config
           cp packaging/aqueous-portals.conf \
              publish/aqueous-linux-x64/share/xdg-desktop-portal/aqueous-portals.conf
           cp packaging/portal/aqueous.portal \

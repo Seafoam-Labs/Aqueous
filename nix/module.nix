@@ -67,11 +67,17 @@ in
 
     services.udev.packages = lib.optional (cfg.package != null) cfg.package;
 
-    environment.etc = lib.mkIf (cfg.package != null) {
+    environment.etc = lib.mkIf (cfg.package != null) ({
       "xdg/aqueous/wm.toml".source = "${cfg.package}/share/aqueous/wm.toml";
       "xdg/aqueous/outputs.toml".source = "${cfg.package}/share/aqueous/outputs.toml";
       "xdg/uwsm/env-aqueous".source = "${cfg.package}/share/aqueous/uwsm/env-aqueous";
-    };
+    } // lib.optionalAttrs cfg.noctalia.enable {
+      "xdg/xdg-desktop-portal-aqueous/config".text = ''
+        [screencast]
+        chooser_type=dmenu
+        chooser_cmd=${lib.getExe pkgs.noctalia-shell} dmenu -p "Select a source to share:"
+      '';
+    });
 
     xdg.portal = {
       enable = true;

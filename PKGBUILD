@@ -31,6 +31,7 @@ optdepends=('noctalia-greeter: recommended display manager / login greeter'
             'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
 conflicts=('aqueous-git' 'aqueous-bin')
 install=aqueous.install
+backup=('etc/xdg/xdg-desktop-portal-aqueous/config')
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
@@ -177,6 +178,8 @@ package() {
     # not silently won by a competing backend (cosmic/gtk).
     # Installed system-wide; the 'aqueous' filename stem is applied because the
     # session sets XDG_CURRENT_DESKTOP=Aqueous (see packaging/aqueous-init).
+    install -Dm644 "$srcdir/aqueous/packaging/portal/noctalia.conf" \
+        "$pkgdir/etc/xdg/xdg-desktop-portal-aqueous/config"
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-portals.conf" \
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/packaging/portal/aqueous.portal" \

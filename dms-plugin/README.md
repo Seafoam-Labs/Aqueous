@@ -4,7 +4,7 @@ A DMS plugin for editing Aqueous configuration, based on the Noctalia v5
 Aqueous Settings plugin. It provides a DankBar popout and a separate settings
 window, sharing one draft model across all bar instances.
 
-Requires DMS **1.6.0 or newer**, the shared **aqueous-config 0.7.0** helper,
+Targets DMS **1.7 or newer**, the shared **aqueous-config 0.7.0** helper,
 `aqueousctl`, and Aqueous. The helper is built with Zig 0.16. DMS supplies
 Quickshell and the QML components.
 
@@ -158,8 +158,10 @@ an existing compositor build and permission to create local Wayland/IPC sockets.
 It copies the host into a temporary directory and uses temporary HOME/XDG
 settings. Set `KEEP_DMS_TEST=1` to keep its logs and screenshot.
 
-The host contract is verified against DMS **v1.6.0**, commit
-`0bbe83380c9406d262d567581d64477d261c9ee5`, with its pinned shared QML dependency.
+The host contract passes prospective DMS **1.7** upstream master commit
+`59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3`, with pinned `dank-qml-common`
+commit `26396ce432d6c71c3f5367438f96f4a8d667e160`. Upstream has not published a
+1.7 tag, so repeat this validation against the eventual release before shipping.
 The headless test covers eight pages, four bar edges, helper Validate/Apply,
 font synchronization, and IPC. Interactive font-picker behavior, physical
 monitor hotplug, and distro package installation should also be checked on a
@@ -167,7 +169,7 @@ normal desktop before a release. The full DMS Go application is not required
 by the host harness; DMS service warnings about a missing `dms` executable in
 that harness are expected.
 
-API references: [plugin guide](https://github.com/AvengeMedia/DankMaterialShell/blob/v1.6.0/quickshell/PLUGINS/README.md),
-[manifest schema](https://github.com/AvengeMedia/DankMaterialShell/blob/v1.6.0/.agents/skills/dms-plugin-dev/assets/plugin-schema.json),
-[PluginService](https://github.com/AvengeMedia/DankMaterialShell/blob/v1.6.0/quickshell/Services/PluginService.qml),
-[SettingsData](https://github.com/AvengeMedia/DankMaterialShell/blob/v1.6.0/quickshell/Common/SettingsData.qml).
+API references at the validated commit: [plugin guide](https://github.com/AvengeMedia/DankMaterialShell/blob/59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3/quickshell/PLUGINS/README.md),
+[manifest schema](https://github.com/AvengeMedia/DankMaterialShell/blob/59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3/.agents/skills/dms-plugin-dev/assets/plugin-schema.json),
+[PluginService](https://github.com/AvengeMedia/DankMaterialShell/blob/59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3/quickshell/Services/PluginService.qml),
+[SettingsData](https://github.com/AvengeMedia/DankMaterialShell/blob/59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3/quickshell/Common/SettingsData.qml).

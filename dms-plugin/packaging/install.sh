@@ -20,7 +20,7 @@ for dir in components controls pages services translations; do
     install -dm755 "$runtime/$dir"
     while IFS= read -r -d '' file; do install -m644 "$file" "$runtime/$dir/"; done < <(find "$plugin_root/$dir" -maxdepth 1 -type f -print0)
 done
-# DMS 1.6.0 discovers system plugins here. The link target excludes DESTDIR.
+# DMS system plugin discovery directory. The link target excludes DESTDIR.
 install -dm755 "$destination$sysconfdir/xdg/quickshell/dms-plugins"
 ln -sfn "$prefix/share/aqueous/dms-plugins/aqueousSettings" \
     "$destination$sysconfdir/xdg/quickshell/dms-plugins/aqueousSettings"

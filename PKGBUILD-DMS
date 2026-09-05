@@ -10,7 +10,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'dms-shell>=1.6.0' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-shell>=1.7.0' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -29,6 +29,7 @@ optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter
 provides=('aqueous')
 conflicts=('aqueous' 'aqueous-git' 'aqueous-bin' 'aqueous-git-intel')
 install=aqueous.install
+backup=('etc/xdg/xdg-desktop-portal-aqueous/config')
 source=(
     "aqueous::git+${url}.git"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
@@ -96,6 +97,12 @@ build() {
         "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
         "$srcdir/aqueous-portal-build" \
         "$srcdir/aqueous-portal-dist"
+    msg2 "Building DMS portal chooser..."
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-portal-chooser-cache" \
+        zig build --build-file "$srcdir/aqueous/packaging/portal/bridge/build.zig" \
+        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-portal-chooser-dist"
+
 }
 
 check() {
@@ -130,6 +137,8 @@ check() {
     fi
     "$srcdir/aqueous/plugin/tests/test-helper.sh" "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
     "$srcdir/aqueous/dms-plugin/tests/test-all.sh" "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
+    "$srcdir/aqueous/packaging/tests/test-portal-chooser.sh" \
+        "$srcdir/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser"
     "$srcdir/aqueous/packaging/tests/test-portal-packaging.sh" \
         "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 }
@@ -169,6 +178,8 @@ package() {
     # not silently won by a competing backend (cosmic/gtk).
     # Installed system-wide; the 'aqueous' filename stem is applied because the
     # session sets XDG_CURRENT_DESKTOP=Aqueous (see packaging/aqueous-init).
+    AQUEOUS_PORTAL_CHOOSER_BINARY="$srcdir/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser" \
+        DESTDIR="$pkgdir" sh "$srcdir/aqueous/packaging/portal/install-dms-chooser.sh"
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-portals.conf" \
         "$pkgdir/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$srcdir/aqueous/packaging/portal/aqueous.portal" \

@@ -14,6 +14,7 @@ output_root=$3
 if [ -d "$build_dir" ]; then
     meson setup --reconfigure "$build_dir" "$source_dir" \
         --prefix=/usr \
+        --sysconfdir=/etc \
         --libexecdir=lib/aqueous \
         --buildtype=release \
         -Dsystemd=disabled \
@@ -21,6 +22,7 @@ if [ -d "$build_dir" ]; then
 else
     meson setup "$build_dir" "$source_dir" \
         --prefix=/usr \
+        --sysconfdir=/etc \
         --libexecdir=lib/aqueous \
         --buildtype=release \
         -Dsystemd=disabled \

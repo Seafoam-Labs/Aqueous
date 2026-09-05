@@ -1,0 +1,13 @@
+{
+  "id": "aqueousPortal",
+  "name": "Aqueous Screen Sharing",
+  "description": "Choose a monitor or window when an application requests screen sharing.",
+  "version": "0.1.0",
+  "author": "Seafoam Labs",
+  "type": "daemon",
+  "capabilities": ["daemon"],
+  "component": "./PortalDaemon.qml",
+  "icon": "screen_share",
+  "requires_dms": ">=1.7.0",
+  "permissions": ["settings_read"]
+}

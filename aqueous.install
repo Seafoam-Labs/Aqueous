@@ -22,6 +22,8 @@ print_session_information() {
 
     Screen recording and sharing use the packaged Aqueous portal backend;
     xdg-desktop-portal-wlr does not need to be installed separately.
+    The source picker uses the shell selected by your Aqueous package.
+    Existing user portal configs override the packaged chooser settings.
 
     The optional noctalia-greeter is the recommended display-manager frontend.
     SDDM and other Wayland-capable display managers also work.
@@ -42,6 +44,8 @@ EOF
     DankMaterialShell starts automatically with the Aqueous graphical session.
     The packaged default configuration uses DMS Spotlight for the launcher
     action. No DMS user unit needs to be enabled manually.
+    Aqueous Screen Sharing is a separate DMS plugin, enabled on first use.
+    An intentional disable is preserved; re-enable it in DMS Plugins settings.
 EOF
     fi
 

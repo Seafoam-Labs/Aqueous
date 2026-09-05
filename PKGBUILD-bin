@@ -28,7 +28,8 @@ optdepends=('noctalia-greeter: recommended display manager / login greeter'
 provides=('aqueous')
 conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
-backup=('etc/xdg/aqueous/wm.toml'
+backup=('etc/xdg/xdg-desktop-portal-aqueous/config'
+        'etc/xdg/aqueous/wm.toml'
         'etc/xdg/uwsm/env-aqueous')
 source_x86_64=(
     "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
@@ -59,6 +60,7 @@ check() {
         share/xdg-desktop-portal/aqueous-portals.conf
         share/xdg-desktop-portal/portals/aqueous.portal
         share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service
+        etc/xdg/xdg-desktop-portal-aqueous/config
         etc/xdg/aqueous/wm.toml
         etc/xdg/uwsm/env-aqueous
         lib/systemd/user/aqueous-session.target

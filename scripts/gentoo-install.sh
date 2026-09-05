@@ -293,6 +293,8 @@ install_into() {
     install -Dm755 "$root/packaging/aqueous-init" "$D/usr/bin/aqueous-init"
     install -Dm755 "$root/packaging/aqueous-wm.sh" "$D/usr/bin/aqueous-wm"
     install -Dm644 "$root/aqueous.desktop" "$D/usr/share/wayland-sessions/aqueous.desktop"
+    install -Dm644 "$root/packaging/portal/noctalia.conf" \
+        "$D/etc/xdg/xdg-desktop-portal-aqueous/config"
     install -Dm644 "$root/packaging/aqueous-portals.conf" \
         "$D/usr/share/xdg-desktop-portal/aqueous-portals.conf"
     install -Dm644 "$root/packaging/portal/aqueous.portal" \

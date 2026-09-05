@@ -4,6 +4,11 @@ Status: implemented as plugin 0.2.0 with shared helper 0.7.0. Automated
 backend, draft, process, packaging, and headless host checks are available.
 Normal-desktop interactive checks remain part of release validation.
 
+The portal integration now targets DMS 1.7 for the DMS package and plugin
+metadata. The host suite passes prospective 1.7 upstream master commit
+`59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3`; upstream has not published a 1.7
+tag, so the eventual release still requires a host run before shipping.
+
 Implementation decisions relative to the proposal:
 
 - DMS v1.6.0 is the verified host API baseline.

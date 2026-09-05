@@ -3,7 +3,7 @@
 set -euo pipefail
 unset LD_PRELOAD
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-source_root=${DMS_SOURCE:?Set DMS_SOURCE to a DMS 1.6.0 checkout with dank-qml-common initialized}
+source_root=${DMS_SOURCE:?Set DMS_SOURCE to a DMS 1.7 checkout with dank-qml-common initialized}
 compositor=${AQUEOUS_COMPOSITOR_BIN:-"$root/../compositor/zig-out/bin/aqueous"}
 work=$(mktemp -d /tmp/aqueous-dms-host.XXXXXX)
 compositor_pid=''
