@@ -9,10 +9,12 @@ ColumnLayout {
     required property var controller
     spacing: 8
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Legacy A–D snap zones')
         font.bold: true
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Edit legacy zones here, or migrate them into a named layout above.')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
@@ -39,6 +41,7 @@ ColumnLayout {
             }
             RowLayout {
                 Label {
+                    color: Theme.surfaceText
                     text: row.modelData.toUpperCase() + (row.zone.op === 'delete' ? ' · removed' : '')
                     Layout.fillWidth: true
                 }

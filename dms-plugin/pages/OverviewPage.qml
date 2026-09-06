@@ -13,11 +13,13 @@ ColumnLayout {
     property var layouts: ['tile', 'monocle', 'grid', 'rows', 'dwindle', 'reverse-dwindle', 'scrolling', 'stacking', 'game-mode', 'composable']
     spacing: 12
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Aqueous Settings')
         font.bold: true
         font.pixelSize: Theme.fontSizeLarge
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Edits stay in memory until Apply. Aqueous hot-reloads saved settings.')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
@@ -25,6 +27,7 @@ ColumnLayout {
     Repeater {
         model: Object.keys(root.controller?.model.snapshot.files || {})
         Label {
+            color: Theme.surfaceText
             required property string modelData
             Layout.fillWidth: true
             wrapMode: Text.WrapAnywhere
@@ -42,6 +45,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Current workspace layout · applies immediately')
         font.bold: true
     }
@@ -74,6 +78,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: root.liveStatus
         Layout.fillWidth: true
         wrapMode: Text.WordWrap

@@ -11,6 +11,7 @@ ColumnLayout {
     readonly property var bindings: controller?.model.keybinds() || []
     spacing: 12
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Custom shortcuts')
         font.bold: true
     }
@@ -47,6 +48,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Built-in shortcuts and action commands')
         font.bold: true
     }

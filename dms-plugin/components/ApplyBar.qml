@@ -16,6 +16,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Label {
+            color: Theme.surfaceText
             text: root.controller?.model.count + ' draft changes'
             Layout.fillWidth: true
         }

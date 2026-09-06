@@ -31,10 +31,12 @@ ColumnLayout {
             });
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Ordered window rules')
         font.bold: true
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Rule moves are staged individually. Apply or discard a move before further rule edits.')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
@@ -97,6 +99,7 @@ ColumnLayout {
             readonly property var value: root.rule?.values[modelData.key]
             Layout.fillWidth: true
             Label {
+                color: Theme.surfaceText
                 text: row.modelData.label
                 Layout.preferredWidth: 155
             }

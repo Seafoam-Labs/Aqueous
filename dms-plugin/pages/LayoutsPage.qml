@@ -65,6 +65,7 @@ ColumnLayout {
         });
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Named stacking snap layouts')
         font.bold: true
     }
@@ -165,6 +166,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: 'Default: ' + (root.controller?.model.draft.snap_layouts !== null ? root.controller?.model.draft.default_snap_layout || '' : root.controller?.model.snapshot.default_snap_layout || '')
     }
     Repeater {

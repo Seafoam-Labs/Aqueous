@@ -84,6 +84,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Drag monitors to arrange them. Positions and orientation are saved only on Apply.')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
@@ -104,6 +105,7 @@ ColumnLayout {
     RowLayout {
         enabled: !!root.monitor
         Label {
+            color: Theme.surfaceText
             text: I18n.trFor('aqueousSettings', 'X')
         }
         Aq.SpinBox {
@@ -114,6 +116,7 @@ ColumnLayout {
             onValueModified: root.stage(root.monitor, value, root.monitor.y)
         }
         Label {
+            color: Theme.surfaceText
             text: I18n.trFor('aqueousSettings', 'Y')
         }
         Aq.SpinBox {
@@ -131,12 +134,14 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Resolution and refresh rate')
         font.bold: true
     }
     RowLayout {
         enabled: !!root.monitor
         Label {
+            color: Theme.surfaceText
             text: I18n.trFor('aqueousSettings', 'Resolution')
         }
         Aq.ComboBox {
@@ -149,6 +154,7 @@ ColumnLayout {
             onAccepted: root.stageMode(editText, '')
         }
         Label {
+            color: Theme.surfaceText
             text: 'Hz'
         }
         Aq.ComboBox {
@@ -162,6 +168,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: root.monitor?.mode_inherited ? I18n.trFor('aqueousSettings', 'Mode inherited from wm.toml; editing creates an outputs.toml override.') : I18n.trFor('aqueousSettings', 'Select an advertised mode, or type a custom WIDTHxHEIGHT and Hz. Automatic lets Aqueous choose the rate for that resolution.')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap

@@ -12,6 +12,8 @@ Basic.SpinBox {
     palette.buttonText: Theme.surfaceText
     palette.button: Theme.surfaceContainerHigh
     palette.base: Theme.surfaceContainerHigh
+    palette.highlight: Theme.primary
+    palette.highlightedText: Theme.primaryText
     background: Rectangle {
         radius: Theme.cornerRadius
         color: Theme.surfaceContainerHigh

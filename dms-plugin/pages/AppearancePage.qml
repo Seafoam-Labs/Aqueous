@@ -12,6 +12,7 @@ ColumnLayout {
     readonly property var faces: (typography?.faces || []).filter(f => f.family === controller?.model.value('desktop.font.family'))
     spacing: 12
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Desktop typography')
         font.bold: true
     }
@@ -49,6 +50,7 @@ ColumnLayout {
             controller.model.change('desktop.font.' + key, value);
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Cursor theme')
         font.bold: true
     }
@@ -67,12 +69,14 @@ ColumnLayout {
         excluded: ['desktop.font.family', 'desktop.font.style', 'desktop.font.weight', 'desktop.font.slant', 'desktop.font.width', 'desktop.cursor.theme']
     }
     Label {
+        color: Theme.surfaceText
         text: I18n.trFor('aqueousSettings', 'Synchronization targets')
         font.bold: true
     }
     Repeater {
         model: (root.typography?.targets || []).filter(t => t.id !== 'noctalia').concat(root.controller?.model.snapshot.desktop_cursor?.targets || [])
         Label {
+            color: Theme.surfaceText
             required property var modelData
             text: modelData.id + ': ' + modelData.state
             Layout.fillWidth: true
@@ -80,6 +84,7 @@ ColumnLayout {
         }
     }
     Label {
+        color: Theme.surfaceText
         text: 'DMS: ' + (root.controller?.appearance.state || '') + ' — ' + (root.controller?.appearance.message || '')
         Layout.fillWidth: true
         wrapMode: Text.WordWrap

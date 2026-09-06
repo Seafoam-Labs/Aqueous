@@ -23,23 +23,24 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Label {
+            color: Theme.surfaceText
             text: root.tr(root.field.label) + (root.field.inherited ? ' · inherited' : '')
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             font.bold: true
         }
-        ToolButton {
+        Aq.Button {
             text: I18n.trFor('aqueousSettings', '↶')
             Accessible.name: root.tr('Use default')
             onClicked: root.set(root.field.default)
         }
     }
     Label {
+        color: Theme.surfaceVariantText
         text: root.tr(root.field.description)
         visible: text.length > 0
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
-        opacity: 0.7
         font.pixelSize: Theme.fontSizeSmall
     }
     Switch {

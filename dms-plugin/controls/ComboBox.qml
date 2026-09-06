@@ -13,6 +13,8 @@ Basic.ComboBox {
     palette.text: Theme.surfaceText
     palette.buttonText: Theme.surfaceText
     palette.base: Theme.surfaceContainerHigh
+    palette.window: Theme.surfaceContainerHigh
+    palette.dark: Theme.surfaceText
     palette.highlight: Theme.primary
     palette.highlightedText: Theme.primaryText
     background: Rectangle {
