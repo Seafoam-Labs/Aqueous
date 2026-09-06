@@ -18,7 +18,9 @@ The desktop portal router is configured by `packaging/aqueous-portals.conf` to
 use this backend only for ScreenCast and Screenshot. GTK continues to handle
 the remaining portal interfaces.
 
-The backend configuration selects the shell's source picker. Noctalia packages
+The Git packages (including Intel and `PKGBUILD-DMS`) use Seafoam Labs'
+`dms-aqueous` shell and the DMS chooser. The backend configuration selects the
+shell's source picker. Noctalia packages
 install `noctalia.conf`, which calls `noctalia dmenu`. DMS packages target **DMS
 1.7 or newer** and install `dms.conf`, a small Zig bridge, and the independent
 `aqueousPortal` DMS daemon plugin. No additional launcher is required. Both

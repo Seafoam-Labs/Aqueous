@@ -10,7 +10,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'dms-shell>=1.7.0' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-aqueous' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -106,6 +106,7 @@ build() {
 }
 
 check() {
+    python3 "$srcdir/aqueous/packaging/tests/test-dms-git-packaging.py"
     # aqueousctl and its protocol/manual are one feature: reject a partial
     # install tree before package() copies it into the package image.
     local required=(
@@ -190,13 +191,9 @@ package() {
         "$pkgdir/usr/lib/systemd/user/xdg-desktop-portal-aqueous.service"
     install -Dm644 "$srcdir/xdg-desktop-portal-wlr-0.8.4/LICENSE" \
         "$pkgdir/usr/share/licenses/$pkgname/xdg-desktop-portal-wlr/LICENSE"
-    install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/etc/xdg/aqueous/wm.toml"
-    install -Dm644 "$srcdir/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
+    DESTDIR="$pkgdir" sh "$srcdir/aqueous/packaging/install-dms-wm-config.sh"
     install -Dm644 "$srcdir/aqueous/outputs.toml" "$pkgdir/etc/xdg/aqueous/outputs.toml"
     install -Dm644 "$srcdir/aqueous/outputs.toml" "$pkgdir/usr/share/aqueous/outputs.toml"
-    sed -i 's|toggle_start_menu = "noctalia msg panel-toggle launcher"|toggle_start_menu = "dms ipc call spotlight toggle"|' \
-        "$pkgdir/etc/xdg/aqueous/wm.toml" \
-        "$pkgdir/usr/share/aqueous/wm.toml"
 
     # Session wrapper target. graphical-session.target is static
     # (RefuseManualStart) and xdg-desktop-portal.service has

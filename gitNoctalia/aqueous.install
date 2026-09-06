@@ -22,27 +22,34 @@ print_session_information() {
 
     Screen recording and sharing use the packaged Aqueous portal backend;
     xdg-desktop-portal-wlr does not need to be installed separately.
-    The source picker uses the shell selected by your Aqueous package.
-    Existing user portal configs override the packaged chooser settings.
 
+    The optional noctalia-greeter is the recommended display-manager frontend.
     SDDM and other Wayland-capable display managers also work.
 EOF
 
-    if [ -e /usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service ]; then
+    if [ -e /usr/lib/systemd/user/noctalia.service ]; then
         cat <<'EOF'
 
-    Seafoam Labs' dms-aqueous starts automatically with the Aqueous session.
-    Use DMS Settings for appearance and enable Aqueous Settings in DMS Plugins
-    for the packaged configuration editor. Aqueous Screen Sharing is a separate
-    plugin, enabled on first use; an intentional disable is preserved.
-    The optional greetd-dms-greeter-bin provides a display-manager frontend.
+    Noctalia starts automatically with the Aqueous graphical session. The
+    default config registers and enables the packaged Aqueous Settings plugin
+    and places its widget on the bar for new profiles. Existing Noctalia bar
+    layouts are preserved; those users can add it from the bar widget picker.
+    An intentional later disable is preserved.
+EOF
+    elif [ -e /usr/lib/systemd/user/aqueous-dms.service ]; then
+        cat <<'EOF'
 
-    Existing user configuration is preserved. When switching shells, merge
-    the bindings from /usr/share/aqueous/wm.toml into ~/.config/aqueous/wm.toml:
-        launcher: dms ipc call spotlight toggle
-        screenshots (including direct bindings): dms screenshot region
-    Disable any manually enabled shell service or startup command so that
-    only the packaged aqueous-dms.service starts the shell.
+    DankMaterialShell starts automatically with the Aqueous graphical session.
+    The packaged default configuration uses DMS Spotlight for the launcher
+    action. No DMS user unit needs to be enabled manually.
+EOF
+    fi
+
+    if command -v aqueous-welcome >/dev/null 2>&1; then
+        cat <<'EOF'
+
+    "Welcome to Aqueous" opens automatically once for new users and remains
+    available as aqueous-welcome or from the application menu.
 EOF
     fi
 }

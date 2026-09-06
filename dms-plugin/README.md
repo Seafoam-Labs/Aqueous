@@ -117,9 +117,11 @@ remain owned by the shared helper.
 
 ## Packaging
 
-`PKGBUILD-DMS` builds/tests the shared helper and installs this plugin. As a VCS
-package it now follows the repository revision instead of the old `v0.4.8` tag,
-which predates this plugin. Noctalia's package remains a separate shell choice.
+`PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, both Intel variants, and `PKGBUILD-DMS`
+build/test the shared helper and install this plugin. They follow the Aqueous
+repository revision and depend on Seafoam Labs' `dms-aqueous` package from
+[its DMS fork](https://github.com/Seafoam-Labs/DankMaterialShell).
+The release `PKGBUILD` and `PKGBUILD-bin` retain Noctalia integration.
 
 A standalone staged install is also supported:
 

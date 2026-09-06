@@ -71,11 +71,12 @@ model; they do not replace it.
   session lock, pointer constraints, color management, and other modern Wayland
   protocols are supported. Optional XWayland is started and managed directly by
   Aqueous—no `xwayland-satellite` process is required.
-- **A cohesive desktop without a mandatory suite.** The packaged session starts
-  [Noctalia](https://github.com/noctalia-dev/noctalia) as its shell, while
+- **A cohesive desktop without a mandatory suite.** The Git packages start
+  Seafoam Labs' [DankMaterialShell](https://github.com/Seafoam-Labs/DankMaterialShell)
+  fork (`dms-aqueous`) as their shell, while
   Aqueous continues to use standard layer-shell interfaces and does not embed
   the shell into the compositor.
-  The DMS package includes a native [Aqueous Settings plugin for Dank Material
+  These packages include a native [Aqueous Settings plugin for Dank Material
   Shell](dms-plugin/README.md), with a bar popout and IPC-accessible window.
 
 ## Performance by design
@@ -284,10 +285,28 @@ targets only the display beneath the pointer.
 
 ## Packaging
 
-The reference `PKGBUILD`, `PKGBUILD-bin`, and generic-CPU `PKGBUILD-intel`
-install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection and
-workspace-layout client. Packages also provide the session launcher, environment hook, default
-TOML configuration, desktop entry, systemd user units, and Noctalia integration. Aqueous has no
+The packages install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection
+and workspace-layout client, plus the session launcher, environment hook,
+default TOML configuration, desktop entry, and systemd user units.
+`PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, the generic-CPU Intel variants, and
+`PKGBUILD-DMS` depend on Seafoam Labs' `dms-aqueous` package. They include the
+DMS settings plugin and screen-sharing chooser, start `aqueous-dms.service`,
+and use DMS Spotlight and region screenshots in the packaged bindings.
+The reference `PKGBUILD` and `PKGBUILD-bin` retain Noctalia integration.
+`gitNoctalia/PKGBUILD` and its accompanying `aqueous.install` preserve the
+previous Noctalia Git package, including its settings plugin and Welcome app.
+It builds `aqueous-git` as an alternative to the DMS Git package.
+
+When switching an existing profile to a Git package, update the launcher and
+screenshot commands in `~/.config/aqueous/wm.toml` from the defaults in
+`/usr/share/aqueous/wm.toml`; existing user files are preserved. Use
+`dms ipc call spotlight toggle` for the launcher and `dms screenshot region`
+for both screenshot actions and direct screenshot bindings. Disable any
+manually enabled shell service or startup command before using the packaged
+`aqueous-dms.service`, so the session runs one shell instance. The Noctalia
+Welcome app is omitted from the Git packages; use DMS Settings for appearance.
+
+Aqueous has no
 .NET, `aqueous-wm-client`, `aqueous-outputd`, `wlr-randr`, or
 `xwayland-satellite` runtime dependency.
 
