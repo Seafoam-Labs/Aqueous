@@ -55,6 +55,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         'session-lock': '/usr/share/wayland-protocols/staging/ext-session-lock/ext-session-lock-v1.xml',
         'aqueous-shell': ROOT / 'protocol/aqueous-shell-v1.xml',
         'ext-workspace': ROOT / 'protocol/upstream/ext-workspace-v1.xml',
+        'pointer-constraints': '/usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml',
     }
     generated = []
     for name, xml in protocols.items():

@@ -261,6 +261,21 @@ pub fn clearFocus(_: CompositorApi) void {
     server.wm.dirtyWindowing();
 }
 
+/// Queue a warp in logical layout coordinates, committed after keyboard focus.
+pub fn warpPointerToOutput(_: CompositorApi, output_id: u64) void {
+    const output = outputById(output_id) orelse return;
+    const box = output.policyFullBox();
+    if (output.active_workspace == null or box.width <= 0 or box.height <= 0) return;
+    var seats = server.input_manager.seats.iterator(.forward);
+    if (seats.next()) |seat| {
+        seat.wm_requested.pointer_warp = .{
+            .x = box.x + @divTrunc(box.width, 2),
+            .y = box.y + @divTrunc(box.height, 2),
+        };
+        server.wm.dirtyWindowing();
+    }
+}
+
 pub fn selectOutput(api: CompositorApi, output_id: u64) bool {
     return api.selectOutputOnSeat(output_id, null);
 }

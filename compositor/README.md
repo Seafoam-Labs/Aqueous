@@ -93,6 +93,7 @@ scripts/test-xdg-floating.sh
 scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
+python3 scripts/test-output-focus.py
 scripts/test-scaling.sh
 scripts/test-overlay-planes.sh
 scripts/test-client-buffer-scaling.sh

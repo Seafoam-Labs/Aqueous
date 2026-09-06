@@ -428,6 +428,17 @@ pub fn invalidateLastSent(cursor: *Cursor) void {
     cursor.last_sent_sy = 0;
 }
 
+/// An explicit WM warp leaves any old constraint before moving. Deactivation
+/// may restore a locked cursor or its hint, so it must precede the final warp.
+pub fn warpForPolicy(cursor: *Cursor, x: i32, y: i32) void {
+    cursor.seat.updatePointerConstraint(null);
+    cursor.wlr_cursor.warpClosest(null, @floatFromInt(x), @floatFromInt(y));
+    cursor.invalidateLastSent();
+    // Refresh pointer enter/leave and constraints at the destination without
+    // treating the warp as physical motion that can replace keyboard focus.
+    cursor.updateState();
+}
+
 fn hasActivePointerConstraint(cursor: *const Cursor) bool {
     if (cursor.constraint) |constraint| {
         return constraint.state == .active;

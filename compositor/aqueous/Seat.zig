@@ -854,8 +854,7 @@ pub fn manageFinish(seat: *Seat) void {
 
     if (seat.wm_requested.pointer_warp) |target| {
         seat.wm_requested.pointer_warp = null;
-        seat.cursor.wlr_cursor.warpClosest(null, @floatFromInt(target.x), @floatFromInt(target.y));
-        seat.cursor.updateState();
+        seat.cursor.warpForPolicy(target.x, target.y);
     }
 }
 

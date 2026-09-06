@@ -2023,7 +2023,8 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     if (move) {
         moving_window.?.window.policy_state.overrideWorkspace();
         const handle: layout_types.Handle = @bitCast(moving_window.?.window.ref);
-        if (aqueous.api.moveWindowToWorkspace(handle, target.id, target.workspace_number)) aqueous.requestFocus(handle);
+        if (!aqueous.api.moveWindowToWorkspace(handle, target.id, target.workspace_number)) return;
+        aqueous.requestFocus(handle);
     } else {
         const candidate_context: OutputFocusContext = .{
             .aqueous = aqueous,
@@ -2052,6 +2053,7 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
             aqueous.clearFocus();
         }
     }
+    aqueous.api.warpPointerToOutput(target.id);
     aqueous.api.requestManageCycle();
 }
 

@@ -19,12 +19,17 @@
 #include "session-lock-client-protocol.h"
 #include "aqueous-shell-client-protocol.h"
 #include "ext-workspace-client-protocol.h"
+#include "pointer-constraints-client-protocol.h"
 
 static struct wl_display *display;
 static struct wl_compositor *compositor;
 static struct wl_shm *shm;
 static struct wl_seat *seat;
 static struct wl_keyboard *keyboard;
+static struct wl_pointer *pointer;
+static struct zwp_pointer_constraints_v1 *constraints;
+static struct zwp_locked_pointer_v1 *pointer_lock;
+static struct zwp_confined_pointer_v1 *pointer_confine;
 static struct wl_output *outputs[16];
 static size_t noutputs;
 static struct xdg_wm_base *wm;
@@ -105,9 +110,26 @@ static void key(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t tim
 static void modifiers(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t depressed, uint32_t latched, uint32_t locked, uint32_t group) { (void)data; (void)k; (void)serial; (void)depressed; (void)latched; (void)locked; printf("layout %u\n", group); }
 static void repeat(void *data, struct wl_keyboard *k, int32_t rate, int32_t delay) { (void)data; (void)k; (void)rate; (void)delay; }
 static const struct wl_keyboard_listener key_listener = { .keymap = keymap, .enter = enter, .leave = leave, .key = key, .modifiers = modifiers, .repeat_info = repeat };
+static void pointer_enter(void *data, struct wl_pointer *p, uint32_t serial, struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y) {
+    (void)data; (void)p; (void)serial; (void)surface;
+    printf("pointer enter %.2f %.2f\n", wl_fixed_to_double(x), wl_fixed_to_double(y));
+}
+static void pointer_leave(void *data, struct wl_pointer *p, uint32_t serial, struct wl_surface *surface) { (void)data; (void)p; (void)serial; (void)surface; puts("pointer leave"); }
+static void pointer_motion(void *data, struct wl_pointer *p, uint32_t time, wl_fixed_t x, wl_fixed_t y) { (void)data; (void)p; (void)time; (void)x; (void)y; }
+static void pointer_button(void *data, struct wl_pointer *p, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) { (void)data; (void)p; (void)serial; (void)time; (void)button; (void)state; }
+static void pointer_axis(void *data, struct wl_pointer *p, uint32_t time, uint32_t axis, wl_fixed_t value) { (void)data; (void)p; (void)time; (void)axis; (void)value; }
+static void pointer_frame(void *data, struct wl_pointer *p) { (void)data; (void)p; }
+static const struct wl_pointer_listener pointer_listener = { .enter = pointer_enter, .leave = pointer_leave, .motion = pointer_motion, .button = pointer_button, .axis = pointer_axis, .frame = pointer_frame };
+static void pointer_locked(void *data, struct zwp_locked_pointer_v1 *p) { (void)data; (void)p; puts("pointer locked"); }
+static void pointer_unlocked(void *data, struct zwp_locked_pointer_v1 *p) { (void)data; (void)p; puts("pointer unlocked"); }
+static const struct zwp_locked_pointer_v1_listener pointer_lock_listener = { .locked = pointer_locked, .unlocked = pointer_unlocked };
+static void pointer_confined(void *data, struct zwp_confined_pointer_v1 *p) { (void)data; (void)p; puts("pointer confined"); }
+static void pointer_unconfined(void *data, struct zwp_confined_pointer_v1 *p) { (void)data; (void)p; puts("pointer unconfined"); }
+static const struct zwp_confined_pointer_v1_listener pointer_confine_listener = { .confined = pointer_confined, .unconfined = pointer_unconfined };
 static void seat_caps(void *data, struct wl_seat *s, uint32_t caps) {
     (void)data;
     if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !keyboard) { keyboard = wl_seat_get_keyboard(s); wl_keyboard_add_listener(keyboard, &key_listener, NULL); }
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !pointer) { pointer = wl_seat_get_pointer(s); wl_pointer_add_listener(pointer, &pointer_listener, NULL); }
 }
 static void seat_name(void *data, struct wl_seat *s, const char *name) { (void)data; (void)s; (void)name; }
 static const struct wl_seat_listener seat_listener = { .capabilities = seat_caps, .name = seat_name };
@@ -161,6 +183,7 @@ static void global(void *data, struct wl_registry *r, uint32_t name, const char 
     else BIND(zwp_keyboard_shortcuts_inhibit_manager_v1, inhibit_manager, 1);
     else BIND(zwlr_layer_shell_v1, layer_manager, 1);
     else BIND(ext_session_lock_manager_v1, lock_manager, 1);
+    else BIND(zwp_pointer_constraints_v1, constraints, 1);
     else BIND(aqueous_shell_manager_v1, shell, 1);
     else if (want_workspaces && !strcmp(interface, ext_workspace_manager_v1_interface.name)) workspaces = wl_registry_bind(r, name, &ext_workspace_manager_v1_interface, 1);
     else if (!strcmp(interface, wl_output_interface.name) && noutputs < 16) outputs[noutputs++] = wl_registry_bind(r, name, &wl_output_interface, 1);
@@ -226,7 +249,8 @@ int main(int argc, char **argv) {
             struct ext_session_lock_surface_v1 *s = ext_session_lock_v1_get_lock_surface(lock, surface, outputs[i]);
             ext_session_lock_surface_v1_add_listener(s, &lock_surface_listener, surface);
         }
-    } else if (!strcmp(argv[1], "watch")) aqueous_shell_manager_v1_subscribe(shell);
+    } else if (!strcmp(argv[1], "input")) make_keyboard("us");
+    else if (!strcmp(argv[1], "watch")) aqueous_shell_manager_v1_subscribe(shell);
     else if (!want_workspaces) abort();
     assert(wl_display_roundtrip(display) >= 0);
     if (want_workspaces) assert(wl_display_roundtrip(display) >= 0);
@@ -241,6 +265,28 @@ int main(int argc, char **argv) {
         if (fds[1].revents & POLLIN) {
             char command[1024]; if (!fgets(command, sizeof(command), stdin)) break;
             if (!strncmp(command, "quit", 4)) running = 0;
+            else if (!strncmp(command, "chord ", 6)) {
+                unsigned code, mods;
+                assert(sscanf(command + 6, "%u %u", &code, &mods) == 2);
+                zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, mods, 0, 0, 0);
+                zwp_virtual_keyboard_v1_key(virtual_keyboard, 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
+                zwp_virtual_keyboard_v1_key(virtual_keyboard, 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
+                zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
+            } else if (!strcmp(command, "pointer-lock\n")) {
+                assert(window && pointer && constraints && !pointer_lock);
+                pointer_lock = zwp_pointer_constraints_v1_lock_pointer(constraints, window, pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+                zwp_locked_pointer_v1_add_listener(pointer_lock, &pointer_lock_listener, NULL);
+                zwp_locked_pointer_v1_set_cursor_position_hint(pointer_lock, wl_fixed_from_int(10), wl_fixed_from_int(10));
+                wl_surface_commit(window);
+            } else if (!strcmp(command, "pointer-confine\n")) {
+                assert(window && pointer && constraints && !pointer_confine);
+                pointer_confine = zwp_pointer_constraints_v1_confine_pointer(constraints, window, pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+                zwp_confined_pointer_v1_add_listener(pointer_confine, &pointer_confine_listener, NULL);
+                wl_surface_commit(window);
+            } else if (!strcmp(command, "pointer-release\n")) {
+                if (pointer_lock) { zwp_locked_pointer_v1_destroy(pointer_lock); pointer_lock = NULL; }
+                if (pointer_confine) { zwp_confined_pointer_v1_destroy(pointer_confine); pointer_confine = NULL; }
+            }
             else if (!strncmp(command, "inhibit", 7) && !inhibitor && window) {
                 inhibitor = zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(inhibit_manager, window, seat);
                 zwp_keyboard_shortcuts_inhibitor_v1_add_listener(inhibitor, &inhibit_listener, NULL);
