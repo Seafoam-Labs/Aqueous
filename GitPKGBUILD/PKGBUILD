@@ -3,7 +3,7 @@
 pkgname=aqueous-git
 pkgbase=aqueous-git
 pkgver=0.5.0 # Will be updated by pkgver()
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -22,7 +22,8 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
 makedepends=('clang' 'lld' 'llvm' 'git' 'curl' 'patch' 'scdoc'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang' 'shaderc'
              'vulkan-headers' 'hwdata' 'zig>=0.16')
-checkdepends=('jq' 'python' 'ripgrep' 'qt6-declarative')
+# Helper integration checks exercise org.gnome.desktop.interface via gsettings.
+checkdepends=('jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'
@@ -31,7 +32,7 @@ optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter
             'qt5ct: synchronize the Aqueous desktop font with Qt 5 applications'
             'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
 provides=('aqueous')
-conflicts=('aqueous')
+conflicts=('aqueous' 'aqueous-bin' 'aqueous-git-intel' 'aqueous-git-dms')
 install=aqueous.install
 backup=('etc/xdg/xdg-desktop-portal-aqueous/config')
 source=(
@@ -164,7 +165,7 @@ check() {
 }
 
 package() {
-    # Install the compositor/window-manager and read-only inspection client.
+    # Install the compositor/window-manager and inspection/layout client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueousctl" "$pkgdir/usr/bin/aqueousctl"
     AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-plugin-dist/bin/aqueous-config" \

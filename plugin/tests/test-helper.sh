@@ -2,6 +2,14 @@
 set -euo pipefail
 unset LD_PRELOAD
 
+# glib2 provides gsettings, but its desktop interface schema is packaged
+# separately. Without it, toolkit synchronization fails in clean build roots.
+if command -v gsettings >/dev/null 2>&1 &&
+    ! GSETTINGS_BACKEND=memory gsettings list-keys org.gnome.desktop.interface >/dev/null 2>&1; then
+    echo "aqueous-config tests require the org.gnome.desktop.interface schema; install gsettings-desktop-schemas and check GSETTINGS_SCHEMA_DIR/XDG_DATA_DIRS" >&2
+    exit 1
+fi
+
 plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 helper=${1:-"$plugin_root/helper/zig-out/bin/aqueous-config"}
 test_root=$(mktemp -d /tmp/aqueous-config-test.XXXXXX)

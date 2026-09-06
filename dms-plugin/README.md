@@ -117,11 +117,12 @@ remain owned by the shared helper.
 
 ## Packaging
 
-`PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, both Intel variants, and `PKGBUILD-DMS`
-build/test the shared helper and install this plugin. They follow the Aqueous
-repository revision and depend on Seafoam Labs' `dms-aqueous` package from
+`PKGBUILD`, `PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, both Intel variants, and
+`PKGBUILD-DMS` build/test the shared helper and install this plugin. The release
+`PKGBUILD` uses its version tag; the Git variants follow the repository revision.
+All depend on Seafoam Labs' `dms-aqueous` package from
 [its DMS fork](https://github.com/Seafoam-Labs/DankMaterialShell).
-The release `PKGBUILD` and `PKGBUILD-bin` retain Noctalia integration.
+The prebuilt `PKGBUILD-bin` retains Noctalia integration.
 
 A standalone staged install is also supported:
 

@@ -21,7 +21,8 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
 makedepends=('clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf'
              'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
-checkdepends=('jq' 'python' 'ripgrep' 'qt6-declarative')
+# Helper integration checks exercise org.gnome.desktop.interface via gsettings.
+checkdepends=('jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter'
             'greetd: alternative minimal login manager for tuigreet'
             'ghostty: recommended terminal emulator'

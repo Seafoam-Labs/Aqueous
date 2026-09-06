@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage each Git package with fixture binaries and verify its DMS session."""
+"""Stage each DMS source package with fixture binaries and verify its DMS session."""
 
 import json
 import os
@@ -11,6 +11,7 @@ import tomllib
 
 repo = Path(__file__).resolve().parents[2]
 variants = (
+    "PKGBUILD",
     "PKGBUILD-git",
     "GitPKGBUILD/PKGBUILD",
     "PKGBUILD-intel",
@@ -45,6 +46,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 "bash", "-euc",
                 'source "$1"\n'
                 '[[ " ${depends[*]} " == *" dms-aqueous "* ]]\n'
+                '[[ " ${checkdepends[*]-} " == *" gsettings-desktop-schemas "* ]]\n'
                 '[[ " ${depends[*]} ${checkdepends[*]-} ${optdepends[*]} " != *noctalia* ]]\n'
                 'package',
                 "test-dms-git-packaging", str(repo / variant),
