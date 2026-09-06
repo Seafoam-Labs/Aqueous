@@ -36,6 +36,27 @@ scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
 ```
 
+Snapshot color-state regressions exercise the production buffer-cloning code:
+
+```sh
+PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
+LD_LIBRARY_PATH="$PWD/.deps/wlroots-render-hook/lib" \
+  zig build test-snapshot -Dcpu=baseline -Doptimize=ReleaseSafe
+python3 scripts/test-snapshot-colors.py
+python3 scripts/test-snapshot-colors.py --opacity 0.95
+python3 scripts/test-snapshot-colors.py --blur
+python3 scripts/test-snapshot-colors.py --opacity 0.95 --blur
+```
+
+Run these graphical cases serially with a parent Wayland session and GPU access.
+They need Pillow, grim, wlrctl, a C compiler, and Wayland development tools. The
+fixture submits static gamma-2.2/BT.2020 patches and compares their rendered
+colors during workspace animations and a resize transaction. Captures and JSON
+results remain under the reported `/tmp/aqueous-snapshot-colors-*` directory.
+`--compositor /path/to/old/aqueous` checks the same reproduction against an older
+build. The nested output is SDR; verify actual Zed behavior on an HDR display
+separately. See `../docs/snapshot-color-consistency-plan.md` for validation status.
+
 The test requires `VK_LAYER_KHRONOS_validation`, ImageMagick, grim, jq, netcat,
 a C compiler, and Wayland development tools. Its default nested-Wayland mode
 also requires a parent Wayland display; set

@@ -289,9 +289,12 @@ pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
             c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), 0);
             return;
         };
-        c.wlr_scene_buffer_set_force_blend(
-            @ptrCast(dst),
-            @intFromBool(metadata().bufferData(dst) != null),
-        );
+        // Snapshot HDR policy alone does not require rounded-edge blending.
+        const rounded = if (metadata().bufferData(dst)) |effect|
+            effect.radii.top_left != 0 or effect.radii.top_right != 0 or
+                effect.radii.bottom_left != 0 or effect.radii.bottom_right != 0
+        else
+            false;
+        c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), @intFromBool(rounded));
     }
 }

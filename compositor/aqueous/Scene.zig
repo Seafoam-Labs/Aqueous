@@ -15,6 +15,31 @@ const server = &@import("main.zig").server;
 const SceneNodeData = @import("SceneNodeData.zig");
 const SnapOverlay = @import("SnapOverlay.zig");
 const fx = @import("fx.zig");
+const scene_buffer_clone = @import("scene_buffer_clone.zig");
+const color_management = @import("color_management.zig");
+const EffectMetadata = @import("render/EffectMetadata.zig");
+
+/// Resolve render policy before a snapshot loses access to its live surface.
+/// Already-frozen snapshots retain their own policy when cloned again.
+pub fn bufferHdrPolicy(buffer: *wlr.SceneBuffer) EffectMetadata.SnapshotHdrPolicy {
+    if (comptime !build_options.vulkan_effects) return .{};
+    if (server.effect_metadata.bufferData(buffer)) |effect| {
+        if (effect.snapshot_hdr) |policy| return policy;
+    }
+    const native_windows_hdr = if (wlr.SceneSurface.tryFromBuffer(buffer)) |surface|
+        color_management.surfaceHasWindowsHdrDescription(surface.surface)
+    else
+        false;
+    const owner = SceneNodeData.fromNode(&buffer.node) orelse return .{ .native_windows_hdr = native_windows_hdr };
+    return .{
+        .eligible = switch (owner.data) {
+            .window => |window| window.hdr_expand_rule orelse
+                (window.wm_requested.fullscreen != null or window.content_type == .game),
+            else => false,
+        },
+        .native_windows_hdr = native_windows_hdr,
+    };
+}
 
 wlr_scene: *wlr.Scene,
 /// All windows, status bars, drowdown menus, etc. that can recieve pointer events and similar.
@@ -200,16 +225,18 @@ pub const SaveableSurfaces = struct {
         sx: c_int,
         sy: c_int,
     ) ?*wlr.SceneBuffer {
-        const scene_buffer = target.createSceneBuffer(buffer.buffer) catch {
+        const scene_buffer = scene_buffer_clone.clone(target, buffer, sx, sy) catch {
             std.log.err("out of memory", .{});
             return null;
         };
-        scene_buffer.node.setPosition(sx, sy);
-        scene_buffer.setDestSize(buffer.dst_width, buffer.dst_height);
-        scene_buffer.setSourceBox(&buffer.src_box);
-        scene_buffer.setTransform(buffer.transform);
-        scene_buffer.setOpacity(buffer.opacity);
         fx.copyBufferFx(scene_buffer, buffer);
+        if (comptime build_options.vulkan_effects) {
+            server.effect_metadata.setSnapshotHdrPolicy(scene_buffer, bufferHdrPolicy(buffer)) catch {
+                scene_buffer.node.destroy();
+                std.log.err("could not preserve snapshot HDR policy: out of memory", .{});
+                return null;
+            };
+        }
         return scene_buffer;
     }
 

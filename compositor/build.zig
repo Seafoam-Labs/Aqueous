@@ -632,7 +632,23 @@ pub fn build(b: *Build) !void {
         aqueousctl_test.root_module.linkSystemLibrary("wayland-client", .{});
         const run_aqueousctl_test = b.addRunArtifact(aqueousctl_test);
 
+        const scene_buffer_clone_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/scene_buffer_clone.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        scene_buffer_clone_test.root_module.addImport("wlroots", wlroots);
+        const run_scene_buffer_clone_test = b.addRunArtifact(scene_buffer_clone_test);
+        const snapshot_test_step = b.step("test-snapshot", "Test scene-buffer snapshot rendering state");
+        snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
+
         const test_step = b.step("test", "Run the tests");
+        test_step.dependOn(&run_scene_buffer_clone_test.step);
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);
         test_step.dependOn(&run_output_hdr_test.step);

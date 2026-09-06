@@ -52,7 +52,14 @@ pub const RoundedClip = struct {
 
 pub const BufferData = struct {
     radii: CornerRadii = .{},
+    /// Frozen render policy for input-inert snapshots; contains no live owners.
+    snapshot_hdr: ?SnapshotHdrPolicy = null,
     generation: u64 = 1,
+};
+
+pub const SnapshotHdrPolicy = struct {
+    eligible: bool = false,
+    native_windows_hdr: bool = false,
 };
 
 pub const RectData = struct {
@@ -294,7 +301,7 @@ pub fn setBufferRadius(
         if (std.meta.eql(record.data.radii, radii)) return;
         record.data.radii = radii;
         record.data.generation = nextGeneration(record.data.generation);
-        if (radius == 0) metadata.removeBufferRecord(record);
+        if (radius == 0 and record.data.snapshot_hdr == null) metadata.removeBufferRecord(record);
         return;
     }
     if (radius == 0) return;
@@ -329,6 +336,28 @@ pub fn copyBufferData(
         try metadata.buffers.put(metadata.allocator, dst, record);
         dst.node.events.destroy.add(&record.destroy);
     }
+}
+
+pub fn setSnapshotHdrPolicy(
+    metadata: *EffectMetadata,
+    buffer: *wlr.SceneBuffer,
+    policy: SnapshotHdrPolicy,
+) error{OutOfMemory}!void {
+    if (metadata.buffers.get(buffer)) |record| {
+        if (std.meta.eql(record.data.snapshot_hdr, @as(?SnapshotHdrPolicy, policy))) return;
+        record.data.snapshot_hdr = policy;
+        record.data.generation = nextGeneration(record.data.generation);
+        return;
+    }
+    const record = try metadata.allocator.create(BufferRecord);
+    errdefer metadata.allocator.destroy(record);
+    record.* = .{
+        .owner = metadata,
+        .object = buffer,
+        .data = .{ .snapshot_hdr = policy },
+    };
+    try metadata.buffers.put(metadata.allocator, buffer, record);
+    buffer.node.events.destroy.add(&record.destroy);
 }
 
 fn removeBufferRecord(metadata: *EffectMetadata, record: *BufferRecord) void {
@@ -617,6 +646,34 @@ test "buffer metadata is copied into scene snapshots" {
     try std.testing.expect(metadata.bufferData(&dst) != null);
     dst.node.events.destroy.emit();
     try std.testing.expectEqual(@as(usize, 0), metadata.liveCounts().total());
+}
+
+test "snapshot HDR policy survives radius resets, copying, and source destruction" {
+    var metadata = EffectMetadata.init(std.testing.allocator);
+    defer metadata.deinit();
+    var src: wlr.SceneBuffer = undefined;
+    var dst: wlr.SceneBuffer = undefined;
+    initNodeDestroySignal(&src.node);
+    initNodeDestroySignal(&dst.node);
+    const policy: SnapshotHdrPolicy = .{ .eligible = true, .native_windows_hdr = true };
+    try metadata.setSnapshotHdrPolicy(&src, policy);
+    try metadata.setBufferRadius(&src, 12);
+    try metadata.setBufferRadius(&src, 0);
+    try std.testing.expectEqualDeep(policy, metadata.bufferData(&src).?.snapshot_hdr.?);
+    try std.testing.expectEqual(@as(u31, 0), metadata.bufferData(&src).?.radii.top_left);
+    try metadata.copyBufferData(&dst, &src);
+    try metadata.setSnapshotHdrPolicy(&src, .{});
+    try std.testing.expectEqualDeep(policy, metadata.bufferData(&dst).?.snapshot_hdr.?);
+    src.node.events.destroy.emit();
+    try std.testing.expectEqualDeep(policy, metadata.bufferData(&dst).?.snapshot_hdr.?);
+    dst.node.events.destroy.emit();
+    try std.testing.expectEqual(@as(usize, 0), metadata.liveCounts().buffers);
+
+    // Reusing an address must not inherit the previous clone's eligibility.
+    initNodeDestroySignal(&dst.node);
+    try metadata.setSnapshotHdrPolicy(&dst, .{});
+    try std.testing.expectEqualDeep(SnapshotHdrPolicy{}, metadata.bufferData(&dst).?.snapshot_hdr.?);
+    dst.node.events.destroy.emit();
 }
 
 test "blur handles reject stale generations and track invalidation" {

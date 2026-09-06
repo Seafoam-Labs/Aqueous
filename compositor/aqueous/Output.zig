@@ -28,7 +28,7 @@ const overlay_planes = @import("overlay_planes.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
 const auto_hdr = @import("auto_hdr.zig");
-const color_management = @import("color_management.zig");
+const Scene = @import("Scene.zig");
 
 const fx = @import("fx.zig");
 const BlurPipeline = @import("render/BlurPipeline.zig");
@@ -673,33 +673,16 @@ fn autoHdrExpansion(output: *Output, scene_buffer: *wlr.SceneBuffer) ?auto_hdr.I
     if (!hdr.active(wlr_output)) return null;
     const state = output.effectRenderState();
     if (!state.auto_hdr) return null;
-    const native_windows_hdr = if (comptime build_options.vulkan_effects)
-        if (wlr.SceneSurface.tryFromBuffer(scene_buffer)) |scene_surface|
-            color_management.surfaceHasWindowsHdrDescription(scene_surface.surface)
-        else
-            false
-    else
-        false;
-    if (!auto_hdr.shouldExpandContent(
+    const policy = Scene.bufferHdrPolicy(scene_buffer);
+    if (!auto_hdr.shouldExpandForPolicy(
         scene_buffer.transfer_function == .st2084_pq,
-        native_windows_hdr,
+        policy.native_windows_hdr,
+        policy.eligible,
     )) return null;
-    const window = windowForNode(&scene_buffer.node) orelse return null;
-    const eligible = window.hdr_expand_rule orelse
-        (window.wm_requested.fullscreen != null or window.content_type == .game);
-    if (!eligible) return null;
     const peak_nits: f64 = @floatFromInt(state.hdr_level.nits());
     return .{
         .peak = @floatCast(peak_nits / 203.0),
         .boost = @floatCast(std.math.clamp(state.auto_hdr_boost, 0.0, 1.0)),
-    };
-}
-
-fn windowForNode(node: *wlr.SceneNode) ?*Window {
-    const scene_node_data = SceneNodeData.fromNode(node) orelse return null;
-    return switch (scene_node_data.data) {
-        .window => |window| window,
-        else => null,
     };
 }
 

@@ -37,6 +37,20 @@ pub fn shouldExpandContent(is_pq: bool, is_windows_hdr: bool) bool {
     return !is_pq and !is_windows_hdr;
 }
 
+/// Shared by live surfaces and snapshots whose ownership was frozen at capture.
+pub fn shouldExpandForPolicy(is_pq: bool, is_windows_hdr: bool, eligible: bool) bool {
+    return eligible and shouldExpandContent(is_pq, is_windows_hdr);
+}
+
+test "snapshot expansion obeys window policy and native HDR exclusions" {
+    for ([_]bool{ false, true }) |eligible| {
+        try std.testing.expectEqual(eligible, shouldExpandForPolicy(false, false, eligible));
+        try std.testing.expect(!shouldExpandForPolicy(true, false, eligible));
+        try std.testing.expect(!shouldExpandForPolicy(false, true, eligible));
+        try std.testing.expect(!shouldExpandForPolicy(true, true, eligible));
+    }
+}
+
 fn smoothstep(edge0: f64, edge1: f64, x: f64) f64 {
     const t = std.math.clamp((x - edge0) / (edge1 - edge0), 0, 1);
     return t * t * (3.0 - 2.0 * t);
