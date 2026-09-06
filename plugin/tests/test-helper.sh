@@ -2,18 +2,28 @@
 set -euo pipefail
 unset LD_PRELOAD
 
-# glib2 provides gsettings, but its desktop interface schema is packaged
-# separately. Without it, toolkit synchronization fails in clean build roots.
-if command -v gsettings >/dev/null 2>&1 &&
-    ! GSETTINGS_BACKEND=memory gsettings list-keys org.gnome.desktop.interface >/dev/null 2>&1; then
-    echo "aqueous-config tests require the org.gnome.desktop.interface schema; install gsettings-desktop-schemas and check GSETTINGS_SCHEMA_DIR/XDG_DATA_DIRS" >&2
-    exit 1
-fi
-
 plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 helper=${1:-"$plugin_root/helper/zig-out/bin/aqueous-config"}
 test_root=$(mktemp -d /tmp/aqueous-config-test.XXXXXX)
 trap 'rm -rf "$test_root"' EXIT
+
+# Build roots provisioned without package hooks can have schema XML installed
+# but no gschemas.compiled cache. Compile the real desktop schema privately so
+# these checks also ignore inherited schema paths and system cache contents.
+if command -v gsettings >/dev/null 2>&1; then
+    schema_source=${AQUEOUS_TEST_GSETTINGS_SCHEMA_SOURCE:-/usr/share/glib-2.0/schemas}
+    mkdir -p "$test_root/schemas"
+    for schema in org.gnome.desktop.interface.gschema.xml org.gnome.desktop.enums.xml; do
+        if [[ ! -r "$schema_source/$schema" ]]; then
+            echo "aqueous-config tests require $schema_source/$schema; install gsettings-desktop-schemas in the build root" >&2
+            exit 1
+        fi
+        cp "$schema_source/$schema" "$test_root/schemas/"
+    done
+    glib-compile-schemas --strict "$test_root/schemas"
+    export GSETTINGS_SCHEMA_DIR="$test_root/schemas"
+    GSETTINGS_BACKEND=memory gsettings list-keys org.gnome.desktop.interface >/dev/null
+fi
 
 config_root="$test_root/config/aqueous"
 mkdir -p "$config_root"
