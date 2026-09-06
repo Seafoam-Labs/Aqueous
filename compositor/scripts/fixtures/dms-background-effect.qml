@@ -35,24 +35,13 @@ ShellRoot {
     IpcHandler {
         target: "nativeBlurTest"
         function enabled(value: bool): void { effect.blurEnabled = value; }
+        function preference(value: bool): void { SettingsData.set("blurEnabled", value); }
         function clipped(value: bool): void { effect.clipEnabled = value; }
         function shown(value: bool): void { panel.visible = value; }
         function status(): string {
             return JSON.stringify({supported: BlurService.compositorSupported,
-                                   enabled: BlurService.protocolEnabled,
+                                   enabled: BlurService.enabled,
                                    loaded: SettingsData._hasLoaded});
-        }
-    }
-    Timer {
-        interval: 50
-        repeat: true
-        running: true
-        onTriggered: {
-            if (!BlurService.probeFinished || !SettingsData._hasLoaded)
-                return;
-            SettingsData.blurEnabled = true;
-            console.log("NATIVE_BLUR_READY");
-            stop();
         }
     }
 }

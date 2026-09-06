@@ -202,10 +202,10 @@ It needs a C compiler, Wayland development files, `wayland-scanner`, `grim`,
 Python/Pillow, and the companion `aqueousctl` build. All compositor, client,
 configuration, logs, and screenshots are isolated under the printed `/tmp`
 artifact directory. Set `DMS_SOURCE=/path/to/DankMaterialShell` to additionally
-exercise the actual DMS `WindowBlur` component with `qs` and `dms`, plus fallback
-rule cleanup using a built `plugin/helper/zig-out/bin/aqueous-config`; initialize
-that checkout's `dank-qml-common` submodule first. This uses temporary settings
-and clears inherited DMS connections.
+exercise the actual DMS `WindowBlur` component with `qs` and `dms`, including
+preference toggles and absence of helper calls or compositor configuration writes.
+Initialize that checkout's `dank-qml-common` submodule first. This uses temporary
+settings and clears inherited DMS connections.
 
 With a separate `-Dvulkan-effects=false` build, verify the global stays absent:
 

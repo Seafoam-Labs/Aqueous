@@ -99,12 +99,6 @@ def run(fixture, uncached=False):
             return next((p for p in runtime.glob('wayland-*') if p.is_socket()), None)
         env['WAYLAND_DISPLAY'] = wait_for(socket).name
         probe = subprocess.check_output([str(fixture), 'probe'], env=env, text=True).strip()
-        if os.environ.get('AQUEOUS_TEST_NO_EFFECTS') == '1':
-            assert probe == 'unsupported 0', probe
-            print('PASS no-effects global absent', flush=True)
-            return
-        assert probe == 'supported 1', probe
-
         def capture(name):
             # Multiple captures synchronize with completed output frames.
             path = case / f'{name}.png'
@@ -114,6 +108,14 @@ def run(fixture, uncached=False):
 
         def difference(a, b, box):
             return sum(ImageStat.Stat(ImageChops.difference(a.crop(box), b.crop(box))).mean) / 3
+
+        if os.environ.get('AQUEOUS_TEST_NO_EFFECTS') == '1':
+            assert probe == 'unsupported 0', probe
+            if os.environ.get('DMS_SOURCE'):
+                test_dms(fixture, env, case, capture, difference, clients)
+            print('PASS no-effects global absent', flush=True)
+            return
+        assert probe == 'supported 1', probe
 
         if os.environ.get('AQUEOUS_TEST_DMS_ONLY') == '1':
             test_dms(fixture, env, case, capture, difference, clients)
@@ -264,30 +266,37 @@ def run(fixture, uncached=False):
 
 def test_dms(fixture, env, case, capture, difference, clients):
     source = Path(os.environ['DMS_SOURCE'])
-    assert (ROOT.parent / 'plugin/helper/zig-out/bin/aqueous-config').is_file(), 'Build plugin/helper for the DMS fallback migration test'
+    supported = os.environ.get('AQUEOUS_TEST_NO_EFFECTS') != '1'
+    helper_bin = case / 'helper-bin'
+    helper_bin.mkdir()
+    helper_calls = case / 'helper-calls'
+    helper = helper_bin / 'aqueous-config'
+    helper.write_text('#!/bin/sh\nprintf \'called\\n\' >> ' + shlex.quote(str(helper_calls)) + '\nexit 1\n')
+    helper.chmod(0o755)
     qml_root = case / 'dms' / 'quickshell'
     shutil.copytree(source / 'quickshell', qml_root, ignore=shutil.ignore_patterns('.qmlls.ini'))
     shutil.copytree(source / 'dank-qml-common', qml_root.parent / 'dank-qml-common')
+    (qml_root / '.qmlls.ini').touch()
     qml = qml_root / 'NativeBlurTest.qml'
     shutil.copyfile(ROOT / 'scripts/fixtures/dms-background-effect.qml', qml)
     qml_env = dict(env, QT_QPA_PLATFORM='wayland', QT_QUICK_BACKEND='software',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=' + str(case / 'no-session-bus'),
                    XDG_CACHE_HOME=str(case / 'cache'), XDG_STATE_HOME=str(case / 'state'),
                    DMS_DISABLE_MATUGEN='1',
-                   PATH=str(ROOT / 'zig-out/bin') + os.pathsep + str(ROOT.parent / 'plugin/helper/zig-out/bin') + os.pathsep + env.get('PATH', ''))
+                   PATH=str(helper_bin) + os.pathsep + str(ROOT / 'zig-out/bin') + os.pathsep + env.get('PATH', ''))
     settings = Path(env['XDG_CONFIG_HOME']) / 'DankMaterialShell'
     settings.mkdir(parents=True, exist_ok=True)
     (settings / 'settings.json').write_text(json.dumps({'blurEnabled': True}))
-    assert subprocess.check_output(['dms', 'blur', 'check'], env=qml_env, text=True).strip() == 'supported'
-    helper_config = Path(env['XDG_CONFIG_HOME']) / 'aqueous'
-    helper_config.mkdir(parents=True, exist_ok=True)
-    (helper_config / 'wm.toml').write_text('[blur]\nenabled = true\n')
-    migration_rules = Path(env['AQUEOUS_RULES'])
+    assert subprocess.check_output(['dms', 'blur', 'check'], env=qml_env, text=True).strip() == ('supported' if supported else 'unsupported')
+    rules = Path(env['AQUEOUS_RULES'])
     user_rules = '# Preserve this user rule\n[[layer]]\nnamespace = "user-panel"\nblur = true\n'
-    migration_rules.write_text('# BEGIN DMS BACKGROUND BLUR\n[[layer]]\nnamespace = "dms:*"\nblur = true\nblur_popups = true\n\n# END DMS BACKGROUND BLUR\n' + user_rules)
+    rules.write_text(user_rules)
+    config_paths = [rules, Path(env['AQUEOUS_CONFIG'])]
+    unchanged = [(path, path.read_bytes(), path.stat().st_mtime_ns) for path in config_paths]
     log_path = case / 'dms-qml.log' 
-    background = Client(fixture, env)
-    clients.append(background)
+    background = Client(fixture, env) if supported else None
+    if background:
+        clients.append(background)
     proc = subprocess.Popen(['qs', '-p', str(qml)], env=qml_env, stdout=log_path.open('w'), stderr=subprocess.STDOUT)
     try:
         def ipc(function, *args):
@@ -299,33 +308,46 @@ def test_dms(fixture, env, case, capture, difference, clients):
             if result.returncode != 0:
                 return False
             status = json.loads(result.stdout)
-            return status.get('supported') and status.get('enabled') and status.get('loaded')
+            return status.get('loaded') and status.get('supported') == supported and status.get('enabled') == supported
         wait_for(ready, 30)
         status = json.loads(ipc('status'))
-        assert status['supported'] and status['enabled'] and status['loaded'], status
+        assert status['supported'] == supported and status['enabled'] == supported and status['loaded'], status
         baseline = capture('dms-disabled')
         ipc('enabled', 'true')
-        wait_for(lambda: difference(baseline, capture('dms-enabled'), (45, 45, 75, 155)) > 20)
-        rounded = capture('dms-rounded')
-        assert difference(baseline, rounded, (20, 20, 24, 24)) < 1
-        ipc('clipped', 'true')
-        wait_for(lambda: difference(baseline, capture('dms-clipped'), (45, 45, 75, 155)) < 1)
-        assert difference(baseline, capture('dms-clipped-visible'), (120, 45, 240, 155)) > 20
-        ipc('shown', 'false')
-        wait_for(lambda: difference(baseline, capture('dms-hidden'), (0, 0, 320, 240)) < 1)
-        ipc('shown', 'true')
-        wait_for(lambda: difference(baseline, capture('dms-remapped'), (120, 45, 240, 155)) > 20)
+        if supported:
+            wait_for(lambda: difference(baseline, capture('dms-enabled'), (45, 45, 75, 155)) > 20)
+            rounded = capture('dms-rounded')
+            assert difference(baseline, rounded, (20, 20, 24, 24)) < 1
+            ipc('preference', 'false')
+            wait_for(lambda: not json.loads(ipc('status'))['enabled'])
+            wait_for(lambda: difference(baseline, capture('dms-preference-off'), (0, 0, 320, 240)) < 1)
+            ipc('preference', 'true')
+            wait_for(lambda: json.loads(ipc('status'))['enabled'])
+            wait_for(lambda: difference(baseline, capture('dms-preference-on'), (45, 45, 75, 155)) > 20)
+            ipc('clipped', 'true')
+            wait_for(lambda: difference(baseline, capture('dms-clipped'), (45, 45, 75, 155)) < 1)
+            assert difference(baseline, capture('dms-clipped-visible'), (120, 45, 240, 155)) > 20
+            ipc('shown', 'false')
+            wait_for(lambda: difference(baseline, capture('dms-hidden'), (0, 0, 320, 240)) < 1)
+            ipc('shown', 'true')
+            wait_for(lambda: difference(baseline, capture('dms-remapped'), (120, 45, 240, 155)) > 20)
+        else:
+            ipc('preference', 'false')
+            ipc('preference', 'true')
+            assert not json.loads(ipc('status'))['enabled']
+            assert difference(baseline, capture('dms-unsupported'), (0, 0, 320, 240)) < 1
         ipc('enabled', 'false')
         wait_for(lambda: difference(baseline, capture('dms-cleared'), (0, 0, 320, 240)) < 1)
-        wait_for(lambda: migration_rules.read_text() == user_rules)
-        settled_mtime = migration_rules.stat().st_mtime_ns
         time.sleep(.4)
-        assert migration_rules.stat().st_mtime_ns == settled_mtime, 'DMS kept rewriting settled native rules'
-        print('PASS actual DMS WindowBlur: discovery, rounded/intersected Region, hide/remap, toggle and fallback-rule migration', flush=True)
+        for path, contents, mtime in unchanged:
+            assert path.read_bytes() == contents and path.stat().st_mtime_ns == mtime, f'DMS changed {path}'
+        assert not helper_calls.exists(), 'DMS invoked aqueous-config for native blur'
+        print('PASS actual DMS WindowBlur: discovery, regions, preferences, lifecycle and no helper/config writes', flush=True)
     finally:
         proc.terminate()
         proc.wait(timeout=10)
-        background.close()
+        if background:
+            background.close()
 
 
 if __name__ == '__main__':
