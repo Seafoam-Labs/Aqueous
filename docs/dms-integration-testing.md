@@ -118,3 +118,24 @@ suspend/resume, screenshot crop accuracy, PipeWire/browser recording, hardware
 DPMS and gamma/HDR. Headless state and action tests do not establish those
 hardware or desktop integration properties. The separate portal code was not
 changed by this implementation.
+
+## Native background blur
+
+Use `DMS_SOURCE=/path/to/DankMaterialShell python3 compositor/scripts/test-background-effect.py`
+with the Vulkan build and its pinned wlroots library. The additional QML fixture
+loads the checkout's real `WindowBlur`, `BlurService`, and settings code, with
+private runtime/configuration/cache/state directories and inherited DMS sockets
+cleared. It checks `dms blur check`, rounded and intersected regions, blur toggle,
+and hide/remap against a patterned background. With the repository
+`plugin/helper` binary built, it also seeds the marked DMS fallback rules and
+verifies that the real service removes only that block, preserves user rules,
+and stops rewriting after settling. Normal runs compare cached and
+uncached compositor rendering, including application and layer popups, nested
+popups, synchronized subsurfaces, policy reload, and all eight output transforms
+at fractional scale. Logs, scene dumps, and screenshots are retained.
+
+The Seafoam DMS fork's `Common/AqueousBlur.js` already removes its marked fallback
+rule block when it detects native support. Keep user-authored rules intact;
+an explicit deny rule still overrides a native request. Global compositor blur
+must be enabled independently of the DMS appearance toggle. The CLI's
+registry-only probe reports protocol availability, not this runtime setting.

@@ -182,3 +182,39 @@ Shell integrations use `aqueousctl shell capabilities --json`,
 overview and session commands share stable runtime identities. See the
 [protocol and CLI contract](protocol/aqueous-shell-v1.md) and
 [isolated regression instructions](../docs/dms-integration-testing.md).
+
+## Native background blur
+
+Vulkan effects builds serve `ext-background-effect-v1` version 1. DMS can use
+Quickshell's `BackgroundEffect.blurRegion` directly with global `[blur]` enabled;
+namespace rules are optional. Exact regions, including holes and rounded
+scanline masks, are composited through the existing cached and uncached blur
+paths. See [rule precedence](../docs/rules.md#layer).
+
+Run the isolated protocol and pixel regression with GPU access:
+
+```sh
+LD_LIBRARY_PATH="$PWD/.deps/wlroots-render-hook/lib" \
+  python3 scripts/test-background-effect.py
+```
+
+It needs a C compiler, Wayland development files, `wayland-scanner`, `grim`,
+Python/Pillow, and the companion `aqueousctl` build. All compositor, client,
+configuration, logs, and screenshots are isolated under the printed `/tmp`
+artifact directory. Set `DMS_SOURCE=/path/to/DankMaterialShell` to additionally
+exercise the actual DMS `WindowBlur` component with `qs` and `dms`, plus fallback
+rule cleanup using a built `plugin/helper/zig-out/bin/aqueous-config`; initialize
+that checkout's `dank-qml-common` submodule first. This uses temporary settings
+and clears inherited DMS connections.
+
+With a separate `-Dvulkan-effects=false` build, verify the global stays absent:
+
+```sh
+AQUEOUS_COMPOSITOR_BIN=/path/to/no-effects/bin/aqueous \
+AQUEOUS_TEST_NO_EFFECTS=1 python3 scripts/test-background-effect.py
+```
+
+`dms blur check` checks global discovery, so it still reports `supported` when
+runtime blur is disabled on an effects build. The compositor sends capability
+changes and retains requests across disable/re-enable. Builds without effects
+report `unsupported`.

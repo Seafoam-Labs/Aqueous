@@ -491,6 +491,11 @@ pub fn configureWindowBlur(
     return true;
 }
 
+pub fn invalidateWindowBlur(metadata: *EffectMetadata, handle: WindowBlurHandle) void {
+    const record = metadata.window_blurs.get(handle.key) orelse return;
+    record.data.generation = nextGeneration(record.data.generation);
+}
+
 pub fn windowBlurData(
     metadata: *EffectMetadata,
     handle: WindowBlurHandle,

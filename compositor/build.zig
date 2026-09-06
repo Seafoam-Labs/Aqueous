@@ -98,6 +98,7 @@ pub fn build(b: *Build) !void {
     const scanner = Scanner.create(b, .{});
 
     scanner.addSystemProtocol("staging/content-type/content-type-v1.xml");
+    scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
     scanner.addSystemProtocol("stable/tablet/tablet-v2.xml");
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.addSystemProtocol("staging/color-management/color-management-v1.xml");
@@ -137,6 +138,7 @@ pub fn build(b: *Build) !void {
     // to wlroots. Therefore, the only thing that can happen due to a version being too
     // old is that river fails to compile.
     scanner.generate("wp_content_type_manager_v1", 1);
+    scanner.generate("ext_background_effect_manager_v1", 1);
     scanner.generate("wl_compositor", 4);
     scanner.generate("wl_subcompositor", 1);
     scanner.generate("wl_shm", 1);

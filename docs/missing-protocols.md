@@ -104,7 +104,13 @@ content-type-v1.
 **wayland-protocols ext/staging:** ext-idle-notify-v1, ext-session-lock-v1,
 ext-image-copy-capture-v1, ext-output-image-capture-source-v1,
 ext-foreign-toplevel-list-v1, ext-foreign-toplevel-image-capture-source-v1,
-ext-data-control-manager-v1, ext-workspace-v1.
+ext-data-control-manager-v1, ext-workspace-v1, ext-background-effect-v1.
+
+`ext-background-effect-v1` (v1) is available in Vulkan effects builds. Client
+regions apply with surface commits and support holes, disconnected components,
+popups, and subsurfaces. The global is absent in no-effects builds; capability
+events reflect global blur enablement. See the
+[native blur plan and implementation notes](native-background-blur-implementation-plan.md).
 
 **wayland-protocols unstable (legacy):** zxdg_decoration_manager_v1,
 zxdg_activation_v1, zxdg_foreign_v2, zwp_primary_selection_device_manager_v1,

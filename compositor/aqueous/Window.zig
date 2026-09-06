@@ -1803,7 +1803,7 @@ pub fn renderFinish(window: *Window) void {
     }
 }
 
-fn refreshBackdropBlur(window: *Window) void {
+pub fn refreshBackdropBlur(window: *Window) void {
     const requested = &window.rendering_requested;
     const fullscreen = window.wm_requested.fullscreen != null;
     window.syncBackdropBlur(
@@ -1826,7 +1826,9 @@ fn syncBackdropBlur(
 ) void {
     const blur = window.backdrop_blur orelse return;
     const requested = &window.rendering_requested;
-    const active = allow and
+    const native = (if (window.rootSurface()) |surface| server.background_effect_manager.controls(surface) else false) or
+        (window.anim_snapshot and server.background_effect_manager.hasFrozenIn(window.anim_tree));
+    const active = !native and allow and
         server.wm.blur.enabled and
         server.wm.blur.radius > 0 and
         server.wm.blur.passes > 0 and
@@ -2174,6 +2176,7 @@ fn captureOverviewBuffer(
     sy: c_int,
     data: *anyopaque,
 ) void {
+    server.background_effect_manager.dropSnapshot(buffer);
     const capture: *OverviewBufferCapture = @ptrCast(@alignCast(data));
     if (capture.failed) return;
     const source = effectiveSourceBox(source_buffer) orelse {
@@ -2344,6 +2347,7 @@ fn updateAnimationClip(window: *Window) void {
         const crop_y = clipped.y;
         record.buffer.node.setPosition(record.x + crop_x, record.y + crop_y);
         record.buffer.setDestSize(clipped.width, clipped.height);
+        server.background_effect_manager.cropSnapshot(record.buffer, .{ .x = crop_x, .y = crop_y, .width = clipped.width, .height = clipped.height });
 
         const transformed_width = if (transformSwapsAxes(record.transform)) record.source.height else record.source.width;
         const transformed_height = if (transformSwapsAxes(record.transform)) record.source.width else record.source.height;
@@ -2368,6 +2372,7 @@ fn updateAnimationClip(window: *Window) void {
 }
 
 fn restoreAnimBuffer(record: AnimBuffer) void {
+    server.background_effect_manager.cropSnapshot(record.buffer, .{ .x = 0, .y = 0, .width = record.dest_width, .height = record.dest_height });
     record.buffer.node.setEnabled(true);
     record.buffer.node.setPosition(record.x, record.y);
     record.buffer.setDestSize(record.dest_width, record.dest_height);

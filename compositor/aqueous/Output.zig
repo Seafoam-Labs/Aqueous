@@ -794,6 +794,10 @@ fn effectsRenderBegin(
             &affected,
         );
     }
+    for (server.background_effect_manager.attachments.items) |attachment| {
+        if (attachment.tree == null) continue;
+        prepareBlurOwner(output, .{ .native = attachment }, content_damage, kernel, &preserved, &affected);
+    }
     output.blur_cache.removeInvisible(
         &server.vulkan_context.blur_pipeline,
     );
@@ -876,6 +880,10 @@ fn effectsDamage(
     while (popups.next()) |popup| {
         damageBlurOwner(output, .{ .popup = popup }, source, region, kernel);
     }
+    for (server.background_effect_manager.attachments.items) |attachment| {
+        if (attachment.tree == null) continue;
+        damageBlurOwner(output, .{ .native = attachment }, source, region, kernel);
+    }
 }
 
 fn damageBlurOwner(
@@ -930,7 +938,21 @@ fn effectsNodeRender(
     const effect = blurOwnerEffect(owner, blur, state) orelse return;
     const config = server.effect_metadata.blurConfig();
     const pass = render_pass orelse return;
-    const clip = render_region orelse return;
+    const frame_clip = render_region orelse return;
+    var native_clip: c.pixman_region32_t = undefined;
+    c.pixman_region32_init(&native_clip);
+    defer c.pixman_region32_fini(&native_clip);
+    const clip = if (owner == .native) blk: {
+        for (owner.native.region.rectangles()) |rect| {
+            var part = blur;
+            part.box = .{ .x = rect.x1, .y = rect.y1, .width = rect.x2 - rect.x1, .height = rect.y2 - rect.y1 };
+            const projected = blurOwnerEffect(owner, part, state) orelse continue;
+            const box = projected.box;
+            if (c.pixman_region32_union_rect(&native_clip, &native_clip, box.x, box.y, @intCast(box.width), @intCast(box.height)) == 0) return;
+        }
+        if (c.pixman_region32_intersect(&native_clip, &native_clip, frame_clip) == 0) return;
+        break :blk &native_clip;
+    } else frame_clip;
     const rendered = if (uncachedBlurRequested())
         server.vulkan_context.blur_pipeline.render(
             pass,
@@ -968,6 +990,7 @@ fn effectsNodeRender(
 }
 
 const BlurOwner = union(enum) {
+    native: *@import("BackgroundEffectManager.zig").Attachment,
     window: *Window,
     layer_surface: *LayerSurface,
     popup: *XdgPopup,
@@ -975,6 +998,7 @@ const BlurOwner = union(enum) {
 
 fn blurOwnerHandle(owner: BlurOwner) ?EffectMetadata.WindowBlurHandle {
     return switch (owner) {
+        .native => |attachment| attachment.blur,
         .window => |window| window.backdrop_blur,
         .layer_surface => |surface| surface.backdrop_blur,
         .popup => |popup| popup.backdrop_blur,
@@ -983,6 +1007,7 @@ fn blurOwnerHandle(owner: BlurOwner) ?EffectMetadata.WindowBlurHandle {
 
 fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
     return switch (owner) {
+        .native => |attachment| attachment.tree.?,
         .window => |window| if (window.anim_snapshot)
             window.anim_tree
         else
@@ -994,6 +1019,7 @@ fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
 
 fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
     return switch (owner) {
+        .native => |attachment| attachment.marker.?,
         .window => |window| if (window.anim_snapshot)
             window.anim_blur_marker
         else
@@ -1006,6 +1032,10 @@ fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
 /// Animation snapshots are deliberately input-inert and therefore carry no
 /// SceneNodeData. Fall back to the window registry only for those snapshots.
 fn blurOwnerForNode(node: *wlr.SceneNode) ?BlurOwner {
+    if (server.background_effect_manager.forNode(node)) |attachment| {
+        const owner: BlurOwner = .{ .native = attachment };
+        if (blurOwnerData(owner) != null) return owner;
+    }
     if (SceneNodeData.fromNode(node)) |owner| {
         switch (owner.data) {
             .window => |window| if (nodeInTree(node, windowBlurTree(window)) and
@@ -1137,8 +1167,9 @@ fn blurOwnerEffect(
         transformed_width,
         transformed_height,
     );
+    const render_width, const render_height = physicalDimensions(state);
     if (!renderBoxesIntersect(
-        .{ .x = 0, .y = 0, .width = transformed_width, .height = transformed_height },
+        .{ .x = 0, .y = 0, .width = render_width, .height = render_height },
         .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height },
     )) return null;
     return .{
@@ -1233,6 +1264,12 @@ fn hasVisibleBlur(output: *const Output) bool {
         if (blurOwnerEffect(owner, blur, output.effectRenderState()) != null) {
             return true;
         }
+    }
+    for (server.background_effect_manager.attachments.items) |attachment| {
+        if (attachment.tree == null) continue;
+        const owner: BlurOwner = .{ .native = attachment };
+        const blur = blurOwnerData(owner) orelse continue;
+        if (blurOwnerEffect(owner, blur, output.effectRenderState()) != null) return true;
     }
     return false;
 }
@@ -2383,6 +2420,7 @@ fn syncWindowVisualState(output: *Output) void {
     _ = output;
     var windows = server.wm.windows.iterator();
     while (windows.next()) |window| window.applyOpacity();
+    server.background_effect_manager.sync();
 }
 
 fn handlePresent(

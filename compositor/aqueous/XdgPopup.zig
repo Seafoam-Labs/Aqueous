@@ -241,7 +241,7 @@ pub fn syncBackdropBlur(xdg_popup: *XdgPopup) void {
     const blur = xdg_popup.backdrop_blur orelse return;
     const surface = xdg_popup.wlr_popup.base.surface;
     const geometry = xdg_popup.wlr_popup.current.geometry;
-    const active = xdg_popup.blur_requested and
+    const active = !server.background_effect_manager.controls(surface) and xdg_popup.blur_requested and
         surface.mapped and
         server.wm.blur.enabled and
         server.wm.blur.radius > 0 and

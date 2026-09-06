@@ -251,7 +251,7 @@ fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
 fn invalidateBlur(layer_surface: *LayerSurface, layer: zwlr.LayerShellV1.Layer) void {
     switch (layer) {
         .background, .bottom => {},
-        .top, .overlay => if (!server.aqueous.hasLayerBlurRules()) return,
+        .top, .overlay => if (!server.aqueous.hasLayerBlurRules() and server.background_effect_manager.surfaces.count() == 0) return,
         else => return,
     }
     const wlr_output = layer_surface.wlr_layer_surface.output orelse return;
@@ -301,7 +301,7 @@ fn syncPopupBlurRules(layer_surface: *LayerSurface) void {
 pub fn syncBackdropBlur(layer_surface: *LayerSurface) void {
     const blur = layer_surface.backdrop_blur orelse return;
     const surface = layer_surface.wlr_layer_surface.surface;
-    const active = layer_surface.blur_requested and
+    const active = !server.background_effect_manager.controls(surface) and layer_surface.blur_requested and
         surface.mapped and
         server.wm.blur.enabled and
         server.wm.blur.radius > 0 and

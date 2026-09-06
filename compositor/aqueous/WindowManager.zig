@@ -275,6 +275,7 @@ fn handleRequest(
 /// Apply the current global blur parameters and synchronize each output-local
 /// optimized blur cache. No-op on builds without an effects backend.
 fn applyBlur(wm: *WindowManager) void {
+    server.background_effect_manager.schedule();
     if (comptime !fx.blur_available) return;
     const scene = server.scene.wlr_scene;
     const update = if (wm.blur.enabled)

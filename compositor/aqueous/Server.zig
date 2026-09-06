@@ -78,6 +78,7 @@ allocator: *wlr.Allocator,
 vulkan_context: if (build_options.vulkan_effects) VulkanContext else void,
 effect_metadata: if (build_options.vulkan_effects) EffectMetadata else void,
 gpu_reset_recover: ?*wl.EventSource = null,
+background_effect_manager: @import("BackgroundEffectManager.zig") = .{},
 
 /// GPU selector environment variables resolved from the renderer's DRM device.
 /// Injected into the spawned init child (see main.zig) so every downstream
@@ -563,6 +564,7 @@ pub fn init(
     try server.lock_manager.init();
     try server.shell_manager.init();
     try server.shortcuts.init();
+    try server.background_effect_manager.init();
 
     server.renderer.events.lost.add(&server.renderer_lost);
     server.xdg_shell.events.new_toplevel.add(&server.new_xdg_toplevel);
@@ -609,6 +611,7 @@ pub fn deinit(server: *Server) void {
     // Output destruction requires the scene graph to still be around while the scene
     // graph may require the renderer to still be around to destroy textures it seems.
     server.scene.wlr_scene.tree.node.destroy();
+    server.background_effect_manager.deinit();
 
     if (comptime build_options.vulkan_effects) {
         const live = server.effect_metadata.liveCounts();
@@ -709,6 +712,9 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global.getInterface().name,
     )) return true;
 
+    if (server.background_effect_manager.global) |background_global| {
+        if (global == background_global) return true;
+    }
     if (server.linux_dmabuf) |linux_dmabuf| {
         if (global == linux_dmabuf.global) return true;
     }

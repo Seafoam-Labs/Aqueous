@@ -109,8 +109,18 @@ order matters.
 | `blur_popups` | bool | no (default `false`) | When `blur` is also true, blur the rectangular bounds of every XDG popup and nested popup owned by the layer surface. |
 
 Global backdrop blur must also be enabled under `[blur]` in `wm.toml`.
-Main surfaces and popups currently use rectangular bounds; their pixel alpha
-is not used as a blur mask.
+Rule-driven fallback blur uses rectangular bounds; pixel alpha is not a blur
+mask. Clients using `ext-background-effect-v1`, including compatible DMS and
+Quickshell versions, can instead supply exact regions. No matching layer rule
+is required for native blur. A matching `blur = false` rule vetoes the request;
+for layer popups, a matching rule must allow both `blur` and `blur_popups`.
+
+A committed client mask, including an empty or null mask, takes precedence over
+an enabled fallback rule. Destroying the effect object restores fallback blur
+on the next surface commit. Requests are per surface and do not automatically
+propagate to popups or subsurfaces. Global blur disable always takes precedence.
+The same client-mask precedence and explicit `blur = false` veto apply to
+application windows. Native requests can also apply to fullscreen windows.
 
 ```toml
 [[layer]]
@@ -122,7 +132,8 @@ blur_popups = true
 Run `aqueousctl scene` while the surface is mapped to discover its namespace;
 layer roots are labeled `layer surface: NAMESPACE`. Layer-owned popup roots and
 blur checkpoints are labeled `layer XDG popup` and
-`layer popup backdrop blur marker`.
+`layer popup backdrop blur marker`. Native checkpoints are labeled
+`native background blur marker`.
 
 ## Game-mode layout pattern
 

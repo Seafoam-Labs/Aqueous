@@ -279,6 +279,9 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     if (build_options.xwayland and node == &scene.layers.override_redirect.node) {
         return "layer: XWayland override-redirect";
     }
+    if (server.background_effect_manager.forNode(node)) |attachment| {
+        if (attachment.marker) |marker| if (node == &marker.node) return "native background blur marker";
+    }
     if (server.overview.nodeLabel(node, buffer)) |label| return label;
 
     if (SceneNodeData.fromNode(node)) |owner| switch (owner.data) {

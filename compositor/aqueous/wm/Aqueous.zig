@@ -3203,6 +3203,12 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
     return 0;
 }
 
+pub fn layerNativeBlurAllowed(aqueous: *const Aqueous, namespace: []const u8, popup: bool) bool {
+    if (!aqueous.mode.runsInternal()) return true;
+    const rule = aqueous.rules.resolveLayer(namespace) orelse return true;
+    return rule.blur and (!popup or rule.blur_popups);
+}
+
 pub fn layerBlurEnabled(aqueous: *const Aqueous, namespace: []const u8) bool {
     if (!aqueous.mode.runsInternal()) return false;
     const rule = aqueous.rules.resolveLayer(namespace) orelse return false;
@@ -3227,6 +3233,7 @@ pub fn hasLayerBlurRules(aqueous: *const Aqueous) bool {
 }
 
 fn applyLayerRules(aqueous: *Aqueous) void {
+    server.background_effect_manager.schedule();
     if (!aqueous.mode.runsInternal()) return;
     var surfaces = server.layer_shell.surfaces.iterator();
     while (surfaces.next()) |surface| {

@@ -230,6 +230,10 @@ pub const SaveableSurfaces = struct {
             return null;
         };
         fx.copyBufferFx(scene_buffer, buffer);
+        server.background_effect_manager.clone(buffer, scene_buffer) catch {
+            scene_buffer.node.destroy();
+            return null;
+        };
         if (comptime build_options.vulkan_effects) {
             server.effect_metadata.setSnapshotHdrPolicy(scene_buffer, bufferHdrPolicy(buffer)) catch {
                 scene_buffer.node.destroy();
