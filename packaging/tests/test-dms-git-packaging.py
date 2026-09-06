@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import tomllib
+import xml.etree.ElementTree as ET
 
 
 repo = Path(__file__).resolve().parents[2]
@@ -55,12 +56,26 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             check=True,
         )
         units = stage / "usr/lib/systemd/user"
-        assert (units / "graphical-session.target.wants/aqueous-dms.service").readlink() == Path("../aqueous-dms.service")
-        assert "ExecStart=/usr/bin/dms run --session" in (units / "aqueous-dms.service").read_text()
-        assert not (units / "graphical-session.target.wants/dms.service").exists()
+        if variant == "GitPKGBUILD/PKGBUILD":
+            assert (units / "graphical-session.target.wants/dms.service").readlink() == Path("../dms.service")
+            # The dependency owns the unit; Aqueous only owns its enablement.
+            assert not (units / "dms.service").exists()
+            assert not (units / "aqueous-dms.service").exists()
+            assert not (units / "graphical-session.target.wants/aqueous-dms.service").is_symlink()
+        else:
+            assert (units / "graphical-session.target.wants/aqueous-dms.service").readlink() == Path("../aqueous-dms.service")
+            assert "ExecStart=/usr/bin/dms run --session" in (units / "aqueous-dms.service").read_text()
+            assert not (units / "graphical-session.target.wants/dms.service").is_symlink()
         assert not any("noctalia" in str(p.relative_to(stage)).lower() for p in stage.rglob("*"))
         assert not (stage / "usr/bin/aqueous-welcome").exists()
         assert not (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
+
+        menu_path = stage / "etc/xdg/menus/aqueous-applications.menu"
+        assert menu_path.read_bytes() == (repo / "packaging/menus/aqueous-applications.menu").read_bytes()
+        menu = ET.parse(menu_path).getroot()
+        assert menu.tag == "Menu" and menu.findtext("Name") == "Applications"
+        for element in ("DefaultAppDirs", "DefaultDirectoryDirs", "Include/All"):
+            assert menu.find(element) is not None
 
         for plugin_id in ("aqueousSettings", "aqueousPortal"):
             runtime = Path("usr/share/aqueous/dms-plugins") / plugin_id

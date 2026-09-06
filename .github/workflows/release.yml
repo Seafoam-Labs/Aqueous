@@ -181,6 +181,8 @@ jobs:
           cp wm.toml         publish/aqueous-linux-x64/etc/xdg/aqueous/
           cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
           cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/xdg/uwsm/
+          install -Dm644 packaging/menus/aqueous-applications.menu \
+            publish/aqueous-linux-x64/etc/xdg/menus/aqueous-applications.menu
           install -Dm644 packaging/portal/noctalia.conf \
             publish/aqueous-linux-x64/etc/xdg/xdg-desktop-portal-aqueous/config
           cp packaging/aqueous-portals.conf \

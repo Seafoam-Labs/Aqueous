@@ -3,7 +3,7 @@
 pkgname=aqueous-git
 pkgbase=aqueous-git
 pkgver=0.5.0 # Will be updated by pkgver()
-pkgrel=2
+pkgrel=3
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
@@ -34,7 +34,8 @@ optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter
 provides=('aqueous')
 conflicts=('aqueous' 'aqueous-bin' 'aqueous-git-intel' 'aqueous-git-dms')
 install=aqueous.install
-backup=('etc/xdg/xdg-desktop-portal-aqueous/config')
+backup=('etc/xdg/xdg-desktop-portal-aqueous/config'
+        'etc/xdg/menus/aqueous-applications.menu')
 source=(
     "aqueous::git+${url}.git"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
@@ -193,6 +194,8 @@ package() {
     # D-Bus environment, so user-unit-launched apps inherit them too.
     install -Dm644 "$srcdir/aqueous/packaging/uwsm/env-aqueous" \
         "$pkgdir/etc/xdg/uwsm/env-aqueous"
+    install -Dm644 "$srcdir/aqueous/packaging/menus/aqueous-applications.menu" \
+        "$pkgdir/etc/xdg/menus/aqueous-applications.menu"
 
     # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
     # bundled Aqueous backend so screen sharing works out of the box and is
@@ -224,14 +227,10 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
         "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
 
-    # DMS as a graphical-session user unit. The unit's XDG_CURRENT_DESKTOP
-    # condition restricts it to Aqueous even though graphical-session.target is
-    # shared by every desktop and compositor in the user's systemd manager.
-    install -Dm644 "$srcdir/aqueous/packaging/aqueous-dms.service" \
-        "$pkgdir/usr/lib/systemd/user/aqueous-dms.service"
+    # Enable the upstream user unit supplied by the dms-aqueous dependency.
     install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
-    ln -s ../aqueous-dms.service \
-        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service"
+    ln -s ../dms.service \
+        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/dms.service"
 
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.

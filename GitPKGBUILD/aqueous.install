@@ -28,7 +28,7 @@ print_session_information() {
     SDDM and other Wayland-capable display managers also work.
 EOF
 
-    if [ -e /usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service ]; then
+    if [ -e /usr/lib/systemd/user/graphical-session.target.wants/dms.service ]; then
         cat <<'EOF'
 
     Seafoam Labs' dms-aqueous starts automatically with the Aqueous session.
@@ -41,8 +41,9 @@ EOF
     the bindings from /usr/share/aqueous/wm.toml into ~/.config/aqueous/wm.toml:
         launcher: dms ipc call spotlight toggle
         screenshots (including direct bindings): dms screenshot region
-    Disable any manually enabled shell service or startup command so that
-    only the packaged aqueous-dms.service starts the shell.
+    dms.service is enabled by the package; no manual enable command is needed.
+    Disable any manually enabled noctalia.service, aqueous-dms.service, or
+    duplicate shell startup command so that only dms.service starts the shell.
 EOF
     fi
 }

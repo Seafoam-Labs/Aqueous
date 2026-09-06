@@ -32,7 +32,8 @@ optdepends=('greetd-dms-greeter-bin: recommended display manager / login greeter
             'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
 conflicts=('aqueous-git' 'aqueous-bin' 'aqueous-git-intel' 'aqueous-git-dms')
 install=aqueous.install
-backup=('etc/xdg/xdg-desktop-portal-aqueous/config')
+backup=('etc/xdg/xdg-desktop-portal-aqueous/config'
+        'etc/xdg/menus/aqueous-applications.menu')
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
@@ -181,6 +182,8 @@ package() {
     # D-Bus environment, so user-unit-launched apps inherit them too.
     install -Dm644 "$srcdir/aqueous/packaging/uwsm/env-aqueous" \
         "$pkgdir/etc/xdg/uwsm/env-aqueous"
+    install -Dm644 "$srcdir/aqueous/packaging/menus/aqueous-applications.menu" \
+        "$pkgdir/etc/xdg/menus/aqueous-applications.menu"
 
     # xdg-desktop-portal routing config. Pins ScreenCast/Screenshot to the
     # bundled Aqueous backend so screen sharing works out of the box and is

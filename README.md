@@ -289,10 +289,14 @@ targets only the display beneath the pointer.
 The packages install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection
 and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
+Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
+application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
 `PKGBUILD`, `PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, the generic-CPU Intel variants, and
 `PKGBUILD-DMS` depend on Seafoam Labs' `dms-aqueous` package. They include the
-DMS settings plugin and screen-sharing chooser, start `aqueous-dms.service`,
+DMS settings plugin and screen-sharing chooser, start DMS automatically,
 and use DMS Spotlight and region screenshots in the packaged bindings.
+`GitPKGBUILD/PKGBUILD` enables the dependency's standard `dms.service` through
+`graphical-session.target`; the other source variants use `aqueous-dms.service`.
 The prebuilt `PKGBUILD-bin` retains Noctalia integration.
 `gitNoctalia/PKGBUILD` and its accompanying `aqueous.install` preserve the
 previous Noctalia Git package, including its settings plugin and Welcome app.
@@ -304,7 +308,8 @@ screenshot commands in `~/.config/aqueous/wm.toml` from the defaults in
 `dms ipc call spotlight toggle` for the launcher and `dms screenshot region`
 for both screenshot actions and direct screenshot bindings. Disable any
 manually enabled shell service or startup command before using the packaged
-`aqueous-dms.service`, so the session runs one shell instance. The Noctalia
+startup. When switching to `GitPKGBUILD/PKGBUILD`, remove any manual enablement
+of the old `aqueous-dms.service` so only `dms.service` starts the shell. The Noctalia
 Welcome app is omitted from the DMS source packages; use DMS Settings for appearance.
 
 Aqueous has no

@@ -30,7 +30,8 @@ conflicts=('aqueous' 'aqueous-git')
 install=aqueous.install
 backup=('etc/xdg/xdg-desktop-portal-aqueous/config'
         'etc/xdg/aqueous/wm.toml'
-        'etc/xdg/uwsm/env-aqueous')
+        'etc/xdg/uwsm/env-aqueous'
+        'etc/xdg/menus/aqueous-applications.menu')
 source_x86_64=(
     "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
 )
@@ -63,6 +64,7 @@ check() {
         etc/xdg/xdg-desktop-portal-aqueous/config
         etc/xdg/aqueous/wm.toml
         etc/xdg/uwsm/env-aqueous
+        etc/xdg/menus/aqueous-applications.menu
         lib/systemd/user/aqueous-session.target
         lib/systemd/user/xdg-desktop-portal-aqueous.service
         share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE
