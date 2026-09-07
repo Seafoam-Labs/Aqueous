@@ -190,6 +190,19 @@ immediate runtime override without editing configuration files.
 `wlrctl toplevel list` remains supported through the legacy foreign-toplevel
 management protocol for compatibility.
 
+### Persistent shell IPC
+
+Aqueous exports `AQUEOUS_SOCKET` to session children and services. Shells can
+connect directly for capability discovery, snapshots, acknowledged state deltas
+and typed runtime commands, avoiding an aqueousctl process for each action.
+The compositor hosts the nonblocking socket and shares its state and command
+backend with the existing Wayland shell protocol.
+
+See the [IPC v1 contract](compositor/protocol/aqueous-ipc-v1.md) and
+[standalone DMS migration plan](docs/dms-ipc-socket-plan.md). DMS needs that
+consumer migration to use the socket; settings and keybind configuration helpers
+remain a separate follow-on. Existing aqueousctl commands remain supported.
+
 ## Build
 
 Building requires Zig 0.16 or newer, Wayland, wayland-protocols 1.49 or newer, libxkbcommon,

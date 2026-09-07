@@ -1,0 +1,13 @@
+{
+  "ipc": 1,
+  "id": "12",
+  "op": "command",
+  "params": {
+    "action": "workspace.rename",
+    "fields": {
+      "id": "12",
+      "name": "split 🐟"
+    }
+  },
+  "session": "6b94a179d09456846b94a179d0945684"
+}

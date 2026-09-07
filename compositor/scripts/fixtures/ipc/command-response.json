@@ -1,0 +1,9 @@
+{
+  "ipc": 1,
+  "id": "5",
+  "ok": true,
+  "result": {
+    "status": "applied",
+    "sequence": "4"
+  }
+}

@@ -15,6 +15,8 @@ BIN = Path(os.environ.get('AQUEOUS_COMPOSITOR_BIN', ROOT / 'zig-out/bin/aqueous'
 CTL = Path(os.environ.get('AQUEOUSCTL_BIN', ROOT / 'zig-out/bin/aqueousctl'))
 XWAYLAND = os.environ.get('AQUEOUS_SHELL_TEST_XWAYLAND') == '1'
 POLICY = os.environ.get('AQUEOUS_SHELL_TEST_POLICY', 'internal')
+IPC = os.environ.get('AQUEOUS_SHELL_TEST_IPC') == '1'
+from ipc_test_client import Client as IpcClient
 
 
 def wait_for(check, timeout=10):
@@ -71,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', str(ROOT / 'scripts/fixtures/shell-x11.c'), '-lX11', '-o', str(base / 'shell-x11')], check=True)
     children = []
     log = (base / 'compositor.log').open('w+')
-    compositor = subprocess.Popen([str(BIN), *([] if XWAYLAND else ['-no-xwayland']), '-policy', POLICY, '-c', 'printf %s "$DISPLAY" > "$XDG_RUNTIME_DIR/test-display"'], env=env,
+    compositor = subprocess.Popen([str(BIN), *([] if XWAYLAND else ['-no-xwayland']), '-policy', POLICY, '-c', 'printf %s "$DISPLAY" > "$XDG_RUNTIME_DIR/test-display"; printenv AQUEOUS_SOCKET > "$XDG_RUNTIME_DIR/test-ipc"'], env=env,
                                   stdout=log, stderr=log)
     children.append(compositor)
     try:
@@ -82,7 +84,34 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
             return next((p for p in runtime.glob('wayland-*') if p.is_socket()), None)
         env['WAYLAND_DISPLAY'] = wait_for(socket).name
 
+        ipc = None
+        if IPC:
+            endpoint = runtime / 'test-ipc'
+            ipc = IpcClient(wait_for(lambda: endpoint.read_text().strip() if endpoint.exists() else None))
+
         def ctl(*args, ok=True):
+            if ipc and args[0] in ('shell', 'window', 'workspace', 'keyboard', 'overview', 'session'):
+                if args[:2] == ('shell', 'capabilities'):
+                    return dict(ipc.capabilities, **ipc.capabilities['capabilities'])
+                if args[:2] in (('shell', 'snapshot'), ('keyboard', 'query')):
+                    return ipc.snapshot()
+                kind, operation = args[:2]
+                options = dict(zip(args[2::2], args[3::2]))
+                fields = {}
+                for flag, field in (('--id', 'id'), ('--seat', 'seat'), ('--group', 'group'),
+                                    ('--workspace-id', 'workspace'), ('--name', 'name')):
+                    if flag in options:
+                        fields[field] = options[flag]
+                if '--output' in options:
+                    fields['output'] = next(e['id'] for e in ipc.snapshot()['upsert']
+                                            if e['kind'] == 'output' and e['name'] == options['--output'])
+                if '--index' in options:
+                    fields['index'] = int(options['--index'])
+                if operation == 'state':
+                    operation = next(k[2:] for k in options if k in ('--minimized', '--maximized', '--fullscreen'))
+                    fields['value'] = options['--' + operation] == 'true'
+                response = ipc.command(kind + '.' + operation, fields, ok=ok)
+                return dict(ok=True, **response['result']) if ok else dict(ok=False, status=response['error']['code'])
             p = subprocess.run([str(CTL), *args, '--json'], env=env,
                                capture_output=True, text=True, timeout=8)
             assert (p.returncode == 0) == ok, (args, p.returncode, p.stdout, p.stderr)
@@ -99,6 +128,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         if POLICY != 'internal':
             assert not caps['commands'] and not caps['keyboard'] and not caps['overview']
             assert ctl('session', 'exit', ok=False)['status'] == 'unsupported'
+            observed = ctl('shell', 'snapshot')
+            assert observed['type'] == 'snapshot' and observed['session'] == caps['session']
             print(f'PASS: {POLICY} capability discovery and immediate mutation rejection')
             sys.exit(0)
         assert caps['commands']

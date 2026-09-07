@@ -176,7 +176,9 @@ semantics, and the current blur-cache behavior.
 See `ORIGIN.md` and the repository-level README for source provenance,
 packaging, and session integration.
 
-Shell integrations use `aqueousctl shell capabilities --json`,
+Shell integrations can connect directly to `AQUEOUS_SOCKET` using the
+[persistent IPC v1 interface](protocol/aqueous-ipc-v1.md). The existing Wayland
+adapter remains supported through `aqueousctl shell capabilities --json`,
 `aqueousctl shell snapshot --json`, and the persistent
 `aqueousctl shell watch --json` stream. Typed window, workspace, keyboard,
 overview and session commands share stable runtime identities. See the

@@ -224,6 +224,11 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     if (server.gpu_pin.gl_vendor) |value| inheritAssignment("__GLX_VENDOR_LIBRARY_NAME", value);
     if (server.gpu_pin.dri_prime) |value| inheritAssignment("DRI_PRIME", value);
     if (server.gpu_pin.nv_offload) |value| inheritAssignment("__NV_PRIME_RENDER_OFFLOAD", value);
+    if (unsetenv("AQUEOUS_SOCKET") != 0) return error.SetEnvironmentFailed;
+    server.ipc_server.start() catch |err| log.warn("IPC socket unavailable: {}", .{err});
+    if (server.ipc_server.path) |path| {
+        if (setenv("AQUEOUS_SOCKET", path.ptr, 1) != 0) return error.SetEnvironmentFailed;
+    }
     server.aqueous.start();
 
     // Run the child in a new process group so that we can send SIGTERM to all
@@ -245,6 +250,12 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             0,
         );
         defer util.gpa.free(wayland_display);
+
+        const ipc_env = if (server.ipc_server.path) |path|
+            try std.fmt.allocPrintSentinel(util.gpa, "AQUEOUS_SOCKET={s}", .{path}, 0)
+        else
+            null;
+        defer if (ipc_env) |value| util.gpa.free(value);
 
         var display_buf: ?[:0]u8 = null;
         defer if (display_buf) |d| util.gpa.free(d);
@@ -272,6 +283,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             const name = mem.sliceTo(entry, '=');
             if (mem.eql(u8, name, "WAYLAND_DISPLAY")) continue;
             if (mem.eql(u8, name, "DISPLAY")) continue;
+            if (mem.eql(u8, name, "AQUEOUS_SOCKET")) continue;
             // Drop any inherited copy of a GPU-pin var we are about to set so a
             // stale value (e.g. from a nested session) cannot shadow the
             // compositor's choice. Mirrors the WAYLAND_DISPLAY filter above.
@@ -282,6 +294,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             try env_list.append(util.gpa, entry);
         }
         try env_list.append(util.gpa, wayland_display.ptr);
+        if (ipc_env) |value| try env_list.append(util.gpa, value.ptr);
         if (display_buf) |d| try env_list.append(util.gpa, d.ptr);
         // Append the resolved GPU-pin selector vars (each null unless applicable
         // or on single-GPU systems), exactly like WAYLAND_DISPLAY. Downstream
@@ -396,6 +409,7 @@ fn grepRiverctl(path: [:0]const u8) !bool {
 // Scopes should be added to this list sparingly.
 // Only add new scopes if filtering based on them would be meaningful.
 const LogScope = enum {
+    ipc,
     default,
     wlroots,
     output,

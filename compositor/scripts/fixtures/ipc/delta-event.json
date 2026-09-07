@@ -1,0 +1,24 @@
+{
+  "ipc": 1,
+  "event": "state",
+  "delivery": "2",
+  "batch": {
+    "schema": 1,
+    "session": "6b94a179d09456846b94a179d0945684",
+    "sequence": "4",
+    "base_sequence": "1",
+    "type": "delta",
+    "upsert": [
+      {
+        "kind": "workspace",
+        "id": "12",
+        "output": "2",
+        "name": "final 🐟 \"quoted\"",
+        "number": 3,
+        "active": false,
+        "urgent": false
+      }
+    ],
+    "removed": []
+  }
+}

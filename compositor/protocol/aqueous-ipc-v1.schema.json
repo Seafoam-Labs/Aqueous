@@ -1,0 +1,834 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Aqueous IPC v1 frames",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "op": {
+          "const": "hello"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "op": {
+          "const": "snapshot"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "op",
+        "params",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "op": {
+          "const": "subscribe"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "op",
+        "params",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "op": {
+          "const": "ack"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "delivery": {
+              "type": "string",
+              "pattern": "^[0-9]{1,20}$"
+            }
+          },
+          "required": [
+            "delivery"
+          ],
+          "additionalProperties": false
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "op",
+        "params",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "op": {
+          "const": "command"
+        },
+        "params": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.activate"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "seat": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "workspace.activate"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "seat": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.close"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.minimized"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.maximized"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.fullscreen"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.move"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "workspace": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "workspace"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "window.move"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "output"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "workspace.rename"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000\\r\\n]*$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "keyboard.set"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "seat": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    },
+                    "group": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    }
+                  },
+                  "required": [
+                    "index"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "keyboard.next"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "seat": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    },
+                    "group": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$"
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "overview.show"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "overview.toggle"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "overview.hide"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {},
+                  "required": [],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "session.exit"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {},
+                  "required": [],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "op",
+        "params",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "schema": {
+                  "const": 1
+                },
+                "max_request_bytes": {
+                  "const": 65536
+                },
+                "max_frame_bytes": {
+                  "const": 4259840
+                },
+                "max_batch_bytes": {
+                  "const": 4194304
+                },
+                "max_pending_requests": {
+                  "const": 1
+                },
+                "capabilities": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "boolean"
+                    },
+                    "commands": {
+                      "type": "boolean"
+                    },
+                    "keyboard": {
+                      "type": "boolean"
+                    },
+                    "overview": {
+                      "type": "boolean"
+                    },
+                    "shortcut_inhibition": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "commands",
+                    "keyboard",
+                    "overview",
+                    "shortcut_inhibition"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "session",
+                "schema",
+                "max_request_bytes",
+                "max_frame_bytes",
+                "max_batch_bytes",
+                "max_pending_requests",
+                "capabilities"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "batch": {
+                  "$ref": "aqueous-shell-v1.schema.json"
+                }
+              },
+              "required": [
+                "batch"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "subscribed": {
+                  "const": true
+                }
+              },
+              "required": [
+                "subscribed"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "acked": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,20}$"
+                }
+              },
+              "required": [
+                "acked"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applied",
+                    "accepted"
+                  ]
+                },
+                "sequence": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              },
+              "required": [
+                "status",
+                "sequence"
+              ],
+              "additionalProperties": true
+            }
+          ]
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "ok",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "event": {
+          "const": "state"
+        },
+        "delivery": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "batch": {
+          "$ref": "aqueous-shell-v1.schema.json"
+        }
+      },
+      "required": [
+        "ipc",
+        "event",
+        "delivery",
+        "batch"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

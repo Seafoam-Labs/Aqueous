@@ -10,6 +10,7 @@ run_init() (
     export HOME="$test_root/home"
     export XDG_CONFIG_HOME="$test_root/config"
     export AQUEOUS_SHARE_DIR="$repo_root/packaging"
+    export AQUEOUS_NESTED=0
     unset DISPLAY WAYLAND_DISPLAY UWSM_FINALIZE_SOCK
     export PATH=/nonexistent
 
@@ -59,3 +60,33 @@ echo "Aqueous first-launch config seeding tests passed"
     "$repo_root/packaging/uwsm/env-aqueous"
 
 echo "Aqueous cursor environment tests passed"
+
+# Capture environment exports without contacting the real service manager.
+for mode in uwsm dbus systemctl nested; do
+    for endpoint in /tmp/aqueous-test/ipc.sock ''; do
+        capture="$test_root/exports-$mode"
+        : > "$capture"
+        (
+            export HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config"
+            export AQUEOUS_SHARE_DIR="$repo_root/packaging"
+            export WAYLAND_DISPLAY=wayland-test AQUEOUS_SOCKET="$endpoint"
+            export AQUEOUS_NESTED=0 PATH=/nonexistent
+            unset DISPLAY UWSM_FINALIZE_SOCK
+            record() { printf '%s\n' "$@" "socket=$AQUEOUS_SOCKET" >> "$capture"; }
+            systemctl() { record "$@"; }
+            case "$mode" in
+                uwsm) uwsm() { record "$@"; } ;;
+                dbus) dbus-update-activation-environment() { record "$@"; } ;;
+                nested) export AQUEOUS_NESTED=1 ;;
+            esac
+            source "$repo_root/packaging/aqueous-init"
+        )
+        if [ "$mode" = nested ]; then
+            test ! -s "$capture"
+        else
+            grep -Fx AQUEOUS_SOCKET "$capture" >/dev/null
+            grep -Fx "socket=$endpoint" "$capture" >/dev/null
+        fi
+    done
+done
+echo "Aqueous IPC session exports and nested isolation tests passed"

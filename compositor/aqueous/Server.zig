@@ -144,6 +144,7 @@ aqueous: Aqueous,
 workspace_manager: WorkspaceManager,
 window_info_manager: WindowInfoManager,
 shell_manager: @import("ShellManager.zig") = .{},
+ipc_server: @import("IpcServer.zig") = .{},
 shortcuts: @import("ShortcutInhibitManager.zig") = .{},
 xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
@@ -578,6 +579,7 @@ pub fn init(
 
 /// Free allocated memory and clean up. Note: order is important here
 pub fn deinit(server: *Server) void {
+    server.ipc_server.deinit();
     server.sigint_source.remove();
     server.sigterm_source.remove();
 

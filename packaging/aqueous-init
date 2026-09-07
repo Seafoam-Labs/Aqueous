@@ -42,6 +42,14 @@ if [ ! -e "$GHOSTTY_USER_CFG_DIR/config.ghostty" ] && [ -r "$GHOSTTY_DEFAULTS" ]
     chmod 600 "$GHOSTTY_USER_CFG_DIR/config.ghostty"
 fi
 
+# Nested sessions inherit their endpoint directly and must not replace the
+# real desktop's service environment.
+[ "${AQUEOUS_NESTED:-0}" = 1 ] && exit 0
+
+# Propagate an empty value after optional IPC failure to clear stale service
+# manager endpoints from a previous compositor instance.
+export AQUEOUS_SOCKET="${AQUEOUS_SOCKET:-}"
+
 # Push the live Wayland and native XWayland environment into systemd --user
 # and D-Bus so services and desktop-launched applications connect to this
 # compositor. This must run here, not in aqueous-wm.sh, because
@@ -73,6 +81,7 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
     # shellcheck disable=SC2086
     uwsm finalize \
         WAYLAND_DISPLAY \
+        AQUEOUS_SOCKET \
         $display_var \
         XDG_CURRENT_DESKTOP \
         XDG_SESSION_TYPE \
@@ -93,6 +102,7 @@ else
         # shellcheck disable=SC2086
         dbus-update-activation-environment --systemd \
             WAYLAND_DISPLAY \
+            AQUEOUS_SOCKET \
             $display_var \
             XDG_CURRENT_DESKTOP=Aqueous \
             XDG_SESSION_TYPE=wayland \
@@ -113,7 +123,7 @@ else
         done
         # shellcheck disable=SC2086
         systemctl --user import-environment \
-            WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
+            WAYLAND_DISPLAY AQUEOUS_SOCKET XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
             $display_var $optional_vars \
             2>/dev/null || true
     fi

@@ -10,11 +10,12 @@ const Window = @import("Window.zig");
 const Workspace = @import("Workspace.zig");
 const Output = @import("Output.zig");
 const Seat = @import("Seat.zig");
-const KeyboardGroup = @import("KeyboardGroup.zig");
+const Types = @import("ShellCommand.zig");
+const Commands = @import("ShellCommands.zig");
 const Map = std.StringHashMapUnmanaged([]const u8);
 const limit = 4 * 1024 * 1024;
 
-pub const Status = protocol.Status;
+pub const Status = Types.Status;
 global: *wl.Global = undefined,
 initialized: bool = false,
 idle: ?*wl.EventSource = null,
@@ -25,8 +26,10 @@ session: [32:0]u8 = undefined,
 state: Map = .empty,
 server_destroy: wl.Listener(*wl.Server) = .init(destroy),
 
-const Client = struct {
-    resource: *protocol,
+pub const Client = struct {
+    resource: ?*protocol = null,
+    socket: ?*@import("IpcServer.zig").Client = null,
+    snapshot: bool = false,
     link: wl.list.Link = undefined,
     subscribed: bool = false,
     initial: bool = true,
@@ -35,20 +38,8 @@ const Client = struct {
     sequence: u64 = 0,
     previous: Map = .empty,
     pending: ?u32 = null,
-    queued: ?Command = null,
-};
-
-const Command = struct {
-    id: u32,
-    action: protocol.Action,
-    target: []const u8,
-    seat: []const u8,
-    value: []const u8,
-    fn deinit(self: Command) void {
-        util.gpa.free(self.target);
-        util.gpa.free(self.seat);
-        util.gpa.free(self.value);
-    }
+    queued: ?Types.Command = null,
+    queued_id: u32 = 0,
 };
 
 pub fn init(manager: *ShellManager) !void {
@@ -124,10 +115,14 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
 }
 
 fn clientDestroy(_: *protocol, client: *Client) void {
+    detach(client);
+}
+
+pub fn detach(client: *Client) void {
     client.link.remove();
     server.shell_manager.client_count -= 1;
     clear(&client.previous);
-    if (client.queued) |cmd| cmd.deinit();
+    if (client.queued) |cmd| cmd.deinit(util.gpa);
     util.gpa.destroy(client);
 }
 
@@ -148,30 +143,41 @@ fn publish(manager: *ShellManager) void {
     if (!settled()) return;
     var queued = manager.clients.iterator(.forward);
     while (queued.next()) |client| {
+        if (client.socket) |socket| if (socket.failed) continue;
         const cmd = client.queued orelse continue;
         client.queued = null;
-        defer cmd.deinit();
-        const status = execute(cmd.action, cmd.target, cmd.seat, cmd.value);
+        defer cmd.deinit(util.gpa);
+        if (client.socket) |socket| if (!socket.validateSession()) continue;
+        const status = Commands.execute(cmd);
         if (status != .applied) {
-            result(client, cmd.id, status);
+            result(client, client.queued_id, status);
         } else if (cmd.action == .session_exit) {
-            result(client, cmd.id, .accepted);
-            server.wl_server.flushClients();
-            server.wl_server.terminate();
+            result(client, client.queued_id, .accepted);
+            if (client.socket) |socket| {
+                socket.exitAfterFlush();
+            } else {
+                server.wl_server.flushClients();
+                server.wl_server.terminate();
+            }
             return;
-        } else client.pending = cmd.id;
+        } else client.pending = client.queued_id;
         if (!settled()) return;
     }
     manager.refresh() catch {
         var clients = manager.clients.iterator(.forward);
-        while (clients.next()) |client| client.resource.getClient().postImplementationError("Aqueous shell state exceeds limits or allocation failed");
+        while (clients.next()) |client| fail(client, "Aqueous shell state exceeds limits or allocation failed");
         return;
     };
     var clients = manager.clients.iterator(.forward);
     while (clients.next()) |client| {
+        if (client.socket) |socket| if (socket.failed) continue;
+        if (client.snapshot) {
+            client.snapshot = false;
+            manager.sendSnapshot(client) catch fail(client, "Unable to construct snapshot");
+        }
         if (client.subscribed and !client.inflight and (client.initial or client.sequence != manager.sequence)) {
             manager.sendBatch(client) catch {
-                client.resource.getClient().postImplementationError("Aqueous shell batch exceeds limits or allocation failed");
+                fail(client, "Aqueous shell batch exceeds limits or allocation failed");
                 continue;
             };
         }
@@ -289,9 +295,7 @@ fn refresh(manager: *ShellManager) !void {
     } else clear(&next);
 }
 
-fn sendBatch(manager: *ShellManager, client: *Client) !void {
-    var buffer: std.Io.Writer.Allocating = .init(util.gpa);
-    defer buffer.deinit();
+fn writeBatch(manager: *ShellManager, client: *Client, buffer: *std.Io.Writer.Allocating) !void {
     const w = &buffer.writer;
     try w.print("{{\"schema\":1,\"session\":\"{s}\",\"sequence\":\"{d}\",\"base_sequence\":", .{ manager.session, manager.sequence });
     if (client.initial) try w.writeAll("null") else try w.print("\"{d}\"", .{client.sequence});
@@ -316,9 +320,24 @@ fn sendBatch(manager: *ShellManager, client: *Client) !void {
     try w.writeAll("]}");
     const bytes = buffer.written();
     if (bytes.len > limit) return error.StateTooLarge;
+}
+
+fn sendSnapshot(manager: *ShellManager, client: *Client) !void {
+    var fresh: Client = .{};
+    var buffer: std.Io.Writer.Allocating = .init(util.gpa);
+    defer buffer.deinit();
+    try manager.writeBatch(&fresh, &buffer);
+    try client.socket.?.snapshotResult(buffer.written());
+}
+
+fn sendBatch(manager: *ShellManager, client: *Client) !void {
+    var buffer: std.Io.Writer.Allocating = .init(util.gpa);
+    defer buffer.deinit();
+    try manager.writeBatch(client, &buffer);
+    const bytes = buffer.written();
     // Retain only one bounded baseline and one unacknowledged wire batch.
     clear(&client.previous);
-    it = manager.state.iterator();
+    var it = manager.state.iterator();
     while (it.next()) |entry| {
         const key = try util.gpa.dupe(u8, entry.key_ptr.*);
         errdefer util.gpa.free(key);
@@ -327,15 +346,19 @@ fn sendBatch(manager: *ShellManager, client: *Client) !void {
         try client.previous.put(util.gpa, key, value);
     }
     client.serial +%= 1;
-    client.resource.sendBegin(client.serial);
-    var offset: usize = 0;
-    while (offset < bytes.len) {
-        const chunk = bytes[offset..@min(bytes.len, offset + 3000)];
-        var array: wl.Array = .{ .size = chunk.len, .alloc = chunk.len, .data = @constCast(chunk.ptr) };
-        client.resource.sendData(&array);
-        offset += chunk.len;
+    if (client.socket) |socket| {
+        try socket.stateEvent(bytes);
+    } else {
+        client.resource.?.sendBegin(client.serial);
+        var offset: usize = 0;
+        while (offset < bytes.len) {
+            const chunk = bytes[offset..@min(bytes.len, offset + 3000)];
+            var array: wl.Array = .{ .size = chunk.len, .alloc = chunk.len, .data = @constCast(chunk.ptr) };
+            client.resource.?.sendData(&array);
+            offset += chunk.len;
+        }
+        client.resource.?.sendDone(client.serial);
     }
-    client.resource.sendDone(client.serial);
     client.sequence = manager.sequence;
     client.initial = false;
     client.inflight = true;
@@ -344,7 +367,9 @@ fn sendBatch(manager: *ShellManager, client: *Client) !void {
 fn result(client: *Client, id: u32, status: Status) void {
     var buf: [32]u8 = undefined;
     const sequence = std.fmt.bufPrintZ(&buf, "{d}", .{server.shell_manager.sequence}) catch unreachable;
-    client.resource.sendResult(id, status, sequence);
+    if (client.socket) |socket| {
+        socket.commandResult(status, sequence) catch socket.fail();
+    } else client.resource.?.sendResult(id, @enumFromInt(@intFromEnum(status)), sequence);
 }
 
 fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
@@ -394,7 +419,13 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
                 result(client, args.request_id, .invalid);
                 return;
             }
-            client.queued = copyCommand(args.request_id, args.action, target, seat, value) catch {
+            if (@intFromEnum(args.action) >= std.meta.fields(Types.Action).len) {
+                result(client, args.request_id, .invalid);
+                return;
+            }
+            const action: Types.Action = @enumFromInt(@intFromEnum(args.action));
+            client.queued_id = args.request_id;
+            client.queued = (Types.Command{ .action = action, .target = target, .seat = seat, .value = value }).clone(util.gpa) catch {
                 result(client, args.request_id, .unavailable);
                 return;
             };
@@ -403,149 +434,16 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
     }
 }
 
-fn copyCommand(id: u32, action: protocol.Action, target: []const u8, seat: []const u8, value: []const u8) !Command {
-    const t = try util.gpa.dupe(u8, target);
-    errdefer util.gpa.free(t);
-    const s = try util.gpa.dupe(u8, seat);
-    errdefer util.gpa.free(s);
-    const v = try util.gpa.dupe(u8, value);
-    return .{ .id = id, .action = action, .target = t, .seat = s, .value = v };
+pub fn attachSocket(socket: *@import("IpcServer.zig").Client) !*Client {
+    const manager = &server.shell_manager;
+    if (manager.client_count >= 16) return error.ClientLimit;
+    const client = try util.gpa.create(Client);
+    client.* = .{ .socket = socket };
+    manager.clients.append(client);
+    manager.client_count += 1;
+    return client;
 }
 
-fn findWindow(id: []const u8) ?*Window {
-    var it = server.wm.windows.iterator();
-    while (it.next()) |window| {
-        if (window.state != .mapped) continue;
-        if (windowId(window)) |value| if (std.mem.eql(u8, id, value)) return window;
-    }
-    return null;
-}
-fn findOutput(name: []const u8) ?*Output {
-    var it = server.om.outputs.iterator(.forward);
-    while (it.next()) |output| if (std.mem.eql(u8, name, output.policyName())) return output;
-    return null;
-}
-fn findWorkspace(id: []const u8) ?*Workspace {
-    const number = std.fmt.parseInt(u32, id, 10) catch return null;
-    var outputs = server.om.outputs.iterator(.forward);
-    while (outputs.next()) |output| {
-        var it = output.workspaces.iterator(.forward);
-        while (it.next()) |ws| if (ws.id == number) return ws;
-    }
-    return null;
-}
-fn findSeat(name: []const u8) ?*Seat {
-    var it = server.input_manager.seats.iterator(.forward);
-    const first = it.next() orelse return null;
-    if (name.len == 0) return if (it.next() == null) first else null;
-    if (std.mem.eql(u8, name, std.mem.span(first.wlr_seat.name))) return first;
-    while (it.next()) |seat| if (std.mem.eql(u8, name, std.mem.span(seat.wlr_seat.name))) return seat;
-    return null;
-}
-
-fn execute(action: protocol.Action, target: []const u8, seat_name: []const u8, value: []const u8) Status {
-    if (target.len > 1024 or seat_name.len > 1024 or value.len > 1024) return .invalid;
-    if (server.lock_manager.state != .unlocked) return .locked;
-    if (server.aqueous.mode != .internal) return .unsupported;
-    switch (action) {
-        .session_exit => return .applied,
-        .window_activate, .workspace_activate => {
-            const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
-            if (action == .window_activate) {
-                const window = findWindow(target) orelse return .not_found;
-                if (!window.wm_scheduled.accepts_focus or !window.policy_state.focus_allowed) return .unsupported;
-                if (window.workspace) |ws| if (!ws.output.policyExposed()) return .unavailable;
-                server.aqueous.cancelOverview();
-                if (!server.aqueous.activateShellWindow(@bitCast(window.ref), std.mem.span(seat.wlr_seat.name))) return .unavailable;
-            } else {
-                const ws = findWorkspace(target) orelse return .not_found;
-                if (!ws.output.policyExposed()) return .unavailable;
-                server.aqueous.cancelOverview();
-                seat.policySelectOutput(ws.output);
-                ws.output.activateWorkspace(ws);
-            }
-            server.wm.dirtyWindowing();
-        },
-        .window_close => {
-            const window = findWindow(target) orelse return .not_found;
-            window.close();
-            return .accepted;
-        },
-        .window_minimized, .window_maximized, .window_fullscreen => {
-            const window = findWindow(target) orelse return .not_found;
-            const enabled = if (std.mem.eql(u8, value, "true")) true else if (std.mem.eql(u8, value, "false")) false else return .invalid;
-            const info = window.infoSnapshot();
-            const current = switch (action) {
-                .window_minimized => info.minimized,
-                .window_maximized => info.maximized,
-                else => info.fullscreen,
-            };
-            if (enabled == current) return .applied;
-            if (action == .window_minimized and !server.aqueous.clientMinimizeAllowed(@bitCast(window.ref), enabled)) return .unsupported;
-            if (action == .window_maximized) {
-                if (enabled and window.policy_state.presentation != .floating and !server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref))) return .unsupported;
-                if (!enabled and window.policy_state.client_maximize_origin == .none) return .unsupported;
-            }
-            server.aqueous.cancelOverview();
-            switch (action) {
-                .window_minimized => window.requestMinimized(enabled),
-                .window_maximized => window.requestMaximized(enabled),
-                .window_fullscreen => window.requestFullscreen(enabled, null),
-                else => unreachable,
-            }
-            server.wm.dirtyWindowing();
-        },
-        .window_move_workspace, .window_move_output => {
-            const window = findWindow(target) orelse return .not_found;
-            const ws = if (action == .window_move_workspace) findWorkspace(value) orelse return .not_found else (findOutput(value) orelse return .not_found).active_workspace orelse return .unavailable;
-            if (!ws.output.policyExposed()) return .unavailable;
-            server.aqueous.cancelOverview();
-            window.setWorkspace(ws);
-        },
-        .workspace_rename => {
-            const ws = findWorkspace(target) orelse return .not_found;
-            if (!std.unicode.utf8ValidateSlice(value) or std.mem.indexOfScalar(u8, value, '\n') != null) return .invalid;
-            const name = util.gpa.dupeZ(u8, value) catch return .unavailable;
-            util.gpa.free(ws.name);
-            ws.name = name;
-            server.workspace_manager.dirty();
-        },
-        .keyboard_set, .keyboard_next => {
-            const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
-            var groups = seat.keyboard_groups.iterator(.forward);
-            var found: ?*KeyboardGroup = null;
-            const id = if (target.len > 0) std.fmt.parseInt(u64, target, 10) catch return .invalid else 0;
-            while (groups.next()) |group| {
-                if ((id == 0 and seat.wlr_seat.getKeyboard() == &group.state) or (id != 0 and group.shell_id == id)) {
-                    found = group;
-                    break;
-                }
-            }
-            const group = found orelse return .not_found;
-            const keymap = group.state.keymap orelse return .unavailable;
-            const count = keymap.numLayouts();
-            if (count == 0) return .unavailable;
-            const current = if (group.state.xkb_state) |state| state.serializeLayout(@enumFromInt(1 << 7)) else 0;
-            const index = if (action == .keyboard_next) (current + 1) % count else std.fmt.parseInt(u32, value, 10) catch return .invalid;
-            if (index >= count) return .invalid;
-            var modifiers = group.state.modifiers;
-            modifiers.group = index;
-            group.processModifiers(modifiers);
-        },
-        .overview_show, .overview_hide, .overview_toggle => {
-            if (action == .overview_hide or (action == .overview_toggle and server.aqueous.overview != null)) {
-                server.aqueous.cancelOverview();
-            } else {
-                const output = findOutput(value) orelse return .not_found;
-                if (server.aqueous.overview) |overview| {
-                    if (overview.output_id == output.policyId()) return .applied;
-                    server.aqueous.cancelOverview();
-                }
-                server.aqueous.openOverviewOnOutput(output.policyId());
-                if (server.aqueous.overview == null) return .unavailable;
-            }
-        },
-        else => return .invalid,
-    }
-    return .applied;
+fn fail(client: *Client, message: [:0]const u8) void {
+    if (client.socket) |socket| socket.fail() else client.resource.?.getClient().postImplementationError(message);
 }

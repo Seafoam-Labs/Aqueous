@@ -1,0 +1,9 @@
+{
+  "ipc": 1,
+  "id": "3",
+  "session": "6b94a179d09456846b94a179d0945684",
+  "op": "ack",
+  "params": {
+    "delivery": "1"
+  }
+}

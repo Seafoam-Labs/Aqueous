@@ -2,8 +2,9 @@
 
 The MIT-licensed [Wayland XML](aqueous-shell-v1.xml) and
 [JSON schema](aqueous-shell-v1.schema.json) describe the shell interface.
-`aqueousctl` is the supported command/stream adapter. There is no separate
-compositor socket or external window-manager connection to configure.
+`aqueousctl` remains the supported Wayland command/stream adapter. Shells can
+also use [IPC v1](aqueous-ipc-v1.md) directly through `AQUEOUS_SOCKET`; both
+transports share state and command handling. No external window manager is needed.
 
 ## Discovery and compatibility
 

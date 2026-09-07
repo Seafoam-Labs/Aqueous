@@ -1,0 +1,9 @@
+{
+  "ipc": 1,
+  "id": "6",
+  "ok": false,
+  "error": {
+    "code": "stale_session",
+    "message": "stale_session"
+  }
+}
