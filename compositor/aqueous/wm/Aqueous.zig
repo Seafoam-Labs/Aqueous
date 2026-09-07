@@ -283,6 +283,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     // resolves this transaction. Use that newer target now so placement order
     // and focus-sensitive visuals do not render one management cycle behind.
     var cycle_focus = transactionFocus(aqueous.requested_stack_focus, focused);
+    const new_window_anchor = cycle_focus;
     var cycle_selected_output_id = aqueous.api.selectedOutputId();
     // Direct pointer, keybinding, or client activation requests are newer and
     // more intentional than admission focus. Never overwrite one which was
@@ -302,6 +303,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
 
     for (snapshot.outputs) |output| {
         var output_layout = aqueous.config.layout;
+        for (&output_layout.options) |*options| options.new_window_anchor = new_window_anchor;
         if (aqueous.api.pointerPosition()) |pointer| {
             const floating_options = &output_layout.options[@intFromEnum(layout_config.LayoutId.floating)];
             floating_options.pointer_x = pointer.x;
@@ -3490,6 +3492,7 @@ fn gameOptions(rule: Rules.Rule, config: Rules.GameMode, output_area: layout_typ
             .center_focused = layout_snapshot.scrolling_center_focused,
             .column_fraction = layout_snapshot.scrolling_column_fraction,
             .follow_new = layout_snapshot.scrolling_follow_new,
+            .open_new_windows_to_right = layout_snapshot.scrolling_open_new_windows_to_right,
             .prefer_vertical_on_portrait = layout_snapshot.scrolling_prefer_vertical_on_portrait,
             .overscroll = layout_snapshot.scrolling_overscroll,
             .snap = layout_snapshot.scrolling_snap,
@@ -3506,6 +3509,7 @@ fn gameConfigOptions(config: Rules.GameMode, layout_snapshot: *const layout_conf
             .column_fraction = layout_snapshot.scrolling_column_fraction,
             .center_focused = layout_snapshot.scrolling_center_focused,
             .follow_new = layout_snapshot.scrolling_follow_new,
+            .open_new_windows_to_right = layout_snapshot.scrolling_open_new_windows_to_right,
             .prefer_vertical_on_portrait = layout_snapshot.scrolling_prefer_vertical_on_portrait,
             .snap = layout_snapshot.scrolling_snap,
             .overscroll = layout_snapshot.scrolling_overscroll,

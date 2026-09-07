@@ -90,6 +90,9 @@ pub const Options = struct {
     /// They are deliberately optional so layout/config tests remain pure.
     pointer_x: ?i32 = null,
     pointer_y: ?i32 = null,
+    /// Runtime focus before admission can automatically focus a new window.
+    /// Scrolling resolves this handle only within its own existing columns.
+    new_window_anchor: ?Handle = null,
     floating_move_step: i32 = 10,
     floating_move_step_coarse: i32 = 50,
     floating_resize_step: i32 = 10,

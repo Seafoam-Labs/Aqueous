@@ -165,6 +165,9 @@ column_fraction = 0.5
 center_focused = true
 # Pan to a newly managed window when it extends the column order.
 follow_new_windows = true
+# Insert immediately after the focused column instead of at the far right.
+# When enabled, this takes precedence over portrait stacking.
+open_new_windows_to_right = false
 # Add new windows to a vertical stack when this scrolling instance's local
 # usable rectangle is taller than it is wide. false keeps horizontal placement.
 # Vertically arranged instances also swap the wheel navigation chords.

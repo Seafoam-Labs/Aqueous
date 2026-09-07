@@ -148,6 +148,7 @@ pub const Snapshot = struct {
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
+    scrolling_open_new_windows_to_right: bool = false,
     scrolling_prefer_vertical_on_portrait: bool = false,
     scrolling_snap: bool = false,
     scrolling_overscroll: bool = true,
@@ -388,6 +389,7 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "column_fraction")) snapshot.scrolling_column_fraction = parseRatio(plain) orelse snapshot.scrolling_column_fraction;
             if (std.mem.eql(u8, key, "center_focused")) snapshot.scrolling_center_focused = parseBool(plain) orelse snapshot.scrolling_center_focused;
             if (std.mem.eql(u8, key, "follow_new_windows")) snapshot.scrolling_follow_new = parseBool(plain) orelse snapshot.scrolling_follow_new;
+            if (std.mem.eql(u8, key, "open_new_windows_to_right")) snapshot.scrolling_open_new_windows_to_right = parseBool(plain) orelse snapshot.scrolling_open_new_windows_to_right;
             if (std.mem.eql(u8, key, "prefer_vertical_on_portrait")) snapshot.scrolling_prefer_vertical_on_portrait = parseBool(plain) orelse snapshot.scrolling_prefer_vertical_on_portrait;
             if (std.mem.eql(u8, key, "snap_to_columns")) snapshot.scrolling_snap = parseBool(plain) orelse snapshot.scrolling_snap;
             if (std.mem.eql(u8, key, "allow_overscroll")) snapshot.scrolling_overscroll = parseBool(plain) orelse snapshot.scrolling_overscroll;
@@ -804,4 +806,24 @@ test "composable sidecar can complete a base slot one field at a time" {
     );
     try std.testing.expect(snapshot.composableValid());
     try std.testing.expectEqual(LayoutId.rows, snapshot.composable[0].layout);
+}
+
+test "scrolling right insertion defaults off and reloads preserve valid values" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.scrolling_open_new_windows_to_right);
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\open_new_windows_to_right = true
+    );
+    try std.testing.expect(snapshot.scrolling_open_new_windows_to_right);
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\open_new_windows_to_right = "right"
+    );
+    try std.testing.expect(snapshot.scrolling_open_new_windows_to_right);
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\open_new_windows_to_right = false
+    );
+    try std.testing.expect(!snapshot.scrolling_open_new_windows_to_right);
 }

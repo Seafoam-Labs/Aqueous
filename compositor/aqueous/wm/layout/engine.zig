@@ -614,3 +614,98 @@ test "tile admission preserves natural size for a later floating layout" {
     );
     try std.testing.expect(!placements[0].tiled);
 }
+
+fn expectPlacementOrder(placements: []const types.Placement, expected: []const types.Handle) !void {
+    try std.testing.expectEqual(expected.len, placements.len);
+    for (placements, expected) |placement, handle| try std.testing.expectEqual(handle, placement.handle);
+}
+
+test "right insertion and pre-admission focus route through standalone and game fallback" {
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const arrivals = initial ++ [_]types.Window{.{ .handle = 4 }};
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1200, .height = 800 };
+    for ([_]config.LayoutId{ .scrolling, .game_mode }) |id| {
+        var snapshot: config.Snapshot = .{};
+        snapshot.default = id;
+        config.apply(&snapshot,
+            \\[layout.options.scrolling]
+            \\open_new_windows_to_right = true
+        );
+        const game_options: game_mode.Options = .{
+            .fallback = .scrolling,
+            .scrolling_options = .{ .open_new_windows_to_right = snapshot.scrolling_open_new_windows_to_right },
+        };
+        var state: State = .{};
+        defer state.deinit(std.testing.allocator);
+        var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &initial, 1, game_options);
+        std.testing.allocator.free(placements);
+        for (&snapshot.options) |*options| options.new_window_anchor = 2;
+        placements = try arrange(std.testing.allocator, &state, &snapshot, area, &arrivals, 4, game_options);
+        defer std.testing.allocator.free(placements);
+        try expectPlacementOrder(placements, &.{ 1, 2, 4, 3 });
+    }
+}
+
+test "right insertion routes through game remainder and keeps its anchor fixed" {
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .game_mode;
+    const initial = [_]types.Window{ .{ .handle = 99 }, .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1200, .height = 800 };
+    const game_options: game_mode.Options = .{ .scrolling_options = .{ .open_new_windows_to_right = true } };
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const game = gameModeState(&state);
+    game.rule_anchor = 99;
+    game.rule_options = .{ .anchor = .left, .size = .{ .pixels = .{ .width = 100, .height = 100 } }, .remainder = .scrolling };
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &initial, 1, game_options);
+    const original_anchor = placements[0].geometry;
+    std.testing.allocator.free(placements);
+    for (&snapshot.options) |*options| options.new_window_anchor = 2;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &(initial ++ [_]types.Window{.{ .handle = 4 }}), 4, game_options);
+    defer std.testing.allocator.free(placements);
+    try expectPlacementOrder(placements, &.{ 99, 1, 2, 4, 3 });
+    try std.testing.expectEqual(original_anchor, placements[0].geometry);
+}
+
+test "right insertion stays within the focused composable region" {
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .composable;
+    config.apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\open_new_windows_to_right = true
+        \\[layout.composable.a]
+        \\layout = "scrolling"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.5, 0.0]
+        \\p3 = [0.5, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "scrolling"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 }, .{ .handle = 5 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1600, .height = 900 };
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &initial, 1, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(moveToComposableSlot(&state, 4, 1));
+    try std.testing.expect(moveToComposableSlot(&state, 5, 1));
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &initial, 2, .{});
+    std.testing.allocator.free(placements);
+    const arrivals = initial ++ [_]types.Window{.{ .handle = 6 }};
+    for (&snapshot.options) |*options| options.new_window_anchor = 2;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &arrivals, 6, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expectEqual(@as(?u8, 0), state.composite.membership.get(6));
+    // Switch regions and admit 7 in one transaction: active still points at
+    // region A, while the runtime anchor is a member of region B.
+    for (&snapshot.options) |*options| options.new_window_anchor = 4;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &(arrivals ++ [_]types.Window{.{ .handle = 7 }}), 7, .{});
+    defer std.testing.allocator.free(placements);
+    try expectPlacementOrder(placements, &.{ 1, 2, 6, 3, 4, 7, 5 });
+    try std.testing.expectEqual(@as(?u8, 1), state.composite.membership.get(7));
+}

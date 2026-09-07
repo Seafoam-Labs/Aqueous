@@ -31,6 +31,7 @@ master_count = 1
 [layout.options.scrolling]
 column_fraction = "0.5"
 center_focused = "true"
+open_new_windows_to_right = false
 prefer_vertical_on_portrait = "false"
 focus_follows_mouse_delay_ms = 0
 
@@ -188,7 +189,20 @@ region active and requests an immediate rearrangement.
 ## Scrolling columns
 
 The scrolling engine owns an ordered list of columns. By default, new windows
-begin in their own column, preserving horizontal placement. Setting
+begin in their own column at the far right. Set
+`open_new_windows_to_right = true` in `[layout.options.scrolling]` to insert each
+new column immediately to the right of the focused window's column instead.
+For example, opening D with B focused changes `A B C` to `A B D C`.
+This option defaults to false and takes precedence over portrait stacking.
+The insertion anchor is the focus before automatic new-window focus; when it
+is not a surviving member of this instance, the last locally focused member
+is used, then the far right. Multiple arrivals retain their input order.
+It applies to windows newly entering this layout instance, including windows
+moved into its workspace or region. Reloading the setting does not reorder
+existing columns. `input.focus_new_windows` still controls keyboard focus, and
+`follow_new_windows` retains its viewport-following behavior.
+
+Setting
 `prefer_vertical_on_portrait = true` adds future windows to the bottom of the
 active column whenever that scrolling instance's local usable rectangle is
 taller than it is wide. Square and landscape instances remain horizontal.
