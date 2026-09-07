@@ -17,7 +17,8 @@ aqueous
 ├── XKB/libinput and direct key/pointer actions
 ├── startup/reload commands and screencopy
 ├── native output policy and outputd-compatible Unix socket
-└── foreign-toplevel enumeration and read-only window introspection
+├── shared shell state/commands over Wayland and AQUEOUS_SOCKET
+└── foreign-toplevel enumeration and window introspection
 ```
 
 ## Repository layout
@@ -27,7 +28,7 @@ compositor/
 ├── build.zig                 # canonical build and Zig tests
 ├── aqueous/                  # compositor integration
 │   └── wm/                   # policy, config, layouts, rules, input, outputs
-├── aqueousctl/               # read-only window and output inspection client
+├── aqueousctl/               # window/output inspection and shell command client
 ├── protocol/                 # Wayland protocol definitions
 └── scripts/                  # headless integration checks
 scripts/build-compositor.sh   # stages bin/aqueous and bin/aqueousctl
@@ -52,6 +53,15 @@ event loop. Manage-cycle hooks collect stable native handles, calculate policy,
 and apply geometry/focus/workspace changes before the cycle is committed.
 Output changes are staged through `OutputManager.zig` and the existing atomic
 wlroots transaction path.
+
+## Shell IPC
+
+`ShellManager.zig` owns committed state, session IDs, sequences and subscriber
+baselines for both Wayland and Unix socket clients. `ShellCommands.zig` applies
+typed commands only at settled transactions. `IpcServer.zig` handles bounded,
+nonblocking JSON transport on the Wayland event loop; it launches no helpers.
+Session children discover the private instance endpoint through `AQUEOUS_SOCKET`.
+See the [wire contract](../compositor/protocol/aqueous-ipc-v1.md).
 
 ## Build flow
 

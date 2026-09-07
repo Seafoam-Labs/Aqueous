@@ -1,5 +1,10 @@
 # DMS upstream pull request guide for Aqueous
 
+Transport update: the initial process-adapter design below is retained as
+historical integration context. New consumers should use `AQUEOUS_SOCKET`;
+see the [implemented IPC contract](../compositor/protocol/aqueous-ipc-v1.md).
+
+
 Status: proposed PR breakdown. No upstream issues, comments, branches or PRs
 have been created by this document.
 

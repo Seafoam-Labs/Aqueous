@@ -1,5 +1,10 @@
 # Aqueous shell integration implementation plan
 
+Transport update: the initial process-adapter design below is retained as
+historical integration context. New consumers should use `AQUEOUS_SOCKET`;
+see the [implemented IPC contract](../compositor/protocol/aqueous-ipc-v1.md).
+
+
 Status: Aqueous implementation delivered; DMS upstream consumers and hardware
 release verification remain separate work. The phase descriptions below preserve
 the original plan. See the implementation record at the end for actual scope.

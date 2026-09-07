@@ -631,7 +631,12 @@ fallback. It does not override an explicitly selected output or steal focus
 from a window. If several usable outputs resolve primary, the first is used and
 a warning is logged.
 
-The Unix socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock` is hosted inside the
+The general shell socket is exported as `AQUEOUS_SOCKET` and shares committed
+state and typed command handling with `aqueous-shell-v1`. See the
+[IPC v1 contract](../compositor/protocol/aqueous-ipc-v1.md) for framing,
+subscriptions, lifecycle and transaction semantics.
+
+The compatibility Unix socket at `$XDG_RUNTIME_DIR/aqueous/outputd.sock` is hosted inside the
 compositor. It preserves the display-panel JSON contract without a separate
 `aqueous-outputd` process and accepts only same-UID peers.
 

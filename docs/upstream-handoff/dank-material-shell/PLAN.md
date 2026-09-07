@@ -1,5 +1,10 @@
 # Implement Aqueous integration in DankMaterialShell
 
+Transport update: the initial process-adapter design below is retained as
+historical integration context. New consumers should use `AQUEOUS_SOCKET`;
+see the [implemented IPC contract](../../../compositor/protocol/aqueous-ipc-v1.md).
+
+
 Copy this directory, including `reference/`, into the DankMaterialShell checkout.
 It contains the context needed to start work without the original conversation.
 This is an implementation plan; the upstream changes below are not implemented.

@@ -1,5 +1,14 @@
 # Aqueous shell integration verification
 
+The Aqueous runtime socket can be tested independently of a migrated DMS build:
+run `compositor/scripts/test-ipc-integration.py` with `AQUEOUS_COMPOSITOR_BIN`
+pointing to a diagnostic compositor, and set `AQUEOUS_SHELL_TEST_IPC=1` for the
+existing shell integration regression. These tests exercise direct socket state
+and commands; they do not certify the still-separate DMS consumer migration.
+See the [IPC contract](../compositor/protocol/aqueous-ipc-v1.md) for build and
+binary overrides.
+
+
 The Aqueous implementation of [A1–A6](dms-integration-implementation-plan.md)
 was checked with Zig 0.16 and the repository's pinned wlroots render-hook build.
 The headless fixture creates private runtime, HOME and configuration directories,
