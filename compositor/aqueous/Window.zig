@@ -2857,6 +2857,12 @@ pub fn map(window: *Window) !void {
     assert(window.state == .initialized);
     window.state = .mapped;
 
+    // Mapping changes scene visibility even when the committed dimensions are
+    // unchanged. A same-size XDG remap needs no tracked resize transaction, so
+    // its pre-map render can leave the parent scene node disabled. Do not rely
+    // on a later size change or unrelated input to run renderFinish() again.
+    server.wm.dirtyRendering();
+
     // Complete a deferred natural-size transient placement using the buffer
     // which caused this map. The commit listener updates rendering_scheduled
     // before the coalesced manage cycle reads its policy snapshot.

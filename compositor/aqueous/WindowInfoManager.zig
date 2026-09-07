@@ -20,6 +20,15 @@ const InputManager = @import("InputManager.zig");
 const util = @import("util.zig");
 
 const log = std.log.scoped(.wm);
+extern fn getenv([*:0]const u8) ?[*:0]const u8;
+
+// Opt-in, read-only diagnostics for timing-sensitive lifecycle tests. Scene
+// requests do not schedule frames, unlike screencopy, so inspect these before
+// taking a screenshot of a potentially stalled output.
+fn windowStateDiagnostics() bool {
+    const value = getenv("AQUEOUS_DEBUG_WINDOW_STATE") orelse return false;
+    return std.mem.eql(u8, std.mem.span(value), "1");
+}
 
 global: *wl.Global,
 server_destroy: wl.Listener(*wl.Server) = .init(handleServerDestroy),
@@ -368,7 +377,18 @@ fn animationNodeLabel(
 
 fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     if (node == &window.tree.node) {
+        // Backend teardown may precede destruction of the scene node by a
+        // transaction. Its title accessor is already invalid in that interval.
+        if (window.impl == .destroying) return "window: destroying";
         const title = if (window.getTitle()) |title| std.mem.span(title) else "untitled";
+        if (windowStateDiagnostics()) {
+            const requested = window.rendering_requested;
+            return std.fmt.bufPrintZ(
+                buffer,
+                "window: {s} {{state={s} hidden={} overview={} anim={} snapshot={} pos={d:.1},{d:.1} target={d:.1},{d:.1} clip={d},{d},{d},{d} configure={s}}}",
+                .{ title[0..@min(title.len, 80)], @tagName(window.state), requested.hidden, window.overview_hidden, window.anim_active, window.anim_snapshot, window.anim_x, window.anim_y, window.anim_target_x, window.anim_target_y, requested.clip.x, requested.clip.y, requested.clip.width, requested.clip.height, if (window.impl == .toplevel) @tagName(window.impl.toplevel.configure_state) else "x11" },
+            ) catch "window diagnostics overflow";
+        }
         return std.fmt.bufPrintZ(buffer, "window: {s}", .{title}) catch "window";
     }
     if (node == &window.popup_tree.node) return "window popups";
@@ -385,6 +405,10 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
     if (node == &window.border.top.node) return "border: top";
     if (node == &window.border.bottom.node) return "border: bottom";
     if (node == &window.decorations_above_tree.node) return "decorations above";
+    if (node.type == .buffer and windowStateDiagnostics()) {
+        const scene_buffer = wlr.SceneBuffer.fromNode(node);
+        return std.fmt.bufPrintZ(buffer, "window surface buffer {{opacity={d:.3}}}", .{scene_buffer.opacity}) catch "window surface buffer";
+    }
     return switch (node.type) {
         .tree => "window subtree",
         .rect => "window rect",

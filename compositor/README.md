@@ -76,6 +76,53 @@ The live probe needs host GPU access for Aqueous's Vulkan renderer, but does not
 require an HDR display; its headless SDR output also guards against false HDR
 detection.
 
+## Headless window remapping regression
+
+`scripts/test-window-remap.py` checks a persistent window hidden on one output
+and reopened on another. By default, two tiled companion windows on each output
+give the reopened window equal-size slots, exposing remaps that cannot rely on
+a resize transaction to restore visibility.
+It checks both window publication/geometry and actual pixels in screenshots,
+including the absence of stale content on the old output. It runs fresh-process
+controls before repeated remaps and keeps logs, scene dumps, screenshots, and
+`results.json` under its printed `/tmp/aqueous-window-remap-*` directory.
+
+```sh
+python3 scripts/test-window-remap.py --renderer vulkan
+python3 scripts/test-window-remap.py --renderer vulkan --timing interrupt --second-scale 1.5 \
+  --electron /path/to/electron
+```
+
+Requires an XWayland-enabled build, `cc`, `pkg-config`, `wayland-scanner`, `grim`,
+and Python Pillow. Vulkan requires a usable Vulkan device; a
+`-Dvulkan-effects=false` build can run the default `--renderer pixman` path.
+Use `--compositor` and `--ctl` to select separate build artifacts. Optional
+`--backend wayland`, `x11`, `electron-wayland`, or `electron-x11` selects a subset;
+repeat the option for multiple backends. Electron runs local solid-color content
+with an isolated profile and intercepts Close to hide the same BrowserWindow.
+It does not launch Discord or use its account/profile.
+
+`--timing same-size` isolates a same-output, unchanged-size remap;
+`--timing settled` checks ordinary cross-output remaps with screenshots between
+steps. `--timing interrupt` hides during a confirmed output-transfer animation;
+`--timing rapid` sends consecutive hide/show requests across outputs, and
+`--timing transfer` moves a live window repeatedly. Timing cases keep one virtual
+pointer alive and save passive scene state before post-sequence screenshots,
+avoiding unrelated input-device changes or screencopy that could mask a stall.
+The runner enables `AQUEOUS_DEBUG_WINDOW_STATE=1` for scene labels with lifecycle,
+animation, configure, clip, and actual buffer-opacity state. Scene diagnostics
+also tolerate backend destruction before the scene node has been released.
+
+`--negative-control` deliberately acknowledges the native Wayland remap configure
+without submitting another buffer. This command must fail after the fresh-process
+and initial-map controls pass. Its failure artifacts distinguish an unpublished,
+unmapped window from a published window whose pixels are missing. Passing the
+normal fixture does not rule out Discord-specific behavior or different builds,
+drivers, and configurations.
+
+See [the remapping diagnosis](../docs/window-remap-diagnosis.md) for the
+reproduced disabled-scene defect, correction, and limits of the Discord comparison.
+
 ## Usage
 
 Run `zig-out/bin/aqueous` nested in an existing Wayland/X11 session or from a
