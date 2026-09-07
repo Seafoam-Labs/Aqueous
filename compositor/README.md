@@ -103,6 +103,11 @@ layout; add `--set grid` before `--json` to change it immediately.
 `aqueousctl overlay-planes [--json]` reports per-output overlay eligibility,
 rejection backoff, promotion transitions, and composed fallback counters.
 
+For desktop slowdowns when a Proton game loses focus, use the
+[focus-stall capture instructions](../docs/proton-wayland-focus-stall.md) to
+record output state, compositor response times and NVIDIA load in the affected
+session.
+
 The headless cutover and output checks are:
 
 ```sh
