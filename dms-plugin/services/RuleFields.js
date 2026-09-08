@@ -65,6 +65,11 @@ var fields = [
     "type": "boolean"
   },
   {
+    "key": "scrolling_full_width",
+    "label": "Scrolling full width",
+    "type": "boolean"
+  },
+  {
     "key": "ignore_struts",
     "label": "Ignore reserved areas",
     "type": "boolean"

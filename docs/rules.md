@@ -64,6 +64,7 @@ matters.
 | `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
 | `floating` | bool | no | Force floating placement. |
+| `scrolling_full_width` | bool | no | Set the initial scrolling column preset, equivalent to `Super+Shift+Z` when true. False starts with the preset disabled; unset leaves it alone. A rule using this field preserves the current layout when `layout` is omitted. |
 | `placement_policy` | string | no | Per-rule `cascade`, `center`, `under-pointer`, or `minimal-overlap` initial placement. |
 | `stack_layer` | string | no | Place the window in the `below`, `normal`, or `above` semantic stack layer. |
 | `focus` | bool | no | When false, exclude the window from compositor focus selection. |
@@ -89,6 +90,26 @@ not activate an inactive workspace. A missing or disabled output falls back to
 normal admission placement and does not move the established window if the
 output appears later. Manual workspace and output moves override the placement
 rule until a different matcher becomes active.
+
+For example, open Firefox with the full-width scrolling preset:
+
+```toml
+[[window]]
+app_id = "firefox"
+scrolling_full_width = true
+```
+
+The preset fills the scrolling instance's usable width, accounting for reserved
+areas, outer gaps, borders, and client minimum sizes. Stacked members share the
+column width. It works in nested scrolling layouts too, and has no sizing effect
+in other layouts; it takes effect if the window later enters a scrolling layout.
+`Super+Shift+Z`, horizontal pointer resizing, and size reset override the rule
+until a different matcher becomes active. Vertical resizing preserves the preset.
+Reloads update windows still owned by the rule; removing the field or matcher
+restores their previous preset without undoing manual overrides. Rules without
+this field retain the historical implicit `game-mode` layout; an explicit
+`layout` always takes precedence. Add the field to an existing matching rule if
+one exists, since only the first matching rule applies.
 
 The global default is `[scaling].buffer_policy = "native"` in `wm.toml`.
 `"integer-ceil"` is a compatibility path, not an application default. Aqueous

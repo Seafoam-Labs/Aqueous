@@ -79,6 +79,8 @@ pub const Rule = struct {
     size: Size = .native,
     scale: f64 = 1,
     fullscreen: bool = false,
+    /// Initial scrolling column preset; null leaves the user's width alone.
+    scrolling_full_width: ?bool = null,
     ignore_struts: bool = false,
     blur: ?bool = null,
     opacity: ?f64 = null,
@@ -129,6 +131,7 @@ pub const Rule = struct {
         }
         hash.update(std.mem.asBytes(&rule.scale));
         hash.update(std.mem.asBytes(&rule.fullscreen));
+        hashOptionalBool(&hash, rule.scrolling_full_width);
         hash.update(std.mem.asBytes(&rule.ignore_struts));
         hashOptionalBool(&hash, rule.blur);
         hashOptionalFloat(&hash, rule.opacity);
@@ -165,6 +168,7 @@ pub const Rule = struct {
         placement_only.content_type = null;
         placement_only.layout = null;
         placement_only.fullscreen = false;
+        placement_only.scrolling_full_width = null;
         placement_only.blur = null;
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
@@ -253,6 +257,7 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
         visual.size = .native;
         visual.scale = 1;
         visual.fullscreen = false;
+        visual.scrolling_full_width = null;
         visual.ignore_struts = false;
         visual.stack_layer = null;
         visual.placement_policy = null;
@@ -418,6 +423,30 @@ test "content type rules match committed state and keep only visual effects" {
 
     // A different committed type does not match.
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "player-one", .content_type = .video }).?.placement.workspace);
+}
+
+test "scrolling presets affect semantic identity but not placement or visual-only rules" {
+    const unset: Rule = .{ .app_id = "browser" };
+    var enabled = unset;
+    enabled.scrolling_full_width = true;
+    var disabled = unset;
+    disabled.scrolling_full_width = false;
+    try std.testing.expect(unset.fingerprint() != enabled.fingerprint());
+    try std.testing.expect(unset.fingerprint() != disabled.fingerprint());
+    try std.testing.expect(enabled.fingerprint() != disabled.fingerprint());
+    try std.testing.expectEqual(unset.matcherFingerprint(), enabled.matcherFingerprint());
+    try std.testing.expectEqual(unset.floatingFingerprint(), enabled.floatingFingerprint());
+    try std.testing.expectEqual(unset.placementFingerprint(), enabled.placementFingerprint());
+
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    enabled.content_type = .video;
+    enabled.opacity = 0.8;
+    try engine.reload(&.{enabled});
+    const visual = engine.resolve(.{ .app_id = "browser", .content_type = .video }).?;
+    try std.testing.expectEqual(@as(?bool, null), visual.scrolling_full_width);
+    try std.testing.expectEqual(@as(?Layout, null), visual.layout);
+    try std.testing.expectEqual(@as(?f64, 0.8), visual.opacity);
 }
 
 test "matcher fingerprints include the content type matcher" {

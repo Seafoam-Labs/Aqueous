@@ -92,9 +92,6 @@ const Drag = struct {
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
     resize_axis: ?pointer_drag.ResizeAxis = null,
     constraints: geometry.Constraints = .{},
-    /// A manual size overrides the full-width preset. Defer clearing its
-    /// per-window owner until the pointer actually moves.
-    scrolling_expanded_owner: ?layout_types.Handle = null,
     client_seat: ?usize = null,
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
@@ -469,7 +466,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     game_anchor = .{ .handle = window.handle, .rule = matched };
                 }
             }
-            managed.appendAssumeCapacity(window);
+            var layout_window = window;
+            // The snapshot predates rule reconciliation. Use the new preset
+            // for this transaction's first arrangement too.
+            layout_window.scrolling_full_width = state.scrolling_full_width;
+            managed.appendAssumeCapacity(layout_window);
             if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
             if (rule != null and rule.?.layout == .game_mode and managed.items.len > 1) {
                 std.mem.swap(layout_types.Window, &managed.items[0], &managed.items[managed.items.len - 1]);
@@ -1275,10 +1276,6 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .layout_key = layout_key,
             .layout_floating = layout_floating,
             .constraints = aqueous.api.windowConstraints(target.handle),
-            .scrolling_expanded_owner = if (drag_action == .resize_scrolling)
-                layout_engine.scrollingExpandedOwner(layout_state.?, target.handle)
-            else
-                null,
         };
         if (!layout_floating and drag_action != .resize_scrolling) {
             _ = aqueous.window_states.setFloating(target.handle, drag_geometry);
@@ -1314,6 +1311,7 @@ fn handleScrollingClick(aqueous: *Aqueous, drag: Drag, time_msec: u32) void {
     if (layout_engine.scrollingColumnMembers(layout_state, drag.handle)) |members| {
         for (members) |handle| {
             const state = aqueous.window_states.get(handle) orelse continue;
+            state.overrideScrollingFullWidth();
             if (!state.scrolling_full_width) continue;
             state.scrolling_full_width = false;
             changed = true;
@@ -1435,12 +1433,16 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         const layout_state = aqueous.layout_states.getPtr(drag.layout_key) orelse return;
         var cleared_expanded = false;
         if (axis == .horizontal) {
-            if (drag.scrolling_expanded_owner) |owner| {
-                if (aqueous.window_states.get(owner)) |owner_state| {
-                    cleared_expanded = owner_state.scrolling_full_width;
-                    owner_state.scrolling_full_width = false;
+            // Every member can own a preset. Release them together when the
+            // pointer actually changes the column width, so another matching
+            // member cannot immediately expand the manually resized column.
+            if (layout_engine.scrollingColumnMembers(layout_state, drag.handle)) |members| {
+                for (members) |handle| {
+                    const member_state = aqueous.window_states.get(handle) orelse continue;
+                    member_state.overrideScrollingFullWidth();
+                    cleared_expanded = member_state.scrolling_full_width or cleared_expanded;
+                    member_state.scrolling_full_width = false;
                 }
-                drag.scrolling_expanded_owner = null;
             }
         }
         const resize_edges = pointer_drag.edgesForAxis(drag.resize_edges, axis);
@@ -3062,6 +3064,7 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
         }
     }
     _ = aqueous.window_states.restoreRuleFloating(window.handle);
+    state.restoreRuleScrollingFullWidth();
     if (state.rule_stack_layer_owned) state.stack_layer = state.rule_stack_layer_previous;
     state.focus_allowed = true;
     state.fixed_position = false;
@@ -3100,6 +3103,7 @@ fn reconcileWindowRule(
 
     const matched = rule orelse return effect;
 
+    state.reconcileScrollingFullWidth(matched.scrolling_full_width);
     state.focus_allowed = matched.focus orelse true;
     state.fixed_position = matched.fixed_position;
     state.skip_switcher = matched.skip_switcher;

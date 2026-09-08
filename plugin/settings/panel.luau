@@ -2225,6 +2225,7 @@ local ruleFieldSpecs = {
 	{ key = "workspace", label = "Workspace", type = "number" },
 	{ key = "floating", label = "Freeform", type = "boolean" },
 	{ key = "fullscreen", label = "Fullscreen", type = "boolean" },
+	{ key = "scrolling_full_width", label = "Scrolling full width", type = "boolean" },
 	{ key = "ignore_struts", label = "Ignore reserved areas", type = "boolean" },
 	{ key = "width", label = "Width", type = "number" },
 	{ key = "height", label = "Height", type = "number" },

@@ -61,6 +61,35 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
     live = dict(protocol=1,expected_generation=applied['generation'],monitor_changes=[dict(id='live:HDMI-A-2',name='HDMI-A-2',x=-1920,y=0,transform='90')])
     applied = call('apply',live)
     assert any(m['name']=='HDMI-A-2' and m['x']==-1920 for m in applied['monitors'])
+    # Both rule editors round-trip the optional scrolling preset as a boolean.
+    for shell in ['dms', 'noctalia']:
+        change = dict(protocol=1, expected_generation=applied['generation'],
+                      window_rule_changes=[dict(id='new-rule:width', op='add',
+                          values=dict(app_id='aq-width-test', scrolling_full_width=True))])
+        call('validate', change, shell=shell)
+        applied = call('apply', change, shell=shell)
+        rule = next(r for r in applied['window_rules'] if r['values'].get('app_id') == 'aq-width-test')
+        assert rule['values']['scrolling_full_width'] is True
+        assert 'layout' not in rule['values']
+        for value in [False, None, True]:
+            change = dict(protocol=1, expected_generation=applied['generation'],
+                          window_rule_changes=[dict(id=rule['id'], op='update',
+                              values=dict(scrolling_full_width=value))])
+            applied = call('apply', change, shell=shell)
+            rule = next(r for r in applied['window_rules'] if r['values'].get('app_id') == 'aq-width-test')
+            if value is None:
+                assert 'scrolling_full_width' not in rule['values']
+            else:
+                assert rule['values']['scrolling_full_width'] is value
+                assert 'scrolling_full_width = ' + str(value).lower() in (config/'rules.toml').read_text()
+        before_rules = (config/'rules.toml').read_bytes()
+        invalid = dict(protocol=1, expected_generation=applied['generation'],
+                       window_rule_changes=[dict(id=rule['id'], op='update',
+                           values=dict(scrolling_full_width='invalid'))])
+        call('validate', invalid, shell=shell, success=False)
+        assert (config/'rules.toml').read_bytes() == before_rules
+        applied = call('apply', dict(protocol=1, expected_generation=applied['generation'],
+            window_rule_changes=[dict(id=rule['id'], op='delete')]), shell=shell)
     # Scrolling insertion is a shared schema boolean and persists to layout.toml.
     field_id = 'layout.options.scrolling.open_new_windows_to_right'
     field = next(f for f in call('snapshot')['fields'] if f['id'] == field_id)

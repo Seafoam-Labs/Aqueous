@@ -1127,10 +1127,11 @@ fn normalizeStackingSections(allocator: Allocator, document: *config.Document) !
 }
 
 const rule_keys: []const []const u8 = &.{
-    "app_id",           "class",         "title",         "content_type", "layout",         "output",        "workspace",
-    "floating",         "fullscreen",    "ignore_struts", "width",        "height",         "x",             "y",
-    "placement_policy", "anchor",        "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
-    "hdr_expand",       "overlay_plane", "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
+    "app_id",               "class",         "title",         "content_type", "layout",         "output",        "workspace",
+    "floating",             "fullscreen",    "ignore_struts", "width",        "height",         "x",             "y",
+    "placement_policy",     "anchor",        "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
+    "hdr_expand",           "overlay_plane", "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
+    "scrolling_full_width",
 };
 
 fn writeWindowRules(json: *std.json.Stringify, document: *const config.Document) !void {
@@ -1350,7 +1351,7 @@ fn ruleKnown(key: []const u8) bool {
 }
 
 fn ruleBoolean(key: []const u8) bool {
-    inline for (.{ "floating", "fullscreen", "ignore_struts", "blur", "hdr_expand", "focus", "fixed_position", "skip_switcher", "skip_taskbar" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    inline for (.{ "floating", "fullscreen", "scrolling_full_width", "ignore_struts", "blur", "hdr_expand", "focus", "fixed_position", "skip_switcher", "skip_taskbar" }) |known| if (std.mem.eql(u8, key, known)) return true;
     return false;
 }
 

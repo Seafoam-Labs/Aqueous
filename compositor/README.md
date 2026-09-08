@@ -191,6 +191,7 @@ The headless cutover and output checks are:
 scripts/test-policy-parity.sh
 scripts/test-server-decoration.sh
 scripts/test-rule-output-placement.sh
+python3 scripts/test-rule-scrolling-width.py # diagnostic pixman build (-Dvulkan-effects=false)
 scripts/test-xdg-fullscreen.sh
 scripts/test-xdg-floating.sh
 scripts/test-qt-transient-natural-size.sh

@@ -243,6 +243,9 @@ The default column-management bindings are:
   the bottom of the focused column.
 - `Super+Ctrl+K` expels the focused member into a new column on the right.
 - `Super+Shift+Z` toggles full viewport width for the focused window's column.
+  Set `scrolling_full_width = true` in a matching window rule to enable this
+  preset by default. Manual toggles and horizontal resizing override the rule;
+  see [window rules](rules.md).
 - `Super+Shift+Left/Right` moves the focused window into the adjacent column,
   creating a vertical stack. At an edge with no adjacent column, a stacked
   member is expelled into a new column in that direction. `Super+Shift+Up/Down`

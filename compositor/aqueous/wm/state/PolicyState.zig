@@ -91,6 +91,10 @@ rule_fullscreen_previous: bool = false,
 rule_floating_previous: Presentation = .tiled,
 rule_stack_layer_previous: StackLayer = .normal,
 rule_stack_layer_requested: ?StackLayer = null,
+rule_scrolling_full_width_owned: bool = false,
+rule_scrolling_full_width_overridden: bool = false,
+rule_scrolling_full_width_requested: ?bool = null,
+rule_scrolling_full_width_previous: bool = false,
 focus_allowed: bool = true,
 fixed_position: bool = false,
 skip_switcher: bool = false,
@@ -158,8 +162,37 @@ pub fn overrideStackLayer(state: *PolicyState) void {
 }
 
 pub fn toggleScrollingFullWidth(state: *PolicyState) bool {
+    state.overrideScrollingFullWidth();
     state.scrolling_full_width = !state.scrolling_full_width;
     return state.scrolling_full_width;
+}
+
+pub fn overrideScrollingFullWidth(state: *PolicyState) void {
+    state.rule_scrolling_full_width_owned = false;
+    state.rule_scrolling_full_width_overridden = true;
+}
+
+pub fn restoreRuleScrollingFullWidth(state: *PolicyState) void {
+    if (state.rule_scrolling_full_width_owned) {
+        state.scrolling_full_width = state.rule_scrolling_full_width_previous;
+        state.rule_scrolling_full_width_owned = false;
+    }
+}
+
+/// Reconcile only changes to the requested preset. Manual sizing wins until
+/// another matcher is accepted, including across reloads of the same rule.
+pub fn reconcileScrollingFullWidth(state: *PolicyState, requested: ?bool) void {
+    if (requested == state.rule_scrolling_full_width_requested) return;
+    if (requested) |value| {
+        if (!state.rule_scrolling_full_width_overridden) {
+            if (!state.rule_scrolling_full_width_owned) state.rule_scrolling_full_width_previous = state.scrolling_full_width;
+            state.scrolling_full_width = value;
+            state.rule_scrolling_full_width_owned = true;
+        }
+    } else {
+        state.restoreRuleScrollingFullWidth();
+    }
+    state.rule_scrolling_full_width_requested = requested;
 }
 
 pub fn ruleChanged(state: *const PolicyState, match: u64) bool {
@@ -182,6 +215,9 @@ pub fn acceptRuleMatch(state: *PolicyState, match: u64) void {
     state.rule_floating_requested = false;
     state.rule_floating_signature = 0;
     state.rule_stack_layer_requested = null;
+    state.rule_scrolling_full_width_owned = false;
+    state.rule_scrolling_full_width_overridden = false;
+    state.rule_scrolling_full_width_requested = null;
     state.rule_initialized = true;
     state.rule_match = match;
 }
@@ -218,6 +254,55 @@ test "scrolling full width toggles independently of window kind" {
     try std.testing.expectEqual(Kind.tiled, state.kind());
     try std.testing.expect(!state.toggleScrollingFullWidth());
     try std.testing.expectEqual(Kind.tiled, state.kind());
+}
+
+test "scrolling width rules reconcile reloads and restore the prior preset" {
+    var state: PolicyState = .{};
+    state.acceptRuleMatch(1);
+    state.reconcileScrollingFullWidth(true);
+    try std.testing.expect(state.scrolling_full_width);
+    try std.testing.expect(state.rule_scrolling_full_width_owned);
+    state.reconcileScrollingFullWidth(true);
+    state.reconcileScrollingFullWidth(false);
+    try std.testing.expect(!state.scrolling_full_width);
+    state.reconcileScrollingFullWidth(true);
+    state.reconcileScrollingFullWidth(null);
+    try std.testing.expect(!state.scrolling_full_width);
+    try std.testing.expect(!state.rule_scrolling_full_width_owned);
+
+    // An explicit false can temporarily replace a manually enabled preset.
+    _ = state.toggleScrollingFullWidth();
+    state.acceptRuleMatch(2);
+    state.reconcileScrollingFullWidth(false);
+    try std.testing.expect(!state.scrolling_full_width);
+    state.restoreRuleScrollingFullWidth();
+    state.acceptRuleMatch(0);
+    try std.testing.expect(state.scrolling_full_width);
+}
+
+test "manual scrolling width overrides survive reloads until the matcher changes" {
+    var state: PolicyState = .{};
+    state.acceptRuleMatch(1);
+    state.reconcileScrollingFullWidth(true);
+    try std.testing.expect(!state.toggleScrollingFullWidth());
+    state.reconcileScrollingFullWidth(true);
+    state.reconcileScrollingFullWidth(false);
+    state.reconcileScrollingFullWidth(true);
+    try std.testing.expect(!state.scrolling_full_width);
+    state.reconcileScrollingFullWidth(null);
+    state.reconcileScrollingFullWidth(true);
+    try std.testing.expect(!state.scrolling_full_width);
+    state.restoreRuleScrollingFullWidth();
+    state.acceptRuleMatch(2);
+    state.reconcileScrollingFullWidth(true);
+    try std.testing.expect(state.scrolling_full_width);
+
+    // Pointer sizing releases ownership without toggling the preset on.
+    state.overrideScrollingFullWidth();
+    state.scrolling_full_width = false;
+    state.reconcileScrollingFullWidth(true);
+    state.restoreRuleScrollingFullWidth();
+    try std.testing.expect(!state.scrolling_full_width);
 }
 
 test "cancelling a pending natural size rolls back only its automatic float" {

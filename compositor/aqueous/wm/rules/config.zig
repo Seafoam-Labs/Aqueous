@@ -93,7 +93,7 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
             current = null;
             current_layer = null;
             if (std.mem.eql(u8, line, "[[window]]")) {
-                current = .{};
+                current = .{ .layout = null };
                 section = .window;
             } else if (std.mem.eql(u8, line, "[[layer]]")) {
                 current_layer = .{};
@@ -144,7 +144,11 @@ fn hash(source: []const u8) u64 {
 
 fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
     if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) return;
-    try rules.append(allocator, rule);
+    var resolved = rule;
+    // Width presets follow the current layout. Preserve the historical
+    // implicit game-mode layout for rules that do not use this property.
+    if (resolved.layout == null and resolved.scrolling_full_width == null) resolved.layout = .game_mode;
+    try rules.append(allocator, resolved);
 }
 
 fn appendValidLayer(
@@ -189,6 +193,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "size")) rule.size = parseSize(value) orelse rule.size;
     if (std.mem.eql(u8, key, "scale")) rule.scale = parseScale(value) orelse rule.scale;
     if (std.mem.eql(u8, key, "fullscreen")) rule.fullscreen = parseBool(value) orelse rule.fullscreen;
+    if (std.mem.eql(u8, key, "scrolling_full_width")) rule.scrolling_full_width = parseBool(value) orelse rule.scrolling_full_width;
     if (std.mem.eql(u8, key, "ignore_struts")) rule.ignore_struts = parseBool(value) orelse rule.ignore_struts;
     if (std.mem.eql(u8, key, "blur")) rule.blur = parseBool(value) orelse rule.blur;
     if (std.mem.eql(u8, key, "opacity")) rule.opacity = parseOpacity(value) orelse rule.opacity;
@@ -369,6 +374,46 @@ test "rules parser preserves order and parses native placement behavior" {
     const panel = engine.resolveLayer("panel-main").?;
     try std.testing.expect(panel.blur);
     try std.testing.expect(panel.blur_popups);
+}
+
+test "scrolling width rules preserve the current layout and explicit layout choices" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "browser"
+        \\scrolling_full_width = true
+        \\[[window]]
+        \\app_id = "browser"
+        \\scrolling_full_width = false
+        \\[[window]]
+        \\class = "editor"
+        \\scrolling_full_width = false
+        \\[[window]]
+        \\title = "legacy"
+        \\size = "800x600"
+        \\[[window]]
+        \\app_id = "explicit-before"
+        \\layout = "game-mode"
+        \\scrolling_full_width = true
+        \\[[window]]
+        \\app_id = "explicit-after"
+        \\scrolling_full_width = true
+        \\layout = "scrolling"
+        \\[[window]]
+        \\app_id = "invalid"
+        \\scrolling_full_width = "not-a-bool"
+    );
+    const browser = engine.resolve(.{ .app_id = "browser" }).?;
+    try std.testing.expectEqual(@as(?bool, true), browser.scrolling_full_width);
+    try std.testing.expectEqual(@as(?Engine.Layout, null), browser.layout);
+    const editor = engine.resolve(.{ .class = "editor" }).?;
+    try std.testing.expectEqual(@as(?bool, false), editor.scrolling_full_width);
+    try std.testing.expectEqual(@as(?Engine.Layout, null), editor.layout);
+    try std.testing.expectEqual(Engine.Layout.game_mode, engine.resolve(.{ .title = "legacy" }).?.layout.?);
+    try std.testing.expectEqual(Engine.Layout.game_mode, engine.resolve(.{ .app_id = "explicit-before" }).?.layout.?);
+    try std.testing.expectEqual(Engine.Layout.scrolling, engine.resolve(.{ .app_id = "explicit-after" }).?.layout.?);
+    try std.testing.expectEqual(@as(?bool, null), engine.resolve(.{ .app_id = "invalid" }).?.scrolling_full_width);
 }
 
 test "rules parser accepts content_type matchers and rejects invalid values" {

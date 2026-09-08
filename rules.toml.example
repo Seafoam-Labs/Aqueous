@@ -30,6 +30,14 @@ gaps_inner = 8             # integer >= 0
 # -----------------------------------------------------------------------------
 # Rule fields
 # -----------------------------------------------------------------------------
+# To open an application with the Super+Shift+Z scrolling preset enabled:
+# [[window]]
+# app_id = "firefox"
+# scrolling_full_width = true
+# This field preserves the current layout when layout is omitted. False starts
+# with the preset disabled; unset leaves it alone. Manual toggles, horizontal
+# resizing, and size reset override it until a different matcher becomes active.
+#
 # Rules use first-match-wins order. At least one matcher is required; a block
 # without app_id, class, title, or content_type is silently discarded. Every
 # matcher present in a block must match. app_id is used by native Wayland
