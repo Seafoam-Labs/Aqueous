@@ -23,6 +23,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--compositor", type=Path, default=ROOT / "zig-out/bin/aqueous")
 parser.add_argument("--opacity", type=float, default=1.0)
 parser.add_argument("--blur", action="store_true")
+parser.add_argument("--fullscreen", action="store_true", help="Check fullscreen workspace snapshots; omit the resize case")
 args = parser.parse_args()
 assert 0 < args.opacity <= 1
 work = Path(tempfile.mkdtemp(prefix="aqueous-snapshot-colors-"))
@@ -122,7 +123,9 @@ def capture(name):
         counts = Counter(pixels)
         palette = [rgb for rgb, n in counts.items() if n >= 4096 and max(rgb) > 20]
         xs = [i % image.width for i, rgb in enumerate(pixels) if rgb in palette]
-        return palette, min(xs) if xs else None
+        # A fullscreen slide can keep its left edge at zero throughout both
+        # directions; track the visible extent to observe its moving right edge.
+        return palette, (min(xs), max(xs)) if xs else None
 
 def distance(a, b):
     return max(abs(x - y) for x, y in zip(a, b))
@@ -135,6 +138,8 @@ try:
     launch([work / "client"], "client")
     window = wait_for(lambda: next((w for w in windows() if w["app_id"] == "aqueous.snapshot-color"), None),
                       "color-managed client did not map")
+    if args.fullscreen:
+        run([ctl, "window", "state", "--id", window["id"], "--fullscreen", "true", "--json"])
     time.sleep(0.5)
     reference, _ = capture("reference")
     assert len(reference) == 4, f"expected four reference patches, got {reference}"
@@ -166,18 +171,19 @@ try:
     run(["wlrctl", "keyboard", "type", "1", "modifiers", "SUPER"])
     sample("slide-in", 2.6)
     assert len(positions) >= 3, f"animation was not observed: {positions}"
-    # A changing configure keeps the old transaction buffers visible while the
-    # fixture briefly delays its response. Collect frames concurrently with IPC.
-    request = launch([ctl, "window", "state", "--id", window["id"], "--maximized", "true", "--json"], "maximize")
-    time.sleep(0.01)
-    sample("resize", 0.7)
-    assert request.wait(timeout=5) == 0
-    assert saved_frames > 0, "no transaction snapshot was observed during resize"
+    if not args.fullscreen:
+        # A changing configure keeps the old transaction buffers visible while the
+        # fixture briefly delays its response. Collect frames concurrently with IPC.
+        request = launch([ctl, "window", "state", "--id", window["id"], "--maximized", "true", "--json"], "maximize")
+        time.sleep(0.01)
+        sample("resize", 0.7)
+        assert request.wait(timeout=5) == 0
+        assert saved_frames > 0, "no transaction snapshot was observed during resize"
     settled, _ = capture("settled")
     assert len(settled) == 4 and all(min(distance(c, r) for r in reference) <= 2 for c in settled)
     (work / "results.json").write_text(json.dumps(dict(reference=reference, frames=frame_count,
         animation_positions=sorted(positions), saved_frames=saved_frames,
-        failures=failures, opacity=args.opacity, blur=args.blur), indent=2))
+        failures=failures, opacity=args.opacity, blur=args.blur, fullscreen=args.fullscreen), indent=2))
     assert not failures, f"snapshot colors differ from live reference: {failures[:8]}"
     print(f"PASS: {frame_count} frames, {len(positions)} animation positions; artifacts: {work}")
 finally:

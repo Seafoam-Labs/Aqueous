@@ -46,6 +46,7 @@ python3 scripts/test-snapshot-colors.py
 python3 scripts/test-snapshot-colors.py --opacity 0.95
 python3 scripts/test-snapshot-colors.py --blur
 python3 scripts/test-snapshot-colors.py --opacity 0.95 --blur
+python3 scripts/test-snapshot-colors.py --fullscreen --opacity 0.95
 ```
 
 Run these graphical cases serially with a parent Wayland session and GPU access.
@@ -75,6 +76,33 @@ output-discovery path and the version 3 Windows-scRGB/BT.2100 Wayland contract.
 The live probe needs host GPU access for Aqueous's Vulkan renderer, but does not
 require an HDR display; its headless SDR output also guards against false HDR
 detection.
+
+## Fullscreen workspace transition regression
+
+Fullscreen workspace transitions have a dedicated pixel regression for issue
+#53. It checks early slide motion, the opaque backing behind transparent
+fullscreen content, neighboring-output containment, client dimensions/focus,
+and cleanup after interrupted switches, window moves, overview, and output
+changes. Run these graphical cases serially:
+
+```sh
+python3 scripts/test-fullscreen-workspace-transition.py --renderer vulkan
+python3 scripts/test-fullscreen-workspace-transition.py --renderer vulkan --rate 3 --scale 1.25 --transform 90 --xwayland
+python3 scripts/test-fullscreen-workspace-transition.py --renderer vulkan --rate 200
+python3 scripts/test-fullscreen-workspace-transition.py --renderer vulkan --disabled
+```
+
+The test requires Pillow, grim, wlrctl, a C compiler, and Wayland development
+tools. `--xwayland` also needs Xlib development files and an XWayland-enabled
+build. `--renderer pixman` runs against a diagnostic build with
+`-Dvulkan-effects=false`; add `--no-animations` when testing a build made with
+`-Danimations=false`. Use `--compositor /path/to/aqueous` and optionally `--ctl`
+to select isolated builds or the original failing build. Logs, screenshots,
+and `results.json` remain in the printed `/tmp/aqueous-fullscreen-transition-*`
+directory. Current policy permits one fullscreen window per output, so the
+test preserves that constraint rather than creating two fullscreen workspaces
+on the same output. See the
+[implementation and validation notes](../docs/fullscreen-workspace-transition-plan.md).
 
 ## Headless window remapping regression
 

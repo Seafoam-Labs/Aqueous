@@ -361,6 +361,7 @@ fn animationNodeLabel(
     node: *wlr.SceneNode,
 ) ?[:0]const u8 {
     if (node == &window.anim_tree.node) return "window animation snapshot";
+    if (node == &window.anim_fullscreen_background.node) return "animation fullscreen background";
     if (node == &window.anim_blur_marker.node) {
         return "animation backdrop blur marker";
     }

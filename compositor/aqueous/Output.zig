@@ -1793,6 +1793,17 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
 }
 
 pub fn manageStart(output: *Output) void {
+    // Snap an in-flight workspace swap before its output coordinate system
+    // changes or stops receiving frames. Its captured buffers and fullscreen
+    // backing use the old grid, and a powered-off output cannot finish easing.
+    if (output.prev_workspace != null and
+        (output.scheduled.state != .enabled or
+            !std.meta.eql(output.sent.box(), output.scheduled.box()) or
+            output.sent.scale != output.scheduled.scale or
+            output.sent.transform != output.scheduled.transform))
+    {
+        output.cancelTransition();
+    }
     switch (output.scheduled.state) {
         .enabled, .disabled_soft => {
             // We cannot send 0 width/height to the window manager client.

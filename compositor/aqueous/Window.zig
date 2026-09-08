@@ -313,6 +313,8 @@ hdr_expand_rule: ?bool = null,
 /// TODO consider using one of these per output rather than one per window to save memory
 /// if the complexity tradeoff is worth it.
 fullscreen_background: *wlr.SceneRect,
+/// Opaque backing which travels with fullscreen workspace snapshots.
+anim_fullscreen_background: *wlr.SceneRect,
 
 /// Transparent scene entry which fixes the blur composite below every visible
 /// surface and decoration belonging to this window.
@@ -343,7 +345,7 @@ popup_tree: *wlr.SceneTree,
 anim_tree: *wlr.SceneTree,
 /// Stable child receiving cloned client buffers for each snapshot. Keeping
 /// these buffers in their own subtree gives `anim_tree` a fixed ordering:
-/// blur marker, surfaces, then compositor border.
+/// fullscreen backing, blur marker, surfaces, then compositor border.
 anim_surfaces_tree: *wlr.SceneTree,
 /// Persistent compositor-owned border overlay within `anim_tree`. Surface
 /// snapshots are inserted below this tree, keeping the moving border above
@@ -451,7 +453,7 @@ overview_hidden: bool = false,
 /// Position animation state. `anim_target_{x,y}` is the destination requested by
 /// the window manager; `anim_{x,y}` is the eased value actually written to the
 /// scene node each frame. `renderFinish` feeds the target in and snaps on the
-/// first placement / fullscreen / hidden transitions; `Output.handleFrame` drives
+/// first placement / fullscreen state changes / hidden transitions; `Output.handleFrame` drives
 /// the interpolation while `anim_active` is set. All of this compiles out when
 /// `-Danimations=false` (see `fx.anim_enabled`).
 anim_target_x: f64 = 0,
@@ -462,6 +464,8 @@ anim_active: bool = false,
 anim_initialized: bool = false,
 /// True while `anim_tree` currently holds a cloned snapshot of the surfaces.
 anim_snapshot: bool = false,
+/// Fullscreen style committed by the previous render transaction.
+rendered_fullscreen: bool = false,
 /// Original geometry of each buffer cloned into `anim_tree`. Clipped scrolling
 /// animations recrop these buffers on every frame so the viewport remains
 /// fixed in layout coordinates while the clone moves behind it.
@@ -801,6 +805,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     const anim_tree = try server.scene.hidden_tree.createSceneTree();
     errdefer anim_tree.node.destroy();
 
+    const anim_fullscreen_background = try anim_tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1 });
     const anim_blur_marker =
         try anim_tree.createSceneRect(0, 0, &.{ 0, 0, 0, 1.0 / 255.0 });
     const anim_surfaces_tree = try anim_tree.createSceneTree();
@@ -832,6 +837,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .decorations_above_tree = try tree.createSceneTree(),
         .popup_tree = popup_tree,
         .anim_tree = anim_tree,
+        .anim_fullscreen_background = anim_fullscreen_background,
         .anim_surfaces_tree = anim_surfaces_tree,
         .anim_border_tree = anim_border_tree,
         .anim_border = anim_border,
@@ -850,6 +856,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     window.anim_tree.node.setEnabled(false);
     window.anim_border_tree.node.setEnabled(false);
     window.fullscreen_background.node.setEnabled(false);
+    window.anim_fullscreen_background.node.setEnabled(false);
     window.blur_marker.node.setEnabled(false);
     window.anim_blur_marker.node.setEnabled(false);
     if (window.backdrop_blur) |blur| {
@@ -861,6 +868,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
     // transparent area cannot block pointer focus on the client surface.
     fx.setRectInputEnabled(window.border.rounded_outline, false);
     fx.setRectInputEnabled(window.anim_blur_marker, false);
+    fx.setRectInputEnabled(window.anim_fullscreen_background, false);
     inline for (.{
         "rounded_outline",
         "left",
@@ -936,6 +944,8 @@ pub fn destroy(window: *Window) void {
 /// Assign this window to the given workspace, removing it from any previous one.
 pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
     if (window.workspace == workspace) return;
+    // A snapshot belongs to its original workspace/output viewport.
+    window.cancelSlide();
     window.workspace_link.remove();
     workspace.windows.append(window);
     window.workspace = workspace;
@@ -964,7 +974,7 @@ pub fn detachWorkspace(window: *Window) void {
     window.workspace = null;
     // Drop any in-flight slide clone so it can't linger, enabled, in the shared
     // scene layer once the window no longer belongs to a (visible) workspace.
-    window.clearSnapshot();
+    window.cancelSlide();
 }
 
 pub fn setDimensionsHint(window: *Window, hint: DimensionsHint) void {
@@ -1659,7 +1669,23 @@ pub fn renderFinish(window: *Window) void {
         output_width = @intCast(dims[0]);
     }
     const workspace_visible = (window.workspace == null) or is_incoming or is_outgoing;
-    const transitioning = (is_incoming or is_outgoing) and transition_dir != 0;
+    const fullscreen = window.wm_requested.fullscreen;
+    const output_enabled = if (window.workspace) |ws| ws.output.sent.state == .enabled else true;
+    // A fullscreen mode/size change cannot reuse buffers captured for the old
+    // geometry. Snap this window for the transaction; other slides may finish.
+    const fullscreen_changed = window.rendered_fullscreen != (fullscreen != null) or
+        (window.anim_snapshot and fullscreen != null and
+            (window.box.width != window.rendering_sent.width or
+                window.box.height != window.rendering_sent.height));
+    window.rendered_fullscreen = fullscreen != null;
+    if (fullscreen_changed) {
+        window.cancelSlide();
+        // A follow-up configure/focus transaction must not seed this snapped
+        // incoming window off-screen again while another window finishes.
+        window.slide_seeded = true;
+    }
+    const transitioning = (is_incoming or is_outgoing) and transition_dir != 0 and
+        !fullscreen_changed;
     // Capture the prior settled visibility before applying this transaction.
     // Scrolling layouts keep a fixed clip even for off-screen placements, so a
     // previously visible member can animate out through that aperture instead
@@ -1675,95 +1701,59 @@ pub fn renderFinish(window: *Window) void {
     // active (e.g. the workspace was switched mid-slide), tear the clone down so
     // it cannot keep compositing — at the window's opacity — over the now-active
     // workspace's windows.
-    if (!workspace_visible) window.clearSnapshot();
+    if (!workspace_visible) window.cancelSlide();
 
     window.box.width = window.rendering_sent.width;
     window.box.height = window.rendering_sent.height;
 
-    var clip: wlr.Box = requested.clip;
-    var content_clip: wlr.Box = requested.content_clip;
-    if (window.wm_requested.fullscreen) |output| {
-        // Fullscreen positions are snapped: we never animate into/out of fullscreen.
-        window.setAnimationTarget(output.sent.x, output.sent.y, false);
-        // Gate the fullscreen background on workspace visibility too, otherwise a
-        // fullscreen window on an inactive workspace leaks its background into the
-        // active workspace's scene tree.
-        window.fullscreen_background.node.setEnabled(workspace_visible);
-        const width, const height = output.sent.dimensions();
-        window.fullscreen_background.setSize(width, height);
-        clip = .{ .x = 0, .y = 0, .width = width, .height = height };
-        content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-        inline for (.{
-            "rounded_outline",
-            "left",
-            "right",
-            "top",
-            "bottom",
-        }) |part| {
-            @field(window.border, part).node.setEnabled(false);
-        }
-        // Fullscreen content should not be rounded.
-        fx.setTreeRadius(window.surfaces.tree, 0);
-        fx.setTreeRadius(window.surfaces.saved_tree, 0);
-    } else {
-        // Workspace swaps are local to their owning output. The animation clone
-        // lives in a shared scene layer, so explicitly crop it to that output;
-        // otherwise an off-screen incoming/outgoing clone is also rendered by
-        // an adjacent scene output. Ordinary position animations remain
-        // unclipped here so cross-output floating moves continue to work.
-        window.anim_viewport = if (transitioning)
-            window.workspace.?.output.current.box()
-        else
-            null;
-        if (window.interactive != .none) {
-            // Pointer-driven move/resize must track the latest policy geometry
-            // exactly. Retargetable easing here makes the visible clone trail
-            // behind the cursor and can keep stale resize contents on screen.
-            window.setAnimationTarget(requested.x, requested.y, false);
-        } else if (transitioning and is_outgoing) {
-            // Outgoing window: ease its clone from the real position to one
-            // output-width off-screen in the transition direction; the live
-            // tree jumps off-screen immediately (it is leaving) but stays
-            // invisible behind the clone.
-            window.setAnimationTarget(requested.x - transition_dir * output_width, requested.y, true);
-            window.cur_anim_rate = server.wm.workspace_transition.rate;
-        } else if (transitioning and is_incoming and !window.slide_seeded) {
-            // Incoming window, first transition frame: seed its clone one
-            // output-width off-screen, then ease it to its real position.
-            window.beginSlideFrom(
-                requested.x + transition_dir * output_width,
-                requested.y,
-                requested.x,
-                requested.y,
-            );
-            window.slide_seeded = true;
-        } else if (transitioning and is_incoming) {
-            // Incoming window, subsequent frames: keep easing toward the real
-            // position so the in-flight slide continues.
-            window.setAnimationTarget(requested.x, requested.y, true);
+    // Workspace motion applies independently of fullscreen styling. Live input
+    // geometry settles at the destination; only the inert snapshot is eased.
+    const base_x = if (fullscreen) |output| output.sent.x else requested.x;
+    const base_y = if (fullscreen) |output| output.sent.y else requested.y;
+    window.anim_viewport = if (transitioning)
+        window.workspace.?.output.current.box()
+    else
+        null;
+    if (window.interactive != .none and fullscreen == null) {
+        window.setAnimationTarget(base_x, base_y, false);
+    } else if (transitioning and is_outgoing) {
+        window.setAnimationTarget(base_x - transition_dir * output_width, base_y, true);
+        window.cur_anim_rate = server.wm.workspace_transition.rate;
+    } else if (transitioning and is_incoming and !window.slide_seeded) {
+        // A reversal reuses the current visual position instead of reseeding an
+        // already-visible snapshot at the opposite edge of the output.
+        if (window.anim_active and window.anim_snapshot) {
+            window.setAnimationTarget(base_x, base_y, true);
             window.cur_anim_rate = server.wm.workspace_transition.rate;
         } else {
-            // Animate settled-visible windows and scrolling members which have
-            // just left their fixed viewport. Other hidden/closing windows snap
-            // so they cannot visibly "catch up" when they reappear.
-            // A keyboard viewport action may request focus on the entering
-            // member, producing a follow-up manage pass after the leaving live
-            // tree was disabled. Preserve an already-running clipped snapshot
-            // across that pass so the scrolling strip remains continuous.
-            const leaving_scrolling_viewport = (was_enabled or window.anim_snapshot) and
-                workspace_visible and
-                !window.overview_hidden and
-                window.state == .mapped and
-                !requested.clip.empty();
-            window.setAnimationTarget(
-                requested.x,
-                requested.y,
-                enabled or leaving_scrolling_viewport,
-            );
+            window.beginSlideFrom(base_x + transition_dir * output_width, base_y, base_x, base_y);
         }
-        window.fullscreen_background.node.setEnabled(false);
-        window.drawBorders();
+        window.slide_seeded = true;
+    } else if (transitioning and is_incoming) {
+        window.setAnimationTarget(base_x, base_y, true);
+        window.cur_anim_rate = server.wm.workspace_transition.rate;
+    } else if (fullscreen != null or fullscreen_changed or window.interactive != .none or !output_enabled) {
+        // Fullscreen toggles and pointer-driven geometry snap. Disabled
+        // outputs cannot advance a new animation after their slide is cancelled.
+        window.setAnimationTarget(base_x, base_y, false);
+    } else {
+        // Retain scrolling snapshots across a follow-up focus transaction even
+        // when the leaving live tree has already been disabled by its viewport.
+        const leaving_scrolling_viewport = (was_enabled or window.anim_snapshot) and
+            workspace_visible and !window.overview_hidden and
+            window.state == .mapped and !requested.clip.empty();
+        window.setAnimationTarget(base_x, base_y, enabled or leaving_scrolling_viewport);
     }
+
+    var clip: wlr.Box = requested.clip;
+    var content_clip: wlr.Box = requested.content_clip;
+    if (fullscreen) |output| {
+        const width, const height = output.sent.dimensions();
+        clip = .{ .x = 0, .y = 0, .width = width, .height = height };
+        content_clip = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    }
+    window.syncFullscreenBackground();
+    window.drawBorders();
     window.refreshBackdropBlur();
 
     // While a position animation is running, applyOpacity() updates the visible
@@ -1935,7 +1925,7 @@ fn disableBackdropBlur(window: *Window, blur: fx.WindowBlur) void {
 /// `stepAnimation`.
 ///
 /// `animate` is false (forcing a snap, no overlay) when animations are compiled
-/// out, on the first ever placement, for fullscreen, and whenever the window is
+/// out, on the first ever placement, for ordinary fullscreen changes, and when it is
 /// not currently on-screen.
 fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bool) void {
     const tx: f64 = @floatFromInt(target_x);
@@ -1954,8 +1944,13 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
             window.anim_x = @floatFromInt(window.box.x);
             window.anim_y = @floatFromInt(window.box.y);
         }
-        window.armSnapshot();
-        window.anim_active = true;
+        window.anim_active = window.armSnapshot();
+        if (!window.anim_active) {
+            // A failed capture snaps this window rather than displaying a
+            // partial snapshot or waiting for an animation with no buffers.
+            window.anim_x = tx;
+            window.anim_y = ty;
+        }
         // Default to the ordinary move rate; the workspace-swap call sites
         // re-assert `fx.workspace_slide_rate` after this returns.
         window.cur_anim_rate = fx.anim_rate;
@@ -1979,9 +1974,9 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
 /// toward the target while the live surfaces are pinned (and kept invisible) at
 /// the target. No-op if a snapshot is already armed (a re-target reuses the
 /// existing clone).
-fn armSnapshot(window: *Window) void {
-    if (comptime !fx.anim_enabled) return;
-    if (window.anim_snapshot) return;
+fn armSnapshot(window: *Window) bool {
+    if (comptime !fx.anim_enabled) return false;
+    if (window.anim_snapshot) return true;
     // Render the overlay as a sibling of the live tree so it draws in the same
     // layer; raise it above so the (invisible) live surfaces don't occlude it.
     if (window.tree.node.parent) |parent| {
@@ -1995,21 +1990,22 @@ fn armSnapshot(window: *Window) void {
     window.applySurfaceClip(&no_clip, &no_clip);
     window.anim_buffers.clearRetainingCapacity();
     var capture: AnimBufferCapture = .{ .window = window };
-    _ = window.surfaces.cloneInto(
+    const cloned = window.surfaces.cloneInto(
         window.anim_surfaces_tree,
         captureAnimBuffer,
         &capture,
     );
-    if (capture.failed) {
-        log.err("unable to track animation buffers for viewport clipping", .{});
+    if (!cloned or capture.failed) {
+        log.err("unable to capture animation buffers", .{});
         window.clearAnimationSurfaceNodes();
         window.anim_buffers.clearRetainingCapacity();
-        return;
+        return false;
     }
     window.setPreciseAnimationPosition();
     window.anim_tree.node.raiseToTop();
     window.anim_tree.node.setEnabled(true);
     window.anim_snapshot = true;
+    return true;
 }
 
 /// If a slide animation clone is currently armed, re-raise it above its live
@@ -2035,9 +2031,36 @@ fn clearSnapshot(window: *Window) void {
     window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
+    window.syncFullscreenBackground();
     window.applyOpacity();
     window.drawBorders();
     window.refreshBackdropBlur();
+}
+
+/// The fullscreen backing is opaque independently of client opacity. Only one
+/// backing is visible: the live one on the active workspace, or the cropped
+/// rectangle moving below the snapshot's surfaces.
+fn syncFullscreenBackground(window: *Window) void {
+    window.fullscreen_background.node.setEnabled(false);
+    window.anim_fullscreen_background.node.setEnabled(false);
+    const output = window.wm_requested.fullscreen orelse return;
+    const width, const height = output.sent.dimensions();
+    window.fullscreen_background.setSize(width, height);
+    if (!window.anim_snapshot) {
+        const active = if (window.workspace) |ws| ws.isActive() else true;
+        window.fullscreen_background.node.setEnabled(active and window.tree.node.enabled);
+        return;
+    }
+    const origin_x: i32 = @intFromFloat(@round(window.anim_x));
+    const origin_y: i32 = @intFromFloat(@round(window.anim_y));
+    const moving: wlr.Box = .{ .x = origin_x, .y = origin_y, .width = width, .height = height };
+    const viewport = window.anim_viewport orelse output.current.box();
+    var clipped: wlr.Box = undefined;
+    if (!clipped.intersection(&moving, &viewport)) return;
+    const background = window.anim_fullscreen_background;
+    background.node.setPosition(clipped.x - origin_x, clipped.y - origin_y);
+    background.setSize(clipped.width, clipped.height);
+    background.node.setEnabled(true);
 }
 
 fn clearAnimationSurfaceNodes(window: *Window) void {
@@ -2063,9 +2086,8 @@ pub fn beginSlideFrom(
     window.anim_x = @floatFromInt(start_x);
     window.anim_y = @floatFromInt(start_y);
     window.anim_active = false;
-    window.armSnapshot();
-    window.anim_active = true;
-    window.setAnimationTarget(target_x, target_y, true);
+    window.anim_active = window.armSnapshot();
+    window.setAnimationTarget(target_x, target_y, window.anim_active);
     // setAnimationTarget reset the rate to the ordinary default; re-assert the
     // slower workspace-swap pacing for this incoming slide.
     window.cur_anim_rate = server.wm.workspace_transition.rate;
@@ -2124,10 +2146,15 @@ fn setPreciseAnimationPosition(window: *Window) void {
     const grid = scaling.PhysicalGrid.init(requested.output_scale);
     const origin_x: f64 = @floatFromInt(requested.output_origin_x);
     const origin_y: f64 = @floatFromInt(requested.output_origin_y);
+    // Workspace crops use integer logical destination sizes/offsets. Match
+    // their origin exactly: a fractional parent translation would move an
+    // otherwise output-clipped buffer/rectangle onto an adjacent output by a
+    // pixel. Ordinary moves retain physical-grid precision.
+    const workspace_slide = window.anim_viewport != null;
     wlr_scene_node_set_position_f64(
         &window.anim_tree.node,
-        grid.snapFromOrigin(window.anim_x, origin_x),
-        grid.snapFromOrigin(window.anim_y, origin_y),
+        if (workspace_slide) @round(window.anim_x) else grid.snapFromOrigin(window.anim_x, origin_x),
+        if (workspace_slide) @round(window.anim_y) else grid.snapFromOrigin(window.anim_y, origin_y),
     );
 }
 
@@ -2313,9 +2340,10 @@ fn updateAnimationClip(window: *Window) void {
     // expressed relative to the settled target. Recompute its local
     // intersections on every animation frame alongside the cloned buffers.
     window.drawBorders();
+    window.syncFullscreenBackground();
     const requested = &window.rendering_requested;
     var viewport = window.anim_viewport;
-    if (!requested.clip.empty()) {
+    if (window.wm_requested.fullscreen == null and !requested.clip.empty()) {
         const layout_viewport: wlr.Box = .{
             .x = requested.x + requested.clip.x,
             .y = requested.y + requested.clip.y,
@@ -2404,6 +2432,12 @@ const BorderClip = struct {
 };
 
 fn drawBorders(window: *Window) void {
+    if (window.wm_requested.fullscreen != null) {
+        disableBorderNodes(&window.border);
+        disableBorderNodes(&window.anim_border);
+        window.anim_border_tree.node.setEnabled(false);
+        return;
+    }
     if (window.anim_snapshot) {
         disableBorderNodes(&window.border);
         window.anim_border_tree.node.setEnabled(true);
@@ -2761,14 +2795,18 @@ pub fn matchedRuleFingerprint(window: *const Window) u64 {
 /// buffers may have been (re)created, not only at render-finish.
 pub fn applyOpacity(window: *Window) void {
     const opacity = window.effectiveOpacity();
+    // An outgoing live tree sits at its off-screen target. Keep it invisible
+    // even on the snapshot teardown frame, so it cannot flash on a neighbor.
+    const outgoing = if (window.workspace) |ws| ws.output.prev_workspace == ws else false;
+    const live_opacity: f32 = if (outgoing) 0 else opacity;
 
-    fx.setTreeOpacity(window.surfaces.saved_tree, opacity);
-    fx.setTreeOpacity(window.popup_tree, opacity);
+    fx.setTreeOpacity(window.surfaces.saved_tree, live_opacity);
+    fx.setTreeOpacity(window.popup_tree, live_opacity);
     if (window.anim_snapshot) {
         fx.setTreeOpacity(window.anim_tree, opacity);
         fx.setTreeOpacity(window.surfaces.tree, 0);
     } else {
-        fx.setTreeOpacity(window.surfaces.tree, opacity);
+        fx.setTreeOpacity(window.surfaces.tree, live_opacity);
     }
 }
 
