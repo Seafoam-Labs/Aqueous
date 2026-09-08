@@ -43,6 +43,7 @@ const Workspace = @import("Workspace.zig");
 const XdgPopup = @import("XdgPopup.zig");
 
 const log = std.log.scoped(.output);
+const Mirror = @import("OutputMirror.zig");
 
 pub const State = struct {
     pub const PositionSource = enum {
@@ -61,6 +62,7 @@ pub const State = struct {
         /// Corresponding hardware no longer present
         destroying,
     },
+    mirror_of: @import("wm/output/config.zig").Text = .{},
     /// Logical coordinate space
     x: i32,
     /// Logical coordinate space
@@ -202,6 +204,9 @@ pub const RetryFault = struct {
 shell_id: u64 = 0,
 wlr_output: ?*wlr.Output,
 scene_output: ?*wlr.SceneOutput,
+mirror: Mirror = .{},
+mirror_source_locked: bool = false,
+mirror_scene: ?*wlr.Scene = null,
 retry: output_retry.State = .{},
 retry_timer: ?*wl.EventSource = null,
 retry_timer_armed: bool = false,
@@ -466,12 +471,12 @@ pub fn policyFullBox(output: *const Output) wlr.Box {
 /// snapshots. Soft-disabled outputs intentionally remain exposed to preserve
 /// their workspace model while powered off.
 pub fn policyExposed(output: *const Output) bool {
-    return output.scheduled.state == .enabled or output.scheduled.state == .disabled_soft;
+    return output.scheduled.mirror_of.empty() and (output.scheduled.state == .enabled or output.scheduled.state == .disabled_soft);
 }
 
 /// A pointer drag may only enter a visible, powered output.
 pub fn policyTransferTarget(output: *const Output) bool {
-    return output.scheduled.state == .enabled and output.active_workspace != null;
+    return output.policyExposed() and output.scheduled.state == .enabled and output.active_workspace != null;
 }
 
 /// Output geometry remaining after layer-shell exclusive zones are reserved.
@@ -596,31 +601,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
     output.overlay_state.configure(server.overlay_planes_enabled, output.overlay_layer != null);
     output.overlay_state.trace_budget = overlayTraceBudget();
     wlr_output.data = output;
-    if (comptime build_options.vulkan_effects) {
-        c.wlr_scene_output_set_buffer_render_hook(
-            @ptrCast(scene_output),
-            roundedBufferHook,
-            output,
-        );
-        c.wlr_scene_output_set_buffer_needs_composition(
-            @ptrCast(scene_output),
-            roundedBufferNeedsComposition,
-        );
-        c.wlr_scene_output_set_rect_render_hook(
-            @ptrCast(scene_output),
-            roundedRectHook,
-        );
-        c.wlr_scene_output_set_render_hooks(
-            @ptrCast(scene_output),
-            effectsRenderBegin,
-            effectsNodeRender,
-        );
-        c.wlr_scene_output_set_damage_hook(
-            @ptrCast(scene_output),
-            effectsDamage,
-            output,
-        );
-    }
+    output.installSceneHooks();
 
     server.om.outputs.append(output);
     output.link_sent.init();
@@ -1623,7 +1604,7 @@ fn fallbackOutput(output: *Output) ?*Output {
     var it = server.om.outputs.iterator(.forward);
     while (it.next()) |other| {
         if (other == output) continue;
-        if (other.scheduled.state == .destroying) continue;
+        if (!other.policyExposed()) continue;
         if (other.wlr_output == null) continue;
         return other;
     }
@@ -1688,6 +1669,7 @@ fn handleCommit(
     event: *wlr.Output.event.Commit,
 ) void {
     const output: *Output = @fieldParentPtr("commit", listener);
+    Mirror.capture(output, event.state);
     const committed = event.state.committed;
     if (!(committed.scale or committed.mode or committed.transform or committed.enabled or
         committed.adaptive_sync_enabled)) return;
@@ -1740,6 +1722,12 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    output.mirror.reset();
+    if (output.mirror_source_locked) {
+        wlr_output.lockAttachRender(false);
+        wlr_output.lockSoftwareCursors(false);
+        output.mirror_source_locked = false;
+    }
     output.cancelRetry();
     if (output.retry_timer) |timer| timer.remove();
     output.retry_timer = null;
@@ -1782,6 +1770,8 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
 
     output.wlr_output = null;
     output.scene_output = null;
+    if (output.mirror_scene) |scene| scene.tree.node.destroy();
+    output.mirror_scene = null;
     output.scheduled.mode = .none;
     output.sent.mode = .none;
     output.current.mode = .none;
@@ -1792,7 +1782,79 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     server.wm.dirtyWindowing();
 }
 
+/// A mirror must not participate in wlroots surface enter/leave, preferred scale,
+/// or primary-output selection. Give its physical output a separate empty scene.
+pub fn selectScene(output: *Output, mirrored: bool) bool {
+    if (mirrored == (output.mirror_scene != null)) return true;
+    const scene = if (mirrored) wlr.Scene.create() catch return false else server.scene.wlr_scene;
+    const replacement = scene.createSceneOutput(output.wlr_output.?) catch {
+        if (mirrored) scene.tree.node.destroy();
+        return false;
+    };
+    output.scene_output.?.destroy();
+    if (output.mirror_scene) |old| old.tree.node.destroy();
+    output.mirror_scene = if (mirrored) scene else null;
+    output.scene_output = replacement;
+    if (!mirrored) output.installSceneHooks();
+    return true;
+}
+
+fn installSceneHooks(output: *Output) void {
+    const scene_output = output.scene_output.?;
+    if (comptime build_options.vulkan_effects) {
+        c.wlr_scene_output_set_buffer_render_hook(
+            @ptrCast(scene_output),
+            roundedBufferHook,
+            output,
+        );
+        c.wlr_scene_output_set_buffer_needs_composition(
+            @ptrCast(scene_output),
+            roundedBufferNeedsComposition,
+        );
+        c.wlr_scene_output_set_rect_render_hook(
+            @ptrCast(scene_output),
+            roundedRectHook,
+        );
+        c.wlr_scene_output_set_render_hooks(
+            @ptrCast(scene_output),
+            effectsRenderBegin,
+            effectsNodeRender,
+        );
+        c.wlr_scene_output_set_damage_hook(
+            @ptrCast(scene_output),
+            effectsDamage,
+            output,
+        );
+    }
+}
+
 pub fn manageStart(output: *Output) void {
+    if (!output.scheduled.mirror_of.empty() and output.scheduled.state != .destroying) {
+        if (output.active_workspace != null) {
+            var layers = server.layer_shell.surfaces.iterator();
+            while (layers.next()) |layer| {
+                if (layer.wlr_layer_surface.output == output.wlr_output) layer.wlr_layer_surface.destroy();
+            }
+            var seats = server.input_manager.seats.iterator(.forward);
+            while (seats.next()) |seat| seat.policyForgetOutput(output);
+            var devices = server.input_manager.devices.iterator(.forward);
+            while (devices.next()) |device| {
+                if (device.config.map_to_output == output.wlr_output) {
+                    device.config.map_to_output = null;
+                    device.seat.cursor.wlr_cursor.mapInputToOutput(device.wlr_device, null);
+                }
+            }
+            const dest = output.fallbackOutput();
+            if (dest) |to| output.migrateWorkspacesTo(to) else output.clearWorkspaces();
+            server.workspace_manager.handleOutputRemoved(output, dest);
+        }
+        output.makeInert();
+        output.sent = output.scheduled;
+        output.link_sent.remove();
+        server.wm.sent.outputs.append(output);
+        return;
+    }
+    if (output.policyExposed() and output.active_workspace == null) output.ensureWorkspaces();
     // Snap an in-flight workspace swap before its output coordinate system
     // changes or stops receiving frames. Its captured buffers and fullscreen
     // backing use the old grid, and a powered-off output cannot finish easing.
@@ -2063,7 +2125,7 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     output.disarmRetryTimer();
     if (output.retry.ready(retryNowMs())) output.retry.attempted(retryNowMs());
 
-    const animation_changed_scene = output.stepAnimations();
+    const animation_changed_scene = if (output.current.mirror_of.empty()) output.stepAnimations() else false;
 
     // Commit the end of a workspace-swap slide once all windows have settled.
     output.finalizeTransition();
@@ -2101,6 +2163,12 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     output.early_present = null;
 
     var now = util.timestamp();
+    if (!output.current.mirror_of.empty()) {
+        output.mirror.notifyStatus(output);
+        // Mirrors consume compositor buffers, never client frame callbacks.
+        wlr_output.scheduleFrame();
+        return;
+    }
     output.scene_output.?.sendFrameDone(&now);
 
     // renderAndCommit early-returns when the scene reports no pending changes, so
@@ -2166,7 +2234,7 @@ fn hasActiveAnimations(output: *Output) bool {
 
 fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.Outcome {
     output.syncWindowVisualState();
-    if (!force and !output.scene_output.?.needsFrame()) return .skipped;
+    if (output.current.mirror_of.empty() and !force and !output.scene_output.?.needsFrame()) return .skipped;
 
     const wlr_output = output.wlr_output.?;
     if (recovering) {
@@ -2191,7 +2259,7 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         return .{ .failed = .scene_build };
     }
 
-    if (!recovering and output.rendering_current.tearing) {
+    if (!recovering and output.current.mirror_of.empty() and output.rendering_current.tearing) {
         state.tearing_page_flip = true;
         // TODO don't try this every frame if it consistently fails. Stop trying if it fails
         // for 10 frames in a row or something.
@@ -2236,6 +2304,10 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         output.blur_cache.clearPendingDamage();
     }
 
+    if (!output.current.mirror_of.empty()) {
+        output.lock_render_state = if (server.lock_manager.state == .unlocked) .pending_unlock else .pending_blank;
+        return .committed;
+    }
     switch (server.lock_manager.state) {
         .unlocked => {
             if (output.lock_render_state != .unlocked) {
@@ -2301,6 +2373,7 @@ fn buildSceneStateInternal(
     animation_changed_scene: bool,
     allow_overlay: bool,
 ) bool {
+    if (!output.sent.mirror_of.empty()) return output.mirror.build(output, state, swapchain);
     output.syncWindowVisualState();
     output.effects_swapchain_path = swapchain != null;
     defer output.effects_swapchain_path = false;
@@ -2309,7 +2382,7 @@ fn buildSceneStateInternal(
         output.prepareFullBlurDamage(animation_changed_scene);
     var scene_options: c.struct_wlr_scene_output_state_options = std.mem.zeroes(c.struct_wlr_scene_output_state_options);
     scene_options.swapchain = @ptrCast(swapchain);
-    output.prepareOverlayCandidate(&scene_options, allow_overlay);
+    output.prepareOverlayCandidate(&scene_options, allow_overlay and !output.mirror_source_locked);
     if (collect_metrics) {
         output.render_metric_sample = .{};
         scene_options.timer = @ptrCast(&output.render_metric_sample.?.timer);
@@ -2599,6 +2672,7 @@ fn handlePresent(
 }
 
 fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void {
+    if (!output.current.mirror_of.empty() and event.commit_seq != output.mirror.commit_seq) return;
     output.finishRenderMetric();
     if (output.retry.presented(event.commit_seq, event.presented)) {
         log.info("output {s}: recovery presented, sequence={}", .{ output.policyName(), event.commit_seq });

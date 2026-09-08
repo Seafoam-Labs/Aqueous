@@ -940,7 +940,7 @@ fn clientPointer(seat: *Seat) ClientPointer {
 
 fn outputById(output_id: u64) ?*Output {
     var outputs = server.om.outputs.iterator(.forward);
-    while (outputs.next()) |output| if (output.policyId() == output_id) return output;
+    while (outputs.next()) |output| if (output.policyId() == output_id and output.policyExposed()) return output;
     return null;
 }
 

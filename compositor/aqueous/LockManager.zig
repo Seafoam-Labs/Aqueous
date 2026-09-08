@@ -87,6 +87,7 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
         server.aqueous.cancelOverview();
         server.aqueous.cancelSnapPreview();
         manager.state = .waiting_for_lock_surfaces;
+        @import("OutputMirror.zig").invalidateAll();
 
         assert(!server.scene.locked_tree.node.enabled);
         server.scene.locked_tree.node.setEnabled(true);
@@ -178,6 +179,7 @@ fn handleUnlock(listener: *wl.Listener(void)) void {
     const manager: *LockManager = @fieldParentPtr("unlock", listener);
 
     manager.state = .unlocked;
+    @import("OutputMirror.zig").invalidateAll();
 
     log.info("session unlocked", .{});
 

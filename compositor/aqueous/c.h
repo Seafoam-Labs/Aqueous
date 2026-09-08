@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <linux/input-event-codes.h>
+#include <wlr/render/pass.h>
+#include <wlr/render/drm_syncobj.h>
+#include <wlr/render/wlr_texture.h>
+#include <xf86drm.h>
 #include <libevdev/libevdev.h>
 #include <libinput.h>
 #include <wlr/types/wlr_output_layer.h>

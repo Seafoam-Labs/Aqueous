@@ -99,6 +99,7 @@ const Manager = struct {
 
         var output_it = server.om.outputs.iterator(.forward);
         while (output_it.next()) |output| {
+            if (!output.policyExposed()) continue;
             const group_result = manager.ensureGroup(output, client, version) orelse continue;
             if (group_result.created) changed = true;
             const group = group_result.group;
@@ -352,6 +353,7 @@ fn publishIdle(wsm: *WorkspaceManager) void {
 fn reapAllOutputs() void {
     var it = server.om.outputs.iterator(.forward);
     while (it.next()) |output| {
+        if (!output.policyExposed()) continue;
         output.reapEmpty();
         output.ensureTrailingEmpty();
     }

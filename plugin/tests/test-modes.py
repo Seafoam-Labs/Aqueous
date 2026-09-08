@@ -34,6 +34,23 @@ with tempfile.TemporaryDirectory(prefix='aqueous-mode-test-') as directory:
         response=json.loads(result.stdout)
         assert response['ok']==success,(result.stdout,result.stderr)
         return response
+    # Mirror fields round trip through the normal monitor edit path.
+    snapshot=run('snapshot')
+    monitor=snapshot['monitors'][0]
+    def edit_mirror(value, success=True):
+        snapshot=run('snapshot')
+        return run('apply',dict(protocol=1,expected_generation=snapshot['generation'],monitor_changes=[dict(id=monitor['id'],name='DP-1',x=0,y=0,transform='normal',mirror_of=value)]),success=success)
+    for invalid in [None, 'DP-1', 'DP-*', 'bad\nname']:
+        edit_mirror(invalid,success=False)
+    edit_mirror('HDMI-A-1')
+    assert run('snapshot')['monitors'][0]['mirror_of']=='HDMI-A-1'
+    assert 'unknown_policy = "keep"' in (config/'outputs.toml').read_text()
+    assert (config/'wm.toml').read_text()==wm
+    edit_mirror('')
+    assert run('snapshot')['monitors'][0]['mirror_of']==''
+    assert 'mirror_of = ""' in (config/'outputs.toml').read_text()
+    # Restore fixture to verify the original mode contract below.
+    (config/'outputs.toml').write_text(outputs)
     snapshot=run('snapshot')
     assert snapshot['live_outputs']==advertised
     monitor=snapshot['monitors'][0]

@@ -1034,6 +1034,8 @@ fn transformName(transform: wl.Output.Transform) []const u8 {
 }
 
 fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
+    const extra = @import("OutputInfo.zig").read(allocator);
+    defer if (extra) |parsed| parsed.deinit();
     try writer.writeAll("[\n");
     var first_output = true;
     for (state.outputs.items) |output| {
@@ -1070,6 +1072,12 @@ fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
         }
         try writer.print("],\"position\":{{\"x\":{d},\"y\":{d}}},\"transform\":", .{ output.x, output.y });
         try jsonString(writer, transformName(output.transform));
+        if (@import("OutputInfo.zig").find(extra, output.name)) |metadata| {
+            inline for (.{ "mirror_of", "mirror_status", "mirror_error" }) |key| {
+                const value = metadata.get(key);
+                try jsonField(writer, key, if (value != null and value.? == .string) value.?.string else null, false);
+            }
+        }
         try writer.print(",\"scale\":{d:.6},\"adaptive_sync\":{s}}}", .{
             output.scale,
             if (output.adaptive_sync) "true" else "false",

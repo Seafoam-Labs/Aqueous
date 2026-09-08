@@ -115,6 +115,7 @@ pub const ApplyError = error{
     HdrUnsupported,
     InvalidCoordinates,
     TooManyOutputs,
+    InvalidMirror,
 };
 
 pub const RejectionReason = enum {
@@ -238,6 +239,29 @@ pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyErr
         if (matched == 0) report.reject(spec_index, matcher_kind, matcher, null, .unknown_output);
     }
 
+    // Validate the complete proposed graph before publishing any state.
+    var mirrors: usize = 0;
+    var all = om.outputs.iterator(.forward);
+    while (all.next()) |output| {
+        var state = output.scheduled;
+        for (pending[0..pending_count]) |entry| if (entry.output == output) {
+            state = entry.state;
+        };
+        if (state.mirror_of.empty() or state.state == .destroying) continue;
+        mirrors += 1;
+        if (mirrors > 1 or !@import("OutputMirror.zig").supported() or state.hdr_enabled or state.transform != .normal or state.adaptive_sync or
+            std.mem.eql(u8, state.mirror_of.slice(), output.policyName())) return error.InvalidMirror;
+        var sources = om.outputs.iterator(.forward);
+        while (sources.next()) |source| {
+            if (!std.mem.eql(u8, source.policyName(), state.mirror_of.slice())) continue;
+            var source_state = source.scheduled;
+            for (pending[0..pending_count]) |entry| if (entry.output == source) {
+                source_state = entry.state;
+            };
+            if (!source_state.mirror_of.empty() or source_state.hdr_enabled or source_state.transform != .normal or
+                source.wlr_output.?.backend != output.wlr_output.?.backend) return error.InvalidMirror;
+        }
+    }
     for (pending[0..pending_count]) |entry| entry.output.scheduled = entry.state;
     if (pending_count != 0) server.wm.dirtyWindowing();
     report.applied = pending_count;
@@ -253,6 +277,7 @@ fn coordinatesValid(state: *const Output.State) bool {
 }
 
 fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, state: *Output.State) ApplyError!void {
+    if (spec.mirror_of) |name| state.mirror_of = name;
     if (spec.enabled) |enabled| state.state = if (enabled) .enabled else .disabled_hard;
     if (spec.mode) |requested| {
         var selected: ?*wlr.Output.Mode = null;
@@ -435,6 +460,7 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             });
             const previous = output.scheduled.state;
             var proposed: Output.State = .fromHeadState(&head.state);
+            proposed.mirror_of = output.scheduled.mirror_of;
             proposed.hdr_enabled = output.scheduled.hdr_enabled;
             proposed.hdr_level = output.scheduled.hdr_level;
             proposed.sdr_white_level = output.scheduled.sdr_white_level;
@@ -492,6 +518,17 @@ fn shouldRepairInitialOverlap(om: *OutputManager, config: *wlr.OutputConfigurati
 }
 
 fn validateConfigCoordinates(config: *wlr.OutputConfigurationV1) bool {
+    var mirror_heads = config.heads.iterator(.forward);
+    while (mirror_heads.next()) |head| {
+        const output: *Output = @ptrCast(@alignCast(head.state.output.data));
+        var is_source = false;
+        var destinations = server.om.outputs.iterator(.forward);
+        while (destinations.next()) |dest| {
+            if (!dest.scheduled.mirror_of.empty() and std.mem.eql(u8, dest.scheduled.mirror_of.slice(), output.policyName())) is_source = true;
+        }
+        if ((!output.scheduled.mirror_of.empty() or is_source) and head.state.enabled and
+            (head.state.transform != .normal or (!output.scheduled.mirror_of.empty() and head.state.adaptive_sync_enabled))) return false;
+    }
     var it = config.heads.iterator(.forward);
     while (it.next()) |head| {
         if (!head.state.enabled) continue;
@@ -554,7 +591,7 @@ pub fn autoLayout(om: *OutputManager) void {
     {
         var it = om.outputs.iterator(.forward);
         while (it.next()) |output| {
-            if (output.scheduled.state != .enabled or output.scheduled.position_source == .automatic) continue;
+            if (!output.scheduled.mirror_of.empty() or output.scheduled.state != .enabled or output.scheduled.position_source == .automatic) continue;
 
             const x = output.scheduled.x + output.scheduled.dimensions()[0];
             if (x > rightmost_edge) {
@@ -567,7 +604,7 @@ pub fn autoLayout(om: *OutputManager) void {
     {
         var it = om.outputs.iterator(.forward);
         while (it.next()) |output| {
-            if (output.scheduled.state != .enabled or output.scheduled.position_source != .automatic) continue;
+            if (!output.scheduled.mirror_of.empty() or output.scheduled.state != .enabled or output.scheduled.position_source != .automatic) continue;
 
             output.scheduled.x = rightmost_edge;
             output.scheduled.y = row_y;
@@ -589,8 +626,16 @@ pub fn commitOutputState(om: *OutputManager) void {
             // This may be null even when the state is not .destroying if the
             // output is destroyed between manage start and render finish.
             const wlr_output = output.wlr_output orelse continue;
+            if (!output.selectScene(!output.sent.mirror_of.empty())) {
+                om.modesetFailed();
+                return;
+            }
             switch (output.sent.state) {
                 .enabled, .disabled_soft => {
+                    if (!output.sent.mirror_of.empty()) {
+                        om.output_layout.remove(wlr_output);
+                        continue;
+                    }
                     output.scene_output.?.setPosition(output.sent.x, output.sent.y);
                     _ = om.output_layout.add(wlr_output, output.sent.x, output.sent.y) catch {
                         log.err("out of memory", .{});
@@ -612,6 +657,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         var it = wm.sent.outputs.iterator(.forward);
         while (it.next()) |output| {
             const wlr_output = output.wlr_output orelse continue;
+            if (!std.meta.eql(output.sent.mirror_of, output.current.mirror_of)) break :blk true;
             switch (output.sent.state) {
                 .enabled => if (!wlr_output.enabled) break :blk true,
                 .disabled_soft, .disabled_hard => if (wlr_output.enabled) break :blk true,
@@ -700,6 +746,10 @@ pub fn commitOutputState(om: *OutputManager) void {
             );
             if (!built) {
                 log.err("failed to render scene for {s}", .{state.output.name});
+                if (!output.sent.mirror_of.empty()) {
+                    om.modesetFailed();
+                    return;
+                }
             }
         }
 
@@ -774,6 +824,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         wlr_xdg_output_manager_v1_update(om.xdg_output_manager);
     }
 
+    @import("OutputMirror.zig").reconcile();
     om.sendConfig() catch {
         log.err("out of memory", .{});
     };
@@ -797,7 +848,7 @@ fn xwaylandProjectionSet(om: *OutputManager) ProjectionSet {
     var it = om.outputs.iterator(.forward);
     while (it.next()) |output| {
         if (set.len == set.specs.len) break;
-        if (output.wlr_output == null) continue;
+        if (output.wlr_output == null or !output.current.mirror_of.empty()) continue;
         switch (output.current.state) {
             .enabled, .disabled_soft => {},
             .disabled_hard, .destroying => continue,
@@ -890,6 +941,7 @@ fn modesetFailed(om: *OutputManager) void {
         // Revert to last working state on failure
         var it = wm.sent.outputs.iterator(.forward);
         while (it.next()) |output| {
+            output.mirror.reset();
             output.scheduled = output.current;
             output.sent = output.current;
         }

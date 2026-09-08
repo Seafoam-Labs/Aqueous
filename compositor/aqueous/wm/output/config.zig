@@ -34,6 +34,8 @@ pub const Spec = struct {
     valid: bool = true,
     name: Text = .{},
     edid: Text = .{},
+    /// null inherits; an empty name explicitly restores extended mode.
+    mirror_of: ?Text = null,
     enabled: ?bool = null,
     mode: ?Mode = null,
     scale: ?f32 = null,
@@ -54,7 +56,7 @@ pub const Spec = struct {
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null;
+        return spec.mirror_of != null or spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null;
     }
 };
 
@@ -217,6 +219,14 @@ fn applyDisplay(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
 fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
     const value = wm.unquote(raw_value);
     if (std.mem.eql(u8, key, "name")) _ = spec.name.set(value);
+    if (std.mem.eql(u8, key, "mirror_of")) {
+        var name: Text = .{};
+        if (!name.set(value) or std.mem.indexOfAny(u8, value, "*?\n\r") != null) {
+            spec.valid = false;
+            return;
+        }
+        spec.mirror_of = name;
+    }
     if (std.mem.eql(u8, key, "edid")) _ = spec.edid.set(value);
     if (std.mem.eql(u8, key, "enabled")) spec.enabled = parseBool(value) orelse {
         spec.valid = false;
@@ -548,4 +558,19 @@ test "outputs policy overlays wm while persisted profiles preserve legacy behavi
     try std.testing.expect(!effectiveApplyOnReload(&legacy, &preferred));
     try std.testing.expectEqualStrings("", effectiveFallbackProfile(&legacy, &preferred));
     try std.testing.expectEqual(@as(f32, 1.25), effectiveProfile(&legacy, &preferred, "dock").?.outputs[0].scale.?);
+}
+
+test "mirror declarations inherit and explicitly clear across config sources" {
+    const legacy = parse("[[output]]\nname = \"HDMI-A-1\"\nmirror_of = \"DP-1\"\n");
+    const preferred = parse("[[output]]\nname = \"HDMI-A-1\"\nmirror_of = \"\"\n");
+    var specs: [max_outputs * 2]Spec = undefined;
+    const merged = configuredSpecs(&legacy, &preferred, &specs);
+    try std.testing.expectEqual(@as(usize, 2), merged.len);
+    try std.testing.expectEqualStrings("DP-1", merged[0].mirror_of.?.slice());
+    try std.testing.expect(merged[1].mirror_of.?.empty());
+    try std.testing.expect(merged[1].hasDisplayField());
+    const profile_config = parse("[[display.profile]]\nname = \"present\"\n[[display.profile.output]]\nname = \"HDMI-A-1\"\nmirror_of = \"DP-1\"\n");
+    try std.testing.expectEqualStrings("DP-1", profile_config.profiles[0].outputs[0].mirror_of.?.slice());
+    const invalid = parse("[[output]]\nname = \"HDMI-A-1\"\nmirror_of = \"DP-*\"\n");
+    try std.testing.expectEqual(@as(u8, 0), invalid.output_count);
 }

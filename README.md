@@ -67,6 +67,9 @@ model; they do not replace it.
   transform, adaptive sync, position, profiles, and hotplug changes directly
   through wlroots. Unconfigured displays receive non-overlapping automatic
   positions.
+- **Basic screen mirroring.** Mirror an SDR output to a projector or capture
+  card on the same device, with independent refresh and automatic letterboxing.
+  See [configuration and limitations](docs/screen-mirroring.md).
 - **Wayland-native, with practical X11 support.** Layer shell, screencopy,
   session lock, pointer constraints, color management, and other modern Wayland
   protocols are supported. Optional XWayland is started and managed directly by

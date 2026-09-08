@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 const wlr = @import("wlroots");
+const Output = @import("Output.zig");
 const wl = @import("wayland").server.wl;
 const river = @import("wayland").server.river;
 
@@ -96,6 +97,7 @@ pub fn init(
     }) |output_name| {
         var it = server.om.outputs.iterator(.forward);
         while (it.next()) |output| {
+            if (!output.policyExposed()) continue;
             const wlr_output = output.wlr_output orelse continue;
             if (mem.orderZ(u8, output_name, wlr_output.name) == .eq) {
                 device.config.map_to_output = wlr_output;
@@ -255,7 +257,10 @@ fn handleRequest(
                 .keyboard, .@"switch", .tablet_pad => return,
             }
             if (args.output) |output| {
-                device.config.map_to_output = wlr.Output.fromWlOutput(output) orelse return;
+                const physical = wlr.Output.fromWlOutput(output) orelse return;
+                const target: *Output = @ptrCast(@alignCast(physical.data));
+                if (!target.policyExposed()) return;
+                device.config.map_to_output = physical;
             } else {
                 device.config.map_to_output = null;
             }

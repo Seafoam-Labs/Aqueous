@@ -717,6 +717,7 @@ fn writeConfiguredMonitor(
     const raw_transform = tableEntryRaw(entries, table_index, "transform") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "transform") else null;
     const transform = if (raw_transform) |raw| unquoteToml(raw) else "normal";
     const raw_mode = tableEntryRaw(entries, table_index, "mode") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "mode") else null;
+    const raw_mirror = tableEntryRaw(entries, table_index, "mirror_of") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "mirror_of") else null;
     const dimensions = if (raw_mode) |raw| parseModeDimensions(unquoteToml(raw)) else null;
     const raw_scale = tableEntryRaw(entries, table_index, "scale") orelse if (fallback_table) |index| tableEntryRaw(fallback_entries, index, "scale") else null;
     const scale = if (raw_scale) |raw| std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 1.0 else 1.0;
@@ -735,6 +736,8 @@ fn writeConfiguredMonitor(
     }
     try field(json, "transform", transform);
     try field(json, "scale", scale);
+    try field(json, "mirror_of", if (raw_mirror) |raw| unquoteToml(raw) else "");
+    try field(json, "mirror_configured", raw_mirror != null);
     try field(json, "scale_configured", raw_scale != null);
     try field(json, "mode", if (raw_mode) |raw| unquoteToml(raw) else "");
     try field(json, "mode_inherited", tableEntryRaw(entries, table_index, "mode") == null and raw_mode != null or (std.mem.eql(u8, id_prefix, "wm-output") and raw_mode != null));
@@ -1600,6 +1603,10 @@ fn applyMonitorChanges(
         const transform = jsonString(change.object.get("transform")) orelse return error.InvalidMonitorTransform;
         if (!validMonitorTransform(transform)) return error.InvalidMonitorTransform;
 
+        const mirror = if (change.object.get("mirror_of")) |value| jsonString(value) orelse return error.InvalidMonitorChange else null;
+        if (mirror) |value| {
+            if (value.len > 128 or std.mem.indexOfAny(u8, value, "*?\n\r") != null or std.mem.eql(u8, value, name)) return error.InvalidMonitorChange;
+        }
         const mode = if (change.object.get("mode")) |value| jsonString(value) orelse return error.InvalidMonitorMode else null;
         if (mode) |value| if (!validMonitorMode(value)) return error.InvalidMonitorMode;
 
@@ -1626,6 +1633,7 @@ fn applyMonitorChanges(
             }
         } else return error.InvalidMonitorId;
 
+        if (mirror) |value| try setTableRaw(document, table_index.?, "mirror_of", try jsonStringLiteral(allocator, value));
         const encoded_position = try std.fmt.allocPrint(allocator, "[{d}, {d}]", .{ x, y });
         const encoded_transform = try jsonStringLiteral(allocator, transform);
         try setTableRaw(document, table_index.?, "position", encoded_position);

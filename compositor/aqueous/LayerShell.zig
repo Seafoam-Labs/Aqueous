@@ -144,12 +144,18 @@ fn handleNewSurface(_: *wl.Listener(*wlr.LayerSurfaceV1), wlr_layer_surface: *wl
     if (wlr_layer_surface.output == null) {
         var it = server.om.outputs.iterator(.forward);
         while (it.next()) |output| {
+            if (!output.policyExposed()) continue;
             if (output.layer_shell.requested.default) {
                 wlr_layer_surface.output = output.wlr_output;
                 break;
             }
         } else {
-            if (server.om.outputs.first()) |output| {
+            var fallback = server.om.outputs.iterator(.forward);
+            const available = blk: {
+                while (fallback.next()) |output| if (output.policyExposed()) break :blk output;
+                break :blk null;
+            };
+            if (available) |output| {
                 log.info("layer surface has no requested output, choosing the first output", .{});
                 wlr_layer_surface.output = output.wlr_output;
             } else {
@@ -160,6 +166,13 @@ fn handleNewSurface(_: *wl.Listener(*wlr.LayerSurfaceV1), wlr_layer_surface: *wl
         }
     }
 
+    if (wlr_layer_surface.output) |physical| {
+        const output: *Output = @ptrCast(@alignCast(physical.data));
+        if (!output.policyExposed()) {
+            wlr_layer_surface.destroy();
+            return;
+        }
+    }
     LayerSurface.create(wlr_layer_surface) catch {
         wlr_layer_surface.resource.postNoMemory();
         return;

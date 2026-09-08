@@ -7,6 +7,7 @@ test {
     _ = @import("config/loader.zig");
     _ = @import("config/wm.zig");
     _ = @import("output/config.zig");
+    _ = @import("output/mirror.zig");
     _ = @import("output/autolayout.zig");
     _ = @import("output/mode_match.zig");
     _ = @import("layout/engine.zig");

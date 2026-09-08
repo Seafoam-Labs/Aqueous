@@ -406,11 +406,28 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
             if (!wlr_output.isHeadless()) return service.sendError(client, "headless output required");
             wlr_output.destroy();
             return service.sendStatic(client, "{\"ok\":true}\n");
-        } else if (!std.mem.eql(u8, action, "status")) return service.sendError(client, "invalid action");
+        } else if (!std.mem.eql(u8, action, "status") and !std.mem.eql(u8, action, "mirror_pixels")) return service.sendError(client, "invalid action");
+        var pixels: [5]?u32 = @splat(null);
+        if (std.mem.eql(u8, action, "mirror_pixels")) {
+            if (output.mirror.submitted) |buffer| {
+                if (wlr.Texture.fromBuffer(server.renderer, buffer)) |texture| {
+                    defer texture.destroy();
+                    const points = [_][2]i32{ .{ @divTrunc(buffer.width, 2), @divTrunc(buffer.height, 2) }, .{ 0, @divTrunc(buffer.height, 2) }, .{ buffer.width - 1, @divTrunc(buffer.height, 2) }, .{ @divTrunc(buffer.width, 2), 0 }, .{ @divTrunc(buffer.width, 2), buffer.height - 1 } };
+                    for (points, 0..) |point, i| {
+                        var pixel: u32 = 0;
+                        if (texture.readPixels(&.{ .data = &pixel, .format = 0x34325241, .stride = 4, .dst_x = 0, .dst_y = 0, .src_box = .{ .x = point[0], .y = point[1], .width = 1, .height = 1 } })) pixels[i] = pixel & 0xffffff;
+                    }
+                }
+            }
+        }
         var buffer: [4096]u8 = undefined;
         var writer = std.Io.Writer.fixed(&buffer);
         std.json.Stringify.value(.{
             .ok = true,
+            .mirror_pixels = pixels,
+            .mirror_copies = output.mirror.copies,
+            .policy_exposed = output.policyExposed(),
+            .mirror_status = output.mirror.status(output),
             .now_ms = Output.retryNowMs(),
             .retry = output.retry,
             .timer_armed = output.retry_timer_armed,
@@ -447,6 +464,12 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
     var spec: Config.Spec = .{};
     if (jsonString(object.get("name"))) |value| if (!spec.name.set(value)) return null;
     if (jsonString(object.get("edid"))) |value| if (!spec.edid.set(value)) return null;
+    if (object.get("mirror_of")) |value| {
+        if (value != .string) return null;
+        var name: Config.Text = .{};
+        if (!name.set(value.string) or std.mem.indexOfAny(u8, value.string, "*?\n\r") != null) return null;
+        spec.mirror_of = name;
+    }
     spec.enabled = jsonBool(object.get("enabled"));
     if (jsonString(object.get("mode"))) |value| spec.mode = Config.parseMode(value) orelse return null;
     if (jsonNumber(object.get("scale"))) |value| {
@@ -531,6 +554,11 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
             try writeTomlString(&writer, spec.name.slice());
         }
         try writer.writeByte('\n');
+        if (spec.mirror_of) |v| {
+            try writer.writeAll("mirror_of = ");
+            try writeTomlString(&writer, v.slice());
+            try writer.writeByte('\n');
+        }
         if (spec.enabled) |v| try writer.print("enabled = {}\n", .{v});
         if (spec.mode) |v| if (v.refresh_mhz) |refresh| try writer.print("mode = \"{d}x{d}@{d}.{d:0>3}\"\n", .{ v.width, v.height, @divTrunc(refresh, 1000), @mod(refresh, 1000) }) else try writer.print("mode = \"{d}x{d}\"\n", .{ v.width, v.height });
         if (spec.scale) |v| try writer.print("scale = {d}\n", .{v});
@@ -697,6 +725,9 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "y", state.y);
         try field(json, "scale", state.scale);
         try field(json, "transform", OutputManager.transformName(state.transform));
+        try field(json, "mirror_of", state.mirror_of.slice());
+        try field(json, "mirror_status", output.mirror.status(output));
+        try field(json, "mirror_error", output.mirror.failure);
         try field(json, "adaptive_sync", state.adaptive_sync);
         try field(json, "hdr", state.hdr_enabled);
         try field(json, "hdr_level", @as(u16, @intFromEnum(state.hdr_level)));
@@ -791,6 +822,7 @@ fn sendApplyError(service: *Service, client: *Client, err: OutputManager.ApplyEr
         error.HdrUnsupported => "HDR10 is not supported by the output, renderer, or 10-bit scanout path",
         error.InvalidCoordinates => "coordinates are incompatible with Xwayland",
         error.TooManyOutputs => "too many outputs",
+        error.InvalidMirror => "mirroring requires one SDR pair with normal transforms, fixed refresh on the destination, and a supported renderer; self references and chains are forbidden",
     });
 }
 
@@ -907,6 +939,8 @@ fn outputFingerprint() u64 {
         const wlr_output = output.wlr_output orelse continue;
         hash.update(std.mem.span(wlr_output.name));
         const state = output.scheduled;
+        hash.update(state.mirror_of.slice());
+        hash.update(output.mirror.status(output));
         const enabled: u8 = if (state.state == .enabled) 1 else 0;
         hash.update(std.mem.asBytes(&enabled));
         hash.update(std.mem.asBytes(&state.x));

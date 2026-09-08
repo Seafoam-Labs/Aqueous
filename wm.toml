@@ -57,6 +57,48 @@ rollback_seconds = 0
 # primary = true
 # layout = "scrolling" # optional default WM layout for this output
 
+# Screen mirroring: one SDR source and one destination on the same GPU/backend.
+# `mirror_of` names an exact source connector; self references and chains are
+# rejected. Both outputs must use normal orientation. The destination uses
+# fixed refresh; the source can retain its own adaptive-sync setting.
+# Choose advertised modes from `aqueousctl outputs --json`. For example, keep
+# the desktop at 240 Hz while mirroring to a 60 Hz projector or capture card:
+#
+# [[output]]
+# name = "DP-1"
+# enabled = true
+# mode = "2560x1440@240"
+# transform = "normal"
+# hdr = false
+# mirror_of = ""
+#
+# [[output]]
+# name = "HDMI-A-1"
+# enabled = true
+# mode = "1920x1080@60"
+# transform = "normal"
+# adaptive_sync = false
+# hdr = false
+# mirror_of = "DP-1"
+#
+# The image is fitted with black bars; source clients keep their size and scale.
+# A mirror has no independent workspace or pointer area. Its position and scale
+# settings are retained for extended mode. A missing source or locked session
+# leaves the mirror black. Mirroring adds composition/copy work and temporarily
+# disables source direct scanout, overlay promotion, and hardware cursors.
+#
+# Alternative: return the destination to an extended desktop. An empty string
+# explicitly clears an inherited mirror; omitting mirror_of inherits policy.
+# If outputs.toml sets mirror_of, clear it there because it takes precedence.
+#
+# [[output]]
+# name = "HDMI-A-1"
+# mirror_of = ""
+# position = [2560, 0] # logical coordinates; adjust for the source's scale
+#
+# These fields also work in [[display.profile.output]] blocks below.
+# See docs/screen-mirroring.md for usage, supported configurations and testing.
+
 # Layout-only output matching additionally accepts make/model/serial metadata.
 # These metadata fields do not configure the physical display mode.
 #

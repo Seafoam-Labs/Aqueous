@@ -28,6 +28,9 @@ ColumnLayout {
             const baseHeight = rotated ? screen?.width : screen?.height;
             return Object.assign({}, m, {
                 connected: !!screen || !!live,
+                mirror_of: m.mirror_configured ? m.mirror_of : live?.mirror_of || "",
+                mirror_status: live?.mirror_status || "",
+                mirror_error: live?.mirror_error || "",
                 modes: live?.modes || [],
                 mode: mode,
                 width: dimensions.width ? dimensions.width / (m.scale_configured ? m.scale : live?.scale || 1) : baseWidth || 1920,
@@ -36,7 +39,8 @@ ColumnLayout {
                 y: m.y ?? screen?.y ?? 0
             }, controller?.model.draft.monitor_changes[m.id] || {});
         });
-        for (const screen of screens)
+        const physical = liveOutputs.concat(screens.filter(s => !liveOutputs.some(o => o.name === s.name)));
+        for (const screen of physical)
             if (!rows.some(m => m.name === screen.name)) {
                 const id = 'live:' + screen.name;
                 const live = liveOutputs.find(o => o.name === screen.name);
@@ -47,12 +51,15 @@ ColumnLayout {
                     id: id,
                     name: screen.name,
                     connected: true,
+                    mirror_of: live?.mirror_of || "",
+                    mirror_status: live?.mirror_status || "",
+                    mirror_error: live?.mirror_error || "",
                     modes: live?.modes || [],
                     mode: mode,
-                    width: dimensions.width ? dimensions.width / (live?.scale || 1) : screen.width,
-                    height: dimensions.height ? dimensions.height / (live?.scale || 1) : screen.height,
-                    x: screen.x,
-                    y: screen.y,
+                    width: dimensions.width ? dimensions.width / (live?.scale || 1) : screen.width || 1920,
+                    height: dimensions.height ? dimensions.height / (live?.scale || 1) : screen.height || 1080,
+                    x: screen.x ?? screen.position?.x ?? 0,
+                    y: screen.y ?? screen.position?.y ?? 0,
                     transform: live?.transform || 'normal'
                 }, controller?.model.draft.monitor_changes[id] || {}));
             }
@@ -91,7 +98,7 @@ ColumnLayout {
     }
     MonitorCanvas {
         Layout.fillWidth: true
-        monitors: root.monitors
+        monitors: root.monitors.filter(m => !m.mirror_of)
         selected: root.monitor?.id || ''
         onSelectedMonitor: id => root.selected = id
         onMoved: (monitor, x, y) => root.stage(monitor, x, y)
@@ -102,8 +109,32 @@ ColumnLayout {
         currentIndex: root.monitors.indexOf(root.monitor)
         onActivated: root.selected = root.monitors[currentIndex].id
     }
-    RowLayout {
+    readonly property var mirrorSources: {
+        const names = root.monitors.filter(m => m.connected && m.id !== root.monitor?.id && !m.mirror_of).map(m => m.name);
+        const current = root.monitor?.mirror_of;
+        if (current && !names.includes(current)) names.push(current);
+        return names;
+    }
+    Aq.ComboBox {
+        Layout.fillWidth: true
         enabled: !!root.monitor
+        model: [I18n.trFor('aqueousSettings', 'Extended desktop')].concat(root.mirrorSources.map(n => I18n.trFor('aqueousSettings', 'Mirror of') + ' ' + n))
+        currentIndex: root.monitor?.mirror_of ? root.mirrorSources.indexOf(root.monitor.mirror_of) + 1 : 0
+        onActivated: {
+            const m = root.monitor;
+            root.stage(m, m.x, m.y, m.transform);
+            controller.model.mutate(d => d.monitor_changes[m.id].mirror_of = currentIndex > 0 ? root.mirrorSources[currentIndex - 1] : '');
+        }
+    }
+    Label {
+        Layout.fillWidth: true
+        visible: !!root.monitor?.mirror_of
+        wrapMode: Text.WordWrap
+        color: root.monitor?.mirror_error ? Theme.error : Theme.surfaceText
+        text: root.monitor?.mirror_error || I18n.trFor('aqueousSettings', 'Mirroring uses SDR, normal orientation and fixed refresh on the destination. The image is fitted automatically.') + ' ' + (root.monitor?.mirror_status || '')
+    }
+    RowLayout {
+        enabled: !!root.monitor && !root.monitor.mirror_of
         Label {
             color: Theme.surfaceText
             text: I18n.trFor('aqueousSettings', 'X')
