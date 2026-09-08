@@ -93,6 +93,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
+    options.addOption(bool, "output_retry_testing", b.option(bool, "output-retry-testing", "Enable private output retry fault injection (tests only)") orelse false);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});
@@ -504,6 +505,18 @@ pub fn build(b: *Build) !void {
         });
         const run_overlay_planes_test = b.addRunArtifact(overlay_planes_test);
 
+        const output_retry_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/output_retry.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_output_retry_test = b.addRunArtifact(output_retry_test);
+        b.step("test-output-retry", "Test output recovery policy").dependOn(&run_output_retry_test.step);
+
         const aqueous_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/wm/Mode.zig"),
@@ -711,6 +724,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_cursor_config_test.step);
         test_step.dependOn(&run_overlay_planes_test.step);
+        test_step.dependOn(&run_output_retry_test.step);
         test_step.dependOn(&run_aqueous_test.step);
         test_step.dependOn(&run_trace_test.step);
         test_step.dependOn(&run_config_test.step);

@@ -350,6 +350,9 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     const op_value = parsed.value.object.get("op") orelse return service.sendError(client, "unknown op ''");
     if (op_value != .string) return service.sendError(client, "op must be a string");
     const op = op_value.string;
+    if (comptime build_options.output_retry_testing) {
+        if (std.mem.eql(u8, op, "test_output_retry")) return service.handleRetryTest(client, parsed.value.object);
+    }
     if (std.mem.eql(u8, op, "version")) return service.sendStatic(client, "{\"ok\":true,\"daemon\":\"aqueous-outputd\",\"version\":\"0.0.1\",\"protocol\":1}\n");
     if (std.mem.eql(u8, op, "list")) return service.sendList(client, true, null);
     if (std.mem.eql(u8, op, "cursor_state")) return service.sendCursorState(client);
@@ -374,6 +377,54 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     if (std.mem.eql(u8, op, "set")) return service.handleSet(client, parsed.value.object.get("changes"));
     if (std.mem.eql(u8, op, "save_profile")) return service.handleSaveProfile(client, &parsed.value);
     service.sendError(client, "unknown op");
+}
+
+/// Compiled out of production. The existing mode-0600 output socket lives in
+/// the isolated test session's runtime directory. Arming/clearing never repaints.
+fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectMap) void {
+    if (comptime !build_options.output_retry_testing) unreachable;
+    const name = jsonString(request.get("name")) orelse return service.sendError(client, "missing name");
+    const action = jsonString(request.get("action")) orelse "status";
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const wlr_output = output.wlr_output orelse continue;
+        if (!std.mem.eql(u8, name, output.policyName())) continue;
+        if (std.mem.eql(u8, action, "arm")) {
+            const stage = std.meta.stringToEnum(@import("../../output_retry.zig").Stage, jsonString(request.get("stage")) orelse "output_commit") orelse return service.sendError(client, "invalid stage");
+            const count = jsonInt(request.get("count") orelse return service.sendError(client, "missing count")) orelse return service.sendError(client, "invalid count");
+            if (count < -1) return service.sendError(client, "invalid count");
+            output.retry_test = .{
+                .stage = stage,
+                .remaining = count,
+                .disable_retry = jsonBool(request.get("disable_retry")) orelse false,
+                .simulate_overlay = jsonBool(request.get("simulate_overlay")) orelse false,
+            };
+        } else if (std.mem.eql(u8, action, "damage")) {
+            if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
+            wlr_output.scheduleFrame();
+        } else if (std.mem.eql(u8, action, "destroy")) {
+            if (!wlr_output.isHeadless()) return service.sendError(client, "headless output required");
+            wlr_output.destroy();
+            return service.sendStatic(client, "{\"ok\":true}\n");
+        } else if (!std.mem.eql(u8, action, "status")) return service.sendError(client, "invalid action");
+        var buffer: [4096]u8 = undefined;
+        var writer = std.Io.Writer.fixed(&buffer);
+        std.json.Stringify.value(.{
+            .ok = true,
+            .now_ms = Output.retryNowMs(),
+            .retry = output.retry,
+            .timer_armed = output.retry_timer_armed,
+            .frame_pending = wlr_output.frame_pending,
+            .commit_seq = wlr_output.commit_seq,
+            .render_locks = wlr_output.attach_render_locks,
+            .fault_remaining = output.retry_test.remaining,
+            .session_locked = server.lock_manager.state == .locked,
+            .lock_render_state = @tagName(output.lock_render_state),
+        }, .{}, &writer) catch return;
+        writer.writeByte('\n') catch return;
+        return service.sendStatic(client, writer.buffered());
+    }
+    service.sendError(client, "output not found");
 }
 
 fn handleSet(service: *Service, client: *Client, changes_value: ?std.json.Value) void {

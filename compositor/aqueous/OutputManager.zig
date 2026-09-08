@@ -91,6 +91,7 @@ fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
         switch (err) {
             error.OutOfMemory => log.err("out of memory", .{}),
             error.InitRenderFailed => log.err("failed to initialize renderer for output {s}", .{wlr_output.name}),
+            error.AddTimerFailed => log.err("failed to create recovery timer for output {s}", .{wlr_output.name}),
         }
         wlr_output.destroy();
         return;
@@ -745,6 +746,9 @@ pub fn commitOutputState(om: *OutputManager) void {
                 if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
             }
             output.current = output.sent;
+            // A successful modeset supersedes the old buffer-retry episode.
+            // Ordinary window-management cycles must not reset its backoff.
+            if (need_modeset) output.cancelRetry();
             output.syncBlur(false);
             switch (output.sent.state) {
                 .enabled => {

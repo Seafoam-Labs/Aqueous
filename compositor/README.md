@@ -198,6 +198,7 @@ scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 python3 scripts/test-output-focus.py # both mouse/focus options, reload and constraints
+python3 scripts/test-output-retry.py --compositor /tmp/aqueous-retry/bin/aqueous --ctl /tmp/aqueous-retry/bin/aqueousctl # requires -Doutput-retry-testing=true; see ../docs/output-commit-retry.md
 scripts/test-scaling.sh
 scripts/test-overlay-planes.sh
 scripts/test-client-buffer-scaling.sh

@@ -203,6 +203,15 @@ fn sendSceneSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void {
 
     var context: SceneSnapshotContext = .{ .snapshot = snapshot };
     sendSceneNode(&context, &server.scene.wlr_scene.tree.node, 0);
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const state = output.retry;
+        var buffer: [512]u8 = undefined;
+        const label = std.fmt.bufPrintZ(&buffer, "output-retry output={s} pending={} failures={} total_failures={} retries={} deadline_ms={} stage={s} recovery_commit={?} presented_commit={?}", .{ output.policyName(), state.pending, state.failures, state.total_failures, state.retries, state.deadline_ms, @tagName(state.last_stage), state.recovery_commit, state.presented_commit }) catch continue;
+        // Synthetic diagnostic node; reads never damage or schedule the scene.
+        snapshot.sendNode(context.next_id, 0, label.ptr, .tree, 1, 0, 0, 0, 0);
+        context.next_id +%= 1;
+    }
     snapshot.sendDone();
 }
 

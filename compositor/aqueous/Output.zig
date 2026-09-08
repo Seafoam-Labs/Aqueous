@@ -25,6 +25,7 @@ const util = @import("util.zig");
 const scaling = @import("scaling");
 const render_metrics = @import("render_metrics.zig");
 const overlay_planes = @import("overlay_planes.zig");
+const output_retry = @import("output_retry.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
 const auto_hdr = @import("auto_hdr.zig");
@@ -190,10 +191,23 @@ const RenderingState = struct {
     };
 };
 
+pub const RetryFault = struct {
+    stage: output_retry.Stage = .scene_build,
+    remaining: i32 = 0,
+    disable_retry: bool = false,
+    simulate_overlay: bool = false,
+};
+
 /// Set to null when the wlr_output is destroyed.
 shell_id: u64 = 0,
 wlr_output: ?*wlr.Output,
 scene_output: ?*wlr.SceneOutput,
+retry: output_retry.State = .{},
+retry_timer: ?*wl.EventSource = null,
+retry_timer_armed: bool = false,
+render_commit_active: bool = false,
+early_present: ?wlr.Output.event.Present = null,
+retry_test: if (build_options.output_retry_testing) RetryFault else void = if (build_options.output_retry_testing) .{} else {},
 
 /// One backend output layer and one caller-owned scene promotion state per
 /// output. wlroots destroys the layer as part of wlr_output teardown.
@@ -518,6 +532,8 @@ pub fn policyTrace(output: *const Output, hasher: *std.hash.Wyhash) void {
 pub fn create(wlr_output: *wlr.Output) !void {
     const output = try util.gpa.create(Output);
     errdefer util.gpa.destroy(output);
+    const retry_timer = try server.wl_server.getEventLoop().addTimer(*Output, handleRetryTimer, output);
+    errdefer retry_timer.remove();
 
     {
         const title = try fmt.allocPrintSentinel(util.gpa, "river - {s}", .{wlr_output.name}, 0);
@@ -554,6 +570,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .shell_id = next_shell_id,
         .wlr_output = wlr_output,
         .scene_output = scene_output,
+        .retry_timer = retry_timer,
         .scheduled = initial,
         .sent = initial,
         .current = initial,
@@ -1723,6 +1740,9 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    output.cancelRetry();
+    if (output.retry_timer) |timer| timer.remove();
+    output.retry_timer = null;
 
     log.debug("wlr_output '{s}' destroyed", .{wlr_output.name});
     server.aqueous.forgetOutput(output.policyId());
@@ -1932,18 +1952,142 @@ fn handleRequestState(listener: *wl.Listener(*wlr.Output.event.RequestState), ev
     server.wm.dirtyWindowing();
 }
 
+pub fn retryNowMs() u64 {
+    const now = util.timestamp();
+    return @as(u64, @intCast(now.sec)) * 1000 + @as(u64, @intCast(now.nsec)) / std.time.ns_per_ms;
+}
+
+fn retryEnabled(output: *const Output) bool {
+    const wlr_output = output.wlr_output orelse return false;
+    return output.scene_output != null and wlr_output.enabled and output.current.state == .enabled;
+}
+
+fn retryDisabledForTest(output: *const Output) bool {
+    if (comptime build_options.output_retry_testing) return output.retry_test.disable_retry;
+    return false;
+}
+
+fn injectRetryFailure(output: *Output, stage: output_retry.Stage) bool {
+    if (comptime build_options.output_retry_testing) {
+        const fault = &output.retry_test;
+        if (fault.stage == stage and fault.remaining != 0) {
+            if (fault.remaining > 0) fault.remaining -= 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+fn commitFrameState(output: *Output, state: *wlr.Output.State, stage: output_retry.Stage) bool {
+    if (output.injectRetryFailure(stage)) return false;
+    if (comptime build_options.output_retry_testing) {
+        // Exercise fallback control flow on a backend with no DRM planes.
+        if (stage == .output_commit and output.retry_test.simulate_overlay and
+            !output.retry.pending and output.retry_test.remaining != 0) return false;
+    }
+    output.render_commit_active = true;
+    defer output.render_commit_active = false;
+    return output.wlr_output.?.commitState(state);
+}
+
+fn disarmRetryTimer(output: *Output) void {
+    if (output.retry_timer_armed) {
+        if (output.retry_timer) |timer| timer.timerUpdate(0) catch log.err("unable to disarm output retry timer", .{});
+    }
+    output.retry_timer_armed = false;
+}
+
+pub fn cancelRetry(output: *Output) void {
+    output.disarmRetryTimer();
+    output.retry.cancel();
+    output.early_present = null;
+}
+
+fn armRetryTimer(output: *Output) void {
+    if (output.retry_timer_armed or !output.retryEnabled() or !output.retry.pending) return;
+    const timer = output.retry_timer orelse return;
+    const delay = std.math.clamp(output.retry.deadline_ms -| retryNowMs(), 1, 1000);
+    timer.timerUpdate(@intCast(delay)) catch {
+        // Leave damage/recovery pending for a future backend frame. Do not
+        // replace a failed timer with a self-scheduling idle-frame loop.
+        log.err("output {s}: cannot arm recovery timer; awaiting a backend frame", .{output.policyName()});
+        return;
+    };
+    output.retry_timer_armed = true;
+}
+
+fn handleRetryTimer(output: *Output) c_int {
+    output.retry_timer_armed = false;
+    if (!output.retryEnabled()) {
+        output.cancelRetry();
+        return 0;
+    }
+    if (!output.retry.pending or output.retryDisabledForTest()) return 0;
+    if (!output.retry.ready(retryNowMs())) {
+        output.armRetryTimer();
+        return 0;
+    }
+    const wlr_output = output.wlr_output.?;
+    if (!output.retry.frame_requested) {
+        output.retry.frame_requested = true;
+        wlr_output.scheduleFrame();
+    }
+    // scheduleFrame respects a backend-owned pending frame. Do not forge its
+    // completion; keep a slow check alive until that backend frame arrives.
+    if (wlr_output.frame_pending) {
+        output.retry_timer.?.timerUpdate(1000) catch return 0;
+        output.retry_timer_armed = true;
+    }
+    return 0;
+}
+
 fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("frame", listener);
+    if (!output.retryEnabled()) {
+        output.cancelRetry();
+        return;
+    }
+    const recovering = output.retry.pending and !output.retryDisabledForTest();
+    if (recovering and !output.retry.ready(retryNowMs())) return;
+    output.disarmRetryTimer();
+    if (output.retry.ready(retryNowMs())) output.retry.attempted(retryNowMs());
 
     const animation_changed_scene = output.stepAnimations();
 
     // Commit the end of a workspace-swap slide once all windows have settled.
     output.finalizeTransition();
 
-    // TODO this should probably be retried on failure
-    output.renderAndCommit(animation_changed_scene) catch |err| switch (err) {
-        error.CommitFailed => log.err("output commit failed for {s}", .{wlr_output.name}),
-    };
+    const outcome = output.renderAndCommit(animation_changed_scene or recovering, recovering);
+    switch (outcome) {
+        .skipped => {},
+        .committed => {
+            const failures = output.retry.failures;
+            const elapsed = retryNowMs() -| output.retry.started_ms;
+            if (output.retry.committed(wlr_output.commit_seq)) {
+                log.info("output {s}: commit recovered after {} failures in {}ms, sequence={} (awaiting presentation)", .{
+                    wlr_output.name, failures, elapsed, wlr_output.commit_seq,
+                });
+            }
+            // Some backends present synchronously inside commitState(). Replay
+            // only after commit and session-lock submission bookkeeping finish.
+            if (output.early_present) |*event| output.processPresent(event);
+        },
+        .failed => |stage| {
+            output.discardRenderMetric();
+            const now_ms = retryNowMs();
+            if (output.retry.failed(stage, now_ms, wlr_output.refresh)) {
+                log.err("output {s}: {s} failed, sequence={} frame_pending={} failures={} retry_in={}ms", .{
+                    wlr_output.name,       @tagName(stage),                    wlr_output.commit_seq, wlr_output.frame_pending,
+                    output.retry.failures, output.retry.deadline_ms -| now_ms,
+                });
+            }
+            if (!output.retryDisabledForTest()) {
+                output.scene_output.?.damage_ring.addWhole();
+                output.armRetryTimer();
+            }
+        },
+    }
+    output.early_present = null;
 
     var now = util.timestamp();
     output.scene_output.?.sendFrameDone(&now);
@@ -1951,7 +2095,7 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     // renderAndCommit early-returns when the scene reports no pending changes, so
     // re-arm the frame loop ourselves while any window on this output is still
     // moving; otherwise the animation would stall after the first eased frame.
-    if (output.hasActiveAnimations()) {
+    if (outcome != .failed and output.hasActiveAnimations()) {
         wlr_output.scheduleFrame();
     } else {
         // The animation loop is going idle. Clear the delta accumulator so the
@@ -2009,11 +2153,16 @@ fn hasActiveAnimations(output: *Output) bool {
     return server.overview.animatingOn(output.policyId());
 }
 
-fn renderAndCommit(output: *Output, force: bool) !void {
+fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.Outcome {
     output.syncWindowVisualState();
-    if (!force and !output.scene_output.?.needsFrame()) return;
+    if (!force and !output.scene_output.?.needsFrame()) return .skipped;
 
     const wlr_output = output.wlr_output.?;
+    if (recovering) {
+        output.scene_output.?.damage_ring.addWhole();
+        wlr_output.lockAttachRender(true);
+    }
+    defer if (recovering) wlr_output.lockAttachRender(false);
 
     var state = wlr.Output.State.init();
     defer state.finish();
@@ -2021,16 +2170,17 @@ fn renderAndCommit(output: *Output, force: bool) !void {
     output.current.applyNoModeset(&state);
 
     const collect_metrics = render_metrics.enabled() and output.render_metric_sample == null;
-    if (!output.buildSceneState(
+    if (output.injectRetryFailure(.scene_build) or !output.buildSceneStateInternal(
         &state,
         null,
         collect_metrics,
         force,
+        !recovering,
     )) {
-        return error.CommitFailed;
+        return .{ .failed = .scene_build };
     }
 
-    if (output.rendering_current.tearing) {
+    if (!recovering and output.rendering_current.tearing) {
         state.tearing_page_flip = true;
         // TODO don't try this every frame if it consistently fails. Stop trying if it fails
         // for 10 frames in a row or something.
@@ -2040,11 +2190,12 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         }
     }
 
-    if (!wlr_output.commitState(&state)) {
+    if (!output.commitFrameState(&state, .output_commit)) {
         output.discardRenderMetric();
-        const promoted_attempt = output.overlay_candidate.promoted;
+        const promoted_attempt = output.overlay_candidate.promoted or
+            (if (comptime build_options.output_retry_testing) output.retry_test.simulate_overlay and !recovering else false);
         output.commitOverlayState(false);
-        if (!promoted_attempt) return error.CommitFailed;
+        if (!promoted_attempt) return .{ .failed = .output_commit };
 
         // The candidate was omitted from the first primary buffer. Rebuild a
         // fresh complete frame, explicitly disable the layer, and retry once.
@@ -2054,17 +2205,17 @@ fn renderAndCommit(output: *Output, force: bool) !void {
         var fallback = wlr.Output.State.init();
         defer fallback.finish();
         output.current.applyNoModeset(&fallback);
-        if (!output.buildSceneStateInternal(
+        if (output.injectRetryFailure(.fallback_build) or !output.buildSceneStateInternal(
             &fallback,
             null,
             collect_metrics,
             true,
             false,
-        )) return error.CommitFailed;
-        if (!wlr_output.commitState(&fallback)) {
+        )) return .{ .failed = .fallback_build };
+        if (!output.commitFrameState(&fallback, .fallback_commit)) {
             output.discardRenderMetric();
             output.commitOverlayState(false);
-            return error.CommitFailed;
+            return .{ .failed = .fallback_commit };
         }
         output.commitOverlayState(true);
     } else {
@@ -2112,6 +2263,7 @@ fn renderAndCommit(output: *Output, force: bool) !void {
             }
         },
     }
+    return .committed;
 }
 
 pub fn buildSceneState(
@@ -2428,7 +2580,18 @@ fn handlePresent(
     event: *wlr.Output.event.Present,
 ) void {
     const output: *Output = @fieldParentPtr("present", listener);
+    if (output.render_commit_active) {
+        output.early_present = event.*;
+        return;
+    }
+    output.processPresent(event);
+}
+
+fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void {
     output.finishRenderMetric();
+    if (output.retry.presented(event.commit_seq, event.presented)) {
+        log.info("output {s}: recovery presented, sequence={}", .{ output.policyName(), event.commit_seq });
+    }
     if (!event.presented) {
         return;
     }
