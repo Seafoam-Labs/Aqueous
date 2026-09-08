@@ -3,7 +3,7 @@
 # ./bin/ (relative to the repo root).
 #
 # Used by:
-#   - launch_river.sh (dev-time, on demand)
+#   - launch_aqueous.sh (dev-time, on demand)
 #   - CI
 #   - Rider "Aqueous (Release, AOT)" run config (with AQUEOUS_OPTIMIZE=ReleaseSafe)
 #

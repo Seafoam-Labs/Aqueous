@@ -1,9 +1,9 @@
 #!/bin/bash
-# Launches a nested single-process Aqueous session with Noctalia as the bar.
+# Launches a nested single-process Aqueous session with DankMaterialShell.
 #
 # Logs:
 #   /tmp/aqueous.log     – Aqueous compositor/policy log
-#   /tmp/noctalia.log    – Noctalia bar stdout/stderr
+#   /tmp/dms.log         – DMS stdout/stderr
 
 # Ensure Aqueous is available. Prefer an explicit override, then the
 # locally-built ./bin/aqueous (built from compositor/ in this repo).
@@ -22,20 +22,15 @@ else
         fi
     fi
     if [ "$needs_build" = "1" ]; then
-        echo "[launch_river] Building in-tree Aqueous from compositor/..."
+        echo "[launch_aqueous] Building in-tree Aqueous from compositor/..."
         AQUEOUS_OPTIMIZE="${AQUEOUS_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
     fi
     COMPOSITOR_BIN="$LOCAL_COMPOSITOR"
 fi
-echo "[launch_river] Using compositor: $COMPOSITOR_BIN"
+echo "[launch_aqueous] Using compositor: $COMPOSITOR_BIN"
 
-# NOTE: in a packaged session Noctalia is launched as a systemd user unit
-# (packaging/noctalia.service, ordered Before=xdg-desktop-autostart.target) so
-# its SNI tray watcher is up before any autostart tray app — it is no longer an
-# [[exec]] block in wm.toml. There is no user systemd manager inside this nested
-# dev run, so we launch the bar here instead. The pre-kill above stays — Aqueous
-# is not running yet at that point, so a stale Noctalia from a previous crash
-# still needs to be reaped before Aqueous claims ownership.
+# Packaged sessions start DMS through a systemd user unit. Launch it directly
+# for this development session so it receives the nested compositor's display.
 
 # Detect "nested" run: if a host Wayland/X session is already visible, fall
 # back to Alt for Aqueous bindings so drag-to-move / resize still work
@@ -47,7 +42,7 @@ else
     export AQUEOUS_MOD="Super"
     export AQUEOUS_NESTED=0
 fi
-echo "[launch_river] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
+echo "[launch_aqueous] AQUEOUS_NESTED=$AQUEOUS_NESTED AQUEOUS_MOD=$AQUEOUS_MOD"
 
 # Aqueous creates XWayland through wlroots and exports its allocated DISPLAY
 # to the session init command and all compositor-spawned children. Preserve a
@@ -64,11 +59,11 @@ if [ -n "${AQUEOUS_LOG_SINK:-}" ]; then
 else
     AQ_SINK="/tmp/aqueous.log"
 fi
-echo "[launch_river] Aqueous logs -> $AQ_SINK"
-# Launch the bar inside the nested compositor (WAYLAND_DISPLAY is only valid
-# in River's -c context). Mirrors packaging/noctalia.service's ExecStart for the
-# dev workflow, where no systemd user manager is available to start the unit.
-NOCTALIA_CMD="${AQUEOUS_NOCTALIA_CMD:-noctalia}"
-INNER="'$NOCTALIA_CMD' >/tmp/noctalia.log 2>&1 & wait"
+echo "[launch_aqueous] Aqueous logs -> $AQ_SINK"
+# Aqueous runs -c through sh after exporting the inner WAYLAND_DISPLAY and
+# AQUEOUS_SOCKET. Pass the command through the environment to preserve quoting
+# and arguments in overrides. --session is reserved for service-managed DMS.
+export AQUEOUS_DMS_CMD="${AQUEOUS_DMS_CMD:-dms run}"
+echo "[launch_aqueous] DMS logs -> /tmp/dms.log"
 AQUEOUS_MOD="$AQUEOUS_MOD" AQUEOUS_NESTED="$AQUEOUS_NESTED" \
-    "$COMPOSITOR_BIN" -log-level debug -c "sh -c \"$INNER\"" >"$AQ_SINK" 2>&1
+    "$COMPOSITOR_BIN" -log-level debug -c 'exec sh -c "$AQUEOUS_DMS_CMD" >/tmp/dms.log 2>&1' >"$AQ_SINK" 2>&1

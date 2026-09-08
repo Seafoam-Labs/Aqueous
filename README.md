@@ -242,14 +242,14 @@ and do not include an external policy client.
 ## Run a nested development session
 
 ```sh
-./launch_river.sh
+./launch_aqueous.sh
 ```
 
-The historically named launcher builds or selects Aqueous, starts it nested,
-and launches Noctalia inside the new display. Set
+The launcher builds or selects Aqueous, starts it nested,
+and launches DMS (`dms run`) inside the new display. Set
 `AQUEOUS_COMPOSITOR_BIN=/path/to/aqueous` to select a build or
-`AQUEOUS_NOCTALIA_CMD` to replace the shell command. Logs are written to
-`/tmp/aqueous.log` and `/tmp/noctalia.log` by default.
+`AQUEOUS_DMS_CMD` to replace the shell command, including any arguments. Logs
+are written to `/tmp/aqueous.log` and `/tmp/dms.log` by default.
 
 Packaged sessions use `/usr/bin/aqueous-wm` to launch `/usr/bin/aqueous`.
 `/usr/bin/aqueous-init` exports the live Wayland environment and starts

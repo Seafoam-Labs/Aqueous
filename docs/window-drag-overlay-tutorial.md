@@ -616,7 +616,7 @@ Then run a nested session:
 
 ```sh
 cd ..
-./launch_river.sh
+./launch_aqueous.sh
 ```
 
 Check each non-floating layout:

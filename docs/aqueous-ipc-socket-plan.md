@@ -29,7 +29,7 @@ wire contract and requires no files copied from Aqueous to understand the work.
 | Wayland CLI adapter | `compositor/aqueousctl/Shell.zig`, `main.zig` | Keep supported; not the transport used by new DMS |
 | Unix output socket | `compositor/aqueous/wm/output/Service.zig` | Reference for event-loop integration, not a general shell backend |
 | Server/session lifecycle | `compositor/aqueous/Server.zig`, `main.zig` | Own listener setup, teardown and exported endpoint |
-| Session launch | `packaging/aqueous-init`, `packaging/aqueous-wm.sh`, `launch_river.sh` | Propagate endpoint to direct and service-launched DMS |
+| Session launch | `packaging/aqueous-init`, `packaging/aqueous-wm.sh`, `launch_aqueous.sh` | Propagate endpoint to direct and service-launched DMS |
 | Persistent settings helper | `plugin/helper/src/{main,config_document,schema,cursor_sync,toolkit_sync}.zig` | Owns configuration semantics and contains additional subprocess calls |
 | Aqueous-shipped DMS plugin | `dms-plugin/services/ConfigClient.qml`, `pages/OverviewPage.qml` | Separate consumer; helper calls and layout queries need explicit coverage |
 

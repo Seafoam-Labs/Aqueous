@@ -32,7 +32,7 @@ compositor/
 ├── protocol/                 # Wayland protocol definitions
 └── scripts/                  # headless integration checks
 scripts/build-compositor.sh   # stages bin/aqueous and bin/aqueousctl
-launch_river.sh               # nested development session
+launch_aqueous.sh             # nested development session
 packaging/                    # session hooks and units
 PKGBUILD                      # source package
 PKGBUILD-bin                  # release-bundle package
@@ -66,7 +66,7 @@ See the [wire contract](../compositor/protocol/aqueous-ipc-v1.md).
 ## Build flow
 
 `scripts/build-compositor.sh` runs `zig build` in `compositor/` and stages the
-compositor and inspection client under `bin/`. `launch_river.sh`, the Arch
+compositor and inspection client under `bin/`. `launch_aqueous.sh`, the Arch
 package, and release CI all use the same Zig build. There is no language-runtime
 side build.
 
