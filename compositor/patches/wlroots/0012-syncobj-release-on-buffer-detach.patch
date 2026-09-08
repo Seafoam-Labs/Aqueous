@@ -1,0 +1,39 @@
+--- a/types/wlr_linux_drm_syncobj_v1.c
++++ b/types/wlr_linux_drm_syncobj_v1.c
+@@ -165,8 +165,8 @@
+ 
+ static void surface_synced_move_state(void *_dst, void *_src) {
+ 	struct wlr_linux_drm_syncobj_surface_v1_state *dst = _dst, *src = _src;
+-	if (src->acquire_timeline == NULL) {
+-		// ignore commits that did not attach a buffer
++	if (!src->committed) {
++		// Ignore commits that did not change the attached buffer
+ 		return;
+ 	}
+ 	surface_synced_finish_state(dst);
+@@ -182,8 +182,10 @@
+ 		return;
+ 	}
+ 
+-	surface->current.release_merger = wlr_drm_syncobj_merger_create(
+-		surface->current.release_timeline, surface->current.release_point);
++	if (surface->current.release_timeline != NULL) {
++		surface->current.release_merger = wlr_drm_syncobj_merger_create(
++			surface->current.release_timeline, surface->current.release_point);
++	}
+ 	surface->current.committed = false;
+ }
+ 
+@@ -311,6 +313,12 @@
+ 			"Acquire and release points conflict");
+ 		return;
+ 	}
++
++	// A NULL attachment also replaces the current buffer. Carry this through
++	// cached/synchronized commits so its old release merger is dropped only
++	// when the detach is applied. Bufferless commits preserve the current state.
++	surface->pending.committed =
++		(surface->surface->pending.committed & WLR_SURFACE_STATE_BUFFER) != 0;
+ 
+ 	if (surface->pending.acquire_timeline != NULL && !lock_surface_commit(
+ 			surface, surface->pending.acquire_timeline, surface->pending.acquire_point)) {

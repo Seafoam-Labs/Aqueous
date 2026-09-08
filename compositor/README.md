@@ -102,6 +102,29 @@ repeat the option for multiple backends. Electron runs local solid-color content
 with an isolated profile and intercepts Close to hide the same BrowserWindow.
 It does not launch Discord or use its account/profile.
 
+Add `--discord-lifecycle` to exercise taskbar visibility changes, explicit focus
+on reopen, and Discord's 940×500 minimum window size. Each output can have its
+own resolution and refresh rate:
+
+```sh
+python3 scripts/test-window-remap.py --renderer vulkan \
+  --electron /path/to/electron --backend electron-wayland --discord-lifecycle \
+  --timing cross-output --output-width 2560 --output-height 1440 --output-refresh 144 \
+  --second-width 1920 --second-height 1080 --second-refresh 60 --cycles 5
+```
+
+`--timing cross-output` checks pixels on every destination after recording
+passive scene state. `--reopen-wait 3` allows three seconds of passive settling;
+`--electron-arg=--switch` forwards an extra diagnostic switch to Electron.
+
+`--backend wayland-syncobj` runs a native DMA-BUF release-fence check: an empty
+commit must retain the current buffer's release state, and explicit NULL detach
+must signal its release before the client submits a replacement. This variant
+checks fences and window mapping; the other fixtures check pixels. It requires
+`libdrm` and `gbm` development files and a Vulkan render device with syncobj
+support. The runner selects the compositor's logged render node; override with
+`AQUEOUS_REMAP_DRM_DEVICE=/dev/dri/renderD…` if needed.
+
 `--timing same-size` isolates a same-output, unchanged-size remap;
 `--timing settled` checks ordinary cross-output remaps with screenshots between
 steps. `--timing interrupt` hides during a confirmed output-transfer animation;
@@ -121,7 +144,14 @@ normal fixture does not rule out Discord-specific behavior or different builds,
 drivers, and configurations.
 
 See [the remapping diagnosis](../docs/window-remap-diagnosis.md) for the
-reproduced disabled-scene defect, correction, and limits of the Discord comparison.
+mixed-monitor syncobj release deadlock and the earlier native map defect.
+The syncobj correction requires rebuilding and shipping the patched wlroots
+library; updating only the Aqueous executable against the old library is insufficient.
+To capture it in a live session, run
+`python3 scripts/collect-window-remap.py --ctl ./zig-out/bin/aqueousctl` and
+reproduce within 30 seconds. It saves passive scene, window, and output queries
+under the printed temporary directory, without screenshots or focus changes.
+The logs contain window titles; see the diagnosis for capture details.
 
 ## Usage
 

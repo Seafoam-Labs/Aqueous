@@ -103,6 +103,7 @@ let
       "${src}/compositor/patches/wlroots/0004-scene-sdr-white-level.patch"
       "${src}/compositor/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
       "${src}/compositor/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
+      "${src}/compositor/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

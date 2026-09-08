@@ -4,6 +4,7 @@
 // persistent BrowserWindow, controlled through stdin like window-remap.c.
 const { app, BrowserWindow } = require('electron');
 const name = 'aqueous.remap-target';
+const discordLifecycle = process.argv.includes('--discord-lifecycle');
 app.setName(name);
 let quitting = false;
 app.on('before-quit', () => { quitting = true; });
@@ -11,11 +12,13 @@ app.whenReady().then(async () => {
     const window = new BrowserWindow({
         width: 320, height: 240, title: name,
         backgroundColor: '#e03070', frame: false,
+        ...(discordLifecycle ? { width: 1280, height: 720, minWidth: 940, minHeight: 500 } : {}),
     });
     window.on('close', event => {
         if (!quitting) {
             event.preventDefault();
             window.hide();
+            if (discordLifecycle) window.setSkipTaskbar(true);
         }
     });
     for (const event of ['show', 'hide', 'resize', 'focus']) {
@@ -27,7 +30,14 @@ app.whenReady().then(async () => {
     process.stdin.on('data', data => {
         for (const command of data.toString()) {
             if (command === 'h') window.close();
-            if (command === 's') window.show();
+            if (command === 's') {
+                if (!discordLifecycle || !window.isMinimized()) window.show();
+                if (discordLifecycle) {
+                    window.setSkipTaskbar(false);
+                    window.focus();
+                }
+                console.log('REOPEN', JSON.stringify({ visible: window.isVisible(), minimized: window.isMinimized() }));
+            }
             if (command === 'q') app.quit();
         }
     });

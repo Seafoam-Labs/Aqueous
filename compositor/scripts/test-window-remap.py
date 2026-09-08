@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shlex
 import socket
@@ -33,18 +34,42 @@ def main():
     parser.add_argument("--ctl", type=Path, default=ROOT / "zig-out/bin/aqueousctl")
     parser.add_argument("--renderer", choices=["pixman", "vulkan"], default="pixman")
     parser.add_argument("--cycles", type=int, default=3)
+    parser.add_argument("--reopen-wait", type=float, default=0.5,
+                        help="seconds of passive settling before checking each cross-output reopen")
     parser.add_argument("--electron", type=Path,
                         help="also exercise close-to-tray with this Electron executable (Wayland and X11)")
-    parser.add_argument("--backend", action="append", choices=["wayland", "x11", "electron-wayland", "electron-x11"],
+    parser.add_argument("--electron-arg", action="append", default=[],
+                        help="extra Electron switch; use --electron-arg=--switch")
+    parser.add_argument("--backend", action="append", choices=["wayland", "wayland-syncobj", "x11", "electron-wayland", "electron-x11"],
                         help="restrict to a backend; repeat to select several")
     parser.add_argument("--second-scale", type=float, default=1.0)
+    parser.add_argument("--output-width", type=int, default=1280)
+    parser.add_argument("--output-height", type=int, default=720)
+    parser.add_argument("--output-refresh", type=float, default=60)
+    parser.add_argument("--second-width", type=int, help="defaults to the first output width")
+    parser.add_argument("--second-height", type=int, help="defaults to the first output height")
+    parser.add_argument("--second-refresh", type=float, default=60)
+    parser.add_argument("--discord-lifecycle", action="store_true",
+                        help="Electron: exercise taskbar visibility, focus-on-reopen, and 940x500 minimum size")
     parser.add_argument("--negative-control", action="store_true",
                         help="withhold the native Wayland remap buffer; the test MUST fail after fresh controls pass")
-    parser.add_argument("--timing", choices=["settled", "rapid", "interrupt", "transfer", "same-size", "equal-size-transfer"], default="equal-size-transfer",
+    parser.add_argument("--timing", choices=["settled", "rapid", "interrupt", "transfer", "same-size", "equal-size-transfer", "cross-output"], default="equal-size-transfer",
                         help="rapid hide/show, hide during a live output-transfer animation, or repeated live transfers")
     args = parser.parse_args()
+    if args.second_width is None:
+        args.second_width = args.output_width
+    if args.second_height is None:
+        args.second_height = args.output_height
     if args.cycles < 1:
         parser.error("--cycles must be positive")
+    if not math.isfinite(args.reopen_wait) or not 0.1 <= args.reopen_wait <= 10:
+        parser.error("--reopen-wait must be between 0.1 and 10 seconds")
+    if any(not 320 <= width <= 4096 or not 240 <= height <= 2160 for width, height in
+           ((args.output_width, args.output_height), (args.second_width, args.second_height))):
+        parser.error("output dimensions must be within 320x240 and 4096x2160")
+    if any(not math.isfinite(rate) or not 24 <= rate <= 500 for rate in
+           (args.output_refresh, args.second_refresh)):
+        parser.error("output refresh rates must be between 24 and 500 Hz")
     if any(b.startswith("electron-") for b in args.backend or []) and not args.electron:
         parser.error("Electron backends require --electron")
     if not math.isfinite(args.second_scale) or not 0.5 <= args.second_scale <= 3:
@@ -100,6 +125,8 @@ def main():
     protocols = Path(run(["pkg-config", "--variable=pkgdatadir", "wayland-protocols"]).strip())
     for name, xml in [
         ("xdg-shell", protocols / "stable/xdg-shell/xdg-shell.xml"),
+        ("linux-drm-syncobj-v1", protocols / "staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml"),
+        ("linux-dmabuf-v1", protocols / "stable/linux-dmabuf/linux-dmabuf-v1.xml"),
         ("wlr-virtual-pointer-unstable-v1", ROOT / "protocol/upstream/wlr-virtual-pointer-unstable-v1.xml"),
     ]:
         run(["wayland-scanner", "client-header", xml, work / f"{name}-client-protocol.h"])
@@ -111,6 +138,11 @@ def main():
         libs = "x11" if backend == "x11" else "wayland-client"
         run([*cc, source, *flags, "-o", work / backend,
              *shlex.split(run(["pkg-config", "--cflags", "--libs", libs]))])
+    if "wayland-syncobj" in (args.backend or []):
+        run([*cc, source, "-DSYNCOBJ", work / "xdg-shell-protocol.c",
+             work / "linux-drm-syncobj-v1-protocol.c", work / "linux-dmabuf-v1-protocol.c",
+             "-o", work / "wayland-syncobj",
+             *shlex.split(run(["pkg-config", "--cflags", "--libs", "wayland-client", "libdrm", "gbm"]))])
     run([*cc, ROOT / "scripts/fixtures/virtual-pointer-position.c",
          work / "wlr-virtual-pointer-unstable-v1-protocol.c", "-o", work / "pointer",
          *shlex.split(run(["pkg-config", "--cflags", "--libs", "wayland-client"]))])
@@ -163,6 +195,11 @@ focus_follows_mouse = true
             wait_for(lambda: (runtime / "display").exists(), "startup command did not run")
             env["DISPLAY"] = (runtime / "display").read_text()
             assert env["DISPLAY"], "test requires an XWayland-enabled compositor"
+            if backend == "wayland-syncobj" and not os.environ.get("AQUEOUS_REMAP_DRM_DEVICE"):
+                log = (work / f"{backend}-compositor.log").read_text()
+                render_node = re.search(r"Opening DRM render node '([^']+)'", log)
+                assert render_node, "set AQUEOUS_REMAP_DRM_DEVICE to the compositor's DRM render node"
+                env["AQUEOUS_REMAP_DRM_DEVICE"] = render_node[1]
 
             def output_request(request):
                 with socket.socket(socket.AF_UNIX) as connection:
@@ -177,10 +214,21 @@ focus_follows_mouse = true
             assert len(outputs) == 2, outputs
             names = [output["name"] for output in outputs]
             response = output_request({"op": "set", "changes": [
-                {"name": names[0], "scale": 1, "position": [0, 0]},
-                {"name": names[1], "scale": args.second_scale, "position": [1280, 0]},
+                {"name": names[0], "scale": 1, "position": [0, 0],
+                 "mode": f"{args.output_width}x{args.output_height}@{args.output_refresh:g}"},
+                {"name": names[1], "scale": args.second_scale, "position": [args.output_width, 0],
+                 "mode": f"{args.second_width}x{args.second_height}@{args.second_refresh:g}"},
             ]})
             assert response["ok"], response
+            actual_outputs = output_request({"op": "list"})
+            (work / f"{backend}-outputs.json").write_text(json.dumps(actual_outputs, indent=2))
+            for name, width, height, refresh in (
+                (names[0], args.output_width, args.output_height, args.output_refresh),
+                (names[1], args.second_width, args.second_height, args.second_refresh),
+            ):
+                mode = next(o for o in actual_outputs["outputs"] if o["name"] == name)["current_mode"]
+                assert (mode["width"], mode["height"]) == (width, height), mode
+                assert abs(mode["refresh"] - refresh) < 0.01, mode
 
             # Keep one pointer alive throughout the session. Creating/removing
             # a virtual input device per move schedules unrelated manage work
@@ -188,17 +236,18 @@ focus_follows_mouse = true
             pointer_fifo = runtime / "pointer.commands"
             os.mkfifo(pointer_fifo)
             launch([work / "pointer", pointer_fifo,
-                    1280 + round(1280 / args.second_scale), max(720, round(720 / args.second_scale))],
+                    args.output_width + round(args.second_width / args.second_scale),
+                    max(args.output_height, round(args.second_height / args.second_scale))],
                    f"{backend}-pointer")
             wait_for(lambda: "READY" in (work / f"{backend}-pointer.log").read_text(), "persistent pointer not ready")
 
             def pointer(index):
                 fd = os.open(pointer_fifo, os.O_WRONLY | os.O_NONBLOCK)
                 try:
-                    os.write(fd, f"{100 + 1280 * index} 100\n".encode())
+                    os.write(fd, f"{100 + args.output_width * index} 100\n".encode())
                 finally:
                     os.close(fd)
-                wait_for(lambda: abs(output_request({"op": "cursor_state"})["x"] - (100 + 1280 * index)) < 1,
+                wait_for(lambda: abs(output_request({"op": "cursor_state"})["x"] - (100 + args.output_width * index)) < 1,
                          "pointer did not select the destination output")
 
             def windows():
@@ -225,7 +274,9 @@ focus_follows_mouse = true
                                    f"--ozone-platform={backend.removeprefix('electron-')}",
                                    f"--user-data-dir={runtime / label}", f"--class={TARGET}",
                                    "--no-first-run", "--disable-dev-shm-usage",
-                                   ROOT / "scripts/fixtures/electron-window-remap.cjs"], f"{backend}-{label}")
+                                   *args.electron_arg,
+                                   ROOT / "scripts/fixtures/electron-window-remap.cjs",
+                                   *(["--discord-lifecycle"] if args.discord_lifecycle else [])], f"{backend}-{label}")
                 prefix = ["env", "AQUEOUS_REMAP_WITHHOLD_BUFFER=1"] if args.negative_control else []
                 return launch([*prefix, work / backend, TARGET, "e03070"], f"{backend}-{label}")
 
@@ -260,6 +311,16 @@ focus_follows_mouse = true
             def check(label, destination):
                 wait_for(target_window, f"{label}: no mapped/published target; inspect configure/commit log")
                 time.sleep(0.5)  # Allow normal movement animation to settle.
+                if backend == "wayland-syncobj":
+                    # This fixture waits on the real DRM release fence before
+                    # accepting show. Pixel visibility is covered separately by
+                    # the colored native and Electron fixtures.
+                    window = target_window()
+                    assert window and window["output"] == names[destination], window
+                    scene_state(label)
+                    results.append({"backend": backend, "phase": label, "window": window})
+                    print(f"PASS {backend}: {label} (output {destination + 1})", flush=True)
+                    return
                 counts = capture(label)
                 window = target_window()
                 assert window, f"{label}: target disappeared"
@@ -275,14 +336,14 @@ focus_follows_mouse = true
                     if counts[destination] < expected * 0.85:
                         counts = wait_for(ready_pixels, f"{label}: initial client content did not render")
                 assert geometry["width"] > 32 and geometry["height"] > 32, window
-                output_width = 1280 if destination == 0 else round(1280 / args.second_scale)
-                assert 1280 * destination <= geometry["x"] < 1280 * destination + output_width, window
+                output_width = args.output_width if destination == 0 else round(args.second_width / args.second_scale)
+                assert args.output_width * destination <= geometry["x"] < args.output_width * destination + output_width, window
                 assert counts[destination] >= expected * 0.85, (
                     f"{label}: mapped/published but not visibly rendered in its tile; "
                     f"pixels={counts}, geometry={geometry}. Inspect scene/opacity/clip state.")
                 path = work / f"{backend}-{label}-output{destination + 1}.png"
                 with Image.open(path) as image:
-                    x, y = geometry["x"] - 1280 * destination, geometry["y"]
+                    x, y = geometry["x"] - args.output_width * destination, geometry["y"]
                     tile = image.convert("RGB").crop((x, y, x + geometry["width"], y + geometry["height"]))
                     tile_pixels = sum(n for n, rgb in tile.getcolors(tile.width * tile.height)
                                       if max(abs(a - b) for a, b in zip(rgb, COLOR)) <= 3)
@@ -297,9 +358,9 @@ focus_follows_mouse = true
             for number, color in enumerate(("208040", "3040c0")):
                 launch([work / "wayland", f"aqueous.companion{number}", color], f"{backend}-companion{number}")
                 wait_for(lambda: len(windows()) == number + 1, "companion did not map")
-            if args.timing == "equal-size-transfer":
-                # Equal layout slots on both outputs isolate output changes
-                # from resize-driven rendering, which otherwise masks map bugs.
+            if args.timing in ("equal-size-transfer", "cross-output"):
+                # Match companion counts on both outputs. Equal resolutions
+                # isolate map invalidation; unequal modes also exercise resize.
                 pointer(0)
                 for number, color in enumerate(("208040", "3040c0")):
                     launch([work / "wayland", f"aqueous.source-companion{number}", color],
@@ -343,8 +404,8 @@ focus_follows_mouse = true
                     pointer(destination)
                     command(client, "s")
                     if args.timing != "settled":
-                        if args.timing == "equal-size-transfer":
-                            time.sleep(0.5)
+                        if args.timing in ("equal-size-transfer", "cross-output"):
+                            time.sleep(args.reopen_wait)
                             passive = scene_state(label + "-before-capture")
                             try:
                                 target_line = next((line for line in passive.splitlines()
@@ -355,6 +416,8 @@ focus_follows_mouse = true
                                 capture(label + "-failure")
                                 raise
                         scene_state(label + "-reopened")
+                        if args.timing == "cross-output":
+                            check(label, destination)
                         continue
                     try:
                         check(label, destination)
@@ -375,6 +438,12 @@ focus_follows_mouse = true
                 except Exception:
                     capture("final-failure")
                     raise
+            if backend == "wayland-syncobj" and args.timing != "transfer":
+                client_log = (work / f"{backend}-target.log").read_text()
+                expected_releases = args.cycles * (1 if args.timing == "same-size" else 2)
+                assert client_log.count("DETACH_RELEASED ") == expected_releases, client_log
+                assert client_log.count("BUFFERLESS_COMMIT_RETAINED") == expected_releases, client_log
+                print(f"PASS {backend}: {expected_releases} detach fences signalled; bufferless commits retained", flush=True)
             for process in list(reversed(processes)):
                 stop(process)
     except Exception as error:
@@ -386,7 +455,7 @@ focus_follows_mouse = true
         for log in logs:
             log.close()
         (work / "results.json").write_text(json.dumps(results, indent=2))
-    print("PASS: all selected backends remap visibly across both outputs", flush=True)
+    print("PASS: all selected remap checks passed", flush=True)
 
 
 if __name__ == "__main__":

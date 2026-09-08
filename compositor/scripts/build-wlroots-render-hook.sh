@@ -17,6 +17,7 @@ patch_files=(
     "$here/patches/wlroots/0009-surface-preferred-scale-override.patch"
     "$here/patches/wlroots/0010-output-layer-sync-and-test.patch"
     "$here/patches/wlroots/0011-scene-output-layer-promotion.patch"
+    "$here/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
