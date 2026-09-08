@@ -217,11 +217,13 @@ screenshot = "dms screenshot full"
 #   - an empty list to unbind: action = []
 #
 # Chord grammar: tokens joined by '+', case-insensitive.
-#   Modifiers: Super (Mod4) | Ctrl | Alt (Mod1) | Shift
+#   Modifiers: Super (configured primary) | Ctrl | Alt (Mod1) | Shift
+#              Meta always names physical Super, including with AQUEOUS_MOD=Alt.
 #   Keys:      single letters (A–Z), digits (0–9), F1–F24,
 #              named keys (Return, Space, Tab, Comma, Period, Escape, CapsLock,
 #              Left, Right, Up, Down, Home, End, PageUp, PageDown,
 #              Print/PrintScreen, ...)
+#   Wheel:     WheelUp, WheelDown, WheelLeft, WheelRight (also touchpad scroll)
 #
 # Omit any line to keep the compiled-in default (shown in the comment).
 # -----------------------------------------------------------------------------
@@ -248,6 +250,33 @@ scroll_viewport_left_arrow  = "Super+Left"    # default
 scroll_viewport_right_arrow = "Super+Right"   # default
 scroll_viewport_up          = "Super+Up"      # scroll the focused column without changing focus
 scroll_viewport_down        = "Super+Down"    # scroll the focused column without changing focus
+# Wheel navigation defaults; replace a chord or set [] to disable that action.
+# In horizontal scrolling layouts, wheel_scroll_left does the same viewport
+# pan as scroll_viewport_left_arrow (Super+Left); wheel_scroll_right does the
+# same as scroll_viewport_right_arrow (Super+Right). Super+WheelUp/Down are
+# the mouse-wheel equivalents of those arrow shortcuts.
+# The wheel actions swap axes for portrait scrolling layouts; the arrow
+# actions above always use their named direction. Custom wheel chords can run
+# other actions via [keybinds.custom]. Wheel input cannot hold untrap_pointer.
+# wheel_scroll_left  = "Super+WheelUp"
+# wheel_scroll_right = "Super+WheelDown"
+# wheel_scroll_up    = "Alt+Meta+WheelUp"
+# wheel_scroll_down  = "Alt+Meta+WheelDown"
+# Leaving these commented keeps Super+scroll and Super+Alt+scroll working.
+# Meta means physical Super, so Alt+Meta also works with AQUEOUS_MOD=Alt.
+#
+# Example: replace Super with Ctrl for horizontal viewport navigation.
+# wheel_scroll_left  = "Ctrl+WheelUp"
+# wheel_scroll_right = "Ctrl+WheelDown"
+#
+# Example: keep Super+scroll and add a physical horizontal wheel/tilt chord.
+# wheel_scroll_left  = ["Super+WheelUp", "Super+WheelLeft"]
+# wheel_scroll_right = ["Super+WheelDown", "Super+WheelRight"]
+#
+# Example: disable only the Super+Alt+scroll navigation actions.
+# wheel_scroll_up    = []
+# wheel_scroll_down  = []
+# Choose one assignment per action when uncommenting examples.
 move_column_left      = "Super+Shift+H"    # default
 move_column_right     = "Super+Shift+L"    # default
 toggle_scrolling_full_width = "Super+Shift+Z" # expand only the focused column; press again to restore
@@ -396,6 +425,19 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 "XF86AudioPlay"         = "spawn:playerctl play-pause"
 "XF86AudioNext"         = "spawn:playerctl next"
 "XF86AudioPrev"         = "spawn:playerctl previous"
+
+# Wheel action examples (also accept touchpad scrolling).
+# Add Ctrl to switch workspaces while keeping the default Super+scroll panning.
+# "Super+Ctrl+WheelUp"   = "builtin:focus_workspace_up"
+# "Super+Ctrl+WheelDown" = "builtin:focus_workspace_down"
+#
+# To replace Super+scroll panning with workspace switching instead:
+# "Super+WheelUp"        = "builtin:focus_workspace_up"
+# "Super+WheelDown"      = "builtin:focus_workspace_down"
+#
+# Run commands with a wheel chord, just like a keyboard shortcut.
+# "Super+Shift+WheelUp"   = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
+# "Super+Shift+WheelDown" = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 
 # Direct layout switches (bypassing slots).
 # NOTE: Super+1..9 are reserved by the workspace bindings above (focus_workspace_1..9).

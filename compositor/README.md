@@ -153,6 +153,16 @@ reproduce within 30 seconds. It saves passive scene, window, and output queries
 under the printed temporary directory, without screenshots or focus changes.
 The logs contain window titles; see the diagnosis for capture details.
 
+`scripts/test-wheel-bindings.py` checks configurable wheel navigation, custom
+actions on both physical axes, touchpad steps, hot reload, shortcut inhibition,
+and application passthrough in an isolated headless session. It requires a
+`-Dvulkan-effects=false` build, a C compiler, `wayland-scanner`, and
+Wayland/xkbcommon development files:
+
+```sh
+AQUEOUS_COMPOSITOR_BIN=/path/to/no-effects/bin/aqueous python3 scripts/test-wheel-bindings.py
+```
+
 ## Usage
 
 Run `zig-out/bin/aqueous` nested in an existing Wayland/X11 session or from a

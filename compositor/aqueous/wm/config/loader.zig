@@ -857,3 +857,33 @@ test "mouse follows focus sidecar presence and invalid values" {
     try std.testing.expect(!snapshot.wm.input.mouse_follows_focus);
     try std.testing.expect(snapshot.wm.input.mouse_follows_focus_set);
 }
+
+test "wheel navigation defaults can be replaced unbound and overridden by custom actions" {
+    var snapshot: actions.Snapshot = .{};
+    actions.initDefaults(&snapshot);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_left", snapshot.findWheel(.up, 64).?);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_right", snapshot.findWheel(.down, 64).?);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_up", snapshot.findWheel(.up, 72).?);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_down", snapshot.findWheel(.down, 72).?);
+    try std.testing.expect(snapshot.findWheel(.left, 64) == null);
+    applyActions(&snapshot,
+        \\[keybinds]
+        \\wheel_scroll_left = ["Ctrl+WheelUp", "Ctrl+WheelLeft"]
+        \\wheel_scroll_right = []
+        \\wheel_scroll_up = "Ctrl+WheelRight"
+        \\[keybinds.custom]
+        \\"Alt+Meta+WheelDown" = "builtin:focus_workspace_down"
+        \\"WheelRight" = "spawn:example"
+    );
+    try std.testing.expect(snapshot.findWheel(.up, 64) == null);
+    try std.testing.expect(snapshot.findWheel(.down, 64) == null);
+    try std.testing.expect(snapshot.findWheel(.up, 72) == null);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_left", snapshot.findWheel(.up, 4).?);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_left", snapshot.findWheel(.left, 4).?);
+    try std.testing.expectEqualStrings("builtin:wheel_scroll_up", snapshot.findWheel(.right, 4).?);
+    try std.testing.expectEqualStrings("builtin:focus_workspace_down", snapshot.findWheel(.down, 72).?);
+    try std.testing.expectEqualStrings("spawn:example", snapshot.findWheel(.right, 0).?);
+    // Rebinding the wheel must leave keyboard viewport shortcuts intact.
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_left_arrow", snapshot.find(0xff51, 64).?);
+    try std.testing.expectEqualStrings("builtin:scroll_viewport_up", snapshot.find(0xff52, 64).?);
+}

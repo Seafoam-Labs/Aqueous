@@ -265,6 +265,45 @@ so the vertical chord remains `Alt+Super+wheel`. Wheel down moves right or down;
 wheel up moves left or up, with per-device `natural_scroll` reversing those
 directions automatically.
 
+These defaults are configurable in `wm.toml`, using the same string, list, and
+empty-list syntax as keyboard bindings:
+
+```toml
+[keybinds]
+wheel_scroll_left = "Ctrl+WheelUp"
+wheel_scroll_right = "Ctrl+WheelDown"
+wheel_scroll_up = "Ctrl+WheelLeft"
+wheel_scroll_down = "Ctrl+WheelRight"
+# To disable any of these actions instead: wheel_scroll_left = []
+```
+
+Omitting these settings retains `Super+WheelUp/Down` for left/right and
+`Alt+Meta+WheelUp/Down` for up/down. `Super` follows `AQUEOUS_MOD`; `Meta`
+always names physical Super. Changing or disabling a wheel action removes its
+previous default chord without changing the keyboard viewport shortcuts.
+
+`WheelUp`, `WheelDown`, `WheelLeft`, and `WheelRight` also work with other
+built-in actions and `[keybinds.custom]`, for example:
+
+```toml
+[keybinds.custom]
+"Super+WheelUp" = "builtin:focus_workspace_up"
+"Super+WheelDown" = "builtin:focus_workspace_down"
+```
+
+An explicit custom chord replaces the default action on that chord. These
+bindings can run outside scrolling layouts. Matched steps are consumed even
+when an action has no effect; unmatched directions continue to the application.
+Wheel actions fire once per accumulated step and cannot bind the hold-only
+`untrap_pointer` action. General action dispatch is capped at 32 repetitions per
+input event. Reloading configuration clears partial scroll steps.
+Session locks, shortcut inhibition, overview, interactive drags, and XWayland
+keyboard grabs prevent wheel bindings from running.
+
+The `wheel_scroll_*` actions preserve the contextual navigation behavior
+below. Binding `scroll_viewport_left/right/up/down` instead always uses the
+explicitly named viewport direction.
+
 When `prefer_vertical_on_portrait` arranges the focused instance vertically,
 the two chords swap axes for that instance: the primary modifier chord moves
 up/down through the focused column, and the additional modifier chord pans
@@ -274,8 +313,8 @@ One physical wheel notch produces one navigation step, including on
 high-resolution wheels; touchpad scrolls accumulate before stepping. Captured
 scrolls do not leak into the focused application, even at a viewport edge.
 Tile, floating, game anchors, overview, interactive drags, Xwayland keyboard
-grabs, unmatched modifier combinations, and physical horizontal-wheel events
-continue through the normal input path.
+grabs and unmatched modifier combinations continue through the normal input
+path. Physical horizontal-wheel events pass through unless explicitly bound.
 
 With `Super` held, left-drag a tiled window over the top or bottom third of
 another window to stack it before or after that window. Dropping over the

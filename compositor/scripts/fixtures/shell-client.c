@@ -117,9 +117,12 @@ static void pointer_enter(void *data, struct wl_pointer *p, uint32_t serial, str
 static void pointer_leave(void *data, struct wl_pointer *p, uint32_t serial, struct wl_surface *surface) { (void)data; (void)p; (void)serial; (void)surface; puts("pointer leave"); }
 static void pointer_motion(void *data, struct wl_pointer *p, uint32_t time, wl_fixed_t x, wl_fixed_t y) { (void)data; (void)p; (void)time; (void)x; (void)y; }
 static void pointer_button(void *data, struct wl_pointer *p, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) { (void)data; (void)p; (void)serial; (void)time; (void)button; (void)state; }
-static void pointer_axis(void *data, struct wl_pointer *p, uint32_t time, uint32_t axis, wl_fixed_t value) { (void)data; (void)p; (void)time; (void)axis; (void)value; }
+static void pointer_axis(void *data, struct wl_pointer *p, uint32_t time, uint32_t axis, wl_fixed_t value) { (void)data; (void)p; (void)time; printf("pointer axis %u %.2f\n", axis, wl_fixed_to_double(value)); }
 static void pointer_frame(void *data, struct wl_pointer *p) { (void)data; (void)p; }
-static const struct wl_pointer_listener pointer_listener = { .enter = pointer_enter, .leave = pointer_leave, .motion = pointer_motion, .button = pointer_button, .axis = pointer_axis, .frame = pointer_frame };
+static void pointer_axis_source(void *data, struct wl_pointer *p, uint32_t source) { (void)data; (void)p; (void)source; }
+static void pointer_axis_stop(void *data, struct wl_pointer *p, uint32_t time, uint32_t axis) { (void)data; (void)p; (void)time; printf("pointer axis stop %u\n", axis); }
+static void pointer_axis_discrete(void *data, struct wl_pointer *p, uint32_t axis, int32_t discrete) { (void)data; (void)p; (void)axis; (void)discrete; }
+static const struct wl_pointer_listener pointer_listener = { .enter = pointer_enter, .leave = pointer_leave, .motion = pointer_motion, .button = pointer_button, .axis = pointer_axis, .frame = pointer_frame, .axis_source = pointer_axis_source, .axis_stop = pointer_axis_stop, .axis_discrete = pointer_axis_discrete };
 static void pointer_locked(void *data, struct zwp_locked_pointer_v1 *p) { (void)data; (void)p; puts("pointer locked"); }
 static void pointer_unlocked(void *data, struct zwp_locked_pointer_v1 *p) { (void)data; (void)p; puts("pointer unlocked"); }
 static const struct zwp_locked_pointer_v1_listener pointer_lock_listener = { .locked = pointer_locked, .unlocked = pointer_unlocked };

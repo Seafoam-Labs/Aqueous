@@ -9,6 +9,7 @@ const wl = @import("wayland").server.wl;
 
 const server = &@import("../main.zig").server;
 
+const Seat = @import("../Seat.zig");
 const CompositorApi = @import("CompositorApi.zig");
 const Mode = @import("Mode.zig").Mode;
 const Trace = @import("Trace.zig");
@@ -200,6 +201,10 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
     }
     aqueous.config = replacement;
+    {
+        var seats = server.input_manager.seats.iterator(.forward);
+        while (seats.next()) |seat| seat.wheel.reset();
+    }
     if (!aqueous.config.wm.input.mouse_follows_focus) {
         var seats = server.input_manager.seats.iterator(.forward);
         while (seats.next()) |seat| seat.cancelFocusWarp();
@@ -1144,18 +1149,41 @@ pub fn handleGesture(aqueous: *Aqueous, gesture: gesture_input.Completed) void {
     aqueous.runVerb(verb);
 }
 
-pub fn wheelNavigationAxis(aqueous: *Aqueous, modifiers: u32) ?wheel_input.NavigationAxis {
+pub fn wheelBindingVerb(aqueous: *Aqueous, seat: *Seat, direction: wheel_input.Direction, modifiers: u32) ?[]const u8 {
     if (!aqueous.mode.runsInternal() or
-        aqueous.overview != null or
-        aqueous.drag != null or
-        server.input_manager.defaultSeat().xwaylandKeyboardGrabActive())
-    {
-        return null;
+        server.lock_manager.state != .unlocked or
+        aqueous.overview != null or aqueous.drag != null or
+        seat.xwaylandKeyboardGrabActive() or server.shortcuts.active(seat.wlr_seat)) return null;
+    const verb = aqueous.config.actions.findWheel(direction, modifiers & (1 | 4 | 8 | 64)) orelse return null;
+    if (wheel_input.navigationForVerb(verb)) |navigation| {
+        _ = aqueous.wheelNavigationAxis(navigation.axis) orelse return null;
     }
-    const axis = wheel_input.resolveNavigationAxis(
-        aqueous.config.actions.primary_modifier,
-        modifiers,
-    ) orelse return null;
+    return verb;
+}
+
+pub fn handleWheel(aqueous: *Aqueous, seat: *Seat, direction: wheel_input.Direction, modifiers: u32, count: u32) void {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
+    const verb = aqueous.wheelBindingVerb(seat, direction, modifiers) orelse return;
+    if (wheel_input.navigationForVerb(verb)) |navigation| {
+        const axis = aqueous.wheelNavigationAxis(navigation.axis) orelse return;
+        _ = aqueous.navigateWithWheel(axis, navigation.steps * @as(i32, @intCast(@min(count, std.math.maxInt(i32)))));
+        return;
+    }
+    // An action can replace the configuration containing its own verb. Copy it
+    // before dispatch, and stop this burst if it changes bindings or input mode.
+    var action: action_config.Binding = .{};
+    if (!action.verb.set(verb)) return;
+    // Keep extreme continuous deltas from launching an unbounded action burst.
+    for (0..@min(count, 32)) |_| {
+        const current = aqueous.wheelBindingVerb(seat, direction, modifiers) orelse break;
+        if (!std.mem.eql(u8, current, action.verb.slice())) break;
+        aqueous.runVerb(action.verb.slice());
+    }
+}
+
+fn wheelNavigationAxis(aqueous: *Aqueous, axis: wheel_input.NavigationAxis) ?wheel_input.NavigationAxis {
     const context = aqueous.api.focusedContext() orelse return null;
     if (context.window.policy_state.kind() != .tiled) return null;
     const state = aqueous.layout_states.getPtr(.{
@@ -1600,6 +1628,11 @@ fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, rect: layout_types.Rect,
 }
 
 fn runVerb(aqueous: *Aqueous, verb: []const u8) void {
+    if (wheel_input.navigationForVerb(verb)) |navigation| {
+        const axis = aqueous.wheelNavigationAxis(navigation.axis) orelse return;
+        _ = aqueous.navigateWithWheel(axis, navigation.steps);
+        return;
+    }
     const colon = std.mem.indexOfScalar(u8, verb, ':') orelse {
         log.warn("unknown action '{s}'", .{verb});
         return;

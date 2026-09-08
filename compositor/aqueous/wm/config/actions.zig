@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const wm = @import("wm.zig");
+pub const WheelDirection = @import("../input/wheel.zig").Direction;
 
 pub const max_bindings = 160;
 pub const max_exec = 32;
@@ -26,6 +27,7 @@ pub const GestureBinding = struct {
 pub const Binding = struct {
     modifiers: u32 = 0,
     keysym: u32 = 0,
+    wheel: ?WheelDirection = null,
     verb: wm.Text = .{},
 };
 
@@ -74,7 +76,14 @@ pub const Snapshot = struct {
 
     pub fn find(snapshot: *const Snapshot, keysym: u32, modifiers: u32) ?[]const u8 {
         for (snapshot.bindings[0..snapshot.binding_count]) |*binding| {
-            if (binding.keysym == keysym and binding.modifiers == modifiers) return binding.verb.slice();
+            if (binding.wheel == null and binding.keysym == keysym and binding.modifiers == modifiers) return binding.verb.slice();
+        }
+        return null;
+    }
+
+    pub fn findWheel(snapshot: *const Snapshot, direction: WheelDirection, modifiers: u32) ?[]const u8 {
+        for (snapshot.bindings[0..snapshot.binding_count]) |*binding| {
+            if (binding.wheel == direction and binding.modifiers == modifiers) return binding.verb.slice();
         }
         return null;
     }
@@ -138,6 +147,11 @@ pub fn initDefaults(snapshot: *Snapshot) void {
     snapshot.primary_modifier = primaryMask();
     _ = snapshot.screenshot.set(default_screenshot_command);
     for (defaults) |entry| addBuiltin(snapshot, entry[0], entry[1]);
+    addBuiltin(snapshot, "wheel_scroll_left", "Super+WheelUp");
+    addBuiltin(snapshot, "wheel_scroll_right", "Super+WheelDown");
+    // Meta always names physical Super, including when Alt is primary.
+    addBuiltin(snapshot, "wheel_scroll_up", "Alt+Meta+WheelUp");
+    addBuiltin(snapshot, "wheel_scroll_down", "Alt+Meta+WheelDown");
 }
 
 pub fn addBuiltin(snapshot: *Snapshot, action: []const u8, chord: []const u8) void {
@@ -170,12 +184,14 @@ fn addBuiltinNoRemove(snapshot: *Snapshot, action: []const u8, chord: []const u8
 pub fn addBinding(snapshot: *Snapshot, chord: []const u8, verb: []const u8) void {
     if (snapshot.binding_count == max_bindings) return;
     const parsed = parseChord(chord) orelse return;
-    var binding: Binding = .{ .modifiers = parsed.modifiers, .keysym = parsed.keysym };
+    var binding: Binding = .{ .modifiers = parsed.modifiers, .keysym = parsed.keysym, .wheel = parsed.wheel };
+    // Wheel events have no release with which to end this hold action.
+    if (parsed.wheel != null and std.mem.eql(u8, verb, "builtin:untrap_pointer")) return;
     if (!binding.verb.set(verb)) return;
     // Last declaration wins, matching the C# registrar.
     var i: usize = 0;
     while (i < snapshot.binding_count) : (i += 1) {
-        if (snapshot.bindings[i].modifiers == parsed.modifiers and snapshot.bindings[i].keysym == parsed.keysym) {
+        if (snapshot.bindings[i].modifiers == parsed.modifiers and snapshot.bindings[i].keysym == parsed.keysym and snapshot.bindings[i].wheel == parsed.wheel) {
             snapshot.bindings[i] = binding;
             return;
         }
@@ -211,19 +227,26 @@ fn removeBuiltin(snapshot: *Snapshot, action: []const u8) void {
     snapshot.binding_count = @intCast(write);
 }
 
-pub const Chord = struct { modifiers: u32, keysym: u32 };
+pub const Chord = struct { modifiers: u32, keysym: u32 = 0, wheel: ?WheelDirection = null };
 pub fn parseChord(text: []const u8) ?Chord {
+    return parseChordWithPrimary(text, primaryMask());
+}
+
+fn parseChordWithPrimary(text: []const u8, primary_modifier: u32) ?Chord {
     var modifiers: u32 = 0;
     var keysym: ?u32 = null;
+    var wheel: ?WheelDirection = null;
     var parts = std.mem.splitScalar(u8, text, '+');
     while (parts.next()) |raw| {
         const token = std.mem.trim(u8, raw, " \t");
-        if (std.ascii.eqlIgnoreCase(token, "super") or std.ascii.eqlIgnoreCase(token, "mod4") or std.ascii.eqlIgnoreCase(token, "logo") or std.ascii.eqlIgnoreCase(token, "win")) modifiers |= primaryMask() else if (std.ascii.eqlIgnoreCase(token, "ctrl") or std.ascii.eqlIgnoreCase(token, "control")) modifiers |= 4 else if (std.ascii.eqlIgnoreCase(token, "alt") or std.ascii.eqlIgnoreCase(token, "mod1")) modifiers |= if (primaryMask() == 8) @as(u32, 8) else 8 else if (std.ascii.eqlIgnoreCase(token, "shift")) modifiers |= 1 else {
-            if (keysym != null) return null;
-            keysym = resolveKeysym(token) orelse return null;
+        if (std.ascii.eqlIgnoreCase(token, "super") or std.ascii.eqlIgnoreCase(token, "mod4") or std.ascii.eqlIgnoreCase(token, "logo") or std.ascii.eqlIgnoreCase(token, "win")) modifiers |= primary_modifier else if (std.ascii.eqlIgnoreCase(token, "meta")) modifiers |= 64 else if (std.ascii.eqlIgnoreCase(token, "ctrl") or std.ascii.eqlIgnoreCase(token, "control")) modifiers |= 4 else if (std.ascii.eqlIgnoreCase(token, "alt") or std.ascii.eqlIgnoreCase(token, "mod1")) modifiers |= if (primary_modifier == 8) @as(u32, 8) else 8 else if (std.ascii.eqlIgnoreCase(token, "shift")) modifiers |= 1 else {
+            if (keysym != null or wheel != null) return null;
+            wheel = WheelDirection.parse(token);
+            if (wheel == null) keysym = resolveKeysym(token) orelse return null;
         }
     }
-    return .{ .modifiers = modifiers, .keysym = keysym orelse return null };
+    if (keysym == null and wheel == null) return null;
+    return .{ .modifiers = modifiers, .keysym = keysym orelse 0, .wheel = wheel };
 }
 
 fn primaryMask() u32 {
@@ -344,4 +367,32 @@ test "output rotation binding remains overridable" {
         "builtin:rotate_output_clockwise",
         snapshot.find(replacement.keysym, replacement.modifiers).?,
     );
+}
+
+test "wheel chords are distinct from keyboard keys and accept all four directions" {
+    inline for (.{ .{ "WheelUp", WheelDirection.up }, .{ "WheelDown", WheelDirection.down }, .{ "WheelLeft", WheelDirection.left }, .{ "WheelRight", WheelDirection.right } }) |entry| {
+        const chord = parseChord("Ctrl+Shift+" ++ entry[0]).?;
+        try std.testing.expectEqual(Chord{ .modifiers = 5, .wheel = entry[1] }, chord);
+    }
+    try std.testing.expectEqual(parseChord("Super+WheelUp").?, parseChord("super+wheelup").?);
+    try std.testing.expect(parseChord("Super+WheelUp+A") == null);
+    try std.testing.expect(parseChord("Super+A+WheelUp") == null);
+    try std.testing.expect(parseChord("WheelUp+WheelDown") == null);
+    try std.testing.expect(parseChord("Wheel") == null);
+    try std.testing.expectEqual(@as(u32, 8), parseChordWithPrimary("Super+WheelUp", 8).?.modifiers);
+    try std.testing.expectEqual(@as(u32, 72), parseChordWithPrimary("Alt+Meta+WheelUp", 8).?.modifiers);
+    try std.testing.expectEqual(@as(u32, 72), parseChordWithPrimary("Alt+Meta+WheelUp", 64).?.modifiers);
+
+    var snapshot: Snapshot = .{};
+    addBinding(&snapshot, "Ctrl+WheelUp", "spawn:example");
+    try std.testing.expect(snapshot.find(0, 4) == null);
+    try std.testing.expect(snapshot.find(0xff52, 4) == null);
+    try std.testing.expectEqualStrings("spawn:example", snapshot.findWheel(.up, 4).?);
+    try std.testing.expect(snapshot.findWheel(.up, 5) == null);
+    try std.testing.expect(snapshot.findWheel(.down, 4) == null);
+    addBinding(&snapshot, "Ctrl+WheelUp", "builtin:focus_workspace_up");
+    try std.testing.expectEqual(@as(u16, 1), snapshot.binding_count);
+    try std.testing.expectEqualStrings("builtin:focus_workspace_up", snapshot.findWheel(.up, 4).?);
+    addBinding(&snapshot, "Ctrl+WheelDown", "builtin:untrap_pointer");
+    try std.testing.expect(snapshot.findWheel(.down, 4) == null);
 }

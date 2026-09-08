@@ -451,30 +451,38 @@ fn processInteractiveMotionBatch(seat: *Seat, first: Event) void {
 }
 
 fn processAxis(seat: *Seat, event: *const Event.PointerAxis) void {
-    const source: ?Wheel.Source = if (event.orientation == .vertical_scroll) switch (event.source) {
+    const axis: Wheel.NavigationAxis = switch (event.orientation) {
+        .vertical_scroll => .vertical,
+        .horizontal_scroll => .horizontal,
+        else => {
+            seat.wheel.reset();
+            seat.cursor.processAxis(event);
+            return;
+        },
+    };
+    const source: ?Wheel.Source = switch (event.source) {
         .wheel => .wheel,
         .finger => .finger,
         else => null,
-    } else null;
+    };
     if (source) |wheel_source| {
         const modifiers: u32 = if (seat.wlr_seat.getKeyboard()) |keyboard|
             @bitCast(keyboard.getModifiers())
         else
             0;
-        if (server.aqueous.wheelNavigationAxis(modifiers)) |axis| {
-            const steps = seat.wheel.update(
-                axis,
-                wheel_source,
-                event.time_msec,
-                event.delta,
-                event.delta_discrete_raw,
-            );
-            if (steps != 0) _ = server.aqueous.navigateWithWheel(axis, steps);
+        const value = if (wheel_source == .wheel) @as(f64, @floatFromInt(event.delta_discrete_raw)) else event.delta;
+        const direction = Wheel.Direction.fromAxis(axis, value < 0);
+        // A finger stop follows the consumer of the preceding sequence. An
+        // unbound direction still needs its stop even if the opposite is bound.
+        const bound = if (value == 0) seat.wheel.captured(axis) else server.aqueous.wheelBindingVerb(seat, direction, modifiers) != null;
+        if (bound) {
+            const steps = seat.wheel.update(axis, wheel_source, event.time_msec, event.delta, event.delta_discrete_raw);
+            if (steps != 0) server.aqueous.handleWheel(seat, direction, modifiers, @abs(steps));
             return;
         }
     }
 
-    seat.wheel.reset();
+    seat.wheel.resetAxis(axis);
     seat.cursor.processAxis(event);
 }
 
