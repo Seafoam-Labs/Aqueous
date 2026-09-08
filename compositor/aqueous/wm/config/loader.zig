@@ -568,6 +568,10 @@ fn applyInputSource(snapshot: *Snapshot, source: []const u8) void {
 fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
     const defaults: wm.Input = .{};
     if (overlay.focus_follows_mouse != defaults.focus_follows_mouse) base.focus_follows_mouse = overlay.focus_follows_mouse;
+    if (overlay.mouse_follows_focus_set) {
+        base.mouse_follows_focus = overlay.mouse_follows_focus;
+        base.mouse_follows_focus_set = true;
+    }
     if (overlay.focus_new_windows_set) {
         base.focus_new_windows = overlay.focus_new_windows;
         base.focus_new_windows_set = true;
@@ -784,4 +788,20 @@ test "wm config discovery checks XDG HOME and system fallback in order" {
     try std.testing.expectEqualStrings("/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, xdgAndHomeWmExist).?);
     try std.testing.expectEqualStrings("/home/test/.config/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, homeWmExists).?);
     try std.testing.expectEqualStrings("/etc/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, systemWmExists).?);
+}
+
+test "mouse follows focus sidecar presence and invalid values" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.wm.input.mouse_follows_focus);
+    applyInputSource(&snapshot, "[input]\nmouse_follows_focus = invalid");
+    try std.testing.expect(!snapshot.wm.input.mouse_follows_focus_set);
+    applyInputSource(&snapshot, "[input]\nmouse_follows_focus = true");
+    try std.testing.expect(snapshot.wm.input.mouse_follows_focus);
+    applyInputSource(&snapshot, "[input]\nfocus_new_windows = true");
+    try std.testing.expect(snapshot.wm.input.mouse_follows_focus);
+    applyInputSource(&snapshot, "[input]\nmouse_follows_focus = invalid");
+    try std.testing.expect(snapshot.wm.input.mouse_follows_focus);
+    applyInputSource(&snapshot, "[input]\nmouse_follows_focus = false");
+    try std.testing.expect(!snapshot.wm.input.mouse_follows_focus);
+    try std.testing.expect(snapshot.wm.input.mouse_follows_focus_set);
 }

@@ -1803,6 +1803,25 @@ pub fn renderFinish(window: *Window) void {
     }
 }
 
+/// Visible content in committed logical layout coordinates, excluding borders.
+pub fn focusWarpBox(window: *Window) ?wlr.Box {
+    if (window.state != .mapped or !window.tree.node.enabled or window.overview_hidden) return null;
+    const workspace = window.workspace orelse return null;
+    if (!workspace.isActive()) return null;
+    var visible: wlr.Box = .{ .x = 0, .y = 0, .width = window.box.width, .height = window.box.height };
+    if (visible.empty()) return null;
+    if (window.wm_requested.fullscreen == null) {
+        for ([_]wlr.Box{ window.rendering_requested.clip, window.rendering_requested.content_clip }) |clip| {
+            if (!clip.empty() and !visible.intersection(&visible, &clip)) return null;
+        }
+    }
+    visible.x += window.box.x;
+    visible.y += window.box.y;
+    const output_box = workspace.output.current.box();
+    if (!visible.intersection(&visible, &output_box)) return null;
+    return visible;
+}
+
 pub fn refreshBackdropBlur(window: *Window) void {
     const requested = &window.rendering_requested;
     const fullscreen = window.wm_requested.fullscreen != null;

@@ -709,7 +709,10 @@ fn renderFinish(wm: *WindowManager) void {
 
     {
         var it = server.input_manager.seats.iterator(.forward);
-        while (it.next()) |seat| seat.cursor.updateState();
+        while (it.next()) |seat| {
+            seat.finishFocusWarp();
+            seat.cursor.updateState();
+        }
     }
 
     server.idle_inhibit_manager.checkActive();

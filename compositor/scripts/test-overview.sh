@@ -280,6 +280,7 @@ buffer_geometry=$(grep -F 'overview thumbnail buffer [buffer]' <<<"$scene" |
 read -r bx by bw bh <<<"$buffer_geometry"
 wlrctl pointer move -10000 -10000
 wlrctl pointer move "$((bx + bw / 2))" "$((by + bh / 2))"
+cursor_before_click=$(printf '%s\n' '{"op":"cursor_state"}' | nc -U -q 1 "$OUTPUT_SOCKET" | head -1 | jq -c '[.x,.y]')
 wlrctl pointer click left
 for _ in $(seq 1 120); do
     click_focus=$(focused_id)
@@ -287,6 +288,8 @@ for _ in $(seq 1 120); do
     sleep 0.03
 done
 [ "$click_focus" != "$cancel_focus" ] || die "overview pointer click did not change focus"
+cursor_after_click=$(printf '%s\n' '{"op":"cursor_state"}' | nc -U -q 1 "$OUTPUT_SOCKET" | head -1 | jq -c '[.x,.y]')
+[ "$cursor_after_click" = "$cursor_before_click" ] || die "overview pointer selection moved the cursor"
 
 # Removing the selected window keeps the frozen membership coherent and
 # selects a replacement without rebuilding unrelated cards.

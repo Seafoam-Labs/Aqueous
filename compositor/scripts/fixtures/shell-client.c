@@ -286,6 +286,8 @@ int main(int argc, char **argv) {
             } else if (!strcmp(command, "pointer-release\n")) {
                 if (pointer_lock) { zwp_locked_pointer_v1_destroy(pointer_lock); pointer_lock = NULL; }
                 if (pointer_confine) { zwp_confined_pointer_v1_destroy(pointer_confine); pointer_confine = NULL; }
+                assert(wl_display_roundtrip(display) >= 0);
+                puts("pointer released");
             }
             else if (!strncmp(command, "inhibit", 7) && !inhibitor && window) {
                 inhibitor = zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(inhibit_manager, window, seat);

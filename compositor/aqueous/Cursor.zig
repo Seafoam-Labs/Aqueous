@@ -439,6 +439,33 @@ pub fn warpForPolicy(cursor: *Cursor, x: i32, y: i32) void {
     cursor.updateState();
 }
 
+/// Prefer the visible center, retaining the user's position when already over
+/// the target. Hit testing excludes occluding windows, panels and popup grabs.
+pub fn warpToFocusedWindow(cursor: *Cursor, window: *Window) void {
+    const box = window.focusWarpBox() orelse return;
+    if (box.containsPoint(cursor.wlr_cursor.x, cursor.wlr_cursor.y) and
+        focusWarpHits(window, cursor.wlr_cursor.x, cursor.wlr_cursor.y)) return;
+
+    // Center first, then inset points for partially occluded/input-shaped clients.
+    const fractions = [_]f64{ 0.5, 0.25, 0.75, 0.05, 0.95 };
+    for (fractions) |fy| {
+        for (fractions) |fx_fraction| {
+            const x = box.x + @as(i32, @intFromFloat(@as(f64, @floatFromInt(box.width)) * fx_fraction));
+            const y = box.y + @as(i32, @intFromFloat(@as(f64, @floatFromInt(box.height)) * fy));
+            if (focusWarpHits(window, @floatFromInt(x), @floatFromInt(y))) {
+                cursor.warpForPolicy(x, y);
+                return;
+            }
+        }
+    }
+}
+
+fn focusWarpHits(window: *Window, x: f64, y: f64) bool {
+    const at = server.scene.at(x, y) orelse return false;
+    return at.data == .window and at.data.window == window and
+        at.surface != null and at.surface.?.getRootSurface() == window.rootSurface();
+}
+
 fn hasActivePointerConstraint(cursor: *const Cursor) bool {
     if (cursor.constraint) |constraint| {
         return constraint.state == .active;
@@ -489,6 +516,8 @@ pub fn canStartXwaylandPointerOperation(cursor: *const Cursor, surface: *wlr.Sur
 }
 
 pub fn processMotionRelative(cursor: *Cursor, event: *const Seat.Event.PointerMotionRelative) void {
+    // Physical input supersedes any cursor move deferred by keyboard focus.
+    cursor.seat.cancelFocusWarp();
     cursor.processMotionRelativeInternal(event, true);
 }
 
@@ -694,6 +723,8 @@ fn updateHovered(cursor: *Cursor, allow_focus_follow: bool) void {
 }
 
 pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMotionAbsolute) void {
+    // Physical input supersedes any cursor move deferred by keyboard focus.
+    cursor.seat.cancelFocusWarp();
     if (event.generation != cursor.pointer_mode_generation) return;
 
     var mapping = event.mapping;
@@ -716,6 +747,8 @@ pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMo
 }
 
 pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) void {
+    // Physical input supersedes any cursor move deferred by keyboard focus.
+    cursor.seat.cancelFocusWarp();
     if (event.state == .pressed) {
         const result = cursor.pressed.getOrPut(util.gpa, event.button) catch {
             log.err("out of memory", .{});

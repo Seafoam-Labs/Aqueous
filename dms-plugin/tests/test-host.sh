@@ -107,16 +107,18 @@ ShellRoot {
                 displayEditor.stageMode('1920x1080','59.94');
                 displayEditor.stage(displayEditor.monitor,-200,40,'90');
                 daemon.model.change('layout.gaps_inner',13);
+                daemon.model.change('input.mouse_follows_focus',true);
                 daemon.model.change('desktop.font.size_pt',13);
                 daemon.submit('validate');
             } else if (test.step === 13) {
                 if (daemon.client.busy) return;
-                if (daemon.model.count !== 3 || daemon.errorCode) console.error('AQUEOUS_HOST_FAIL validate',daemon.status);
+                if (daemon.model.count !== 4 || daemon.errorCode) console.error('AQUEOUS_HOST_FAIL validate',daemon.status);
                 daemon.submit('apply');
             } else if (test.step === 14) {
                 if (daemon.client.busy) return;
                 if (daemon.model.count !== 0 || daemon.model.value('layout.gaps_inner') !== 13 || daemon.errorCode) console.error('AQUEOUS_HOST_FAIL apply',daemon.status);
                 if (!daemon.model.snapshot.monitors.some(m => m.mode === '1920x1080@59.94' && m.x === -200 && m.transform === '90')) console.error('AQUEOUS_HOST_FAIL monitor mode');
+                if (daemon.model.value('input.mouse_follows_focus') !== true) console.error('AQUEOUS_HOST_FAIL mouse follows focus');
                 if (!Array.isArray(daemon.model.snapshot.live_outputs)) console.error('AQUEOUS_HOST_FAIL mode discovery');
                 if (daemon.appearance.state !== 'partial') console.error('AQUEOUS_HOST_FAIL appearance',daemon.appearance.message);
             } else {

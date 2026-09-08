@@ -179,7 +179,16 @@ pub fn xwaylandKeyboardGrabActive(seat: *const Seat) bool {
         seat.wlr_seat.keyboard_state.focused_surface == surface;
 }
 
+const PointerWarp = struct { x: i32, y: i32 };
+
+pub fn cancelFocusWarp(seat: *Seat) void {
+    seat.wm_requested.follow_focus = false;
+    seat.focus_warp = null;
+    seat.output_warp = null;
+}
+
 pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
+    seat.cancelFocusWarp();
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| {
         if (window.workspace) |workspace| seat.selected_output = workspace.output;
@@ -188,6 +197,7 @@ pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
 }
 
 pub fn policyClearFocus(seat: *Seat) void {
+    seat.cancelFocusWarp();
     seat.wm_requested.focus = .clear;
 }
 
@@ -254,8 +264,13 @@ wm_requested: struct {
         start_pointer,
         end,
     } = .none,
-    pointer_warp: ?struct { x: i32, y: i32 } = null,
+    pointer_warp: ?PointerWarp = null,
+    follow_focus: bool = false,
 } = .{},
+
+/// Resolved after scene geometry and stacking have committed.
+focus_warp: ?Window.Ref = null,
+output_warp: ?PointerWarp = null,
 
 xkb_bindings: wl.list.Head(XkbBinding, .link),
 pointer_bindings: wl.list.Head(PointerBinding, .link),
@@ -799,7 +814,15 @@ fn handleRequest(
 pub fn manageFinish(seat: *Seat) void {
     seat.xkb_bindings_seat.manageFinish();
 
-    if (server.lock_manager.state != .unlocked) return;
+    if (server.lock_manager.state != .unlocked) {
+        seat.cancelFocusWarp();
+        seat.wm_requested.pointer_warp = null;
+        return;
+    }
+    const previous_focus = seat.policyFocusedHandle();
+    const requested_focus = seat.wm_requested.focus;
+    const follow_focus = seat.wm_requested.follow_focus;
+    seat.wm_requested.follow_focus = false;
 
     switch (seat.layer_shell.sent.focus) {
         .exclusive => |ref| if (ref.get()) |layer_surface| {
@@ -852,9 +875,48 @@ pub fn manageFinish(seat: *Seat) void {
     }
     seat.wm_requested.op = .none;
 
-    if (seat.wm_requested.pointer_warp) |target| {
-        seat.wm_requested.pointer_warp = null;
+    const output_warp = seat.wm_requested.pointer_warp;
+    seat.wm_requested.pointer_warp = null;
+    if (server.aqueous.config.wm.input.mouse_follows_focus) {
+        if (requested_focus == .window and (follow_focus or output_warp != null)) {
+            const ref = requested_focus.window;
+            if (seat.policyFocusedHandle() == @as(u64, @bitCast(ref)) and
+                (previous_focus != seat.policyFocusedHandle() or output_warp != null))
+            {
+                seat.focus_warp = ref;
+            }
+        }
+        seat.output_warp = output_warp;
+        // Do not replay an automatic warp after a grab ends before renderFinish.
+        if (!seat.canFollowFocus()) seat.cancelFocusWarp();
+    } else if (output_warp) |target| {
         seat.cursor.warpForPolicy(target.x, target.y);
+    }
+}
+
+fn canFollowFocus(seat: *const Seat) bool {
+    return server.lock_manager.state == .unlocked and
+        server.aqueous.config.wm.input.mouse_follows_focus and
+        seat.drag == .none and seat.op == null and
+        !server.aqueous.interactiveDragActive() and
+        seat.cursor.mode == .passthrough and
+        seat.wlr_seat.pointer_state.button_count == 0 and
+        seat.wlr_seat.pointer_state.grab == seat.wlr_seat.pointer_state.default_grab;
+}
+
+/// Called once after all live window trees and output geometry are committed.
+/// Animation clones do not own input; the live trees already use their targets.
+pub fn finishFocusWarp(seat: *Seat) void {
+    defer seat.cancelFocusWarp();
+    if (!seat.canFollowFocus()) return;
+    if (seat.focus_warp) |ref| {
+        const window = ref.get() orelse return;
+        if (seat.focused != .window or seat.focused.window != window or
+            seat.wlr_seat.keyboard_state.focused_surface != window.rootSurface()) return;
+        seat.cursor.warpToFocusedWindow(window);
+    } else if (seat.output_warp) |target| {
+        // Empty output navigation still needs a cursor destination.
+        if (seat.focused == .none) seat.cursor.warpForPolicy(target.x, target.y);
     }
 }
 

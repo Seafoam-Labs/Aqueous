@@ -57,6 +57,8 @@ pub const Device = struct {
 
 pub const Input = struct {
     focus_follows_mouse: bool = false,
+    mouse_follows_focus: bool = false,
+    mouse_follows_focus_set: bool = false,
     focus_new_windows: bool = false,
     focus_new_windows_set: bool = false,
     /// Focus and visual stacking are independent. This defaults to the current
@@ -293,6 +295,10 @@ fn applyOpacity(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
 
 fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "focus_follows_mouse")) input.focus_follows_mouse = parseBool(value) orelse input.focus_follows_mouse;
+    if (std.mem.eql(u8, key, "mouse_follows_focus")) if (parseBool(value)) |parsed| {
+        input.mouse_follows_focus = parsed;
+        input.mouse_follows_focus_set = true;
+    };
     if (std.mem.eql(u8, key, "focus_new_windows")) if (parseBool(value)) |parsed| {
         input.focus_new_windows = parsed;
         input.focus_new_windows_set = true;

@@ -47,6 +47,7 @@ const LayoutStateKey = struct { output: u64, workspace: u32 };
 
 mode: Mode,
 api: CompositorApi = .{},
+focus_cause: CompositorApi.FocusCause = .non_pointer,
 trace: Trace = .{},
 config: config_loader.Snapshot = .{},
 rules: Rules,
@@ -202,6 +203,10 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
     }
     aqueous.config = replacement;
+    if (!aqueous.config.wm.input.mouse_follows_focus) {
+        var seats = server.input_manager.seats.iterator(.forward);
+        while (seats.next()) |seat| seat.cancelFocusWarp();
+    }
     aqueous.api.setLegacyServerDecorationForce(aqueous.config.wm.force_ssd);
     if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
@@ -784,6 +789,9 @@ fn startClientPointerDrag(
     action: pointer_drag.Action,
     edges: pointer_drag.ResizeEdges,
 ) void {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     if (aqueous.drag != null) return;
     const state = aqueous.window_states.get(handle) orelse return;
     if (state.fixed_position) return;
@@ -917,6 +925,9 @@ fn finishInvalidInteractiveDrag(
 }
 
 fn recoverRemovedOutputDrag(aqueous: *Aqueous, drag: Drag) bool {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     const state = aqueous.window_states.get(drag.handle) orelse return false;
     if (state.kind() != .floating) return false;
     const target = aqueous.api.outputTargetAt(drag.last_pointer_x, drag.last_pointer_y, true) orelse {
@@ -1156,6 +1167,9 @@ pub fn wheelNavigationAxis(aqueous: *Aqueous, modifiers: u32) ?wheel_input.Navig
 }
 
 pub fn navigateWithWheel(aqueous: *Aqueous, axis: wheel_input.NavigationAxis, steps: i32) bool {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     if (steps == 0) return false;
     return switch (axis) {
         .horizontal => aqueous.scrollViewport(steps, 0),
@@ -1164,6 +1178,9 @@ pub fn navigateWithWheel(aqueous: *Aqueous, axis: wheel_input.NavigationAxis, st
 }
 
 pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, pressed: bool, x: f64, y: f64, time_msec: u32) bool {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     if (!aqueous.mode.runsInternal()) return false;
     if (aqueous.overview != null) {
         if (button == 0x110 and pressed) { // BTN_LEFT
@@ -1308,6 +1325,9 @@ fn handleScrollingClick(aqueous: *Aqueous, drag: Drag, time_msec: u32) void {
 }
 
 pub fn handleHover(aqueous: *Aqueous, handle: ?layout_types.Handle) void {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     if (!aqueous.mode.runsInternal() or !aqueous.config.wm.input.focus_follows_mouse) {
         aqueous.cancelHoverFocus();
         return;
@@ -1355,6 +1375,9 @@ pub fn handleClientDragStarted(aqueous: *Aqueous) void {
 /// was disabled. Xwayland games can then receive pointer input while keyboard
 /// events continue going to the previously focused client.
 pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     if (!aqueous.mode.runsInternal()) return;
     aqueous.cancelHoverFocus();
     const state = aqueous.window_states.get(handle) orelse return;
@@ -3187,6 +3210,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
             replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
         }
         aqueous.config = replacement;
+        if (!aqueous.config.wm.input.mouse_follows_focus) {
+            var seats = server.input_manager.seats.iterator(.forward);
+            while (seats.next()) |seat| seat.cancelFocusWarp();
+        }
         aqueous.api.setLegacyServerDecorationForce(aqueous.config.wm.force_ssd);
         if (!aqueous.config.wm.input.focus_new_windows) aqueous.pending_new_focus = 0;
     }
@@ -3283,7 +3310,7 @@ fn raiseFocusedPlacement(stack: *WorkspaceStack, placements: []const layout_type
 fn requestFocus(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (aqueous.window_states.get(handle)) |state| if (!state.focus_allowed) return;
     aqueous.cancelHoverFocus();
-    aqueous.api.requestFocus(handle);
+    aqueous.api.requestFocusWithCause(handle, null, aqueous.focus_cause);
     aqueous.requestFocusRaise(handle);
 }
 
@@ -3295,7 +3322,7 @@ fn requestFocusPreservingStack(aqueous: *Aqueous, handle: layout_types.Handle) v
     if (aqueous.window_states.get(handle)) |state| if (!state.focus_allowed) return;
     aqueous.cancelHoverFocus();
     aqueous.cancelPendingRaise();
-    aqueous.api.requestFocus(handle);
+    aqueous.api.requestFocusWithCause(handle, null, aqueous.focus_cause);
 }
 
 fn requestFocusRaise(aqueous: *Aqueous, handle: layout_types.Handle) void {
@@ -3355,6 +3382,9 @@ fn disarmHoverFocusTimer(aqueous: *Aqueous) void {
 }
 
 fn handleHoverFocusTimer(aqueous: *Aqueous) c_int {
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
     const pending = aqueous.hover_focus.pending orelse return 0;
     const valid_context = aqueous.mode.runsInternal() and
         aqueous.config.wm.input.focus_follows_mouse and

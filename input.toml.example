@@ -27,6 +27,9 @@ pinch_4_in = "builtin:toggle_start_menu"
 [input]
 # Focus a window when the pointer enters it.
 focus_follows_mouse = false
+# Move into newly focused windows except after pointer interactions.
+# Output navigation still moves the pointer when this is disabled.
+mouse_follows_focus = false
 focus_new_windows = false
 # Focus and raising are independent. A nonzero delay is especially useful with
 # focus_follows_mouse, where briefly crossing a window should not restack it.

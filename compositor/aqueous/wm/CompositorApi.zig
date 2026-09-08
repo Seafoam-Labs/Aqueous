@@ -245,11 +245,18 @@ pub fn requestFocus(api: CompositorApi, handle: layout.Handle) void {
     api.requestFocusOnSeat(handle, null);
 }
 
-pub fn requestFocusOnSeat(_: CompositorApi, handle: layout.Handle, name: ?[]const u8) void {
+pub const FocusCause = enum { non_pointer, pointer };
+
+pub fn requestFocusOnSeat(api: CompositorApi, handle: layout.Handle, name: ?[]const u8) void {
+    api.requestFocusWithCause(handle, name, .non_pointer);
+}
+
+pub fn requestFocusWithCause(_: CompositorApi, handle: layout.Handle, name: ?[]const u8, cause: FocusCause) void {
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| {
         if (name) |value| if (!std.mem.eql(u8, value, std.mem.span(seat.wlr_seat.name))) continue;
         seat.policyRequestFocus(handle);
+        seat.wm_requested.follow_focus = cause == .non_pointer and server.aqueous.config.wm.input.mouse_follows_focus;
         server.wm.dirtyWindowing();
         return;
     }

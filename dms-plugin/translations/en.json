@@ -84,6 +84,8 @@
     "Fallback layout": "Fallback layout",
     "Fallback profile": "Fallback profile",
     "Focus a window when the pointer enters it.": "Focus a window when the pointer enters it.",
+    "Move pointer with focus": "Move pointer with focus",
+    "Move the pointer into newly focused windows, except for pointer interactions. Output navigation still moves the pointer when disabled.": "Move the pointer into newly focused windows, except for pointer interactions. Output navigation still moves the pointer when disabled.",
     "Focus follows pointer": "Focus follows pointer",
     "Focus new windows": "Focus new windows",
     "Focus raise delay": "Focus raise delay",

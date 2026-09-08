@@ -99,6 +99,9 @@ rollback_seconds = 0
 # [input]
 # path = "~/.config/aqueous/input.toml"
 # focus_follows_mouse = false
+# Move into newly focused windows except after pointer interactions.
+# Output navigation still moves the pointer when this is disabled.
+# mouse_follows_focus = false
 # focus_new_windows = false
 # raise_on_focus = true
 # raise_on_focus_delay_ms = 0
@@ -201,9 +204,9 @@ rate = 0.0
 # This is where you set actions that are attached to a keybind
 # -----------------------------------------------------------------------------
 [actions]
-toggle_start_menu = "noctalia msg panel-toggle launcher"
+toggle_start_menu = "dms ipc launcher toggle"
 spawn_terminal = "ghostty"
-screenshot = "noctalia msg screenshot-region"
+screenshot = "dms screenshot full"
 
 # -----------------------------------------------------------------------------
 # Keybindings.
@@ -382,7 +385,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
-"Super+Shift+S"      = "spawn:noctalia msg screenshot-region"
+"Super+Shift+S"      = "spawn:spawn:dms screenshot"
 "Super+B"            = "spawn:zen-browser"
 "XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
 "XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"

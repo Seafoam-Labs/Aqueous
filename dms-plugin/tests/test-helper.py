@@ -73,6 +73,19 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
         field = next(f for f in call('snapshot')['fields'] if f['id'] == field_id)
         assert field['configured'] and field['value'] is value
         assert 'open_new_windows_to_right = ' + str(value).lower() in (config/'layout.toml').read_text()
+    # Both shells consume the shared input schema and persist explicit false.
+    field_id = 'input.mouse_follows_focus'
+    for shell in ['dms', 'noctalia']:
+        field = next(f for f in call('snapshot', shell=shell)['fields'] if f['id'] == field_id)
+        assert field['type'] == 'boolean' and field['default'] is False
+        for value in [True, False]:
+            change = dict(protocol=1, expected_generation=applied['generation'],
+                          changes=[dict(id=field_id, value=value)])
+            call('validate', change, shell=shell)
+            applied = call('apply', change, shell=shell)
+            field = next(f for f in call('snapshot', shell=shell)['fields'] if f['id'] == field_id)
+            assert field['configured'] and field['value'] is value
+            assert 'mouse_follows_focus = ' + str(value).lower() in (config/'input.toml').read_text()
     # Default Noctalia behavior remains available to its existing caller.
     req['expected_generation'] = applied['generation']
     call('apply',req,shell='noctalia')

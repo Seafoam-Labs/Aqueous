@@ -159,6 +159,7 @@ pub const fields = [_]Field{
     stackB("layout.options.float.top_edge_maximize", "Top edge maximizes", "Use the full usable area when a window reaches the top edge.", "top_edge_maximize", true),
 
     b("input.focus_follows_mouse", .input, "Focus follows pointer", "Focus a window when the pointer enters it.", .input, "input", "focus_follows_mouse", false),
+    b("input.mouse_follows_focus", .input, "Move pointer with focus", "Move the pointer into newly focused windows, except for pointer interactions. Output navigation still moves the pointer when disabled.", .input, "input", "mouse_follows_focus", false),
     b("input.focus_new_windows", .input, "Focus new windows", "Give keyboard focus to a newly opened focusable window.", .input, "input", "focus_new_windows", false),
     b("input.raise_on_focus", .input, "Raise focused windows", "Raise a freeform window when it receives focus.", .input, "input", "raise_on_focus", true),
     f("input.raise_on_focus_delay_ms", .input, "Focus raise delay", "Milliseconds to wait before raising a newly focused freeform window.", .input, "input", "raise_on_focus_delay_ms", .integer, "0", 0, 10000),
