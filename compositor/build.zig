@@ -539,6 +539,41 @@ pub fn build(b: *Build) !void {
         config_test.root_module.addImport("wayland", wayland);
         const run_config_test = b.addRunArtifact(config_test);
 
+        const keyboard_test = b.addTest(.{
+            // Keyboard types reference the server; run this fixture without
+            // also collecting unrelated tests from the whole compositor.
+            .filters = &.{"keyboard policy:"},
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/keyboard_tests.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        keyboard_test.root_module.addOptions("build_options", options);
+        keyboard_test.root_module.addImport("wayland", wayland);
+        keyboard_test.root_module.addImport("wlroots", wlroots);
+        keyboard_test.root_module.addImport("xkbcommon", xkbcommon);
+        keyboard_test.root_module.addImport("pixman", pixman);
+        keyboard_test.root_module.addImport("flags", flags);
+        keyboard_test.root_module.addImport("slotmap", slotmap);
+        keyboard_test.root_module.addImport("scaling", scaling);
+        keyboard_test.root_module.addImport("c", translate_c.mod);
+        keyboard_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        keyboard_test.root_module.linkSystemLibrary("xkbcommon", .{});
+        keyboard_test.root_module.linkSystemLibrary("wayland-server", .{});
+        keyboard_test.root_module.linkSystemLibrary("libinput", .{});
+        keyboard_test.root_module.linkSystemLibrary("libevdev", .{});
+        keyboard_test.root_module.linkSystemLibrary("pixman-1", .{});
+        if (vulkan_effects) keyboard_test.root_module.linkSystemLibrary("vulkan", .{});
+        keyboard_test.root_module.addCSourceFile(.{
+            .file = b.path("aqueous/wlroots_log_wrapper.c"),
+            .flags = &.{ "-std=c99", "-O2" },
+        });
+        const run_keyboard_test = b.addRunArtifact(keyboard_test);
+
         const layout_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/wm/layout/tests.zig"),
@@ -679,6 +714,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_aqueous_test.step);
         test_step.dependOn(&run_trace_test.step);
         test_step.dependOn(&run_config_test.step);
+        test_step.dependOn(&run_keyboard_test.step);
         test_step.dependOn(&run_layout_test.step);
         test_step.dependOn(&run_overview_model_test.step);
         test_step.dependOn(&run_rules_test.step);

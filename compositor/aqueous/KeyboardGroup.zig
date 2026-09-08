@@ -122,6 +122,24 @@ pub fn ref(group: *KeyboardGroup) *KeyboardGroup {
     return group;
 }
 
+/// Apply a changed policy without resetting other modifiers or rebuilding the
+/// group. Compare policy values, not live state, so reloads preserve manual
+/// Num Lock toggles and shared groups are updated only once.
+pub fn setNumLockState(group: *KeyboardGroup, enabled: bool) void {
+    assert(!group.virtual);
+    if (group.config.num_lock_state == enabled) return;
+    group.config.num_lock_state = enabled;
+    const keymap = group.state.keymap orelse return;
+    const mask = keymap.modGetMask(xkb.names.vmod.num);
+    var modifiers = group.state.modifiers;
+    if (enabled) {
+        modifiers.locked |= mask;
+    } else {
+        modifiers.locked &= ~mask;
+    }
+    group.state.notifyModifiers(modifiers);
+}
+
 pub fn unref(group: *KeyboardGroup, to_release: []u32) void {
     defer server.shell_manager.dirty();
     for (to_release) |keycode| {
@@ -165,6 +183,7 @@ pub fn match(group: *const KeyboardGroup, config: *Keyboard.Config) bool {
     const b = config;
     if (a.repeat_rate != b.repeat_rate) return false;
     if (a.repeat_delay != b.repeat_delay) return false;
+    if (a.num_lock_state != b.num_lock_state) return false;
 
     if (a.keymap == b.keymap) return true;
     if (a.keymap == null or b.keymap == null) return false;

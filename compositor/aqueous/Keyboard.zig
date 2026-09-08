@@ -119,6 +119,9 @@ fn shouldSetKeymapIter(backend: *wlr.Backend, wayland_or_x11: *bool) void {
 
 pub fn setGroup(keyboard: *Keyboard) void {
     assert(keyboard.group == null);
+    // Group creation sets modifiers before this keyboard joins it. Synchronize
+    // LEDs after joining, including when a hotplugged keyboard reuses a group.
+    defer if (keyboard.group) |group| keyboard.device.wlr_device.toKeyboard().ledUpdate(group.state.leds);
     const seat = keyboard.device.seat;
     // Virtual keyboards set their own keymap and require independent modifier state.
     // Therefore, they are always placed in their own group of one.
@@ -145,6 +148,12 @@ pub fn setRepeatInfo(keyboard: *Keyboard, rate: u31, delay: u31) void {
     keyboard.config.repeat_rate = rate;
     keyboard.config.repeat_delay = delay;
     keyboard.rebuildGroup();
+}
+
+pub fn setNumLockState(keyboard: *Keyboard, enabled: bool) void {
+    assert(!keyboard.device.virtual);
+    keyboard.config.num_lock_state = enabled;
+    if (keyboard.group) |group| group.setNumLockState(enabled);
 }
 
 pub fn setKeymap(keyboard: *Keyboard, keymap: *xkb.Keymap) void {

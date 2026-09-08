@@ -82,6 +82,7 @@ pub const Input = struct {
     xkb_variant: Text = .{},
     xkb_options: Text = .{},
     num_lock_state: bool = false,
+    num_lock_state_set: bool = false,
 };
 
 pub const OutputLayout = struct {
@@ -321,7 +322,10 @@ fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
         input.repeat_delay = parsed;
         input.repeat_delay_set = true;
     };
-    if (std.mem.eql(u8, key, "num_lock_state")) input.num_lock_state = parseBool(value) orelse input.num_lock_state;
+    if (std.mem.eql(u8, key, "num_lock_state")) if (parseBool(value)) |parsed| {
+        input.num_lock_state = parsed;
+        input.num_lock_state_set = true;
+    };
     if (std.mem.eql(u8, key, "xkb_layout")) _ = input.xkb_layout.set(value);
     if (std.mem.eql(u8, key, "xkb_variant")) _ = input.xkb_variant.set(value);
     if (std.mem.eql(u8, key, "xkb_options")) _ = input.xkb_options.set(value);
@@ -482,6 +486,22 @@ test "render config parses overlay planes and defaults off" {
         \\overlay_planes = invalid
     );
     try std.testing.expect(snapshot.overlay_planes);
+}
+
+test "Num Lock parsing records only valid explicit values" {
+    var snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = invalid");
+    try std.testing.expect(!snapshot.input.num_lock_state);
+    try std.testing.expect(!snapshot.input.num_lock_state_set);
+    apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = true");
+    try std.testing.expect(snapshot.input.num_lock_state);
+    try std.testing.expect(snapshot.input.num_lock_state_set);
+    apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = invalid");
+    try std.testing.expect(snapshot.input.num_lock_state);
+    apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = false");
+    try std.testing.expect(!snapshot.input.num_lock_state);
+    try std.testing.expect(snapshot.input.num_lock_state_set);
 }
 
 test "wm and input config validates mappings, struts, and device settings" {

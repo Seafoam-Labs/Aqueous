@@ -594,6 +594,10 @@ fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
         base.repeat_delay = overlay.repeat_delay;
         base.repeat_delay_set = true;
     }
+    if (overlay.num_lock_state_set) {
+        base.num_lock_state = overlay.num_lock_state;
+        base.num_lock_state_set = true;
+    }
     mergeDevice(&base.mouse, overlay.mouse);
     mergeDevice(&base.touchpad, overlay.touchpad);
     mergeDevice(&base.trackpoint, overlay.trackpoint);
@@ -612,6 +616,54 @@ fn mergeDevice(base: *wm.Device, overlay: wm.Device) void {
     if (overlay.click_method != .unset) base.click_method = overlay.click_method;
     if (overlay.scroll_method != .unset) base.scroll_method = overlay.scroll_method;
     if (overlay.middle_emulation != null) base.middle_emulation = overlay.middle_emulation;
+}
+
+test "input sidecar Num Lock overrides inherited values in both directions" {
+    for ([_]bool{ false, true }) |inherited| {
+        var snapshot: Snapshot = .{};
+        wm.apply(&snapshot.wm, &snapshot.layout, if (inherited)
+            "[input]\nnum_lock_state = true"
+        else
+            "[input]\nnum_lock_state = false");
+        applyInputSource(&snapshot, if (inherited)
+            "[input]\nnum_lock_state = false"
+        else
+            "[input]\nnum_lock_state = true");
+        try std.testing.expectEqual(!inherited, snapshot.wm.input.num_lock_state);
+        try std.testing.expect(snapshot.wm.input.num_lock_state_set);
+    }
+}
+
+test "input sidecar Num Lock defaults presence and malformed values" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.wm.input.num_lock_state);
+    try std.testing.expect(!snapshot.wm.input.num_lock_state_set);
+    applyInputSource(&snapshot, "[input]\nnum_lock_state = invalid");
+    try std.testing.expect(!snapshot.wm.input.num_lock_state_set);
+    applyInputSource(&snapshot, "[input]\nnum_lock_state = true");
+    try std.testing.expect(snapshot.wm.input.num_lock_state);
+    try std.testing.expect(snapshot.wm.input.num_lock_state_set);
+    applyInputSource(&snapshot, "[input]\nrepeat_rate = 55");
+    try std.testing.expect(snapshot.wm.input.num_lock_state);
+    applyInputSource(&snapshot, "[input]\nnum_lock_state = invalid");
+    try std.testing.expect(snapshot.wm.input.num_lock_state);
+    applyInputSource(&snapshot, "[input]\nnum_lock_state = false");
+    try std.testing.expect(!snapshot.wm.input.num_lock_state);
+    try std.testing.expect(snapshot.wm.input.num_lock_state_set);
+}
+
+test "removing Num Lock sidecar override restores inherited policy on reload" {
+    const wm_source = "[input]\nnum_lock_state = true";
+    var initial: Snapshot = .{};
+    wm.apply(&initial.wm, &initial.layout, wm_source);
+    applyInputSource(&initial, "[input]\nnum_lock_state = false");
+    try std.testing.expect(!initial.wm.input.num_lock_state);
+
+    // Reload builds a fresh snapshot from wm.toml before applying the sidecar.
+    var replacement: Snapshot = .{};
+    wm.apply(&replacement.wm, &replacement.layout, wm_source);
+    applyInputSource(&replacement, "[input]\nrepeat_rate = 55");
+    try std.testing.expect(replacement.wm.input.num_lock_state);
 }
 
 test "input sidecar repeat settings override inherited values including defaults" {
