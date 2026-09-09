@@ -282,3 +282,10 @@ text=text.replace('.modal=>|*w| collectFocus(window,w.child,list,count)', '.moda
 text=text.replace('if(count.*==list.len or !isInteractionAllowed(window,w.layout.x,w.layout.y)) return;', 'if(count.*==list.len or (window.state.modals.items.len>0 and !in_modal)) return;')
 text=text.replace('collectFocus(window,root,&list,&count);','collectFocus(window,root,&list,&count,false);')
 p.write_text(text)
+
+# Offer every physical key (including modifiers, function and media keys) to the
+# application's recorder before normal text handling or local shortcuts.
+replace('platforms/wayland.zig', '        .key => |ev| {', '''        .key => |ev| {
+            if (aq_shortcut_key(@ptrCast(data.xkb_state), ev.key, ev.state == .pressed) != 0) return;''')
+p=dst/'platforms/wayland.zig'
+p.write_text(p.read_text()+'\nextern fn aq_shortcut_key(state: ?*anyopaque, key: u32, down: bool) c_int;\n')

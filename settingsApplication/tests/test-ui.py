@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                 finally:
                     if child.poll() is None: child.kill();child.wait()
                 print('Quark page passed:',page)
-            if os.environ.get('AQUEOUS_SETTINGS_TEST_INPUT'):
+            if os.environ.get('AQUEOUS_SETTINGS_TEST_INPUT') or os.environ.get('AQUEOUS_SETTINGS_TEST_SHORTCUTS'):
                 if test_theme: export_theme('dark')
                 for name,source in [('keyboard','virtual-keyboard-unstable-v1.xml'),('pointer','wlr-virtual-pointer-unstable-v1.xml')]:
                     protocol=ROOT/'compositor/protocol/upstream'/source
@@ -145,7 +145,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                 def click_control(action,key=None,index=None):
                     for _ in range(60):
                         c=control(action,key,index); state=ui();v=state['viewport'];g=window_geometry()
-                        if c['x']>=v['x'] and action not in ('apply','validate','reload','close','shell','color_accept','color_cancel','color_channel'):
+                        if c['x']>=v['x'] and not action.startswith('shortcut_') and action not in ('apply','validate','reload','close','shell','color_accept','color_cancel','color_channel'):
                             lo=max(c['y'],v['y']); hi=min(c['y']+c['height'],v['y']+v['height'])
                             if hi-lo<min(c['height'],24):
                                 inject('wheel',round(g['x']+v['x']+v['width']/2),round(g['y']+v['y']+v['height']/2),100 if c['y']>=v['y'] else -100)
@@ -161,6 +161,11 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                         if ui()['focus']==target: return
                         inject(15)
                     raise AssertionError(('could not focus',action,key))
+                from shortcut_interaction import run as test_shortcuts
+                test_shortcuts(APP, env, base, config, ui, control, click_control, inject, capture)
+                if os.environ.get('AQUEOUS_SETTINGS_TEST_SHORTCUTS'):
+                    assert not (base/'helper-called').exists(), 'application invoked the retired helper'
+                    raise SystemExit(0)
                 from rule_interaction import run as test_rule_editor
                 test_rule_editor(APP, env, base, config, ui, control, click_control, focus_control, inject, capture)
                 # Runtime layouts must come from the compositor, not the saved tile default.

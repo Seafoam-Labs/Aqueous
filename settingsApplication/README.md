@@ -15,7 +15,7 @@ and [complete field/editor inventory](docs/SETTINGS_LAYOUT_INVENTORY.md).
 
 ## Build and launch
 
-Install Zig 0.16, a C toolchain, Python 3, pkg-config, shaderc (`glslc`), Wayland
+Install Zig 0.16, a C toolchain, Python 3, pkg-config, shaderc (`glslc`), `wayland-scanner`, Wayland
 development files, Vulkan headers/loader, Fontconfig, FreeType, libxkbcommon,
 and a working Vulkan driver. Quark and its dependencies are pinned by
 `build.zig.zon`; the first build needs access to their sources.
@@ -43,7 +43,15 @@ its drafts and shell selection.
 All eight pages share one draft. Schema controls include defaults and numeric
 constraints. Collection editors cover monitors, snap layouts/zones, ordered
 window rules, and custom keybindings. Advanced exposes the complete six TOML
-files. Built-in keybindings accept comma-separated chords; empty means unbound.
+files. Click a built-in or custom shortcut to record a key combination. Press
+and release the keys, then choose **Use shortcuts** to stage the change.
+Built-in actions support multiple alternatives; use **Add shortcut** or remove
+individual alternatives. Removing every alternative unbinds the action.
+**Escape** or **Cancel** leaves the existing binding unchanged. Desktop shortcuts
+are inhibited while recording, and resume when recording stops or the dialog
+closes. Function, arrow, and supported media keys work alongside modifiers.
+Unsupported keys show an error rather than saving a binding Aqueous cannot use.
+Raw configuration remains available for manually editing bindings.
 Long dropdowns support wheel browsing. Tab/Shift-Tab traverse controls and
 scroll the focused control into view. Arrow keys change focused dropdowns and
 sliders; Space/Enter activate toggles. Ctrl+F focuses global search, Enter opens

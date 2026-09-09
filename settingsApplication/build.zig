@@ -48,6 +48,17 @@ pub fn build(b: *std.Build) void {
     }) });
 
     exe.root_module.addCSourceFile(.{ .file = b.path("src/vulkan_present_shim.c"), .flags = &.{"-std=c99"} });
+    const shortcut_header = b.addSystemCommand(&.{ "wayland-scanner", "client-header" });
+    shortcut_header.addFileArg(b.path("src/services/protocol/keyboard-shortcuts-inhibit-unstable-v1.xml"));
+    const header = shortcut_header.addOutputFileArg("shortcuts-client.h");
+    const shortcut_protocol = b.addSystemCommand(&.{ "wayland-scanner", "private-code" });
+    shortcut_protocol.addFileArg(b.path("src/services/protocol/keyboard-shortcuts-inhibit-unstable-v1.xml"));
+    const protocol = shortcut_protocol.addOutputFileArg("shortcuts-protocol.c");
+    exe.root_module.addIncludePath(header.dirname());
+    exe.root_module.addCSourceFile(.{ .file = protocol });
+    exe.root_module.addCSourceFile(.{ .file = b.path("src/services/shortcut_capture.c"), .flags = &.{"-std=c11"} });
+    exe.root_module.linkSystemLibrary("xkbcommon", .{});
+    exe.root_module.linkSystemLibrary("wayland-client", .{});
     exe.root_module.linkSystemLibrary("dl", .{});
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);

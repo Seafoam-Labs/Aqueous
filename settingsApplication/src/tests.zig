@@ -1,5 +1,6 @@
 const std = @import("std");
 test {
+    _ = @import("model/shortcuts.zig");
     _ = @import("model/rule_editor.zig");
     _ = @import("model/presentation.zig");
     _ = @import("model/search.zig");

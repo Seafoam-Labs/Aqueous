@@ -50,3 +50,9 @@ Modal overlays are excluded from the parent's ordinary height allocation. Their
 content can scroll within the window and keyboard traversal stays inside the
 active dialog. Explicit proportional row widths are retained in the expanding
 widget pass, including the color-channel sliders.
+
+Keyboard events are offered to the application's shortcut recorder before text
+input or local shortcuts. The application links `shortcut_capture.c`, which
+uses the existing Wayland connection and XKB keymap and temporarily requests
+keyboard-shortcut inhibition for its surface. The vendored protocol XML retains
+its upstream license. Outside recording, normal Quark input is unchanged.

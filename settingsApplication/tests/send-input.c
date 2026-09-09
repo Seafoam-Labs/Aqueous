@@ -48,7 +48,9 @@ int main(int argc,char **argv) {
             zwlr_virtual_pointer_v1_frame(ptr);
         } else {
             unsigned mods=0;const char *key=argv[i];
-            if(*key=='C'){mods=4;key++;}else if(*key=='S'){mods=1;key++;}
+            while (*key=='C' || *key=='S' || *key=='A' || *key=='M') {
+                mods |= *key=='C' ? 4 : *key=='S' ? 1 : *key=='A' ? 8 : 64; ++key;
+            }
             zwp_virtual_keyboard_v1_modifiers(kbd,mods,0,0,0);
             zwp_virtual_keyboard_v1_key(kbd,stamp,atoi(key),WL_KEYBOARD_KEY_STATE_PRESSED);
             zwp_virtual_keyboard_v1_key(kbd,stamp+50,atoi(key),WL_KEYBOARD_KEY_STATE_RELEASED);

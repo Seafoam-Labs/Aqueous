@@ -74,6 +74,7 @@ pub fn main(init: std.process.Init) !void {
     var app = app_mod.App.init(&window, init.io, shell, backup, page);
     defer app.deinit();
     defer window.deinit();
+    defer @import("services/shortcut_capture.zig").aq_shortcut_end();
     app.inspect_path = init.environ_map.get("AQUEOUS_SETTINGS_TEST_INSPECT") orelse "";
     app.themes = &themes;
     app.theme_choice = prefs.theme_source;

@@ -18,11 +18,13 @@ const search_model = @import("model/search.zig");
 const style = @import("ui/style.zig");
 const components = @import("ui/components/settings.zig");
 const runtime_layout_model = @import("model/runtime_layout.zig");
+const shortcut_editor = @import("ui/components/shortcut_editor.zig");
+const shortcut_capture = @import("services/shortcut_capture.zig");
 const rule_editor = @import("model/rule_editor.zig");
 const titles = [_][]const u8{ "Overview", "Appearance", "Layouts", "Input", "Displays", "Rules", "Keybinds", "Advanced" };
 pub const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
 pub const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
-pub const Action = enum { search_open, section_toggle, number_step, number_slide, color_open, color_channel, color_accept, color_cancel, theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, monitor_mode, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, rule_options, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
+pub const Action = enum { shortcut_record, shortcut_remove, shortcut_cancel, shortcut_accept, shortcut_stop, search_open, section_toggle, number_step, number_slide, color_open, color_channel, color_accept, color_cancel, theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, monitor_mode, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, rule_options, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
 pub const Binding = struct { app: *App, kind: Action, key: []const u8 = "", id: []const u8 = "", index: usize = 0, value: V = .null, options: []const []const u8 = &.{}, edited: ?[]u8 = null };
 pub const App = struct {
     window: *q.Parent,
@@ -38,6 +40,11 @@ pub const App = struct {
     search_due: i64 = 0,
     rendered_search: []const u8 = "",
     last_width: f32 = 0,
+    shortcut_target: ?Binding = null,
+    shortcut_values: V = .null,
+    shortcut_index: usize = 0,
+    shortcut_recording: bool = false,
+    shortcut_error: []const u8 = "",
     color_key: []const u8 = "",
     color_text: []const u8 = "",
     color_value: u32 = 0xff000000,
@@ -239,6 +246,7 @@ pub const App = struct {
         self.rebuilt = true;
     }
     pub fn tick(self: *App) !void {
+        try shortcut_editor.tick(self);
         if (self.slider_rebuild and !self.window.state.mouse_down) {
             self.slider_rebuild = false;
             self.rebuilt = true;
@@ -258,7 +266,7 @@ pub const App = struct {
         }
         if (self.window.state.escape_requested) {
             self.window.state.escape_requested = false;
-            if (self.color_key.len > 0) self.color_key = "" else {
+            if (self.shortcut_target != null) shortcut_editor.close(self) else if (self.color_key.len > 0) self.color_key = "" else {
                 self.search = "";
                 self.rendered_search = "";
                 self.search_due = 0;
@@ -351,6 +359,10 @@ pub const App = struct {
         }
     }
     pub fn closeRequested(self: *App) void {
+        if (self.shortcut_target != null) {
+            shortcut_editor.close(self);
+            return;
+        }
         if (self.client.busy() or self.model.count() > 0 or self.model.errors.object.count() > 0) {
             self.confirm = .close;
             self.rebuilt = true;
@@ -533,6 +545,7 @@ pub const App = struct {
             modal_scroll.shrink = true;
             _ = try root.add(.{ .modal = try q.widget.Modal.initOwned(.{ .scrollview = modal_scroll }, true, a) });
         }
+        try shortcut_editor.build(self, &root);
         self.window.setLayout(.{ .column = root });
         if (self.reveal_id == null) {
             if (self.window.state.focused_textfield_id) |id| {
@@ -620,12 +633,12 @@ pub const App = struct {
                     bounds.height = 24;
                 }
                 const selected: []const u8 = if (node.* == .dropdown and node.dropdown.selected_index != null and node.dropdown.selected_index.? < node.dropdown.items.len) node.dropdown.items[node.dropdown.selected_index.?] else "";
-                var text: []const u8 = "";
+                var text: []const u8 = if (node.* == .textfield) (node.textfield.text orelse "") else if (node.* == .button and node.button.content == .text) node.button.content.text.text else "";
                 for (self.window.state.textfields.items) |tf| if (tf.id == id) {
                     text = tf.text.items;
                     break;
                 };
-                try json.write(.{ .id = id, .action = @tagName(binding.kind), .key = binding.key, .item = binding.id, .index = binding.index, .x = bounds.x, .y = bounds.y, .width = bounds.width, .height = bounds.height, .selected = selected, .text = text, .checked = if (node.* == .checkbox) @as(?bool, node.checkbox.initial_checked) else null });
+                try json.write(.{ .id = id, .widget = @tagName(node.*), .action = @tagName(binding.kind), .key = binding.key, .item = binding.id, .index = binding.index, .x = bounds.x, .y = bounds.y, .width = bounds.width, .height = bounds.height, .selected = selected, .text = text, .checked = if (node.* == .checkbox) @as(?bool, node.checkbox.initial_checked) else null });
             }
         };
         try json.endArray();
@@ -696,17 +709,15 @@ pub const App = struct {
             const choices = try self.ui.allocator().alloc([]const u8, opts.len);
             for (opts, 0..) |item, i| choices[i] = j.str(item);
             control = try self.dropdown(choices, j.str(v), binding);
+        } else if (std.mem.eql(u8, kind, "string_list")) {
+            control = try self.shortcutButton(binding, v);
         } else if (std.mem.eql(u8, kind, "boolean")) {
             control = .{ .checkbox = q.widget.CheckBox.init(.{ .text = "", .checked = j.boolean(v), .on_action = try self.bind(binding) }) };
             control.checkbox.id = presentation.stableId("field", id, id, 0);
         } else {
             var display_value = try self.display(v);
             if (presentation.percent(id)) display_value = try std.fmt.allocPrint(self.ui.allocator(), "{d}", .{presentation.toDisplay(id, j.number(v))});
-            if (std.mem.eql(u8, kind, "string_list")) {
-                const chords = try self.ui.allocator().alloc([]const u8, j.items(v).len);
-                for (j.items(v), 0..) |chord, i| chords[i] = j.str(chord);
-                display_value = try std.mem.join(self.ui.allocator(), ", ", chords);
-            }
+
             control = try self.textfield(display_value, binding, false);
         }
         _ = try controls.addWithWidthConstraint(control, q.Size.proportional(1));
@@ -749,6 +760,10 @@ pub const App = struct {
 
     pub fn appearance(self: *App, parent: *q.widget.Column) !void {
         try @import("ui/pages/appearance.zig").build(self, parent);
+    }
+
+    pub fn shortcutButton(self: *App, binding: Binding, value: V) !q.Widget {
+        return shortcut_editor.button(self, binding, value);
     }
 
     pub fn fontControls(self: *App, col: *q.widget.Column) !void {
@@ -920,6 +935,20 @@ pub const App = struct {
         // keep the caret and scroll position stable while typing.
         self.rebuilt = event != .change_text;
         switch (b.kind) {
+            .shortcut_record => try shortcut_editor.record(self, b.index),
+            .shortcut_cancel => shortcut_editor.close(self),
+            .shortcut_accept => try shortcut_editor.accept(self),
+            .shortcut_stop => {
+                shortcut_capture.aq_shortcut_end();
+                self.shortcut_recording = false;
+            },
+            .shortcut_remove => {
+                shortcut_capture.aq_shortcut_end();
+                self.shortcut_recording = false;
+                self.shortcut_error = "";
+                if (b.index < self.shortcut_values.array.items.len) _ = self.shortcut_values.array.orderedRemove(b.index);
+                self.shortcut_index = @min(self.shortcut_index, self.shortcut_values.array.items.len);
+            },
             .page => {
                 self.page = if (event == .select_index) event.select_index else b.index;
                 self.search = "";
@@ -994,6 +1023,10 @@ pub const App = struct {
                 }
             },
             .field => {
+                if (event == .click and std.mem.eql(u8, j.text(self.model.field(b.id), "type"), "string_list")) {
+                    try shortcut_editor.open(self, b.*, self.model.getValue(b.id));
+                    return;
+                }
                 if (event == .toggle) try self.model.change(b.id, value) else if (presentation.percent(b.id)) {
                     const number = std.fmt.parseFloat(f64, text) catch return error.InvalidNumber;
                     try self.model.input(b.id, try std.fmt.allocPrint(self.ui.allocator(), "{d}", .{presentation.fromDisplay(b.id, number)}));
@@ -1094,13 +1127,16 @@ pub const App = struct {
             },
             .add_keybind => try self.addBinding("spawn:"),
             .keybind => {
-                try self.model.merge("custom_keybind_changes", b.id, "op", try j.string(ma, if (std.mem.startsWith(u8, b.id, "new:")) "add" else "update"));
-                try self.model.merge("custom_keybind_changes", b.id, b.key, value);
-                // The backend expects chord and command together.
-                const current = j.get(j.get(self.model.draft, "custom_keybind_changes"), b.id);
-                for (j.items(j.get(self.model.snapshot, "custom_keybinds"))) |r| if (std.mem.eql(u8, j.text(r, "id"), b.id)) {
-                    for ([_][]const u8{ "chord", "command" }) |key| if (j.get(current, key) == .null) try self.model.merge("custom_keybind_changes", b.id, key, j.get(r, key));
-                };
+                if (event == .click and std.mem.eql(u8, b.key, "chord")) {
+                    for (j.items(try self.model.rows("custom_keybinds", "custom_keybind_changes"))) |row| {
+                        if (std.mem.eql(u8, j.text(row, "id"), b.id)) {
+                            try shortcut_editor.open(self, b.*, j.get(row, "chord"));
+                            return;
+                        }
+                    }
+                    return;
+                }
+                try self.stageKeybind(b.id, b.key, value);
             },
             .remove_keybind => {
                 if (std.mem.startsWith(u8, b.key, "new:")) {
@@ -1260,7 +1296,7 @@ pub const App = struct {
         if (self.window.state.root_widget) |*root| {
             if (root.* != .column or root.column.children.items.len < 4) return;
             const children = root.column.children.items;
-            const offset: usize = if (self.confirm == .none and self.color_key.len == 0) 0 else 1;
+            const offset: usize = if (self.confirm == .none and self.color_key.len == 0 and self.shortcut_target == null) 0 else 1;
             const status_widget = &children[children.len - 2 - offset].widget;
             if (status_widget.* == .text) {
                 status_widget.text.deinit();
@@ -1279,6 +1315,16 @@ pub const App = struct {
         var zone = try j.parse(self.model.allocator(), "{\"name\":\"Zone\",\"x\":0,\"y\":0,\"width\":1,\"height\":1}");
         try j.put(self.model.allocator(), &zone, "id", try j.string(self.model.allocator(), try self.model.unique("zone")));
         return zone;
+    }
+    pub fn stageKeybind(self: *App, id: []const u8, field_key: []const u8, value: V) !void {
+        const ma = self.model.allocator();
+        try self.model.merge("custom_keybind_changes", id, "op", try j.string(ma, if (std.mem.startsWith(u8, id, "new:")) "add" else "update"));
+        try self.model.merge("custom_keybind_changes", id, field_key, value);
+        // The backend expects chord and command together.
+        const current = j.get(j.get(self.model.draft, "custom_keybind_changes"), id);
+        for (j.items(j.get(self.model.snapshot, "custom_keybinds"))) |r| if (std.mem.eql(u8, j.text(r, "id"), id)) {
+            for ([_][]const u8{ "chord", "command" }) |key| if (j.get(current, key) == .null) try self.model.merge("custom_keybind_changes", id, key, j.get(r, key));
+        };
     }
     pub fn addBinding(self: *App, command: []const u8) !void {
         const id = try self.model.unique("new:");
