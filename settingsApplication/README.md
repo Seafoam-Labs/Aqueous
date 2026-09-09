@@ -50,13 +50,23 @@ sliders; Space/Enter activate toggles. Ctrl+F focuses global search, Enter opens
 the first result, and Escape clears search or cancels the color picker. Search
 results can also be reached with Tab and opened with Enter.
 
+Window rules identify each rule by its app ID, class, title, and content type.
+Choose a rule, edit its matching conditions and grouped behavior settings, then
+Apply. Configured behavior settings appear first; **Show all settings** exposes
+additional overrides. **No override** removes a setting from the rule, while
+**On** and **Off** explicitly enable or disable it. Changed fields show their
+saved values, and rule opacity accepts decimals from 0 to 1 (for example, 0.85).
+The first matching rule wins. Moving a rule keeps it selected; apply or discard
+the move before making other rule edits. Content-type matches show a reminder
+that placement and layout settings are ignored for those rules.
+
 Search matches names, IDs, descriptions, sections, and keywords such as
 “transparency.” Selecting a result expands and highlights its setting. Search,
 page changes, resizing, and theme changes retain drafts and in-progress text.
 Each page retains its scroll position and section expansion during the session.
 
 Numeric rows have exact text entry, steppers, and sliders for useful bounded
-ranges. Opacity is displayed as a percentage and stored in its existing 0–1
+ranges. Global opacity is displayed as a percentage and stored in its existing 0–1
 format. Invalid input remains visible beside its error. Color rows offer a swatch
 and a picker with exact `0xAARRGGBB` entry, four channels, preview, Cancel, and
 Use color. Reset restores the backend default; these actions remain staged.

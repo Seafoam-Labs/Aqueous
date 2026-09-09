@@ -1,5 +1,6 @@
 const std = @import("std");
 test {
+    _ = @import("model/rule_editor.zig");
     _ = @import("model/presentation.zig");
     _ = @import("model/search.zig");
     _ = @import("model/runtime_layout.zig");
@@ -35,6 +36,21 @@ test "ordered rules cannot mix a move with edits" {
     try m.clear();
     try m.rule(try j.parse(m.allocator(), "{\"op\":\"move\",\"id\":\"rule:0\",\"direction\":1}"));
     try std.testing.expectError(error.ApplyRuleMoveFirst, m.rule(try j.parse(m.allocator(), "{\"op\":\"update\",\"id\":\"rule:1\",\"values\":{}}")));
+}
+
+test "accepted snapshots keep rule array allocators attached to the model" {
+    var m = model.Model.init(std.testing.allocator);
+    defer m.deinit();
+    try m.accept(
+        \\{"ok":true,"protocol":1,"generation":"loaded","fields":[],"raw_files":{},"window_rules":[{"id":"rule:0","values":{"app_id":"test","blur":false}}]}
+    , "none");
+    try std.testing.expectEqual(m.allocator().ptr, j.get(m.draft, "window_rule_changes").array.allocator.ptr);
+    try std.testing.expectEqual(m.allocator().ptr, j.get(m.snapshot, "window_rules").array.allocator.ptr);
+    try m.rule(try j.parse(m.allocator(), "{\"op\":\"update\",\"id\":\"rule:0\",\"values\":{\"blur\":true,\"opacity\":0.75}}"));
+    const rows = j.items(try m.rows("window_rules", "window_rule_changes"));
+    try std.testing.expect(j.boolean(j.get(j.get(rows[0], "values"), "blur")));
+    try std.testing.expectEqual(@as(f64, 0.75), j.number(j.get(j.get(rows[0], "values"), "opacity")));
+    _ = try m.request("/tmp/backups");
 }
 test "transport drains stderr and stdin independently and times out" {
     var result = try client.run(std.testing.allocator, &.{ "python3", "-c", "import sys; sys.stderr.write('e'*60000); sys.stderr.flush(); print(sys.stdin.read())" }, "literal $() `command`", 3000);

@@ -45,6 +45,18 @@ pub fn encode(a: Allocator, value: anytype) ![]const u8 {
 pub fn clone(a: Allocator, value: Value) !Value {
     return try parse(a, try encode(a, value));
 }
+// Managed JSON arrays retain an allocator pointer. Refresh it when the owning
+// arena moves; allocations themselves remain at the same addresses.
+pub fn rebindArrays(value: *Value, allocator: Allocator) void {
+    switch (value.*) {
+        .array => |*arr| {
+            arr.allocator = allocator;
+            for (arr.items) |*item| rebindArrays(item, allocator);
+        },
+        .object => |*obj| for (obj.values()) |*item| rebindArrays(item, allocator),
+        else => {},
+    }
+}
 pub fn eq(a: Allocator, x: Value, y: Value) !bool {
     return std.mem.eql(u8, try encode(a, x), try encode(a, y));
 }

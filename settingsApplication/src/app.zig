@@ -18,10 +18,11 @@ const search_model = @import("model/search.zig");
 const style = @import("ui/style.zig");
 const components = @import("ui/components/settings.zig");
 const runtime_layout_model = @import("model/runtime_layout.zig");
+const rule_editor = @import("model/rule_editor.zig");
 const titles = [_][]const u8{ "Overview", "Appearance", "Layouts", "Input", "Displays", "Rules", "Keybinds", "Advanced" };
 pub const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
 pub const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
-pub const Action = enum { search_open, section_toggle, number_step, number_slide, color_open, color_channel, color_accept, color_cancel, theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, monitor_mode, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
+pub const Action = enum { search_open, section_toggle, number_step, number_slide, color_open, color_channel, color_accept, color_cancel, theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, monitor_mode, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, rule_options, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
 pub const Binding = struct { app: *App, kind: Action, key: []const u8 = "", id: []const u8 = "", index: usize = 0, value: V = .null, options: []const []const u8 = &.{}, edited: ?[]u8 = null };
 pub const App = struct {
     window: *q.Parent,
@@ -57,6 +58,7 @@ pub const App = struct {
     page: usize = 0,
     selected_monitor: usize = 0,
     selected_rule: usize = 0,
+    rule_show_all: bool = false,
     selected_layout: usize = 0,
     selected_file: usize = 0,
     rendered_page: usize = 0,
@@ -456,8 +458,9 @@ pub const App = struct {
                 }
             } else {
                 if (self.page == 1) try self.appearance(&content);
+                if (self.page == 5) try self.rules(&content);
                 if (self.page > 0 and self.page < 4) try self.schema(&content);
-                if (self.page != 1 and self.page != 3) {
+                if (self.page != 1 and self.page != 3 and self.page != 5) {
                     const section_titles = [_][]const u8{ "Session and workspace", "", "Snap layouts and legacy zones", "", "Monitor arrangement", "Window rules", "Custom shortcuts", "Raw configuration" };
                     var card = components.card(self.theme.palette, self.theme.radius);
                     card.tone = 1;
@@ -466,7 +469,6 @@ pub const App = struct {
                         0 => try self.overview(&card),
                         2 => try self.layoutsPage(&card),
                         4 => try self.displays(&card),
-                        5 => try self.rules(&card),
                         6 => try self.keybinds(&card),
                         7 => try self.advanced(&card),
                         else => {},
@@ -1030,6 +1032,10 @@ pub const App = struct {
                     return;
                 }
                 self.confirm = .none;
+                const rule_rows = j.items(try self.model.rows("window_rules", "window_rule_changes"));
+                if (self.selected_rule < rule_rows.len) {
+                    self.selected_rule = rule_editor.indexOf(j.items(j.get(self.model.snapshot, "window_rules")), j.text(rule_rows[self.selected_rule], "id")) orelse self.selected_rule;
+                }
                 try self.load();
             },
             .theme_source => {
@@ -1072,6 +1078,7 @@ pub const App = struct {
             .select_file => self.selected_file = event.select_index,
             .select_monitor => self.selected_monitor = event.select_index,
             .select_rule => self.selected_rule = event.select_index,
+            .rule_options => self.rule_show_all = !self.rule_show_all,
             .select_layout => self.selected_layout = event.select_index,
             .monitor, .monitor_mode => {
                 if (std.mem.eql(u8, b.key, "x") or std.mem.eql(u8, b.key, "y")) value = .{ .integer = std.fmt.parseInt(i64, text, 10) catch return error.InvalidInteger };
@@ -1101,9 +1108,10 @@ pub const App = struct {
                 } else try self.model.merge("custom_keybind_changes", b.key, "op", try j.string(ma, "delete"));
             },
             .add_rule => {
-                var op = try j.parse(ma, "{\"op\":\"add\",\"values\":{\"app_id\":\"\"}}");
+                var op = try j.parse(ma, "{\"op\":\"add\",\"values\":{}}");
                 try j.put(ma, &op, "id", try j.string(ma, try self.model.unique("new-rule:")));
                 try self.model.rule(op);
+                self.rule_show_all = true;
                 self.selected_rule = j.items(try self.model.rows("window_rules", "window_rule_changes")).len - 1;
             },
             .remove_rule, .move_up, .move_down => {
@@ -1114,10 +1122,23 @@ pub const App = struct {
                 try j.put(ma, &op, "op", try j.string(ma, if (b.kind == .remove_rule) "delete" else "move"));
                 if (b.kind != .remove_rule) try j.put(ma, &op, "direction", .{ .integer = if (b.kind == .move_up) -1 else 1 });
                 try self.model.rule(op);
+                if (b.kind != .remove_rule) {
+                    self.selected_rule = rule_editor.indexOf(j.items(try self.model.rows("window_rules", "window_rule_changes")), j.text(op, "id")) orelse self.selected_rule;
+                } else {
+                    // A removed rule must not leave invisible invalid inputs blocking Apply.
+                    const prefix = try std.fmt.allocPrint(ma, "rule_field/{s}/", .{j.text(op, "id")});
+                    for ([_]*V{ &self.model.inputs, &self.model.errors }) |map| {
+                        var i: usize = 0;
+                        while (i < map.object.count()) {
+                            if (std.mem.startsWith(u8, map.object.keys()[i], prefix)) {
+                                map.object.swapRemoveAt(i);
+                            } else i += 1;
+                        }
+                    }
+                }
             },
             .rule_field => {
-                const kind = j.text(b.value, "type");
-                if (text.len == 0 or std.mem.eql(u8, text, "(unset)")) value = .null else if (std.mem.eql(u8, kind, "number")) value = .{ .integer = std.fmt.parseInt(i64, text, 10) catch return error.InvalidInteger } else if (std.mem.eql(u8, kind, "boolean")) value = .{ .bool = std.mem.eql(u8, text, "true") };
+                value = if (event == .select_index) try rule_editor.choice(ma, b.value, event.select_index) else try rule_editor.input(ma, b.value, text);
                 var op = j.object(ma);
                 var values = j.object(ma);
                 try j.put(ma, &values, b.key, value);

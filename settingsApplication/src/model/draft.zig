@@ -30,6 +30,10 @@ pub const Model = struct {
         try candidate.clear();
         self.deinit();
         self.* = candidate;
+        // candidate's arena was on the stack. Managed arrays must now allocate
+        // through the arena at its permanent address in this model.
+        j.rebindArrays(&self.snapshot, self.allocator());
+        j.rebindArrays(&self.draft, self.allocator());
     }
     pub fn clear(self: *Model) !void {
         var values = self.raw_owned.valueIterator();

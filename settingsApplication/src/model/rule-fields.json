@@ -1,18 +1,27 @@
 [
   {
     "key": "app_id",
-    "label": "App ID",
-    "type": "string"
+    "label": "Application ID",
+    "type": "string",
+    "group": "Match windows",
+    "description": "Case-sensitive app ID, such as org.mozilla.firefox or steam_app_*.",
+    "placeholder": "Any app ID"
   },
   {
     "key": "class",
     "label": "XWayland class",
-    "type": "string"
+    "type": "string",
+    "group": "Match windows",
+    "description": "Match an X11 application by its window class.",
+    "placeholder": "Any class"
   },
   {
     "key": "title",
-    "label": "Title",
-    "type": "string"
+    "label": "Window title",
+    "type": "string",
+    "group": "Match windows",
+    "description": "Match a title, such as *Settings*. Use * for any text and ? for one character.",
+    "placeholder": "Any title"
   },
   {
     "key": "content_type",
@@ -23,7 +32,10 @@
       "photo",
       "video",
       "game"
-    ]
+    ],
+    "group": "Match windows",
+    "description": "Match the content type reported by the application. This limits the rule to visual effects.",
+    "placeholder": ""
   },
   {
     "key": "layout",
@@ -40,57 +52,90 @@
       "stacking",
       "game-mode",
       "composable"
-    ]
+    ],
+    "group": "Layout and placement",
+    "description": "Choose a layout for this window. Stacking is the floating layout.",
+    "placeholder": ""
   },
   {
     "key": "output",
-    "label": "Output",
-    "type": "string"
+    "label": "Monitor",
+    "type": "string",
+    "group": "Layout and placement",
+    "description": "Exact connector name from Displays, such as DP-1.",
+    "placeholder": "Keep current monitor"
   },
   {
     "key": "workspace",
     "label": "Workspace",
-    "type": "number"
+    "type": "number",
+    "group": "Layout and placement",
+    "description": "Workspace number, starting at 1.",
+    "placeholder": "Keep current workspace"
   },
   {
     "key": "floating",
-    "label": "Freeform",
-    "type": "boolean"
+    "label": "Float this window",
+    "type": "boolean",
+    "group": "Layout and placement",
+    "description": "Allow the window to use freeform placement.",
+    "placeholder": ""
   },
   {
     "key": "fullscreen",
     "label": "Fullscreen",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Layout and placement",
+    "description": "Request fullscreen for the matching window.",
+    "placeholder": ""
   },
   {
     "key": "scrolling_full_width",
-    "label": "Scrolling full width",
-    "type": "boolean"
+    "label": "Full-width scrolling column",
+    "type": "boolean",
+    "group": "Layout and placement",
+    "description": "Set the initial column width when using the scrolling layout.",
+    "placeholder": ""
   },
   {
     "key": "ignore_struts",
-    "label": "Ignore reserved areas",
-    "type": "boolean"
+    "label": "Use reserved screen areas",
+    "type": "boolean",
+    "group": "Layout and placement",
+    "description": "Allow placement in screen space reserved for panels and docks.",
+    "placeholder": ""
   },
   {
     "key": "width",
     "label": "Width",
-    "type": "number"
+    "type": "number",
+    "group": "Size and position",
+    "description": "Initial window width, from 1 to 100000.",
+    "placeholder": "No override"
   },
   {
     "key": "height",
     "label": "Height",
-    "type": "number"
+    "type": "number",
+    "group": "Size and position",
+    "description": "Initial window height, from 1 to 100000.",
+    "placeholder": "No override"
   },
   {
     "key": "x",
-    "label": "X offset",
-    "type": "number"
+    "label": "Horizontal offset",
+    "type": "number",
+    "group": "Size and position",
+    "description": "Horizontal placement offset, from -100000 to 100000.",
+    "placeholder": "No override"
   },
   {
     "key": "y",
-    "label": "Y offset",
-    "type": "number"
+    "label": "Vertical offset",
+    "type": "number",
+    "group": "Size and position",
+    "description": "Vertical placement offset, from -100000 to 100000.",
+    "placeholder": "No override"
   },
   {
     "key": "placement_policy",
@@ -101,7 +146,10 @@
       "center",
       "under-pointer",
       "minimal-overlap"
-    ]
+    ],
+    "group": "Size and position",
+    "description": "Choose how a floating window is initially positioned.",
+    "placeholder": ""
   },
   {
     "key": "stack_layer",
@@ -111,42 +159,66 @@
       "below",
       "normal",
       "above"
-    ]
+    ],
+    "group": "Size and position",
+    "description": "Place the window below, alongside, or above other windows.",
+    "placeholder": ""
   },
   {
     "key": "focus",
-    "label": "Focus eligible",
-    "type": "boolean"
+    "label": "Allow focus",
+    "type": "boolean",
+    "group": "Focus and visibility",
+    "description": "Choose whether this window can receive focus.",
+    "placeholder": ""
   },
   {
     "key": "fixed_position",
-    "label": "Fixed position",
-    "type": "boolean"
+    "label": "Keep position fixed",
+    "type": "boolean",
+    "group": "Size and position",
+    "description": "Prevent the window from being repositioned.",
+    "placeholder": ""
   },
   {
     "key": "skip_switcher",
-    "label": "Skip switcher",
-    "type": "boolean"
+    "label": "Hide from window switcher",
+    "type": "boolean",
+    "group": "Focus and visibility",
+    "description": "Exclude the window from the window switcher.",
+    "placeholder": ""
   },
   {
     "key": "skip_taskbar",
-    "label": "Skip taskbar",
-    "type": "boolean"
+    "label": "Hide from taskbar",
+    "type": "boolean",
+    "group": "Focus and visibility",
+    "description": "Exclude the window from taskbar listings.",
+    "placeholder": ""
   },
   {
     "key": "blur",
-    "label": "Blur",
-    "type": "boolean"
+    "label": "Background blur",
+    "type": "boolean",
+    "group": "Appearance",
+    "description": "Choose whether blur is enabled for this window.",
+    "placeholder": ""
   },
   {
     "key": "opacity",
     "label": "Opacity",
-    "type": "number"
+    "type": "number",
+    "group": "Appearance",
+    "description": "0 is transparent; 1 is opaque. For example, 0.85 means 85% opacity.",
+    "placeholder": "No override (0\u20131)"
   },
   {
     "key": "hdr_expand",
     "label": "HDR expansion",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Appearance",
+    "description": "Override automatic HDR expansion on compatible HDR outputs.",
+    "placeholder": ""
   },
   {
     "key": "buffer_scale_policy",
@@ -155,20 +227,26 @@
     "options": [
       "native",
       "integer-ceil"
-    ]
+    ],
+    "group": "Appearance",
+    "description": "Choose native scaling or round the buffer scale up to a whole number.",
+    "placeholder": ""
   },
   {
     "key": "overlay_plane",
-    "label": "Overlay plane",
+    "label": "Hardware overlay",
     "type": "select",
     "options": [
       "off",
       "prefer"
-    ]
+    ],
+    "group": "Appearance",
+    "description": "Prefer hardware overlay promotion when the output and backend support it.",
+    "placeholder": ""
   },
   {
     "key": "anchor",
-    "label": "Game anchor",
+    "label": "Anchor",
     "type": "select",
     "options": [
       "center",
@@ -176,16 +254,25 @@
       "bottom",
       "left",
       "right"
-    ]
+    ],
+    "group": "Game mode",
+    "description": "Position the game within its available area.",
+    "placeholder": ""
   },
   {
     "key": "size",
     "label": "Game size",
-    "type": "string"
+    "type": "string",
+    "group": "Game mode",
+    "description": "Use native, a size such as 1920x1080, or fractions such as 0.8x0.8.",
+    "placeholder": "No override"
   },
   {
     "key": "scale",
     "label": "Game scale",
-    "type": "number"
+    "type": "number",
+    "group": "Game mode",
+    "description": "Scale factor greater than 0 and up to 16. For example, 1.5.",
+    "placeholder": "No override"
   }
 ]

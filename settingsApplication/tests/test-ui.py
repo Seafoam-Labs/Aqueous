@@ -159,6 +159,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                         if ui()['focus']==target: return
                         inject(15)
                     raise AssertionError(('could not focus',action,key))
+                from rule_interaction import run as test_rule_editor
+                test_rule_editor(APP, env, base, config, ui, control, click_control, focus_control, inject, capture)
                 # Runtime layouts must come from the compositor, not the saved tile default.
                 ctl=pathlib.Path(os.environ.get('AQUEOUSCTL_BIN',str(ROOT/'compositor/zig-out/bin/aqueousctl'))).resolve()
                 output=next(o['name'] for o in json.loads(subprocess.check_output([str(ctl),'outputs','--json'],env=env,text=True)) if o.get('enabled'))
