@@ -2131,6 +2131,7 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     output.finalizeTransition();
 
     const outcome = output.renderAndCommit(animation_changed_scene or recovering, recovering);
+    if (output.current.mirror_of.empty()) server.fifo.finish(wlr_output, outcome == .committed);
     switch (outcome) {
         .skipped => {},
         .committed => {
@@ -2234,9 +2235,11 @@ fn hasActiveAnimations(output: *Output) bool {
 
 fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.Outcome {
     output.syncWindowVisualState();
-    if (output.current.mirror_of.empty() and !force and !output.scene_output.?.needsFrame()) return .skipped;
+    const fifo_pending = output.current.mirror_of.empty() and server.fifo.pending(output.wlr_output.?);
+    if (output.current.mirror_of.empty() and !force and !fifo_pending and !output.scene_output.?.needsFrame()) return .skipped;
 
     const wlr_output = output.wlr_output.?;
+    if (output.current.mirror_of.empty()) server.fifo.prepare(wlr_output);
     if (recovering) {
         output.scene_output.?.damage_ring.addWhole();
         wlr_output.lockAttachRender(true);
@@ -2259,7 +2262,9 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         return .{ .failed = .scene_build };
     }
 
-    if (!recovering and output.current.mirror_of.empty() and output.rendering_current.tearing) {
+    // FIFO barriers use a non-tearing latch. The client's tearing preference
+    // remains a hint and resumes once its FIFO-constrained update has latched.
+    if (!recovering and !fifo_pending and output.current.mirror_of.empty() and output.rendering_current.tearing) {
         state.tearing_page_flip = true;
         // TODO don't try this every frame if it consistently fails. Stop trying if it fails
         // for 10 frames in a row or something.
@@ -2673,6 +2678,15 @@ fn handlePresent(
 
 fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void {
     if (!output.current.mirror_of.empty() and event.commit_seq != output.mirror.commit_seq) return;
+    if (output.current.mirror_of.empty() and server.fifo.present(output.wlr_output.?, event) and
+        output.retryEnabled() and !output.retryDisabledForTest())
+    {
+        // Rejected presentation is not a FIFO latch. Preserve the barrier and
+        // retry with the same backoff used for failed scene/output submissions.
+        _ = output.retry.failed(.output_commit, retryNowMs(), output.wlr_output.?.refresh);
+        output.scene_output.?.damage_ring.addWhole();
+        output.armRetryTimer();
+    }
     output.finishRenderMetric();
     if (output.retry.presented(event.commit_seq, event.presented)) {
         log.info("output {s}: recovery presented, sequence={}", .{ output.policyName(), event.commit_seq });

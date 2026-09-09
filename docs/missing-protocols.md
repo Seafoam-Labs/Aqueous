@@ -21,6 +21,12 @@ The protocol is obsolete, so its wlroots binding is isolated in
 integration. Normal bindings are inhibited; built-in VT switching remains
 reserved. See the [shell contract](../compositor/protocol/aqueous-shell-v1.md).
 
+FIFO v1 is now implemented and advertised by Aqueous with its patched wlroots
+dependency. Automated protocol, queue-ordering, lifetime, Pixman/Vulkan pacing,
+and syncobj remap tests pass. Physical DRM/VRR and FIFO plane-promotion
+qualification remain outstanding; see the
+[implementation and validation record](fifo-v1-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols stable (wlroots implements these)

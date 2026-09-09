@@ -18,9 +18,15 @@ zig build test
 Vulkan effects are enabled by default, borrow wlroots' Vulkan context, require
 wlroots' Vulkan renderer at startup, and use the pinned Aqueous wlroots render
 hook. `-Dvulkan-effects=false` builds the square/no-blur diagnostic compositor
-against stock wlroots. Production builds run integrated policy by default. For
-legacy protocol compatibility testing only,
+against the same pinned wlroots dependency. Production builds run integrated
+policy by default. For legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
+
+FIFO v1 is available in both builds. After building with
+`-Doutput-retry-testing=true`, run `python3 scripts/test-fifo.py --renderer vulkan`
+(or `--renderer pixman` for the diagnostic build). See the
+[FIFO implementation and validation record](../docs/fifo-v1-implementation-plan.md)
+for queue semantics, syncobj remap tests, and remaining hardware qualification.
 
 Build the pinned dependency before the default build:
 

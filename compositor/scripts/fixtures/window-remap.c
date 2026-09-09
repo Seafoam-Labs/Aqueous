@@ -59,6 +59,11 @@ int main(int argc, char **argv) {
 #include <sys/mman.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#ifdef TEST_FIFO_V1
+#include "fifo-v1-client-protocol.h"
+static struct wp_fifo_manager_v1 *fifo_manager;
+static struct wp_fifo_v1 *fifo;
+#endif
 #ifdef SYNCOBJ
 #include <errno.h>
 #include <fcntl.h>
@@ -122,6 +127,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
     if (!strcmp(interface, "wp_linux_drm_syncobj_manager_v1"))
         sync_manager = wl_registry_bind(registry, name, &wp_linux_drm_syncobj_manager_v1_interface, 1);
 #endif
+    #ifdef TEST_FIFO_V1
+    if (!strcmp(interface, "wp_fifo_manager_v1"))
+        fifo_manager = wl_registry_bind(registry, name, &wp_fifo_manager_v1_interface, 1);
+    #endif
     if (!strcmp(interface, "wl_compositor"))
         compositor = wl_registry_bind(registry, name, &wl_compositor_interface, version < 4 ? version : 4);
     if (!strcmp(interface, "wl_shm"))
@@ -202,6 +211,10 @@ static void configured(void *data, struct xdg_surface *xdg, uint32_t serial) {
     wp_linux_drm_syncobj_surface_v1_set_release_point(sync_surface, release_timeline,
                                                   release_point >> 32, (uint32_t)release_point);
 #endif
+    #ifdef TEST_FIFO_V1
+    wp_fifo_v1_wait_barrier(fifo);
+    wp_fifo_v1_set_barrier(fifo);
+    #endif
     wl_surface_commit(surface);
     puts("BUFFER_COMMITTED");
 }
@@ -227,6 +240,10 @@ int main(int argc, char **argv) {
     wl_registry_add_listener(registry, &registry_listener, NULL);
     if (wl_display_roundtrip(display) < 0 || !compositor || !shm || !wm) return 1;
     surface = wl_compositor_create_surface(compositor);
+    #ifdef TEST_FIFO_V1
+    if (!fifo_manager) return 1;
+    fifo = wp_fifo_manager_v1_get_fifo(fifo_manager, surface);
+    #endif
 #ifdef SYNCOBJ
     const char *device = getenv("AQUEOUS_REMAP_DRM_DEVICE");
     drm_fd = open(device ? device : "/dev/dri/renderD128", O_RDWR | O_CLOEXEC);

@@ -10,6 +10,11 @@
 #include <libinput.h>
 #include <wlr/types/wlr_output_layer.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_fifo_v1.h>
+
+#if !defined(WLR_AQUEOUS_FIFO_VERSION) || WLR_AQUEOUS_FIFO_VERSION != 1
+#error "Aqueous requires the pinned wlroots FIFO API"
+#endif
 
 #if !defined(WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION) || WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION != 2
 #error "Aqueous requires the pinned wlroots output-layer promotion API"

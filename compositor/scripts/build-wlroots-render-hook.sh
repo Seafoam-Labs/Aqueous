@@ -18,6 +18,7 @@ patch_files=(
     "$here/patches/wlroots/0010-output-layer-sync-and-test.patch"
     "$here/patches/wlroots/0011-scene-output-layer-promotion.patch"
     "$here/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
+    "$here/patches/wlroots/0013-fifo-v1.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -51,6 +52,9 @@ tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 for patch_file in "${patch_files[@]}"; do
     patch -d "$source_dir" -p1 <"$patch_file"
 done
+grep -Fq '#define WLR_AQUEOUS_FIFO_VERSION 1' \
+    "$source_dir/include/wlr/types/wlr_fifo_v1.h" ||
+    die "patched wlroots does not expose the required FIFO API"
 scene_source="$source_dir/types/scene/wlr_scene.c"
 grep -Fq 'scene_output_damage_internal(scene_output, &damage, false, NULL);' \
     "$scene_source" ||
@@ -127,6 +131,12 @@ meson install -C "$build_dir"
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_fifo_manager_v1_create \
+    wlr_fifo_manager_v1_get_global \
+    wlr_fifo_manager_v1_output_pending \
+    wlr_fifo_manager_v1_prepare \
+    wlr_fifo_manager_v1_finish \
+    wlr_fifo_manager_v1_present \
     wlr_scene_output_set_buffer_render_hook \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \

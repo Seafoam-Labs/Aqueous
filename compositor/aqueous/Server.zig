@@ -24,6 +24,7 @@ const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
 const LockManager = @import("LockManager.zig");
 const LegacyServerDecoration = @import("LegacyServerDecoration.zig");
+const FifoManager = @import("FifoManager.zig");
 const Output = @import("Output.zig");
 const OutputManager = @import("OutputManager.zig");
 const Overview = @import("Overview.zig");
@@ -162,6 +163,7 @@ request_set_cursor_shape: wl.Listener(*wlr.CursorShapeManagerV1.event.RequestSet
 toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceManagerV1.Request) = .init(handleToplevelCaptureRequest),
 
 content_type_manager: *wlr.ContentTypeManagerV1,
+fifo: FifoManager,
 
 /// Count render-capable GPUs by probing the conventional render-node range.
 /// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
@@ -451,6 +453,7 @@ pub fn init(
         .color_representation_manager = try wlr.ColorRepresentationManagerV1.createWithRenderer(wl_server, 1, renderer),
 
         .content_type_manager = try wlr.ContentTypeManagerV1.create(wl_server, 1),
+        .fifo = try FifoManager.init(wl_server),
 
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
@@ -741,6 +744,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
     // should catch river accidentally exposing multiple copies of e.g. wl_shm
     // with an assertion failure.
     return global == server.fixes.global or
+        global == server.fifo.global() or
         global == server.shm.global or
         global == server.single_pixel_buffer_manager.global or
         global == server.alpha_modifier.global or

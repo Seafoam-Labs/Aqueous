@@ -15,6 +15,12 @@
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 #include "presentation-time-client-protocol.h"
+#ifdef TEST_FIFO_V1
+#include "fifo-v1-client-protocol.h"
+static struct wp_fifo_manager_v1 *fifo_manager;
+static struct wp_fifo_v1 *fifo;
+static unsigned burst;
+#endif
 
 static struct wl_display *display;
 static struct wl_compositor *compositor;
@@ -79,6 +85,10 @@ static void draw(void) {
     xdg_surface_set_window_geometry(xdg, 0, 0, width, height);
     wl_surface_attach(surface, buffer, 0, 0);
     wl_surface_damage_buffer(surface, 0, 0, width, height);
+    #ifdef TEST_FIFO_V1
+    wp_fifo_v1_wait_barrier(fifo);
+    wp_fifo_v1_set_barrier(fifo);
+    #endif
     wl_surface_commit(surface);
     printf("{\"event\":\"submitted\",\"frame\":%u,\"color\":%u,\"ms\":%.3f}\n", frame, color, now_ms());
     next_draw = now_ms() + 50;
@@ -122,6 +132,12 @@ static const struct wl_output_listener output_listener = {
 static void global(void *data, struct wl_registry *registry, uint32_t id, const char *interface, uint32_t version) {
     (void)data;
     if (!strcmp(interface, "wl_compositor")) compositor = wl_registry_bind(registry, id, &wl_compositor_interface, 4);
+    #ifdef TEST_FIFO_V1
+    if (!strcmp(interface, "wp_fifo_manager_v1")) {
+        assert(version == 1);
+        fifo_manager = wl_registry_bind(registry, id, &wp_fifo_manager_v1_interface, 1);
+    }
+    #endif
     if (!strcmp(interface, "wl_shm")) shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
     if (!strcmp(interface, "xdg_wm_base")) {
         wm = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
@@ -143,6 +159,11 @@ int main(int argc, char **argv) {
     if (argc != 4) return 2;
     setvbuf(stdout, NULL, _IONBF, 0);
     animated = atoi(argv[3]);
+    #ifdef TEST_FIFO_V1
+    burst = (unsigned)atoi(argv[3]);
+    assert(burst > 0 && burst <= 1000);
+    animated = false;
+    #endif
     display = wl_display_connect(NULL); assert(display);
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, NULL);
@@ -152,6 +173,10 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < output_count; i++) if (!strcmp(outputs[i].name, argv[2])) target = outputs[i].object;
     assert(target);
     surface = wl_compositor_create_surface(compositor);
+    #ifdef TEST_FIFO_V1
+    assert(fifo_manager);
+    fifo = wp_fifo_manager_v1_get_fifo(fifo_manager, surface);
+    #endif
     xdg = xdg_wm_base_get_xdg_surface(wm, surface);
     xdg_surface_add_listener(xdg, &xdg_listener, NULL);
     struct xdg_toplevel *top = xdg_surface_get_toplevel(xdg);
@@ -175,6 +200,11 @@ int main(int argc, char **argv) {
             char command;
             if (read(STDIN_FILENO, &command, 1) != 1 || command == 'q') return 0;
             if (command == 'd') draw();
+            #ifdef TEST_FIFO_V1
+            if (command == 'b') for (unsigned i = 0; i < burst; i++) draw();
+            if (command == 'h') { wl_surface_attach(surface, NULL, 0, 0); wl_surface_commit(surface); configured = false; }
+            if (command == 'm') wl_surface_commit(surface);
+            #endif
         }
     }
 }

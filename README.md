@@ -92,9 +92,9 @@ per-output/workspace layout state avoid rebuilding policy in external clients.
 
 Effects are also explicit build-time and runtime choices. Animations can be
 compiled out with `-Danimations=false`; the Aqueous Vulkan effects backend is
-enabled by default; and `-Dvulkan-effects=false` produces a stock-wlroots,
-square/no-blur diagnostic build. Blur and opacity default to configurable
-policy, and per-application rules can keep latency-sensitive surfaces fully
+enabled by default; and `-Dvulkan-effects=false` produces a square/no-blur
+diagnostic build using the same pinned wlroots. Blur and opacity default to
+configurable policy, and per-application rules can keep latency-sensitive surfaces fully
 opaque and unblurred. Aqueous does not claim that effects are free—it makes
 their cost visible and optional.
 
@@ -233,7 +233,8 @@ zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
 The default build uses the pinned Aqueous wlroots render hook, requires
 wlroots' Vulkan renderer at startup, and installs that exact shared library
 under `lib/aqueous` with an origin-relative runtime path. Use
-`-Dvulkan-effects=false` only for the diagnostic stock-wlroots build.
+`-Dvulkan-effects=false` only for the diagnostic build; it also needs the patched
+wlroots library for protocol and scene APIs.
 Distribution builds should target a suitably generic CPU rather than
 inheriting the build machine's instruction set.
 

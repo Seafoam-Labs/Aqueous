@@ -103,7 +103,13 @@ let
       "${src}/compositor/patches/wlroots/0004-scene-sdr-white-level.patch"
       "${src}/compositor/patches/wlroots/0005-drm-expose-edid-hdr-static-metadata.patch"
       "${src}/compositor/patches/wlroots/0006-color-management-v1-windows-hdr.patch"
+      "${src}/compositor/patches/wlroots/0007-scene-precise-position.patch"
+      "${src}/compositor/patches/wlroots/0008-xwayland-native-scaling.patch"
+      "${src}/compositor/patches/wlroots/0009-surface-preferred-scale-override.patch"
+      "${src}/compositor/patches/wlroots/0010-output-layer-sync-and-test.patch"
+      "${src}/compositor/patches/wlroots/0011-scene-output-layer-promotion.patch"
       "${src}/compositor/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
+      "${src}/compositor/patches/wlroots/0013-fifo-v1.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
