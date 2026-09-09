@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
     for file in (ROOT/'settingsApplication/tests/fixtures').glob('*.toml'):
         (config/file.name).write_bytes(file.read_bytes())
     env = {k:v for k,v in os.environ.items() if not k.startswith('AQUEOUS_') and k not in ('DISPLAY','WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS','LD_PRELOAD')}
-    env.update(HOME=str(base), XDG_CONFIG_HOME=str(base/'config'), XDG_STATE_HOME=str(base/'state'), XDG_RUNTIME_DIR=str(runtime),
+    env.update(HOME=str(base), XDG_CONFIG_HOME=str(base/'config'), XDG_STATE_HOME=str(base/'state'), XDG_CACHE_HOME=str(base/'cache'), XDG_RUNTIME_DIR=str(runtime),
                WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER='pixman',
                AQUEOUS_CONFIG=str(config/'wm.toml'),
                PATH=str(pathlib.Path(os.environ.get('AQUEOUSCTL_BIN',str(ROOT/'compositor/zig-out/bin/aqueousctl'))).parent)+':'+env['PATH'])
@@ -19,6 +19,35 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
     retired=trap_bin/'aqueous-config'
     retired.write_text('#!/bin/sh\nprintf called > "'+str(base/'helper-called')+'"\nexit 99\n');retired.chmod(0o755)
     env['PATH']=str(trap_bin)+':'+env['PATH']
+    test_theme = os.environ.get('AQUEOUS_SETTINGS_TEST_THEME')
+    if test_theme:
+        from PIL import Image
+        theme_path=base/'cache/aqueous/settings-application/themes'/f'{test_theme}.json'
+        theme_path.parent.mkdir(parents=True)
+        palette=json.loads((ROOT/f'settingsApplication/tests/fixtures/themes/{test_theme}.json').read_text())
+        palette['mode']=os.environ.get('AQUEOUS_SETTINGS_TEST_THEME_MODE','dark')
+        theme_path.write_text(json.dumps(palette))
+        (config/'settings-application.json').write_text(json.dumps(dict(theme_source=test_theme)))
+        shell_settings=base/('config/DankMaterialShell/settings.json' if test_theme=='dms' else 'state/noctalia/settings.toml')
+        shell_settings.parent.mkdir(parents=True,exist_ok=True)
+        def set_font(pixels):
+            shell_settings.write_text(json.dumps(dict(fontFamily='sans-serif',fontScale=pixels/14)) if test_theme=='dms' else f'[shell]\nfont_family = "sans-serif"\n[accessibility]\nui_scale = {pixels/16}\n')
+        set_font(16)
+        def export_theme(mode):
+            palette['mode']=mode
+            temporary=theme_path.with_suffix('.tmp');temporary.write_text(json.dumps(palette));temporary.replace(theme_path)
+        def verify_color(mode):
+            rgb=tuple(bytes.fromhex(palette[mode]['background'][1:]))
+            deadline=time.monotonic()+6
+            while time.monotonic()<deadline:
+                screenshot=base/'theme.png'
+                subprocess.run(['grim',str(screenshot)],env=env,check=True,timeout=5,stdout=subprocess.DEVNULL)
+                with Image.open(screenshot) as frame:
+                    colors=frame.convert('RGB').getcolors(frame.width*frame.height)
+                    if sum(count for count,pixel in colors if max(abs(p-c) for p,c in zip(pixel,rgb))<=1)>1000: return
+                time.sleep(.2)
+            screenshot.replace(pathlib.Path('/tmp/aqueous-theme-failure.png'))
+            raise AssertionError(('theme did not render',test_theme,mode,rgb,sorted(colors,reverse=True)[:12]))
     with (base/'compositor.log').open('w+') as log:
         compositor = subprocess.Popen([os.environ.get('AQUEOUS_COMPOSITOR_BIN',str(ROOT/'compositor/zig-out/bin/aqueous')),'-no-xwayland','-policy','internal'],env=env,stdout=log,stderr=log)
         try:
@@ -40,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                     selector.close()
                     line=child.stderr.readline()
                     assert line.strip()=='AQUEOUS_SETTINGS_READY', (page,line,child.stderr.read())
+                    if test_theme: verify_color(palette['mode'])
                     if os.environ.get('AQUEOUS_SETTINGS_ARTIFACTS'):
                         artifacts=pathlib.Path(os.environ['AQUEOUS_SETTINGS_ARTIFACTS']);artifacts.mkdir(parents=True,exist_ok=True)
                         windows=json.loads(subprocess.check_output([str(ROOT/'compositor/zig-out/bin/aqueousctl'),'windows','--json'],env=env,text=True,timeout=5))
@@ -53,6 +83,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                     if child.poll() is None: child.kill();child.wait()
                 print('Quark page passed:',page)
             if os.environ.get('AQUEOUS_SETTINGS_TEST_INPUT'):
+                if test_theme: export_theme('dark')
                 for name,source in [('keyboard','virtual-keyboard-unstable-v1.xml'),('pointer','wlr-virtual-pointer-unstable-v1.xml')]:
                     protocol=ROOT/'compositor/protocol/upstream'/source
                     for mode,suffix in [('client-header','client.h'),('private-code','protocol.c')]:
@@ -71,6 +102,21 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                             assert child.poll() is None, 'application exited during input'
                         # Append a valid TOML comment using actual pointer and keyboard events.
                         send('click',400,250,'C107',28,'S4',20,18,31,20,28)
+                        marker=b'#test'
+                        if test_theme:
+                            verify_color('dark')
+                            # Select 'test' forwards with Shift+End; preserve selection and focus across updates.
+                            send(105,105,105,105,105,'S107')
+                            export_theme('light');set_font(18)
+                            verify_color('light')
+                            time.sleep(.7)
+                            send(38,23,47,18) # live replaces test; the existing newline stays.
+                            marker=b'#live'
+                            assert (config/'wm.toml').read_bytes()==before, 'theme wrote canonical configuration'
+                            theme_path.write_text('{') # partial export retains the valid palette.
+                            time.sleep(.7);verify_color('light')
+                            export_theme('dark');set_font(16)
+                            verify_color('dark');time.sleep(.7)
                         send('click',1120,640) # Validate must retain draft and leave disk unchanged.
                         assert (config/'wm.toml').read_bytes()==before, 'Validate wrote configuration'
                         # Navigate away and reopen through the single-instance endpoint.
@@ -81,9 +127,10 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                         assert sum(w.get('app_id')=='org.aqueous.Settings' for w in windows)==1, 'duplicate instance'
                         send('click',1220,640) # Apply surviving raw draft.
                         deadline=time.monotonic()+5
-                        while b'#test' not in (config/'wm.toml').read_bytes() and time.monotonic()<deadline: time.sleep(.1)
+                        while marker not in (config/'wm.toml').read_bytes() and time.monotonic()<deadline: time.sleep(.1)
                         saved=(config/'wm.toml').read_bytes()
-                        assert b'#test' in saved, ('UI Apply did not persist typed draft',saved[-100:])
+                        if marker not in saved: subprocess.run(['grim','/tmp/aqueous-theme-apply-failure.png'],env=env,check=True)
+                        assert marker in saved and saved.rstrip().endswith(marker), ('UI Apply did not persist typed draft',saved[-100:])
                         assert before.rstrip() in saved, 'unrelated TOML changed'
                         deadline=time.monotonic()+6
                         while 'configuration reloaded layout=' not in (base/'compositor.log').read_text() and time.monotonic()<deadline: time.sleep(.1)

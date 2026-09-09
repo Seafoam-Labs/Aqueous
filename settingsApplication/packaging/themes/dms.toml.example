@@ -1,0 +1,5 @@
+# Merge this entry into ~/.config/matugen/config.toml; preserve existing entries.
+[templates.aqueous_settings]
+input_path = '/usr/share/aqueous/settings-application/themes/dms.json.in'
+# Replace /home/USERNAME with the actual home, or use the absolute XDG_CACHE_HOME.
+output_path = '/home/USERNAME/.cache/aqueous/settings-application/themes/dms.json'

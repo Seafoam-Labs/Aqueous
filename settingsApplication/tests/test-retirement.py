@@ -20,6 +20,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-retirement-') as tmp:
         assert (stage/'usr/bin/aqueous-settings').exists()
         assert (stage/'usr/share/applications/org.aqueous.Settings.desktop').exists()
         assert (stage/'usr/share/aqueous/dms-plugins/aqueousSettingsAppearance/Daemon.qml').exists()
+        for theme in ['dms', 'noctalia']:
+            assert (stage/f'usr/share/aqueous/settings-application/themes/{theme}.json.in').exists()
         for retired in ['usr/bin/aqueous-config','usr/bin/aqueous-backend-test','usr/share/aqueous/noctalia-plugins','usr/share/aqueous/dms-plugins/aqueousSettings','usr/lib/aqueous/enable-noctalia-plugin']:
             assert not (stage/retired).exists(), (name,retired)
         print(name+': embedded application staged, retired plugin/helper assets absent')

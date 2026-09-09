@@ -2,6 +2,7 @@ const std = @import("std");
 const operations = @import("operations.zig");
 const control = @import("control.zig");
 pub const Control = control.Control;
+pub const Document = @import("config_document.zig").Document;
 pub const ReloadStatus = control.ReloadStatus;
 pub const Command = operations.Command;
 pub const Shell = operations.Shell;

@@ -67,7 +67,14 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             assert (units / "graphical-session.target.wants/aqueous-dms.service").readlink() == Path("../aqueous-dms.service")
             assert "ExecStart=/usr/bin/dms run --session" in (units / "aqueous-dms.service").read_text()
             assert not (units / "graphical-session.target.wants/dms.service").is_symlink()
-        assert not any("noctalia" in str(p.relative_to(stage)).lower() for p in stage.rglob("*"))
+        # The shell-neutral settings app ships optional palette templates for both
+        # sources. These data files do not install or enable a Noctalia runtime.
+        theme_data = {
+            "usr/share/aqueous/settings-application/themes/noctalia.json.in",
+            "usr/share/aqueous/settings-application/themes/noctalia.toml.example",
+        }
+        assert not any("noctalia" in str(p.relative_to(stage)).lower() and str(p.relative_to(stage)) not in theme_data for p in stage.rglob("*"))
+        assert all((stage / path).is_file() for path in theme_data)
         assert not (stage / "usr/bin/aqueous-config").exists()
         assert not (stage / "usr/share/aqueous/dms-plugins/aqueousSettings").exists()
         assert (stage / "usr/bin/aqueous-settings").is_file()

@@ -6,15 +6,25 @@ const V = j.Value;
 const Client = @import("services/backend_client.zig").Client;
 const modes = @import("model/display_modes.zig");
 const shells = @import("services/shell_adapter.zig");
+const theme_model = @import("model/theme.zig");
+const theme_service = @import("services/theme/service.zig");
+const theme_quark = @import("services/theme/quark.zig");
+const preferences = @import("services/preferences.zig");
 const a = std.heap.page_allocator;
 pub const pages = [_][]const u8{ "overview", "appearance", "layouts", "input", "displays", "rules", "keybinds", "advanced" };
+const theme_choices = [_][]const u8{ "Follow shell", "DMS", "Noctalia", "Built-in" };
 const titles = [_][]const u8{ "Overview", "Appearance", "Layouts", "Input", "Displays", "Rules", "Keybinds", "Advanced" };
 const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
 const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
-const Action = enum { page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
+const Action = enum { theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
 const Binding = struct { app: *App, kind: Action, key: []const u8 = "", id: []const u8 = "", index: usize = 0, value: V = .null, options: []const []const u8 = &.{}, edited: ?[]u8 = null };
 pub const App = struct {
     window: *q.Parent,
+    theme: theme_model.Snapshot = .{},
+    theme_choice: theme_model.Choice = .follow,
+    themes: ?*theme_service.Service = null,
+    prefs_path: []const u8 = "",
+    theme_status: []const u8 = "Built-in application theme.",
     model: draft.Model,
     client: Client,
     ui: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(a),
@@ -64,7 +74,7 @@ pub const App = struct {
     }
     fn label(self: *App, s: []const u8, bold: bool) q.Widget {
         _ = self;
-        return .{ .text = q.widget.Text.init(a, .{ .text = s, .theme = .{ .color = q.Theme.hex(0xE4EAF5), .font_style = .{ .bold = bold } } }) };
+        return .{ .text = q.widget.Text.init(a, .{ .text = s, .theme = .{ .font_style = .{ .bold = bold } } }) };
     }
     fn column(self: *App) q.widget.Column {
         _ = self;
@@ -81,12 +91,12 @@ pub const App = struct {
         return q.action.bind(b, dispatch);
     }
     fn button(self: *App, text: []const u8, kind: Action, key: []const u8, index: usize) !q.Widget {
-        return .{ .button = q.widget.Button.init(.{ .content = .{ .text = self.label(text, false).text }, .on_action = try self.bind(.{ .app = self, .kind = kind, .key = key, .index = index }), .theme = .{ .height = q.Size.fixed(36), .color = q.Theme.hex(0x293B50), .focus_color = q.Theme.hex(0x3D6078) } }) };
+        return .{ .button = q.widget.Button.init(.{ .content = .{ .text = self.label(text, false).text }, .on_action = try self.bind(.{ .app = self, .kind = kind, .key = key, .index = index }), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
     }
     fn textfield(self: *App, value: []const u8, b: Binding, tall: bool) !q.Widget {
         const key = try self.inputKey(b);
         const edited = if (j.get(self.model.errors, key) != .null) j.text(self.model.inputs, key) else value;
-        return .{ .textfield = q.widget.TextField.init(.{ .placeholder = b.key, .text = edited, .on_action = try self.bind(b), .theme = .{ .height = q.Size.fixed(if (tall) 380 else 36), .color = q.Theme.hex(0x152536), .text_color = q.Theme.hex(0xE4EAF5) } }) };
+        return .{ .textfield = q.widget.TextField.init(.{ .placeholder = b.key, .text = edited, .on_action = try self.bind(b), .theme = .{ .height = q.Size.fixed(if (tall) @max(120, @min(380, self.window.height() - 260)) else @max(36, self.theme.font.pixels + 20)) } }) };
     }
     fn inputKey(self: *App, b: Binding) ![]const u8 {
         return try std.fmt.allocPrint(self.ui.allocator(), "{s}/{s}/{s}/{d}", .{ @tagName(b.kind), b.id, b.key, b.index });
@@ -99,7 +109,7 @@ pub const App = struct {
             selected = @intCast(i);
             break;
         };
-        return .{ .dropdown = q.widget.Dropdown.init(.{ .items = choices, .selected_index = selected, .placeholder = current, .on_action = try self.bind(binding), .theme = .{ .height = q.Size.fixed(36) } }) };
+        return .{ .dropdown = q.widget.Dropdown.init(.{ .items = choices, .selected_index = selected, .placeholder = current, .on_action = try self.bind(binding), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
     }
     fn scalar(self: *App, col: *q.widget.Column, name: []const u8, value: V, kind: []const u8, b: Binding) !void {
         var row = self.newRow();
@@ -114,6 +124,58 @@ pub const App = struct {
     pub fn load(self: *App) !void {
         try self.backendOp("snapshot", "");
     }
+    pub fn savePreferences(self: *App) !void {
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        try preferences.save(arena.allocator(), self.client.io, self.prefs_path, .{ .page = self.page, .width = @intFromFloat(self.window.width()), .height = @intFromFloat(self.window.height()), .theme_source = self.theme_choice });
+    }
+    pub fn selectTheme(self: *App) !void {
+        const service = self.themes orelse return;
+        const source = theme_model.resolve(self.theme_choice, self.shell);
+        if (source == service.source) return;
+        service.select(source);
+        try self.applyTheme(.{}, @splat(null), true);
+        self.setThemeStatus(if (source == .builtin) "Built-in application theme." else "Loading application theme…");
+    }
+    pub fn applyTheme(self: *App, snapshot: theme_model.Snapshot, fonts: [4]?[]const u8, fonts_changed: bool) !void {
+        if (fonts_changed) try self.window.setFonts(fonts, snapshot.font.pixels);
+        self.theme = snapshot;
+        self.window.state.window_color = q.Theme.hex(snapshot.palette.background);
+        self.window.setTheme(theme_quark.resolve(snapshot));
+        if (self.window.state.root_widget) |*root| theme_quark.restyle(root, snapshot, self.window.height());
+    }
+    fn tickTheme(self: *App) !void {
+        const service = self.themes orelse return;
+        // Delay layout/font changes while a pointer operation is active.
+        if (self.window.state.mouse_down or self.window.state.scroll_dragging or self.drag_index != null) return;
+        try self.selectTheme();
+        if (!try service.poll()) return;
+        const result = &service.result;
+        if (result.valid) {
+            self.applyTheme(result.snapshot, result.fonts, result.fonts_changed) catch {
+                self.applyTheme(result.snapshot, @splat(null), true) catch {
+                    self.setThemeStatus("Theme font could not load; keeping the previous appearance.");
+                    return;
+                };
+                self.setThemeStatus("Shell colors loaded; using the bundled fallback font.");
+                return;
+            };
+        }
+        self.setThemeStatus(switch (result.status) {
+            .builtin => "Built-in application theme.",
+            .loading => "Loading application theme…",
+            .applied => if (service.source == .dms) "Following DMS application theme." else "Following Noctalia application theme.",
+            .font_fallback => "Shell colors loaded; using a fallback font.",
+            .missing => "Theme export missing. Enable the Aqueous Settings template in your shell (see README).",
+            .invalid => "Theme update is invalid; keeping the last valid appearance.",
+        });
+    }
+    fn setThemeStatus(self: *App, status: []const u8) void {
+        if (std.mem.eql(u8, self.theme_status, status)) return;
+        if (self.window.state.root_widget) |*root| theme_quark.replaceText(root, self.theme_status, status);
+        self.theme_status = status;
+        self.window.state.layout_dirty = true;
+    }
     fn backendOp(self: *App, op: []const u8, request: []const u8) !void {
         if (self.client.busy()) return error.Busy;
         try self.client.startBackend(op, self.shell, request);
@@ -121,6 +183,7 @@ pub const App = struct {
         self.rebuilt = true;
     }
     pub fn tick(self: *App) !void {
+        try self.tickTheme();
         if (self.client.poll()) {
             var completed = self.client.result;
             self.client.result = .{};
@@ -266,7 +329,7 @@ pub const App = struct {
         if (self.confirm != .none) {
             var dialog = self.column();
             dialog.padding = 24;
-            dialog.background_color = q.Theme.hex(0x24364A);
+            dialog.background_color = q.Theme.hex(self.theme.palette.surface_container_high);
             _ = try dialog.add(self.label(if (self.client.busy()) "An operation is running. Wait for completion before closing." else "There are unsaved edits. Apply, discard, or keep editing.", true));
             var buttons = self.newRow();
             _ = try buttons.add(try self.button("Cancel", .cancel, "", 0));
@@ -281,6 +344,7 @@ pub const App = struct {
         self.window.state.textfields.clearRetainingCapacity();
         self.window.state.focused_textfield_id = null;
         self.window.setLayout(.{ .column = root });
+        if (self.window.state.root_widget) |*widget| theme_quark.restyle(widget, self.theme, self.window.height());
     }
     fn schema(self: *App, col: *q.widget.Column) !void {
         for (j.items(j.get(self.model.snapshot, "fields"))) |f| {
@@ -334,6 +398,10 @@ pub const App = struct {
         } else _ = try col.add(self.label("No live outputs available. Persistent settings remain editable.", false));
     }
     fn appearance(self: *App, col: *q.widget.Column) !void {
+        _ = try col.add(self.label("Application theme", true));
+        _ = try col.add(try self.dropdown(&theme_choices, theme_choices[@intFromEnum(self.theme_choice)], .{ .app = self, .kind = .theme_source }));
+        _ = try col.add(self.label(self.theme_status, false));
+        _ = try col.add(self.label("Follow uses the selected shell's app colors; Noctalia shell-only mode stays separate.", false));
         const ty = j.get(self.model.snapshot, "desktop_typography");
         const families = j.items(j.get(ty, "families"));
         const names = try self.ui.allocator().alloc([]const u8, families.len);
@@ -490,7 +558,7 @@ pub const App = struct {
             return;
         }
         self.selected_monitor = @min(self.selected_monitor, rows.len - 1);
-        _ = try col.add(.{ .canvas = q.widget.Canvas.init(.{ .id = 8100, .theme = .{ .height = q.Size.fixed(240), .radius = q.Size.fixed(6), .color = q.Theme.hex(0x152536) } }) });
+        _ = try col.add(.{ .canvas = q.widget.Canvas.init(.{ .id = 8100, .theme = .{ .height = q.Size.fixed(240) } }) });
         const names = try self.ui.allocator().alloc([]const u8, rows.len);
         for (rows, 0..) |r, i| names[i] = j.text(r, "name");
         _ = try col.add(try self.dropdown(names, names[self.selected_monitor], .{ .app = self, .kind = .select_monitor }));
@@ -542,8 +610,8 @@ pub const App = struct {
             const size = modes.size(r);
             const x = 12 + (@as(f32, @floatCast(j.number(j.get(r, "x")))) - min_x) * self.canvas_scale;
             const y = 12 + (@as(f32, @floatCast(j.number(j.get(r, "y")))) - min_y) * self.canvas_scale;
-            try canvas.drawRect(a, x, y, size.w * self.canvas_scale - 2, size.h * self.canvas_scale - 2, q.Theme.hex(if (i == self.selected_monitor) 0x357EA0 else 0x2D425B));
-            try canvas.drawText(a, j.text(r, "name"), x + 8, y + 8, &self.window.state.fonts.regular, q.Theme.hex(0xFFFFFF));
+            try canvas.drawRect(a, x, y, size.w * self.canvas_scale - 2, size.h * self.canvas_scale - 2, q.Theme.hex(if (i == self.selected_monitor) self.theme.palette.primary_container else self.theme.palette.surface_container_high));
+            try canvas.drawText(a, j.text(r, "name"), x + 8, y + 8, &self.window.state.fonts.regular, q.Theme.hex(if (i == self.selected_monitor) self.theme.palette.on_primary_container else self.theme.palette.on_surface));
         }
     }
     fn canvasInteraction(self: *App) !void {
@@ -656,6 +724,17 @@ pub const App = struct {
                 }
                 self.confirm = .none;
                 try self.load();
+            },
+            .theme_source => {
+                self.rebuilt = false;
+                self.theme_choice = switch (event) {
+                    .select_index => |index| @enumFromInt(index),
+                    else => return,
+                };
+                try self.selectTheme();
+                self.savePreferences() catch {
+                    self.setThemeStatus("Theme selected; unable to save application preference.");
+                };
             },
             .shell => {
                 if (self.model.count() > 0 or self.model.errors.object.count() > 0) return error.ApplyOrDiscardBeforeChangingShell;

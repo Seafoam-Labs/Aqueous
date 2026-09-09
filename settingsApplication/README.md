@@ -75,6 +75,25 @@ UI preferences live in `$XDG_CONFIG_HOME/aqueous/settings-application.json`.
 Backups go to `$XDG_STATE_HOME/aqueous/settings-application/backups`, with
 standard home fallbacks. Canonical paths and old plugin backups are unchanged.
 
+## Follow DMS or Noctalia appearance
+
+Appearance now has an **Application theme** selector: **Follow shell**, **DMS**,
+**Noctalia**, or **Built-in**. The preference saves immediately. Colors, fonts,
+and basic rounding update live while preserving editor state; this does not
+write canonical settings or trigger Apply/reload.
+
+Enable one of the shipped palette templates using the
+[theme setup instructions](packaging/themes/README.md). Installed templates and
+registration examples live under `/usr/share/aqueous/settings-application/themes/`
+(or the package's custom prefix). DMS and Noctalia generate separate versioned
+JSON files in the XDG cache directory. Neither retired settings plugin is needed.
+Missing/invalid exports and font fallback are reported in Appearance.
+
+Noctalia follows its application theme mode, including automatic changes; its
+shell-only mode override remains separate. Source readers target DMS JSON and
+Noctalia v5 TOML. Palette generation was tested with DMS 1.6.1 and Noctalia 5.0.1.
+See the setup guide for field mappings, bounds, and fallback behavior.
+
 ## Shell integration and upgrading
 
 The former DMS `aqueousSettings` and Noctalia `aqueous/settings` settings
@@ -126,11 +145,15 @@ Arch, release/binary, Nix, and Gentoo recipes build the embedded application.
 
 ```sh
 zig build --build-file settingsApplication/build.zig test test-driver -Dmodel-only=true
+zig build --build-file settingsApplication/build.zig test-ui-model
 settingsApplication/tests/test-backend.sh
 settingsApplication/tests/test-packaging.sh
 python3 settingsApplication/tests/test-retirement.py
 python3 settingsApplication/tests/test-dms-bridge.py
 AQUEOUS_SETTINGS_TEST_INPUT=1 python3 settingsApplication/tests/test-ui.py
+python3 settingsApplication/tests/test-theme-templates.py
+AQUEOUS_SETTINGS_TEST_THEME=dms AQUEOUS_SETTINGS_TEST_INPUT=1 python3 settingsApplication/tests/test-ui.py
+AQUEOUS_SETTINGS_TEST_THEME=noctalia AQUEOUS_SETTINGS_TEST_THEME_MODE=light python3 settingsApplication/tests/test-ui.py
 ```
 
 The `test-driver` target builds `aqueous-backend-test`, a test-only adapter for
@@ -146,6 +169,13 @@ software driver and a compositor built with Pixman support; use
 `AQUEOUS_SETTINGS_ARTIFACTS` saves screenshots with `grim`, and
 `AQUEOUS_SETTINGS_TEST_PAGES` narrows page coverage. The DMS bridge test runs
 real Quickshell with an isolated SettingsData fixture.
+
+Theme UI tests require `grim` and Python Pillow, check rendered palette colors,
+and exercise live light/dark and font-size changes without losing raw-editor
+selection or drafts. `AQUEOUS_SETTINGS_TEST_THEME_MODE` selects the initial mode
+for all eight pages. Template tests run the installed DMS/Noctalia generators
+in temporary profiles. `test-ui-model` checks Quark widget ownership and sizing
+without opening a display.
 
 ## Remaining platform validation
 

@@ -12,6 +12,9 @@ test ! -e "$stage/usr/bin/aqueous-config"
 test ! -e "$stage/usr/bin/aqueous-backend-test"
 test ! -e "$stage/usr/share/aqueous/dms-plugins/aqueousSettings"
 test ! -e "$stage/usr/share/aqueous/noctalia-plugins"
+for file in dms.json.in noctalia.json.in dms.toml.example noctalia.toml.example README.md; do
+    test -s "$stage/usr/share/aqueous/settings-application/themes/$file"
+done
 test "$(readlink "$stage/etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance")" = /usr/share/aqueous/dms-plugins/aqueousSettingsAppearance
 if command -v desktop-file-validate >/dev/null; then desktop-file-validate "$stage/usr/share/applications/org.aqueous.Settings.desktop"; fi
 printf '%s\n' 'Settings package staging passed.'

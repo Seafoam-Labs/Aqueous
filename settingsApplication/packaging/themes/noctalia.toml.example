@@ -1,0 +1,4 @@
+# Merge this entry into Noctalia v5's config.toml; preserve existing entries.
+[theme.templates.user.aqueous_settings]
+input_path = '/usr/share/aqueous/settings-application/themes/noctalia.json.in'
+output_path = '$XDG_CACHE_HOME/aqueous/settings-application/themes/noctalia.json'

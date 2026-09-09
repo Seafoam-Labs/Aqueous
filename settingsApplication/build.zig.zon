@@ -10,5 +10,5 @@
             .lazy = true,
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "src", "quark", "assets", "packaging", "tests", "README.md", "PLAN.md", "BACKEND_MIGRATION_PLAN.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "quark", "assets", "packaging", "tests", "README.md", "PLAN.md", "BACKEND_MIGRATION_PLAN.md", "THEMING_PLAN.md" },
 }

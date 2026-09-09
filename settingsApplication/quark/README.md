@@ -19,3 +19,10 @@ keycodes, initial text, scroll viewport culling and scrollbar layers. They
 extend text limits, add multiline rendering/navigation and visible-control
 keyboard traversal, and bound long dropdown menus with wheel browsing. This is an application-specific patch against the recorded
 pin; mismatched source fails the build. It is not an upstream release.
+
+Theme support adds transactional `setFonts()` to parent/child windows, with
+cleanup on partial load failure and complete measurement-cache replacement.
+The patch also converts sRGB palette values according to the actual swapchain
+format, replacing the WSL-only color-conversion heuristic and correcting its
+transfer-function divisor. This keeps exported shell hex colors faithful on
+both sRGB and UNORM surfaces.

@@ -3,6 +3,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const process = b.createModule(.{ .root_source_file = b.path("src/services/process_client.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    process.addCSourceFile(.{ .file = b.path("src/services/theme/watch.c"), .flags = &.{"-std=c11"} });
     const backend = b.createModule(.{ .root_source_file = b.path("src/backend/root.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "process", .module = process }} });
     const backend_tests = b.addTest(.{ .root_module = backend });
     backend_tests.root_module.addCSourceFile(.{ .file = b.path("src/services/process.c"), .flags = &.{"-std=c11"} });
@@ -29,6 +30,14 @@ pub fn build(b: *std.Build) void {
     patched.addDirectoryArg(dep.path("src"));
     const source = patched.addOutputDirectoryArg("quark-src");
     quark.root_module.root_source_file = source.path(b, "root.zig");
+    const ui_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/ui_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{.{ .name = "quark", .module = quark.root_module }},
+    }) });
+    b.step("test-ui-model", "Test widget restyling and ownership without a display").dependOn(&b.addRunArtifact(ui_tests).step);
     const exe = b.addExecutable(.{ .name = "aqueous-settings", .root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,

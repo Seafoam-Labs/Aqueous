@@ -220,3 +220,35 @@ replace('input.zig', 'pub fn handleMouseScroll(window: anytype, delta: f32) void
         window.state.layout_dirty = true;
         return;
     }''')
+# Runtime fonts are replaced as one family; measurements live in each Font context.
+replace('window.zig', '    pub fn setTheme(self: *@This(), theme: Theme) void {', '''    pub fn setFonts(self: *@This(), bytes: [4]?[]const u8, pixels: f32) !void {
+        const names = .{ "regular", "bold", "italic", "bold_italic" };
+        const defaults = .{ @embedFile("Font/Regular.woff2"), @embedFile("Font/Bold.woff2"), @embedFile("Font/Italic.woff2"), @embedFile("Font/BoldItalic.woff2") };
+        var replacement: Font.Family = undefined;
+        var count: usize = 0;
+        errdefer { inline for (names, 0..) |name, i| { if (i < count) @field(replacement, name).deinit(); } }
+        inline for (names, 0..) |name, i| {
+            @field(replacement, name) = try Font.init(bytes[i] orelse defaults[i], pixels, self.allocator);
+            count += 1;
+        }
+        _ = vulkan.ctranslate.vkDeviceWaitIdle(self.state.device.handle);
+        self.state.fonts.deinit();
+        self.state.fonts = replacement;
+        self.state.layout_dirty = true;
+    }
+
+    pub fn setTheme(self: *@This(), theme: Theme) void {''', 2)
+# Palette hex values are sRGB. Convert for sRGB swapchains on every platform,
+# rather than relying on the upstream WSL-only heuristic (which also had a divisor typo).
+replace('Components/Rectangle.zig', 'pub fn srgb2Linear(channel: [3]f32) [3]f32 {', 'pub threadlocal var srgb_target: bool = false;\npub fn srgb2Linear(channel: [3]f32) [3]f32 {')
+replace('Components/Rectangle.zig', 'if (std.c.getenv("WSL_DISTRO_NAME") != null) {', 'if (srgb_target) {')
+replace('Components/Rectangle.zig', '(c + 0.055) / (1.0 / 1.055)', '(c + 0.055) / 1.055')
+# Insert at the start of windowUpdate, before component vertices are generated.
+p = dst / 'window.zig'
+text = p.read_text()
+start = text.index('fn windowUpdate(')
+brace = text.index('{', start) + 1
+text = text[:brace] + '''
+    @import("Components/Rectangle.zig").srgb_target = window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_B8G8R8A8_SRGB or window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_R8G8B8A8_SRGB or window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_A8B8G8R8_SRGB_PACK32;
+''' + text[brace:]
+p.write_text(text)

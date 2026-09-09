@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "source": "noctalia",
+  "mode": "{{mode}}",
+  "dark": {
+    "background": "{{colors.background.dark.hex}}",
+    "on_background": "{{colors.on_background.dark.hex}}",
+    "surface_container": "{{colors.surface_container.dark.hex}}",
+    "on_surface": "{{colors.on_surface.dark.hex}}",
+    "surface_container_high": "{{colors.surface_container_high.dark.hex}}",
+    "on_surface_variant": "{{colors.on_surface_variant.dark.hex}}",
+    "primary": "{{colors.primary.dark.hex}}",
+    "on_primary": "{{colors.on_primary.dark.hex}}",
+    "primary_container": "{{colors.primary_container.dark.hex}}",
+    "on_primary_container": "{{colors.on_primary_container.dark.hex}}",
+    "outline": "{{colors.outline.dark.hex}}",
+    "error_container": "{{colors.error_container.dark.hex}}",
+    "on_error_container": "{{colors.on_error_container.dark.hex}}"
+  },
+  "light": {
+    "background": "{{colors.background.light.hex}}",
+    "on_background": "{{colors.on_background.light.hex}}",
+    "surface_container": "{{colors.surface_container.light.hex}}",
+    "on_surface": "{{colors.on_surface.light.hex}}",
+    "surface_container_high": "{{colors.surface_container_high.light.hex}}",
+    "on_surface_variant": "{{colors.on_surface_variant.light.hex}}",
+    "primary": "{{colors.primary.light.hex}}",
+    "on_primary": "{{colors.on_primary.light.hex}}",
+    "primary_container": "{{colors.primary_container.light.hex}}",
+    "on_primary_container": "{{colors.on_primary_container.light.hex}}",
+    "outline": "{{colors.outline.light.hex}}",
+    "error_container": "{{colors.error_container.light.hex}}",
+    "on_error_container": "{{colors.on_error_container.light.hex}}"
+  }
+}

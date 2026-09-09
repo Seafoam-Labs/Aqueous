@@ -68,10 +68,17 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, shell, "auto")) shell = try shells.detect(a);
     const state = init.environ_map.get("XDG_STATE_HOME") orelse try std.fs.path.join(a, &.{ init.environ_map.get("HOME") orelse return error.MissingHome, ".local/state" });
     const backup = try std.fs.path.join(a, &.{ state, "aqueous/settings-application/backups" });
-    var window = try q.Parent.init("Aqueous Settings", "0.1.0", "org.aqueous.Settings", prefs.width, prefs.height, .{ .font_size = 16, .window_color = q.Theme.hex(0x101D2B) });
+    var themes = try @import("services/theme/service.zig").Service.init(init.io, init.environ_map);
+    defer themes.deinit();
+    var window = try q.Parent.init("Aqueous Settings", "0.1.0", "org.aqueous.Settings", prefs.width, prefs.height, .{ .font_size = 16 });
     var app = app_mod.App.init(&window, init.io, shell, backup, page);
     defer app.deinit();
     defer window.deinit();
+    app.themes = &themes;
+    app.theme_choice = prefs.theme_source;
+    app.prefs_path = prefs_path;
+    try app.applyTheme(.{}, @splat(null), false);
+    try app.selectTheme();
     active = &app;
     defer active = null;
     window.pre_render = render;
@@ -111,6 +118,6 @@ pub fn main(init: std.process.Init) !void {
             if (frames > f + 75) break;
         }
     }
-    if (!smoke) preferences.save(a, init.io, prefs_path, .{ .page = app.page, .width = @intFromFloat(window.width()), .height = @intFromFloat(window.height()) }) catch |err| std.log.warn("Unable to save window preferences: {s}", .{@errorName(err)});
+    if (!smoke) app.savePreferences() catch |err| std.log.warn("Unable to save window preferences: {s}", .{@errorName(err)});
     if (smoke and app.model.snapshot == .null) return error.SnapshotNotLoaded;
 }

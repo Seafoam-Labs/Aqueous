@@ -18,3 +18,5 @@ ln -sfn "$prefix/share/aqueous/dms-plugins/aqueousSettingsAppearance" "$destinat
 install -Dm644 "$root/quark/LICENSE" "$destination$prefix/share/licenses/aqueous-settings/quark-LICENSE"
 install -Dm644 "$root/quark/README.md" "$destination$prefix/share/licenses/aqueous-settings/quark-SOURCE.md"
 install -Dm644 "$root/quark/prepare.py" "$destination$prefix/share/aqueous/settings-application/quark/prepare.py"
+install -dm755 "$destination$prefix/share/aqueous/settings-application/themes"
+install -m644 "$root/packaging/themes/"* "$destination$prefix/share/aqueous/settings-application/themes/"
