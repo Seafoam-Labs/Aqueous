@@ -479,7 +479,7 @@ pub const App = struct {
         var scroll = try q.widget.ScrollView.initOwned(.{ .column = content }, a);
         scroll.id = 200;
         scroll.scroll_y = if (self.rendered_search.len > 0) 0 else self.view_state.scroll[self.page];
-        _ = try body.addWithWidthConstraint(.{ .scrollview = scroll }, q.Size.fixed(@min(1080, self.window.width() - root.padding * 2 - (if (compact) @as(f32, 0) else @max(220, self.theme.font.pixels * 12) + body.spacing))));
+        _ = try body.addWithWidthConstraint(.{ .scrollview = scroll }, q.Size.proportional(1));
         _ = try root.addWithHeightConstraint(.{ .row = body }, q.Size.proportional(1));
         _ = try root.add(self.richLabel(self.status, .muted));
         var footer = self.newRow();
