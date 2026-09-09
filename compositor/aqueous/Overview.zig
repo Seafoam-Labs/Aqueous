@@ -272,6 +272,7 @@ pub fn show(
     overview.tree.node.raiseToTop();
     try overview.hideOutputScene(output);
     overview.tree.node.setEnabled(true);
+    server.wm.dirtyWindowing();
     return accepted;
 }
 
@@ -301,6 +302,7 @@ pub fn hide(overview: *Overview) void {
     overview.backdrop = null;
     overview.output_id = null;
     overview.progress = 1;
+    server.wm.dirtyWindowing();
 }
 
 /// Hide only content owned by the overview output. Scene layer roots span all

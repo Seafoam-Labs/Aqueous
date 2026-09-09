@@ -11,6 +11,21 @@ pub const ResizeAxis = enum { horizontal, vertical };
 
 pub const ResizeEdges = geometry_policy.ResizeEdges;
 
+/// Client decoration resize requests use freeform geometry. Modifier drags
+/// have a separate tiled/scrolling policy and do not use this affordance.
+pub fn clientResizeAllowed(kind: PolicyState.Kind, fixed: bool, floating_layout: bool) bool {
+    return !fixed and (kind == .floating or (kind == .tiled and floating_layout));
+}
+
+test "client resize affordance matches freeform request policy" {
+    try std.testing.expect(clientResizeAllowed(.floating, false, false));
+    try std.testing.expect(clientResizeAllowed(.tiled, false, true));
+    try std.testing.expect(!clientResizeAllowed(.floating, true, false));
+    try std.testing.expect(!clientResizeAllowed(.tiled, false, false));
+    try std.testing.expect(!clientResizeAllowed(.maximized, false, true));
+    try std.testing.expect(!clientResizeAllowed(.minimized, false, true));
+}
+
 pub const double_click_msec: u32 = 400;
 pub const click_motion_tolerance: f64 = 4;
 

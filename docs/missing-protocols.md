@@ -1,12 +1,16 @@
 # Missing Wayland and wlroots protocols
 
-Audit of Wayland protocol support in Aqueous against the full
+Audit of useful Wayland protocol gaps in Aqueous against the
 [wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols)
 and [wlr-protocols](https://gitlab.freedesktop.org/wlroots/wlr-protocols)
 registries. Verified against protocol manager creation in
 `compositor/aqueous/Server.zig`, `InputManager.zig`, `OutputManager.zig`,
 `LayerShell.zig`, `LockManager.zig`, `IdleInhibitManager.zig`,
-`WorkspaceManager.zig`, and `XwaylandKeyboardGrab.zig` (wlroots 0.20).
+`WorkspaceManager.zig`, and `XwaylandKeyboardGrab.zig`. Updated September 9,
+2026 against the source tree, installed protocol XMLs, and the pinned patched
+wlroots 0.20.2 headers. This is a source audit, not a runtime registry probe;
+some globals depend on build options or hardware. Dependency support below
+refers to this pinned wlroots, not an assertion about upstream development.
 
 ## Supported compatibility protocols
 
@@ -29,24 +33,33 @@ qualification remain outstanding; see the
 
 ## Not supported
 
-### wayland-protocols stable (wlroots implements these)
-
-| Protocol | Global interface | wlroots implementation | Notes |
-|---|---|---|---|
-| drm-lease-v1 | `wp_drm_lease_manager_v1` | `wlr.DrmLeaseV1` | Leases DRM connectors to clients. Required for VR headsets (SteamVR, Monado, OpenComposite). Needs DRM backend wiring. |
-
-### wlr-protocols (wlroots implements this)
-
-| Protocol | Global interface | wlroots implementation | Notes |
-|---|---|---|---|
-| wlr-input-inhibitor-unstable-v1 | `wlr_input_inhibit_manager` | `wlr.InputInhibitManager` | Compositor-wide keyboard/pointer inhibition. Legacy swaylock used it; superseded by ext-session-lock-v1 (supported), but some older tools still bind it. Drop-in. |
-
 ### wayland-protocols staging
+
+| Protocol | Global interface | Dependency support | Benefit and required integration |
+|---|---|---|---|
+| xdg-dialog-v1 | `xdg_wm_dialog_v1` | Present: `wlr_xdg_wm_dialog_v1_create`. | Explicit dialog/modal hints relative to an xdg parent. Integrate placement, stacking, and focus policy, including hint changes and destruction. Clients remain responsible for filtering parent input for modal dialogs. |
+| xdg-toplevel-icon-v1 | `xdg_toplevel_icon_manager_v1` | Present: `wlr_xdg_toplevel_icon_manager_v1_create`. | Per-window named or pixel-buffer icons for overviews, switchers, and taskbars. Retain icon state and provide a path for the compositor UI/DMS to consume it; creating the global alone does not display icons. |
+| commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
+| xdg-toplevel-drag-v1 | `xdg_toplevel_drag_manager_v1` | No implementation found. | Move a real toplevel during drag-and-drop, enabling tab detachment and reattachment. Integrate mapping, movement, drop/cancellation, and window lifetime with the existing drag path. |
+| xdg-toplevel-tag-v1 | `xdg_toplevel_tag_manager_v1` | No implementation found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Add tag/description storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
+| xdg-system-bell-v1 | `xdg_system_bell_v1` | Present: `wlr_xdg_system_bell_v1_create`. | Standard audible or visual bell requests. Connect events to configurable feedback, with rate limiting. |
+| drm-lease-v1 | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
+| pointer-warp-v1 | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
+| xdg-session-management-v1 | `xdg_session_manager_v1` | No implementation found. | Restore participating applications' toplevel state across application/compositor restarts. Needs session identity, persistent state, restoration policy, and lifecycle handling. Does not itself relaunch applications or restore their document contents. |
+| ext-transient-seat-v1 | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
+
+Protocol definitions are under `staging/<protocol>/<protocol>-v1.xml` in
+[wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tree/main/staging);
+xdg-shell is under `stable/xdg-shell/xdg-shell.xml`. The installed XMLs under
+`/usr/share/wayland-protocols` were used to verify interface names and semantics.
+The dependency headers are under
+`compositor/.deps/wlroots-render-hook/include/wlroots-0.20/wlr/types/`.
+
+### wlr-protocols compatibility
 
 | Protocol | Global interface | Notes |
 |---|---|---|
-| xdg-dialog-v1 | `xdg_dialog_manager_v1` | Dialog/transient window relationships and close-dialog events. KDE and Hyprland implement it; no wlroots implementation yet. |
-| xdg-toplevel-drag-v1 | `xdg_toplevel_drag_manager_v1` | Drag a toplevel between outputs/tabs mid-gesture. No wlroots implementation yet. |
+| wlr-input-inhibitor-unstable-v1 | `zwlr_input_inhibit_manager_v1` | Legacy compositor-wide input inhibition. Aqueous already implements ext-session-lock-v1. Low priority unless a concrete compatibility need is identified; would require input-policy integration, not merely global creation. |
 
 ### wayland-protocols legacy unstable
 
@@ -98,14 +111,21 @@ For reference, the protocol set confirmed in the codebase:
 **Core:** `wl_compositor` (v6), `wl_subcompositor`, `wl_shm` (v2),
 `wl_data_device_manager`, `wl_output`, `wl_seat`.
 
-**wayland-protocols stable:** xdg-shell (v5), presentation-time (v2),
+**Desktop, rendering, and input protocols (mixed stability):** xdg-shell (v7), presentation-time (v2),
 viewporter, idle-inhibit-v1, xdg-decoration-v1, relative-pointer-v1,
 pointer-constraints-v1, tablet-v2, input-method-v2, text-input-v3,
 xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), security-context-v1, wayland-fixes,
-content-type-v1.
+content-type-v1, fifo-v1.
+
+xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
+each client's bound version. Suspension follows workspace/output visibility,
+locking, and active capture demand; visible previews and outstanding resize
+buffers conservatively keep clients active. Edge hints follow client-initiated
+resize eligibility, independently of modifier-driven resizing. See the
+[implementation and validation record](xdg-shell-v6-v7-implementation-plan.md).
 
 **wayland-protocols ext/staging:** ext-idle-notify-v1, ext-session-lock-v1,
 ext-image-copy-capture-v1, ext-output-image-capture-source-v1,
@@ -131,17 +151,34 @@ zwlr_virtual_keyboard_manager_v1, xwayland_shell_v1.
 
 ## Recommendations
 
-Priority order among the actionable gaps (all wlroots-ready):
+Effort estimates include useful compositor behavior and validation, not just
+advertising protocol globals. Recommended order for general desktop use:
 
-1. **wlr-input-inhibitor** — easy drop-in; compatibility with older
-   lock/overlay tooling.
-2. **drm-lease-v1** — moderate effort (DRM backend wiring); the only gap
-   with hardware implications (VR headsets).
+| Priority | Work | Estimated scope |
+|---|---|---|
+| High | **xdg-dialog-v1** | Small–medium: the dependency implements the protocol; integrate dialog/modal policy. |
+| Medium | **xdg-toplevel-icon-v1** | Medium: icon lifetime, rendering, and shell/DMS consumption. |
+| Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
+| Medium | **xdg-toplevel-drag-v1** | Medium–large: coordinate drag-and-drop with window movement and lifetime. |
+| Medium | **xdg-toplevel-tag-v1** | Small–medium: metadata plus rule/inspection integration; value depends on participating clients. |
+| Low; small polish task | **xdg-system-bell-v1** | Small: configurable audible/visual feedback. |
+
+Raise **drm-lease-v1** to high priority for directly connected VR headset
+support. Consider **pointer-warp-v1** for applications needing explicit cursor
+repositioning, **xdg-session-management-v1** for window-state restoration, and
+**ext-transient-seat-v1** for independent remote-desktop users. Session
+management and transient seats require broader persistence/input work.
+
+For gaming, commit timing can take precedence over window icons. Resolve
+outstanding FIFO, presentation-feedback, and output-retry correctness issues
+first. Validate timing/queue interactions with automated tests and actual
+presentation timing on DRM hardware; headless tests alone do not qualify it.
 
 content-type-v1 was implemented in the content-type-v1 change: the protocol
 global plus policy integration (visual-only `content_type` rule matcher,
 auto-HDR game trigger, and aqueousctl exposure).
 
-The staging protocols (xdg-dialog-v1, xdg-toplevel-drag-v1) require wlroots
-upstream support first. Legacy unstable protocols are superseded or dead and
-are not recommended for implementation.
+Missing dependency implementations can be added to Aqueous's pinned wlroots
+patch series; upstream support is not a prerequisite. Legacy input inhibition
+and superseded protocol versions should be driven by demonstrated client
+compatibility needs rather than protocol-count completeness.

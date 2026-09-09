@@ -708,6 +708,11 @@ fn renderFinish(wm: *WindowManager) void {
     server.om.commitOutputState();
 
     {
+        var windows = wm.windows.iterator();
+        while (windows.next()) |window| window.refreshSuspension();
+    }
+
+    {
         var it = server.input_manager.seats.iterator(.forward);
         while (it.next()) |seat| {
             seat.finishFocusWarp();

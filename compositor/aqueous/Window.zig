@@ -131,6 +131,8 @@ const WmRequested = struct {
 };
 
 pub const Configure = struct {
+    suspended: bool = false,
+    constrained: wlr.Edges = .{},
     width: ?u31,
     height: ?u31,
     bounds: Dimensions,
@@ -355,6 +357,9 @@ anim_border: BorderNodes,
 
 capture_scene: *wlr.Scene,
 capture_source: ?*wlr.ExtImageCaptureSourceV1 = null,
+capture_impl: wlr.ExtImageCaptureSourceV1.Interface = undefined,
+capture_original_impl: *const wlr.ExtImageCaptureSourceV1.Interface = undefined,
+capture_sessions: usize = 0,
 content_type: wp.ContentTypeV1.Type = .none,
 
 /// State to be sent to the wm in the next manage sequence.
@@ -1414,9 +1419,119 @@ fn handleRequest(
     }
 }
 
-/// Applies window management state from the window manager and sends a configure
-/// to the window if necessary.
-/// Returns true if the configure should be waited for by the transaction system.
+/// Conservative repaint demand, including prospective visibility on resume.
+pub fn shouldSuspend(window: *Window, prospective: bool) bool {
+    if (window.impl != .toplevel or window.state != .mapped) return false;
+    const toplevel = &window.impl.toplevel;
+    switch (toplevel.configure_state) {
+        .idle, .committed => {},
+        else => {
+            // A timed-out resize still needs its buffer. Suspending it would
+            // tell a cooperative client to stop producing the awaited content.
+            const sent = window.configure_sent;
+            if ((sent.width != null and sent.width.? != toplevel.geometry.width) or
+                (sent.height != null and sent.height.? != toplevel.geometry.height)) return false;
+        },
+    }
+    const workspace_visible = if (window.workspace) |ws|
+        ws.isActive() or ws.output.prev_workspace == ws
+    else
+        true;
+    var preview = window.anim_snapshot and window.anim_tree.node.enabled;
+    if (server.overview.tree.node.enabled) {
+        for (server.overview.entries.items) |entry| {
+            if (entry.handle == @as(u64, @bitCast(window.ref))) {
+                preview = true;
+                break;
+            }
+        }
+    }
+    if (window.workspace) |ws| {
+        if (workspace_visible and ws.output.prev_workspace != null) preview = true;
+    }
+    const requested = &window.rendering_requested;
+    var box: wlr.Box = .{
+        .x = requested.x,
+        .y = requested.y,
+        .width = if (window.wm_requested.dimensions) |d| d.width else window.box.width,
+        .height = if (window.wm_requested.dimensions) |d| d.height else window.box.height,
+    };
+    var clipped = false;
+    inline for (.{ requested.clip, requested.content_clip }) |clip| {
+        if (!clip.empty()) {
+            var global_clip = clip;
+            global_clip.x += requested.x;
+            global_clip.y += requested.y;
+            if (!box.intersection(&box, &global_clip)) clipped = true;
+        }
+    }
+    var output_visible = false;
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const physical = output.wlr_output orelse continue;
+        // Mirrors require a powered source (OutputMirror.source).
+        if (!output.current.mirror_of.empty()) continue;
+        const powered = (output.current.state == .enabled and physical.enabled) or
+            (prospective and output.sent.state == .enabled);
+        if (!powered) continue;
+        if (preview and window.workspace != null and window.workspace.?.output == output) {
+            output_visible = true;
+            break;
+        }
+        const dims = output.sent.dimensions();
+        const output_box: wlr.Box = .{ .x = output.sent.x, .y = output.sent.y, .width = @intCast(dims[0]), .height = @intCast(dims[1]) };
+        var intersection: wlr.Box = undefined;
+        if (!clipped and intersection.intersection(&box, &output_box)) {
+            output_visible = true;
+            break;
+        }
+    }
+    return @import("xdg_state.zig").suspended(.{
+        .mapped = true,
+        .capture = window.capture_sessions != 0,
+        .desktop = server.scene.normal_tree.node.enabled,
+        .output = output_visible,
+        .preview = preview,
+        .workspace = workspace_visible,
+        .hidden = requested.hidden or window.overview_hidden,
+        .clipped = clipped,
+    });
+}
+
+/// Reconcile after settled render state, never configure from a scene callback.
+pub fn refreshSuspension(window: *Window) void {
+    if (window.impl == .toplevel and window.state == .mapped and
+        window.shouldSuspend(false) != window.configure_sent.suspended)
+        server.wm.dirtyWindowing();
+}
+
+/// Resources alone are not consumers: start/stop run once per capture session.
+pub fn trackCaptureSource(window: *Window, source: *wlr.ExtImageCaptureSourceV1) void {
+    if (window.capture_source != null) return;
+    window.capture_source = source;
+    window.capture_original_impl = source.impl;
+    window.capture_impl = source.impl.*;
+    window.capture_impl.start = captureStart;
+    window.capture_impl.stop = captureStop;
+    source.impl = &window.capture_impl;
+}
+
+fn captureStart(source: *wlr.ExtImageCaptureSourceV1, cursors: bool) callconv(.c) void {
+    const window: *Window = @fieldParentPtr("capture_impl", @constCast(source.impl));
+    window.capture_sessions += 1;
+    if (window.capture_original_impl.start) |start| start(source, cursors);
+    server.wm.dirtyWindowing();
+}
+
+fn captureStop(source: *wlr.ExtImageCaptureSourceV1) callconv(.c) void {
+    const window: *Window = @fieldParentPtr("capture_impl", @constCast(source.impl));
+    assert(window.capture_sessions > 0);
+    window.capture_sessions -= 1;
+    if (window.capture_original_impl.stop) |stop| stop(source);
+    server.wm.dirtyWindowing();
+}
+
+/// Apply policy and return whether the transaction must wait for a buffer.
 pub fn manageFinish(window: *Window) bool {
     const wm_requested = &window.wm_requested;
 
@@ -1464,9 +1579,18 @@ pub fn manageFinish(window: *Window) bool {
         }
         break :blk .{ null, null };
     };
+    // A size transaction needs a client buffer even when the window is hidden.
+    // Resume in that configure, then reconcile suspension after it settles.
+    const suspended = window.shouldSuspend(true) and width == null and height == null;
     wm_requested.dimensions = null;
 
     window.configure_scheduled = .{
+        .suspended = suspended,
+        .constrained = if (server.aqueous.mode.runsInternal() and
+            !server.aqueous.clientResizeAllowed(@bitCast(window.ref)))
+            .{ .top = true, .bottom = true, .left = true, .right = true }
+        else
+            .{},
         .width = width,
         .height = height,
         .bounds = wm_requested.bounds,
@@ -2031,6 +2155,7 @@ fn clearSnapshot(window: *Window) void {
     window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
+    window.refreshSuspension();
     window.syncFullscreenBackground();
     window.applyOpacity();
     window.drawBorders();

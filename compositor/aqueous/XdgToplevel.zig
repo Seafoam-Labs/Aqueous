@@ -149,6 +149,8 @@ pub fn configure(toplevel: *XdgToplevel) bool {
     const wlr_toplevel = toplevel.wlr_toplevel;
 
     _ = wlr_toplevel.setActivated(scheduled.activated);
+    _ = wlr_toplevel.setSuspended(scheduled.suspended);
+    _ = wlr_toplevel.setConstrained(scheduled.constrained);
     _ = wlr_toplevel.setTiled(.{
         .top = scheduled.tiled.top,
         .bottom = scheduled.tiled.bottom,
@@ -233,6 +235,8 @@ fn needsConfigure(toplevel: *XdgToplevel) bool {
     if (scheduled.bounds.width != sent.bounds.width or
         scheduled.bounds.height != sent.bounds.height) return true;
     if (scheduled.activated != sent.activated) return true;
+    if (scheduled.suspended != sent.suspended) return true;
+    if (!std.meta.eql(scheduled.constrained, sent.constrained)) return true;
     if (!std.meta.eql(scheduled.tiled, sent.tiled)) return true;
     if (!std.meta.eql(scheduled.capabilities, sent.capabilities)) return true;
     if (scheduled.maximized != sent.maximized) return true;

@@ -788,6 +788,12 @@ fn activateClientWindow(
     return true;
 }
 
+pub fn clientResizeAllowed(aqueous: *Aqueous, handle: layout_types.Handle) bool {
+    if (aqueous.api.windowIsFullscreen(handle)) return false;
+    const state = aqueous.window_states.get(handle) orelse return true;
+    return pointer_drag.clientResizeAllowed(state.kind(), state.fixed_position, aqueous.clientWindowUsesFloatingLayout(handle));
+}
+
 fn startClientPointerDrag(
     aqueous: *Aqueous,
     handle: layout_types.Handle,
@@ -799,6 +805,7 @@ fn startClientPointerDrag(
     aqueous.focus_cause = .pointer;
     defer aqueous.focus_cause = previous_cause;
     if (aqueous.drag != null) return;
+    if (action == .resize_floating and !aqueous.clientResizeAllowed(handle)) return;
     const state = aqueous.window_states.get(handle) orelse return;
     if (state.fixed_position) return;
     const window_rect = aqueous.api.windowGeometry(handle) orelse return;

@@ -147,7 +147,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("wl_seat", 7);
     scanner.generate("wl_data_device_manager", 3);
 
-    scanner.generate("xdg_wm_base", 2);
+    scanner.generate("xdg_wm_base", 7);
     scanner.generate("zwp_pointer_gestures_v1", 3);
     scanner.generate("zwp_pointer_constraints_v1", 1);
     scanner.generate("zwp_tablet_manager_v2", 1);
@@ -710,6 +710,14 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        const xdg_state_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/xdg_state.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        test_step.dependOn(&b.addRunArtifact(xdg_state_test).step);
         test_step.dependOn(&run_scene_buffer_clone_test.step);
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);

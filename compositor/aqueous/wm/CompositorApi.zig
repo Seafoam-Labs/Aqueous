@@ -80,6 +80,12 @@ pub fn policyState(handle: layout.Handle) ?*Window.PolicyState {
     return &window.policy_state;
 }
 
+pub fn windowIsFullscreen(_: CompositorApi, handle: layout.Handle) bool {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return false;
+    return window.wm_requested.fullscreen != null;
+}
+
 pub fn snapshot(_: CompositorApi) Trace.Snapshot {
     var geometry_hash = std.hash.Wyhash.init(0);
     var window_it = server.wm.windows.iterator();

@@ -125,6 +125,7 @@ fn handleLockSurfacesTimeout(manager: *LockManager) c_int {
     manager.state = .waiting_for_blank;
 
     server.scene.normal_tree.node.setEnabled(false);
+    server.wm.dirtyWindowing();
 
     // This call is necessary in the case that all outputs in the layout are disabled.
     manager.maybeLock();

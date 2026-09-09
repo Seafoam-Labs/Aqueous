@@ -28,6 +28,14 @@ FIFO v1 is available in both builds. After building with
 [FIFO implementation and validation record](../docs/fifo-v1-implementation-plan.md)
 for queue semantics, syncobj remap tests, and remaining hardware qualification.
 
+xdg-shell v7 is available in both builds, including suspension and constrained
+resize-edge states. Run `python3 scripts/test-xdg-shell-states.py --renderer vulkan`
+with the effects build, or use `--renderer pixman` with the diagnostic build.
+The fixture starts a private session and checks older clients, hide/resume,
+capture, locking, output power, layout edges, and configure sequencing. See the
+[implementation record](../docs/xdg-shell-v6-v7-implementation-plan.md) for policy
+details and validation limits.
+
 Build the pinned dependency before the default build:
 
 ```sh

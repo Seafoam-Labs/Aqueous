@@ -159,6 +159,41 @@ enters the apply/test transaction path.
 
 ## The transaction cycle
 
+### xdg-shell v7 repaint and resize hints
+
+`Window.Configure` carries suspension and constrained edges through
+`XdgToplevel.configure` and its change detection. wlroots filters these states
+for clients binding earlier protocol versions. `Window.shouldSuspend` combines
+workspace/clipping visibility, output power, normal-tree visibility for locking,
+overview/animation previews, and active per-window capture sessions. Focus and
+lack of damage alone do not suspend a window. Exact overlap occlusion is not
+computed. Mirrors require their source output to remain powered and do not
+create independent live-surface demand.
+
+Manage computes prospective resume before sending a size configure. A resize
+awaiting a buffer, including after timeout, keeps the client unsuspended until
+that buffer arrives. After output state and the scene settle, render finish
+reconciles suspension and dirties a follow-up manage cycle only on a difference.
+State-only configures retain the existing acknowledgement logic without creating
+a new buffer wait or saved-buffer snapshot. Overview changes, animation cleanup,
+lock transitions, and capture start/stop schedule reconciliation without issuing
+configures inside their callbacks. Capture source lifecycle hooks are wrapped
+per window; an allocated source with no sessions is not a repaint consumer.
+
+`wm/input/drag.clientResizeAllowed` is shared by client resize requests and
+constrained-edge hints. Current client policy permits all edges for ordinary
+floating windows and floating-layout members, and rejects all for tiled,
+minimized, maximized, fullscreen, or fixed-position windows. Modifier-driven
+tiled/scrolling resizing remains independent. The legacy external-policy mode
+uses an empty constrained mask because its protocol has no edge-capability
+request. If per-edge client resizing is introduced later, update this shared
+policy rather than copying the decoration-oriented `tiled` mask.
+
+See [the xdg-shell implementation record](xdg-shell-v6-v7-implementation-plan.md)
+for the fixture and validation matrix.
+
+### Configure and render sequence
+
 Most interactions converge on `WindowManager.dirtyWindowing()`. It marks the
 state dirty and installs one idle callback, so a burst of events becomes one
 transaction. The state machine is:

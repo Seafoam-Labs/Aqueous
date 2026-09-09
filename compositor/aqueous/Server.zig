@@ -465,7 +465,7 @@ pub fn init(
         .subcompositor = try wlr.Subcompositor.create(wl_server),
         .cursor_shape_manager = try wlr.CursorShapeManagerV1.create(server.wl_server, 2),
 
-        .xdg_shell = try wlr.XdgShell.create(wl_server, 5),
+        .xdg_shell = try wlr.XdgShell.create(wl_server, 7),
         .xdg_decoration_manager = try wlr.XdgDecorationManagerV1.create(wl_server),
         .legacy_server_decoration = try LegacyServerDecoration.init(wl_server, startup_config.wm.force_ssd),
         .xdg_activation = try wlr.XdgActivationV1.create(wl_server),
@@ -1022,7 +1022,7 @@ fn handleToplevelCaptureRequest(
         return;
     };
 
-    window.capture_source = capture_source;
+    window.trackCaptureSource(capture_source);
 
     _ = request.accept(capture_source);
 }

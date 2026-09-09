@@ -150,7 +150,14 @@ capture_mean_red() {
     magick "$destination" -alpha off -format '%[fx:mean.r]' info:
 }
 
-owner_red=$(capture_mean_red "$OWNER_OUTPUT" "$TEST_ROOT/owner-before.png")
+# Mapping can precede the terminal's first painted frame. Establish the red
+# reference before exercising containment, independent of configure scheduling.
+owner_red=0
+for _ in $(seq 1 120); do
+    owner_red=$(capture_mean_red "$OWNER_OUTPUT" "$TEST_ROOT/owner-before.png")
+    if awk -v value="$owner_red" 'BEGIN { exit !(value > 0.05) }'; then break; fi
+    sleep 0.05
+done
 other_red=$(capture_mean_red "$OTHER_OUTPUT" "$TEST_ROOT/other-before.png")
 awk -v value="$owner_red" 'BEGIN { exit !(value > 0.05) }' ||
     die "test window is not visibly red on $OWNER_OUTPUT"

@@ -57,6 +57,8 @@ done
 cmp "$source_dir/protocol/aqueous-capture-color-v1.xml" \
     "$here/protocol/aqueous-capture-color-v1.xml" ||
     die "capture color protocol differs between compositor and wlroots patch"
+grep -Fq '#define WM_BASE_VERSION 7' "$source_dir/types/xdg_shell/wlr_xdg_shell.c" ||
+    die "pinned wlroots does not support the required xdg-shell version 7"
 grep -Fq '#define WLR_AQUEOUS_FIFO_VERSION 1' \
     "$source_dir/include/wlr/types/wlr_fifo_v1.h" ||
     die "patched wlroots does not expose the required FIFO API"
@@ -144,6 +146,8 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_xdg_toplevel_set_suspended \
+    wlr_xdg_toplevel_set_constrained \
     wlr_aqueous_capture_color_manager_v1_create \
     wlr_fifo_manager_v1_create \
     wlr_fifo_manager_v1_get_global \
