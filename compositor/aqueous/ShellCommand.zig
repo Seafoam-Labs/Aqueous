@@ -18,6 +18,7 @@ pub const Action = enum(u32) {
     overview_show,
     overview_hide,
     overview_toggle,
+    session_reload,
 };
 
 pub const Status = enum(u32) {

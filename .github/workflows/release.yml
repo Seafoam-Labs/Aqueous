@@ -99,14 +99,6 @@ jobs:
             exit 1
           fi
 
-      - name: Build Aqueous Settings helper
-        shell: bash
-        run: |
-          set -euxo pipefail
-          zig build --build-file plugin/helper/build.zig \
-            -Dcpu=baseline -Doptimize=ReleaseSafe \
-            --prefix "$GITHUB_WORKSPACE/publish/aqueous-plugin" install
-
       - name: Build bundled Aqueous portal backend
         shell: bash
         run: |
@@ -136,6 +128,17 @@ jobs:
             -Dcpu=baseline -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-welcome" install
 
+      - name: Build Aqueous Settings
+        shell: bash
+        run: |
+          zig build --build-file settingsApplication/build.zig test test-driver -Dmodel-only=true
+          settingsApplication/tests/test-backend.sh
+          zig build --build-file settingsApplication/build.zig \
+            -Dcpu=baseline -Doptimize=ReleaseSafe \
+            --prefix "$GITHUB_WORKSPACE/publish/aqueous-settings"
+          AQUEOUS_SETTINGS_BINARY="$GITHUB_WORKSPACE/publish/aqueous-settings/bin/aqueous-settings" \
+            settingsApplication/tests/test-packaging.sh
+
       - name: Stage bundle
         shell: bash
         run: |
@@ -156,10 +159,19 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/share/dbus-1/services
           mkdir -p publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr
 
+          AQUEOUS_SETTINGS_BINARY="$GITHUB_WORKSPACE/publish/aqueous-settings/bin/aqueous-settings" \
+            DESTDIR="$GITHUB_WORKSPACE/publish/aqueous-settings-image" PREFIX=/usr \
+            settingsApplication/packaging/install.sh
+          cp -a publish/aqueous-settings-image/usr/. publish/aqueous-linux-x64/
+          cp -a publish/aqueous-settings-image/etc/. publish/aqueous-linux-x64/etc/
+          test ! -e publish/aqueous-linux-x64/bin/aqueous-config
+          test ! -e publish/aqueous-linux-x64/bin/aqueous-backend-test
+          test ! -e publish/aqueous-linux-x64/share/aqueous/dms-plugins/aqueousSettings
+          test ! -e publish/aqueous-linux-x64/share/aqueous/noctalia-plugins
+
           # Binaries
           cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
-          cp publish/aqueous-plugin/bin/aqueous-config publish/aqueous-linux-x64/bin/
           cp publish/aqueous-welcome/bin/aqueous-welcome publish/aqueous-linux-x64/bin/
           cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
             publish/aqueous-linux-x64/lib/aqueous/
@@ -203,8 +215,6 @@ jobs:
           # tarball/binary install also brings up the SNI tray watcher before the
           # autostart target (mirrors PKGBUILD package()).
           cp packaging/noctalia.service publish/aqueous-linux-x64/lib/systemd/user/
-          cp packaging/enable-noctalia-plugin.sh \
-             publish/aqueous-linux-x64/lib/aqueous/enable-noctalia-plugin
           mkdir -p publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants
           ln -sf ../noctalia.service \
              publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
@@ -219,16 +229,6 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/share/aqueous/ghostty
           cp packaging/ghostty/config.ghostty \
              publish/aqueous-linux-x64/share/aqueous/ghostty/
-          mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations
-          cp plugin/catalog.toml \
-             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/
-          cp plugin/settings/plugin.toml \
-             plugin/settings/widget.luau \
-             plugin/settings/panel.luau \
-             plugin/settings/aqueous.png \
-             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/
-          cp plugin/settings/translations/en.json \
-             publish/aqueous-linux-x64/share/aqueous/noctalia-plugins/settings/translations/
           if [ -d packaging/wallpapers ]; then
             mkdir -p publish/aqueous-linux-x64/share/aqueous/wallpapers
             cp packaging/wallpapers/*.avif publish/aqueous-linux-x64/share/aqueous/wallpapers/ 2>/dev/null || true

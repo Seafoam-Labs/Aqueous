@@ -23,3 +23,9 @@ docs/auto-hdr-ship-corpus-training-plan.md
 docs/auto-hdr-training-data-sourcing.md
 .qwen/settings.json
 Debug/*
+
+# Standalone Quark settings application
+settingsApplication/zig-out/
+settingsApplication/zig-pkg/
+settingsApplication/.zig-cache/
+settingsApplication/**/__pycache__/

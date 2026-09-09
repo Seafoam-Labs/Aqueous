@@ -9,7 +9,7 @@ SPDX-License-Identifier: MIT</copyright>
     acknowledge each bounded batch before another is sent. Intermediate states
     may be coalesced; base_sequence identifies the state to which a delta applies.
   </description>
-  <interface name="aqueous_shell_manager_v1" version="1">
+  <interface name="aqueous_shell_manager_v1" version="2">
     <enum name="action">
       <entry name="window_activate" value="0"/>
       <entry name="window_close" value="1"/>
@@ -26,6 +26,7 @@ SPDX-License-Identifier: MIT</copyright>
       <entry name="overview_show" value="12"/>
       <entry name="overview_hide" value="13"/>
       <entry name="overview_toggle" value="14"/>
+      <entry name="session_reload" value="15" since="2" summary="reload configuration through the normal policy reload path"/>
     </enum>
     <enum name="status">
       <entry name="applied" value="0"/>

@@ -94,6 +94,12 @@ with tempfile.TemporaryDirectory(prefix='aq-ipc-') as tmp:
         control = connect(path)
         events = connect(path)
         assert control.session == events.session
+        assert control.capabilities['capabilities']['config_reload']
+        # Explicit reload works repeatedly without a file change to wake the watcher.
+        for count in (1, 2):
+            assert control.command('session.reload')['result']['status'] == 'applied'
+            assert (base / 'first.log').read_text().count('configuration reloaded layout=') == count
+        assert control.command('session.reload', dict(extra=True), ok=False)['error']['code'] == 'invalid'
         record('hello-request', dict(ipc=1, id='1', op='hello', params={}))
         record('hello-response', dict(ipc=1, id='1', ok=True, result=control.capabilities))
         initial = control.snapshot()

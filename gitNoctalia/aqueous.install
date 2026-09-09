@@ -13,6 +13,7 @@ print_session_information() {
     files and hot-reloads valid changes without restarting the compositor.
 
     Useful commands:
+        aqueous-settings
         aqueousctl windows
         aqueousctl outputs
         aqueousctl layout --output <name> --json
@@ -30,11 +31,9 @@ EOF
     if [ -e /usr/lib/systemd/user/noctalia.service ]; then
         cat <<'EOF'
 
-    Noctalia starts automatically with the Aqueous graphical session. The
-    default config registers and enables the packaged Aqueous Settings plugin
-    and places its widget on the bar for new profiles. Existing Noctalia bar
-    layouts are preserved; those users can add it from the bar widget picker.
-    An intentional later disable is preserved.
+    Noctalia starts automatically with the Aqueous graphical session.
+    Open Aqueous Settings from the application menu or run aqueous-settings.
+    Existing custom Noctalia bar layouts are preserved.
 EOF
     elif [ -e /usr/lib/systemd/user/aqueous-dms.service ]; then
         cat <<'EOF'
@@ -68,6 +67,11 @@ post_upgrade() {
     ~/.config/aqueous are not overwritten by the session launcher. Review any
     pacnew files created for
     system-wide configuration before merging them.
+
+    The old DMS aqueousSettings and Noctalia aqueous/settings plugins are
+    replaced by aqueous-settings. Remove their widgets from custom bars and
+    replace old panel/IPC launch bindings. User settings and backups are kept.
+    The optional DMS aqueousSettingsAppearance typography bridge remains.
 
     If upgrading while logged in, refresh the user-unit cache first:
         systemctl --user daemon-reload

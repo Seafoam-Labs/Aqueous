@@ -7,8 +7,8 @@ pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 build)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
-license=('GPL3' 'MIT')
-depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
+license=('GPL3' 'MIT' 'custom:PX')
+depends=('freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
          'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
@@ -19,7 +19,7 @@ depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff'
          'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
          'shelly' 'polkit' 'freetype2')
-makedepends=('clang' 'lld' 'llvm' 'git' 'curl' 'patch' 'scdoc'
+makedepends=('python' 'shaderc' 'clang' 'lld' 'llvm' 'git' 'curl' 'patch' 'scdoc'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang' 'shaderc'
              'vulkan-headers' 'hwdata' 'zig>=0.16')
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
@@ -63,6 +63,12 @@ prepare() {
 }
 
 build() {
+    # Standalone settings, including its embedded configuration backend.
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-settings-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-settings-zig-local" \
+        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
+        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-settings-dist"
+
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
     # We enforce this here instead of via a pacman version constraint because
     # the repo `zig` package is currently 0.15.x and Zig 0.16 is only available
@@ -105,14 +111,6 @@ build() {
         -Dman-pages=true \
         --prefix "$srcdir/aqueous-dist" install
 
-    # Build the shared helper used by the DMS Aqueous Settings integration.
-    msg2 "Building Aqueous Settings helper..."
-    cd "$srcdir/aqueous/plugin/helper"
-    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-local-v2" \
-    zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
-        --prefix "$srcdir/aqueous-plugin-dist" install
-
     msg2 "Building bundled xdg-desktop-portal-aqueous 0.8.4..."
     sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
         "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
@@ -127,6 +125,13 @@ build() {
 }
 
 check() {
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-settings-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-settings-zig-local" \
+        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$srcdir/aqueous-settings-tests"
+    AQUEOUS_SETTINGS_BINARY="$srcdir/aqueous-settings-dist/bin/aqueous-settings" \
+        "$srcdir/aqueous/settingsApplication/tests/test-packaging.sh"
+    "$srcdir/aqueous/settingsApplication/tests/test-backend.sh" "$srcdir/aqueous-settings-tests/bin/aqueous-backend-test"
+
     python3 "$srcdir/aqueous/packaging/tests/test-dms-git-packaging.py"
     # aqueousctl and its protocol/manual are one feature: reject a partial
     # install tree before package() copies it into the package image.
@@ -158,13 +163,6 @@ check() {
         return 1
     fi
 
-    if [[ ! -x "$srcdir/aqueous-plugin-dist/bin/aqueous-config" ]]; then
-        error "build output is missing required file: bin/aqueous-config"
-        return 1
-    fi
-    "$srcdir/aqueous/plugin/tests/test-helper.sh" \
-        "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
-    "$srcdir/aqueous/dms-plugin/tests/test-all.sh" "$srcdir/aqueous-plugin-dist/bin/aqueous-config"
     "$srcdir/aqueous/packaging/tests/test-portal-chooser.sh" \
         "$srcdir/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser"
     "$srcdir/aqueous/packaging/tests/test-portal-packaging.sh" \
@@ -172,11 +170,12 @@ check() {
 }
 
 package() {
+    AQUEOUS_SETTINGS_BINARY="$srcdir/aqueous-settings-dist/bin/aqueous-settings" \
+        DESTDIR="$pkgdir" PREFIX=/usr "$srcdir/aqueous/settingsApplication/packaging/install.sh"
+
     # Install the compositor/window-manager and read-only inspection client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueousctl" "$pkgdir/usr/bin/aqueousctl"
-    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-plugin-dist/bin/aqueous-config" \
-        DESTDIR="$pkgdir" PREFIX=/usr "$srcdir/aqueous/dms-plugin/packaging/install.sh"
     install -Dm755 "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$pkgdir/usr/lib/aqueous/libwlroots-0.20.so"
     install -Dm755 "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \

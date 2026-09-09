@@ -85,8 +85,8 @@ fn parse(args: []const [:0]const u8) !Options {
             opts.action = .workspace_rename;
             opts.value = take(&flags, "--name") orelse return error.InvalidArguments;
         } else return error.InvalidArguments;
-    } else if (std.mem.eql(u8, family, "session") and std.mem.eql(u8, verb, "exit")) {
-        opts.action = .session_exit;
+    } else if (std.mem.eql(u8, family, "session")) {
+        opts.action = if (std.mem.eql(u8, verb, "exit")) .session_exit else if (std.mem.eql(u8, verb, "reload")) .session_reload else return error.InvalidArguments;
     } else if (std.mem.eql(u8, family, "keyboard")) {
         opts.seat = take(&flags, "--seat") orelse "";
         opts.target = take(&flags, "--group") orelse "";
@@ -151,6 +151,7 @@ pub fn run(args: []const [:0]const u8, output: *std.Io.Writer) !void {
     defer manager.destroy();
     if (!state.ready) return error.MissingCapabilities;
     if (options.mode == .capabilities) return;
+    if (options.mode == .command and options.action == .session_reload and manager.getVersion() < 2) return error.UnsupportedCompositor;
     if (options.mode == .command) manager.command(1, options.action, options.target, options.seat, options.value) else manager.subscribe();
     while (!state.done and state.failure == null) {
         try pump(display, if (options.mode == .watch and state.sequence != null) null else deadline);
@@ -191,7 +192,7 @@ fn onRegistry(registry: *wl.Registry, event: wl.Registry.Event, state: *State) v
     switch (event) {
         .global => |g| {
             if (!std.mem.eql(u8, std.mem.span(g.interface), std.mem.span(Protocol.interface.name))) return;
-            state.manager = registry.bind(g.name, Protocol, 1) catch {
+            state.manager = registry.bind(g.name, Protocol, @min(g.version, 2)) catch {
                 state.failure = error.OutOfMemory;
                 return;
             };
@@ -335,6 +336,8 @@ test "shell CLI rejects ambiguous or unknown mutation arguments" {
     try t.expectError(error.InvalidArguments, parse(&.{ "aqueousctl", "window", "move", "--id", "x", "--output", "DP-1", "--workspace-id", "1", "--json" }));
     try t.expectError(error.InvalidArguments, parse(&.{ "aqueousctl", "window", "state", "--id", "x", "--minimized", "yes", "--json" }));
     try t.expectError(error.InvalidArguments, parse(&.{ "aqueousctl", "session", "exit", "--force", "true", "--json" }));
+    try t.expectEqual(Protocol.Action.session_reload, (try parse(&.{ "aqueousctl", "session", "reload", "--json" })).action);
+    try t.expectError(error.InvalidArguments, parse(&.{ "aqueousctl", "session", "reload", "--id", "1", "--json" }));
     const opts = try parse(&.{ "aqueousctl", "workspace", "rename", "--id", "7", "--name", "quoted \"name\"", "--json" });
     try t.expectEqual(Protocol.Action.workspace_rename, opts.action);
     try t.expectEqualStrings("quoted \"name\"", opts.value);

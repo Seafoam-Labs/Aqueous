@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Aqueous Settings
+Comment=Configure Aqueous appearance, displays, layouts, input and shortcuts
+Exec=aqueous-settings
+TryExec=aqueous-settings
+Icon=org.aqueous.Settings
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=Wayland;Aqueous;Displays;Keyboard;Appearance;
+StartupWMClass=org.aqueous.Settings

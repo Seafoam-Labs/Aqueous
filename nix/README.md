@@ -1,8 +1,8 @@
 # Nix packaging
 
 This directory contains the source package and NixOS integration for Aqueous.
-The initial package includes the compositor, `aqueousctl`, the Noctalia settings
-helper and plugin, the session launchers, configuration defaults, and Aqueous's
+The package includes the compositor, `aqueousctl`, the standalone Quark
+`aqueous-settings` application with its embedded backend, the session launchers, configuration defaults, and Aqueous's
 private patched wlroots library. The Arch-specific `aqueous-welcome` application
 is intentionally excluded because its Shelly backends install repository and
 AUR packages.
@@ -55,3 +55,11 @@ Copy `default.nix` and `zig-deps.nix` to
 `fetchFromGitHub`, and add the module plus a headless NixOS test. Keep the
 patched wlroots derivation private to Aqueous: the compositor installs and uses
 that exact shared library through its origin-relative runtime path.
+
+The settings application and its pinned Quark dependencies build through the
+existing offline `--system` dependency tree. Unlike Welcome, it has no package
+installer backend. Its desktop entry works with `noctalia.enable = false`;
+use `aqueous-settings --shell none` for explicit neutral operation. The optional
+DMS bridge is installed without enabling it. These recipe changes still need a
+Nix build on a compatible Nixpkgs revision; the implementation environment did
+not provide Nix.

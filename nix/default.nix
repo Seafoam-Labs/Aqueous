@@ -6,6 +6,9 @@
   dbus,
   fetchurl,
   fontconfig,
+  freetype,
+  shaderc,
+  vulkan-headers,
   gzip,
   glib,
   gnutar,
@@ -56,7 +59,7 @@
           "nix"
           "outputs.toml"
           "packaging"
-          "plugin"
+          "settingsApplication"
           "wm.toml"
         ]
         && !(builtins.elem name [
@@ -155,6 +158,8 @@ stdenv.mkDerivation (finalAttrs: {
     makeWrapper
     meson
     ninja
+    python3
+    shaderc
     pkg-config
     scdoc
     wayland-scanner
@@ -164,6 +169,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildInputs = [
     aqueousWlroots
+    freetype
+    vulkan-headers
     inih
     libdrm
     libevdev
@@ -193,7 +200,7 @@ stdenv.mkDerivation (finalAttrs: {
   dontUseZigInstall = true;
 
   postPatch = ''
-    patchShebangs plugin/tests
+    patchShebangs settingsApplication/packaging settingsApplication/tests
     substituteInPlace compositor/build.zig \
       --replace-fail '"/bin/sh", "-c"' '"${stdenv.shell}", "-c"'
     substituteInPlace packaging/aqueous-wm.sh \
@@ -201,14 +208,10 @@ stdenv.mkDerivation (finalAttrs: {
         "$out/bin/aqueous -c $out/bin/aqueous-init"
     substituteInPlace packaging/aqueous-init \
       --replace-fail "/usr/share/aqueous" "$out/share/aqueous"
-    substituteInPlace packaging/enable-noctalia-plugin.sh \
-      --replace-fail "/usr/share/aqueous" "$out/share/aqueous"
     substituteInPlace packaging/noctalia/config.toml \
       --replace-fail "/usr/share/aqueous" "$out/share/aqueous"
     substituteInPlace packaging/noctalia.service \
-      --replace-fail "/usr/bin/noctalia" "${lib.getExe noctalia-shell}" \
-      --replace-fail "/usr/lib/aqueous/enable-noctalia-plugin" \
-        "$out/libexec/aqueous/enable-noctalia-plugin"
+      --replace-fail "/usr/bin/noctalia" "${lib.getExe noctalia-shell}"
     substituteInPlace \
       packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service \
       packaging/portal/xdg-desktop-portal-aqueous.service \
@@ -240,13 +243,10 @@ stdenv.mkDerivation (finalAttrs: {
       install
     popd
 
-    pushd plugin/helper
-    export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-helper-local-cache"
-    zig build \
-      -Dcpu=baseline \
-      -Doptimize=ReleaseSafe \
-      --prefix "$TMPDIR/aqueous-helper-dist" \
-      install
+    pushd settingsApplication
+    export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-settings-cache"
+    zig build --system "${zigDeps}" -Dcpu=baseline -Doptimize=ReleaseSafe \
+      --prefix "$TMPDIR/aqueous-settings-dist"
     popd
 
     mkdir -p "$TMPDIR/xdpw-src"
@@ -265,6 +265,10 @@ stdenv.mkDerivation (finalAttrs: {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
+    ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-settings-cache" \
+      zig build --build-file settingsApplication/build.zig --system "${zigDeps}" test test-driver -Dmodel-only=true --prefix "$TMPDIR/aqueous-settings-tests"
+    AQUEOUS_SETTINGS_BINARY="$TMPDIR/aqueous-settings-dist/bin/aqueous-settings" \
+      bash settingsApplication/tests/test-packaging.sh
 
     AQUEOUS_WLROOTS_PREFIX="${lib.getDev aqueousWlroots}" \
       LD_LIBRARY_PATH="${lib.getLib aqueousWlroots}/lib" \
@@ -294,8 +298,7 @@ stdenv.mkDerivation (finalAttrs: {
       exit 1
     fi
 
-    plugin/tests/test-helper.sh \
-      "$TMPDIR/aqueous-helper-dist/bin/aqueous-config"
+    bash settingsApplication/tests/test-backend.sh "$TMPDIR/aqueous-settings-tests/bin/aqueous-backend-test"
     AQUEOUS_PORTAL_EXEC="$out/libexec/aqueous/xdg-desktop-portal-aqueous" \
       packaging/tests/test-portal-packaging.sh \
       "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
@@ -308,16 +311,15 @@ stdenv.mkDerivation (finalAttrs: {
 
     mkdir -p "$out"
     cp -a "$TMPDIR/aqueous-dist/." "$out/"
-    install -Dm755 "$TMPDIR/aqueous-helper-dist/bin/aqueous-config" \
-      "$out/bin/aqueous-config"
+    AQUEOUS_SETTINGS_BINARY="$TMPDIR/aqueous-settings-dist/bin/aqueous-settings" \
+      PREFIX="$out" SYSCONFDIR="$out/etc" bash settingsApplication/packaging/install.sh
+
     install -Dm755 \
       "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
       "$out/libexec/aqueous/xdg-desktop-portal-aqueous"
 
     install -Dm755 packaging/aqueous-init "$out/bin/aqueous-init"
     install -Dm755 packaging/aqueous-wm.sh "$out/bin/aqueous-wm"
-    install -Dm755 packaging/enable-noctalia-plugin.sh \
-      "$out/libexec/aqueous/enable-noctalia-plugin"
 
     install -Dm644 aqueous.desktop \
       "$out/share/wayland-sessions/aqueous.desktop"
@@ -349,18 +351,6 @@ stdenv.mkDerivation (finalAttrs: {
       "$out/share/aqueous/noctalia/config.toml"
     install -Dm644 packaging/ghostty/config.ghostty \
       "$out/share/aqueous/ghostty/config.ghostty"
-    install -Dm644 plugin/catalog.toml \
-      "$out/share/aqueous/noctalia-plugins/catalog.toml"
-    install -Dm644 plugin/settings/plugin.toml \
-      "$out/share/aqueous/noctalia-plugins/settings/plugin.toml"
-    install -Dm644 plugin/settings/widget.luau \
-      "$out/share/aqueous/noctalia-plugins/settings/widget.luau"
-    install -Dm644 plugin/settings/panel.luau \
-      "$out/share/aqueous/noctalia-plugins/settings/panel.luau"
-    install -Dm644 plugin/settings/aqueous.png \
-      "$out/share/aqueous/noctalia-plugins/settings/aqueous.png"
-    install -Dm644 plugin/settings/translations/en.json \
-      "$out/share/aqueous/noctalia-plugins/settings/translations/en.json"
     install -Dm644 packaging/wallpapers/*.avif \
       -t "$out/share/aqueous/wallpapers"
 
@@ -380,10 +370,8 @@ stdenv.mkDerivation (finalAttrs: {
       --prefix PATH : "${lib.makeBinPath [ coreutils systemd ]}"
     wrapProgram "$out/bin/aqueous-init" \
       --prefix PATH : "${lib.makeBinPath [ coreutils dbus systemd uwsm ]}"
-    wrapProgram "$out/bin/aqueous-config" \
-      --prefix PATH : "${lib.makeBinPath [ fontconfig glib noctalia-shell ]}"
-    wrapProgram "$out/libexec/aqueous/enable-noctalia-plugin" \
-      --prefix PATH : "${lib.makeBinPath [ coreutils noctalia-shell ]}"
+    wrapProgram "$out/bin/aqueous-settings" \
+      --prefix PATH : "${lib.makeBinPath [ fontconfig glib systemd dbus ]}"
 
     runHook postInstall
   '';

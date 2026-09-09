@@ -1,0 +1,168 @@
+PX License
+Version 1, 2 November 2025
+Copyright (c) 2025-2026 pparaxan <xxdr@duck.com>
+
+This License applies to this version or, at your option, any later version
+published by pparaxan, PROVIDED that:
+
+(a) You may elect to use any specific version of this license for any copy
+    of the Software you distribute or modify. This election may be changed
+    to adopt any later version, but may not be downgraded to an earlier version.
+
+(b) Future versions will maintain the copyleft nature and attribution
+    requirements of this license, though specific terms may be refined.
+
+(c) No future version will retroactively impose additional restrictions on
+    works already distributed under previous versions.
+
+This program is free software; you are free to use, study, share, and modify
+it under the terms of this license. This program is distributed in the hope
+that it will be useful, but WITHOUT ANY WARRANTY.
+
+0. DEFINITIONS
+"Software" refers to the source code, documentation, and any other materials
+provided by the copyright holders.
+
+"Derivative Work" refers to any work that modifies the Software or incorporates
+parts of it, but does not include:
+    (i)   Works that interact with the Software only through its public
+          interfaces, where "public interfaces" means APIs, functions, methods,
+          or modules that are:
+        (a) Marked as public, exported, or otherwise explicitly exposed in the
+            Software's source code according to the conventions of the
+            programming language used.
+
+        (b) Clearly intended for external use as evidenced by their naming,
+            placement in public modules/packages, or inclusion in example code
+            provided with the Software. The absence of formal documentation
+            doesn't disqualify an interface from being considered public if it
+            meets the above criteria. Works that only call, link to, or interact
+            with such public interfaces through standard mechanisms (including
+            but not limited to dynamic/static linking, API calls, IPC) are not
+            Derivative Works.
+
+    (ii)  Collections where the Software is aggregated with independent works
+          on storage or distribution media.
+
+    (iii) Configuration files or data that direct the Software's operation.
+
+"Corresponding Source" means the complete source code needed to build and
+install the Software, excluding standard system libraries and general-purpose
+build tools.
+
+"Appropriate Legal Notices" means copyright notices, license notices, warranty
+disclaimers, and attribution statements that are required to be preserved under
+this license.
+
+1. RIGHTS GRANTED
+The following rights apply to the Software as defined in §0, including any
+Derivative Works:
+(a) You may distribute copies of the Software, in source or object form,
+    through any medium.
+
+(b) You may use, study, and modify the Software privately without any
+    distribution obligations.
+
+(c) These rights include the right to use the Software for commercial purposes.
+
+(d) All rights granted are conditional upon compliance with the obligations
+    set forth in this license.
+
+2. OBLIGATIONS WHEN DISTRIBUTING
+(a) You must retain all original copyright notices, license notices, and
+    disclaimers in all copies or portions of the Software.
+
+(b) You must make the complete Corresponding Source available under the terms
+    of this license to anyone to whom you distribute the Software or Derivative
+    Works. For network distribution, the source must be made available through
+    a publicly accessible location with clear documentation of how to obtain it.
+
+(c) If you distribute the Software or Derivative Works in compiled or executable
+    form, you must include a copy of this license in a LICENSE or equivalent
+    file alongside the binary distribution. If the Software provides interactive
+    user interfaces and no LICENSE file is distributed with the binaries, you
+    must instead ensure that the complete license text or a license notice is
+    directly accessible through those interfaces. A license notice must identify
+    the Software as being licensed under the PX License, specify the version,
+    and provide a direct reference to obtain the complete license text.
+
+(d) You may only distribute the Software or Derivative Works under the terms
+    of this license. You may not impose additional restrictions.
+
+3. ATTRIBUTION
+(a) You must preserve all notices of the absence of any warranty.
+
+(b) The names of copyright holders may not be used to endorse or promote
+    Derivative Works without specific prior written permission.
+
+(c) If the Software has interactive user interfaces that display Appropriate
+    Legal Notices, each must continue to display such notices. However, if the
+    original Software has interactive interfaces that do not display Appropriate
+    Legal Notices, your Derivative Work need not cause them to do so.
+
+(d) You may add your own copyright notices to modifications you make to the
+    Software, but such additions must not obscure or remove existing Appropriate
+    Legal Notices.
+
+(e) Any removal or modification of existing Appropriate Legal Notices must be
+    documented in writing with specific justification. When claiming that
+    original software contained no legal notices to justify their removal or
+    omission, the party making such claim must retain reasonable evidence to
+    support this assertion, such as cryptographic hashes of the original
+    distribution, version control commit identifiers, or archived copies of the
+    original source. Any copyright holder may request such documentation to
+    assess compliance. Unjustified removal or modification of legal notices
+    constitutes non-compliance with this license.
+
+4. PATENT GRANT AND TERMINATION
+(a) Each copyright holder grants you a perpetual, worldwide, non-exclusive,
+    no-charge, royalty-free, irrevocable (except as stated below) patent license
+    to make, have made, use, offer to sell, sell, import, and otherwise transfer
+    the Software, where such license applies only to those patent claims that
+    would be infringed by the use, modification, or distribution of the specific
+    contribution(s) made by such copyright holder.
+
+(b) If you institute patent litigation against any entity (including
+    subsidiaries, affiliates, or related entities) alleging that the Software,
+    any Derivative Work thereof, or any contribution incorporated within the
+    Software infringes any patent claims owned or controlled by you, then all
+    patent licenses you have received relating to the Software, whether granted
+    under this license or any other agreement or license, shall terminate as of
+    the date such litigation is filed. This termination does not apply to:
+  (i)  Defensive patent litigation filed as a counterclaim or cross-claim in
+       response to a patent infringement lawsuit first filed against you.
+
+  (ii) Declaratory judgment actions seeking to invalidate patents that have been
+       asserted against you or the Software.
+
+5. LICENSE TERMINATION
+(a) Your rights under this license terminate automatically if you fail to comply
+    with any of its terms and conditions.
+
+(b) If you cease all violations within 60 days of becoming aware of the
+    violation, your license is reinstated; however, if any copyright holder
+    provides written notice of the violation, you have only 30 days from receipt
+    of such notice to cease the violation, regardless of when you first became
+    aware. The shorter of these two periods shall apply. This reinstatement
+    provision may only be used once within any 12-month period per copyright
+    holder.
+
+(c) Upon termination, you must cease all use and distribution of the Software.
+    Retained copies may only be used for personal, non-public archival purposes
+    and may not be modified or used to create derivative works.
+
+6. DISCLAIMER OF WARRANTY AND LIABILITY
+The Software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability, fitness
+for a particular purpose, and noninfringement. In no event shall the authors or
+copyright holders be liable for any claim, damages, or other liability, whether
+in an action of contract, tort, or otherwise, arising from, out of, or in
+connection with the Software or the use or other dealings in the Software.
+
+7. TRADEMARK RIGHTS
+This license does not grant permission to use the trade names, trademarks,
+service marks, or product names of the copyright holders, except as required for
+reasonable and customary use in describing the origin of the Software or
+reproducing the content of Appropriate Legal Notices. Trademarks associated with
+the Software, however, are governed by separate policies and are not covered by
+this license.

@@ -1,0 +1,11 @@
+{
+  "id": "aqueousSettingsAppearance",
+  "name": "Aqueous Settings Appearance",
+  "description": "Explicit typography synchronization for the standalone Aqueous Settings application.",
+  "version": "0.1.0",
+  "type": "daemon",
+  "component": "./Daemon.qml",
+  "capabilities": ["daemon"],
+  "permissions": ["settings_read", "settings_write"],
+  "requires_dms": ">=1.7.0"
+}

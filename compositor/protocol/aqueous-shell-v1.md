@@ -159,7 +159,15 @@ aqueousctl overview show --output CONNECTOR --json
 aqueousctl overview hide --json
 aqueousctl overview toggle --output CONNECTOR --json
 aqueousctl session exit --json
+aqueousctl session reload --json
 ```
+
+`session reload` requires manager version 2 and runs the normal configuration
+reload path, including rules, input, output policy, and reload commands.
+`config_reload` advertises availability. The JSON socket equivalent is
+`session.reload` with empty fields. As with other mutations, it is unavailable
+while locked or under external/comparison policy. An `applied` result follows
+policy settlement; startup-only options still require a compositor restart.
 
 Omit `--seat` only when exactly one seat exists; omit `--group` to target that
 seat's active keyboard group. Keyboard query returns the complete atomic shell

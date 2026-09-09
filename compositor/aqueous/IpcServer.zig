@@ -298,7 +298,7 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .shortcut_inhibition = true },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true },
                 });
             },
             .snapshot => {

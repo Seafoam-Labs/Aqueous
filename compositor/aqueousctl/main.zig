@@ -23,6 +23,7 @@ const usage =
     \\       aqueousctl layout --output NAME [--set LAYOUT] --json
     \\       aqueousctl shell capabilities|snapshot|watch --json
     \\       aqueousctl window|workspace|keyboard|overview|session ACTION ... --json
+    \\       aqueousctl session reload --json
     \\       aqueousctl cursor [--json]
     \\       aqueousctl cursor set --theme NAME --size SIZE [--json]
     \\

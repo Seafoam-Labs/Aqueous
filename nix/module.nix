@@ -110,7 +110,6 @@ in
       serviceConfig = {
         Type = "forking";
         ExecStart = "${lib.getExe pkgs.noctalia-shell} --daemon";
-        ExecStartPost = "${cfg.package}/libexec/aqueous/enable-noctalia-plugin";
         Restart = "on-failure";
         RestartSec = 2;
         Slice = "app-graphical.slice";

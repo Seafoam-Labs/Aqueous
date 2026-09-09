@@ -50,7 +50,7 @@ pub fn init(manager: *ShellManager) !void {
     const hex = std.fmt.bytesToHex(random, .lower);
     @memcpy(manager.session[0..32], &hex);
     manager.session[32] = 0;
-    manager.global = try wl.Global.create(server.wl_server, protocol, 1, *ShellManager, manager, bind);
+    manager.global = try wl.Global.create(server.wl_server, protocol, 2, *ShellManager, manager, bind);
     manager.initialized = true;
     server.wl_server.addDestroyListener(&manager.server_destroy);
 }
@@ -101,6 +101,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         .commands = server.aqueous.mode == .internal,
         .keyboard = server.aqueous.mode == .internal,
         .overview = server.aqueous.mode == .internal,
+        .config_reload = server.aqueous.mode == .internal and version >= 2,
         .shortcut_inhibition = true,
         .geometry = "committed-content-global-logical",
     }, .{}) catch {
@@ -424,6 +425,10 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
                 return;
             }
             const action: Types.Action = @enumFromInt(@intFromEnum(args.action));
+            if (action == .session_reload and resource.getVersion() < 2) {
+                result(client, args.request_id, .unsupported);
+                return;
+            }
             client.queued_id = args.request_id;
             client.queued = (Types.Command{ .action = action, .target = target, .seat = seat, .value = value }).clone(util.gpa) catch {
                 result(client, args.request_id, .unavailable);

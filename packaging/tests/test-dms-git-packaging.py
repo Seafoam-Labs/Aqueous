@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/bin/aqueous",
         "aqueous-dist/bin/aqueousctl",
         "aqueous-dist/lib/aqueous/libwlroots-0.20.so",
-        "aqueous-plugin-dist/bin/aqueous-config",
+        "aqueous-settings-dist/bin/aqueous-settings",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser",
         "xdg-desktop-portal-wlr-0.8.4/LICENSE",
@@ -68,6 +68,10 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             assert "ExecStart=/usr/bin/dms run --session" in (units / "aqueous-dms.service").read_text()
             assert not (units / "graphical-session.target.wants/dms.service").is_symlink()
         assert not any("noctalia" in str(p.relative_to(stage)).lower() for p in stage.rglob("*"))
+        assert not (stage / "usr/bin/aqueous-config").exists()
+        assert not (stage / "usr/share/aqueous/dms-plugins/aqueousSettings").exists()
+        assert (stage / "usr/bin/aqueous-settings").is_file()
+        assert (stage / "usr/share/applications/org.aqueous.Settings.desktop").is_file()
         assert not (stage / "usr/bin/aqueous-welcome").exists()
         assert not (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
 
@@ -78,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         for element in ("DefaultAppDirs", "DefaultDirectoryDirs", "Include/All"):
             assert menu.find(element) is not None
 
-        for plugin_id in ("aqueousSettings", "aqueousPortal"):
+        for plugin_id in ("aqueousSettingsAppearance", "aqueousPortal"):
             runtime = Path("usr/share/aqueous/dms-plugins") / plugin_id
             manifest = json.loads((stage / runtime / "plugin.json").read_text())
             assert manifest["id"] == plugin_id
@@ -89,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 assert (stage / runtime / component).is_file()
 
         assert (stage / "etc/xdg/xdg-desktop-portal-aqueous/config").read_bytes() == (repo / "packaging/portal/dms.conf").read_bytes()
-        for executable in ("usr/bin/aqueous-config", "usr/lib/aqueous/aqueous-dms-portal-chooser"):
+        for executable in ("usr/bin/aqueous-settings", "usr/lib/aqueous/aqueous-dms-portal-chooser"):
             assert os.access(stage / executable, os.X_OK)
 
         defaults = stage / "usr/share/aqueous/wm.toml"

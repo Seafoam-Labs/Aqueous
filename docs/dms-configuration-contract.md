@@ -1,92 +1,58 @@
-# Aqueous configuration contract for shell providers
+# Aqueous embedded configuration contract
 
-This is the A6 contract from the [integration plan](dms-integration-implementation-plan.md).
-The compositor shell protocol owns runtime observation and typed actions.
-`aqueous-config` owns persistent configuration and toolkit synchronization.
-The existing Aqueous Settings plugin remains supported alongside future upstream
-DMS settings providers. Adding these contracts does not implement those upstream
-providers or change user enablement preferences.
+The standalone `aqueous-settings` application owns persistent configuration and
+toolkit synchronization through `settingsApplication/src/backend/`. The two
+former settings plugins and `aqueous-config` CLI are retired. The compositor
+shell protocol still owns runtime observation and typed actions. External DMS
+providers that invoked the retired CLI need migration; no replacement public
+configuration service is introduced here.
 
-## Discover the helper
+## Backend API and ownership
 
-Helper 0.7.1 adds an additive `capabilities` array to version and snapshot JSON,
-retaining protocol version 1. Existing frontends requiring 0.7.0 remain compatible.
-A provider should check both protocol version and the capabilities it uses.
+`backend.execute(allocator, io, command, shell, request, control, writer)` accepts
+in-memory requests for snapshot, raw, Validate, and Apply. It does not read stdin,
+parse application arguments, mutate process environment, or terminate the app.
+The serialized worker owns each operation's memory until the UI consumes its
+result. JSON protocol/version metadata remains in the internal response envelope
+for regression equivalence; it is not a separately negotiated helper interface.
 
-```sh
-aqueous-config version
-aqueous-config snapshot --shell dms
-aqueous-config validate --shell dms --request -
-aqueous-config apply --shell dms --request -
-```
+The operation retains the six-file document model, schema fields and aliases,
+unknown keys/comments, inherited overrides, generation checks, window-rule order,
+snap layouts/zones, keybindings, output modes/scale/mirroring, and explicit cursor
+and typography synchronization. Request data is bounded to 4 MiB and each raw
+TOML file to 1 MiB. Validate uses the same structural checks without writing.
 
-Use JSON stdin for requests. The existing 4 MiB limit and expected-generation
-check apply. An old helper without capabilities requires its existing documented
-version-specific contract; absence is not permission to silently ignore fields.
+## Apply and recovery
 
-| Capability | Existing contract |
-| --- | --- |
-| `schema_fields` | Snapshot `fields`, categories, defaults, aliases and typed constraints |
-| `validate` | Validate the complete request without saving |
-| `generation_check` | `expected_generation` prevents saving over external configuration edits |
-| `stdin_requests` | `--request -` accepts bounded JSON on stdin |
-| `atomic_file_replace` | Individual TOML files are replaced atomically with backups; multi-file saves are not one filesystem transaction |
-| `monitor_modes` | Configured monitor changes include mode, position, scale and transform |
-| `live_outputs` | Advertised live monitor modes accompany configured/offline monitors |
-| `keybinds` | Schema-backed built-ins, unbound actions and custom bindings |
-| `window_rules` | Ordered rules and raw configuration access |
-| `cursor_sync` | Canonical cursor settings, live compositor update and toolkit adapter reports |
-| `typography_sync` | Canonical typography, available fonts/faces and adapter reports |
-| `shell_dms` | DMS mode avoids Noctalia writes/reloads |
+1. Retain the loaded generation with the draft and resolve raw/typed overlap.
+2. Validate and Apply the complete intended request in the backend worker.
+3. Cancellation can stop preparation. Once commit begins, finish the existing
+   backup/save/rollback procedure before reporting completion or accepting another job.
+4. Individual files use atomic replacement; a multi-file update is not one
+   filesystem transaction. Failed writes retain drafts and require inspecting
+   saved state before another Apply if the outcome is uncertain.
+5. Report canonical save separately from toolkit/shell synchronization and from
+   physical display acceptance. Explicit retry flags remain `sync_cursor` and
+   `sync_typography`.
 
-These are helper capabilities, not a promise that every external toolkit, font,
-monitor mode or runtime compositor is available. Inspect individual adapter
-reports and live capabilities. Read [the plugin guide](../dms-plugin/README.md)
-for the complete request and draft behavior; reuse its shared helper implementation.
+External commands have bounded output, reaped process groups, and a five-second
+maximum within the operation's thirty-second budget. Filesystem calls complete
+normally; the application never kills an embedded thread during writes.
+Opening settings or refreshing outputs does not authorize synchronization.
 
-## Preview, Apply and conflict handling
+## Shell adapters
 
-1. Obtain a fresh snapshot and retain its generation with the draft.
-2. Stage typed or raw edits. Resolve conflicts between them before validation.
-3. Validate the complete intended request.
-4. Apply through the helper with the retained `expected_generation`.
-5. Read the response and observe the resulting compositor state separately.
+Shell mode is explicit: `none`, `dms`, or `noctalia`. Neutral mode preserves
+canonical/toolkit behavior while skipping shell writes and reloads. Noctalia's
+existing typography adapter is now compiled into the app. The optional DMS
+`aqueousSettingsAppearance` bridge uses SettingsData and checks durable storage,
+returning a request ID and pending/saved/failed status. It provides no settings UI
+and does not observe configuration in the background. Family, weight, and normal
+text size are supported; exact face/slant/width and separately scaled bars remain
+partial. Portal plugins have their own lifecycle.
 
-The helper does not offer a new persistent display-preview API. A DMS provider
-can preview connected displays using existing wlr output management: test the
-configuration, retain the live configuration, apply the candidate, and offer
-Keep/Revert. Propagate the actual asynchronous apply result. Persist only after
-Keep through the helper. A successful file save does not by itself prove that a
-physical monitor accepted the configuration; report subsequent runtime failures.
-
-Revert a preview only if the current live configuration still matches that
-provider's candidate. If another tool changed it, show a conflict instead of
-restoring an obsolete snapshot over newer state. Hotplug and configuration reload
-also require a fresh snapshot. Preserve offline entries, EDID identities, custom
-modes and fractional refresh rates. DPMS and automatic battery refresh changes
-are runtime policy, not changes to canonical preferences.
-
-On stale generation, retain the draft and ask the user to reload/reconcile it.
-On uncertain apply timeout, inspect saved state before retrying. On toolkit sync
-failure after a successful canonical save, show partial success and use the
-existing explicit retry flags (`sync_cursor`, `sync_typography`). Do not overwrite
-TOML directly from QML or add a second serializer in DMS core.
-
-## Ownership with multiple frontends
-
-Aqueous TOML is canonical. Both the plugin and an upstream provider may edit it
-through the same generation contract; opening either UI does not authorize an
-automatic rewrite. Keep DMS-specific typography adaptation in the active DMS
-frontend. Do not have two background color/font/cursor synchronizers repeatedly
-writing each other's output. Automatic synchronization should be explicitly owned
-by one enabled provider; manual Apply remains available through either UI.
-
-The existing plugin maps Aqueous typography into DMS family, weight and scale.
-Exact face/slant/width and separately scaled bars are partially represented;
-retain that reporting. Cursor control updates the compositor and supported launch
-paths, while existing clients that supply cursor surfaces retain their own policy.
-The portal plugin has a separate purpose and lifecycle; do not couple screen
-sharing to settings-provider enablement.
+See [the application guide](../settingsApplication/README.md) for launch,
+installation, upgrade, and remaining platform validation details.
 
 ## Frame reservations and appearance
 

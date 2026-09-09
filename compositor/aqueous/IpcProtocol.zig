@@ -90,6 +90,7 @@ pub fn command(a: std.mem.Allocator, params: std.json.ObjectMap) !Types.Command 
         .{ "keyboard.set", Types.Action.keyboard_set },             .{ "keyboard.next", Types.Action.keyboard_next },
         .{ "overview.show", Types.Action.overview_show },           .{ "overview.hide", Types.Action.overview_hide },
         .{ "overview.toggle", Types.Action.overview_toggle },       .{ "session.exit", Types.Action.session_exit },
+        .{ "session.reload", Types.Action.session_reload },
     };
     const selected: Types.Action = blk: {
         inline for (mappings) |mapping| if (std.mem.eql(u8, action, mapping[0])) break :blk mapping[1];
@@ -142,7 +143,7 @@ pub fn command(a: std.mem.Allocator, params: std.json.ObjectMap) !Types.Command 
             try only(fields, &.{"output"});
             cmd.value = try string(fields, "output");
         },
-        .overview_hide, .session_exit => try only(fields, &.{}),
+        .overview_hide, .session_exit, .session_reload => try only(fields, &.{}),
         .window_move_output => unreachable,
     }
     return cmd;
@@ -174,10 +175,13 @@ test "typed command conversion rejects ambiguous moves and nonboolean state" {
     const cmd = try command(a, good.object);
     try std.testing.expectEqual(Types.Action.window_move_output, cmd.action);
     try std.testing.expect(cmd.output_by_id);
+    const reload = try std.json.parseFromSliceLeaky(std.json.Value, a, "{\"action\":\"session.reload\",\"fields\":{}}", .{});
+    try std.testing.expectEqual(Types.Action.session_reload, (try command(a, reload.object)).action);
     for ([_][]const u8{
         "{\"action\":\"window.move\",\"fields\":{\"id\":\"w\",\"output\":\"2\",\"workspace\":\"3\"}}",
         "{\"action\":\"window.fullscreen\",\"fields\":{\"id\":\"w\",\"value\":\"true\"}}",
         "{\"action\":\"session.exit\",\"fields\":{\"extra\":true}}",
+        "{\"action\":\"session.reload\",\"fields\":{\"extra\":true}}",
     }) |bytes| {
         const bad = try std.json.parseFromSliceLeaky(std.json.Value, a, bytes, .{});
         try std.testing.expectError(error.Invalid, command(a, bad.object));

@@ -4,7 +4,7 @@
 # Usage:
 #   sudo scripts/gentoo-install.sh [all]       deps + build + install (default)
 #   sudo scripts/gentoo-install.sh deps        emerge runtime/build deps, fetch zig
-#   scripts/gentoo-install.sh build            build compositor + helper + portal into dist/
+#   scripts/gentoo-install.sh build            build compositor + settings + portal into dist/
 #   sudo scripts/gentoo-install.sh install     install into /usr + /etc
 #   sudo scripts/gentoo-install.sh uninstall   remove everything this script installed
 #
@@ -69,6 +69,7 @@ emerge_atoms=(
     dev-util/uwsm
     media-libs/mesa
     media-libs/fontconfig
+    media-libs/freetype
     media-libs/lcms
     media-libs/vulkan-loader
     dev-libs/vulkan-headers
@@ -86,6 +87,7 @@ emerge_atoms=(
     dev-build/ninja
     dev-build/pkgconf
     media-libs/glslang
+    media-libs/shaderc
     sys-apps/hwdata
     dev-vcs/git
     net-misc/curl
@@ -147,7 +149,7 @@ cmd_deps() {
 
 cmd_build() {
     local tool
-    for tool in zig cc curl meson ninja patch pkg-config sha256sum scdoc; do
+    for tool in zig cc curl meson ninja patch pkg-config sha256sum scdoc python3 glslc; do
         command -v "$tool" >/dev/null 2>&1 ||
             die "$tool not found (on Gentoo: sudo $0 deps)"
     done
@@ -170,11 +172,11 @@ cmd_build() {
                 --prefix "$dist/aqueous-dist" install
     )
 
-    say "building Aqueous Settings helper..."
+    say "building Aqueous Settings..."
     (
-        cd "$root/plugin/helper"
+        cd "$root/settingsApplication"
         zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
-            --prefix "$dist/aqueous-plugin-dist" install
+            --prefix "$dist/aqueous-settings-dist" install
     )
 
     local portal_tmp
@@ -224,13 +226,13 @@ verify_build() {
     if readelf -d "$dist/aqueous-dist/bin/aqueous" | grep -qi scenefx; then
         die "compositor still links SceneFX"
     fi
-    [ -x "$dist/aqueous-plugin-dist/bin/aqueous-config" ] ||
-        die "build output missing: aqueous-plugin-dist/bin/aqueous-config"
+    [ -x "$dist/aqueous-settings-dist/bin/aqueous-settings" ] ||
+        die "build output missing: aqueous-settings-dist/bin/aqueous-settings"
     [ -x "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" ] ||
         die "build output missing: aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
-    "$root/plugin/tests/test-helper.sh" "$dist/aqueous-plugin-dist/bin/aqueous-config"
-    "$root/plugin/tests/test-noctalia.sh"
-    "$root/packaging/tests/test-enable-noctalia-plugin.sh"
+    zig build --build-file "$root/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$dist/aqueous-settings-tests"
+    "$root/settingsApplication/tests/test-backend.sh" "$dist/aqueous-settings-tests/bin/aqueous-backend-test"
+    AQUEOUS_SETTINGS_BINARY="$dist/aqueous-settings-dist/bin/aqueous-settings" "$root/settingsApplication/tests/test-packaging.sh"
     "$root/packaging/tests/test-portal-packaging.sh" \
         "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
     say "build verified"
@@ -275,8 +277,8 @@ install_into() {
     # Binaries + bundled patched wlroots.
     install -Dm755 "$dist/aqueous-dist/bin/aqueous" "$D/usr/bin/aqueous"
     install -Dm755 "$dist/aqueous-dist/bin/aqueousctl" "$D/usr/bin/aqueousctl"
-    install -Dm755 "$dist/aqueous-plugin-dist/bin/aqueous-config" \
-        "$D/usr/bin/aqueous-config"
+    AQUEOUS_SETTINGS_BINARY="$dist/aqueous-settings-dist/bin/aqueous-settings" \
+        DESTDIR="$D" PREFIX=/usr "$root/settingsApplication/packaging/install.sh"
     install -Dm755 "$dist/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$D/usr/lib/aqueous/libwlroots-0.20.so"
     install -Dm755 \
@@ -317,8 +319,6 @@ install_into() {
         "$D/usr/lib/systemd/user/xdg-desktop-portal-aqueous.service"
     install -Dm644 "$root/packaging/noctalia.service" \
         "$D/usr/lib/systemd/user/noctalia.service"
-    install -Dm755 "$root/packaging/enable-noctalia-plugin.sh" \
-        "$D/usr/lib/aqueous/enable-noctalia-plugin"
     install -d "$D/usr/lib/systemd/user/graphical-session.target.wants"
     ln -sf ../noctalia.service \
         "$D/usr/lib/systemd/user/graphical-session.target.wants/noctalia.service"
@@ -333,18 +333,6 @@ install_into() {
         "$D/usr/share/aqueous/noctalia/config.toml"
     install -Dm644 "$root/packaging/ghostty/config.ghostty" \
         "$D/usr/share/aqueous/ghostty/config.ghostty"
-
-    # Noctalia v5 plugin source.
-    local plugin_source="$D/usr/share/aqueous/noctalia-plugins"
-    local plugin_runtime="$plugin_source/settings"
-    install -dm755 "$plugin_runtime/translations"
-    install -m644 "$root/plugin/catalog.toml" "$plugin_source/catalog.toml"
-    install -m644 "$root/plugin/settings/plugin.toml" "$plugin_runtime/plugin.toml"
-    install -m644 "$root/plugin/settings/widget.luau" "$plugin_runtime/widget.luau"
-    install -m644 "$root/plugin/settings/panel.luau" "$plugin_runtime/panel.luau"
-    install -m644 "$root/plugin/settings/aqueous.png" "$plugin_runtime/aqueous.png"
-    install -m644 "$root/plugin/settings/translations/en.json" \
-        "$plugin_runtime/translations/en.json"
 
     # Wallpapers referenced by the shipped Noctalia config.
     install -d "$D/usr/share/aqueous/wallpapers"
@@ -369,7 +357,7 @@ install_into() {
 
 cmd_install() {
     [ -d "$dist/aqueous-dist" ] || die "compositor not built (run: $0 build)"
-    [ -d "$dist/aqueous-plugin-dist" ] || die "settings helper not built (run: $0 build)"
+    [ -d "$dist/aqueous-settings-dist" ] || die "settings application not built (run: $0 build)"
     [ -d "$dist/aqueous-portal-dist" ] || die "portal backend not built (run: $0 build)"
     if [ -z "$destdir" ] && ! is_root; then
         die "install needs root (dry run: AQUEOUS_PREFIX=/tmp/aq $0 install)"
@@ -418,6 +406,7 @@ Aqueous is installed.
     template are copied there on first login only when missing).
 
     Useful commands:
+        aqueous-settings
         aqueousctl windows
         aqueousctl outputs
         aqueousctl layout --output <name> --json
@@ -510,7 +499,7 @@ Usage: sudo $0 [all|deps|build|install|uninstall]
 
   all        deps + build + install (default)
   deps       emerge runtime/build deps, fetch zig if missing
-  build      build compositor + settings helper + portal backend into $dist
+  build      build compositor + settings + portal backend into $dist
   install    install into /usr + /etc (root; AQUEOUS_PREFIX for dry run)
   uninstall  remove everything this script installed
 EOF

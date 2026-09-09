@@ -31,6 +31,26 @@ let
 
   packages = [
     {
+      name = "quark-0.2.0-Uqg3xpBHCQDmN0ctA7UhteVoZ88LIxJTVMloQ6S4mkfu";
+      url = "https://codeberg.org/pparaxan/quark/archive/c104e1c953347d677fb1b363260854842217d967.tar.gz";
+      hash = "sha256-wBXvdA3Dd02KfSW+j3GzXo66UzS1prkMCbHZfl9Ca1Q=";
+    }
+    {
+      name = "N-V-__8AAOTNEADZkChhsSciYizE4kIbZsozjDZXVeG5R_uY";
+      url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.49/wayland-protocols-1.49.tar.gz";
+      hash = "sha256-jZTu4UjbTYERzMDUMx3i+C1LKMOOMOrOnwUohkgPfYY=";
+    }
+    {
+      name = "N-V-__8AACIvTgCTqOj6KM32YnqNx1bcsaMuGAeKQEIWZ8Ph";
+      url = "https://github.com/nothings/stb/archive/fede005abaf93d9d7f3a679d1999b2db341b360f.tar.gz";
+      hash = "sha256-PEXpqxI5MydK14Lhn8QClES/4m4KXupIPDCoK4gLikI=";
+    }
+    {
+      name = "zinfo-0.1.0-YDUPMiRwAACjmbWSJgANRyyDdnj9Oa2C4JuOB4YFu6Qo";
+      url = "https://codeberg.org/pparaxan/zinfo/archive/aa19e2eb06cb7fdc1c77917a318054869e53a605.tar.gz";
+      hash = "sha256-ri4QNby2xrh0IEEj37seKVsbQgaWJfHmFvB5rKW9qYg=";
+    }
+    {
       name = "pixman-0.3.0-LClMnz2VAAAs7QSCGwLimV5VUYx0JFnX5xWU6HwtMuDX";
       url = "https://codeberg.org/ifreund/zig-pixman/archive/v0.3.0.tar.gz";
       hash = "sha256-SwtXzjf3uzosL8du7JPQYIMNLJIVW/KmuqQ9Ya0FSZ4=";

@@ -13,6 +13,7 @@ print_session_information() {
     files and hot-reloads valid changes without restarting the compositor.
 
     Useful commands:
+        aqueous-settings
         aqueousctl windows
         aqueousctl outputs
         aqueousctl layout --output <name> --json
@@ -61,6 +62,11 @@ post_upgrade() {
     ~/.config/aqueous are not overwritten by the session launcher. Review any
     pacnew files created for
     system-wide configuration before merging them.
+
+    The old DMS aqueousSettings and Noctalia aqueous/settings plugins are
+    replaced by aqueous-settings. Remove their widgets from custom bars and
+    replace old panel/IPC launch bindings. User settings and backups are kept.
+    The optional DMS aqueousSettingsAppearance typography bridge remains.
 
     If upgrading while logged in, refresh the user-unit cache first:
         systemctl --user daemon-reload
