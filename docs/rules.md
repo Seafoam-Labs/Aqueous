@@ -62,7 +62,7 @@ matters.
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
 | `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
-| `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. |
+| `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. Omitted leaves the workspace layout unchanged. Game mode requires explicit `"game-mode"` (or `"game_mode"`). |
 | `floating` | bool | no | Force floating placement. |
 | `scrolling_full_width` | bool | no | Set the initial scrolling column preset, equivalent to `Super+Shift+Z` when true. False starts with the preset disabled; unset leaves it alone. A rule using this field preserves the current layout when `layout` is omitted. |
 | `placement_policy` | string | no | Per-rule `cascade`, `center`, `under-pointer`, or `minimal-overlap` initial placement. |
@@ -106,10 +106,20 @@ in other layouts; it takes effect if the window later enters a scrolling layout.
 `Super+Shift+Z`, horizontal pointer resizing, and size reset override the rule
 until a different matcher becomes active. Vertical resizing preserves the preset.
 Reloads update windows still owned by the rule; removing the field or matcher
-restores their previous preset without undoing manual overrides. Rules without
-this field retain the historical implicit `game-mode` layout; an explicit
-`layout` always takes precedence. Add the field to an existing matching rule if
+restores their previous preset without undoing manual overrides. All rules
+preserve the current layout when `layout` is omitted; an explicit `layout`
+always takes precedence. Add the field to an existing matching rule if
 one exists, since only the first matching rule applies.
+
+Older versions implicitly selected game mode for most rules with no `layout`.
+To retain that behavior for a game, add `layout = "game-mode"` to its matching
+rule. Visual-only and placement-only rules can now omit `layout`. The settings
+editors' **Unset** layout option removes the field.
+
+After an explicit game rule claims a workspace, closing the anchor or removing
+its `layout` on reload leaves that workspace in game mode using `fallback_layout`.
+Select a layout manually to release that existing claim. A rule without `layout`
+does not create a new game-mode claim.
 
 The global default is `[scaling].buffer_policy = "native"` in `wm.toml`.
 `"integer-ceil"` is a compatibility path, not an application default. Aqueous

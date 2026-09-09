@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless regression for the rule-owned Super+Shift+Z scrolling preset.
+"""Headless regression for scrolling presets and explicit rule layouts.
 
 Use a diagnostic build with -Dvulkan-effects=false (pixman rendering).
 """
@@ -101,7 +101,9 @@ reload_rules = "Super+R"
 ''')
 
         def write_rule(value=True, matcher='aq-width-*'):
-            rules.write_text(f'[[window]]\napp_id = "{matcher}"\nscrolling_full_width = {str(value).lower()}\n')
+            rules.write_text(f'[[window]]\napp_id = "{matcher}"\nscrolling_full_width = {str(value).lower()}\n'
+                             '[[window]]\napp_id = "aq-normal"\nblur = false\nopacity = 0.8\n'
+                             'workspace = 1\nsize = "320x240"\n')
 
         write_rule()
         protocol_dir = run('pkg-config', '--variable=pkgdatadir', 'wayland-protocols').strip()
@@ -166,6 +168,26 @@ reload_rules = "Super+R"
         width('aq-width-one', full)
         width('aq-normal', normal)
 
+        # Visual, placement, and size fields above must leave scrolling active.
+        # Only an explicit layout turns the same match into a game anchor.
+        ordinary_rules = rules.read_text()
+        game_options = '[game_mode]\nfallback_layout = "monocle"\n'
+        rules.write_text(game_options + ordinary_rules + 'layout = "game-mode"\n')
+        key('r')
+        width('aq-normal', 320)
+        # Removing the layout releases the anchor but preserves the existing
+        # workspace claim, so the configured game fallback now arranges it.
+        rules.write_text(game_options + ordinary_rules)
+        key('r')
+        width('aq-normal', viewport)
+        key('t')
+        width('aq-width-one', full)
+        width('aq-normal', normal)
+        # Reloading ordinary rules must not reclaim game mode after that reset.
+        write_rule()
+        key('r')
+        width('aq-normal', normal)
+
         response = output_request({'op': 'set', 'changes': [
             {'name': output['name'], 'transform': '90'}]})
         assert response.get('ok'), response
@@ -190,7 +212,7 @@ reload_rules = "Super+R"
         width('aq-width-two', portrait_full)
         width('aq-normal', portrait_full)
         succeeded = True
-        print('Scrolling width rule: initial configure, toggle, reload, removal, layouts, output rotation, stacking, and nested scrolling passed.')
+        print('Window rules: scrolling presets, explicit game mode, anchor removal, fallback, manual layout reset, output rotation, stacking, and nested scrolling passed.')
     finally:
         for process in reversed(processes):
             if process.poll() is None:

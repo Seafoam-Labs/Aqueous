@@ -60,6 +60,8 @@ gaps_inner = 8             # integer >= 0
 #   layout          tile | monocle | grid | rows | dwindle | reverse-dwindle |
 #                   reverse_dwindle | scrolling | float | floating | stack | stacking |
 #                   game-mode | game_mode | composable
+#                   omitted: preserve the workspace layout; Game Mode requires
+#                   an explicit layout = "game-mode"
 #   output          exact enabled connector name from `aqueousctl outputs`;
 #                   without workspace, uses that output's active workspace
 #   workspace       1-based workspace number; without output, uses the normal
@@ -211,6 +213,6 @@ gaps_inner = 8             # integer >= 0
 # size = "native"
 # scale = 1.0
 
-# Note: the current rule snapshot defaults an omitted layout to game-mode.
-# Specify layout explicitly in every rule so visual-only or placement-only
-# rules cannot unexpectedly select Game Mode for their output/workspace.
+# Migration: older versions defaulted most rules with no layout to Game Mode.
+# Add layout = "game-mode" to game rules that relied on that default.
+# Visual-only and placement-only rules can omit layout to preserve the workspace layout.

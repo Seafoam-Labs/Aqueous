@@ -93,7 +93,7 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
             current = null;
             current_layer = null;
             if (std.mem.eql(u8, line, "[[window]]")) {
-                current = .{ .layout = null };
+                current = .{};
                 section = .window;
             } else if (std.mem.eql(u8, line, "[[layer]]")) {
                 current_layer = .{};
@@ -144,11 +144,7 @@ fn hash(source: []const u8) u64 {
 
 fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
     if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) return;
-    var resolved = rule;
-    // Width presets follow the current layout. Preserve the historical
-    // implicit game-mode layout for rules that do not use this property.
-    if (resolved.layout == null and resolved.scrolling_full_width == null) resolved.layout = .game_mode;
-    try rules.append(allocator, resolved);
+    try rules.append(allocator, rule);
 }
 
 fn appendValidLayer(
@@ -390,7 +386,7 @@ test "scrolling width rules preserve the current layout and explicit layout choi
         \\class = "editor"
         \\scrolling_full_width = false
         \\[[window]]
-        \\title = "legacy"
+        \\title = "size-only"
         \\size = "800x600"
         \\[[window]]
         \\app_id = "explicit-before"
@@ -410,10 +406,87 @@ test "scrolling width rules preserve the current layout and explicit layout choi
     const editor = engine.resolve(.{ .class = "editor" }).?;
     try std.testing.expectEqual(@as(?bool, false), editor.scrolling_full_width);
     try std.testing.expectEqual(@as(?Engine.Layout, null), editor.layout);
-    try std.testing.expectEqual(Engine.Layout.game_mode, engine.resolve(.{ .title = "legacy" }).?.layout.?);
+    try std.testing.expectEqual(@as(?Engine.Layout, null), engine.resolve(.{ .title = "size-only" }).?.layout);
     try std.testing.expectEqual(Engine.Layout.game_mode, engine.resolve(.{ .app_id = "explicit-before" }).?.layout.?);
     try std.testing.expectEqual(Engine.Layout.scrolling, engine.resolve(.{ .app_id = "explicit-after" }).?.layout.?);
     try std.testing.expectEqual(@as(?bool, null), engine.resolve(.{ .app_id = "invalid" }).?.scrolling_full_width);
+    try std.testing.expectEqual(@as(?Engine.Layout, null), engine.resolve(.{ .app_id = "invalid" }).?.layout);
+}
+
+test "omitted layouts preserve visual and placement rules without selecting game mode" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[game_mode]
+        \\fallback_layout = "rows"
+        \\[[window]]
+        \\app_id = "visual"
+        \\opacity = 0.8
+        \\blur = false
+        \\[[window]]
+        \\app_id = "visual"
+        \\layout = "game-mode"
+        \\[[window]]
+        \\app_id = "placement"
+        \\output = "DP-2"
+        \\workspace = 3
+        \\[[window]]
+        \\app_id = "floating"
+        \\floating = true
+        \\width = 800
+        \\height = 600
+        \\[[window]]
+        \\app_id = "matcher-only"
+        \\[[window]]
+        \\app_id = "invalid-layout"
+        \\layout = "unknown"
+        \\[[window]]
+        \\app_id = "explicit-game"
+        \\layout = "game_mode"
+    );
+    for ([_][]const u8{ "visual", "placement", "floating", "matcher-only", "invalid-layout" }) |app_id| {
+        try std.testing.expectEqual(@as(?Engine.Layout, null), engine.resolve(.{ .app_id = app_id }).?.layout);
+    }
+    // An unset layout in the first match must not inherit a later game rule.
+    const visual = engine.resolve(.{ .app_id = "visual" }).?;
+    try std.testing.expectEqual(@as(?f64, 0.8), visual.opacity);
+    try std.testing.expectEqual(@as(?bool, false), visual.blur);
+    const placement = engine.resolve(.{ .app_id = "placement" }).?.placement;
+    try std.testing.expectEqualStrings("DP-2", placement.output.?);
+    try std.testing.expectEqual(@as(u32, 3), placement.workspace);
+    const floating = engine.resolve(.{ .app_id = "floating" }).?.placement;
+    try std.testing.expect(floating.floating);
+    try std.testing.expectEqual(@as(i32, 800), floating.width);
+    try std.testing.expectEqual(@as(i32, 600), floating.height);
+    try std.testing.expectEqual(Engine.Layout.game_mode, engine.resolve(.{ .app_id = "explicit-game" }).?.layout.?);
+}
+
+test "reloading a rule can add and remove an explicit game layout" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    const without_layout =
+        \\[[window]]
+        \\app_id = "game"
+        \\blur = false
+    ;
+    const with_layout = without_layout ++ "\nlayout = \"game-mode\"\n";
+    try parseAndReload(std.testing.allocator, &engine, without_layout);
+    const initial = engine.resolve(.{ .app_id = "game" }).?;
+    const fingerprint = initial.fingerprint();
+    const matcher = initial.matcherFingerprint();
+    try std.testing.expectEqual(@as(?Engine.Layout, null), initial.layout);
+
+    try parseAndReload(std.testing.allocator, &engine, with_layout);
+    const game = engine.resolve(.{ .app_id = "game" }).?;
+    try std.testing.expectEqual(Engine.Layout.game_mode, game.layout.?);
+    try std.testing.expect(game.fingerprint() != fingerprint);
+    try std.testing.expectEqual(matcher, game.matcherFingerprint());
+
+    try parseAndReload(std.testing.allocator, &engine, without_layout);
+    const reloaded = engine.resolve(.{ .app_id = "game" }).?;
+    try std.testing.expectEqual(@as(?Engine.Layout, null), reloaded.layout);
+    try std.testing.expectEqual(@as(?bool, false), reloaded.blur);
+    try std.testing.expectEqual(fingerprint, reloaded.fingerprint());
 }
 
 test "rules parser accepts content_type matchers and rejects invalid values" {

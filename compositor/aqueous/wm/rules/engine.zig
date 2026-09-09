@@ -73,7 +73,8 @@ pub const Rule = struct {
     /// commonly arrives long after map and must never move an already-arranged
     /// window.
     content_type: ?wp.ContentTypeV1.Type = null,
-    layout: ?Layout = .game_mode,
+    /// Null preserves the workspace layout; game mode must be explicit.
+    layout: ?Layout = null,
     placement: Placement = .{},
     anchor: Anchor = .center,
     size: Size = .native,
@@ -393,6 +394,7 @@ test "rules are first-match-wins and require every present matcher" {
     try engine.reload(&source);
     source[0].placement.workspace = 99;
     try std.testing.expectEqual(@as(u32, 1), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.placement.workspace);
+    try std.testing.expectEqual(@as(?Layout, null), engine.resolve(.{ .app_id = "game-one", .title = "Menu" }).?.layout);
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "game-one", .title = "Play" }).?.placement.workspace);
     try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
 }
