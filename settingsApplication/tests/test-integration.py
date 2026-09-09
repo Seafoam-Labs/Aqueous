@@ -6,6 +6,8 @@ HELPER=str(pathlib.Path(sys.argv[1] if len(sys.argv)>1 else ROOT/'settingsApplic
 with tempfile.TemporaryDirectory(prefix='aqueous-settings-integration-') as tmp:
     base=pathlib.Path(tmp); config=base/'config/aqueous';config.mkdir(parents=True)
     for fixture in (ROOT/'settingsApplication/tests/fixtures').glob('*.toml'): (config/fixture.name).write_bytes(fixture.read_bytes())
+    wm=config/'wm.toml'
+    wm.write_text(wm.read_text().replace('[opacity]\nenabled = false\nvalue = 0.9', '[opacity]\nenabled = true\nvalue = 0.73'))
     env={k:v for k,v in os.environ.items() if not k.startswith('AQUEOUS_') and k not in ('WAYLAND_DISPLAY','DISPLAY','DBUS_SESSION_BUS_ADDRESS','LD_PRELOAD')}
     env.update(HOME=str(base/'home'),XDG_CONFIG_HOME=str(base/'config'),XDG_STATE_HOME=str(base/'state'),XDG_RUNTIME_DIR=str(base/'runtime'),NOCTALIA_STATE_HOME=str(base/'state'),GSETTINGS_BACKEND='memory')
     for key,name in [('CONFIG','wm'),('LAYOUT','layout'),('INPUT','input'),('OUTPUTS','outputs'),('RULES','rules')]:env['AQUEOUS_'+key]=str(config/(name+'.toml'))
@@ -15,6 +17,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-integration-') as tmp:
         p=subprocess.run([HELPER,mode,'--shell',shell]+(['--request','-'] if req is not None else []),input=json.dumps(req) if req is not None else None,env=env,capture_output=True,text=True,timeout=15)
         response=json.loads(p.stdout);assert (p.returncode==0)==ok,(mode,response.get("code"),response.get("message"),p.stderr);return response
     snap=call('snapshot'); assert {'shell_none','monitor_scale'}<=set(snap['capabilities'])
+    fields={field['id']:field['value'] for field in snap['fields']}
+    assert fields['opacity.enabled'] is True and fields['opacity.value']==0.73, 'saved wm.toml opacity was replaced by defaults'
     before={p.name:p.read_bytes() for p in config.glob('*.toml')}
     request=dict(protocol=1,expected_generation=snap['generation'],backup_dir=str(base/'backups'),create_user_override=True,
         monitor_changes=[dict(id='live:TEST-1',name='TEST-1',x=-1280,y=12,transform='90',mode='1920x1080@59.94',scale=1.5)])

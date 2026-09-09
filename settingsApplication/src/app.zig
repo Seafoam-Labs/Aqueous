@@ -13,6 +13,7 @@ const preferences = @import("services/preferences.zig");
 const a = std.heap.page_allocator;
 pub const pages = [_][]const u8{ "overview", "appearance", "layouts", "input", "displays", "rules", "keybinds", "advanced" };
 const theme_choices = [_][]const u8{ "Follow shell", "DMS", "Noctalia", "Built-in" };
+const runtime_layout_model = @import("model/runtime_layout.zig");
 const titles = [_][]const u8{ "Overview", "Appearance", "Layouts", "Input", "Displays", "Rules", "Keybinds", "Advanced" };
 const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
 const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
@@ -27,6 +28,10 @@ pub const App = struct {
     theme_status: []const u8 = "Built-in application theme.",
     model: draft.Model,
     client: Client,
+    layout_client: Client,
+    live_layout: runtime_layout_model.State = .{},
+    layout_query_generation: u64 = 0,
+    next_layout_query: i64 = 0,
     ui: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(a),
     bindings: std.ArrayList(*Binding) = .empty,
     shell: []const u8,
@@ -46,7 +51,6 @@ pub const App = struct {
     rebuilt: bool = true,
     quitting: bool = false,
     runtime_output: []const u8 = "",
-    runtime_layout: []const u8 = "tile",
     monitor_rows: V = .null,
     drag_index: ?usize = null,
     drag_x: f32 = 0,
@@ -58,10 +62,11 @@ pub const App = struct {
     canvas_min_y: f32 = 0,
     was_down: bool = false,
     pub fn init(window: *q.Parent, io: std.Io, shell: []const u8, backup: []const u8, page: usize) App {
-        return .{ .window = window, .model = draft.Model.init(a), .client = Client.init(io), .shell = shell, .backup = backup, .page = page };
+        return .{ .window = window, .model = draft.Model.init(a), .client = Client.init(io), .layout_client = Client.init(io), .shell = shell, .backup = backup, .page = page };
     }
     pub fn deinit(self: *App) void {
         self.client.deinit();
+        self.layout_client.deinit();
         for (self.bindings.items) |b| {
             if (b.edited) |text| a.free(text);
         }
@@ -184,6 +189,7 @@ pub const App = struct {
     }
     pub fn tick(self: *App) !void {
         try self.tickTheme();
+        try self.tickLayout();
         if (self.client.poll()) {
             var completed = self.client.result;
             self.client.result = .{};
@@ -192,6 +198,8 @@ pub const App = struct {
             const result = &completed;
             if (std.mem.eql(u8, op, "runtime")) {
                 self.status = if (result.status == 0 and result.exit_code == 0) "Live workspace layout changed." else "Live action failed; configuration drafts are unchanged.";
+                self.live_layout.reset();
+                self.next_layout_query = 0;
             } else if (std.mem.eql(u8, op, "dms-sync")) {
                 self.shell_status = try self.own(if (result.status == 0 and result.exit_code == 0) result.stdout() else "DMS typography synchronization failed. Retry from Appearance.");
             } else if (result.status != 0 or result.stdout().len == 0) {
@@ -234,6 +242,8 @@ pub const App = struct {
                     };
                     self.search = "";
                     self.runtime_output = "";
+                    self.live_layout.reset();
+                    self.next_layout_query = 0;
                     self.shell_status = "";
                     self.uncertain = false;
                     const applied = std.mem.eql(u8, op, "apply");
@@ -267,6 +277,30 @@ pub const App = struct {
             self.confirm = .close;
             self.rebuilt = true;
         } else self.quitting = true;
+    }
+    fn tickLayout(self: *App) !void {
+        // Do not dismiss an open chooser or disrupt pointer/scroll interaction.
+        if (self.confirm != .none or self.window.state.mouse_down or self.window.state.scroll_dragging) return;
+        for (self.window.state.dropdowns.items) |chooser| if (chooser.is_open) return;
+        if (self.layout_client.poll()) {
+            defer self.layout_client.result.deinit();
+            if (self.layout_query_generation == self.live_layout.generation) {
+                const before = self.live_layout;
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                const result = &self.layout_client.result;
+                const response = if (result.status == 0 and result.exit_code == 0) j.parse(arena.allocator(), result.stdout()) catch .null else .null;
+                self.live_layout.accept(response, self.runtime_output, self.layout_query_generation) catch {
+                    self.live_layout.failed = true;
+                };
+                if (self.page == 0 and !std.meta.eql(before, self.live_layout)) self.rebuilt = true;
+            }
+        }
+        const now = std.Io.Clock.awake.now(self.client.io).toMilliseconds();
+        if (self.page != 0 or self.confirm != .none or self.client.busy() or self.layout_client.busy() or self.runtime_output.len == 0 or now < self.next_layout_query) return;
+        self.next_layout_query = now + 1000;
+        self.layout_query_generation = self.live_layout.generation;
+        try self.layout_client.start("layout-query", &.{ "aqueousctl", "layout", "--output", self.runtime_output, "--json" }, "");
     }
     pub fn build(self: *App) !void {
         // Keep old callback memory alive until Quark releases the previous tree.
@@ -393,8 +427,13 @@ pub const App = struct {
         if (outputs.len > 0) {
             if (self.runtime_output.len == 0) self.runtime_output = try self.own(names[0]);
             _ = try col.add(try self.dropdown(names, self.runtime_output, .{ .app = self, .kind = .runtime_output }));
-            _ = try col.add(try self.dropdown(&.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" }, self.runtime_layout, .{ .app = self, .kind = .runtime_layout }));
-            _ = try col.add(try self.button("Switch layout now", .runtime_apply, "", 0));
+            if (self.live_layout.failed) {
+                _ = try col.add(self.label("Current layout unavailable; retrying compositor query…", false));
+            } else if (self.live_layout.selected) |index| {
+                _ = try col.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "Workspace {d}: {s}", .{ self.live_layout.workspace.?, runtime_layout_model.choices[self.live_layout.active.?] }), false));
+                _ = try col.add(try self.dropdown(&runtime_layout_model.choices, runtime_layout_model.choices[index], .{ .app = self, .kind = .runtime_layout }));
+                _ = try col.add(try self.button("Switch layout now", .runtime_apply, "", 0));
+            } else _ = try col.add(self.label("Reading current workspace layout…", false));
         } else _ = try col.add(self.label("No live outputs available. Persistent settings remain editable.", false));
     }
     fn appearance(self: *App, col: *q.widget.Column) !void {
@@ -836,10 +875,18 @@ pub const App = struct {
                     for ([_][]const u8{ "style", "weight", "slant", "width" }) |key| try self.model.change(try std.fmt.allocPrint(ma, "desktop.font.{s}", .{key}), j.get(face, key));
                 }
             },
-            .runtime_output => self.runtime_output = try self.own(text),
-            .runtime_layout => self.runtime_layout = try self.own(text),
+            .runtime_output => {
+                self.runtime_output = try self.own(text);
+                self.live_layout.reset();
+                self.next_layout_query = 0;
+            },
+            .runtime_layout => self.live_layout.choose(event.select_index),
             .refresh_live => try self.client.startBackend("refresh-live", self.shell, ""),
-            .runtime_apply => try self.client.start("runtime", &.{ "aqueousctl", "layout", "--output", self.runtime_output, "--set", self.runtime_layout, "--json" }, ""),
+            .runtime_apply => {
+                const index = self.live_layout.selected orelse return error.LayoutUnavailable;
+                if (self.live_layout.failed) return error.LayoutUnavailable;
+                try self.client.start("runtime", &.{ "aqueousctl", "layout", "--output", self.runtime_output, "--set", runtime_layout_model.choices[index], "--json" }, "");
+            },
             .add_layout, .migrate => {
                 const layouts = try self.editLayouts();
                 if (layouts.array.items.len >= 8) return error.TooManyLayouts;

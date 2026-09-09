@@ -91,6 +91,40 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                 flags=subprocess.check_output(['pkg-config','--cflags','--libs','wayland-client','xkbcommon'],text=True).split()
                 injector=base/'send-input'
                 subprocess.run(['cc','-Wall','-Wextra','-Werror',str(ROOT/'settingsApplication/tests/send-input.c'),str(base/'virtual-keyboard-protocol.c'),str(base/'virtual-pointer-protocol.c'),'-I'+str(base),'-o',str(injector),*flags],check=True)
+                # Runtime layouts must come from the compositor, not the saved tile default.
+                ctl=pathlib.Path(os.environ.get('AQUEOUSCTL_BIN',str(ROOT/'compositor/zig-out/bin/aqueousctl'))).resolve()
+                output=next(o['name'] for o in json.loads(subprocess.check_output([str(ctl),'outputs','--json'],env=env,text=True)) if o.get('enabled'))
+                calls=base/'layout-switches.jsonl'
+                wrapper=trap_bin/'aqueousctl'
+                wrapper.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
+                    'if sys.argv[1:2]==["layout"] and "--set" in sys.argv:\n'
+                    f'    with open({str(calls)!r},"a") as log: log.write(json.dumps(sys.argv[1:])+"\\n")\n'
+                    f'os.execv({str(ctl)!r},[{str(ctl)!r},*sys.argv[1:]])\n')
+                wrapper.chmod(0o755)
+                canonical={p:p.read_bytes() for p in config.glob('*.toml')}
+                subprocess.run([str(ctl),'layout','--output',output,'--set','scrolling','--json'],env=env,check=True,stdout=subprocess.DEVNULL)
+                with (base/'layout-test.log').open('w+') as layout_log:
+                    layout_child=subprocess.Popen([str(APP),'--shell','none','--page','overview'],env=env,stderr=layout_log)
+                    try:
+                        for iteration,expected in enumerate(('scrolling','grid')):
+                            if iteration: subprocess.run([str(ctl),'layout','--output',output,'--set',expected,'--json'],env=env,check=True,stdout=subprocess.DEVNULL)
+                            time.sleep(2.5)
+                            assert layout_child.poll() is None, 'layout UI exited'
+                            # Last four focusable controls: Switch layout now, Reload, Validate, Apply.
+                            subprocess.run([str(injector),*(['S15']*4),'28'],env=env,check=True,timeout=10)
+                            deadline=time.monotonic()+5
+                            while (not calls.exists() or len(calls.read_text().splitlines())<=iteration) and time.monotonic()<deadline: time.sleep(.1)
+                            observed=[json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                            assert len(observed)==iteration+1, ('Switch layout now was not invoked',observed)
+                            assert observed[-1][4]==expected, ('dropdown did not follow current workspace',expected,observed[-1])
+                        assert all(p.read_bytes()==data for p,data in canonical.items()), 'live layout changed saved TOML'
+                        print('Runtime layout passed: non-tile initialization and external layout refresh without configuration writes')
+                    finally:
+                        layout_child.terminate()
+                        try: layout_child.wait(timeout=5)
+                        except subprocess.TimeoutExpired: layout_child.kill();layout_child.wait()
+                        layout_log.seek(0);errors=layout_log.read()
+                        assert 'panic' not in errors and 'dispatch failed' not in errors,errors
                 before=(config/'wm.toml').read_bytes()
                 with (base/'interaction.log').open('w+') as error_log:
                     child=subprocess.Popen([str(APP),'--shell','none','--page','advanced'],env=env,stderr=error_log)

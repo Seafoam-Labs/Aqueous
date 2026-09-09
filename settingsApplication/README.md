@@ -70,6 +70,10 @@ Use `WIDTHxHEIGHT` for automatic refresh or `WIDTHxHEIGHT@Hz` for exact refresh.
 **Refresh connected displays** updates live observations while preserving the
 base generation and drafts, including disconnected outputs. Overview's
 **Switch layout now** is an immediate workspace action.
+Its dropdown reads the selected output's active workspace from the compositor
+and refreshes on Overview once per second. It does not display the saved default
+from `layout.toml`. A selection awaiting **Switch layout now** is retained until
+the workspace/output changes; unavailable live state is shown explicitly.
 
 UI preferences live in `$XDG_CONFIG_HOME/aqueous/settings-application.json`.
 Backups go to `$XDG_STATE_HOME/aqueous/settings-application/backups`, with
