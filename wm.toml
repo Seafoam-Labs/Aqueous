@@ -246,9 +246,9 @@ rate = 0.0
 # This is where you set actions that are attached to a keybind
 # -----------------------------------------------------------------------------
 [actions]
-toggle_start_menu = "dms ipc launcher toggle"
+toggle_start_menu = "dms ipc call spotlight toggle"
 spawn_terminal = "ghostty"
-screenshot = "dms screenshot full"
+screenshot = "dms screenshot region"
 
 # -----------------------------------------------------------------------------
 # Keybindings.
@@ -456,7 +456,7 @@ untrap_pointer        = "Super+grave"          # default; reserved for pointer u
 # -----------------------------------------------------------------------------
 [keybinds.custom]
 "Super+E"            = "spawn:nemo"
-"Super+Shift+S"      = "spawn:spawn:dms screenshot"
+"Super+Shift+S"      = "spawn:dms screenshot region"
 "Super+B"            = "spawn:zen-browser"
 "XF86AudioRaiseVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
 "XF86AudioLowerVolume"  = "spawn:wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
