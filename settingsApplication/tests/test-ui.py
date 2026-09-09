@@ -97,6 +97,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-settings-ui-') as tmp:
                     if page=='appearance':
                         assert any(c['action']=='font_family' for c in inspection['controls'])
                         assert any(c['action']=='font_face' for c in inspection['controls'])
+                        cursor=next(c for c in inspection['controls'] if c['action']=='field' and c['key']=='desktop.cursor.theme')
+                        assert cursor['selected']==snapshot['desktop_cursor']['theme'], ('cursor theme must be a populated dropdown',cursor)
                         represented.update(('desktop.font.family','desktop.font.style'))
                     assert expected==represented, ('field inventory mismatch',page,expected-represented,represented-expected)
                     assert all(c['x']+c['width'] <= inspection['width']+1 for c in inspection['controls']), ('horizontal overflow',page,[c for c in inspection['controls'] if c['x']+c['width']>inspection['width']+1])

@@ -690,7 +690,7 @@ pub const App = struct {
         if (j.text(f, "description").len > 0) _ = try description.add(self.richLabel(j.text(f, "description"), .muted));
         var controls = self.newRow();
         controls.spacing = 8;
-        const opts = j.items(j.get(f, "options"));
+        const opts = j.items(if (std.mem.eql(u8, id, "desktop.cursor.theme")) j.get(j.get(self.model.snapshot, "desktop_cursor"), "themes") else j.get(f, "options"));
         var control: q.Widget = undefined;
         if (opts.len > 0) {
             const choices = try self.ui.allocator().alloc([]const u8, opts.len);
