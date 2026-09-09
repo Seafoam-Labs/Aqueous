@@ -84,6 +84,8 @@ jobs:
             "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
           AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
             compositor/scripts/test-color-management-luminance.sh
+          AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
+            compositor/scripts/test-ext-capture-formats.sh
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \

@@ -14,6 +14,7 @@ on:
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
       - 'compositor/scripts/test-color-management-luminance.sh'
+      - 'compositor/scripts/test-ext-capture-formats.sh'
       - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
@@ -30,6 +31,7 @@ on:
       - 'compositor/scripts/fixtures/**'
       - 'compositor/scripts/build-wlroots-render-hook.sh'
       - 'compositor/scripts/test-color-management-luminance.sh'
+      - 'compositor/scripts/test-ext-capture-formats.sh'
       - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
@@ -85,6 +87,12 @@ jobs:
         run: |
           AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
             compositor/scripts/test-color-management-luminance.sh
+
+      - name: Test capture format selection and frame color metadata
+        shell: bash
+        run: |
+          AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
+            compositor/scripts/test-ext-capture-formats.sh
 
       - name: Build Vulkan effects
         shell: bash

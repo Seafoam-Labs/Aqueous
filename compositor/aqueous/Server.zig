@@ -13,6 +13,8 @@ const wayland = @import("wayland");
 const wl = wayland.server.wl;
 const wp = wayland.server.wp;
 
+extern fn wlr_aqueous_capture_color_manager_v1_create(display: *wl.Server) ?*wl.Global;
+
 const util = @import("util.zig");
 const fx = @import("fx.zig");
 const color_management = @import("color_management.zig");
@@ -124,6 +126,7 @@ export_dmabuf_manager: *wlr.ExportDmabufManagerV1,
 screencopy_manager: *wlr.ScreencopyManagerV1,
 
 image_copy_capture_manager: *wlr.ExtImageCopyCaptureManagerV1,
+capture_color_global: *wl.Global,
 output_image_capture_source_manager: *wlr.ExtOutputImageCaptureSourceManagerV1,
 
 wlr_foreign_toplevel_manager: *wlr.ForeignToplevelManagerV1,
@@ -478,6 +481,7 @@ pub fn init(
         .screencopy_manager = try wlr.ScreencopyManagerV1.create(wl_server),
 
         .image_copy_capture_manager = try wlr.ExtImageCopyCaptureManagerV1.create(wl_server, 1),
+        .capture_color_global = wlr_aqueous_capture_color_manager_v1_create(wl_server) orelse return error.OutOfMemory,
         .output_image_capture_source_manager = try wlr.ExtOutputImageCaptureSourceManagerV1.create(wl_server, 1),
 
         .wlr_foreign_toplevel_manager = try wlr.ForeignToplevelManagerV1.create(wl_server),
@@ -784,6 +788,7 @@ fn blocklist(server: *Server, global: *const wl.Global) bool {
         global == server.layer_shell.wlr_shell.global or
         global == server.xkb_bindings.global or
         global == server.image_copy_capture_manager.global or
+        global == server.capture_color_global or
         global == server.output_image_capture_source_manager.global or
         global == server.wlr_foreign_toplevel_manager.global or
         global == server.foreign_toplevel_list.global or

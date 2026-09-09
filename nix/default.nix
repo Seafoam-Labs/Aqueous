@@ -110,6 +110,8 @@ let
       "${src}/compositor/patches/wlroots/0011-scene-output-layer-promotion.patch"
       "${src}/compositor/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
       "${src}/compositor/patches/wlroots/0013-fifo-v1.patch"
+      "${src}/compositor/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
+      "${src}/compositor/patches/wlroots/0015-ext-capture-formats-and-color.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
@@ -264,6 +266,10 @@ stdenv.mkDerivation (finalAttrs: {
   checkPhase = ''
     runHook preCheck
 
+    AQUEOUS_WLROOTS_PREFIX="${lib.getDev aqueousWlroots}" \
+      LD_LIBRARY_PATH="${lib.getLib aqueousWlroots}/lib" \
+      bash compositor/scripts/test-ext-capture-formats.sh
+
     required=(
       bin/aqueous
       bin/aqueousctl
@@ -271,6 +277,7 @@ stdenv.mkDerivation (finalAttrs: {
       share/man/man1/aqueous.1
       share/man/man1/aqueousctl.1
       share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+      share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml
     )
     for path in "''${required[@]}"; do
       test -e "$TMPDIR/aqueous-dist/$path"

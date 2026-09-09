@@ -19,6 +19,8 @@ patch_files=(
     "$here/patches/wlroots/0011-scene-output-layer-promotion.patch"
     "$here/patches/wlroots/0012-syncobj-release-on-buffer-detach.patch"
     "$here/patches/wlroots/0013-fifo-v1.patch"
+    "$here/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
+    "$here/patches/wlroots/0015-ext-capture-formats-and-color.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -52,6 +54,9 @@ tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 for patch_file in "${patch_files[@]}"; do
     patch -d "$source_dir" -p1 <"$patch_file"
 done
+cmp "$source_dir/protocol/aqueous-capture-color-v1.xml" \
+    "$here/protocol/aqueous-capture-color-v1.xml" ||
+    die "capture color protocol differs between compositor and wlroots patch"
 grep -Fq '#define WLR_AQUEOUS_FIFO_VERSION 1' \
     "$source_dir/include/wlr/types/wlr_fifo_v1.h" ||
     die "patched wlroots does not expose the required FIFO API"
@@ -128,9 +133,18 @@ meson setup "$build_dir" "$source_dir" \
 meson compile -C "$build_dir"
 meson install -C "$build_dir"
 
+# Exercise the exact conversion helper shipped in the patched screencopy path.
+cc -std=c11 -Wall -Wextra -Werror -O2 -DWLR_USE_UNSTABLE \
+    -I"$source_dir/include" \
+    "$here/scripts/fixtures/screencopy-sdr.c" -o "$build_root/screencopy-sdr" \
+    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs wlroots-0.20) -lm
+LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$build_root/screencopy-sdr" || die "10-bit SDR screencopy conversion failed"
+
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_aqueous_capture_color_manager_v1_create \
     wlr_fifo_manager_v1_create \
     wlr_fifo_manager_v1_get_global \
     wlr_fifo_manager_v1_output_pending \

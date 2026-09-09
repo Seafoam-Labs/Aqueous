@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="aqueous_capture_color_v1">
+  <copyright>
+    Copyright © 2026 Seafoam Labs
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+  <interface name="aqueous_capture_color_manager_v1" version="1">
+    <description summary="color information for individual captured frames">
+      This Aqueous extension describes the pixels delivered by an
+      ext_image_copy_capture_frame_v1. It does not grant capture access or
+      modify the standard capture protocol. Color information is associated
+      with the actual copied buffer, not the output state at request time.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <enum name="error">
+      <entry name="invalid_frame" value="0" summary="frame is inert or capture has started"/>
+      <entry name="duplicate" value="1" summary="frame already has a color info object"/>
+    </enum>
+    <request name="get_frame_info">
+      <description summary="describe the pixels of a pending frame">
+        Call before the frame's capture request. At most one live info object
+        may be associated with a frame. Destroying the manager does not affect
+        its info objects. A successful frame receives a complete description
+        or unavailable before its ready event. Failed or destroyed frames may
+        receive unavailable; no description is usable unless the frame succeeds.
+      </description>
+      <arg name="info" type="new_id" interface="aqueous_capture_color_info_v1"/>
+      <arg name="frame" type="object" interface="ext_image_copy_capture_frame_v1"/>
+    </request>
+  </interface>
+  <interface name="aqueous_capture_color_info_v1" version="1">
+    <description summary="immutable description of delivered capture pixels">
+      A description consists of encoding, optional mastering_display and
+      content_light events, then done. Alternatively, unavailable is sent.
+      Exactly one of done or unavailable is sent unless this object is destroyed.
+      Events describe destination pixels: an SDR conversion has SDR metadata,
+      while native SHM capture retains its source encoding. Information remains
+      valid after the frame is destroyed. Destroy this object when done with it.
+      This version does not guarantee metadata for DMA-BUF, scene or cursor
+      sources; clients must handle unavailable and must not infer HDR from
+      buffer bit depth. All luminances use 0.0001 cd/m² units.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <enum name="primaries">
+      <entry name="srgb" value="1" summary="sRGB/BT.709 primaries, D65"/>
+      <entry name="bt2020" value="2" summary="BT.2020 primaries, D65"/>
+    </enum>
+    <enum name="transfer_function">
+      <entry name="gamma22" value="1" summary="power-law gamma 2.2"/>
+      <entry name="srgb" value="2" summary="sRGB piecewise transfer function"/>
+      <entry name="pq" value="3" summary="ST 2084 PQ, 1.0 is 10000 cd/m²"/>
+      <entry name="linear" value="4" summary="linear light"/>
+      <entry name="bt1886" value="5" summary="BT.1886 transfer function"/>
+    </enum>
+    <event name="encoding">
+      <description summary="destination encoding and white levels">
+        reference_white is the nominal reference luminance of the transfer
+        function (203 cd/m² for PQ, 80 for SDR). sdr_white is the diffuse white
+        used to place SDR content in the source HDR image, or 80 for SDR output.
+        Neither value is a peak luminance. They are distinct from optional
+        mastering metadata. SDR fallback pixels are gamma22 with sRGB primaries.
+      </description>
+      <arg name="primaries" type="uint" enum="primaries"/>
+      <arg name="transfer_function" type="uint" enum="transfer_function"/>
+      <arg name="reference_white" type="uint"/>
+      <arg name="sdr_white" type="uint"/>
+    </event>
+    <event name="mastering_display">
+      <description summary="optional mastering display metadata">
+        Chromaticities are CIE 1931 xy values in millionths. This event is
+        omitted when the source has no usable mastering primaries/luminances.
+      </description>
+      <arg name="red_x" type="uint"/><arg name="red_y" type="uint"/>
+      <arg name="green_x" type="uint"/><arg name="green_y" type="uint"/>
+      <arg name="blue_x" type="uint"/><arg name="blue_y" type="uint"/>
+      <arg name="white_x" type="uint"/><arg name="white_y" type="uint"/>
+      <arg name="min_luminance" type="uint"/><arg name="max_luminance" type="uint"/>
+    </event>
+    <event name="content_light">
+      <description summary="optional content light metadata">
+        A zero value indicates that the corresponding value is unspecified.
+        This event is omitted if both values are unspecified.
+      </description>
+      <arg name="max_cll" type="uint"/><arg name="max_fall" type="uint"/>
+    </event>
+    <event name="done"/>
+    <event name="unavailable"/>
+  </interface>
+</protocol>

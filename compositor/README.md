@@ -42,6 +42,51 @@ scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
 ```
 
+The pinned wlroots build includes an 8-bit XRGB shared-memory screencopy path
+for 10-bit outputs, allowing clients such as grabit to capture with HDR enabled.
+PQ captures are converted to SDR gamma/primaries using the configured SDR white
+level; highlights and colors outside SDR's range clip. DMA-BUF captures retain
+their existing format and behavior. This requires rebuilding and shipping the
+patched wlroots library, then restarting Aqueous. The dependency build runs
+`scripts/fixtures/screencopy-sdr.c` to check format selection, channel ordering,
+row padding, and HDR color conversion. Verify full-output and region captures
+with grabit on an HDR display, including after toggling HDR and with a rotated
+or scaled output; these live GPU cases are not covered by the conversion test.
+
+Ext image-copy-capture output sessions additionally advertise native 10-bit SHM
+alongside XRGB8888. The client selects a format by attaching its buffer. Native
+capture retains all ten bits; XRGB8888 uses the SDR conversion above. Scene and
+separate cursor sources retain their own constraints. Invalid or stale formats
+fail with the protocol's recoverable buffer-constraints reason.
+
+The experimental `aqueous-capture-color-v1` companion supplies destination color
+metadata for an individual output SHM frame before `ready`. Clients request it
+before capture and must handle `unavailable`; DMA-BUF and generic scene/cursor
+color metadata are not qualified. Native HDR export requires this metadata and
+an encoder that preserves its encoding. The XML is installed under
+`share/aqueous-protocols/experimental/`. Existing grabit clients continue to use
+the legacy path; adopting ext capture requires changes in grabit itself.
+
+Run the protocol/copy tests without a GPU, or against generated Vulkan buffers:
+
+```sh
+scripts/test-ext-capture-formats.sh
+scripts/test-ext-capture-formats.sh --vulkan /dev/dri/renderD128
+AQUEOUS_CAPTURE_BENCHMARK=4k \
+  AQUEOUS_CAPTURE_ARTIFACT_DIR=/tmp/aqueous-capture-4k \
+  scripts/test-ext-capture-formats.sh --vulkan /dev/dri/renderD128
+```
+
+Set `AQUEOUS_WLROOTS_PREFIX` when testing a dependency installed elsewhere.
+Benchmark sizes are `1080p` and `4k`; artifacts contain synthetic native/SDR
+pixels and JSON frame metadata. Vulkan tests use a synthetic output and do not
+capture the desktop. GPU allocation support can limit the tested native formats.
+The synchronous CPU fallback is intended for screenshots; measured dual-capture
+cost was approximately 78 ms at 1080p and 317 ms at 4K on the tested AMD GPU.
+Continuous recording needs a faster conversion path and separate qualification.
+See the [color contract](../docs/architecture-decisions/0002-capture-format-and-color.md)
+and [implementation status](../docs/capture-format-negotiation-plan.md).
+
 Snapshot color-state regressions exercise the production buffer-cloning code:
 
 ```sh

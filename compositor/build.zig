@@ -323,6 +323,7 @@ pub fn build(b: *Build) !void {
         }) |protocol| {
             b.installFile("protocol/" ++ protocol, "share/aqueous-protocols/stable/" ++ protocol);
         }
+        b.installFile("protocol/aqueous-capture-color-v1.xml", "share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml");
     }
 
     if (man_pages) {
