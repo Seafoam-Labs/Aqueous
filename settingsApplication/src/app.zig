@@ -12,19 +12,37 @@ const theme_quark = @import("services/theme/quark.zig");
 const preferences = @import("services/preferences.zig");
 const a = std.heap.page_allocator;
 pub const pages = [_][]const u8{ "overview", "appearance", "layouts", "input", "displays", "rules", "keybinds", "advanced" };
-const theme_choices = [_][]const u8{ "Follow shell", "DMS", "Noctalia", "Built-in" };
+pub const theme_choices = [_][]const u8{ "Follow shell", "DMS", "Noctalia", "Built-in" };
+const presentation = @import("model/presentation.zig");
+const search_model = @import("model/search.zig");
+const style = @import("ui/style.zig");
+const components = @import("ui/components/settings.zig");
 const runtime_layout_model = @import("model/runtime_layout.zig");
 const titles = [_][]const u8{ "Overview", "Appearance", "Layouts", "Input", "Displays", "Rules", "Keybinds", "Advanced" };
-const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
-const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
-const Action = enum { theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
-const Binding = struct { app: *App, kind: Action, key: []const u8 = "", id: []const u8 = "", index: usize = 0, value: V = .null, options: []const []const u8 = &.{}, edited: ?[]u8 = null };
+pub const files = [_][]const u8{ "wm", "layout", "input", "outputs", "rules", "appearance" };
+pub const transforms = [_][]const u8{ "normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270" };
+pub const Action = enum { search_open, section_toggle, number_step, number_slide, color_open, color_channel, color_accept, color_cancel, theme_source, page, search, field, reset, raw, apply, validate, reload, cancel, discard, close, confirm_apply, shell, monitor, monitor_mode, select_monitor, rule_field, add_rule, remove_rule, move_up, move_down, select_rule, keybind, add_keybind, remove_keybind, layout_field, zone_field, select_layout, add_layout, migrate, remove_layout, add_zone, remove_zone, preset, make_default, snap_binding, flag, legacy_zone, legacy_remove, legacy_undo, legacy_binding, font_family, font_face, runtime_layout, runtime_output, runtime_apply, select_file, refresh_live, cancel_job };
+pub const Binding = struct { app: *App, kind: Action, key: []const u8 = "", id: []const u8 = "", index: usize = 0, value: V = .null, options: []const []const u8 = &.{}, edited: ?[]u8 = null };
 pub const App = struct {
     window: *q.Parent,
     theme: theme_model.Snapshot = .{},
     theme_choice: theme_model.Choice = .follow,
     themes: ?*theme_service.Service = null,
     prefs_path: []const u8 = "",
+    role_fonts: style.Fonts = .{},
+    view_state: @import("model/ui_state.zig").State = .{},
+    highlight: []const u8 = "",
+    reveal_id: ?u32 = null,
+    search_view: bool = false,
+    search_due: i64 = 0,
+    rendered_search: []const u8 = "",
+    last_width: f32 = 0,
+    color_key: []const u8 = "",
+    color_text: []const u8 = "",
+    color_value: u32 = 0xff000000,
+    slider_rebuild: bool = false,
+    inspect_path: []const u8 = "",
+    color_error: []const u8 = "",
     theme_status: []const u8 = "Built-in application theme.",
     model: draft.Model,
     client: Client,
@@ -65,6 +83,8 @@ pub const App = struct {
         return .{ .window = window, .model = draft.Model.init(a), .client = Client.init(io), .layout_client = Client.init(io), .shell = shell, .backup = backup, .page = page };
     }
     pub fn deinit(self: *App) void {
+        self.role_fonts.deinit();
+        self.view_state.deinit(a);
         self.client.deinit();
         self.layout_client.deinit();
         for (self.bindings.items) |b| {
@@ -74,39 +94,43 @@ pub const App = struct {
         self.ui.deinit();
         self.model.deinit();
     }
-    fn own(self: *App, s: []const u8) ![]const u8 {
+    pub fn own(self: *App, s: []const u8) ![]const u8 {
         return try self.model.allocator().dupe(u8, s);
     }
-    fn label(self: *App, s: []const u8, bold: bool) q.Widget {
+    pub fn label(self: *App, s: []const u8, bold: bool) q.Widget {
         _ = self;
-        return .{ .text = q.widget.Text.init(a, .{ .text = s, .theme = .{ .font_style = .{ .bold = bold } } }) };
+        return components.label(s, bold);
     }
-    fn column(self: *App) q.widget.Column {
+    pub fn column(self: *App) q.widget.Column {
         _ = self;
-        return q.widget.Column.init(a, .{ .spacing = 10, .alignment = .stretch });
+        return components.column();
     }
-    fn newRow(self: *App) q.widget.Row {
+    pub fn newRow(self: *App) q.widget.Row {
         _ = self;
-        return q.widget.Row.init(a, .{ .spacing = 8, .alignment = .center });
+        return components.row();
     }
-    fn bind(self: *App, data: Binding) !q.action.Handler {
+    pub fn bind(self: *App, data: Binding) !q.action.Handler {
         const b = try self.ui.allocator().create(Binding);
         b.* = data;
         try self.bindings.append(a, b);
         return q.action.bind(b, dispatch);
     }
-    fn button(self: *App, text: []const u8, kind: Action, key: []const u8, index: usize) !q.Widget {
-        return .{ .button = q.widget.Button.init(.{ .content = .{ .text = self.label(text, false).text }, .on_action = try self.bind(.{ .app = self, .kind = kind, .key = key, .index = index }), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
+    pub fn button(self: *App, text: []const u8, kind: Action, key: []const u8, index: usize) !q.Widget {
+        var result: q.Widget = .{ .button = q.widget.Button.init(.{ .content = .{ .text = self.label(text, false).text }, .on_action = try self.bind(.{ .app = self, .kind = kind, .key = key, .index = index }), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
+        result.button.id = presentation.stableId(@tagName(kind), key, "", index);
+        return result;
     }
-    fn textfield(self: *App, value: []const u8, b: Binding, tall: bool) !q.Widget {
+    pub fn textfield(self: *App, value: []const u8, b: Binding, tall: bool) !q.Widget {
         const key = try self.inputKey(b);
-        const edited = if (j.get(self.model.errors, key) != .null) j.text(self.model.inputs, key) else value;
-        return .{ .textfield = q.widget.TextField.init(.{ .placeholder = b.key, .text = edited, .on_action = try self.bind(b), .theme = .{ .height = q.Size.fixed(if (tall) @max(120, @min(380, self.window.height() - 260)) else @max(36, self.theme.font.pixels + 20)) } }) };
+        const edited = if (j.get(self.model.inputs, key) != .null) j.text(self.model.inputs, key) else value;
+        var result: q.Widget = .{ .textfield = q.widget.TextField.init(.{ .placeholder = b.key, .text = edited, .on_action = try self.bind(b), .theme = .{ .height = q.Size.fixed(if (tall) @max(120, @min(380, self.window.height() - 260)) else @max(36, self.theme.font.pixels + 20)) } }) };
+        result.textfield.id = presentation.stableId(@tagName(b.kind), b.key, b.id, b.index);
+        return result;
     }
-    fn inputKey(self: *App, b: Binding) ![]const u8 {
+    pub fn inputKey(self: *App, b: Binding) ![]const u8 {
         return try std.fmt.allocPrint(self.ui.allocator(), "{s}/{s}/{s}/{d}", .{ @tagName(b.kind), b.id, b.key, b.index });
     }
-    fn dropdown(self: *App, choices: []const []const u8, current: []const u8, b: Binding) !q.Widget {
+    pub fn dropdown(self: *App, choices: []const []const u8, current: []const u8, b: Binding) !q.Widget {
         var binding = b;
         binding.options = choices;
         var selected: ?u32 = null;
@@ -114,16 +138,33 @@ pub const App = struct {
             selected = @intCast(i);
             break;
         };
-        return .{ .dropdown = q.widget.Dropdown.init(.{ .items = choices, .selected_index = selected, .placeholder = current, .on_action = try self.bind(binding), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
+        var result: q.Widget = .{ .dropdown = q.widget.Dropdown.init(.{ .items = choices, .selected_index = selected, .placeholder = current, .on_action = try self.bind(binding), .theme = .{ .height = q.Size.fixed(@max(36, self.theme.font.pixels + 20)) } }) };
+        result.dropdown.id = presentation.stableId(@tagName(b.kind), b.key, b.id, b.index);
+        return result;
     }
-    fn scalar(self: *App, col: *q.widget.Column, name: []const u8, value: V, kind: []const u8, b: Binding) !void {
-        var row = self.newRow();
-        _ = try row.addWithWidthConstraint(self.label(name, false), q.Size.fixed(200));
-        const field = if (std.mem.eql(u8, kind, "boolean")) q.Widget{ .checkbox = q.widget.CheckBox.init(.{ .text = "", .checked = j.boolean(value), .on_action = try self.bind(b) }) } else try self.textfield(try self.display(value), b, false);
-        _ = try row.addWithWidthConstraint(field, q.Size.proportional(1));
-        _ = try col.add(.{ .row = row });
+    pub fn actionRow(self: *App, row: q.widget.Row) !q.Widget {
+        if (!style.stacked(self.window.width(), self.theme.font.pixels)) return .{ .row = row };
+        var stacked = self.column();
+        var owned = row;
+        for (owned.children.items) |child| _ = try stacked.add(child.widget);
+        owned.children.deinit(a);
+        return .{ .column = stacked };
     }
-    fn display(self: *App, v: V) ![]const u8 {
+    pub fn scalar(self: *App, col: *q.widget.Column, name: []const u8, value: V, kind: []const u8, b: Binding) !void {
+        var field = if (std.mem.eql(u8, kind, "boolean")) q.Widget{ .checkbox = q.widget.CheckBox.init(.{ .text = "", .checked = j.boolean(value), .on_action = try self.bind(b) }) } else try self.textfield(try self.display(value), b, false);
+        if (field == .checkbox) field.checkbox.id = presentation.stableId(@tagName(b.kind), b.key, b.id, b.index);
+        if (style.stacked(self.window.width(), self.theme.font.pixels)) {
+            _ = try col.add(self.label(name, false));
+            _ = try col.add(field);
+        } else {
+            var row = self.newRow();
+            _ = try row.addWithWidthConstraint(self.label(name, false), q.Size.proportional(1));
+            _ = try row.addWithWidthConstraint(field, q.Size.proportional(1));
+            _ = try col.add(.{ .row = row });
+        }
+    }
+
+    pub fn display(self: *App, v: V) ![]const u8 {
         return if (v == .string) v.string else if (v == .null) "" else try j.encode(self.ui.allocator(), v);
     }
     pub fn load(self: *App) !void {
@@ -143,16 +184,24 @@ pub const App = struct {
         self.setThemeStatus(if (source == .builtin) "Built-in application theme." else "Loading application theme…");
     }
     pub fn applyTheme(self: *App, snapshot: theme_model.Snapshot, fonts: [4]?[]const u8, fonts_changed: bool) !void {
-        if (fonts_changed) try self.window.setFonts(fonts, snapshot.font.pixels);
+        if (fonts_changed or self.role_fonts.title == null) {
+            var replacement = try style.Fonts.prepare(fonts, snapshot.font.pixels);
+            errdefer replacement.deinit();
+            if (fonts_changed) try self.window.setFonts(fonts, snapshot.font.pixels);
+            self.role_fonts.deinit();
+            self.role_fonts = replacement;
+        }
+        if (style.compact(self.window.width(), self.theme.font.pixels) != style.compact(self.window.width(), snapshot.font.pixels) or style.stacked(self.window.width(), self.theme.font.pixels) != style.stacked(self.window.width(), snapshot.font.pixels)) self.rebuilt = true;
         self.theme = snapshot;
         self.window.state.window_color = q.Theme.hex(snapshot.palette.background);
         self.window.setTheme(theme_quark.resolve(snapshot));
         if (self.window.state.root_widget) |*root| theme_quark.restyle(root, snapshot, self.window.height());
     }
-    fn tickTheme(self: *App) !void {
+    pub fn tickTheme(self: *App) !void {
         const service = self.themes orelse return;
         // Delay layout/font changes while a pointer operation is active.
         if (self.window.state.mouse_down or self.window.state.scroll_dragging or self.drag_index != null) return;
+        for (self.window.state.dropdowns.items) |chooser| if (chooser.is_open) return;
         try self.selectTheme();
         if (!try service.poll()) return;
         const result = &service.result;
@@ -175,19 +224,46 @@ pub const App = struct {
             .invalid => "Theme update is invalid; keeping the last valid appearance.",
         });
     }
-    fn setThemeStatus(self: *App, status: []const u8) void {
+    pub fn setThemeStatus(self: *App, status: []const u8) void {
         if (std.mem.eql(u8, self.theme_status, status)) return;
         if (self.window.state.root_widget) |*root| theme_quark.replaceText(root, self.theme_status, status);
         self.theme_status = status;
         self.window.state.layout_dirty = true;
     }
-    fn backendOp(self: *App, op: []const u8, request: []const u8) !void {
+    pub fn backendOp(self: *App, op: []const u8, request: []const u8) !void {
         if (self.client.busy()) return error.Busy;
         try self.client.startBackend(op, self.shell, request);
         self.status = if (std.mem.eql(u8, op, "apply")) "Saving configuration…" else if (std.mem.eql(u8, op, "validate")) "Validating drafts…" else "Loading configuration…";
         self.rebuilt = true;
     }
     pub fn tick(self: *App) !void {
+        if (self.slider_rebuild and !self.window.state.mouse_down) {
+            self.slider_rebuild = false;
+            self.rebuilt = true;
+        }
+        if (self.last_width != self.window.width()) {
+            self.last_width = self.window.width();
+            self.rebuilt = true;
+        }
+        if (self.search_due != 0 and std.Io.Clock.awake.now(self.client.io).toMilliseconds() >= self.search_due) {
+            self.search_due = 0;
+            self.rendered_search = try self.own(self.search);
+            self.rebuilt = true;
+        }
+        if (self.window.state.search_requested) {
+            self.window.state.search_requested = false;
+            self.reveal_id = presentation.stableId("search", "Search settings", "", 0);
+        }
+        if (self.window.state.escape_requested) {
+            self.window.state.escape_requested = false;
+            if (self.color_key.len > 0) self.color_key = "" else {
+                self.search = "";
+                self.rendered_search = "";
+                self.search_due = 0;
+            }
+            self.rebuilt = true;
+        }
+        try self.reveal();
         try self.tickTheme();
         try self.tickLayout();
         if (self.client.poll()) {
@@ -278,7 +354,7 @@ pub const App = struct {
             self.rebuilt = true;
         } else self.quitting = true;
     }
-    fn tickLayout(self: *App) !void {
+    pub fn tickLayout(self: *App) !void {
         // Do not dismiss an open chooser or disrupt pointer/scroll interaction.
         if (self.confirm != .none or self.window.state.mouse_down or self.window.state.scroll_dragging) return;
         for (self.window.state.dropdowns.items) |chooser| if (chooser.is_open) return;
@@ -304,9 +380,11 @@ pub const App = struct {
     }
     pub fn build(self: *App) !void {
         // Keep old callback memory alive until Quark releases the previous tree.
-        var scroll_y: f32 = 0;
-        if (self.rendered_page == self.page and self.window.state.scrollviews.items.len > 0) scroll_y = self.window.state.scrollviews.items[0].scroll_y;
+        for (self.window.state.scrollviews.items) |sv| if (sv.id == 200 and !self.search_view) {
+            self.view_state.scroll[self.rendered_page] = sv.scroll_y;
+        };
         self.rendered_page = self.page;
+        self.search_view = self.rendered_search.len > 0;
         const previous_bindings = self.bindings;
         self.bindings = .empty;
         var previous = self.ui;
@@ -320,45 +398,98 @@ pub const App = struct {
             previous.deinit();
         }
         var root = self.column();
-        root.padding = 18;
+        root.padding = if (self.window.height() < 600) 12 else 18;
+        root.spacing = 12;
         var header = self.newRow();
-        _ = try header.add(self.label("Aqueous Settings", true));
+        _ = try header.add(self.richLabel(if (style.compact(self.window.width(), self.theme.font.pixels)) "Settings" else "Aqueous Settings", .title));
         _ = try header.add(.{ .spacer = q.widget.Spacer.flexible() });
-        _ = try header.addWithWidthConstraint(try self.dropdown(&.{ "none", "dms", "noctalia" }, self.shell, .{ .app = self, .kind = .shell }), q.Size.fixed(160));
+        _ = try header.addWithWidthConstraint(try self.dropdown(&.{ "none", "dms", "noctalia" }, self.shell, .{ .app = self, .kind = .shell }), q.Size.fixed(150));
         _ = try header.add(try self.button("Close", .close, "", 0));
         _ = try root.add(.{ .row = header });
+        const compact = style.compact(self.window.width(), self.theme.font.pixels);
         var body = self.newRow();
         body.alignment = .start;
-        var nav = self.column();
-        for (titles, 0..) |title, i| _ = try nav.add(try self.button(title, .page, "", i));
-        _ = try body.addWithWidthConstraint(.{ .column = nav }, q.Size.fixed(154));
-        var content = self.column();
-        _ = try content.add(self.label(titles[self.page], true));
-        if (self.page != 0 and self.page != 7) _ = try content.add(try self.textfield(self.search, .{ .app = self, .kind = .search, .key = "Search this page (Enter to filter)" }, false));
-        if (self.model.snapshot != .null) {
-            switch (self.page) {
-                0 => try self.overview(&content),
-                1 => try self.appearance(&content),
-                2 => try self.layoutsPage(&content),
-                4 => try self.displays(&content),
-                5 => try self.rules(&content),
-                6 => try self.keybinds(&content),
-                7 => try self.advanced(&content),
-                else => {},
+        body.spacing = 20;
+        if (!compact) {
+            var sidebar = self.column();
+            sidebar.padding = 12;
+            sidebar.tone = 2;
+            sidebar.background_color = q.Theme.hex(self.theme.palette.surface_container_high);
+            sidebar.border_radius = 12;
+            _ = try sidebar.add(try self.textfield(self.search, .{ .app = self, .kind = .search, .key = "Search settings" }, false));
+            _ = try sidebar.add(self.richLabel("SETTINGS", .muted));
+            for (titles, 0..) |title, i| {
+                var navrow = self.newRow();
+                navrow.spacing = 0;
+                _ = try navrow.addWithWidthConstraint(.{ .canvas = q.widget.Canvas.init(.{ .id = @intCast(9000 + i), .theme = .{ .height = q.Size.fixed(28), .color = q.Theme.hex(self.theme.palette.surface_container_high), .border = .{ .size = q.Size.fixed(0) } } }) }, q.Size.fixed(28));
+                var item = try self.button(title, .page, "", i);
+                item.button.tone = if (self.page == i) 5 else 2;
+                item.button.theme.text_alignment = .left;
+                _ = try navrow.addWithWidthConstraint(item, q.Size.proportional(1));
+                _ = try sidebar.add(.{ .row = navrow });
             }
-            if (self.page > 0 and self.page < 7) try self.schema(&content);
+            var navscroll = try q.widget.ScrollView.initOwned(.{ .column = sidebar }, a);
+            navscroll.id = 201;
+            _ = try body.addWithWidthConstraint(.{ .scrollview = navscroll }, q.Size.fixed(@max(220, self.theme.font.pixels * 12)));
         }
-        var scroll = q.widget.ScrollView.initOwned(.{ .column = content }, a) catch return error.OutOfMemory;
-        scroll.scroll_y = scroll_y;
-        _ = try body.addWithWidthConstraint(.{ .scrollview = scroll }, q.Size.proportional(1));
+        var content = self.column();
+        content.padding = if (compact) 4 else 12;
+        if (compact) {
+            var top = self.newRow();
+            _ = try top.addWithWidthConstraint(try self.dropdown(&titles, titles[self.page], .{ .app = self, .kind = .page }), q.Size.proportional(1));
+            _ = try top.addWithWidthConstraint(try self.textfield(self.search, .{ .app = self, .kind = .search, .key = "Search settings" }, false), q.Size.proportional(1));
+            _ = try content.add(.{ .row = top });
+        }
+        _ = try content.add(self.richLabel(if (self.rendered_search.len > 0) "Search settings" else titles[self.page], .title));
+        const descriptions = [_][]const u8{ "Live workspace controls and session information.", "Personalize your desktop and this application's appearance.", "Configure saved layouts, window borders, and snap zones.", "Adjust your keyboard, pointer, and touchpad.", "Arrange monitors and configure saved display settings.", "Match windows and customize their placement and appearance.", "Manage keyboard shortcuts and application commands.", "Edit configuration files and inspect validation or recovery details." };
+        _ = try content.add(self.richLabel(if (self.rendered_search.len > 0) "Search across pages, descriptions, and setting names." else descriptions[self.page], .muted));
+        if (self.model.snapshot != .null) {
+            if (self.rendered_search.len > 0) {
+                const results = try search_model.find(self.ui.allocator(), j.get(self.model.snapshot, "fields"), self.rendered_search);
+                if (results.len == 0) _ = try content.add(self.richLabel("No matching settings.", .muted));
+                for (results) |result| {
+                    var card = components.card(self.theme.palette, self.theme.radius);
+                    card.tone = 1;
+                    _ = try card.add(try self.button(result.label, .search_open, result.id, result.page));
+                    _ = try card.add(self.richLabel(try std.fmt.allocPrint(self.ui.allocator(), "{s} / {s}", .{ titles[result.page], result.section }), .muted));
+                    _ = try content.add(.{ .column = card });
+                }
+            } else {
+                if (self.page == 1) try self.appearance(&content);
+                if (self.page > 0 and self.page < 4) try self.schema(&content);
+                if (self.page != 1 and self.page != 3) {
+                    const section_titles = [_][]const u8{ "Session and workspace", "", "Snap layouts and legacy zones", "", "Monitor arrangement", "Window rules", "Custom shortcuts", "Raw configuration" };
+                    var card = components.card(self.theme.palette, self.theme.radius);
+                    card.tone = 1;
+                    _ = try card.add(self.label(section_titles[self.page], true));
+                    switch (self.page) {
+                        0 => try self.overview(&card),
+                        2 => try self.layoutsPage(&card),
+                        4 => try self.displays(&card),
+                        5 => try self.rules(&card),
+                        6 => try self.keybinds(&card),
+                        7 => try self.advanced(&card),
+                        else => {},
+                    }
+                    _ = try content.add(.{ .column = card });
+                }
+                if (self.page >= 4 and self.page < 7) try self.schema(&content);
+            }
+        }
+        var scroll = try q.widget.ScrollView.initOwned(.{ .column = content }, a);
+        scroll.id = 200;
+        scroll.scroll_y = if (self.rendered_search.len > 0) 0 else self.view_state.scroll[self.page];
+        _ = try body.addWithWidthConstraint(.{ .scrollview = scroll }, q.Size.fixed(@min(1080, self.window.width() - root.padding * 2 - (if (compact) @as(f32, 0) else @max(220, self.theme.font.pixels * 12) + body.spacing))));
         _ = try root.addWithHeightConstraint(.{ .row = body }, q.Size.proportional(1));
-        _ = try root.add(self.label(self.status, false));
+        _ = try root.add(self.richLabel(self.status, .muted));
         var footer = self.newRow();
-        _ = try footer.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "{d} pending changes", .{self.model.count()}), false));
+        _ = try footer.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "{d} pending", .{self.model.count()}), false));
         _ = try footer.add(.{ .spacer = q.widget.Spacer.flexible() });
-        _ = try footer.add(try self.button(if (self.uncertain) "Inspect saved state" else "Reload / Discard", .reload, "", 0));
+        _ = try footer.add(try self.button(if (self.uncertain) "Inspect saved state" else if (compact) "Discard" else "Discard / Reload", .reload, "", 0));
         _ = try footer.add(try self.button("Validate", .validate, "", 0));
-        _ = try footer.add(try self.button(if (self.client.busy()) "Cancel operation" else "Apply", if (self.client.busy()) .cancel_job else .apply, "", 0));
+        var apply_button = try self.button(if (self.client.busy()) "Cancel" else "Apply", if (self.client.busy()) .cancel_job else .apply, "", 0);
+        apply_button.button.tone = 5;
+        _ = try footer.add(apply_button);
         _ = try root.add(.{ .row = footer });
         if (self.confirm != .none) {
             var dialog = self.column();
@@ -372,75 +503,253 @@ pub const App = struct {
                 _ = try buttons.add(try self.button("Apply", .confirm_apply, "", 0));
             }
             _ = try dialog.add(.{ .row = buttons });
-            _ = try root.add(.{ .modal = try q.widget.Modal.initOwned(.{ .column = dialog }, true, a) });
+            var modal_scroll = try q.widget.ScrollView.initOwned(.{ .column = dialog }, a);
+            modal_scroll.id = 202;
+            modal_scroll.shrink = true;
+            _ = try root.add(.{ .modal = try q.widget.Modal.initOwned(.{ .scrollview = modal_scroll }, true, a) });
         }
-        for (self.window.state.textfields.items) |*field| field.deinit(a);
-        self.window.state.textfields.clearRetainingCapacity();
-        self.window.state.focused_textfield_id = null;
+        if (self.color_key.len > 0 and self.confirm == .none) {
+            var dialog = components.card(self.theme.palette, self.theme.radius);
+            dialog.tone = 4;
+            _ = try dialog.add(self.richLabel("Choose color", .title));
+            _ = try dialog.add(self.richLabel("Preview changes here, then choose Use color to stage them.", .muted));
+            _ = try dialog.add(.{ .canvas = q.widget.Canvas.init(.{ .id = 8999, .theme = .{ .height = q.Size.fixed(40) } }) });
+            _ = try dialog.add(try self.textfield(self.color_text, .{ .app = self, .kind = .color_channel, .key = "hex" }, false));
+            for ([_][]const u8{ "Blue", "Green", "Red", "Alpha" }, 0..) |name, i| {
+                var row = self.newRow();
+                _ = try row.add(self.label(name, false));
+                _ = try row.addWithWidthConstraint(.{ .slider = q.widget.Slider.init(.{ .id = presentation.stableId("color_channel", "", "", i), .min_value = 0, .max_value = 255, .initial_value = @floatFromInt((self.color_value >> @as(u5, @intCast(i * 8))) & 255), .theme = .{ .height = q.Size.fixed(24) }, .on_action = try self.bind(.{ .app = self, .kind = .color_channel, .index = i }) }) }, q.Size.proportional(1));
+                _ = try dialog.add(.{ .row = row });
+            }
+            _ = try dialog.add(self.richLabel(if (self.color_error.len > 0) self.color_error else " ", .error_text));
+            var actions = self.newRow();
+            _ = try actions.add(try self.button("Cancel", .color_cancel, "", 0));
+            _ = try actions.add(try self.button("Use color", .color_accept, "", 0));
+            _ = try dialog.add(.{ .row = actions });
+            var modal_scroll = try q.widget.ScrollView.initOwned(.{ .column = dialog }, a);
+            modal_scroll.id = 202;
+            modal_scroll.shrink = true;
+            _ = try root.add(.{ .modal = try q.widget.Modal.initOwned(.{ .scrollview = modal_scroll }, true, a) });
+        }
         self.window.setLayout(.{ .column = root });
+        if (self.reveal_id == null) {
+            if (self.window.state.focused_textfield_id) |id| {
+                if (self.window.state.root_widget) |*widget| {
+                    if (@import("ui/components/tree.zig").find(widget, id) != null) self.reveal_id = id;
+                }
+            }
+        }
         if (self.window.state.root_widget) |*widget| theme_quark.restyle(widget, self.theme, self.window.height());
     }
-    fn schema(self: *App, col: *q.widget.Column) !void {
-        for (j.items(j.get(self.model.snapshot, "fields"))) |f| {
-            if (!std.mem.eql(u8, j.text(f, "category"), pages[self.page])) continue;
-            if (self.search.len > 0 and std.ascii.indexOfIgnoreCase(j.text(f, "label"), self.search) == null and std.ascii.indexOfIgnoreCase(j.text(f, "id"), self.search) == null) continue;
-            const id = j.text(f, "id");
-            const v = self.model.getValue(id);
-            const kind = j.text(f, "type");
-            var row = self.newRow();
-            _ = try row.addWithWidthConstraint(self.label(j.text(f, "label"), false), q.Size.fixed(220));
-            const binding = Binding{ .app = self, .kind = .field, .id = id, .key = id };
-            var control: q.Widget = undefined;
-            const opts = j.items(j.get(f, "options"));
-            if (opts.len > 0) {
-                const choices = try self.ui.allocator().alloc([]const u8, opts.len);
-                for (opts, 0..) |item, i| choices[i] = j.str(item);
-                control = try self.dropdown(choices, j.str(v), binding);
-            } else if (std.mem.eql(u8, kind, "boolean")) control = .{ .checkbox = q.widget.CheckBox.init(.{ .text = "", .checked = j.boolean(v), .on_action = try self.bind(binding) }) } else {
-                var display_value = try self.display(v);
-                if (std.mem.eql(u8, kind, "string_list")) {
-                    const chords = try self.ui.allocator().alloc([]const u8, j.items(v).len);
-                    for (j.items(v), 0..) |chord, i| chords[i] = j.str(chord);
-                    display_value = try std.mem.join(self.ui.allocator(), ", ", chords);
+    pub fn openSearch(self: *App, id: []const u8, page: usize) !void {
+        self.page = page;
+        self.search = "";
+        self.rendered_search = "";
+        self.search_due = 0;
+        self.highlight = try self.own(id);
+        self.view_state.open(presentation.section(id));
+        self.reveal_id = if (std.mem.eql(u8, id, "desktop.font.family")) presentation.stableId("font_family", "", "", 0) else if (std.mem.eql(u8, id, "desktop.font.style")) presentation.stableId("font_face", "", "", 0) else if (id.len > 0 and id[0] != '@') presentation.stableId("field", id, id, 0) else null;
+        if (std.mem.eql(u8, id, "@layouts")) self.reveal_id = presentation.stableId("add_layout", "", "", 0);
+        if (self.reveal_id == null) self.view_state.scroll[page] = 0;
+        self.rebuilt = true;
+    }
+    pub fn reveal(self: *App) !void {
+        const id = self.reveal_id orelse return;
+        if (self.rebuilt) return;
+        const tree = @import("ui/components/tree.zig");
+        if (self.window.state.root_widget) |*root| {
+            if (tree.find(root, id)) |node| {
+                var bounds = tree.bounds(node);
+                if (node.* == .checkbox) {
+                    bounds.width = 44;
+                    bounds.height = 24;
                 }
-                control = try self.textfield(display_value, binding, false);
+                if (bounds.height <= 0) return;
+                for (self.window.state.scrollviews.items) |sv| if (sv.id == (if (self.color_key.len > 0 or self.confirm != .none) @as(u32, 202) else 200) and (id != presentation.stableId("search", "Search settings", "", 0) or style.compact(self.window.width(), self.theme.font.pixels))) {
+                    if (bounds.y < sv.layout.y or bounds.y + bounds.height > sv.layout.y + sv.layout.height) {
+                        sv.scroll_y = std.math.clamp(sv.scroll_y + bounds.y - sv.layout.y - 24, 0, @max(0, sv.child_layout.height - sv.layout.height));
+                        self.window.state.layout_dirty = true;
+                        return;
+                    }
+                };
+                self.window.state.keyboard_focus_id = id;
+                self.window.state.focused_textfield_id = null;
+                for (self.window.state.textfields.items) |*tf| {
+                    tf.focused = tf.id == id;
+                    if (tf.focused) self.window.state.focused_textfield_id = id;
+                }
+                self.reveal_id = null;
             }
-            _ = try row.addWithWidthConstraint(control, q.Size.proportional(1));
-            _ = try row.add(try self.button("Reset", .reset, id, 0));
-            _ = try col.add(.{ .row = row });
-            const err = j.text(self.model.errors, try self.inputKey(binding));
-            if (err.len > 0) _ = try col.add(self.label(err, false));
         }
     }
-    fn overview(self: *App, col: *q.widget.Column) !void {
-        const paths = j.get(self.model.snapshot, "files");
-        if (paths == .object) {
-            for (paths.object.keys(), paths.object.values()) |key, v| {
-                _ = try col.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "{s}: {s}", .{ key, j.text(v, "path") }), false));
+    pub fn inspect(self: *App) !void {
+        if (self.inspect_path.len == 0) return;
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        var output: std.Io.Writer.Allocating = .init(arena.allocator());
+        var json: std.json.Stringify = .{ .writer = &output.writer };
+        try json.beginObject();
+        try json.objectField("page");
+        try json.write(pages[self.page]);
+        try json.objectField("focus");
+        try json.write(self.window.state.focused_textfield_id orelse self.window.state.keyboard_focus_id);
+        try json.objectField("pending");
+        try json.write(self.model.count());
+        try json.objectField("width");
+        try json.write(self.window.width());
+        try json.objectField("height");
+        try json.write(self.window.height());
+        try json.objectField("viewport");
+        if (self.window.state.root_widget) |*root| {
+            if (@import("ui/components/tree.zig").find(root, 200)) |node| {
+                const bounds = @import("ui/components/tree.zig").bounds(node);
+                try json.write(.{ .x = bounds.x, .y = bounds.y, .width = bounds.width, .height = bounds.height });
+            } else try json.write(null);
+        } else try json.write(null);
+        try json.objectField("controls");
+        try json.beginArray();
+        const tree = @import("ui/components/tree.zig");
+        if (self.window.state.root_widget) |*root| for (self.bindings.items) |binding| {
+            const id = presentation.stableId(@tagName(binding.kind), binding.key, binding.id, binding.index);
+            if (tree.find(root, id)) |node| {
+                var bounds = tree.bounds(node);
+                if (node.* == .checkbox) {
+                    bounds.width = 44;
+                    bounds.height = 24;
+                }
+                const selected: []const u8 = if (node.* == .dropdown and node.dropdown.selected_index != null and node.dropdown.selected_index.? < node.dropdown.items.len) node.dropdown.items[node.dropdown.selected_index.?] else "";
+                var text: []const u8 = "";
+                for (self.window.state.textfields.items) |tf| if (tf.id == id) {
+                    text = tf.text.items;
+                    break;
+                };
+                try json.write(.{ .id = id, .action = @tagName(binding.kind), .key = binding.key, .item = binding.id, .index = binding.index, .x = bounds.x, .y = bounds.y, .width = bounds.width, .height = bounds.height, .selected = selected, .text = text, .checked = if (node.* == .checkbox) @as(?bool, node.checkbox.initial_checked) else null });
             }
-        }
-        for (j.items(j.get(self.model.snapshot, "warnings"))) |warning| _ = try col.add(self.label(j.str(warning), false));
-        _ = try col.add(self.label("Change the current workspace layout immediately", true));
-        const outputs = j.items(j.get(self.model.snapshot, "live_outputs"));
-        const names = try self.ui.allocator().alloc([]const u8, outputs.len);
-        for (outputs, 0..) |o, i| names[i] = j.text(o, "name");
-        if (outputs.len > 0) {
-            if (self.runtime_output.len == 0) self.runtime_output = try self.own(names[0]);
-            _ = try col.add(try self.dropdown(names, self.runtime_output, .{ .app = self, .kind = .runtime_output }));
-            if (self.live_layout.failed) {
-                _ = try col.add(self.label("Current layout unavailable; retrying compositor query…", false));
-            } else if (self.live_layout.selected) |index| {
-                _ = try col.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "Workspace {d}: {s}", .{ self.live_layout.workspace.?, runtime_layout_model.choices[self.live_layout.active.?] }), false));
-                _ = try col.add(try self.dropdown(&runtime_layout_model.choices, runtime_layout_model.choices[index], .{ .app = self, .kind = .runtime_layout }));
-                _ = try col.add(try self.button("Switch layout now", .runtime_apply, "", 0));
-            } else _ = try col.add(self.label("Reading current workspace layout…", false));
-        } else _ = try col.add(self.label("No live outputs available. Persistent settings remain editable.", false));
+        };
+        try json.endArray();
+        try json.endObject();
+        const tmp = try std.fmt.allocPrint(arena.allocator(), "{s}.tmp", .{self.inspect_path});
+        try std.Io.Dir.cwd().writeFile(self.client.io, .{ .sub_path = tmp, .data = output.written() });
+        try std.Io.Dir.renameAbsolute(tmp, self.inspect_path, self.client.io);
     }
-    fn appearance(self: *App, col: *q.widget.Column) !void {
-        _ = try col.add(self.label("Application theme", true));
-        _ = try col.add(try self.dropdown(&theme_choices, theme_choices[@intFromEnum(self.theme_choice)], .{ .app = self, .kind = .theme_source }));
-        _ = try col.add(self.label(self.theme_status, false));
-        _ = try col.add(self.label("Follow uses the selected shell's app colors; Noctalia shell-only mode stays separate.", false));
+    pub fn richLabel(self: *App, text: []const u8, role: style.Role) q.Widget {
+        var result = self.label(text, role == .title);
+        result.text.tone = @intFromEnum(role);
+        if (role == .title) {
+            if (self.role_fonts.title) |*font| result.text.font = font;
+        }
+        if (role == .muted) {
+            if (self.role_fonts.description) |*font| result.text.font = font;
+        }
+        return result;
+    }
+    pub fn schema(self: *App, col: *q.widget.Column) !void {
+        for (presentation.sections) |section| if (section.page == self.page) try self.schemaSection(col, section.id, section.title);
+        try self.schemaSection(col, "other", "Other settings");
+    }
+    pub fn schemaSection(self: *App, col: *q.widget.Column, id: []const u8, title: []const u8) !void {
+        var count: usize = 0;
+        var has_error = false;
+        for (j.items(j.get(self.model.snapshot, "fields"))) |f| {
+            if (!std.mem.eql(u8, j.text(f, "category"), pages[self.page]) or !std.mem.eql(u8, presentation.section(j.text(f, "id")), id) or presentation.special(j.text(f, "id"))) continue;
+            count += 1;
+            if (j.get(self.model.errors, try self.inputKey(.{ .app = self, .kind = .field, .id = j.text(f, "id"), .key = j.text(f, "id") })) != .null) has_error = true;
+        }
+        if (count == 0) return;
+        var card = components.card(self.theme.palette, self.theme.radius);
+        card.tone = 1;
+        const collapsed = (self.view_state.collapsed.get(id) orelse false) and !has_error;
+        var heading = try self.button(try std.fmt.allocPrint(self.ui.allocator(), "{s}  {s}", .{ if (collapsed) "+" else "−", title }), .section_toggle, id, 0);
+        heading.button.theme.text_alignment = .left;
+        _ = try card.add(heading);
+        if (!collapsed) for (j.items(j.get(self.model.snapshot, "fields"))) |f| {
+            const field_id = j.text(f, "id");
+            if (!std.mem.eql(u8, j.text(f, "category"), pages[self.page]) or !std.mem.eql(u8, presentation.section(field_id), id) or presentation.special(field_id)) continue;
+            try self.fieldRow(&card, f);
+        };
+        _ = try col.add(.{ .column = card });
+    }
+    pub fn fieldRow(self: *App, col: *q.widget.Column, f: V) !void {
+        const id = j.text(f, "id");
+        const kind = j.text(f, "type");
+        const v = self.model.getValue(id);
+        const binding = Binding{ .app = self, .kind = .field, .id = id, .key = id };
+        var block = self.column();
+        block.spacing = 8;
+        if (std.mem.eql(u8, self.highlight, id)) {
+            block.padding = 12;
+            block.tone = 5;
+            block.background_color = q.Theme.hex(self.theme.palette.primary_container);
+            block.border_radius = 8;
+        }
+        var description = self.column();
+        description.spacing = 4;
+        _ = try description.add(self.label(j.text(f, "label"), true));
+        if (j.text(f, "description").len > 0) _ = try description.add(self.richLabel(j.text(f, "description"), .muted));
+        var controls = self.newRow();
+        controls.spacing = 8;
+        const opts = j.items(j.get(f, "options"));
+        var control: q.Widget = undefined;
+        if (opts.len > 0) {
+            const choices = try self.ui.allocator().alloc([]const u8, opts.len);
+            for (opts, 0..) |item, i| choices[i] = j.str(item);
+            control = try self.dropdown(choices, j.str(v), binding);
+        } else if (std.mem.eql(u8, kind, "boolean")) {
+            control = .{ .checkbox = q.widget.CheckBox.init(.{ .text = "", .checked = j.boolean(v), .on_action = try self.bind(binding) }) };
+            control.checkbox.id = presentation.stableId("field", id, id, 0);
+        } else {
+            var display_value = try self.display(v);
+            if (presentation.percent(id)) display_value = try std.fmt.allocPrint(self.ui.allocator(), "{d}", .{presentation.toDisplay(id, j.number(v))});
+            if (std.mem.eql(u8, kind, "string_list")) {
+                const chords = try self.ui.allocator().alloc([]const u8, j.items(v).len);
+                for (j.items(v), 0..) |chord, i| chords[i] = j.str(chord);
+                display_value = try std.mem.join(self.ui.allocator(), ", ", chords);
+            }
+            control = try self.textfield(display_value, binding, false);
+        }
+        _ = try controls.addWithWidthConstraint(control, q.Size.proportional(1));
+        if (std.mem.eql(u8, kind, "integer") or std.mem.eql(u8, kind, "double")) {
+            if (presentation.percent(id)) _ = try controls.add(self.richLabel("%", .muted));
+            _ = try controls.add(try self.button("−", .number_step, id, 0));
+            _ = try controls.add(try self.button("+", .number_step, id, 1));
+        }
+        if (std.mem.eql(u8, kind, "color")) {
+            var swatch = try self.button("Color…", .color_open, id, 0);
+            if (presentation.parseColor(j.str(v))) |color| {
+                swatch.button.theme.color = q.Theme.hex(color & 0xffffff);
+                swatch.button.theme.text_color = q.Theme.hex(if ((color >> 16 & 255) + (color >> 8 & 255) + (color & 255) > 384) 0 else 0xffffff);
+            } else |_| {}
+            _ = try controls.add(swatch);
+        }
+        _ = try controls.add(try self.button("Reset", .reset, id, 0));
+        if (style.stacked(self.window.width(), self.theme.font.pixels)) {
+            _ = try block.add(.{ .column = description });
+            _ = try block.add(.{ .row = controls });
+        } else {
+            var row = self.newRow();
+            row.alignment = .start;
+            _ = try row.addWithWidthConstraint(.{ .column = description }, q.Size.proportional(1));
+            _ = try row.addWithWidthConstraint(.{ .row = controls }, q.Size.proportional(1));
+            _ = try block.add(.{ .row = row });
+        }
+        if ((std.mem.eql(u8, kind, "integer") or std.mem.eql(u8, kind, "double")) and j.get(f, "min") != .null and j.get(f, "max") != .null and j.number(j.get(f, "max")) - j.number(j.get(f, "min")) <= 512) {
+            var slider = q.widget.Slider.init(.{ .id = presentation.stableId("number_slide", id, "", 0), .min_value = @floatCast(j.number(j.get(f, "min"))), .max_value = @floatCast(j.number(j.get(f, "max"))), .initial_value = @floatCast(j.number(v)), .theme = .{ .height = q.Size.fixed(24) }, .on_action = try self.bind(.{ .app = self, .kind = .number_slide, .key = id }) });
+            slider.value = @floatCast(j.number(v));
+            _ = try block.add(.{ .slider = slider });
+        }
+        const err = j.text(self.model.errors, try self.inputKey(binding));
+        if (err.len > 0) _ = try block.add(self.richLabel(err, .error_text));
+        _ = try col.add(.{ .column = block });
+    }
+    pub fn overview(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/overview.zig").build(self, col);
+    }
+
+    pub fn appearance(self: *App, parent: *q.widget.Column) !void {
+        try @import("ui/pages/appearance.zig").build(self, parent);
+    }
+
+    pub fn fontControls(self: *App, col: *q.widget.Column) !void {
         const ty = j.get(self.model.snapshot, "desktop_typography");
         const families = j.items(j.get(ty, "families"));
         const names = try self.ui.allocator().alloc([]const u8, families.len);
@@ -454,7 +763,11 @@ pub const App = struct {
             try labels.append(self.ui.allocator(), j.text(face, "style"));
             try faces.array.append(face);
         };
-        _ = try col.add(try self.dropdown(labels.items, j.str(self.model.getValue("desktop.font.style")), .{ .app = self, .kind = .font_face, .value = faces }));
+        _ = try col.add(try self.dropdown(labels.items, if (j.str(self.model.getValue("desktop.font.style")).len == 0) "Automatic face" else j.str(self.model.getValue("desktop.font.style")), .{ .app = self, .kind = .font_face, .value = faces }));
+        var reset_row = self.newRow();
+        _ = try reset_row.add(try self.button("Reset family", .reset, "desktop.font.family", 0));
+        _ = try reset_row.add(try self.button("Reset face", .reset, "desktop.font.style", 0));
+        _ = try col.add(.{ .row = reset_row });
         for ([_][]const u8{ "desktop_typography", "desktop_cursor" }) |key| {
             _ = try col.add(self.label(if (std.mem.eql(u8, key, "desktop_cursor")) "Cursor synchronization" else "Typography synchronization", true));
             for (j.items(j.get(j.get(self.model.snapshot, key), "targets"))) |target| _ = try col.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "{s}: {s}", .{ j.text(target, "id"), j.text(target, "state") }), false));
@@ -462,122 +775,27 @@ pub const App = struct {
         }
         if (std.mem.eql(u8, self.shell, "dms")) _ = try col.add(self.label(if (self.shell_status.len > 0) self.shell_status else "DMS: family, weight and normal text size can synchronize; face/slant/width remain partial.", false));
     }
-    fn advanced(self: *App, col: *q.widget.Column) !void {
-        _ = try col.add(try self.dropdown(&files, files[self.selected_file], .{ .app = self, .kind = .select_file }));
-        _ = try col.add(self.label("Raw and typed edits to the same file must be resolved before Apply.", false));
-        _ = try col.add(try self.textfield(self.model.rawText(files[self.selected_file]), .{ .app = self, .kind = .raw, .key = files[self.selected_file] }, true));
-        const recovery = j.get(self.model.snapshot, "recovery");
-        if (recovery != .null) {
-            _ = try col.add(self.label("Saved state after uncertain Apply (read only)", true));
-            var lines = std.mem.splitScalar(u8, j.text(j.get(recovery, "raw_files"), files[self.selected_file]), '\n');
-            while (lines.next()) |line| _ = try col.add(self.label(line, false));
-            _ = try col.add(try self.button("Discard drafts and load saved state", .discard, "", 0));
-        }
+    pub fn advanced(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/advanced.zig").build(self, col);
     }
-    fn keybinds(self: *App, col: *q.widget.Column) !void {
-        _ = try col.add(try self.button("Add custom binding", .add_keybind, "", 0));
-        const rows = try self.model.rows("custom_keybinds", "custom_keybind_changes");
-        for (j.items(rows)) |r| {
-            const id = j.text(r, "id");
-            _ = try col.add(self.label("Custom binding", true));
-            try self.scalar(col, "Shortcut", j.get(r, "chord"), "string", .{ .app = self, .kind = .keybind, .id = id, .key = "chord" });
-            try self.scalar(col, "Command", j.get(r, "command"), "string", .{ .app = self, .kind = .keybind, .id = id, .key = "command" });
-            _ = try col.add(try self.button("Remove binding", .remove_keybind, id, 0));
-        }
+
+    pub fn keybinds(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/keybinds.zig").build(self, col);
     }
-    fn rules(self: *App, col: *q.widget.Column) !void {
-        _ = try col.add(self.label("Apply or discard each rule move before other rule edits.", false));
-        var controls = self.newRow();
-        _ = try controls.add(try self.button("Add rule", .add_rule, "", 0));
-        _ = try controls.add(try self.button("Remove", .remove_rule, "", 0));
-        _ = try controls.add(try self.button("Move up", .move_up, "", 0));
-        _ = try controls.add(try self.button("Move down", .move_down, "", 0));
-        _ = try col.add(.{ .row = controls });
-        const rows = j.items(try self.model.rows("window_rules", "window_rule_changes"));
-        if (rows.len == 0) return;
-        self.selected_rule = @min(self.selected_rule, rows.len - 1);
-        const labels = try self.ui.allocator().alloc([]const u8, rows.len);
-        for (rows, 0..) |r, i| labels[i] = try std.fmt.allocPrint(self.ui.allocator(), "{d}: {s} {s}", .{ i + 1, j.text(j.get(r, "values"), "app_id"), j.text(j.get(r, "values"), "title") });
-        _ = try col.add(try self.dropdown(labels, labels[self.selected_rule], .{ .app = self, .kind = .select_rule }));
-        const selected = rows[self.selected_rule];
-        const fields = try j.parse(self.ui.allocator(), @embedFile("model/rule-fields.json"));
-        for (j.items(fields)) |f| {
-            const key = j.text(f, "key");
-            const binding = Binding{ .app = self, .kind = .rule_field, .id = j.text(selected, "id"), .key = key, .value = f };
-            const options = j.items(j.get(f, "options"));
-            if (options.len > 0) {
-                _ = try col.add(self.label(j.text(f, "label"), false));
-                const choices = try self.ui.allocator().alloc([]const u8, options.len + 1);
-                choices[0] = "(unset)";
-                for (options, 0..) |v, i| choices[i + 1] = j.str(v);
-                _ = try col.add(try self.dropdown(choices, j.text(j.get(selected, "values"), key), binding));
-            } else if (std.mem.eql(u8, j.text(f, "type"), "boolean")) {
-                _ = try col.add(self.label(j.text(f, "label"), false));
-                const v = j.get(j.get(selected, "values"), key);
-                _ = try col.add(try self.dropdown(&.{ "(unset)", "true", "false" }, if (v == .null) "(unset)" else if (j.boolean(v)) "true" else "false", binding));
-            } else try self.scalar(col, j.text(f, "label"), j.get(j.get(selected, "values"), key), j.text(f, "type"), binding);
-        }
+
+    pub fn rules(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/rules.zig").build(self, col);
     }
-    fn layoutsPage(self: *App, col: *q.widget.Column) !void {
-        var buttons = self.newRow();
-        _ = try buttons.add(try self.button("Add snap layout", .add_layout, "", 0));
-        _ = try buttons.add(try self.button("Migrate A–D", .migrate, "", 0));
-        _ = try buttons.add(try self.button("Normalize Stacking aliases", .flag, "normalize_stacking", 0));
-        _ = try col.add(.{ .row = buttons });
-        _ = try col.add(self.label("Legacy A–D snap zones", true));
-        for ([_][]const u8{ "a", "b", "c", "d" }) |id| {
-            var original: V = .null;
-            for (j.items(j.get(self.model.snapshot, "snap_zones"))) |zone| if (std.mem.eql(u8, j.text(zone, "id"), id)) {
-                original = zone;
-                break;
-            };
-            var zone = j.get(j.get(self.model.draft, "snap_zone_changes"), id);
-            if (zone == .null) zone = original;
-            _ = try col.add(self.label(id, true));
-            var legacy_buttons = self.newRow();
-            _ = try legacy_buttons.add(try self.button("Bind", .legacy_binding, id, 0));
-            _ = try legacy_buttons.add(try self.button("Remove", .legacy_remove, id, 0));
-            _ = try legacy_buttons.add(try self.button("Undo", .legacy_undo, id, 0));
-            _ = try col.add(.{ .row = legacy_buttons });
-            if (!std.mem.eql(u8, j.text(zone, "op"), "delete")) for ([_][]const u8{ "x", "y", "width", "height" }) |key| {
-                const v = j.get(zone, key);
-                try self.scalar(col, key, if (v == .null) V{ .float = if (std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) 0 else 0.5 } else v, "double", .{ .app = self, .kind = .legacy_zone, .key = key, .id = id, .value = zone });
-            };
-        }
-        _ = try col.add(self.label("Named snap layouts", true));
-        _ = try col.add(self.label(try std.fmt.allocPrint(self.ui.allocator(), "Default: {s}", .{if (j.get(self.model.draft, "default_snap_layout") != .null) j.text(self.model.draft, "default_snap_layout") else j.text(self.model.snapshot, "default_snap_layout")}), false));
-        const rows = j.items(self.snapLayouts());
-        if (rows.len == 0) return;
-        self.selected_layout = @min(self.selected_layout, rows.len - 1);
-        const names = try self.ui.allocator().alloc([]const u8, rows.len);
-        for (rows, 0..) |r, i| names[i] = j.text(r, "name");
-        _ = try col.add(try self.dropdown(names, names[self.selected_layout], .{ .app = self, .kind = .select_layout }));
-        const layout = rows[self.selected_layout];
-        for ([_][]const u8{ "id", "name", "padding" }) |key| try self.scalar(col, key, j.get(layout, key), "string", .{ .app = self, .kind = .layout_field, .key = key });
-        buttons = self.newRow();
-        _ = try buttons.add(try self.button("Use as default", .make_default, "", 0));
-        _ = try buttons.add(try self.button("Remove layout", .remove_layout, "", 0));
-        _ = try buttons.add(try self.button("Add zone", .add_zone, "", 0));
-        _ = try col.add(.{ .row = buttons });
-        buttons = self.newRow();
-        for ([_][]const u8{ "Halves", "Thirds", "Quarters" }, 0..) |name, i| _ = try buttons.add(try self.button(name, .preset, "", i + 2));
-        _ = try col.add(.{ .row = buttons });
-        _ = try col.add(try self.button("Create layout cycle binding", .snap_binding, "cycle", 0));
-        _ = try col.add(try self.button("Create layout selection binding", .snap_binding, "layout", 0));
-        for (j.items(j.get(layout, "zones")), 0..) |zone, i| {
-            _ = try col.add(self.label("Snap zone", true));
-            for ([_][]const u8{ "id", "name", "x", "y", "width", "height" }) |key| try self.scalar(col, key, j.get(zone, key), "string", .{ .app = self, .kind = .zone_field, .key = key, .index = i });
-            buttons = self.newRow();
-            _ = try buttons.add(try self.button("Remove zone", .remove_zone, "", i));
-            _ = try buttons.add(try self.button("Create zone binding", .snap_binding, "zone", i));
-            _ = try col.add(.{ .row = buttons });
-        }
+
+    pub fn layoutsPage(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/layouts.zig").build(self, col);
     }
-    fn snapLayouts(self: *App) V {
+
+    pub fn snapLayouts(self: *App) V {
         const value = j.get(self.model.draft, "snap_layouts");
         return if (value != .null) value else j.get(self.model.snapshot, "snap_layouts");
     }
-    fn editLayouts(self: *App) !*V {
+    pub fn editLayouts(self: *App) !*V {
         const ma = self.model.allocator();
         if (j.get(self.model.draft, "snap_layouts") == .null) {
             var value = try j.clone(ma, j.get(self.model.snapshot, "snap_layouts"));
@@ -587,42 +805,22 @@ pub const App = struct {
         }
         return self.model.draft.object.getPtr("snap_layouts").?;
     }
-    fn displays(self: *App, col: *q.widget.Column) !void {
-        self.monitor_rows = try modes.monitors(self.ui.allocator(), self.model.snapshot, self.model.draft);
-        const rows = j.items(self.monitor_rows);
-        _ = try col.add(try self.button("Refresh connected displays", .refresh_live, "", 0));
-        _ = try col.add(self.label("Drag monitors to stage positions. Apply saves the entire draft.", false));
-        if (rows.len == 0) {
-            _ = try col.add(self.label("No configured or connected monitors.", false));
-            return;
-        }
-        self.selected_monitor = @min(self.selected_monitor, rows.len - 1);
-        _ = try col.add(.{ .canvas = q.widget.Canvas.init(.{ .id = 8100, .theme = .{ .height = q.Size.fixed(240) } }) });
-        const names = try self.ui.allocator().alloc([]const u8, rows.len);
-        for (rows, 0..) |r, i| names[i] = j.text(r, "name");
-        _ = try col.add(try self.dropdown(names, names[self.selected_monitor], .{ .app = self, .kind = .select_monitor }));
-        const r = rows[self.selected_monitor];
-        const id = j.text(r, "id");
-        for ([_][]const u8{ "x", "y", "scale", "mode" }) |key| try self.scalar(col, key, j.get(r, key), "string", .{ .app = self, .kind = .monitor, .id = id, .key = key, .value = r });
-        _ = try col.add(try self.dropdown(&transforms, j.text(r, "transform"), .{ .app = self, .kind = .monitor, .id = id, .key = "transform", .value = r }));
-        const mirror_names = try self.ui.allocator().alloc([]const u8, rows.len + 1);
-        mirror_names[0] = "Extended desktop";
-        var count: usize = 1;
-        for (rows) |other| if (!std.mem.eql(u8, j.text(other, "id"), id)) {
-            mirror_names[count] = j.text(other, "name");
-            count += 1;
-        };
-        _ = try col.add(try self.dropdown(mirror_names[0..count], if (j.text(r, "mirror_of").len == 0) "Extended desktop" else j.text(r, "mirror_of"), .{ .app = self, .kind = .monitor, .id = id, .key = "mirror_of", .value = r }));
-        var choices = std.ArrayList([]const u8).empty;
-        for (j.items(j.get(r, "modes"))) |mode| {
-            const formatted = try modes.format(self.ui.allocator(), mode);
-            if (formatted.len > 0) try choices.append(self.ui.allocator(), formatted);
-        }
-        if (choices.items.len > 0) _ = try col.add(try self.dropdown(choices.items, j.text(r, "mode"), .{ .app = self, .kind = .monitor, .id = id, .key = "mode", .value = r }));
-        _ = try col.add(self.label("Mode: WIDTHxHEIGHT for automatic refresh, or WIDTHxHEIGHT@Hz. Offline custom modes are accepted.", false));
-        _ = try col.add(self.label(j.text(r, "mirror_error"), false));
+    pub fn displays(self: *App, col: *q.widget.Column) !void {
+        try @import("ui/pages/displays.zig").build(self, col);
     }
+
     pub fn drawCanvas(self: *App) !void {
+        try self.inspect();
+        for (0..8) |i| if (self.window.getCanvas(@intCast(9000 + i))) |canvas| {
+            canvas.clear();
+            try components.drawIcon(canvas, i, q.Theme.hex(self.theme.palette.primary));
+        };
+        if (self.window.getCanvas(8999)) |canvas| {
+            canvas.clear();
+            canvas.rect.color = q.Theme.hex(self.color_value & 0xffffff);
+            canvas.bg_alpha = @as(f32, @floatFromInt(self.color_value >> 24)) / 255;
+        }
+
         if (self.page != 4) return;
         const canvas = self.window.getCanvas(8100) orelse return;
         canvas.clear();
@@ -653,11 +851,11 @@ pub const App = struct {
             try canvas.drawText(a, j.text(r, "name"), x + 8, y + 8, &self.window.state.fonts.regular, q.Theme.hex(if (i == self.selected_monitor) self.theme.palette.on_primary_container else self.theme.palette.on_surface));
         }
     }
-    fn canvasInteraction(self: *App) !void {
+    pub fn canvasInteraction(self: *App) !void {
         const canvas = self.window.getCanvas(8100) orelse return;
         const pos = canvas.toLocalCoords(self.window.mouseX(), self.window.mouseY());
         const down = self.window.state.mouse_down;
-        if (down and !self.was_down and pos.x >= 0 and pos.y >= 0 and pos.x < canvas.rect.width and pos.y < canvas.rect.height) {
+        if (down and !self.was_down and canvas.rect.contains(self.window.mouseX(), self.window.mouseY()) and pos.x >= 0 and pos.y >= 0 and pos.x < canvas.rect.width and pos.y < canvas.rect.height) {
             for (j.items(self.monitor_rows), 0..) |r, i| {
                 if (j.text(r, "mirror_of").len > 0) continue;
                 const size = modes.size(r);
@@ -685,7 +883,7 @@ pub const App = struct {
         }
         self.was_down = down;
     }
-    fn stageMonitor(self: *App, r: V, key: []const u8, value: V) !void {
+    pub fn stageMonitor(self: *App, r: V, key: []const u8, value: V) !void {
         const id = j.text(r, "id");
         for ([_][]const u8{ "name", "x", "y", "transform" }) |k| {
             const existing = j.get(j.get(j.get(self.model.draft, "monitor_changes"), id), k);
@@ -693,7 +891,7 @@ pub const App = struct {
         }
         try self.model.merge("monitor_changes", id, key, value);
     }
-    fn handle(self: *App, b: *Binding, event: q.Action) !void {
+    pub fn handle(self: *App, b: *Binding, event: q.Action) !void {
         const ma = self.model.allocator();
         if (self.client.busy() and b.kind != .cancel and b.kind != .close and b.kind != .cancel_job) return;
         var text: []const u8 = "";
@@ -712,28 +910,98 @@ pub const App = struct {
                 text = b.options[i];
                 value = try j.string(ma, text);
             },
+            .change_value => |v| value = .{ .float = v },
             .toggle => |v| value = .{ .bool = v },
             .click => {},
-            else => return,
         }
         // Text callbacks update drafts in place; rebuild on submit/navigation to
         // keep the caret and scroll position stable while typing.
         self.rebuilt = event != .change_text;
         switch (b.kind) {
             .page => {
-                self.page = b.index;
+                self.page = if (event == .select_index) event.select_index else b.index;
                 self.search = "";
+                self.rendered_search = "";
+                self.search_due = 0;
+                self.highlight = "";
             },
             .search => {
                 self.search = try self.own(text);
+                self.search_due = std.Io.Clock.awake.now(self.client.io).toMilliseconds() + 160;
+                self.rebuilt = false;
+                if (event == .submit_text) {
+                    const results = try search_model.find(self.ui.allocator(), j.get(self.model.snapshot, "fields"), self.search);
+                    if (results.len > 0) try self.openSearch(results[0].id, results[0].page);
+                }
+            },
+            .search_open => try self.openSearch(b.key, b.index),
+            .section_toggle => try self.view_state.toggle(a, b.key),
+            .number_step, .number_slide => {
+                const f = self.model.field(b.key);
+                const integer = std.mem.eql(u8, j.text(f, "type"), "integer");
+                const step: f64 = if (integer) 1 else if (presentation.percent(b.key)) 0.01 else 0.05;
+                var next = if (event == .change_value) j.number(value) else j.number(self.model.getValue(b.key)) + (if (b.index == 0) -step else step);
+                if (integer) next = @round(next);
+                if (j.get(f, "min") != .null) next = @max(next, j.number(j.get(f, "min")));
+                if (j.get(f, "max") != .null) next = @min(next, j.number(j.get(f, "max")));
+                try self.model.input(b.key, try std.fmt.allocPrint(self.ui.allocator(), "{d}", .{next}));
+                const error_key = try self.inputKey(.{ .app = self, .kind = .field, .key = b.key, .id = b.key });
+                _ = self.model.errors.object.swapRemove(error_key);
+                _ = self.model.inputs.object.swapRemove(error_key);
+                if (event == .change_value) {
+                    self.rebuilt = false;
+                    self.slider_rebuild = true;
+                }
+            },
+            .color_open => {
+                self.color_key = try self.own(b.key);
+                self.color_value = try presentation.parseColor(j.str(self.model.getValue(b.key)));
+                self.color_text = try self.own(j.str(self.model.getValue(b.key)));
+                self.color_error = "";
+            },
+            .color_cancel => {
+                self.color_key = "";
+                self.color_error = "";
+            },
+            .color_accept => {
+                if (self.color_error.len > 0) return error.InvalidColor;
+                try self.model.input(self.color_key, try std.fmt.allocPrint(self.ui.allocator(), "0x{X:0>8}", .{self.color_value}));
+                const field_key = try self.inputKey(.{ .app = self, .kind = .field, .id = self.color_key, .key = self.color_key });
+                _ = self.model.inputs.object.swapRemove(field_key);
+                _ = self.model.errors.object.swapRemove(field_key);
+                self.color_key = "";
+            },
+            .color_channel => {
+                if (event == .change_value) {
+                    const shift: u5 = @intCast(b.index * 8);
+                    const channel: u32 = @intFromFloat(@round(std.math.clamp(j.number(value), 0, 255)));
+                    self.color_value = (self.color_value & ~(@as(u32, 255) << shift)) | (channel << shift);
+                    self.color_text = try std.fmt.allocPrint(self.model.allocator(), "0x{X:0>8}", .{self.color_value});
+                    self.color_error = "";
+                    self.rebuilt = false;
+                    self.slider_rebuild = true;
+                } else {
+                    self.color_text = try self.own(text);
+                    self.color_value = presentation.parseColor(text) catch {
+                        self.rebuilt = self.color_error.len == 0;
+                        self.color_error = "Use 0xAARRGGBB (eight hexadecimal digits).";
+                        return;
+                    };
+                    if (self.color_error.len > 0) self.rebuilt = true;
+                    self.color_error = "";
+                }
             },
             .field => {
-                if (event == .toggle) try self.model.change(b.id, value) else try self.model.input(b.id, text);
+                if (event == .toggle) try self.model.change(b.id, value) else if (presentation.percent(b.id)) {
+                    const number = std.fmt.parseFloat(f64, text) catch return error.InvalidNumber;
+                    try self.model.input(b.id, try std.fmt.allocPrint(self.ui.allocator(), "{d}", .{presentation.fromDisplay(b.id, number)}));
+                } else try self.model.input(b.id, text);
                 _ = self.model.errors.object.swapRemove(b.id);
             },
             .reset => {
                 try self.model.change(b.key, j.get(self.model.field(b.key), "default"));
                 _ = self.model.errors.object.swapRemove(try self.inputKey(.{ .app = self, .kind = .field, .id = b.key, .key = b.key }));
+                _ = self.model.inputs.object.swapRemove(try self.inputKey(.{ .app = self, .kind = .field, .id = b.key, .key = b.key }));
             },
             .raw => try self.model.raw(b.key, text),
             .apply, .validate, .confirm_apply => {
@@ -805,7 +1073,7 @@ pub const App = struct {
             .select_monitor => self.selected_monitor = event.select_index,
             .select_rule => self.selected_rule = event.select_index,
             .select_layout => self.selected_layout = event.select_index,
-            .monitor => {
+            .monitor, .monitor_mode => {
                 if (std.mem.eql(u8, b.key, "x") or std.mem.eql(u8, b.key, "y")) value = .{ .integer = std.fmt.parseInt(i64, text, 10) catch return error.InvalidInteger };
                 if (std.mem.eql(u8, b.key, "scale")) {
                     const n = std.fmt.parseFloat(f64, text) catch return error.InvalidScale;
@@ -860,6 +1128,11 @@ pub const App = struct {
                 _ = self.model.errors.object.swapRemove(b.key);
             },
             .font_family => {
+                for ([_][]const u8{ "desktop.font.family", "desktop.font.style", "desktop.font.weight", "desktop.font.slant", "desktop.font.width" }) |id| {
+                    const key = try self.inputKey(.{ .app = self, .kind = .field, .key = id, .id = id });
+                    _ = self.model.inputs.object.swapRemove(key);
+                    _ = self.model.errors.object.swapRemove(key);
+                }
                 try self.model.change("desktop.font.family", value);
                 try self.model.change("desktop.font.style", try j.string(ma, ""));
                 try self.model.change("desktop.font.weight", .{ .integer = 400 });
@@ -867,6 +1140,11 @@ pub const App = struct {
                 try self.model.change("desktop.font.width", try j.string(ma, "normal"));
             },
             .font_face => {
+                for ([_][]const u8{ "desktop.font.style", "desktop.font.weight", "desktop.font.slant", "desktop.font.width" }) |id| {
+                    const key = try self.inputKey(.{ .app = self, .kind = .field, .key = id, .id = id });
+                    _ = self.model.inputs.object.swapRemove(key);
+                    _ = self.model.errors.object.swapRemove(key);
+                }
                 const i = event.select_index;
                 if (i == 0) {
                     for ([_][]const u8{ "desktop.font.style", "desktop.font.weight", "desktop.font.slant", "desktop.font.width" }) |id| try self.model.change(id, j.get(self.model.field(id), "default"));
@@ -951,14 +1229,17 @@ pub const App = struct {
                 _ = self.model.errors.object.swapRemove(b.key);
             },
         }
-        if (event == .change_text or event == .submit_text) _ = self.model.errors.object.swapRemove(try self.inputKey(b.*));
+        if (event == .submit_text) _ = self.model.inputs.object.swapRemove(try self.inputKey(b.*));
+        if (event == .change_text or event == .submit_text) {
+            if (self.model.errors.object.swapRemove(try self.inputKey(b.*))) self.rebuilt = true;
+        }
         if (event == .change_text) self.status = "Edits staged. Validate or Apply when ready.";
     }
-    fn refreshChrome(self: *App) !void {
+    pub fn refreshChrome(self: *App) !void {
         if (self.window.state.root_widget) |*root| {
             if (root.* != .column or root.column.children.items.len < 4) return;
             const children = root.column.children.items;
-            const offset: usize = if (self.confirm == .none) 0 else 1;
+            const offset: usize = if (self.confirm == .none and self.color_key.len == 0) 0 else 1;
             const status_widget = &children[children.len - 2 - offset].widget;
             if (status_widget.* == .text) {
                 status_widget.text.deinit();
@@ -968,17 +1249,17 @@ pub const App = struct {
             if (footer.* == .row and footer.row.children.items.len > 0) {
                 const label_widget = &footer.row.children.items[0].widget;
                 label_widget.deinit(a);
-                label_widget.* = self.label(try std.fmt.allocPrint(self.ui.allocator(), "{d} pending changes", .{self.model.count()}), false);
+                label_widget.* = self.label(try std.fmt.allocPrint(self.ui.allocator(), "{d} pending", .{self.model.count()}), false);
             }
             self.window.state.layout_dirty = true;
         }
     }
-    fn newZone(self: *App) !V {
+    pub fn newZone(self: *App) !V {
         var zone = try j.parse(self.model.allocator(), "{\"name\":\"Zone\",\"x\":0,\"y\":0,\"width\":1,\"height\":1}");
         try j.put(self.model.allocator(), &zone, "id", try j.string(self.model.allocator(), try self.model.unique("zone")));
         return zone;
     }
-    fn addBinding(self: *App, command: []const u8) !void {
+    pub fn addBinding(self: *App, command: []const u8) !void {
         const id = try self.model.unique("new:");
         const ma = self.model.allocator();
         try self.model.merge("custom_keybind_changes", id, "op", try j.string(ma, "add"));
@@ -1006,6 +1287,13 @@ fn dispatch(b: *Binding, event: q.Action) !void {
         return;
     }
     if (event == .change_text) {
+        switch (b.kind) {
+            .field, .monitor, .rule_field, .keybind, .layout_field, .zone_field, .legacy_zone => {
+                const key = try b.app.inputKey(b.*);
+                try j.put(b.app.model.allocator(), &b.app.model.inputs, try b.app.own(key), try j.string(b.app.model.allocator(), event.change_text));
+            },
+            else => {},
+        }
         const owned = try a.dupe(u8, event.change_text);
         if (b.app.window.state.root_widget) |*root| syncText(root, b, owned);
         if (b.edited) |old| a.free(old);
@@ -1017,10 +1305,9 @@ fn dispatch(b: *Binding, event: q.Action) !void {
         if (event == .change_text or event == .submit_text) {
             const key = try b.app.inputKey(b.*);
             try j.put(b.app.model.allocator(), &b.app.model.inputs, try b.app.own(key), try j.string(b.app.model.allocator(), if (event == .change_text) event.change_text else event.submit_text));
+            const first_error = j.get(b.app.model.errors, key) == .null;
             try j.put(b.app.model.allocator(), &b.app.model.errors, try b.app.own(key), try j.string(b.app.model.allocator(), @errorName(err)));
-        }
-        // Preserve invalid text in the current widget instead of rebuilding it
-        // from the last valid draft value.
-        b.app.rebuilt = event != .change_text;
+            b.app.rebuilt = event != .change_text or first_error;
+        } else b.app.rebuilt = true;
     };
 }

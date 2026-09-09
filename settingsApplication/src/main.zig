@@ -74,6 +74,7 @@ pub fn main(init: std.process.Init) !void {
     var app = app_mod.App.init(&window, init.io, shell, backup, page);
     defer app.deinit();
     defer window.deinit();
+    app.inspect_path = init.environ_map.get("AQUEOUS_SETTINGS_TEST_INSPECT") orelse "";
     app.themes = &themes;
     app.theme_choice = prefs.theme_source;
     app.prefs_path = prefs_path;
@@ -101,6 +102,10 @@ pub fn main(init: std.process.Init) !void {
             const target = instance.aq_instance_poll();
             if (target >= 0) {
                 app.page = @intCast(target);
+                app.search = "";
+                app.rendered_search = "";
+                app.search_due = 0;
+                app.highlight = "";
                 app.rebuilt = true;
             }
         }

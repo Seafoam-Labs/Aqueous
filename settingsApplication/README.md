@@ -5,6 +5,14 @@ is `aqueous-settings`, with desktop ID `org.aqueous.Settings`. Configuration
 reading, schema validation, document preservation, backups, and toolkit
 synchronization are compiled into the application under `src/backend/`.
 
+The interface uses DMS-style navigation, rounded section cards, descriptive
+rows, and global search. See the [implementation record](SETTINGS_LAYOUT_PLAN.md)
+and [complete field/editor inventory](docs/SETTINGS_LAYOUT_INVENTORY.md).
+
+![Aqueous Settings Appearance page](docs/appearance-dark.png)
+
+[Light theme](docs/appearance-light.png) · [Compact layout](docs/appearance-compact.png) · [Search](docs/search-results.png) · [Setting controls](docs/opacity-card.png)
+
 ## Build and launch
 
 Install Zig 0.16, a C toolchain, Python 3, pkg-config, shaderc (`glslc`), Wayland
@@ -36,8 +44,28 @@ All eight pages share one draft. Schema controls include defaults and numeric
 constraints. Collection editors cover monitors, snap layouts/zones, ordered
 window rules, and custom keybindings. Advanced exposes the complete six TOML
 files. Built-in keybindings accept comma-separated chords; empty means unbound.
-Long dropdowns support wheel browsing. Tab/Shift-Tab traverse visible controls;
-arrow keys cycle focused dropdown choices.
+Long dropdowns support wheel browsing. Tab/Shift-Tab traverse controls and
+scroll the focused control into view. Arrow keys change focused dropdowns and
+sliders; Space/Enter activate toggles. Ctrl+F focuses global search, Enter opens
+the first result, and Escape clears search or cancels the color picker. Search
+results can also be reached with Tab and opened with Enter.
+
+Search matches names, IDs, descriptions, sections, and keywords such as
+“transparency.” Selecting a result expands and highlights its setting. Search,
+page changes, resizing, and theme changes retain drafts and in-progress text.
+Each page retains its scroll position and section expansion during the session.
+
+Numeric rows have exact text entry, steppers, and sliders for useful bounded
+ranges. Opacity is displayed as a percentage and stored in its existing 0–1
+format. Invalid input remains visible beside its error. Color rows offer a swatch
+and a picker with exact `0xAARRGGBB` entry, four channels, preview, Cancel, and
+Use color. Reset restores the backend default; these actions remain staged.
+
+At narrow widths or with enlarged fonts, a page chooser replaces the sidebar,
+setting controls stack below descriptions, and collection actions stack
+vertically. The minimum supported logical window is 760×520. The action bar
+stays below the scrollable content; partially visible controls render and accept
+input only inside their viewport.
 
 Validate checks the entire draft without writing. Apply retains the loaded
 generation and uses the existing backup, atomic replacement, and rollback
@@ -170,9 +198,19 @@ UI tests start an isolated headless Aqueous compositor. They need a Vulkan
 software driver and a compositor built with Pixman support; use
 `AQUEOUS_COMPOSITOR_BIN` to select that build. Input tests additionally need
 `wayland-scanner`, a C compiler, and Wayland/xkbcommon development files.
-`AQUEOUS_SETTINGS_ARTIFACTS` saves screenshots with `grim`, and
+Build `test-driver` before running UI tests: they compare all 218 snapshot
+fields with the controls on each page. `AQUEOUS_SETTINGS_TEST_INSPECT` is an
+opt-in testing hook that writes control identities, bounds, and current text;
+leave it unset during normal use.
+`AQUEOUS_SETTINGS_ARTIFACTS` saves screenshots and control inventories with `grim`, and
 `AQUEOUS_SETTINGS_TEST_PAGES` narrows page coverage. The DMS bridge test runs
 real Quickshell with an isolated SettingsData fixture.
+`AQUEOUS_SETTINGS_TEST_SIZE=760x520` requests an exact test window;
+`AQUEOUS_SETTINGS_TEST_FONT=32` enlarges the shell font fixture;
+`AQUEOUS_SETTINGS_TEST_SCALE=1.25` changes the isolated headless output scale;
+`AQUEOUS_SETTINGS_TEST_OUTPUT=1920x1080` provides room for large-window tests.
+Size/scale overrides are intended for page tests; the input suite uses the
+standard 1280×720 output and sidebar navigation.
 
 Theme UI tests require `grim` and Python Pillow, check rendered palette colors,
 and exercise live light/dark and font-size changes without losing raw-editor
@@ -191,6 +229,5 @@ validation. Nix and Gentoo recipes have not been built in their target systems.
 The pinned Quark requires the fixes described in [quark/README.md](quark/README.md).
 The raw editor lacks syntax highlighting, undo history, and visible multiline
 selection highlighting. IME composition and screen-reader integration are not
-implemented. Partially visible controls are culled by scroll views, so small
-windows and accessibility still need work. Plugin removal does not resolve
-these existing platform gaps. See [the migration record](BACKEND_MIGRATION_PLAN.md).
+implemented. The redesign adds wrapping, partial clipping, keyboard focus and
+scrolling, but does not add IME or accessibility-protocol support. See [the migration record](BACKEND_MIGRATION_PLAN.md).

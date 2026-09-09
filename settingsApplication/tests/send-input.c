@@ -41,6 +41,11 @@ int main(int argc,char **argv) {
             zwlr_virtual_pointer_v1_frame(ptr);wl_display_roundtrip(d);usleep(100000);
             zwlr_virtual_pointer_v1_button(ptr,stamp+2,0x110,WL_POINTER_BUTTON_STATE_RELEASED);
             zwlr_virtual_pointer_v1_frame(ptr);
+        } else if(!strcmp(argv[i],"wheel")) {
+            assert(i+3<argc);unsigned x=atoi(argv[++i]),y=atoi(argv[++i]);double amount=atof(argv[++i]);
+            zwlr_virtual_pointer_v1_motion_absolute(ptr,stamp,x,y,1280,720);
+            zwlr_virtual_pointer_v1_axis(ptr,stamp+1,WL_POINTER_AXIS_VERTICAL_SCROLL,wl_fixed_from_double(amount));
+            zwlr_virtual_pointer_v1_frame(ptr);
         } else {
             unsigned mods=0;const char *key=argv[i];
             if(*key=='C'){mods=4;key++;}else if(*key=='S'){mods=1;key++;}

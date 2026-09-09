@@ -29,6 +29,7 @@ pub fn build(b: *std.Build) void {
     patched.addFileArg(b.path("quark/prepare.py"));
     patched.addDirectoryArg(dep.path("src"));
     const source = patched.addOutputDirectoryArg("quark-src");
+    patched.addFileArg(b.path("quark/redesign.py"));
     quark.root_module.root_source_file = source.path(b, "root.zig");
     const ui_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/ui_tests.zig"),

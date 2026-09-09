@@ -20,7 +20,21 @@ pub fn resolve(snapshot: model.Snapshot) q.Theme {
 pub fn restyle(widget: *q.Widget, snapshot: model.Snapshot, window_height: f32) void {
     const height = q.Size.fixed(@max(36, snapshot.font.pixels + 20));
     switch (widget.*) {
-        .button => |*w| w.theme.height = height,
+        .button => |*w| {
+            w.theme.height = height;
+            if (w.tone != 0) {
+                w.theme.color = q.Theme.hex(if (w.tone == 5) snapshot.palette.primary_container else snapshot.palette.surface_container_high);
+                w.theme.text_color = q.Theme.hex(if (w.tone == 5) snapshot.palette.on_primary_container else snapshot.palette.on_surface);
+            }
+        },
+        .text => |*w| {
+            w.theme.color = q.Theme.hex(switch (w.tone) {
+                1 => snapshot.palette.on_surface_variant,
+                3 => snapshot.palette.primary,
+                4 => snapshot.palette.on_error_container,
+                else => snapshot.palette.on_surface,
+            });
+        },
         .dropdown => |*w| w.theme.height = height,
         .textfield => |*w| {
             if (w.theme.height) |h| {
@@ -30,7 +44,12 @@ pub fn restyle(widget: *q.Widget, snapshot: model.Snapshot, window_height: f32) 
             }
         },
         .column => |*w| {
-            if (w.background_color != null) w.background_color = q.Theme.hex(snapshot.palette.surface_container_high);
+            if (w.background_color != null) w.background_color = q.Theme.hex(switch (w.tone) {
+                1 => snapshot.palette.surface_container,
+                5 => snapshot.palette.primary_container,
+                3 => snapshot.palette.error_container,
+                else => snapshot.palette.surface_container_high,
+            });
             for (w.children.items) |*child| restyle(&child.widget, snapshot, window_height);
         },
         .row => |*w| for (w.children.items) |*child| restyle(&child.widget, snapshot, window_height),

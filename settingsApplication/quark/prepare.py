@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Apply narrowly scoped fixes to the pinned Quark source in the build cache."""
 import pathlib, shutil, sys
-src, dst = map(pathlib.Path, sys.argv[1:])
+src, dst = map(pathlib.Path, sys.argv[1:3])
 shutil.copytree(src, dst, dirs_exist_ok=True)
 def replace(file, old, new, count=1):
     path = dst / file
@@ -252,3 +252,5 @@ text = text[:brace] + '''
     @import("Components/Rectangle.zig").srgb_target = window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_B8G8R8A8_SRGB or window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_R8G8B8A8_SRGB or window.state.swapchain.format == vulkan.ctranslate.VK_FORMAT_A8B8G8R8_SRGB_PACK32;
 ''' + text[brace:]
 p.write_text(text)
+redesign = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else pathlib.Path(__file__).with_name('redesign.py')
+exec(compile(redesign.read_text(), str(redesign), 'exec'))
