@@ -46,7 +46,8 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             [
                 "bash", "-euc",
                 'source "$1"\n'
-                '[[ " ${depends[*]} " == *" dms-aqueous "* ]]\n'
+                '[[ " ${depends[*]} " == *" dms-shell "* ]]\n'
+                '[[ " ${depends[*]} " != *" dms-aqueous "* ]]\n'
                 '[[ " ${checkdepends[*]-} " == *" gsettings-desktop-schemas "* ]]\n'
                 '[[ " ${depends[*]} ${checkdepends[*]-} ${optdepends[*]} " != *noctalia* ]]\n'
                 'package',

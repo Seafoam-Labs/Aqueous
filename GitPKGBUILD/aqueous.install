@@ -31,7 +31,7 @@ EOF
     if [ -e /usr/lib/systemd/user/graphical-session.target.wants/dms.service ]; then
         cat <<'EOF'
 
-    Seafoam Labs' dms-aqueous starts automatically with the Aqueous session.
+    DankMaterialShell (dms-shell) starts automatically with the Aqueous session.
     Use DMS Settings for appearance and enable Aqueous Settings in DMS Plugins
     for the packaged configuration editor. Aqueous Screen Sharing is a separate
     plugin, enabled on first use; an intentional disable is preserved.

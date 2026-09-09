@@ -3,14 +3,14 @@
 pkgname=aqueous-git-dms
 pkgbase=aqueous-git-dms
 pkgver=0.6.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'dms-aqueous' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-shell' 'fontconfig' 'glib2' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify'
          # uwsm manages the session lifecycle (env export, graphical-session.target,

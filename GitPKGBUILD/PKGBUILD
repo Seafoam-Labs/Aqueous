@@ -3,14 +3,14 @@
 pkgname=aqueous-git
 pkgbase=aqueous-git
 pkgver=0.6.0 # Will be updated by pkgver()
-pkgrel=1
+pkgrel=2
 pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT')
 depends=('wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libdrm' 'libevdev'
-         'dms-aqueous' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -227,7 +227,7 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
         "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
 
-    # Enable the upstream user unit supplied by the dms-aqueous dependency.
+    # Enable the upstream user unit supplied by the dms-shell dependency.
     install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
     ln -s ../dms.service \
         "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/dms.service"

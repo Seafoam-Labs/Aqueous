@@ -75,8 +75,8 @@ model; they do not replace it.
   protocols are supported. Optional XWayland is started and managed directly by
   Aqueous—no `xwayland-satellite` process is required.
 - **A cohesive desktop without a mandatory suite.** The source packages start
-  Seafoam Labs' [DankMaterialShell](https://github.com/Seafoam-Labs/DankMaterialShell)
-  fork (`dms-aqueous`) as their shell, while
+  [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell)
+  (`dms-shell`) as their shell, while
   Aqueous continues to use standard layer-shell interfaces and does not embed
   the shell into the compositor.
   These packages include a native [Aqueous Settings plugin for Dank Material
@@ -309,7 +309,9 @@ default TOML configuration, desktop entry, and systemd user units.
 Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
 `PKGBUILD`, `PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, the generic-CPU Intel variants, and
-`PKGBUILD-DMS` depend on Seafoam Labs' `dms-aqueous` package. They include the
+`PKGBUILD-DMS` depend on `dms-shell`. The older `dms-aqueous` package also
+satisfies this dependency through its `provides` entry, allowing a switch to
+`dms-shell` without breaking the Aqueous dependency. They include the
 DMS settings plugin and screen-sharing chooser, start DMS automatically,
 and use DMS Spotlight and region screenshots in the packaged bindings.
 `GitPKGBUILD/PKGBUILD` enables the dependency's standard `dms.service` through
