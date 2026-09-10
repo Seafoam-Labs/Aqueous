@@ -4,8 +4,11 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 prefix=${PREFIX:-/usr}
 destination=${DESTDIR:-}
 app=${AQUEOUS_SETTINGS_BINARY:-$root/zig-out/bin/aqueous-settings}
+helper=${AQUEOUS_CONFIG_BINARY:-$(dirname "$app")/aqueous-config}
 [[ -x "$app" ]] || { echo 'Build aqueous-settings before installing.' >&2; exit 1; }
+[[ -x "$helper" ]] || { echo 'Build aqueous-config before installing.' >&2; exit 1; }
 install -Dm755 "$app" "$destination$prefix/bin/aqueous-settings"
+install -Dm755 "$helper" "$destination$prefix/bin/aqueous-config"
 install -Dm644 "$root/packaging/org.aqueous.Settings.desktop" "$destination$prefix/share/applications/org.aqueous.Settings.desktop"
 install -Dm644 "$root/assets/org.aqueous.Settings.svg" "$destination$prefix/share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg"
 bridge="$destination$prefix/share/aqueous/dms-plugins/aqueousSettingsAppearance"

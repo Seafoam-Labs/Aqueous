@@ -42,6 +42,7 @@ check() {
     # Refuse release archives that are incomplete or still contain executables
     # and user units retired by the single-process cutover.
     local required=(
+        bin/aqueous-config
         bin/aqueous
         bin/aqueousctl
         bin/aqueous-settings
@@ -90,7 +91,6 @@ check() {
     fi
 
     local retired=(
-        bin/aqueous-config
         bin/aqueous-backend-test
         lib/aqueous/enable-noctalia-plugin
         share/aqueous/noctalia-plugins
@@ -119,6 +119,7 @@ package() {
 
     # Binaries
     install -Dm755 "$srcdir/bin/aqueous-settings" "$pkgdir/usr/bin/aqueous-settings"
+    install -Dm755 "$srcdir/bin/aqueous-config" "$pkgdir/usr/bin/aqueous-config"
     install -d "$pkgdir/usr/bin"
     install -Dm755 "$srcdir/bin/aqueous"      "$pkgdir/usr/bin/aqueous"
     install -Dm755 "$srcdir/bin/aqueousctl"   "$pkgdir/usr/bin/aqueousctl"

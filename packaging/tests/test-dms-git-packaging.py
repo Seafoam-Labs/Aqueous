@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/bin/aqueousctl",
         "aqueous-dist/lib/aqueous/libwlroots-0.20.so",
         "aqueous-settings-dist/bin/aqueous-settings",
+        "aqueous-settings-dist/bin/aqueous-config",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser",
         "xdg-desktop-portal-wlr-0.8.4/LICENSE",
@@ -75,7 +76,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         }
         assert not any("noctalia" in str(p.relative_to(stage)).lower() and str(p.relative_to(stage)) not in theme_data for p in stage.rglob("*"))
         assert all((stage / path).is_file() for path in theme_data)
-        assert not (stage / "usr/bin/aqueous-config").exists()
+        assert (stage / "usr/bin/aqueous-config").exists()
         assert not (stage / "usr/share/aqueous/dms-plugins/aqueousSettings").exists()
         assert (stage / "usr/bin/aqueous-settings").is_file()
         assert (stage / "usr/share/applications/org.aqueous.Settings.desktop").is_file()

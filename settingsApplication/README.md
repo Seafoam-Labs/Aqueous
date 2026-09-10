@@ -150,9 +150,11 @@ See the setup guide for field mappings, bounds, and fallback behavior.
 
 The former DMS `aqueousSettings` and Noctalia `aqueous/settings` settings
 plugins are removed. Launch **Aqueous Settings** from the application menu or
-run `aqueous-settings`. The helper executable and `--helper` option are retired.
-External scripts/providers that used that CLI must migrate; this application
-does not publish a replacement configuration IPC service.
+run `aqueous-settings`. The app uses its embedded backend; its `--helper` option
+remains retired. `aqueous-config` is shipped for DMS providers and external
+scripts, using the same backend and protocol 1. It supports `version`, `snapshot`,
+`validate`, `apply`, and `raw`, including `--shell dms` and `--request -`.
+Build just the CLI with `zig build --build-file settingsApplication/build.zig config -Dmodel-only=true`.
 
 Package-manager upgrades remove package-owned old plugin files. For a previous
 Gentoo script installation, uninstall its recorded manifest before installing
@@ -187,10 +189,11 @@ DESTDIR=/tmp/aqueous-settings-stage PREFIX=/usr \
 ```
 
 `packaging/dev-install.sh` builds and installs under `~/.local`. Supported
-installer overrides are `AQUEOUS_SETTINGS_BINARY`, `PREFIX`, `DESTDIR`,
+installer overrides are `AQUEOUS_SETTINGS_BINARY`, `AQUEOUS_CONFIG_BINARY`, `PREFIX`, `DESTDIR`,
 `SYSCONFDIR`, and `AQUEOUS_SETTINGS_BRIDGE_DISCOVERY`. System packages discover
 the optional DMS bridge under `/etc/xdg/quickshell/dms-plugins`; personal installs
 use the DMS user plugin path. No installer enables the bridge automatically.
+The helper defaults to `aqueous-config` beside the selected application binary.
 Arch, release/binary, Nix, and Gentoo recipes build the embedded application.
 
 ## Validation
@@ -208,8 +211,8 @@ AQUEOUS_SETTINGS_TEST_THEME=dms AQUEOUS_SETTINGS_TEST_INPUT=1 python3 settingsAp
 AQUEOUS_SETTINGS_TEST_THEME=noctalia AQUEOUS_SETTINGS_TEST_THEME_MODE=light python3 settingsApplication/tests/test-ui.py
 ```
 
-The `test-driver` target builds `aqueous-backend-test`, a test-only adapter for
-migrated regression fixtures. It is not installed by application packages or
+The `test-driver` target builds the same CLI entry point as `aqueous-backend-test`
+for regression fixtures. That test binary is not installed by application packages or
 required by the app. Model/backend tests need no Quark build or display. Backend
 integration tests use temporary XDG profiles; the optional equivalence test
 accepts a preserved legacy executable as its comparison oracle.

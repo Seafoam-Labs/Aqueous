@@ -2,10 +2,12 @@
 
 The standalone `aqueous-settings` application owns persistent configuration and
 toolkit synchronization through `settingsApplication/src/backend/`. The two
-former settings plugins and `aqueous-config` CLI are retired. The compositor
-shell protocol still owns runtime observation and typed actions. External DMS
-providers that invoked the retired CLI need migration; no replacement public
-configuration service is introduced here.
+former settings plugins are retired. `aqueous-config` is a thin compatibility
+CLI over the same backend for DMS providers and external scripts. It retains
+protocol 1, capability discovery, and `version`, `snapshot`, `validate`, `apply`,
+and `raw` commands. Requests accept `--shell dms|noctalia|none` and
+`--request PATH|-`; the default shell remains `noctalia` for compatibility.
+The compositor shell protocol owns runtime observation and typed actions.
 
 ## Backend API and ownership
 
@@ -13,8 +15,12 @@ configuration service is introduced here.
 in-memory requests for snapshot, raw, Validate, and Apply. It does not read stdin,
 parse application arguments, mutate process environment, or terminate the app.
 The serialized worker owns each operation's memory until the UI consumes its
-result. JSON protocol/version metadata remains in the internal response envelope
-for regression equivalence; it is not a separately negotiated helper interface.
+result. The app consumes the JSON response in memory; external CLI clients use
+the same protocol/version metadata and capability discovery.
+
+The CLI preserves the JSON response and capability contract used by existing
+providers. Its Apply also requests the backend's normal compositor reload;
+canonical persistence and target synchronization keep their existing semantics.
 
 The operation retains the six-file document model, schema fields and aliases,
 unknown keys/comments, inherited overrides, generation checks, window-rule order,

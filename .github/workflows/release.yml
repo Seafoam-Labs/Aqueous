@@ -165,7 +165,7 @@ jobs:
             settingsApplication/packaging/install.sh
           cp -a publish/aqueous-settings-image/usr/. publish/aqueous-linux-x64/
           cp -a publish/aqueous-settings-image/etc/. publish/aqueous-linux-x64/etc/
-          test ! -e publish/aqueous-linux-x64/bin/aqueous-config
+          test -x publish/aqueous-linux-x64/bin/aqueous-config
           test ! -e publish/aqueous-linux-x64/bin/aqueous-backend-test
           test ! -e publish/aqueous-linux-x64/share/aqueous/dms-plugins/aqueousSettings
           test ! -e publish/aqueous-linux-x64/share/aqueous/noctalia-plugins

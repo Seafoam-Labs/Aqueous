@@ -1,5 +1,10 @@
 # Embedded backend and settings plugin removal
 
+Update (2026-09-10): `aqueous-config` is restored as a thin CLI over the embedded
+backend for existing DMS providers. The app continues to use the backend directly.
+The historical helper-removal requirements below no longer apply to CLI packaging;
+the old settings plugins remain removed.
+
 Status: embedded migration and settings plugin removal implemented; target-system and physical-device release validation remain open.  
 Source review: 2026-09-09.  
 Application: `settingsApplication/`, executable `aqueous-settings`.

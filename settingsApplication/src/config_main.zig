@@ -1,4 +1,4 @@
-// Test-only driver for migrated CLI regression fixtures. Never installed by packages.
+// Compatibility CLI shares the standalone application's configuration backend.
 const std = @import("std");
 const backend = @import("backend");
 const Allocator = std.mem.Allocator;

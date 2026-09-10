@@ -9,7 +9,12 @@ pub fn build(b: *std.Build) void {
     backend_tests.root_module.addCSourceFile(.{ .file = b.path("src/services/process.c"), .flags = &.{"-std=c11"} });
     const test_step = b.step("test", "Test models, backend and external commands without a display");
     test_step.dependOn(&b.addRunArtifact(backend_tests).step);
-    const driver = b.addExecutable(.{ .name = "aqueous-backend-test", .root_module = b.createModule(.{ .root_source_file = b.path("tests/backend/driver.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "backend", .module = backend }} }) });
+    const config_cli = b.createModule(.{ .root_source_file = b.path("src/config_main.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "backend", .module = backend }} });
+    const helper = b.addExecutable(.{ .name = "aqueous-config", .root_module = config_cli });
+    const helper_install = b.addInstallArtifact(helper, .{});
+    b.getInstallStep().dependOn(&helper_install.step);
+    b.step("config", "Build the aqueous-config compatibility CLI").dependOn(&helper_install.step);
+    const driver = b.addExecutable(.{ .name = "aqueous-backend-test", .root_module = config_cli });
     // Regression adapter is installed only by an explicit test-driver build.
     const driver_install = b.addInstallArtifact(driver, .{});
     b.step("test-driver", "Build test-only backend regression adapter").dependOn(&driver_install.step);

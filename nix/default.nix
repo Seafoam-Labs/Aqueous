@@ -372,6 +372,8 @@ stdenv.mkDerivation (finalAttrs: {
       --prefix PATH : "${lib.makeBinPath [ coreutils dbus systemd uwsm ]}"
     wrapProgram "$out/bin/aqueous-settings" \
       --prefix PATH : "${lib.makeBinPath [ fontconfig glib systemd dbus ]}"
+    wrapProgram "$out/bin/aqueous-config" \
+      --prefix PATH : "$out/bin:${lib.makeBinPath [ fontconfig glib systemd dbus ]}"
 
     runHook postInstall
   '';

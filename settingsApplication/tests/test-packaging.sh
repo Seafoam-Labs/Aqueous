@@ -8,7 +8,7 @@ DESTDIR="$stage" PREFIX=/usr "$root/packaging/install.sh"
 for file in bin/aqueous-settings share/applications/org.aqueous.Settings.desktop share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg share/aqueous/dms-plugins/aqueousSettingsAppearance/Daemon.qml share/licenses/aqueous-settings/quark-LICENSE share/aqueous/settings-application/quark/prepare.py share/aqueous/settings-application/quark/redesign.py; do
     test -f "$stage/usr/$file"
 done
-test ! -e "$stage/usr/bin/aqueous-config"
+"$stage/usr/bin/aqueous-config" version --json | python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["ok"] and v["protocol"] == 1 and "shell_dms" in v["capabilities"]'
 test ! -e "$stage/usr/bin/aqueous-backend-test"
 test ! -e "$stage/usr/share/aqueous/dms-plugins/aqueousSettings"
 test ! -e "$stage/usr/share/aqueous/noctalia-plugins"
@@ -18,7 +18,7 @@ done
 test "$(readlink "$stage/etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance")" = /usr/share/aqueous/dms-plugins/aqueousSettingsAppearance
 if command -v desktop-file-validate >/dev/null; then desktop-file-validate "$stage/usr/share/applications/org.aqueous.Settings.desktop"; fi
 DESTDIR="$stage/custom" PREFIX=/opt/aqueous SYSCONFDIR=/etc "$root/packaging/install.sh"
-for file in bin/aqueous-settings share/aqueous/settings-application/quark/redesign.py share/licenses/aqueous-settings/quark-SOURCE.md; do
+for file in bin/aqueous-settings bin/aqueous-config share/aqueous/settings-application/quark/redesign.py share/licenses/aqueous-settings/quark-SOURCE.md; do
     test -s "$stage/custom/opt/aqueous/$file"
 done
 printf '%s\n' 'Settings package staging passed (standard and custom prefixes).'
