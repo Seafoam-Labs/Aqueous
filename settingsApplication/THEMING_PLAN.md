@@ -66,7 +66,7 @@ Add an “Application theme” control to Appearance with four choices:
 | Follow shell | Follow the app's selected shell; reuse existing auto-detection when appropriate. |
 | DMS | Read DMS appearance even if configuration synchronization targets another shell. |
 | Noctalia | Read Noctalia appearance even if configuration synchronization targets another shell. |
-| Built-in | Use the application's bundled palette and fonts. |
+| Built-in | Use the application's bundled palette and Fontconfig's default typeface. |
 
 Default existing installations to Follow shell. With no selected shell or
 ambiguous automatic detection, use Built-in. Store the preference immediately
@@ -201,8 +201,9 @@ open dialogs, or Apply results. Repeated changes do not grow memory indefinitely
 ## Phase 5: fonts, scale, and Quark support
 
 1. Resolve requested faces through Fontconfig and load regular/bold/italic variants
-   with sensible substitutions. Keep bundled fonts when a requested face is absent
-   or cannot be loaded. Record unsupported weight/style details rather than guessing.
+   with sensible substitutions. An absent or unloadable family falls back to
+   Fontconfig's default sans; keep the bundled faces only for a system without
+   Fontconfig. Record unsupported weight/style details rather than guessing.
 2. Apply resolved typography at window creation. Add a narrowly scoped Quark API
    for safe runtime family/size replacement if existing APIs cannot support it.
 3. Build the replacement font family before releasing the old one; invalidate

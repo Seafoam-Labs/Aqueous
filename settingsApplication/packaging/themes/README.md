@@ -23,8 +23,9 @@ place; the app cannot infer an unexported palette from its theme name.
 
 Typography reads `$XDG_CONFIG_HOME/DankMaterialShell/settings.json`, using
 `fontFamily`, `fontWeight`, `fontScale` (14 logical pixels at scale 1), and
-`cornerRadius`. Fontconfig provides available regular/bold/italic faces. Missing
-families use a reported fallback. Font weights map to Fontconfig weight bands.
+`cornerRadius`. Fontconfig provides available regular/bold/italic faces. A missing
+family falls back to Fontconfig's default sans and is reported. Font weights map to
+Fontconfig weight bands.
 
 ## Noctalia v5+
 
@@ -66,8 +67,11 @@ built-in theme until the new source loads. Missing exports are explained in
 Appearance. A change arriving during a pointer drag is applied after release.
 
 Fonts are limited to 10–32 logical pixels; rounding is limited to 0–18px.
-Font loading happens off the UI thread and font-family replacement happens on
-the UI thread after the complete family is available. Exact shell widget shapes,
+Typography is read from the shell's own settings, so the application's typeface
+follows the shell even when no export exists yet; only colors require the export.
+Quark's embedded faces remain the last resort for a system where Fontconfig offers
+nothing usable. Font loading happens off the UI thread and font-family replacement
+happens on the UI thread after the complete family is available. Exact shell widget shapes,
 animation, blur/transparency, and advanced font shaping/IME are separate features.
 Theme changes do not save canonical settings or request compositor reload.
 

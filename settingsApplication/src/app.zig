@@ -223,6 +223,12 @@ pub const App = struct {
                 self.setThemeStatus("Shell colors loaded; using the bundled fallback font.");
                 return;
             };
+        } else if (result.fonts_changed and result.status == .missing) {
+            // Colors need an export; typography only needs the shell's own settings.
+            var typography = self.theme;
+            typography.font = result.snapshot.font;
+            typography.radius = result.snapshot.radius;
+            self.applyTheme(typography, result.fonts, true) catch {};
         }
         self.setThemeStatus(switch (result.status) {
             .builtin => "Built-in application theme.",

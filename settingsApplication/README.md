@@ -137,7 +137,9 @@ Enable one of the shipped palette templates using the
 registration examples live under `/usr/share/aqueous/settings-application/themes/`
 (or the package's custom prefix). DMS and Noctalia generate separate versioned
 JSON files in the XDG cache directory. Neither retired settings plugin is needed.
-Missing/invalid exports and font fallback are reported in Appearance.
+Missing/invalid exports and font fallback are reported in Appearance. A missing
+export costs the shell's colors only: the typeface still follows the shell, and
+falls back to Fontconfig's default sans when the shell names no family.
 
 Noctalia follows its application theme mode, including automatic changes; its
 shell-only mode override remains separate. Source readers target DMS JSON and
