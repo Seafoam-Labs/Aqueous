@@ -131,7 +131,8 @@ jobs:
       - name: Build Aqueous Settings
         shell: bash
         run: |
-          zig build --build-file settingsApplication/build.zig test test-driver -Dmodel-only=true
+          zig build --build-file settingsApplication/build.zig test test-driver \
+            -Dmodel-only=true -Dcpu=baseline -Doptimize=ReleaseSafe
           settingsApplication/tests/test-backend.sh
           zig build --build-file settingsApplication/build.zig \
             -Dcpu=baseline -Doptimize=ReleaseSafe \
