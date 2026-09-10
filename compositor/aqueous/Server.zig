@@ -170,6 +170,7 @@ toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceM
 content_type_manager: *wlr.ContentTypeManagerV1,
 fifo: FifoManager,
 xdg_dialog: XdgDialogManager,
+system_bell: @import("SystemBellManager.zig") = .{},
 xdg_toplevel_drag: *wl.Global,
 xdg_icon: XdgToplevelIconManager,
 
@@ -584,6 +585,7 @@ pub fn init(
 
     server.renderer.events.lost.add(&server.renderer_lost);
     server.xdg_shell.events.new_toplevel.add(&server.new_xdg_toplevel);
+    try server.system_bell.init();
     server.xdg_dialog.listen();
     server.xdg_icon.listen();
     server.xdg_decoration_manager.events.new_toplevel_decoration.add(&server.new_toplevel_decoration);
@@ -602,6 +604,7 @@ pub fn deinit(server: *Server) void {
 
     server.renderer_lost.link.remove();
     server.new_xdg_toplevel.link.remove();
+    server.system_bell.deinit();
     server.xdg_dialog.deinit();
     server.xdg_icon.deinit();
     server.new_toplevel_decoration.link.remove();
@@ -775,6 +778,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.cursor_shape_manager.global or
         global == server.xdg_shell.global or
         global == server.xdg_dialog.global() or
+        global == server.system_bell.global() or
         global == server.xdg_toplevel_drag or
         global == server.xdg_icon.global() or
         global == server.xdg_decoration_manager.global or

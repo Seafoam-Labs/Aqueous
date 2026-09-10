@@ -1722,6 +1722,7 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    server.system_bell.outputRemoved(output.policyId());
     output.mirror.reset();
     if (output.mirror_source_locked) {
         wlr_output.lockAttachRender(false);

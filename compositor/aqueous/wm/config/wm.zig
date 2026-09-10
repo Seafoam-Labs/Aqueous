@@ -122,6 +122,7 @@ pub const WorkspaceLayout = struct {
 };
 
 pub const Snapshot = struct {
+    bell: @import("bell.zig").Config = .{},
     struts: Struts = .{},
     input: Input = .{},
     outputs: [max_mappings]OutputLayout = undefined,
@@ -175,7 +176,7 @@ pub const Snapshot = struct {
     }
 };
 
-const Section = union(enum) { none, layout, rules, render, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
+const Section = union(enum) { none, bell, layout, rules, render, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
     const tablet_policy = @import("tablet").parse(source);
@@ -212,6 +213,9 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
         const key = std.mem.trim(u8, line[0..equal], " \t");
         const value = unquote(std.mem.trim(u8, line[equal + 1 ..], " \t"));
         switch (section) {
+            .bell => if (std.mem.eql(u8, key, "sound_file")) {
+                snapshot.bell.applyPathToml(std.mem.trim(u8, line[equal + 1 ..], " \t"));
+            } else snapshot.bell.apply(key, value),
             .layout => {
                 if (std.mem.eql(u8, key, "path")) _ = snapshot.layout_path.set(value);
                 if (std.mem.eql(u8, key, "force_ssd")) snapshot.force_ssd = parseBool(value) orelse snapshot.force_ssd;
@@ -265,6 +269,7 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
 }
 
 fn parseSection(name: []const u8) Section {
+    if (std.mem.eql(u8, name, "bell")) return .bell;
     if (std.mem.eql(u8, name, "layout")) return .layout;
     if (std.mem.eql(u8, name, "rules")) return .rules;
     if (std.mem.eql(u8, name, "render")) return .render;

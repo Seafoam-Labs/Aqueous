@@ -121,6 +121,10 @@ pub const fields = [_]Field{
     b("workspace_transition.enabled", .appearance, "Workspace animation", "Animate workspace changes.", .wm, "workspace_transition", "enabled", true),
     f("workspace_transition.rate", .appearance, "Animation rate", "Zero selects the compiled default.", .wm, "workspace_transition", "rate", .double, "0.0", 0, 100),
 
+    s("bell.mode", .appearance, "System bell", "Visual feedback, custom sound, both, or off.", .wm, "bell", "mode", "visual", &.{ "visual", "sound", "both", "off" }),
+    t("bell.sound_file", .appearance, "Bell sound file", "WAV or supported Ogg file; absolute or relative to wm.toml. Empty disables audio; playback is capped at 2 seconds.", .wm, "bell", "sound_file", ""),
+    f("bell.volume", .appearance, "Bell volume", "Bell stream volume; zero is silent. Does not change system volume.", .wm, "bell", "volume", .double, "0.5", 0, 1),
+
     s("layout.default", .layouts, "Default layout", "Layout used without a more specific mapping.", .layout, "layout", "default", "tile", layouts),
     f("layout.gaps_outer", .layouts, "Outer gaps", "Pixels between placements and the usable output edge.", .layout, "layout", "gaps_outer", .integer, "8", 0, 512),
     f("layout.gaps_inner", .layouts, "Inner gaps", "Pixels between tiled placements.", .layout, "layout", "gaps_inner", .integer, "4", 0, 512),

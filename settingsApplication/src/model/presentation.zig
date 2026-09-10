@@ -7,6 +7,7 @@ pub const sections = [_]Section{
     .{ .id = "opacity", .title = "Window opacity", .page = 1, .keywords = "transparency translucent" },
     .{ .id = "blur", .title = "Backdrop blur", .page = 1 },
     .{ .id = "space", .title = "Reserved space", .page = 1, .keywords = "struts bar maximize fullscreen" },
+    .{ .id = "bell", .title = "System bell", .page = 1, .keywords = "sound audio feedback volume" },
     .{ .id = "animation", .title = "Workspace animation", .page = 1, .keywords = "motion transition" },
     .{ .id = "default", .title = "Default layout and gaps", .page = 2 },
     .{ .id = "borders", .title = "Window borders", .page = 2, .keywords = "decoration color radius" },
@@ -25,10 +26,31 @@ pub const sections = [_]Section{
 };
 pub fn section(id: []const u8) []const u8 {
     const mappings = .{
-        .{ "desktop.font.", "font" },                .{ "desktop.cursor.", "cursor" },   .{ "opacity.", "opacity" },         .{ "blur.", "blur" },                          .{ "struts.", "space" },                           .{ "state.", "space" },                    .{ "workspace_transition.", "animation" },
-        .{ "layout.border", "borders" },             .{ "layout.force_ssd", "borders" }, .{ "layout.slots.", "slots" },      .{ "layout.options.scrolling.", "scrolling" }, .{ "layout.options.reverse-dwindle.", "dwindle" }, .{ "layout.options.dwindle.", "dwindle" }, .{ "layout.options.monocle.", "monocle" },
-        .{ "layout.options.stacking.", "stacking" }, .{ "layout.", "default" },          .{ "input.keyboard.", "keyboard" }, .{ "input.touchpad.", "touchpad" },            .{ "input.pointer.", "pointer" },                  .{ "input.mouse.", "pointer" },            .{ "display.", "display" },
-        .{ "game_mode.", "game" },                   .{ "actions.", "commands" },        .{ "keybinds.", "shortcuts" },
+        .{ "bell.", "bell" },
+        .{ "desktop.font.", "font" },
+        .{ "desktop.cursor.", "cursor" },
+        .{ "opacity.", "opacity" },
+        .{ "blur.", "blur" },
+        .{ "struts.", "space" },
+        .{ "state.", "space" },
+        .{ "workspace_transition.", "animation" },
+        .{ "layout.border", "borders" },
+        .{ "layout.force_ssd", "borders" },
+        .{ "layout.slots.", "slots" },
+        .{ "layout.options.scrolling.", "scrolling" },
+        .{ "layout.options.reverse-dwindle.", "dwindle" },
+        .{ "layout.options.dwindle.", "dwindle" },
+        .{ "layout.options.monocle.", "monocle" },
+        .{ "layout.options.stacking.", "stacking" },
+        .{ "layout.", "default" },
+        .{ "input.keyboard.", "keyboard" },
+        .{ "input.touchpad.", "touchpad" },
+        .{ "input.pointer.", "pointer" },
+        .{ "input.mouse.", "pointer" },
+        .{ "display.", "display" },
+        .{ "game_mode.", "game" },
+        .{ "actions.", "commands" },
+        .{ "keybinds.", "shortcuts" },
     };
     inline for (mappings) |m| if (std.mem.startsWith(u8, id, m[0])) return m[1];
     return "other";

@@ -254,3 +254,10 @@ The raw editor lacks syntax highlighting, undo history, and visible multiline
 selection highlighting. IME composition and screen-reader integration are not
 implemented. The redesign adds wrapping, partial clipping, keyboard focus and
 scrolling, but does not add IME or accessibility-protocol support. See [the migration record](BACKEND_MIGRATION_PLAN.md).
+
+System bell settings are under **Appearance → System bell**: choose visual
+feedback, custom sound, both, or off; set a sound-file path and stream volume.
+Relative paths are resolved against `wm.toml`. Empty paths and zero volume disable
+sound. Use PCM WAV (or Ogg Vorbis when the installed `pw-play` supports it); sounds
+are limited to two seconds. Applying changed bell settings stops existing feedback
+and reloads the compositor. See the [compositor guide](../compositor/README.md#system-bell).

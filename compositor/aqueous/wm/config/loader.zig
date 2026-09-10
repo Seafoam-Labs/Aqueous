@@ -37,6 +37,7 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
     if (resolveLayoutPath(&path_buffer, env, snapshot.wm.layout_path.slice(), dirname(wm_path))) |path| {
         applyLayoutFile(allocator, &snapshot, path);
     }
+    snapshot.wm.bell.resolve(allocator, wm_path);
     snapshot.tablet_base = snapshot.wm.input.tablets;
     if (resolveInputPath(&path_buffer, env, snapshot.wm.input_path.slice())) |path| {
         applyInputFile(allocator, &snapshot, path);

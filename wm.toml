@@ -553,3 +553,14 @@ maximize_full_output = false
 [rules]
 # Optional. Absolute or ~-prefixed path. $AQUEOUS_RULES still has precedence.
 path = "~/.config/aqueous/rules.toml"
+
+# System bell: visual | sound | both | off. Visual feedback is the default.
+# Custom sounds use pw-play and the default PipeWire sink. Paths are literal,
+# absolute or relative to this wm.toml (no ~ or environment expansion).
+# PCM WAV is supported; Ogg support depends on the installed libsndfile.
+# Empty sound_file disables audio. Playback is capped at 2 seconds, with one
+# sound at a time and a shared 500 ms cooldown. Locking cancels both components.
+[bell]
+mode = "visual"
+sound_file = ""
+volume = 0.5 # 0.0 through 1.0; changes only the bell stream, not system volume

@@ -452,3 +452,49 @@ python3 scripts/test-xdg-toplevel-icon.py --renderer vulkan --compositor /path/t
 The harness requires a C compiler, wayland-scanner, Python/Pillow, and grim.
 See [the implementation record](../docs/xdg-toplevel-icon-implementation-plan.md)
 and [IPC contract](protocol/aqueous-ipc-v1.md) for limits and verification scope.
+
+### System bell
+
+Aqueous advertises `xdg_system_bell_v1` version 1 in both renderer builds,
+including security-context clients and external-policy mode. The default bell
+briefly highlights the associated output edge. Configure it under **Appearance →
+System bell** in `aqueous-settings`, or in `wm.toml`:
+
+```toml
+[bell]
+mode = "both" # visual | sound | both | off; default: visual
+sound_file = "sounds/bell.wav"
+volume = 0.5
+```
+
+Sound paths are absolute or relative to the loaded `wm.toml`, including an
+`AQUEOUS_CONFIG` override. Shell expressions, variables and `~` are literal.
+An empty path or zero volume disables audio. Install the PipeWire tools providing
+`pw-play` for sounds; the Nix package supplies its runtime path. PCM WAV works;
+Ogg Vorbis and other formats depend on the player's libsndfile build. Audio uses
+the default sink and respects session mute/routing; volume affects only the bell.
+Missing files, playback errors or an unavailable audio service preserve visual
+feedback in `both` mode.
+
+Feedback requires a mapped, visible toplevel on an awake output. A null surface
+uses the requesting client's focused window, selecting the first eligible seat
+in creation order; otherwise it does nothing. Bells do not change focus,
+workspaces, urgency, idle state or output power. Requests share a 500 ms cooldown;
+visual feedback lasts 150 ms, and only one sound plays at a time, for at most two
+seconds plus a 100 ms termination grace. There is no queue. Locking and changes
+to bell configuration cancel feedback, as do target output power/geometry changes.
+Buffered audio may have a short backend-dependent tail when canceled.
+
+Run the isolated test with the desired compositor and matching renderer:
+
+```sh
+python3 scripts/test-xdg-system-bell.py --renderer pixman --compositor /path/to/aqueous --ctl /path/to/aqueousctl
+python3 scripts/test-xdg-system-bell.py --renderer vulkan --compositor /path/to/aqueous --ctl /path/to/aqueousctl
+```
+
+Add `--real-audio` to record WAV/Ogg playback and verify volume through a private
+PipeWire null sink. This needs PipeWire tools, WirePlumber, D-Bus and FFmpeg;
+hardware monitors are disabled. The base suite uses a fake player, two headless
+outputs, `wlr-randr`, `grim`, and Pillow. `--policy external` runs the registry and
+lifecycle smoke test against an external-policy-enabled build. See the
+[implementation record](../docs/xdg-system-bell-v1-implementation-plan.md).

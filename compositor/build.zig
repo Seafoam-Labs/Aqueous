@@ -251,6 +251,7 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("pthread", .{});
         river.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra" } });
 
+        river.root_module.addCSourceFile(.{ .file = b.path("aqueous/bell_audio.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror" } });
         river.root_module.addImport("wayland", wayland);
         river.root_module.addImport("xkbcommon", xkbcommon);
         river.root_module.addImport("pixman", pixman);
@@ -595,6 +596,7 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.linkSystemLibrary("pixman-1", .{});
         keyboard_test.root_module.linkSystemLibrary("libpng", .{});
         keyboard_test.root_module.linkSystemLibrary("pthread", .{});
+        keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/bell_audio.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror" } });
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2" } });
         if (vulkan_effects) keyboard_test.root_module.linkSystemLibrary("vulkan", .{});
         keyboard_test.root_module.addCSourceFile(.{
@@ -760,6 +762,8 @@ pub fn build(b: *Build) !void {
             }),
         });
         test_step.dependOn(&b.addRunArtifact(xdg_state_test).step);
+        const bell_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/system_bell.zig"), .target = target, .optimize = optimize }) });
+        test_step.dependOn(&b.addRunArtifact(bell_test).step);
         test_step.dependOn(&run_scene_buffer_clone_test.step);
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);

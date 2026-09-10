@@ -118,6 +118,10 @@ pub fn requestManageCycle(_: CompositorApi) void {
 /// Publish the display-wide compatibility preference consumed by GTK's
 /// native Wayland backend. XDG-decoration-capable clients continue through
 /// the per-window transaction path.
+pub fn configureBell(_: CompositorApi, config: *const @import("config/bell.zig").Config) void {
+    server.system_bell.configure(config);
+}
+
 pub fn setLegacyServerDecorationForce(_: CompositorApi, force_ssd: bool) void {
     server.legacy_server_decoration.setForceSsd(force_ssd);
 }

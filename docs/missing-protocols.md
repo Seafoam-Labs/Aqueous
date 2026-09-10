@@ -44,6 +44,14 @@ legacy external-WM mode hides the global. Protocol, pointer/touch, lifecycle, an
 output/seat regressions pass with Pixman. Vulkan runtime qualification remains;
 see the [implementation record](xdg-toplevel-drag-v1-implementation-plan.md).
 
+`xdg-system-bell-v1` is implemented through the pinned wlroots manager, with
+configurable visual feedback, custom sound playback, shared rate limiting, and
+lock/output lifecycle cleanup. Both renderers and security-context clients are
+covered by headless tests; actual WAV/Ogg playback and volume pass through an
+isolated PipeWire null sink. External-policy registry/lifecycle smoke checks pass.
+See the [implementation and validation record](xdg-system-bell-v1-implementation-plan.md)
+for behavior and remaining physical-display qualification.
+
 ## Not supported
 
 ### wayland-protocols staging
@@ -52,7 +60,6 @@ see the [implementation record](xdg-toplevel-drag-v1-implementation-plan.md).
 |---|---|---|---|
 | commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
 | xdg-toplevel-tag-v1 | `xdg_toplevel_tag_manager_v1` | No implementation found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Add tag/description storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
-| xdg-system-bell-v1 | `xdg_system_bell_v1` | Present: `wlr_xdg_system_bell_v1_create`. | Standard audible or visual bell requests. Connect events to configurable feedback, with rate limiting. |
 | drm-lease-v1 | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
 | pointer-warp-v1 | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
 | xdg-session-management-v1 | `xdg_session_manager_v1` | No implementation found. | Restore participating applications' toplevel state across application/compositor restarts. Needs session identity, persistent state, restoration policy, and lifecycle handling. Does not itself relaunch applications or restore their document contents. |
@@ -128,7 +135,7 @@ xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), security-context-v1, wayland-fixes,
-content-type-v1, fifo-v1, xdg-dialog-v1.
+content-type-v1, fifo-v1, xdg-dialog-v1, xdg-system-bell-v1.
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
 each client's bound version. Suspension follows workspace/output visibility,
@@ -175,7 +182,6 @@ advertising protocol globals. Recommended order for general desktop use:
 |---|---|---|
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
 | Medium | **xdg-toplevel-tag-v1** | Small–medium: metadata plus rule/inspection integration; value depends on participating clients. |
-| Low; small polish task | **xdg-system-bell-v1** | Small: configurable audible/visual feedback. |
 
 Raise **drm-lease-v1** to high priority for directly connected VR headset
 support. Consider **pointer-warp-v1** for applications needing explicit cursor

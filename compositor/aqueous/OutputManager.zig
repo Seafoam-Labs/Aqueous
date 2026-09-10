@@ -614,6 +614,7 @@ pub fn autoLayout(om: *OutputManager) void {
 }
 
 pub fn commitOutputState(om: *OutputManager) void {
+    defer server.system_bell.validateTargets();
     const wm = &server.wm;
     {
         var it = wm.sent.outputs.iterator(.forward);

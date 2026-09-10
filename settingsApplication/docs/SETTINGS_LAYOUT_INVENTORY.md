@@ -8,7 +8,7 @@ The screenshots in this directory show the implemented Quark application.
 Every backend snapshot field is checked against the actual UI controls by
 `tests/test-ui.py`. New unmatched IDs render in Other settings.
 
-Inventory: 218 snapshot fields.
+Inventory: 221 snapshot fields.
 
 | Page | Section | Field ID |
 | --- | --- | --- |
@@ -42,6 +42,9 @@ Inventory: 218 snapshot fields.
 | appearance | Window opacity | `opacity.unfocused` |
 | appearance | Workspace animation | `workspace_transition.enabled` |
 | appearance | Workspace animation | `workspace_transition.rate` |
+| appearance | System bell | `bell.mode` |
+| appearance | System bell | `bell.sound_file` |
+| appearance | System bell | `bell.volume` |
 | layouts | Default layout and gaps | `layout.default` |
 | layouts | Default layout and gaps | `layout.gaps_outer` |
 | layouts | Default layout and gaps | `layout.gaps_inner` |

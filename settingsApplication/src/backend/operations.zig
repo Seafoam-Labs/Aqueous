@@ -363,7 +363,11 @@ fn writeTomlValue(json: *std.json.Stringify, schema_field: *const schema.Field, 
         .boolean => try json.write(std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "true")),
         .integer => try json.write(std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10) catch 0),
         .double => try json.write(std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch 0),
-        .string => try json.write(unquoteToml(raw)),
+        .string => {
+            var buffer: [8192]u8 = undefined;
+            const text = if (std.mem.eql(u8, schema_field.id, "bell.sound_file")) try decodeBellPath(raw, &buffer) else unquoteToml(raw);
+            try json.write(text);
+        },
         .select => try json.write(schema.normalizeLayout(unquoteToml(raw))),
         .string_list => try writeStringList(json, raw),
         .color => try json.write(std.mem.trim(u8, raw, " \t\r")),
@@ -1733,6 +1737,7 @@ fn encodeTomlValue(allocator: Allocator, schema_field: *const schema.Field, valu
         },
         .string => {
             const text = jsonString(value) orelse return error.InvalidString;
+            if (std.mem.eql(u8, schema_field.id, "bell.sound_file")) try validateBellPath(text);
             return try jsonStringLiteral(allocator, text);
         },
         .string_list => return try encodeStringList(allocator, value),
@@ -1789,6 +1794,19 @@ fn encodeStringList(allocator: Allocator, value: Json) ![]const u8 {
     return result.toOwnedSlice(allocator);
 }
 
+fn decodeBellPath(raw: []const u8, buffer: []u8) ![]const u8 {
+    const value = std.mem.trim(u8, raw, " \t\r");
+    if (value.len >= 2 and value[0] == '"') {
+        var allocator = std.heap.FixedBufferAllocator.init(buffer);
+        return std.json.parseFromSliceLeaky([]const u8, allocator.allocator(), value, .{}) catch error.InvalidBellPath;
+    }
+    return unquoteToml(value);
+}
+
+fn validateBellPath(value: []const u8) !void {
+    if (value.len >= 4096 or std.mem.indexOfScalar(u8, value, 0) != null) return error.InvalidBellPath;
+}
+
 fn validateRange(schema_field: *const schema.Field, value: f64) !void {
     if (!std.math.isFinite(value)) return error.InvalidNumber;
     if (schema_field.min) |minimum| if (value < minimum) return error.ValueTooSmall;
@@ -1818,7 +1836,10 @@ fn validateKnownFields(files: *const config.ConfigFiles) !void {
                 if (!valid) return error.InvalidSelection;
             },
             .color => if (!validColor(std.mem.trim(u8, raw, " \t\r"))) return error.InvalidColor,
-            .string => {},
+            .string => if (std.mem.eql(u8, schema_field.id, "bell.sound_file")) {
+                var buffer: [8192]u8 = undefined;
+                try validateBellPath(try decodeBellPath(raw, &buffer));
+            },
             .string_list => {
                 var buffer: [256]u8 = undefined;
                 var sink: std.Io.Writer.Discarding = .init(&buffer);
@@ -2048,6 +2069,7 @@ fn errorCode(err: anyerror) []const u8 {
         error.InvalidBoolean,
         error.InvalidInteger,
         error.InvalidNumber,
+        error.InvalidBellPath,
         error.InvalidString,
         error.InvalidStringList,
         error.InvalidSelection,
@@ -2175,4 +2197,32 @@ test "typed colors serialize as canonical AARRGGBB" {
 test "monitor modes retain fractional rates and reject invalid values" {
     for ([_][]const u8{ "1920x1080", "2560x1440@59.94", "3840x2160@143.999", "1920x1080@600" }) |mode| try std.testing.expect(validMonitorMode(mode));
     for ([_][]const u8{ "", "0x1080", "1920x-1", "100001x1080", "1920x1080@0", "1920x1080@nan", "1920x1080@inf", "1920x1080@1001", "1920x1080@60@75", "1920x1080\"\nfoo=1" }) |mode| try std.testing.expect(!validMonitorMode(mode));
+}
+
+test "bell settings validate modes, volume and bounded literal filenames" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const mode = schema.find("bell.mode").?;
+    for ([_][]const u8{ "visual", "sound", "both", "off" }) |value| {
+        _ = try encodeTomlValue(a, mode, .{ .string = value });
+    }
+    try std.testing.expectError(error.InvalidSelection, encodeTomlValue(a, mode, .{ .string = "invalid" }));
+    const volume = schema.find("bell.volume").?;
+    try std.testing.expectError(error.ValueTooLarge, encodeTomlValue(a, volume, .{ .float = 1.1 }));
+    try std.testing.expectError(error.InvalidNumber, encodeTomlValue(a, volume, .{ .float = std.math.nan(f64) }));
+    const file = schema.find("bell.sound_file").?;
+    try std.testing.expectEqualStrings("\"sounds/a $bell.wav\"", try encodeTomlValue(a, file, .{ .string = "sounds/a $bell.wav" }));
+    try std.testing.expectError(error.InvalidBellPath, validateBellPath("a\x00b"));
+    try std.testing.expectError(error.InvalidBellPath, validateBellPath(&(@as([4096]u8, @splat('a')))));
+}
+
+test "custom bell filenames round trip escaped quotes and backslashes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const file = schema.find("bell.sound_file").?;
+    const original = "sounds/a \"quote\" \\ bell.wav";
+    const encoded = try encodeTomlValue(arena.allocator(), file, .{ .string = original });
+    var buffer: [8192]u8 = undefined;
+    try std.testing.expectEqualStrings(original, try decodeBellPath(encoded, &buffer));
 }

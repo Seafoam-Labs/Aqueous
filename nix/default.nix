@@ -375,7 +375,7 @@ stdenv.mkDerivation (finalAttrs: {
     patchShebangs "$out/bin" "$out/libexec/aqueous"
 
     wrapProgram "$out/bin/aqueous" \
-      --prefix PATH : "${lib.makeBinPath [ xwayland ]}"
+      --prefix PATH : "${lib.makeBinPath [ xwayland pipewire ]}"
     wrapProgram "$out/bin/aqueous-wm" \
       --prefix PATH : "${lib.makeBinPath [ coreutils systemd ]}"
     wrapProgram "$out/bin/aqueous-init" \

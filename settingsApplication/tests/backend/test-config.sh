@@ -137,6 +137,9 @@ jq -n \
       backup_dir: $backups,
       create_user_override: true,
       changes: [
+        {id: "bell.mode", value: "both"},
+        {id: "bell.sound_file", value: "sounds/a $bell.wav"},
+        {id: "bell.volume", value: 0.25},
         {id: "blur.enabled", value: false},
         {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
@@ -174,6 +177,14 @@ test "$(rg -c '^\[layout\.options\.(float|floating|stack|stacking)\]$' "$config_
 rg -q '^prefer_vertical_on_portrait = false$' "$config_root/layout.toml"
 rg -q '^tap = false$' "$config_root/input.toml"
 rg -Fq 'spawn_terminal = ["Super+Return", "Super+Enter"]' "$config_root/wm.toml"
+rg -Fq 'mode = "both"' "$config_root/wm.toml"
+rg -Fq 'sound_file = "sounds/a $bell.wav"' "$config_root/wm.toml"
+rg -Fq 'volume = 0.25' "$config_root/wm.toml"
+run_helper snapshot --json | jq -e '
+  (.fields[] | select(.id == "bell.mode") | .value == "both") and
+  (.fields[] | select(.id == "bell.sound_file") | .value == "sounds/a $bell.wav") and
+  (.fields[] | select(.id == "bell.volume") | .value == 0.25)
+' >/dev/null
 test -f "$test_root/backups/$generation/wm.toml"
 test -f "$test_root/backups/$generation/layout.toml"
 test -f "$test_root/backups/$generation/input.toml"
