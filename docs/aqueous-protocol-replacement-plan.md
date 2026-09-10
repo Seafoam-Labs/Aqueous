@@ -130,6 +130,17 @@ the existing protocol behavior preserved.
   exclusion, exclusive window-manager ownership, sandbox visibility, and cleanup.
   The harness also builds the migrated exit-session fixture and uses it to end
   the optional external/compare sessions.
+- Extended the external/compare fixture with a separate xdg-shell application.
+  It checks window announcement and metadata updates, configure/resize
+  acknowledgements, keyboard/pointer focus, node movement, and screenshot pixels
+  proving above/below decoration stacking and movement. Policy close must reach
+  the application, emit the closed event, remove its content and decorations,
+  and permit cleanup of the now-inert policy objects. Screenshot assertions poll
+  presentation with a deadline so cosmetic transitions can finish.
+- Keyboard and pointer bindings now alternate disabled/enabled twice, checking
+  ordered press/release pairs, exactly one delivery, input passthrough to the
+  application while disabled, and successful re-enabling. The existing CI policy
+  matrix runs these extended checks automatically.
 
 Local validation:
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: © 2026 Seafoam Labs
 # SPDX-License-Identifier: GPL-3.0-only
-"""Check the Aqueous protocol namespace and cross-protocol objects privately."""
+"""Check Aqueous protocol objects, window lifecycle and bindings in private headless sessions."""
 import argparse
 import os
 from pathlib import Path
@@ -35,6 +35,9 @@ def main():
         'ext-workspace': ROOT / 'protocol/upstream/ext-workspace-v1.xml',
         'virtual-keyboard': ROOT / 'protocol/upstream/virtual-keyboard-unstable-v1.xml',
         'security-context': Path('/usr/share/wayland-protocols/staging/security-context/security-context-v1.xml'),
+        'xdg-shell': Path('/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml'),
+        'virtual-pointer': ROOT / 'protocol/upstream/wlr-virtual-pointer-unstable-v1.xml',
+        'screencopy': ROOT / 'protocol/upstream/wlr-screencopy-unstable-v1.xml',
     })
     generated = []
     for name, xml in protocols.items():
