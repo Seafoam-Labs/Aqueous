@@ -22,6 +22,7 @@ patch_files=(
     "$here/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
     "$here/patches/wlroots/0015-ext-capture-formats-and-color.patch"
     "$here/patches/wlroots/0016-toplevel-icon-lifetime.patch"
+    "$here/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -151,6 +152,8 @@ for symbol in \
     wlr_xdg_toplevel_set_constrained \
     wlr_aqueous_capture_color_manager_v1_create \
     wlr_fifo_manager_v1_create \
+    wlr_xdg_toplevel_drag_manager_v1_create \
+    wlr_xdg_toplevel_drag_v1_try_from_data_source \
     wlr_xdg_wm_dialog_v1_create \
     wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel \
     wlr_fifo_manager_v1_get_global \

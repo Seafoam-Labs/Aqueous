@@ -12,6 +12,7 @@ const zwlr = @import("wayland").server.zwlr;
 
 const server = &@import("main.zig").server;
 
+const Window = @import("Window.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const SnapOverlay = @import("SnapOverlay.zig");
 const fx = @import("fx.zig");
@@ -130,6 +131,35 @@ pub fn at(scene: *const Scene, lx: f64, ly: f64) ?AtResult {
     var sy: f64 = undefined;
     const node = scene.interactive_tree.node.at(lx, ly, &sx, &sy) orelse return null;
 
+    return resultFromNode(node, sx, sy);
+}
+
+/// Search each leaf through wlroots so input regions and fractional scene
+/// projection use the same implementation as ordinary picking.
+pub fn atDrag(scene: *const Scene, lx: f64, ly: f64, excluded: ?*Window) ?AtResult {
+    const window = excluded orelse return scene.at(lx, ly);
+    return dragNodeAt(&scene.interactive_tree.node, lx, ly, window);
+}
+
+fn dragNodeAt(node: *wlr.SceneNode, lx: f64, ly: f64, excluded: *Window) ?AtResult {
+    if (!node.enabled) return null;
+    if (SceneNodeData.fromNode(node)) |data| {
+        if (data.data == .window and data.data.window == excluded) return null;
+    }
+    if (node.type == .tree) {
+        var children = wlr.SceneTree.fromNode(node).children.iterator(.reverse);
+        while (children.next()) |child| {
+            if (dragNodeAt(child, lx, ly, excluded)) |result| return result;
+        }
+        return null;
+    }
+    var sx: f64 = undefined;
+    var sy: f64 = undefined;
+    const hit = node.at(lx, ly, &sx, &sy) orelse return null;
+    return resultFromNode(hit, sx, sy);
+}
+
+fn resultFromNode(node: *wlr.SceneNode, sx: f64, sy: f64) ?AtResult {
     const surface: ?*wlr.Surface = blk: {
         if (node.type == .buffer) {
             const scene_buffer = wlr.SceneBuffer.fromNode(node);

@@ -93,6 +93,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
+    options.addOption(bool, "toplevel_drag_testing", b.option(bool, "toplevel-drag-testing", "Enable private synthetic touch input (tests only)") orelse false);
     options.addOption(bool, "tablet_testing", b.option(bool, "tablet-testing", "Enable private synthetic tablet input (tests only)") orelse false);
     options.addOption(bool, "output_retry_testing", b.option(bool, "output-retry-testing", "Enable private output retry fault injection (tests only)") orelse false);
     options.addOption([]const u8, "version", full_version);

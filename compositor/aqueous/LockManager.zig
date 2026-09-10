@@ -87,6 +87,8 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
         server.aqueous.cancelOverview();
         server.aqueous.cancelSnapPreview();
         manager.state = .waiting_for_lock_surfaces;
+        var drag_seats = server.input_manager.seats.iterator(.forward);
+        while (drag_seats.next()) |seat| seat.toplevel_drag.cancel();
         var tools = server.input_manager.tablet_tools.iterator(.forward);
         while (tools.next()) |tool| tool.cancel();
         @import("OutputMirror.zig").invalidateAll();

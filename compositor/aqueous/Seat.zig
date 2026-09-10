@@ -315,6 +315,7 @@ drag: enum {
 } = .none,
 
 request_set_selection: wl.Listener(*wlr.Seat.event.RequestSetSelection) = .init(handleRequestSetSelection),
+toplevel_drag: @import("XdgToplevelDragManager.zig").Operation = .{},
 request_start_drag: wl.Listener(*wlr.Seat.event.RequestStartDrag) = .init(handleRequestStartDrag),
 start_drag: wl.Listener(*wlr.Drag) = .init(handleStartDrag),
 drag_destroy: wl.Listener(*wlr.Drag) = .init(handleDragDestroy),
@@ -361,6 +362,7 @@ pub fn create(name: [*:0]const u8) !void {
 }
 
 pub fn destroy(seat: *Seat) void {
+    seat.toplevel_drag.cancel();
     seat.makeInert();
 
     while (seat.event_queue.popFront()) |event| {
@@ -406,6 +408,7 @@ pub fn destroy(seat: *Seat) void {
     seat.link_sent.remove();
 
     seat.event_queue.deinit(util.gpa);
+    seat.toplevel_drag.deinit();
     seat.cursor.deinit();
 
     seat.request_set_selection.link.remove();
@@ -1345,6 +1348,7 @@ fn handleStartDrag(listener: *wl.Listener(*wlr.Drag), wlr_drag: *wlr.Drag) void 
         .keyboard => unreachable,
     }
     server.aqueous.handleClientDragStarted();
+    seat.toplevel_drag.start(seat, wlr_drag);
     wlr_drag.events.destroy.add(&seat.drag_destroy);
 
     if (wlr_drag.icon) |wlr_drag_icon| {
@@ -1360,6 +1364,7 @@ fn handleDragDestroy(listener: *wl.Listener(*wlr.Drag), _: *wlr.Drag) void {
     const seat: *Seat = @fieldParentPtr("drag_destroy", listener);
     seat.drag_destroy.link.remove();
 
+    seat.toplevel_drag.deinit();
     const drag = seat.drag;
     seat.drag = .none;
     switch (drag) {

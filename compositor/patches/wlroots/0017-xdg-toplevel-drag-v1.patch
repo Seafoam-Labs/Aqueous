@@ -1,0 +1,490 @@
+--- a/include/types/wlr_data_device.h
++++ b/include/types/wlr_data_device.h
+@@ -13,6 +13,7 @@
+ 	struct wlr_data_source_impl impl;
+ 	struct wl_resource *resource;
+ 	bool finalized;
++	bool toplevel_drag_used;
+ };
+ 
+ extern const struct wlr_surface_role drag_icon_surface_role;
+@@ -27,6 +28,8 @@
+ 	struct wl_list *resource_list);
+ struct wlr_client_data_source *client_data_source_from_resource(
+ 	struct wl_resource *resource);
++bool xdg_toplevel_drag_check_selection(struct wlr_client_data_source *source, struct wl_resource *device);
++void xdg_toplevel_drag_start(struct wlr_drag *drag);
+ void data_source_notify_finish(struct wlr_data_source *source);
+ 
+ struct wlr_seat_client *seat_client_from_data_device_resource(
+--- a/include/wlr/types/wlr_xdg_toplevel_drag_v1.h
++++ b/include/wlr/types/wlr_xdg_toplevel_drag_v1.h
+@@ -0,0 +1,32 @@
++#ifndef WLR_USE_UNSTABLE
++#error "Add -DWLR_USE_UNSTABLE to enable unstable wlroots features"
++#endif
++#ifndef WLR_TYPES_XDG_TOPLEVEL_DRAG_V1_H
++#define WLR_TYPES_XDG_TOPLEVEL_DRAG_V1_H
++#include <wayland-server-core.h>
++#include <wlr/types/wlr_data_device.h>
++#include <wlr/types/wlr_xdg_shell.h>
++
++struct wlr_xdg_toplevel_drag_v1 {
++	struct wl_resource *resource;
++	struct wlr_data_source *source;
++	struct wlr_xdg_toplevel *toplevel;
++	int32_t x_offset, y_offset;
++	bool active, ended;
++	struct {
++		struct wl_signal change; // NULL; attachment, map, start or end
++		struct wl_signal destroy; // NULL
++	} events;
++	struct {
++		struct wl_listener source_destroy;
++		struct wl_resource *manager_resource;
++		struct wl_listener manager_destroy;
++		struct wl_listener toplevel_destroy, unmap, map;
++		struct wl_listener drag_destroy, drag_drop;
++	} WLR_PRIVATE;
++};
++
++struct wl_global *wlr_xdg_toplevel_drag_manager_v1_create(struct wl_display *display);
++struct wlr_xdg_toplevel_drag_v1 *wlr_xdg_toplevel_drag_v1_try_from_data_source(
++	struct wlr_data_source *source);
++#endif
+--- a/protocol/meson.build
++++ b/protocol/meson.build
+@@ -42,6 +42,7 @@
+ 	'security-context-v1': wl_protocol_dir / 'staging/security-context/security-context-v1.xml',
+ 	'single-pixel-buffer-v1': wl_protocol_dir / 'staging/single-pixel-buffer/single-pixel-buffer-v1.xml',
+ 	'xdg-activation-v1': wl_protocol_dir / 'staging/xdg-activation/xdg-activation-v1.xml',
++	'xdg-toplevel-drag-v1': wl_protocol_dir / 'staging/xdg-toplevel-drag/xdg-toplevel-drag-v1.xml',
+ 	'xdg-dialog-v1': wl_protocol_dir / 'staging/xdg-dialog/xdg-dialog-v1.xml',
+ 	'xdg-system-bell-v1': wl_protocol_dir / 'staging/xdg-system-bell/xdg-system-bell-v1.xml',
+ 	'xdg-toplevel-icon-v1': wl_protocol_dir / 'staging/xdg-toplevel-icon/xdg-toplevel-icon-v1.xml',
+--- a/types/data_device/wlr_data_device.c
++++ b/types/data_device/wlr_data_device.c
+@@ -35,6 +35,10 @@
+ 		source = client_data_source_from_resource(source_resource);
+ 	}
+ 
++	if (source != NULL && !xdg_toplevel_drag_check_selection(source, device_resource)) {
++		return;
++	}
++
+ 	if (source != NULL) {
+ 		source->finalized = true;
+ 	}
+@@ -62,6 +66,11 @@
+ 		source = client_data_source_from_resource(source_resource);
+ 	}
+ 
++	if (source && source->toplevel_drag_used && source->finalized) {
++		wl_resource_post_error(device_resource, WL_DATA_DEVICE_ERROR_USED_SOURCE,
++			"toplevel drag source already used");
++		return;
++	}
+ 	struct wlr_surface *icon = NULL;
+ 	if (icon_resource) {
+ 		icon = wlr_surface_from_resource(icon_resource);
+--- a/types/data_device/wlr_drag.c
++++ b/types/data_device/wlr_drag.c
+@@ -9,6 +9,7 @@
+ #include <wlr/types/wlr_seat.h>
+ #include <wlr/util/log.h>
+ #include "types/wlr_data_device.h"
++#include <wlr/types/wlr_xdg_toplevel_drag_v1.h>
+ 
+ static void drag_handle_seat_client_destroy(struct wl_listener *listener,
+ 		void *data) {
+@@ -29,6 +30,11 @@
+ 
+ static void drag_set_focus(struct wlr_drag *drag,
+ 		struct wlr_surface *surface, double sx, double sy) {
++	// Another held button can keep the grab alive after the drop. New offers
++	// would overwrite the accepted/action state needed by the dropped offer.
++	if (drag->dropped && surface != NULL) {
++		return;
++	}
+ 	if (drag->focus == surface) {
+ 		return;
+ 	}
+@@ -176,7 +182,12 @@
+ 	if (drag->icon != NULL) {
+ 		drag_icon_destroy(drag->icon);
+ 	}
++	struct wlr_data_source *cancel_source = !drag->dropped &&
++		wlr_xdg_toplevel_drag_v1_try_from_data_source(drag->source) ? drag->source : NULL;
+ 	free(drag);
++	// Grab cancellation must end the source operation as well. Its drag
++	// listener is already removed, so cancellation cannot recurse into drag.
++	wlr_data_source_destroy(cancel_source);
+ }
+ 
+ static void drag_handle_pointer_enter(struct wlr_seat_pointer_grab *grab,
+@@ -193,6 +204,9 @@
+ static void drag_handle_pointer_motion(struct wlr_seat_pointer_grab *grab,
+ 		uint32_t time, double sx, double sy) {
+ 	struct wlr_drag *drag = grab->data;
++	if (drag->dropped) {
++		return;
++	}
+ 	if (drag->focus != NULL && drag->focus_client != NULL) {
+ 		struct wl_resource *resource;
+ 		wl_resource_for_each(resource, &drag->focus_client->data_devices) {
+@@ -290,10 +304,10 @@
+ 		return 0;
+ 	}
+ 
+-	if (drag->focus_client && drag->source->current_dnd_action &&
++	if (drag->source && drag->focus_client && drag->source->current_dnd_action &&
+ 			drag->source->accepted) {
+ 		drag_drop(drag, time);
+-	} else if (drag->source->impl->dnd_finish) {
++	} else if (drag->source && drag->source->impl->dnd_finish) {
+ 		// This will end the grab and free `drag`
+ 		wlr_data_source_destroy(drag->source);
+ 		return 0;
+@@ -306,6 +320,9 @@
+ static void drag_handle_touch_motion(struct wlr_seat_touch_grab *grab,
+ 		uint32_t time, struct wlr_touch_point *point) {
+ 	struct wlr_drag *drag = grab->data;
++	if (drag->dropped) {
++		return;
++	}
+ 	if (drag->focus && drag->focus_client) {
+ 		struct wl_resource *resource;
+ 		wl_resource_for_each(resource, &drag->focus_client->data_devices) {
+@@ -341,6 +358,19 @@
+ 	drag_set_focus(drag, NULL, 0, 0);
+ }
+ 
++static void drag_handle_touch_wl_cancel(struct wlr_seat_touch_grab *grab,
++		struct wlr_seat_client *seat_client) {
++	struct wlr_drag *drag = grab->data;
++	if (drag->seat_client != seat_client) {
++		return;
++	}
++	if (drag->source) {
++		wlr_data_source_destroy(drag->source);
++	} else {
++		drag_destroy(drag);
++	}
++}
++
+ static const struct wlr_touch_grab_interface
+ 		data_device_touch_drag_interface = {
+ 	.down = drag_handle_touch_down,
+@@ -349,6 +379,7 @@
+ 	.enter = drag_handle_touch_enter,
+ 	.cancel = drag_handle_touch_cancel,
+ 	.clear_focus = drag_handle_clear_focus,
++	.wl_cancel = drag_handle_touch_wl_cancel,
+ };
+ 
+ static void drag_handle_keyboard_enter(struct wlr_seat_keyboard_grab *grab,
+@@ -396,6 +427,8 @@
+ static void drag_handle_drag_source_destroy(struct wl_listener *listener,
+ 		void *data) {
+ 	struct wlr_drag *drag = wl_container_of(listener, drag, source_destroy);
++	wl_list_remove(&drag->source_destroy.link);
++	drag->source = NULL;
+ 	drag_destroy(drag);
+ }
+ 
+@@ -496,6 +529,9 @@
+ 	if (seat->drag != NULL) {
+ 		wlr_log(WLR_DEBUG, "Rejecting start_drag request, "
+ 			"another drag-and-drop operation is already in progress");
++		if (wlr_xdg_toplevel_drag_v1_try_from_data_source(drag->source)) {
++			wlr_data_source_destroy(drag->source);
++		}
+ 		return;
+ 	}
+ 
+@@ -535,6 +571,7 @@
+ 		wl_signal_add(&drag->source->events.destroy, &seat->drag_source_destroy);
+ 	}
+ 
++	xdg_toplevel_drag_start(drag);
+ 	wl_signal_emit_mutable(&seat->events.start_drag, drag);
+ }
+ 
+@@ -555,7 +592,11 @@
+ 	drag->touch_id = point->touch_id;
+ 
+ 	wlr_seat_touch_start_grab(seat, &drag->touch_grab);
+-	drag_set_focus(drag, point->surface, point->sx, point->sy);
++	// An attached origin is not a drop target. The compositor will pick a
++	// target with the toplevel excluded once it receives start_drag.
++	if (!wlr_xdg_toplevel_drag_v1_try_from_data_source(drag->source)) {
++		drag_set_focus(drag, point->surface, point->sx, point->sy);
++	}
+ 
+ 	wlr_seat_start_drag(seat, drag, serial);
+ }
+--- a/types/meson.build
++++ b/types/meson.build
+@@ -100,6 +100,7 @@
+ 	'wlr_xdg_activation_v1.c',
+ 	'wlr_xdg_decoration_v1.c',
+ 	'wlr_xdg_dialog_v1.c',
++	'wlr_xdg_toplevel_drag_v1.c',
+ 	'wlr_xdg_foreign_v1.c',
+ 	'wlr_xdg_foreign_v2.c',
+ 	'wlr_xdg_foreign_registry.c',
+--- a/types/wlr_xdg_toplevel_drag_v1.c
++++ b/types/wlr_xdg_toplevel_drag_v1.c
+@@ -0,0 +1,252 @@
++#include <assert.h>
++#include <stdlib.h>
++#include <wlr/types/wlr_compositor.h>
++#include <wlr/types/wlr_xdg_toplevel_drag_v1.h>
++#include "types/wlr_data_device.h"
++#include "xdg-toplevel-drag-v1-protocol.h"
++
++struct manager {
++	struct wl_global *global;
++	struct wl_listener display_destroy;
++};
++
++static void handle_manager_destroy(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, manager_destroy);
++	wl_list_remove(&drag->manager_destroy.link);
++	wl_list_init(&drag->manager_destroy.link);
++	drag->manager_resource = NULL;
++}
++
++bool xdg_toplevel_drag_check_selection(struct wlr_client_data_source *source,
++		struct wl_resource *device) {
++	if (!source->toplevel_drag_used) {
++		return true;
++	}
++	struct wlr_xdg_toplevel_drag_v1 *drag =
++		wlr_xdg_toplevel_drag_v1_try_from_data_source(&source->source);
++	if (drag && drag->manager_resource) {
++		wl_resource_post_error(drag->manager_resource,
++			XDG_TOPLEVEL_DRAG_MANAGER_V1_ERROR_INVALID_SOURCE,
++			"toplevel drag source cannot be used for selection");
++	} else {
++		// The factory may have been destroyed; report misuse on the live device.
++		wl_resource_post_error(device, WL_DATA_DEVICE_ERROR_USED_SOURCE,
++			"toplevel drag source cannot be used for selection");
++	}
++	return false;
++}
++
++static void changed(struct wlr_xdg_toplevel_drag_v1 *drag) {
++	wl_signal_emit_mutable(&drag->events.change, NULL);
++}
++
++static void detach(struct wlr_xdg_toplevel_drag_v1 *drag) {
++	if (!drag->toplevel) {
++		return;
++	}
++	wl_list_remove(&drag->toplevel_destroy.link);
++	wl_list_remove(&drag->unmap.link);
++	wl_list_remove(&drag->map.link);
++	drag->toplevel = NULL;
++	changed(drag);
++}
++
++static void handle_unmap(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, unmap);
++	detach(drag);
++}
++
++static void handle_toplevel_destroy(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, toplevel_destroy);
++	detach(drag);
++}
++
++static void handle_map(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, map);
++	changed(drag);
++}
++
++static void end(struct wlr_xdg_toplevel_drag_v1 *drag) {
++	drag->active = false;
++	drag->ended = true;
++	changed(drag);
++}
++
++static void handle_source_destroy(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, source_destroy);
++	wl_list_remove(&drag->source_destroy.link);
++	wl_list_init(&drag->source_destroy.link);
++	drag->source = NULL;
++	end(drag);
++}
++
++struct wlr_xdg_toplevel_drag_v1 *wlr_xdg_toplevel_drag_v1_try_from_data_source(
++		struct wlr_data_source *source) {
++	if (!source) {
++		return NULL;
++	}
++	struct wl_listener *listener = wl_signal_get(&source->events.destroy, handle_source_destroy);
++	if (!listener) {
++		return NULL;
++	}
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, source_destroy);
++	return drag;
++}
++
++static void handle_drag_drop(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, drag_drop);
++	end(drag);
++}
++
++static void handle_drag_destroy(struct wl_listener *listener, void *data) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_container_of(listener, drag, drag_destroy);
++	wl_list_remove(&drag->drag_destroy.link);
++	wl_list_init(&drag->drag_destroy.link);
++	wl_list_remove(&drag->drag_drop.link);
++	wl_list_init(&drag->drag_drop.link);
++	end(drag);
++}
++
++void xdg_toplevel_drag_start(struct wlr_drag *wlr_drag) {
++	struct wlr_xdg_toplevel_drag_v1 *drag =
++		wlr_xdg_toplevel_drag_v1_try_from_data_source(wlr_drag->source);
++	if (!drag || drag->ended || drag->active) {
++		return;
++	}
++	drag->active = true;
++	drag->drag_destroy.notify = handle_drag_destroy;
++	wl_signal_add(&wlr_drag->events.destroy, &drag->drag_destroy);
++	drag->drag_drop.notify = handle_drag_drop;
++	wl_signal_add(&wlr_drag->events.drop, &drag->drag_drop);
++	changed(drag);
++}
++
++static void destroy_resource(struct wl_resource *resource) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_resource_get_user_data(resource);
++	wl_signal_emit_mutable(&drag->events.destroy, NULL);
++	// Do not emit change after the compositor has removed its listeners.
++	if (drag->toplevel) {
++		wl_list_remove(&drag->toplevel_destroy.link);
++		wl_list_remove(&drag->unmap.link);
++		wl_list_remove(&drag->map.link);
++	}
++	wl_list_remove(&drag->manager_destroy.link);
++	wl_list_remove(&drag->source_destroy.link);
++	wl_list_remove(&drag->drag_destroy.link);
++	wl_list_remove(&drag->drag_drop.link);
++	free(drag);
++}
++
++static void destroy(struct wl_client *client, struct wl_resource *resource) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_resource_get_user_data(resource);
++	if (!drag->ended) {
++		wl_resource_post_error(resource, XDG_TOPLEVEL_DRAG_V1_ERROR_ONGOING_DRAG,
++			"the data source drag has not ended");
++		return;
++	}
++	wl_resource_destroy(resource);
++}
++
++static void attach(struct wl_client *client, struct wl_resource *resource,
++		struct wl_resource *top_resource, int32_t x, int32_t y) {
++	struct wlr_xdg_toplevel_drag_v1 *drag = wl_resource_get_user_data(resource);
++	if (drag->toplevel) {
++		wl_resource_post_error(resource, XDG_TOPLEVEL_DRAG_V1_ERROR_TOPLEVEL_ATTACHED,
++			"a toplevel is already attached");
++		return;
++	}
++	struct wlr_xdg_toplevel *top = wlr_xdg_toplevel_from_resource(top_resource);
++	if (!top || drag->ended) {
++		return;
++	}
++	drag->toplevel = top;
++	drag->x_offset = x;
++	drag->y_offset = y;
++	drag->toplevel_destroy.notify = handle_toplevel_destroy;
++	wl_signal_add(&top->events.destroy, &drag->toplevel_destroy);
++	drag->unmap.notify = handle_unmap;
++	wl_signal_add(&top->base->surface->events.unmap, &drag->unmap);
++	drag->map.notify = handle_map;
++	wl_signal_add(&top->base->surface->events.map, &drag->map);
++	changed(drag);
++}
++
++static const struct xdg_toplevel_drag_v1_interface drag_impl = {
++	.destroy = destroy,
++	.attach = attach,
++};
++
++static void get_drag(struct wl_client *client, struct wl_resource *resource,
++		uint32_t id, struct wl_resource *source_resource) {
++	struct wlr_client_data_source *source = client_data_source_from_resource(source_resource);
++	if (!source || source->finalized || source->toplevel_drag_used) {
++		wl_resource_post_error(resource, XDG_TOPLEVEL_DRAG_MANAGER_V1_ERROR_INVALID_SOURCE,
++			"source already used");
++		return;
++	}
++	struct wlr_xdg_toplevel_drag_v1 *drag = calloc(1, sizeof(*drag));
++	if (!drag) {
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	drag->resource = wl_resource_create(client, &xdg_toplevel_drag_v1_interface, 1, id);
++	if (!drag->resource) {
++		free(drag);
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	wl_resource_set_implementation(drag->resource, &drag_impl, drag, destroy_resource);
++	drag->manager_resource = resource;
++	drag->manager_destroy.notify = handle_manager_destroy;
++	wl_resource_add_destroy_listener(resource, &drag->manager_destroy);
++	source->toplevel_drag_used = true;
++	drag->source = &source->source;
++	wl_signal_init(&drag->events.change);
++	wl_signal_init(&drag->events.destroy);
++	wl_list_init(&drag->drag_destroy.link);
++	wl_list_init(&drag->drag_drop.link);
++	drag->source_destroy.notify = handle_source_destroy;
++	wl_signal_add(&source->source.events.destroy, &drag->source_destroy);
++}
++
++static void manager_destroy(struct wl_client *client, struct wl_resource *resource) {
++	wl_resource_destroy(resource);
++}
++
++static const struct xdg_toplevel_drag_manager_v1_interface manager_impl = {
++	.destroy = manager_destroy,
++	.get_xdg_toplevel_drag = get_drag,
++};
++
++static void bind_manager(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
++	struct wl_resource *resource = wl_resource_create(client,
++		&xdg_toplevel_drag_manager_v1_interface, version, id);
++	if (!resource) {
++		wl_client_post_no_memory(client);
++		return;
++	}
++	wl_resource_set_implementation(resource, &manager_impl, NULL, NULL);
++}
++
++static void display_destroy(struct wl_listener *listener, void *data) {
++	struct manager *manager = wl_container_of(listener, manager, display_destroy);
++	wl_list_remove(&manager->display_destroy.link);
++	wl_global_destroy(manager->global);
++	free(manager);
++}
++
++struct wl_global *wlr_xdg_toplevel_drag_manager_v1_create(struct wl_display *display) {
++	struct manager *manager = calloc(1, sizeof(*manager));
++	if (!manager) {
++		return NULL;
++	}
++	manager->global = wl_global_create(display, &xdg_toplevel_drag_manager_v1_interface,
++		1, manager, bind_manager);
++	if (!manager->global) {
++		free(manager);
++		return NULL;
++	}
++	manager->display_destroy.notify = display_destroy;
++	wl_display_add_destroy_listener(display, &manager->display_destroy);
++	return manager->global;
++}

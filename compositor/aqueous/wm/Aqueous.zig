@@ -79,7 +79,7 @@ untrap_keysym: ?u32 = null,
 requested_stack_focus: ?layout_types.Handle = null,
 overview: ?overview_model.State = null,
 
-const Drag = struct {
+pub const Drag = struct {
     handle: layout_types.Handle,
     start: layout_types.Rect,
     pointer_x: f64,
@@ -94,6 +94,7 @@ const Drag = struct {
     resize_axis: ?pointer_drag.ResizeAxis = null,
     constraints: geometry.Constraints = .{},
     client_seat: ?usize = null,
+    dnd: bool = false,
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
     snap_candidate: ?SnapCandidate = null,
@@ -236,6 +237,8 @@ pub fn traceCycle(aqueous: *Aqueous, phase: Trace.Phase, external_active: bool) 
 pub fn applyManageCycle(aqueous: *Aqueous) !void {
     if (!aqueous.mode.runsInternal()) return;
     defer aqueous.requested_stack_focus = null;
+    var drag_seats = server.input_manager.seats.iterator(.forward);
+    while (drag_seats.next()) |seat| seat.toplevel_drag.validate();
 
     if (!aqueous.globals_applied) {
         aqueous.applyGlobalConfig();
@@ -365,6 +368,8 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 output_layout.layoutOptions(.floating).border,
                 rule,
             );
+            var window_drag_seats = server.input_manager.seats.iterator(.forward);
+            while (window_drag_seats.next()) |seat| seat.toplevel_drag.syncWindow(window.handle);
             if (pending_new_focus != 0 and window.handle == pending_new_focus) {
                 pending_new_focus_seen = true;
                 if (!admissionFocusEligible(window.accepts_focus and state.focus_allowed, state.kind(), effect.workspace_visible)) {
@@ -803,15 +808,31 @@ fn startClientPointerDrag(
     action: pointer_drag.Action,
     edges: pointer_drag.ResizeEdges,
 ) void {
+    aqueous.drag = aqueous.createClientDrag(handle, pointer, action, edges, true) orelse return;
+}
+
+pub fn createClientDrag(
+    aqueous: *Aqueous,
+    handle: layout_types.Handle,
+    pointer: CompositorApi.ClientPointer,
+    action: pointer_drag.Action,
+    edges: pointer_drag.ResizeEdges,
+    owns_grab: bool,
+) ?Drag {
     const previous_cause = aqueous.focus_cause;
     aqueous.focus_cause = .pointer;
     defer aqueous.focus_cause = previous_cause;
-    if (aqueous.drag != null) return;
-    if (action == .resize_floating and !aqueous.clientResizeAllowed(handle)) return;
-    const state = aqueous.window_states.get(handle) orelse return;
-    if (state.fixed_position) return;
-    const window_rect = aqueous.api.windowGeometry(handle) orelse return;
-    const workspace = aqueous.api.windowWorkspace(handle) orelse return;
+    if (!aqueous.mode.runsInternal() or aqueous.drag != null) return null;
+    if (aqueous.api.windowIsFullscreen(handle)) return null;
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| {
+        if (seat.toplevel_drag.movement) |move| if (move.handle == handle) return null;
+    }
+    if (action == .resize_floating and !aqueous.clientResizeAllowed(handle)) return null;
+    const state = aqueous.window_states.get(handle) orelse return null;
+    if (state.fixed_position) return null;
+    const window_rect = aqueous.api.windowGeometry(handle) orelse return null;
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return null;
     const layout_key: LayoutStateKey = .{
         .output = workspace.output_id,
         .workspace = workspace.workspace_number,
@@ -821,17 +842,17 @@ fn startClientPointerDrag(
     var drag_start = window_rect;
 
     if (state.kind() == .maximized) {
-        if (action != .move_floating) return;
+        if (action != .move_floating) return null;
         const restored_kind = aqueous.window_states.maximizedMoveRestoreKind(
             handle,
             uses_floating_layout,
-        ) orelse return;
+        ) orelse return null;
         layout_floating = restored_kind == .tiled;
         const normal = if (layout_floating) blk: {
-            const layout_state = aqueous.layout_states.getPtr(layout_key) orelse return;
-            break :blk layout_engine.floatingGeometry(layout_state, handle) orelse return;
+            const layout_state = aqueous.layout_states.getPtr(layout_key) orelse return null;
+            break :blk layout_engine.floatingGeometry(layout_state, handle) orelse return null;
         } else state.floating_geometry;
-        if (normal.width <= 0 or normal.height <= 0) return;
+        if (normal.width <= 0 or normal.height <= 0) return null;
         drag_start = pointer_drag.restoredMoveStart(
             window_rect,
             normal,
@@ -840,7 +861,7 @@ fn startClientPointerDrag(
         );
     } else if (state.kind() != .floating and !layout_floating) {
         log.debug("client pointer drag rejected handle={} kind={s} floating_layout={}", .{ handle, @tagName(state.kind()), uses_floating_layout });
-        return;
+        return null;
     }
     if (state.snap_state != .none and state.snap_restore_geometry.width > 0 and state.snap_restore_geometry.height > 0) {
         drag_start = if (action == .move_floating)
@@ -849,20 +870,20 @@ fn startClientPointerDrag(
             state.snap_restore_geometry;
         state.snap_state = .none;
         state.custom_snap_zone = std.math.maxInt(u8);
-        if (!aqueous.storeFreeformGeometry(layout_key, handle, state, layout_floating, drag_start)) return;
+        if (!aqueous.storeFreeformGeometry(layout_key, handle, state, layout_floating, drag_start)) return null;
     }
-    if (!aqueous.api.beginClientPointerOperation(pointer.seat)) return;
+    if (owns_grab and !aqueous.api.beginClientPointerOperation(pointer.seat)) return null;
 
     if (state.kind() == .maximized) {
         if (layout_floating) {
             const layout_state = aqueous.layout_states.getPtr(layout_key) orelse {
-                aqueous.api.endClientPointerOperation(pointer.seat);
-                return;
+                if (owns_grab) aqueous.api.endClientPointerOperation(pointer.seat);
+                return null;
             };
             layout_engine.setFloatingGeometry(util.gpa, layout_state, handle, drag_start) catch {
                 log.err("out of memory restoring floating-layout geometry for titlebar move", .{});
-                aqueous.api.endClientPointerOperation(pointer.seat);
-                return;
+                if (owns_grab) aqueous.api.endClientPointerOperation(pointer.seat);
+                return null;
             };
         } else {
             state.floating_geometry = drag_start;
@@ -871,12 +892,12 @@ fn startClientPointerDrag(
             handle,
             layout_floating,
         ) orelse {
-            aqueous.api.endClientPointerOperation(pointer.seat);
-            return;
+            if (owns_grab) aqueous.api.endClientPointerOperation(pointer.seat);
+            return null;
         };
     }
 
-    aqueous.drag = .{
+    const result: Drag = .{
         .handle = handle,
         .start = drag_start,
         .pointer_x = pointer.x,
@@ -887,15 +908,26 @@ fn startClientPointerDrag(
         .layout_key = layout_key,
         .resize_edges = edges,
         .constraints = aqueous.api.windowConstraints(handle),
-        .client_seat = pointer.seat,
+        .client_seat = if (owns_grab) pointer.seat else null,
+        .dnd = !owns_grab,
         .layout_floating = layout_floating,
     };
     log.debug("client pointer drag started handle={} action={s} stacking_owned={}", .{ handle, @tagName(action), layout_floating });
     aqueous.api.beginInteractive(handle, action == .resize_floating);
-    aqueous.requestFocus(handle);
+    if (owns_grab) aqueous.requestFocus(handle);
+    return result;
+}
+
+pub fn clientDragEligible(aqueous: *Aqueous, drag: Drag) bool {
+    const state = aqueous.window_states.get(drag.handle) orelse return false;
+    return !state.fixed_position and !aqueous.api.windowIsFullscreen(drag.handle) and
+        (state.kind() == .floating or (drag.layout_floating and state.kind() == .tiled and
+            aqueous.windowUsesFloatingLayout(drag.layout_key, drag.handle)));
 }
 
 fn finishInteractiveDragFor(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    var seats = server.input_manager.seats.iterator(.forward);
+    while (seats.next()) |seat| seat.toplevel_drag.stopWindow(handle);
     if (aqueous.drag) |drag| if (drag.handle == handle) aqueous.finishInteractiveDrag();
 }
 
@@ -1075,7 +1107,12 @@ pub fn cancelSnapPreview(aqueous: *Aqueous) void {
 
 fn finishInteractiveDrag(aqueous: *Aqueous) void {
     const drag = aqueous.drag orelse return;
-    aqueous.api.hideSnapOverlay();
+    aqueous.drag = null;
+    aqueous.finishDrag(drag);
+}
+
+pub fn finishDrag(aqueous: *Aqueous, drag: Drag) void {
+    if (!drag.dnd) aqueous.api.hideSnapOverlay();
     if (drag.snap_candidate) |candidate| {
         if (drag.layout_floating and aqueous.layoutIsFloating(drag.layout_key) and
             candidate.output_id == drag.layout_key.output)
@@ -1105,7 +1142,6 @@ fn finishInteractiveDrag(aqueous: *Aqueous) void {
     }
     if (drag.action != .swap_tiled) aqueous.api.endInteractive(drag.handle);
     if (drag.client_seat) |seat| aqueous.api.endClientPointerOperation(seat);
-    aqueous.drag = null;
 }
 
 fn keyBindingVerb(aqueous: *Aqueous, keysym: u32, modifiers: u32) ?[]const u8 {
@@ -1252,6 +1288,10 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
         return true;
     }
     const target = aqueous.api.windowAt(x, y) orelse return false;
+    var drag_seats = server.input_manager.seats.iterator(.forward);
+    while (drag_seats.next()) |seat| {
+        if (seat.toplevel_drag.movement) |movement| if (movement.handle == target.handle) return false;
+    }
     const state = aqueous.window_states.get(target.handle) orelse return false;
     if (state.fixed_position) return false;
     const workspace = aqueous.api.windowWorkspace(target.handle) orelse return false;
@@ -1433,6 +1473,10 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         return;
     }
     const drag = &(aqueous.drag orelse return);
+    aqueous.updateInteractiveDrag(drag, x, y);
+}
+
+pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) void {
     drag.last_pointer_x = x;
     drag.last_pointer_y = y;
     if (drag.action == .swap_tiled) {
@@ -1515,7 +1559,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         const pointer_target = aqueous.api.outputTargetAt(x, y, false);
         if (pointer_target == null or pointer_target.?.id != drag.layout_key.output) {
             drag.snap_candidate = null;
-            aqueous.api.hideSnapOverlay();
+            if (!drag.dnd) aqueous.api.hideSnapOverlay();
         }
         if (pointer_target) |target| if (target.id == drag.layout_key.output) {
             const area = aqueous.effectiveUsableArea(target.area, target.usable_area);
@@ -1524,7 +1568,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
             resolved_geometry = aqueous.api.attractToWindowEdges(drag.handle, resolved_geometry, options.floating_resistance);
             const pointer_x = clampI32(@intFromFloat(x));
             const pointer_y = clampI32(@intFromFloat(y));
-            const zone_candidate = drag.layout_floating and aqueous.layoutIsFloating(drag.layout_key) and
+            const zone_candidate = !drag.dnd and drag.layout_floating and aqueous.layoutIsFloating(drag.layout_key) and
                 aqueous.updateStackingSnapPreview(drag, target.id, area, pointer_x, pointer_y, options.floating_snap_threshold);
             const edge_direction = if (!zone_candidate)
                 geometry.snapDirectionAt(area, pointer_x, pointer_y, options.floating_snap_threshold, options.floating_top_edge_maximize)
@@ -1545,7 +1589,7 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         };
         if (!drag.layout_floating or !aqueous.layoutIsFloating(drag.layout_key)) {
             drag.snap_candidate = null;
-            aqueous.api.hideSnapOverlay();
+            if (!drag.dnd) aqueous.api.hideSnapOverlay();
         }
     }
     if (drag.layout_floating) {

@@ -14,6 +14,7 @@
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_fifo_v1.h>
 #include <wlr/types/wlr_xdg_dialog_v1.h>
+#include <wlr/types/wlr_xdg_toplevel_drag_v1.h>
 #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
 
 #if !defined(WLR_AQUEOUS_TOPLEVEL_ICON_VERSION) || WLR_AQUEOUS_TOPLEVEL_ICON_VERSION != 1

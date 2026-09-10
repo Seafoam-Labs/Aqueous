@@ -208,3 +208,18 @@ test "floating resize preserves the requested edge anchors" {
         resize(start, 500, 500, .{ .top = true, .left = true }),
     );
 }
+
+/// A client-provided offset is a hint. Keep extreme signed protocol values
+/// away from layout integer overflow while retaining negative output positions.
+pub fn toplevelDragOrigin(pointer: f64, offset: i32) i32 {
+    const limit: f64 = @floatFromInt(std.math.maxInt(i32) / 4);
+    return @intFromFloat(std.math.clamp(@round(pointer - @as(f64, @floatFromInt(offset))), -limit, limit));
+}
+
+test "toplevel drag offsets use logical geometry and saturate hostile hints" {
+    try std.testing.expectEqual(@as(i32, 620), toplevelDragOrigin(650, 30));
+    try std.testing.expectEqual(@as(i32, -225), toplevelDragOrigin(-200.25, 25));
+    try std.testing.expectEqual(@as(i32, 31), toplevelDragOrigin(10.5, -20));
+    try std.testing.expectEqual(@as(i32, std.math.maxInt(i32) / 4), toplevelDragOrigin(1280, std.math.minInt(i32)));
+    try std.testing.expectEqual(@as(i32, -(std.math.maxInt(i32) / 4)), toplevelDragOrigin(-1280, std.math.maxInt(i32)));
+}

@@ -37,6 +37,13 @@ retrieval. The native overview uses a placeholder for name-only icons; DMS can
 resolve theme names and use supplied pixels. See the
 [implementation and validation record](xdg-toplevel-icon-implementation-plan.md).
 
+`xdg-toplevel-drag-v1` is implemented in the patched wlroots dependency and
+Aqueous's per-seat DnD path. Both renderer builds expose version 1 under integrated
+policy, including for security-context clients. Existing move restrictions apply;
+legacy external-WM mode hides the global. Protocol, pointer/touch, lifecycle, and
+output/seat regressions pass with Pixman. Vulkan runtime qualification remains;
+see the [implementation record](xdg-toplevel-drag-v1-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols staging
@@ -44,7 +51,6 @@ resolve theme names and use supplied pixels. See the
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
 | commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
-| xdg-toplevel-drag-v1 | `xdg_toplevel_drag_manager_v1` | No implementation found. | Move a real toplevel during drag-and-drop, enabling tab detachment and reattachment. Integrate mapping, movement, drop/cancellation, and window lifetime with the existing drag path. |
 | xdg-toplevel-tag-v1 | `xdg_toplevel_tag_manager_v1` | No implementation found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Add tag/description storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
 | xdg-system-bell-v1 | `xdg_system_bell_v1` | Present: `wlr_xdg_system_bell_v1_create`. | Standard audible or visual bell requests. Connect events to configurable feedback, with rate limiting. |
 | drm-lease-v1 | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
@@ -168,7 +174,6 @@ advertising protocol globals. Recommended order for general desktop use:
 | Priority | Work | Estimated scope |
 |---|---|---|
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
-| Medium | **xdg-toplevel-drag-v1** | Medium–large: coordinate drag-and-drop with window movement and lifetime. |
 | Medium | **xdg-toplevel-tag-v1** | Small–medium: metadata plus rule/inspection integration; value depends on participating clients. |
 | Low; small polish task | **xdg-system-bell-v1** | Small: configurable audible/visual feedback. |
 

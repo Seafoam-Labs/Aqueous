@@ -350,6 +350,14 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     const op_value = parsed.value.object.get("op") orelse return service.sendError(client, "unknown op ''");
     if (op_value != .string) return service.sendError(client, "op must be a string");
     const op = op_value.string;
+    if (comptime build_options.toplevel_drag_testing) {
+        if (std.mem.eql(u8, op, "test_toplevel_drag_touch")) {
+            var buffer: [256]u8 = undefined;
+            var writer = std.Io.Writer.fixed(&buffer);
+            @import("../../ToplevelDragTest.zig").request(parsed.value.object, &writer) catch |err| return service.sendError(client, @errorName(err));
+            return service.sendStatic(client, writer.buffered());
+        }
+    }
     if (comptime build_options.tablet_testing) {
         if (std.mem.eql(u8, op, "test_tablet")) {
             var buffer: [2048]u8 = undefined;

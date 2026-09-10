@@ -28,6 +28,18 @@ FIFO v1 is available in both builds. After building with
 [FIFO implementation and validation record](../docs/fifo-v1-implementation-plan.md)
 for queue semantics, syncobj remap tests, and remaining hardware qualification.
 
+xdg-toplevel-drag-v1 is available in both builds under integrated policy,
+including for security-context clients. Movable windows follow pointer or touch
+DnD while underlying windows remain eligible drop targets. Tiled/fixed/fullscreen
+move restrictions remain in effect; detached tabs are not automatically floated.
+Legacy external-WM mode hides the global.
+
+Build with `-Dtoplevel-drag-testing=true` and run
+`python3 scripts/test-xdg-toplevel-drag.py --renderer pixman` against the diagnostic
+build, or `--renderer vulkan` against the effects build. See the
+[implementation and validation record](../docs/xdg-toplevel-drag-v1-implementation-plan.md)
+for lifecycle behavior, tests, and remaining hardware qualification.
+
 xdg-shell v7 is available in both builds, including suspension and constrained
 resize-edge states. Run `python3 scripts/test-xdg-shell-states.py --renderer vulkan`
 with the effects build, or use `--renderer pixman` with the diagnostic build.

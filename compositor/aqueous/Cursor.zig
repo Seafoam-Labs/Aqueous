@@ -759,8 +759,13 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
             return;
         }
 
+        if (cursor.seat.drag == .pointer) {
+            result.value_ptr.* = null;
+            _ = cursor.seat.wlr_seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+            return;
+        }
         const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
-        if (server.aqueous.handlePointerButton(event.button, modifiers, true, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec)) {
+        if (cursor.seat.drag == .none and server.aqueous.handlePointerButton(event.button, modifiers, true, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec)) {
             result.value_ptr.* = null;
             cursor.mode = .ignore;
             cursor.clearFocus();
@@ -787,7 +792,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
 
         switch (cursor.mode) {
             .passthrough => {
-                if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |at| {
+                if (server.scene.atDrag(cursor.wlr_cursor.x, cursor.wlr_cursor.y, cursor.seat.toplevel_drag.window())) |at| {
                     cursor.interact(at);
 
                     if (at.surface != null) {
@@ -812,7 +817,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
                 return;
             },
             .drag => {
-                if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |at| {
+                if (server.scene.atDrag(cursor.wlr_cursor.x, cursor.wlr_cursor.y, cursor.seat.toplevel_drag.window())) |at| {
                     cursor.interact(at);
                     if (at.surface != null) {
                         _ = cursor.seat.wlr_seat.pointerNotifyButton(event.time_msec, event.button, event.state);
@@ -831,7 +836,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
     } else {
         assert(event.state == .released);
         const modifiers: u32 = if (cursor.seat.wlr_seat.getKeyboard()) |keyboard| @bitCast(keyboard.getModifiers()) else 0;
-        _ = server.aqueous.handlePointerButton(event.button, modifiers, false, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec);
+        if (cursor.seat.drag == .none) _ = server.aqueous.handlePointerButton(event.button, modifiers, false, cursor.wlr_cursor.x, cursor.wlr_cursor.y, event.time_msec);
         const result = cursor.pressed.fetchRemove(event.button);
         if (result) |kv| {
             if (kv.value) |binding| {
@@ -955,7 +960,12 @@ fn handleTouchMotion(
 
         cursor.updateDragIcons();
 
-        if (server.scene.at(point.lx, point.ly)) |result| {
+        if (cursor.seat.drag == .touch) {
+            const drag = cursor.seat.wlr_seat.drag orelse return;
+            if (event.touch_id != drag.grab_touch_id) return;
+            cursor.seat.toplevel_drag.motion();
+            cursor.refreshDragTarget();
+        } else if (server.scene.at(point.lx, point.ly)) |result| {
             cursor.seat.wlr_seat.touchNotifyMotion(event.time_msec, event.touch_id, result.sx, result.sy);
         }
     }
@@ -1073,8 +1083,9 @@ pub fn updateState(cursor: *Cursor) void {
 /// Pass an event on to the surface under the cursor, if any.
 fn passthrough(cursor: *Cursor, time: u32) void {
     assert(cursor.mode == .passthrough or cursor.mode == .drag);
+    if (cursor.mode == .drag) cursor.seat.toplevel_drag.motion();
 
-    if (server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y)) |result| {
+    if (server.scene.atDrag(cursor.wlr_cursor.x, cursor.wlr_cursor.y, if (cursor.mode == .drag) cursor.seat.toplevel_drag.window() else null)) |result| {
         if (result.data == .lock_surface) {
             assert(server.lock_manager.state != .unlocked);
         } else {
@@ -1097,7 +1108,7 @@ fn passthrough(cursor: *Cursor, time: u32) void {
 
             var sx = result.sx;
             var sy = result.sy;
-            if (!cursor.hasActivePointerConstraint() and !focus_changed and cursor_moved) {
+            if (cursor.mode != .drag and !cursor.hasActivePointerConstraint() and !focus_changed and cursor_moved) {
                 const scale = scene_surface_projection.scale(result.node);
                 sx = cursor.last_sent_sx + (lx - cursor.last_sent_lx) * scale;
                 sy = cursor.last_sent_sy + (ly - cursor.last_sent_ly) * scale;
@@ -1118,6 +1129,28 @@ fn passthrough(cursor: *Cursor, time: u32) void {
     }
 
     cursor.clearFocus();
+}
+
+pub fn refreshDragTarget(cursor: *Cursor) void {
+    const drag = cursor.seat.wlr_seat.drag orelse return;
+    const time = util.msecTimestamp();
+    switch (drag.grab_type) {
+        .keyboard_pointer => if (cursor.mode == .drag) cursor.passthrough(time),
+        .keyboard_touch => {
+            const point = cursor.touch_points.get(drag.grab_touch_id) orelse return;
+            if (server.scene.atDrag(point.lx, point.ly, cursor.seat.toplevel_drag.window())) |hit| {
+                if (hit.surface) |surface| {
+                    cursor.seat.wlr_seat.touchPointFocus(surface, time, drag.grab_touch_id, hit.sx, hit.sy);
+                    cursor.seat.wlr_seat.touchNotifyMotion(time, drag.grab_touch_id, hit.sx, hit.sy);
+                    return;
+                }
+            }
+            // zig-wlroots 0.20.1 has an outdated declaration for this function.
+            @import("c").wlr_seat_touch_notify_clear_focus(@ptrCast(cursor.seat.wlr_seat), time, drag.grab_touch_id);
+            cursor.seat.wlr_seat.touchPointClearFocus(time, drag.grab_touch_id);
+        },
+        .keyboard => {},
+    }
 }
 
 fn updateDragIcons(cursor: *Cursor) void {

@@ -170,6 +170,7 @@ toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceM
 content_type_manager: *wlr.ContentTypeManagerV1,
 fifo: FifoManager,
 xdg_dialog: XdgDialogManager,
+xdg_toplevel_drag: *wl.Global,
 xdg_icon: XdgToplevelIconManager,
 
 /// Count render-capable GPUs by probing the conventional render-node range.
@@ -462,6 +463,7 @@ pub fn init(
         .content_type_manager = try wlr.ContentTypeManagerV1.create(wl_server, 1),
         .fifo = try FifoManager.init(wl_server),
         .xdg_dialog = try XdgDialogManager.init(wl_server),
+        .xdg_toplevel_drag = try @import("XdgToplevelDragManager.zig").init(wl_server),
         .xdg_icon = try XdgToplevelIconManager.init(wl_server),
 
         .viewporter = try wlr.Viewporter.create(wl_server),
@@ -698,6 +700,9 @@ fn handleXwaylandOutputProjection(
 }
 
 fn globalFilter(client: *const wl.Client, global: *const wl.Global, server: *Server) bool {
+    // The legacy external WM protocol cannot express a move owned by a DnD
+    // grab. Let clients use their fallback until that boundary can carry it.
+    if (global == server.xdg_toplevel_drag and !server.aqueous.mode.runsInternal()) return false;
     // Only expose Xwayland-private globals to the Xwayland process.
     if (build_options.xwayland) {
         if (server.xwayland) |xwayland| {
@@ -770,6 +775,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.cursor_shape_manager.global or
         global == server.xdg_shell.global or
         global == server.xdg_dialog.global() or
+        global == server.xdg_toplevel_drag or
         global == server.xdg_icon.global() or
         global == server.xdg_decoration_manager.global or
         global == server.legacy_server_decoration.global() or

@@ -117,6 +117,7 @@ let
       "${src}/compositor/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
       "${src}/compositor/patches/wlroots/0015-ext-capture-formats-and-color.patch"
       "${src}/compositor/patches/wlroots/0016-toplevel-icon-lifetime.patch"
+      "${src}/compositor/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

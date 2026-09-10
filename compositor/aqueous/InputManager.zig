@@ -160,6 +160,7 @@ pub fn setCursorConfig(input_manager: *InputManager, theme: []const u8, size: u3
 }
 
 pub fn deinit(input_manager: *InputManager) void {
+    if (comptime build_options.toplevel_drag_testing) @import("ToplevelDragTest.zig").finish();
     if (comptime build_options.tablet_testing) @import("TabletTest.zig").finish();
     input_manager.global.destroy();
 
