@@ -16,7 +16,10 @@ in `build.zig.zon`, and links the existing Vulkan presentation workaround.
 
 Changes fix repeated action dispatch, Wayland input capability discovery and
 keycodes, initial text, scroll viewport culling and scrollbar layers. They
-extend text limits, add multiline rendering/navigation and keyboard traversal, and bound long dropdown menus with wheel browsing. This is an application-specific patch against the recorded
+extend text limits, add multiline rendering/navigation and keyboard traversal, and bound long dropdown menus with wheel browsing. Rendering stays 1:1: `wl_output.scale`
+is only the integer ceiling of a possibly fractional output scale, so magnifying
+to it enlarges the UI and clips it against the window geometry; the compositor
+applies the real scale instead. This is an application-specific patch against the recorded
 pin; mismatched source fails the build. It is not an upstream release.
 
 Theme support adds transactional `setFonts()` to parent/child windows, with

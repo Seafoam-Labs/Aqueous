@@ -90,6 +90,16 @@ replace('platforms/wayland.zig', 'fn registryListener(', '''fn seatListener(seat
 }
 
 fn registryListener(''')
+# wl_output.scale is the ceiling of a possibly fractional output scale and Quark
+# has no wp_fractional_scale_v1. Magnifying to it enlarges and clips the UI, so
+# stay 1:1 and let the compositor scale the surface.
+replace('platforms/wayland.zig', '''        .scale => |ev| {
+            if (ev.factor > data.output_scale) {
+                data.output_scale = ev.factor;
+            }
+        },''', '''        .scale => |ev| {
+            data.output_scale = @min(ev.factor, 1);
+        },''')
 # Honor initial text (upstream did not pass it to the concrete text field).
 replace('layout/instantiate.zig', '            textfield.font = tf.font;', '''            textfield.font = tf.font;
             if (tf.text) |initial| try textfield.setText(initial);
