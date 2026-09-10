@@ -27,6 +27,7 @@ wlr_toplevel: *wlr.XdgToplevel,
 
 decoration: ?XdgDecoration = null,
 dialog: @import("XdgDialogManager.zig").Dialog = .{},
+icon: @import("ToplevelIcon.zig") = .{},
 
 /// A zxdg_toplevel_decoration_v1 request must receive a configure even when
 /// policy keeps the same effective mode. This is also set for a newly-created
@@ -78,6 +79,8 @@ pub fn create(wlr_toplevel: *wlr.XdgToplevel) error{OutOfMemory}!void {
     errdefer window.destroy();
 
     const toplevel = &window.impl.toplevel;
+    try toplevel.icon.init(wlr_toplevel.base.surface);
+    errdefer toplevel.icon.deinit();
 
     // This listener must be added before the scene xdg surface is created.
     // Otherwise, the scene surface nodes will already be disabled by the unmap
@@ -274,6 +277,8 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     }
     assert(toplevel.decoration == null);
     toplevel.dialog.deinit();
+    toplevel.icon.deinit();
+    server.ipc_server.invalidateIcons(toplevel.window.ref);
 
     toplevel.destroy.link.remove();
     toplevel.ack_configure.link.remove();
@@ -374,6 +379,12 @@ fn handleAckConfigure(
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("commit", listener);
     const window = toplevel.window;
+
+    if (toplevel.icon.commit()) {
+        server.ipc_server.invalidateIcons(window.ref);
+        server.overview.iconChanged(window);
+        server.shell_manager.dirty();
+    }
 
     // NB: the subsurface tree is never empty here
     window.capture_scene.tree.node.subsurfaceTreeSetClip(&toplevel.wlr_toplevel.base.geometry);

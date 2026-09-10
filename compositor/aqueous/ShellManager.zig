@@ -103,6 +103,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         .overview = server.aqueous.mode == .internal,
         .config_reload = server.aqueous.mode == .internal and version >= 2,
         .shortcut_inhibition = true,
+        .icon_metadata = true,
         .geometry = "committed-content-global-logical",
     }, .{}) catch {
         client.postNoMemory();
@@ -243,7 +244,7 @@ fn refresh(manager: *ShellManager) !void {
         const bottom: i32 = if (!info.fullscreen and border.edges.bottom) @intCast(border.width) else 0;
         const outer = .{ .x = @as(i64, info.geometry.x) - left, .y = @as(i64, info.geometry.y) - top, .width = @as(i64, info.geometry.width) + left + right, .height = @as(i64, info.geometry.height) + top + bottom };
         const freeform = window.policy_state.presentation == .floating or server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref));
-        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
+        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
     }
     var devices = server.input_manager.devices.iterator(.forward);
     while (devices.next()) |device| {

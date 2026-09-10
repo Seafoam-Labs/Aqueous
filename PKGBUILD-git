@@ -9,7 +9,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT' 'custom:PX')
 depends=('freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
-         'pixman' 'libdrm' 'libevdev'
+         'pixman' 'libpng' 'libdrm' 'libevdev'
          'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'

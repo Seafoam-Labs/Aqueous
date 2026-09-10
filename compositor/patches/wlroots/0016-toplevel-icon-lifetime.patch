@@ -1,0 +1,377 @@
+--- a/types/wlr_xdg_toplevel_icon_v1.c
++++ b/types/wlr_xdg_toplevel_icon_v1.c
+@@ -5,6 +5,9 @@
+ #include <wayland-server-protocol.h>
+ 
+ #include <wlr/types/wlr_buffer.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/types/wlr_shm.h>
++#include "render/pixel_format.h"
+ #include <wlr/types/wlr_xdg_shell.h>
+ #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
+ #include <wlr/util/log.h>
+@@ -20,16 +23,129 @@
+ 	return wl_resource_get_user_data(resource);
+ }
+ 
++// Limits include unassigned icons and snapshots still held by scene consumers.
++#define ICON_BYTES (16u * 1024 * 1024)
++#define CLIENT_BYTES (64u * 1024 * 1024)
++#define TOTAL_BYTES (256u * 1024 * 1024)
++#define ICON_COUNT 256
++#define TOTAL_ICONS 4096
++#define ICON_VARIANTS 16
++
++struct icon_account {
++    struct wl_client *client;
++    struct wl_listener destroy;
++    struct wl_list link;
++    size_t refs, bytes, icons;
++};
++static struct wl_list accounts = { &accounts, &accounts };
++static size_t total_bytes, total_icons;
++
++struct icon_private {
++    struct wlr_xdg_toplevel_icon_v1 base;
++    struct wl_resource *resource;
++    struct icon_account *account;
++    size_t bytes, variants;
++};
++struct icon_pixels {
++    struct wlr_buffer base;
++    struct icon_account *account;
++    size_t size, stride;
++    uint32_t format;
++    unsigned char data[];
++};
++struct icon_variant {
++    struct wlr_xdg_toplevel_icon_v1_buffer base;
++    struct wl_listener destroy;
++    struct icon_private *icon;
++};
++
++static void account_unref(struct icon_account *account) {
++    if (--account->refs != 0) {
++        return;
++    }
++    if (account->client != NULL) {
++        wl_list_remove(&account->destroy.link);
++    }
++    wl_list_remove(&account->link);
++    free(account);
++}
++static void account_client_destroy(struct wl_listener *listener, void *data) {
++    struct icon_account *account = wl_container_of(listener, account, destroy);
++    wl_list_remove(&account->destroy.link);
++    account->client = NULL;
++    account_unref(account);
++}
++static struct icon_account *account_get(struct wl_client *client) {
++    struct icon_account *account;
++    wl_list_for_each(account, &accounts, link) {
++        if (account->client == client) {
++            return account;
++        }
++    }
++    account = calloc(1, sizeof(*account));
++    if (account == NULL) {
++        return NULL;
++    }
++    account->client = client;
++    account->refs = 1;
++    account->destroy.notify = account_client_destroy;
++    wl_client_add_destroy_listener(client, &account->destroy);
++    wl_list_insert(&accounts, &account->link);
++    return account;
++}
++static void pixels_destroy(struct wlr_buffer *buffer) {
++    struct icon_pixels *pixels = wl_container_of(buffer, pixels, base);
++    pixels->account->bytes -= pixels->size;
++    total_bytes -= pixels->size;
++    account_unref(pixels->account);
++    wlr_buffer_finish(buffer);
++    free(pixels);
++}
++static bool pixels_begin(struct wlr_buffer *buffer, uint32_t flags,
++        void **data, uint32_t *format, size_t *stride) {
++    struct icon_pixels *pixels = wl_container_of(buffer, pixels, base);
++    if (flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE) {
++        return false;
++    }
++    *data = pixels->data;
++    *format = pixels->format;
++    *stride = pixels->stride;
++    return true;
++}
++static void pixels_end(struct wlr_buffer *buffer) {
++}
++static const struct wlr_buffer_impl pixels_impl = {
++    .destroy = pixels_destroy,
++    .begin_data_ptr_access = pixels_begin,
++    .end_data_ptr_access = pixels_end,
++};
++static void variant_destroy(struct icon_variant *variant) {
++    wl_list_remove(&variant->destroy.link);
++    wl_list_remove(&variant->base.link);
++    struct icon_pixels *pixels = wl_container_of(variant->base.buffer, pixels, base);
++    variant->icon->bytes -= pixels->size;
++    variant->icon->variants--;
++    wlr_buffer_unlock(variant->base.buffer);
++    free(variant);
++}
++static void variant_resource_destroy(struct wl_listener *listener, void *data) {
++    struct icon_variant *variant = wl_container_of(listener, variant, destroy);
++    wl_list_remove(&variant->destroy.link);
++    wl_list_init(&variant->destroy.link);
++    wl_resource_post_error(variant->icon->resource,
++        XDG_TOPLEVEL_ICON_V1_ERROR_NO_BUFFER, "icon buffer destroyed before icon");
++}
+ static void icon_destroy(struct wlr_xdg_toplevel_icon_v1 *icon) {
+-	struct wlr_xdg_toplevel_icon_v1_buffer *icon_buffer, *tmp;
+-	wl_list_for_each_safe(icon_buffer, tmp, &icon->buffers, link) {
+-		wlr_buffer_unlock(icon_buffer->buffer);
+-		wl_list_remove(&icon_buffer->link);
+-		free(icon_buffer);
+-	}
+-
+-	free(icon->name);
+-	free(icon);
++    struct icon_private *priv = wl_container_of(icon, priv, base);
++    struct icon_variant *variant, *tmp;
++    wl_list_for_each_safe(variant, tmp, &icon->buffers, base.link) {
++        variant_destroy(variant);
++    }
++    priv->account->icons--;
++    total_icons--;
++    account_unref(priv->account);
++    free(icon->name);
++    free(priv);
+ }
+ 
+ static void icon_handle_destroy(struct wl_client *client, struct wl_resource *resource) {
+@@ -45,7 +161,11 @@
+ 		return;
+ 	}
+ 
+-	char *dup = strdup(name);
++	if (strlen(name) > 1024) {
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    char *dup = strdup(name);
+ 	if (dup == NULL) {
+ 		wl_resource_post_no_memory(resource);
+ 		return;
+@@ -64,42 +184,94 @@
+ 		return;
+ 	}
+ 
+-	struct wlr_buffer *buffer = wlr_buffer_try_from_resource(buffer_resource);
+-
+-	const char *bad_buffer_msg = NULL;
+-
+-	struct wlr_shm_attributes shm_attribs;
+-	if (!wlr_buffer_get_shm(buffer, &shm_attribs)) {
+-		bad_buffer_msg = "not backed by wl_shm";
+-	} else if (buffer->width != buffer->height) {
+-		bad_buffer_msg = "not square";
+-	}
+-
+-	if (bad_buffer_msg != NULL) {
+-		wl_resource_post_error(resource, XDG_TOPLEVEL_ICON_V1_ERROR_INVALID_BUFFER,
+-			"the provided buffer does not satisfy requirements: %s", bad_buffer_msg);
+-		wlr_buffer_unlock(buffer);
+-		return;
+-	}
+-
+-	struct wlr_xdg_toplevel_icon_v1_buffer *icon_buffer;
+-	wl_list_for_each(icon_buffer, &icon->buffers, link) {
+-		if (icon_buffer->buffer->width == buffer->width && icon_buffer->scale == scale) {
+-			wlr_buffer_unlock(icon_buffer->buffer);
+-			icon_buffer->buffer = buffer;
+-			return;
+-		}
+-	}
+-
+-	icon_buffer = calloc(1, sizeof(*icon_buffer));
+-	if (icon_buffer == NULL) {
+-		wl_resource_post_no_memory(resource);
+-	}
+-
+-	icon_buffer->buffer = buffer;
+-	icon_buffer->scale = scale;
+-
+-	wl_list_insert(&icon->buffers, &icon_buffer->link);
++    struct icon_private *priv = wl_container_of(icon, priv, base);
++    // Borrow the native SHM buffer without locking it: this protocol does not
++    // use wl_buffer.release. The request and copy run on the display thread.
++    struct wlr_buffer *buffer = wlr_shm_buffer_try_from_resource(buffer_resource);
++    if (buffer == NULL || buffer->width != buffer->height) {
++        wl_resource_post_error(resource, XDG_TOPLEVEL_ICON_V1_ERROR_INVALID_BUFFER,
++            "icon requires a square wl_shm buffer");
++        return;
++    }
++    struct wlr_shm_attributes attrs;
++    if (!wlr_buffer_get_shm(buffer, &attrs)) {
++        wl_resource_post_error(resource, XDG_TOPLEVEL_ICON_V1_ERROR_INVALID_BUFFER,
++            "icon requires wl_shm");
++        return;
++    }
++    const struct wlr_pixel_format_info *info = drm_get_pixel_format_info(attrs.format);
++    int32_t row = info ? pixel_format_info_min_stride(info, buffer->width) : 0;
++    if (row <= 0 || buffer->height <= 0 || (size_t)row > ICON_BYTES / buffer->height) {
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    size_t owned_stride = ((size_t)row + 3) & ~(size_t)3;
++    if (owned_stride > ICON_BYTES / buffer->height) {
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    size_t size = owned_stride * buffer->height;
++    struct icon_variant *old = NULL, *variant;
++    wl_list_for_each(variant, &icon->buffers, base.link) {
++        if (variant->base.buffer->width == buffer->width && variant->base.scale == scale) {
++            old = variant;
++            break;
++        }
++    }
++    size_t old_size = 0;
++    if (old != NULL) {
++        struct icon_pixels *pixels = wl_container_of(old->base.buffer, pixels, base);
++        old_size = pixels->size;
++    }
++    if ((old == NULL && priv->variants >= ICON_VARIANTS) ||
++            size > ICON_BYTES - (priv->bytes - old_size) ||
++            size > CLIENT_BYTES - priv->account->bytes || size > TOTAL_BYTES - total_bytes) {
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    variant = calloc(1, sizeof(*variant));
++    struct icon_pixels *pixels = malloc(sizeof(*pixels) + size);
++    if (variant == NULL || pixels == NULL) {
++        free(variant);
++        free(pixels);
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    void *data;
++    uint32_t format;
++    size_t stride;
++    if (!wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ,
++            &data, &format, &stride)) {
++        free(variant);
++        free(pixels);
++        wl_resource_post_no_memory(resource);
++        return;
++    }
++    memset(pixels->data, 0, size);
++    for (int y = 0; y < buffer->height; y++) {
++        memcpy(pixels->data + y * owned_stride, (char *)data + y * stride, row);
++    }
++    wlr_buffer_end_data_ptr_access(buffer);
++    wlr_buffer_init(&pixels->base, &pixels_impl, buffer->width, buffer->height);
++    pixels->account = priv->account;
++    pixels->account->refs++;
++    pixels->account->bytes += size;
++    total_bytes += size;
++    pixels->size = size;
++    pixels->stride = owned_stride;
++    pixels->format = format;
++    variant->base.buffer = wlr_buffer_lock(&pixels->base);
++    wlr_buffer_drop(&pixels->base);
++    variant->base.scale = scale;
++    variant->icon = priv;
++    variant->destroy.notify = variant_resource_destroy;
++    wl_resource_add_destroy_listener(buffer_resource, &variant->destroy);
++    if (old != NULL) {
++        variant_destroy(old);
++    }
++    priv->bytes += size;
++    priv->variants++;
++    wl_list_insert(&icon->buffers, &variant->base.link);
+ }
+ 
+ static const struct xdg_toplevel_icon_v1_interface icon_impl = {
+@@ -109,7 +281,15 @@
+ };
+ 
+ static void icon_handle_resource_destroy(struct wl_resource *resource) {
+-	wlr_xdg_toplevel_icon_v1_unref(icon_from_resource(resource));
++	struct wlr_xdg_toplevel_icon_v1 *icon = icon_from_resource(resource);
++    struct icon_private *priv = wl_container_of(icon, priv, base);
++    priv->resource = NULL;
++    struct icon_variant *variant;
++    wl_list_for_each(variant, &icon->buffers, base.link) {
++        wl_list_remove(&variant->destroy.link);
++        wl_list_init(&variant->destroy.link);
++    }
++    wlr_xdg_toplevel_icon_v1_unref(icon);
+ }
+ 
+ struct wlr_xdg_toplevel_icon_v1 *wlr_xdg_toplevel_icon_v1_ref(
+@@ -145,8 +325,14 @@
+ 
+ static void manager_handle_create_icon(struct wl_client *client, struct wl_resource *resource,
+ 		uint32_t id) {
+-	struct wlr_xdg_toplevel_icon_v1 *icon = calloc(1, sizeof(*icon));
+-	if (icon == NULL) {
++	struct icon_account *account = account_get(client);
++    if (account == NULL || account->icons >= ICON_COUNT || total_icons >= TOTAL_ICONS) {
++        wl_client_post_no_memory(client);
++        return;
++    }
++    struct icon_private *priv = calloc(1, sizeof(*priv));
++    struct wlr_xdg_toplevel_icon_v1 *icon = priv ? &priv->base : NULL;
++    if (icon == NULL) {
+ 		wl_client_post_no_memory(client);
+ 		return;
+ 	}
+@@ -160,7 +346,12 @@
+ 	}
+ 
+ 	wl_list_init(&icon->buffers);
+-	icon->n_refs = 1;
++    icon->n_refs = 1;
++    priv->resource = icon_resource;
++    priv->account = account;
++    account->refs++;
++    account->icons++;
++    total_icons++;
+ 
+ 	wl_resource_set_implementation(icon_resource, &icon_impl, icon, icon_handle_resource_destroy);
+ }
+--- a/types/wlr_shm.c
++++ b/types/wlr_shm.c
+@@ -583,3 +583,10 @@
+ 	}
+ 	return false;
+ }
++
++struct wlr_buffer *wlr_shm_buffer_try_from_resource(struct wl_resource *resource) {
++    if (!buffer_resource_is_instance(resource)) {
++        return NULL;
++    }
++    return buffer_base_from_resource(resource);
++}
+--- a/include/wlr/types/wlr_shm.h
++++ b/include/wlr/types/wlr_shm.h
+@@ -50,4 +50,7 @@
+ struct wlr_shm *wlr_shm_create_with_renderer(struct wl_display *display,
+ 	uint32_t version, struct wlr_renderer *renderer);
+ 
++/* Borrowed until the wl_buffer resource is destroyed. Display thread only. */
++struct wlr_buffer *wlr_shm_buffer_try_from_resource(struct wl_resource *resource);
++
+ #endif
+--- a/include/wlr/types/wlr_xdg_toplevel_icon_v1.h
++++ b/include/wlr/types/wlr_xdg_toplevel_icon_v1.h
+@@ -8,6 +8,8 @@
+ 
+ #ifndef WLR_TYPES_WLR_XDG_TOPLEVEL_ICON_V1_H
+ #define WLR_TYPES_WLR_XDG_TOPLEVEL_ICON_V1_H
++
++#define WLR_AQUEOUS_TOPLEVEL_ICON_VERSION 1
+ 
+ #include <wayland-server-core.h>
+ 

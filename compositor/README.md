@@ -416,3 +416,27 @@ AQUEOUS_TEST_NO_EFFECTS=1 python3 scripts/test-background-effect.py
 runtime blur is disabled on an effects build. The compositor sends capability
 changes and retains requests across disable/re-enable. Builds without effects
 report `unsupported`.
+
+## Per-window icons
+
+Aqueous advertises `xdg_toplevel_icon_manager_v1` version 1. Icons are synchronized
+with surface commits, including cached commits, and remain assigned after the
+client destroys its icon object. Pixel icons appear in the built-in overview;
+name-only icons use a generic placeholder there. Shell clients receive optional
+icon metadata and can request bounded PNGs over the existing IPC socket. DMS's
+Aqueous service uses supplied pixels or theme names for individual window entries
+and the focused-window widget; grouped and pinned launcher icons retain their
+application identity.
+
+Rebuild the pinned wlroots dependency (including patch 0016) before building
+Aqueous. The compositor also requires libpng for asynchronous PNG encoding.
+Run the isolated protocol, lifetime, shell, pixel and resource-limit checks:
+
+```sh
+python3 scripts/test-xdg-toplevel-icon.py --compositor /path/to/pixman/aqueous
+python3 scripts/test-xdg-toplevel-icon.py --renderer vulkan --compositor /path/to/vulkan/aqueous
+```
+
+The harness requires a C compiler, wayland-scanner, Python/Pillow, and grim.
+See [the implementation record](../docs/xdg-toplevel-icon-implementation-plan.md)
+and [IPC contract](protocol/aqueous-ipc-v1.md) for limits and verification scope.

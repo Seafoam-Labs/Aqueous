@@ -5,6 +5,9 @@ const std = @import("std");
 const linux = std.os.linux;
 const wl = @import("wayland").server.wl;
 const util = @import("util.zig");
+const c = @import("c");
+const Window = @import("Window.zig");
+const Icon = @import("ToplevelIcon.zig");
 const Codec = @import("IpcProtocol.zig");
 const Shell = @import("ShellManager.zig");
 const Types = @import("ShellCommand.zig");
@@ -20,6 +23,25 @@ path: ?[:0]const u8 = null,
 directory: ?[:0]const u8 = null,
 bound: bool = false,
 clients: [16]?*Client = @splat(null),
+icon_cache: [32]?IconCache = @splat(null),
+icon_cache_next: usize = 0,
+
+const IconKey = struct {
+    window: Window.Ref,
+    revision: u64,
+    size: u32,
+    scale: u32,
+};
+const IconCache = struct { key: IconKey, data: []const u8 };
+
+pub fn invalidateIcons(ipc: *IpcServer, window: Window.Ref) void {
+    for (&ipc.icon_cache) |*entry| if (entry.*) |cached| {
+        if (std.meta.eql(cached.key.window, window)) {
+            util.gpa.free(cached.data);
+            entry.* = null;
+        }
+    };
+}
 
 pub fn start(ipc: *IpcServer) !void {
     errdefer ipc.deinit();
@@ -74,6 +96,7 @@ pub fn deinit(ipc: *IpcServer) void {
     if (ipc.idle) |idle| idle.remove();
     ipc.idle = null;
     for (&ipc.clients) |*slot| if (slot.*) |client| client.close();
+    for (ipc.icon_cache) |entry| if (entry) |cached| util.gpa.free(cached.data);
     if (ipc.source) |source| source.remove();
     if (ipc.exit_timer) |timer| timer.remove();
     if (ipc.fd >= 0) _ = linux.close(ipc.fd);
@@ -156,6 +179,10 @@ pub const Client = struct {
     response_queued: bool = false,
     delivery: u64 = 0,
     exiting: bool = false,
+    icon_job: ?*c.struct_aqueous_icon_png = null,
+    icon_source: ?*wl.EventSource = null,
+    icon_key: IconKey = undefined,
+    icon_window_id: ?[]const u8 = null,
 
     pub fn fail(client: *Client) void {
         client.failed = true;
@@ -164,6 +191,7 @@ pub const Client = struct {
     }
 
     fn close(client: *Client) void {
+        client.clearIconJob();
         if (client.source) |source| source.remove();
         _ = linux.close(client.fd);
         Shell.detach(client.backend);
@@ -298,7 +326,7 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true },
                 });
             },
             .snapshot => {
@@ -323,6 +351,36 @@ pub const Client = struct {
                 client.backend.inflight = false;
                 server.shell_manager.dirty();
             },
+            .@"window.icon" => {
+                if (client.backend.subscribed) return client.reject(req.id, "invalid");
+                if (server.lock_manager.state != .unlocked) return client.reject(req.id, "locked");
+                const query = Codec.iconRequest(req.params) catch return client.reject(req.id, "invalid");
+                var windows = server.wm.windows.iterator();
+                const window = while (windows.next()) |window| {
+                    if (window.state != .mapped) continue;
+                    const handle = window.foreign_toplevel_handle orelse continue;
+                    if (std.mem.eql(u8, query.id, std.mem.span(handle.identifier))) break window;
+                } else return client.reject(req.id, "not_found");
+                if (window.impl != .toplevel) return client.reject(req.id, "unavailable");
+                const icon = &window.impl.toplevel.icon;
+                if (icon.revision != query.revision) return client.reject(req.id, "stale_revision");
+                const current = icon.current orelse return client.reject(req.id, "unavailable");
+                const key: IconKey = .{ .window = window.ref, .revision = icon.revision, .size = query.size, .scale = query.scale };
+                for (client.ipc.icon_cache) |entry| if (entry) |cached| {
+                    if (std.meta.eql(cached.key, key)) return client.iconReply(key, cached.data);
+                };
+                const buffer = Icon.select(current, query.size, @floatFromInt(query.scale)) orelse return client.reject(req.id, "unavailable");
+                client.icon_key = key;
+                client.icon_window_id = try util.gpa.dupe(u8, query.id);
+                errdefer client.clearIconJob();
+                client.icon_job = c.aqueous_icon_png_start(@ptrCast(buffer), @intCast(query.size * query.scale));
+                if (client.icon_job == null) {
+                    client.clearIconJob();
+                    return client.reject(req.id, "unavailable");
+                }
+                client.icon_source = try server.wl_server.getEventLoop().addFd(*Client, c.aqueous_icon_png_fd(client.icon_job.?), .{ .readable = true }, iconReady, client);
+                client.pending = true;
+            },
             .command => {
                 if (client.backend.subscribed) return client.reject(req.id, "invalid");
                 const command = Codec.command(a, req.params) catch |err| return client.reject(req.id, if (err == error.Unsupported) "unsupported" else "invalid");
@@ -333,6 +391,48 @@ pub const Client = struct {
                 server.shell_manager.dirty();
             },
         }
+    }
+
+    fn clearIconJob(client: *Client) void {
+        if (client.icon_source) |source| source.remove();
+        client.icon_source = null;
+        if (client.icon_job) |job| c.aqueous_icon_png_destroy(job);
+        client.icon_job = null;
+        if (client.icon_window_id) |id| util.gpa.free(id);
+        client.icon_window_id = null;
+    }
+
+    fn iconReply(client: *Client, key: IconKey, data: []const u8) !void {
+        var revision: [20]u8 = undefined;
+        try client.reply(.{ .revision = try std.fmt.bufPrint(&revision, "{d}", .{key.revision}), .width = key.size * key.scale, .height = key.size * key.scale, .format = "png", .data = data });
+    }
+
+    fn iconReady(_: c_int, _: wl.EventMask, client: *Client) c_int {
+        client.finishIcon() catch client.fail();
+        return 0;
+    }
+
+    fn finishIcon(client: *Client) !void {
+        defer client.clearIconJob();
+        defer client.pending = false;
+        const id = client.request_id[0..client.request_len];
+        if (server.lock_manager.state != .unlocked) return client.reject(id, "locked");
+        const window = client.icon_key.window.get() orelse return client.reject(id, "not_found");
+        if (window.state != .mapped or window.impl != .toplevel) return client.reject(id, "not_found");
+        const handle = window.foreign_toplevel_handle orelse return client.reject(id, "not_found");
+        if (!std.mem.eql(u8, client.icon_window_id.?, std.mem.span(handle.identifier))) return client.reject(id, "not_found");
+        if (window.impl.toplevel.icon.revision != client.icon_key.revision) return client.reject(id, "stale_revision");
+        var len: usize = 0;
+        const png = c.aqueous_icon_png_result(client.icon_job.?, &len);
+        if (png == null or len == 0 or len > 384 * 1024) return client.reject(id, "unavailable");
+        const encoder = std.base64.standard.Encoder;
+        const data = try util.gpa.alloc(u8, encoder.calcSize(len));
+        _ = encoder.encode(data, png[0..len]);
+        const slot = &client.ipc.icon_cache[client.ipc.icon_cache_next];
+        if (slot.*) |cached| util.gpa.free(cached.data);
+        slot.* = .{ .key = client.icon_key, .data = data };
+        client.ipc.icon_cache_next = (client.ipc.icon_cache_next + 1) % client.ipc.icon_cache.len;
+        try client.iconReply(client.icon_key, data);
     }
 
     pub fn validateSession(client: *Client) bool {

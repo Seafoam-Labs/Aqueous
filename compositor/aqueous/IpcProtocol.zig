@@ -6,7 +6,7 @@ pub const max_request = 65536;
 pub const max_batch = 4194304;
 pub const max_frame = max_batch + max_request;
 pub const max_depth = 16;
-pub const Op = enum { hello, snapshot, subscribe, ack, command };
+pub const Op = enum { hello, snapshot, subscribe, ack, command, @"window.icon" };
 pub const Request = struct {
     id: []const u8,
     number: u128,
@@ -186,4 +186,38 @@ test "typed command conversion rejects ambiguous moves and nonboolean state" {
         const bad = try std.json.parseFromSliceLeaky(std.json.Value, a, bytes, .{});
         try std.testing.expectError(error.Invalid, command(a, bad.object));
     }
+}
+
+pub const IconRequest = struct { id: []const u8, revision: u64, size: u32, scale: u32 };
+pub fn iconRequest(params: std.json.ObjectMap) !IconRequest {
+    if (params.count() != 4) return error.Invalid;
+    const id = try string(params, "id");
+    const rev = try string(params, "revision");
+    if (id.len == 0 or rev.len == 0 or rev.len > 20) return error.Invalid;
+    for (rev) |ch| if (!std.ascii.isDigit(ch)) return error.Invalid;
+    const size = params.get("size") orelse return error.Invalid;
+    const scale = params.get("scale") orelse return error.Invalid;
+    if (size != .integer or scale != .integer or size.integer < 1 or size.integer > 256 or
+        scale.integer < 1 or scale.integer > 8 or size.integer * scale.integer > 256) return error.Invalid;
+    return .{ .id = id, .revision = try std.fmt.parseInt(u64, rev, 10), .size = @intCast(size.integer), .scale = @intCast(scale.integer) };
+}
+
+test "icon query rejects invalid revisions, oversized requests and ambiguous fields" {
+    const a = std.testing.allocator;
+    for ([_][]const u8{
+        "{\"id\":\"w\",\"revision\":\"1\",\"size\":257,\"scale\":1}",
+        "{\"id\":\"w\",\"revision\":\"-1\",\"size\":32,\"scale\":1}",
+        "{\"id\":\"w\",\"revision\":\"1\",\"size\":64,\"scale\":0}",
+        "{\"id\":\"w\",\"revision\":\"1\",\"size\":64,\"scale\":8}",
+        "{\"id\":\"w\",\"revision\":\"1\",\"size\":64,\"scale\":1,\"extra\":true}",
+    }) |json| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, a, json, .{});
+        defer parsed.deinit();
+        try std.testing.expectError(error.Invalid, iconRequest(parsed.value.object));
+    }
+    const parsed = try std.json.parseFromSlice(std.json.Value, a, "{\"id\":\"w\",\"revision\":\"123\",\"size\":32,\"scale\":2}", .{});
+    defer parsed.deinit();
+    const request = try iconRequest(parsed.value.object);
+    try std.testing.expectEqual(@as(u32, 2), request.scale);
+    try std.testing.expectEqual(@as(u64, 123), request.revision);
 }

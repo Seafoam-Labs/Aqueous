@@ -398,6 +398,38 @@
         },
         "can_activate": {
           "type": "boolean"
+        },
+        "icon": {
+          "description": "Committed per-window icon; optional for older compositors.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "revision",
+                "name",
+                "has_pixels"
+              ],
+              "properties": {
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,20}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 1024
+                },
+                "has_pixels": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
         }
       }
     },

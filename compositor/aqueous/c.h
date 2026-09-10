@@ -10,8 +10,14 @@
 #include <libinput.h>
 #include <wlr/types/wlr_output_layer.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_fifo_v1.h>
 #include <wlr/types/wlr_xdg_dialog_v1.h>
+#include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
+
+#if !defined(WLR_AQUEOUS_TOPLEVEL_ICON_VERSION) || WLR_AQUEOUS_TOPLEVEL_ICON_VERSION != 1
+#error "Aqueous requires the pinned wlroots toplevel icon fixes"
+#endif
 
 #if !defined(WLR_AQUEOUS_FIFO_VERSION) || WLR_AQUEOUS_FIFO_VERSION != 1
 #error "Aqueous requires the pinned wlroots FIFO API"
@@ -32,3 +38,5 @@ void aqueous_scene_node_set_enabled(struct wlr_scene_node *node, int enabled);
 #error "Vulkan effects require the pinned Aqueous wlroots render hook"
 #endif
 #endif
+
+#include "icon_png.h"

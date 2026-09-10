@@ -17,6 +17,7 @@
   libdrm,
   libevdev,
   libinput,
+  libpng,
   libxkbcommon,
   linkFarm,
   makeWrapper,
@@ -115,6 +116,7 @@ let
       "${src}/compositor/patches/wlroots/0013-fifo-v1.patch"
       "${src}/compositor/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
       "${src}/compositor/patches/wlroots/0015-ext-capture-formats-and-color.patch"
+      "${src}/compositor/patches/wlroots/0016-toplevel-icon-lifetime.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
@@ -175,6 +177,7 @@ stdenv.mkDerivation (finalAttrs: {
     libdrm
     libevdev
     libinput
+    libpng
     libxkbcommon
     mesa
     pixman

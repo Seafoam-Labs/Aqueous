@@ -21,6 +21,7 @@ patch_files=(
     "$here/patches/wlroots/0013-fifo-v1.patch"
     "$here/patches/wlroots/0014-screencopy-10bit-sdr-shm.patch"
     "$here/patches/wlroots/0015-ext-capture-formats-and-color.patch"
+    "$here/patches/wlroots/0016-toplevel-icon-lifetime.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}

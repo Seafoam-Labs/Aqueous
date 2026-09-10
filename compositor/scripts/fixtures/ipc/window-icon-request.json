@@ -1,0 +1,12 @@
+{
+  "ipc": 1,
+  "id": "9",
+  "session": "6b94a179d09456846b94a179d0945684",
+  "op": "window.icon",
+  "params": {
+    "id": "window-identifier",
+    "revision": "2",
+    "size": 1,
+    "scale": 1
+  }
+}

@@ -232,3 +232,39 @@ to the user's desktop. Socket binding must be permitted in the test environment.
 DMS migration is documented in `docs/dms-ipc-socket-plan.md` at the repository
 root. Until that consumer work lands, DMS continues to use its existing process
 adapter. Persistent settings/keybind configuration transport is a later phase.
+
+### Per-window icons
+
+Optional capabilities `icon_metadata` and `icon_fetch` advertise committed icon
+metadata in the shared shell model and the read-only `window.icon` query.
+Clients must tolerate their absence on older compositors. No IPC version bump
+is required. Metadata follows the [shell state contract](aqueous-shell-v1.md).
+
+```json
+{"ipc":1,"id":"9","session":"6b94a179d09456846b94a179d0945684","op":"window.icon","params":{"id":"window-identifier","revision":"2","size":32,"scale":2}}
+```
+
+`id` is the ext-foreign-toplevel identifier from the current session's window
+record. `revision` must match its committed icon revision. `size` is an integer
+logical edge length (1–256); `scale` is an integer (1–8). Their product must be
+at most 256. Exactly these four parameters are required. This operation uses
+the request connection; it is rejected on a subscribed connection.
+
+A successful result contains `revision`, `width`, `height`, `format: "png"`, and
+`data` (base64 PNG). Width and height both equal `size * scale`. The PNG uses
+straight RGBA pixels. Encoded image data is bounded to 512 KiB and remains subject
+to the usual frame and output-queue limits. Do not place it in state batches.
+
+Errors are `invalid` (parameters/connection mode), `not_found` (window removed,
+unmapped, or identity changed), `stale_revision` (icon changed), `unavailable`
+(no usable pixels, unsupported CPU conversion, or encoder allocation failure),
+or `locked`. Existing `stale_session`, `busy`, and framing errors still apply.
+Name-only icons can be resolved by the frontend's current XDG icon theme.
+
+PNG compression runs in-process on a bounded worker job: at most one per client
+and 16 admitted clients. Completion rechecks the window identity, revision, and
+lock state. Disconnect cancels delivery and joins the bounded encode. The server
+caches up to 32 encoded responses and invalidates a window's entries when its
+icon changes or it is destroyed. No per-window subprocesses or disk cache are
+used. A query response can already be obsolete by the time it reaches a client;
+consumers must compare it with their latest subscribed metadata before display.

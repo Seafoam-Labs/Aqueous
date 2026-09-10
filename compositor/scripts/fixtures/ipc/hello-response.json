@@ -17,7 +17,9 @@
       "commands": true,
       "keyboard": true,
       "overview": true,
-      "shortcut_inhibition": true
+      "shortcut_inhibition": true,
+      "icon_metadata": true,
+      "icon_fetch": true
     }
   }
 }

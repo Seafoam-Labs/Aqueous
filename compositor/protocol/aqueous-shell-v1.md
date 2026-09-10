@@ -63,6 +63,19 @@ handles return an empty string.
 | `keyboard_device` | `id`, `name`, `seat`, `group`, `virtual` |
 | `session` | fixed `id: "session"`, `locked`, unambiguous `default_seat`, `overview_output`, `overview_window` |
 
+The optional `icon_metadata` capability advertises a window `icon` field:
+`null` uses the application's default icon; otherwise it contains `revision`
+(a decimal string), `name` (nullable theme name), and `has_pixels` (boolean).
+Only committed assignments are published. Repeated assignment of the same icon
+keeps its revision; a reset or a different icon changes it. Key caches by session,
+window ID, revision, and requested size/scale, and clear them on removal or reset.
+Xwayland records currently report `icon: null`.
+
+Pixel data is fetched through the optional socket `window.icon` operation,
+not included in state batches or the Wayland shell interface. Consumers without
+socket icon access can use the theme name and their existing app-icon fallback.
+See [the IPC contract](aqueous-ipc-v1.md).
+
 Cleared optional values are `null`. Full entity replacements are sent on change;
 missing optional values must not preserve an earlier value. Backend `xwayland`
 uses `class` for application identity when `app_id` is null.

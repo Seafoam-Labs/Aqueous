@@ -243,6 +243,9 @@ pub fn build(b: *Build) !void {
         }
         river.root_module.linkSystemLibrary("xkbcommon", .{});
         river.root_module.linkSystemLibrary("pixman-1", .{});
+        river.root_module.linkSystemLibrary("libpng", .{});
+        river.root_module.linkSystemLibrary("pthread", .{});
+        river.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra" } });
 
         river.root_module.addImport("wayland", wayland);
         river.root_module.addImport("xkbcommon", xkbcommon);
@@ -581,6 +584,9 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.linkSystemLibrary("libinput", .{});
         keyboard_test.root_module.linkSystemLibrary("libevdev", .{});
         keyboard_test.root_module.linkSystemLibrary("pixman-1", .{});
+        keyboard_test.root_module.linkSystemLibrary("libpng", .{});
+        keyboard_test.root_module.linkSystemLibrary("pthread", .{});
+        keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2" } });
         if (vulkan_effects) keyboard_test.root_module.linkSystemLibrary("vulkan", .{});
         keyboard_test.root_module.addCSourceFile(.{
             .file = b.path("aqueous/wlroots_log_wrapper.c"),
@@ -710,6 +716,26 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        const icon_state_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/ToplevelIcon.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        icon_state_test.root_module.addImport("c", translate_c.mod);
+        icon_state_test.root_module.addImport("wlroots", wlroots);
+        icon_state_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        test_step.dependOn(&b.addRunArtifact(icon_state_test).step);
+        const icon_selection_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/icon_selection.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        test_step.dependOn(&b.addRunArtifact(icon_selection_test).step);
         const xdg_state_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/xdg_state.zig"),

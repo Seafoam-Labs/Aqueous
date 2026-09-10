@@ -31,13 +31,18 @@ and syncobj remap tests pass. Physical DRM/VRR and FIFO plane-promotion
 qualification remain outstanding; see the
 [implementation and validation record](fifo-v1-implementation-plan.md).
 
+`xdg-toplevel-icon-v1` is implemented with committed per-window state, owned
+pixel snapshots, built-in overview icons, shell metadata, and bounded socket PNG
+retrieval. The native overview uses a placeholder for name-only icons; DMS can
+resolve theme names and use supplied pixels. See the
+[implementation and validation record](xdg-toplevel-icon-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols staging
 
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
-| xdg-toplevel-icon-v1 | `xdg_toplevel_icon_manager_v1` | Present: `wlr_xdg_toplevel_icon_manager_v1_create`. | Per-window named or pixel-buffer icons for overviews, switchers, and taskbars. Retain icon state and provide a path for the compositor UI/DMS to consume it; creating the global alone does not display icons. |
 | commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
 | xdg-toplevel-drag-v1 | `xdg_toplevel_drag_manager_v1` | No implementation found. | Move a real toplevel during drag-and-drop, enabling tab detachment and reattachment. Integrate mapping, movement, drop/cancellation, and window lifetime with the existing drag path. |
 | xdg-toplevel-tag-v1 | `xdg_toplevel_tag_manager_v1` | No implementation found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Add tag/description storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
@@ -162,7 +167,6 @@ advertising protocol globals. Recommended order for general desktop use:
 
 | Priority | Work | Estimated scope |
 |---|---|---|
-| Medium | **xdg-toplevel-icon-v1** | Medium: icon lifetime, rendering, and shell/DMS consumption. |
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
 | Medium | **xdg-toplevel-drag-v1** | Medium–large: coordinate drag-and-drop with window movement and lifetime. |
 | Medium | **xdg-toplevel-tag-v1** | Small–medium: metadata plus rule/inspection integration; value depends on participating clients. |

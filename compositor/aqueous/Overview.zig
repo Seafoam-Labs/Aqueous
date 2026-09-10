@@ -111,6 +111,9 @@ const Entry = struct {
     tree: *wlr.SceneTree,
     buffers: std.ArrayListUnmanaged(Window.OverviewBuffer) = .empty,
     borders: Borders,
+    icon: ?*wlr.SceneBuffer = null,
+    icon_placeholder: ?*wlr.SceneRect = null,
+    icon_scale: f64 = 1,
     start_rect: layout.Rect,
     target_rect: layout.Rect,
     current_rect: layout.Rect,
@@ -127,6 +130,47 @@ const Entry = struct {
         entry.current_rect = interpolateRect(entry.start_rect, entry.target_rect, progress);
         entry.updateBorders();
         entry.updateBuffers();
+        entry.updateIconPosition();
+    }
+
+    fn refreshIcon(entry: *Entry, window: *Window) void {
+        const source = if (window.impl == .toplevel) blk: {
+            const icon = window.impl.toplevel.icon.current orelse break :blk null;
+            break :blk @import("ToplevelIcon.zig").select(icon, 32, entry.icon_scale);
+        } else null;
+        if (entry.icon == null) entry.icon = entry.tree.createSceneBuffer(null) catch return;
+        entry.icon.?.setBuffer(source);
+        if (entry.icon_placeholder == null) {
+            entry.icon_placeholder = entry.tree.createSceneRect(32, 32, &.{ 0.24, 0.28, 0.34, 1 }) catch return;
+        }
+        entry.icon.?.node.raiseToTop();
+        entry.updateIconPosition();
+    }
+
+    fn updateIconPosition(entry: *Entry) void {
+        const icon = entry.icon orelse return;
+        const rect = entry.current_rect;
+        const size = @min(32, @min(rect.width, rect.height));
+        const target: layout.Rect = .{ .x = rect.x, .y = rect.y, .width = size, .height = size };
+        icon.node.setEnabled(false);
+        if (entry.icon_placeholder) |placeholder| placeholder.node.setEnabled(false);
+        const visible = intersection(target, entry.clip_rect) orelse return;
+        if (icon.buffer) |buffer| {
+            icon.node.setPosition(visible.x, visible.y);
+            icon.setDestSize(visible.width, visible.height);
+            const ratio = @as(f64, @floatFromInt(buffer.width)) / @as(f64, @floatFromInt(size));
+            icon.setSourceBox(&.{
+                .x = @as(f64, @floatFromInt(visible.x - target.x)) * ratio,
+                .y = @as(f64, @floatFromInt(visible.y - target.y)) * ratio,
+                .width = @as(f64, @floatFromInt(visible.width)) * ratio,
+                .height = @as(f64, @floatFromInt(visible.height)) * ratio,
+            });
+            icon.node.setEnabled(true);
+        } else if (entry.icon_placeholder) |placeholder| {
+            placeholder.node.setPosition(visible.x, visible.y);
+            placeholder.setSize(visible.width, visible.height);
+            placeholder.node.setEnabled(true);
+        }
     }
 
     fn updateBorders(entry: *Entry) void {
@@ -251,12 +295,14 @@ pub fn show(
             .target_rect = card.target,
             .current_rect = if (fx.anim_enabled) card.source else card.target,
             .clip_rect = output_rect,
+            .icon_scale = output.current.scale,
         };
         window.cloneOverviewInto(util.gpa, entry_tree, &entry.buffers) catch |err| {
             log.warn("skipping overview window {}: {}", .{ card.handle, err });
             entry.deinit();
             continue;
         };
+        entry.refreshIcon(window);
         entry.borders.raiseToTop();
         entry.update(if (fx.anim_enabled) 0 else 1);
         overview.entries.appendAssumeCapacity(entry);
@@ -274,6 +320,12 @@ pub fn show(
     overview.tree.node.setEnabled(true);
     server.wm.dirtyWindowing();
     return accepted;
+}
+
+pub fn iconChanged(overview: *Overview, window: *Window) void {
+    for (overview.entries.items) |*entry| {
+        if (entry.handle == @as(layout.Handle, @bitCast(window.ref))) entry.refreshIcon(window);
+    }
 }
 
 pub fn setSelected(overview: *Overview, handle: layout.Handle) void {
