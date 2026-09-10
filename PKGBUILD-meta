@@ -5,7 +5,9 @@
 # here, rather than in the compositor package, so minimal Aqueous installs stay
 # possible while `aqueous-meta` provides a complete desktop in one operation.
 pkgname=aqueous-meta
-pkgver=1.0
+# Keep upgrades ordered after the previous standalone meta-package version 1.0.
+epoch=1
+pkgver=0.7.0
 pkgrel=1
 pkgdesc='Complete GTK-first desktop environment built around Aqueous'
 arch=(any)
