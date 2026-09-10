@@ -12,6 +12,9 @@ print_session_information() {
     Aqueous also supports separate layout.toml, input.toml, and rules.toml
     files and hot-reloads valid changes without restarting the compositor.
 
+    Open the standalone Aqueous Settings application from the application
+    menu or run aqueous-settings to edit your compositor configuration.
+
     Useful commands:
         aqueous-settings
         aqueousctl windows
@@ -33,8 +36,7 @@ EOF
         cat <<'EOF'
 
     DankMaterialShell (dms-shell) starts automatically with the Aqueous session.
-    Use DMS Settings for appearance and enable Aqueous Settings in DMS Plugins
-    for the packaged configuration editor. Aqueous Screen Sharing is a separate
+    Use DMS Settings for shell appearance. Aqueous Screen Sharing is a separate
     plugin, enabled on first use; an intentional disable is preserved.
     The optional greetd-dms-greeter-bin provides a display-manager frontend.
 
@@ -61,12 +63,12 @@ post_upgrade() {
     Restart the Aqueous session to load the new compositor, bundled wlroots,
     Aqueous portal backend, environment, and user units. Existing files in
     ~/.config/aqueous are not overwritten by the session launcher. Review any
-    pacnew files created for
-    system-wide configuration before merging them.
+    pacnew files created for system-wide configuration before merging them.
 
     The old DMS aqueousSettings and Noctalia aqueous/settings plugins are
-    replaced by aqueous-settings. Remove their widgets from custom bars and
-    replace old panel/IPC launch bindings. User settings and backups are kept.
+    replaced by the standalone aqueous-settings application. Remove their
+    widgets from custom bars and change old panel/IPC launch bindings to run
+    aqueous-settings. User settings and backups are kept.
     The optional DMS aqueousSettingsAppearance typography bridge remains.
 
     If upgrading while logged in, refresh the user-unit cache first:
