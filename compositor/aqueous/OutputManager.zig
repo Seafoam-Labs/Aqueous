@@ -341,7 +341,7 @@ pub fn matchesSpec(spec: *const OutputConfig.Spec, output: *wlr.Output) bool {
     return globMatch(spec.name.slice(), std.mem.span(output.name));
 }
 
-fn outputIdentityHash(output: *wlr.Output, buffer: *[71]u8) ?[]const u8 {
+pub fn outputIdentityHash(output: *wlr.Output, buffer: *[71]u8) ?[]const u8 {
     if (output.make == null and output.model == null and output.serial == null) return null;
     var identity: [768]u8 = undefined;
     const source = std.fmt.bufPrint(&identity, "{s}|{s}|{s}", .{
@@ -825,6 +825,7 @@ pub fn commitOutputState(om: *OutputManager) void {
     }
 
     @import("OutputMirror.zig").reconcile();
+    @import("TabletMapping.zig").refresh();
     om.sendConfig() catch {
         log.err("out of memory", .{});
     };

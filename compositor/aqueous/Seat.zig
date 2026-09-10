@@ -1208,6 +1208,7 @@ pub fn attachNewDevice(seat: *Seat, wlr_device: *wlr.InputDevice, virtual: bool)
     };
     if (device) |d| {
         seat.attachDevice(d);
+        d.tablet_mapping = @import("TabletMapping.zig").resolve(d);
         seat.updateCapabilities();
     }
 }

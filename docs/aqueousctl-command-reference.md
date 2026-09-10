@@ -15,6 +15,8 @@ aqueousctl windows [--json]
 aqueousctl inspect --rule
 aqueousctl scene [--dot]
 aqueousctl outputs [--json]
+aqueousctl input devices --json
+aqueousctl input generate-config --device DEVICE_ID --id RULE_ID (--output OUTPUT|--mapping desktop|--disabled) [--write PATH]
 aqueousctl overlay-planes [--json]
 
 aqueousctl layout --output OUTPUT --json
@@ -331,3 +333,28 @@ This lists aqueousctl's user-facing command forms. There is no generic action
 dispatcher, arbitrary window move/resize command, output mode setter, or
 shell-command launcher in this CLI. Use Aqueous configuration and its settings
 application for controls outside this command set.
+
+## Configure tablets
+
+```sh
+aqueousctl input devices --json
+aqueousctl input generate-config --device DEVICE_ID --id kamvas-pen --output OUTPUT
+aqueousctl input generate-config --device DEVICE_ID --id kamvas-pen --output OUTPUT --write ~/.config/aqueous/input.toml
+```
+
+Discovery reports connected input devices, their session IDs and persistent
+identity fields, available outputs, the selected input sidecar, and each tablet's
+mapping status. Use a tablet's `id` only to select it in this session; generated
+rules contain persistent selectors. Generation requires internal-policy mode.
+
+Exactly one of `--output OUTPUT`, `--mapping desktop`, or `--disabled` is required.
+By default the command prints a TOML rule and changes no files. `--write PATH`
+atomically updates the selected rule by `--id`, preserving unrelated settings,
+comments, permissions and existing symlinks. The parent directory must exist.
+Malformed or unsupported existing TOML, ambiguous device identities, unavailable
+outputs, and detected concurrent file changes are errors. No full reload is sent;
+the configuration watcher applies active-sidecar writes. Check discovery again to
+confirm the result; `pending: true` means the pen must leave proximity first.
+
+See [Tablet configuration](tablet-configuration.md) for HUION/Wacom setup,
+matching and sidecar precedence, desktop/disabled rules, and troubleshooting.

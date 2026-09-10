@@ -7,6 +7,10 @@ const linux = std.os.linux;
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 
 pub fn read(allocator: std.mem.Allocator) ?std.json.Parsed(std.json.Value) {
+    return readRequest(allocator, "{\"op\":\"list\"}\n");
+}
+
+pub fn readRequest(allocator: std.mem.Allocator, request: []const u8) ?std.json.Parsed(std.json.Value) {
     const runtime = getenv("XDG_RUNTIME_DIR") orelse return null;
     var address: linux.sockaddr.un = .{ .path = [_]u8{0} ** 108 };
     const path = std.fmt.bufPrint(address.path[0 .. address.path.len - 1], "{s}/aqueous/outputd.sock", .{std.mem.span(runtime)}) catch return null;
@@ -16,7 +20,6 @@ pub fn read(allocator: std.mem.Allocator) ?std.json.Parsed(std.json.Value) {
     const fd: i32 = @intCast(rc);
     defer _ = linux.close(fd);
     if (linux.errno(linux.connect(fd, @ptrCast(&address), @sizeOf(linux.sockaddr.un))) != .SUCCESS) return null;
-    const request = "{\"op\":\"list\"}\n";
     if (linux.sendto(fd, request.ptr, request.len, linux.MSG.NOSIGNAL, null, 0) != request.len) return null;
     const buffer = allocator.alloc(u8, 256 * 1024) catch return null;
     defer allocator.free(buffer);

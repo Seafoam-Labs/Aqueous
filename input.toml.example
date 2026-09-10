@@ -95,7 +95,7 @@ scroll_method = "two-finger" # two-finger | edge | no-scroll
 # Trackpoints
 # -----------------------------------------------------------------------------
 # These keys are accepted and retained by the configuration parser. The current
-# libinput application path classifies every non-touchpad device as mouse, so
+# libinput application path classifies non-touchpad pointer devices as mice, so
 # [input.mouse] is presently the effective policy for trackpoints as well.
 [input.trackpoint]
 accel_profile = "adaptive"
@@ -107,3 +107,32 @@ left_handed = false
 middle_emulation = false
 click_method = "button-areas"
 scroll_method = "no-scroll"
+
+# -----------------------------------------------------------------------------
+# Tablets: generate exact identities using aqueousctl in the running session.
+# -----------------------------------------------------------------------------
+# aqueousctl input devices --json
+# aqueousctl input generate-config --device DEVICE_ID --id kamvas-pen --output OUTPUT
+# Add --write ~/.config/aqueous/input.toml to update this file atomically.
+# For a Kamvas, select its display. For an Intuos, select your drawing monitor.
+# Replace placeholders before uncommenting; device names match exactly.
+# [[input.tablet]]
+# id = "kamvas-pen"
+# match_name = "<reported pen device name>"
+# output = "<display connector>"
+#
+# A second independently mapped tablet:
+# [[input.tablet]]
+# id = "intuos-pen"
+# match_name = "<reported Intuos pen device name>"
+# output = "<drawing monitor connector>"
+#
+# Optional AND selectors: match_vendor = 0x056a, match_product = 0x033b,
+# match_path = "<udev ID_PATH>". Require name, path, or BOTH vendor/product IDs.
+# output_edid = "sha256:<64 hex digits>" may replace output (never use both).
+# For full-desktop mapping omit output/output_edid and set mapping = "desktop".
+# To disable pen delivery omit mapping/output/output_edid and set enabled = false.
+# Last matching rule wins. Sidecar rules completely replace wm.toml rules by id.
+# Configured missing/disabled/ambiguous outputs suspend pen input until restored.
+# Valid remaps take effect after proximity-out. Invalid reloads retain prior rules.
+# See docs/tablet-configuration.md for the full contract and diagnostics.

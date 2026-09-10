@@ -14,6 +14,7 @@ pub const Snapshot = struct {
     wm: wm.Snapshot = .{},
     actions: actions.Snapshot = .{},
     fingerprint: u64 = 0,
+    tablet_base: @import("tablet").Policy = .{},
 };
 
 /// Build a complete replacement snapshot. Callers publish it only after this
@@ -24,10 +25,11 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
     var wm_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const env = Environment.read();
     const wm_path = resolveWmPath(&wm_path_buffer, env) orelse return snapshot;
-    if (readFile(allocator, wm_path)) |wm_source| {
+    if (readFile(allocator, wm_path, &snapshot.wm.input.tablets)) |wm_source| {
         defer allocator.free(wm_source);
         snapshot.fingerprint = hashSource(snapshot.fingerprint, wm_source);
         wm.apply(&snapshot.wm, &snapshot.layout, wm_source);
+        diagnoseTabletPolicy(wm_path, &snapshot.wm.input.tablets);
         applyActions(&snapshot.actions, wm_source);
     }
 
@@ -35,6 +37,7 @@ pub fn load(allocator: std.mem.Allocator) Snapshot {
     if (resolveLayoutPath(&path_buffer, env, snapshot.wm.layout_path.slice(), dirname(wm_path))) |path| {
         applyLayoutFile(allocator, &snapshot, path);
     }
+    snapshot.tablet_base = snapshot.wm.input.tablets;
     if (resolveInputPath(&path_buffer, env, snapshot.wm.input_path.slice())) |path| {
         applyInputFile(allocator, &snapshot, path);
     }
@@ -451,7 +454,7 @@ pub const Environment = struct {
     layout_override: ?[]const u8,
     input_override: ?[]const u8,
 
-    fn read() Environment {
+    pub fn read() Environment {
         return .{
             .xdg = getenv("XDG_CONFIG_HOME"),
             .home = getenv("HOME"),
@@ -533,10 +536,11 @@ pub fn resolveInputPath(buffer: []u8, env: Environment, configured: []const u8) 
 }
 
 fn applyLayoutFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []const u8) void {
-    const source = readFile(allocator, path) orelse return;
+    const source = readFile(allocator, path, &snapshot.wm.input.tablets) orelse return;
     defer allocator.free(source);
     snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
     applyLayoutSource(snapshot, source);
+    diagnoseTabletPolicy(path, &snapshot.wm.input.tablets);
 }
 
 fn applyLayoutSource(snapshot: *Snapshot, source: []const u8) void {
@@ -549,10 +553,15 @@ fn applyLayoutSource(snapshot: *Snapshot, source: []const u8) void {
 }
 
 fn applyInputFile(allocator: std.mem.Allocator, snapshot: *Snapshot, path: []const u8) void {
-    const source = readFile(allocator, path) orelse return;
+    const source = readFile(allocator, path, &snapshot.wm.input.tablets) orelse return;
     defer allocator.free(source);
     snapshot.fingerprint = hashSource(snapshot.fingerprint, source);
     applyInputSource(snapshot, source);
+    diagnoseTabletPolicy(path, &snapshot.wm.input.tablets);
+}
+
+fn diagnoseTabletPolicy(path: []const u8, policy: *const @import("tablet").Policy) void {
+    if (!policy.valid) log.warn("{s}: tablet rule '{s}' near line {}: {s}", .{ path, policy.error_id.slice(), policy.error_line, policy.reason });
 }
 
 fn applyInputSource(snapshot: *Snapshot, source: []const u8) void {
@@ -565,7 +574,22 @@ fn applyInputSource(snapshot: *Snapshot, source: []const u8) void {
     applyGestures(&snapshot.actions, source);
 }
 
+test "tablet sidecar replaces inherited rules completely and appends in priority order" {
+    var snapshot: Snapshot = .{};
+    wm.apply(&snapshot.wm, &snapshot.layout, "[[input.tablet]]\nid='pen'\nmatch_vendor=0x056a\nmatch_product=0x033b\noutput='DP-1'\n" ++
+        "[[input.tablet]]\nid='later'\nmatch_name='Pen'\noutput='DP-2'\n");
+    applyInputSource(&snapshot, "[[input.tablet]]\nid='pen'\nmatch_name='Pen'\nenabled=false\n");
+    const p = &snapshot.wm.input.tablets;
+    try std.testing.expect(p.valid and p.count == 2);
+    const selected = p.select(.{ .name = "Pen" }).?;
+    try std.testing.expect(!selected.enabled and selected.match_vendor == null and selected.output.empty());
+    try std.testing.expectEqualStrings("pen", selected.id.slice());
+    applyInputSource(&snapshot, "[[input.tablet]]\nid='invalid'\nmatch_name='Pen'\noutput=42\n");
+    try std.testing.expect(!p.valid);
+}
+
 fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
+    base.tablets.overlay(&overlay.tablets);
     const defaults: wm.Input = .{};
     if (overlay.focus_follows_mouse != defaults.focus_follows_mouse) base.focus_follows_mouse = overlay.focus_follows_mouse;
     if (overlay.mouse_follows_focus_set) {
@@ -773,12 +797,14 @@ test "layout sidecar retains composable region tables" {
     try std.testing.expectEqual(layout.LayoutId.rows, snapshot.layout.composable[0].layout);
 }
 
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
+fn readFile(allocator: std.mem.Allocator, path: []const u8, tablets: *@import("tablet").Policy) ?[]u8 {
     const io = std.Io.Threaded.global_single_threaded.io();
     return std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, allocator, .limited(max_config_bytes)) catch |err| switch (err) {
         error.FileNotFound => null,
         else => {
             log.warn("unable to read {s}: {}", .{ path, err });
+            tablets.valid = false;
+            tablets.reason = @errorName(err);
             return null;
         },
     };

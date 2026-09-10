@@ -1756,6 +1756,7 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
         }
     }
 
+    @import("TabletMapping.zig").forgetOutput(output.policyId());
     output.destroy.link.remove();
     output.request_state.link.remove();
     output.frame.link.remove();

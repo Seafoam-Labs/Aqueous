@@ -93,6 +93,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
+    options.addOption(bool, "tablet_testing", b.option(bool, "tablet-testing", "Enable private synthetic tablet input (tests only)") orelse false);
     options.addOption(bool, "output_retry_testing", b.option(bool, "output-retry-testing", "Enable private output retry fault injection (tests only)") orelse false);
     options.addOption([]const u8, "version", full_version);
 
@@ -194,6 +195,7 @@ pub fn build(b: *Build) !void {
     wlroots.resolved_target = target;
     wlroots.linkSystemLibrary(wlroots_pkgconf, .{});
 
+    const tablet = b.createModule(.{ .root_source_file = b.path("common/tablet.zig"), .target = target, .optimize = optimize });
     const flags = b.createModule(.{ .root_source_file = b.path("common/flags.zig") });
     const slotmap = b.createModule(.{ .root_source_file = b.path("common/slotmap.zig") });
     const scaling = b.createModule(.{
@@ -235,6 +237,7 @@ pub fn build(b: *Build) !void {
 
         river.root_module.linkSystemLibrary("libevdev", .{});
         river.root_module.linkSystemLibrary("libinput", .{});
+        river.root_module.linkSystemLibrary("libudev", .{});
         river.root_module.linkSystemLibrary("wayland-server", .{});
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         river.root_module.addRPathSpecial("$ORIGIN/../lib/aqueous");
@@ -254,6 +257,7 @@ pub fn build(b: *Build) !void {
         river.root_module.addImport("flags", flags);
         river.root_module.addImport("slotmap", slotmap);
         river.root_module.addImport("scaling", scaling);
+        river.root_module.addImport("tablet", tablet);
         river.root_module.addImport("c", translate_c.mod);
 
         river.root_module.addCSourceFile(.{
@@ -293,6 +297,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         aqueousctl.root_module.addImport("wayland", wayland);
+        aqueousctl.root_module.addImport("tablet", tablet);
         aqueousctl.root_module.linkSystemLibrary("wayland-client", .{});
         aqueousctl.pie = pie;
         aqueousctl.root_module.omit_frame_pointer = omit_frame_pointer;
@@ -553,6 +558,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         config_test.root_module.addImport("scaling", scaling);
+        config_test.root_module.addImport("tablet", tablet);
         config_test.root_module.addImport("wayland", wayland);
         const run_config_test = b.addRunArtifact(config_test);
 
@@ -577,11 +583,13 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.addImport("flags", flags);
         keyboard_test.root_module.addImport("slotmap", slotmap);
         keyboard_test.root_module.addImport("scaling", scaling);
+        keyboard_test.root_module.addImport("tablet", tablet);
         keyboard_test.root_module.addImport("c", translate_c.mod);
         keyboard_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         keyboard_test.root_module.linkSystemLibrary("xkbcommon", .{});
         keyboard_test.root_module.linkSystemLibrary("wayland-server", .{});
         keyboard_test.root_module.linkSystemLibrary("libinput", .{});
+        keyboard_test.root_module.linkSystemLibrary("libudev", .{});
         keyboard_test.root_module.linkSystemLibrary("libevdev", .{});
         keyboard_test.root_module.linkSystemLibrary("pixman-1", .{});
         keyboard_test.root_module.linkSystemLibrary("libpng", .{});
@@ -627,6 +635,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         rules_test.root_module.addImport("scaling", scaling);
+        rules_test.root_module.addImport("tablet", tablet);
         rules_test.root_module.addImport("wayland", wayland);
         const run_rules_test = b.addRunArtifact(rules_test);
 
@@ -662,6 +671,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         input_drag_test.root_module.addImport("scaling", scaling);
+        input_drag_test.root_module.addImport("tablet", tablet);
         const run_input_drag_test = b.addRunArtifact(input_drag_test);
 
         const workspaces_test = b.addTest(.{
@@ -697,6 +707,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         aqueousctl_test.root_module.addImport("wayland", wayland);
+        aqueousctl_test.root_module.addImport("tablet", tablet);
         aqueousctl_test.root_module.linkSystemLibrary("wayland-client", .{});
         const run_aqueousctl_test = b.addRunArtifact(aqueousctl_test);
 
@@ -716,6 +727,10 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        const tablet_test = b.addTest(.{ .root_module = tablet });
+        const run_tablet_test = b.addRunArtifact(tablet_test);
+        test_step.dependOn(&run_tablet_test.step);
+        b.step("test-tablet", "Test tablet policy and coordinates").dependOn(&run_tablet_test.step);
         const icon_state_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/ToplevelIcon.zig"),

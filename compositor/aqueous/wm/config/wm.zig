@@ -56,6 +56,7 @@ pub const Device = struct {
 };
 
 pub const Input = struct {
+    tablets: @import("tablet").Policy = .{},
     focus_follows_mouse: bool = false,
     mouse_follows_focus: bool = false,
     mouse_follows_focus_set: bool = false,
@@ -177,6 +178,8 @@ pub const Snapshot = struct {
 const Section = union(enum) { none, layout, rules, render, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
+    const tablet_policy = @import("tablet").parse(source);
+    snapshot.input.tablets.overlay(&tablet_policy);
     var section: Section = .none;
     var output: ?OutputLayout = null;
     var workspace: ?WorkspaceLayout = null;

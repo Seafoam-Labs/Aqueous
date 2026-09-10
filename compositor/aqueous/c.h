@@ -8,6 +8,7 @@
 #include <xf86drm.h>
 #include <libevdev/libevdev.h>
 #include <libinput.h>
+#include <libudev.h>
 #include <wlr/types/wlr_output_layer.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_compositor.h>

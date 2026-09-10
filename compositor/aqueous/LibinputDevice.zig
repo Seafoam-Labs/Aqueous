@@ -35,14 +35,16 @@ pub fn init(device: *LibinputDevice, handle: *c.libinput_device) void {
     };
     device.objects.init();
     server.libinput_config.devices.append(device);
-    if (server.aqueous.mode.runsInternal()) device.policyApply(server.aqueous.config.wm.input);
+    if (server.aqueous.mode.runsInternal()) device.policyApply(&server.aqueous.config.wm.input);
     {
         var it = server.libinput_config.objects.iterator(.forward);
         while (it.next()) |config_v1| device.createObject(config_v1);
     }
 }
 
-pub fn policyApply(device: *LibinputDevice, input: PolicyInput) void {
+pub fn policyApply(device: *LibinputDevice, input: *const PolicyInput) void {
+    const base: *InputDevice = @fieldParentPtr("libinput", device);
+    if (base.wlr_device.type != .pointer) return;
     const touchpad = c.libinput_device_config_tap_get_finger_count(device.libinput) > 0;
     const policy: PolicyDevice = if (touchpad) input.touchpad else input.mouse;
     const profile: @TypeOf(policy.accel_profile) = if (policy.accel_profile != .unset) policy.accel_profile else if (!touchpad) (if (input.pointer_acceleration) .adaptive else .flat) else .unset;

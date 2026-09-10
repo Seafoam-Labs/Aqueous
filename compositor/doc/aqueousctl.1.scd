@@ -17,6 +17,10 @@ aqueousctl - inspect and control Aqueous compositor state
 
 *aqueousctl outputs* [*--json*]
 
+*aqueousctl input devices --json*
+
+*aqueousctl input generate-config --device* _ID_ *--id* _RULE_ [*--output* _NAME_ | *--mapping desktop* | *--disabled*] [*--write* _PATH_]
+
 *aqueousctl overlay-planes* [*--json*]
 
 *aqueousctl layout --output* _NAME_ [*--set* _LAYOUT_] *--json*
@@ -47,6 +51,21 @@ include layout and cursor updates. Shell commands use the separate versioned
 aqueous_shell_manager_v1 protocol for live state and typed policy actions.
 
 # COMMANDS
+
+*input devices --json*
+	Report input device identities, session IDs, tablet mappings, outputs and
+	the selected input sidecar through the in-process output service.
+
+*input generate-config*
+	Generate one [[input.tablet]] TOML rule. Requires --device ID, --id RULE,
+	and exactly one of --output NAME, --mapping desktop, or --disabled.
+	Prints TOML to stdout unless --write PATH is supplied. Writes atomically
+	update the rule with the same id, preserving unrelated settings, comments,
+	permissions and existing symlinks. The parent directory must exist.
+	Rejects ambiguous identities, unavailable outputs, malformed/unsupported
+	TOML and detected concurrent edits. Requires internal-policy mode.
+	Writes to the active sidecar follow normal hot reload; this command does
+	not issue a full reload. Inspect input devices --json to confirm application.
 
 *windows*
 	Print a tabular list containing the stable identifier, backend, application

@@ -200,6 +200,7 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
         log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
     }
+    preserveTabletPolicy(aqueous, &replacement);
     aqueous.config = replacement;
     {
         var seats = server.input_manager.seats.iterator(.forward);
@@ -2826,7 +2827,7 @@ pub fn clientMinimizeAllowed(
 }
 
 fn applyInputConfig(aqueous: *Aqueous) void {
-    if (aqueous.started and aqueous.mode.runsInternal()) aqueous.api.applyInputConfig(aqueous.config.wm.input);
+    if (aqueous.started and aqueous.mode.runsInternal()) aqueous.api.applyInputConfig(&aqueous.config.wm.input);
 }
 
 fn runExec(aqueous: *Aqueous, when: action_config.ExecWhen) void {
@@ -3257,6 +3258,7 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
             log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
             replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
         }
+        preserveTabletPolicy(aqueous, &replacement);
         aqueous.config = replacement;
         if (!aqueous.config.wm.input.mouse_follows_focus) {
             var seats = server.input_manager.seats.iterator(.forward);
@@ -3651,4 +3653,11 @@ test "composable action slots accept names and numeric aliases" {
     try std.testing.expectEqual(@as(?u8, 3), parseComposableSlot("4"));
     try std.testing.expectEqual(@as(?u8, null), parseComposableSlot("e"));
     try std.testing.expectEqual(@as(?u8, null), parseComposableSlot("10"));
+}
+
+fn preserveTabletPolicy(aqueous: *Aqueous, replacement: *config_loader.Snapshot) void {
+    if (!replacement.wm.input.tablets.valid) {
+        log.warn("invalid tablet configuration near line {}: {s}; retaining previous tablet policy", .{ replacement.wm.input.tablets.error_line, replacement.wm.input.tablets.reason });
+        replacement.wm.input.tablets = aqueous.config.wm.input.tablets;
+    }
 }

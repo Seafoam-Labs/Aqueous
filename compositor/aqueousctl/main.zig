@@ -16,6 +16,8 @@ const allocator = std.heap.c_allocator;
 
 const usage =
     \\usage: aqueousctl windows [--json]
+    \\       aqueousctl input devices --json
+    \\       aqueousctl input generate-config --device ID --id RULE (--output NAME|--mapping desktop|--disabled) [--write PATH]
     \\       aqueousctl inspect --rule
     \\       aqueousctl scene [--dot]
     \\       aqueousctl outputs [--json]
@@ -260,6 +262,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var stderr_buffer: [512]u8 = undefined;
     var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
+
+    if (args.len >= 2 and mem.eql(u8, args[1], "input")) {
+        @import("Input.zig").run(args, stdout, stderr) catch |err| {
+            try stderr.print("aqueousctl: input: {s}\n", .{@errorName(err)});
+            try stderr.flush();
+            std.process.exit(if (err == error.InvalidArguments) 2 else 1);
+        };
+        return;
+    }
 
     if (@import("Shell.zig").handles(args)) {
         @import("Shell.zig").run(args, stdout) catch |err| {
@@ -1586,4 +1597,8 @@ test "scene dot escapes labels and styles node types" {
 
 test {
     _ = @import("Shell.zig");
+}
+
+test {
+    _ = @import("Input.zig");
 }

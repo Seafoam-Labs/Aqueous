@@ -57,6 +57,7 @@ devices: wl.list.Head(InputDevice, .link),
 seats: wl.list.Head(Seat, .link),
 
 cursor_config: CursorConfig.Config,
+tablet_tools: wl.list.Head(@import("TabletTool.zig"), .link),
 
 new_virtual_pointer: wl.Listener(*wlr.VirtualPointerManagerV1.event.NewPointer) = .init(handleNewVirtualPointer),
 new_virtual_keyboard: wl.Listener(*wlr.VirtualKeyboardV1) = .init(handleNewVirtualKeyboard),
@@ -90,9 +91,11 @@ pub fn init(input_manager: *InputManager) !void {
         .devices = undefined,
         .seats = undefined,
         .cursor_config = cursor_resolution.config,
+        .tablet_tools = undefined,
     };
     input_manager.objects.init();
     input_manager.devices.init();
+    input_manager.tablet_tools.init();
     input_manager.seats.init();
 
     try Seat.create(default_seat_name);
@@ -157,6 +160,7 @@ pub fn setCursorConfig(input_manager: *InputManager, theme: []const u8, size: u3
 }
 
 pub fn deinit(input_manager: *InputManager) void {
+    if (comptime build_options.tablet_testing) @import("TabletTest.zig").finish();
     input_manager.global.destroy();
 
     if (build_options.xwayland) {

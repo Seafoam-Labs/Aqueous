@@ -87,6 +87,8 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
         server.aqueous.cancelOverview();
         server.aqueous.cancelSnapPreview();
         manager.state = .waiting_for_lock_surfaces;
+        var tools = server.input_manager.tablet_tools.iterator(.forward);
+        while (tools.next()) |tool| tool.cancel();
         @import("OutputMirror.zig").invalidateAll();
 
         assert(!server.scene.locked_tree.node.enabled);

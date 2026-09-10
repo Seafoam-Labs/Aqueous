@@ -4,8 +4,6 @@
 const TabletTool = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
-const math = std.math;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
@@ -14,18 +12,15 @@ const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
 const Tablet = @import("Tablet.zig");
+const Mapping = @import("TabletMapping.zig");
+const policy = @import("tablet");
 
 const log = std.log.scoped(.input);
 
 const Mode = union(enum) {
     passthrough,
     down: struct {
-        // Initial cursor position in layout coordinates
-        lx: f64,
-        ly: f64,
-        // Initial cursor position in surface-local coordinates
-        sx: f64,
-        sy: f64,
+        node: *wlr.SceneNode,
     },
 };
 
@@ -34,6 +29,16 @@ wp_tool: *wlr.TabletV2TabletTool,
 wlr_cursor: *wlr.Cursor,
 
 mode: Mode = .passthrough,
+link: wl.list.Link = undefined,
+tablet: ?*Tablet = null,
+mapping: Mapping.Mapping = .{},
+in_proximity: bool = false,
+deferred_mapping: bool = false,
+physical_down: bool = false,
+wait_release: bool = false,
+normalized_x: f64 = 0.5,
+normalized_y: f64 = 0.5,
+node_destroy: wl.Listener(void) = .init(handleNodeDestroy),
 
 // A wlroots event may notify us of a change on one of these axes but not
 // include the value of the other. We must always send both values to the
@@ -67,6 +72,7 @@ fn create(wlr_seat: *wlr.Seat, wlr_tool: *wlr.TabletTool) error{OutOfMemory}!*Ta
         .wlr_cursor = wlr_cursor,
     };
 
+    server.input_manager.tablet_tools.append(tool);
     wlr_tool.data = tool;
 
     wlr_tool.events.destroy.add(&tool.destroy);
@@ -78,6 +84,9 @@ fn create(wlr_seat: *wlr.Seat, wlr_tool: *wlr.TabletTool) error{OutOfMemory}!*Ta
 fn handleDestroy(listener: *wl.Listener(*wlr.TabletTool), _: *wlr.TabletTool) void {
     const tool: *TabletTool = @fieldParentPtr("destroy", listener);
 
+    // wlroots registered its tool-destroy listener first and has already freed wp_tool.
+    tool.clearMode();
+    tool.link.remove();
     tool.wlr_cursor.destroy();
 
     tool.destroy.link.remove();
@@ -124,6 +133,8 @@ fn detach(tool: *TabletTool, tablet: *Tablet) void {
 }
 
 pub fn axis(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Axis) void {
+    tool.syncMapping(tablet);
+    if (!tool.in_proximity or tool.mapping.blocked() or tool.wait_release) return;
     tool.attach(tablet);
     defer tool.detach(tablet);
 
@@ -133,11 +144,9 @@ pub fn axis(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Axis) v
         // The same goes for all the different axes events.
         switch (tool.wp_tool.wlr_tool.type) {
             .pen, .eraser, .brush, .pencil, .airbrush, .totem => {
-                tool.wlr_cursor.warpAbsolute(
-                    tablet.device.wlr_device,
-                    if (event.updated_axes.x) event.x else math.nan(f64),
-                    if (event.updated_axes.y) event.y else math.nan(f64),
-                );
+                if (event.updated_axes.x and std.math.isFinite(event.x)) tool.normalized_x = event.x;
+                if (event.updated_axes.y and std.math.isFinite(event.y)) tool.normalized_y = event.y;
+                tool.position(tablet);
             },
             .lens, .mouse => {
                 tool.wlr_cursor.move(tablet.device.wlr_device, event.dx, event.dy);
@@ -149,10 +158,23 @@ pub fn axis(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Axis) v
                 tool.passthrough(tablet);
             },
             .down => |data| {
-                tool.wp_tool.notifyMotion(
-                    data.sx + (tool.wlr_cursor.x - data.lx),
-                    data.sy + (tool.wlr_cursor.y - data.ly),
-                );
+                // Invert the same destination projection used for scene hit testing.
+                var lx: c_int = 0;
+                var ly: c_int = 0;
+                if (data.node.coords(&lx, &ly)) {
+                    const projection = @import("scene_surface_projection.zig");
+                    const origin = projection.surfaceToDestination(data.node, 0, 0);
+                    const basis_x = projection.surfaceToDestination(data.node, 1, 0);
+                    const basis_y = projection.surfaceToDestination(data.node, 0, 1);
+                    const ax = basis_x.x - origin.x;
+                    const ay = basis_x.y - origin.y;
+                    const bx = basis_y.x - origin.x;
+                    const by = basis_y.y - origin.y;
+                    const dx = tool.wlr_cursor.x - @as(f64, @floatFromInt(lx)) - origin.x;
+                    const dy = tool.wlr_cursor.y - @as(f64, @floatFromInt(ly)) - origin.y;
+                    const det = ax * by - ay * bx;
+                    if (std.math.isFinite(det) and @abs(det) > 1e-12) tool.wp_tool.notifyMotion((dx * by - dy * bx) / det, (dy * ax - dx * ay) / det);
+                }
             },
         }
     }
@@ -182,38 +204,54 @@ pub fn axis(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Axis) v
 pub fn proximity(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Proximity) void {
     switch (event.state) {
         .in => {
+            tool.syncMapping(tablet);
+            tool.in_proximity = true;
+            if (!tool.in_proximity or tool.mapping.blocked() or tool.wait_release) return;
             tool.attach(tablet);
             defer tool.detach(tablet);
 
-            tool.wlr_cursor.warpAbsolute(tablet.device.wlr_device, event.x, event.y);
+            if (std.math.isFinite(event.x)) tool.normalized_x = event.x;
+            if (std.math.isFinite(event.y)) tool.normalized_y = event.y;
+            tool.position(tablet);
 
             tool.wlr_cursor.setXcursor(tablet.device.seat.cursor.xcursor_manager, "pencil");
 
             tool.passthrough(tablet);
         },
         .out => {
-            tool.wp_tool.notifyProximityOut();
-            tool.wlr_cursor.unsetImage();
+            tool.cancel();
+            tool.in_proximity = false;
+            tool.physical_down = false;
+            tool.wait_release = false;
+            tool.syncMapping(tablet);
         },
     }
 }
 
 pub fn tip(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Tip) void {
+    tool.physical_down = event.state == .down;
+    tool.syncMapping(tablet);
+    if (!tool.in_proximity or tool.mapping.blocked()) return;
+    if (tool.wait_release) {
+        if (event.state == .up) tool.wait_release = false;
+        return;
+    }
     switch (event.state) {
         .down => {
             // There have been reports of libinput emitting inconsistent down/up events.
             if (tool.wp_tool.is_down) return;
 
+            if (tool.wp_tool.focused_surface == null) tool.passthrough(tablet);
+            if (tool.wp_tool.focused_surface == null) return;
             tool.wp_tool.notifyDown();
 
             if (server.scene.at(tool.wlr_cursor.x, tool.wlr_cursor.y)) |result| {
                 if (result.surface != null) {
+                    tool.clearMode();
+                    result.node.events.destroy.add(&tool.node_destroy);
                     tool.mode = .{
                         .down = .{
-                            .lx = tool.wlr_cursor.x,
-                            .ly = tool.wlr_cursor.y,
-                            .sx = result.sx,
-                            .sy = result.sy,
+                            .node = result.node,
                         },
                     };
                 }
@@ -230,6 +268,10 @@ pub fn tip(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Tip) voi
 }
 
 pub fn button(tool: *TabletTool, tablet: *Tablet, event: *wlr.Tablet.event.Button) void {
+    tool.syncMapping(tablet);
+    if (!tool.in_proximity or tool.mapping.blocked() or tool.wait_release) return;
+    const pressed = std.mem.indexOfScalar(u32, tool.wp_tool.pressed_buttons[0..tool.wp_tool.num_buttons], event.button) != null;
+    if (pressed == (event.state == .pressed)) return;
     tool.wp_tool.notifyButton(event.button, event.state);
 
     tool.maybeExitDown(tablet);
@@ -241,7 +283,7 @@ fn maybeExitDown(tool: *TabletTool, tablet: *Tablet) void {
         return;
     }
 
-    tool.mode = .passthrough;
+    tool.clearMode();
     tool.passthrough(tablet);
 }
 
@@ -250,11 +292,11 @@ fn maybeExitDown(tool: *TabletTool, tablet: *Tablet) void {
 /// If there is no surface under the cursor or the surface under the cursor
 /// does not support the tablet v2 protocol, send a proximity_out event.
 fn passthrough(tool: *TabletTool, tablet: *Tablet) void {
+    if (!tool.in_proximity or tool.mapping.blocked() or tool.wait_release) return;
     if (server.scene.at(tool.wlr_cursor.x, tool.wlr_cursor.y)) |result| {
-        if (result.data == .lock_surface) {
-            assert(server.lock_manager.state != .unlocked);
-        } else {
-            assert(server.lock_manager.state != .locked);
+        if (result.data != .lock_surface and server.lock_manager.state != .unlocked) {
+            tool.cancel();
+            return;
         }
 
         if (result.surface) |surface| {
@@ -267,4 +309,52 @@ fn passthrough(tool: *TabletTool, tablet: *Tablet) void {
     }
 
     tool.wp_tool.notifyProximityOut();
+}
+
+fn clearMode(tool: *TabletTool) void {
+    if (tool.mode == .down) tool.node_destroy.link.remove();
+    tool.mode = .passthrough;
+}
+fn handleNodeDestroy(listener: *wl.Listener(void)) void {
+    const tool: *TabletTool = @fieldParentPtr("node_destroy", listener);
+    tool.cancel();
+}
+pub fn cancel(tool: *TabletTool) void {
+    tool.clearMode();
+    if (tool.wp_tool.is_down) tool.wp_tool.notifyUp();
+    while (tool.wp_tool.num_buttons > 0) tool.wp_tool.notifyButton(tool.wp_tool.pressed_buttons[tool.wp_tool.num_buttons - 1], .released);
+    tool.wp_tool.notifyProximityOut();
+    tool.wlr_cursor.unsetImage();
+    tool.wait_release = tool.physical_down;
+}
+pub fn syncMapping(tool: *TabletTool, tablet: *Tablet) void {
+    if (tool.tablet != tablet) {
+        if (tool.tablet != null) tool.cancel();
+        tool.tablet = tablet;
+        tool.in_proximity = false;
+    }
+    const relative = tool.wp_tool.wlr_tool.type == .mouse or tool.wp_tool.wlr_tool.type == .lens;
+    const next = if (relative and tablet.device.tablet_mapping.status != .disabled) Mapping.Mapping{} else tablet.device.tablet_mapping;
+    if (std.meta.eql(next, tool.mapping)) {
+        tool.deferred_mapping = false;
+        return;
+    }
+    if (next.blocked() or !Mapping.usable(tool.mapping)) {
+        tool.cancel();
+    } else if (tool.in_proximity) {
+        tool.deferred_mapping = true;
+        return;
+    }
+    tool.mapping = next;
+    tool.deferred_mapping = false;
+}
+fn position(tool: *TabletTool, tablet: *Tablet) void {
+    if (tool.mapping.status == .resolved) {
+        const p = policy.position(tool.mapping.box, tool.mapping.transform, tool.normalized_x, tool.normalized_y);
+        tool.wlr_cursor.warpClosest(null, p.x, p.y);
+    } else if (tool.mapping.status == .desktop) {
+        tool.wlr_cursor.mapInputToOutput(tablet.device.wlr_device, null);
+        tool.wlr_cursor.mapInputToRegion(tablet.device.wlr_device, &.{ .x = 0, .y = 0, .width = 0, .height = 0 });
+        tool.wlr_cursor.warpAbsolute(tablet.device.wlr_device, tool.normalized_x, tool.normalized_y);
+    } else tool.wlr_cursor.warpAbsolute(tablet.device.wlr_device, tool.normalized_x, tool.normalized_y);
 }

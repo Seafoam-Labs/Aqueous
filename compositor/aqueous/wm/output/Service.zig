@@ -350,11 +350,24 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     const op_value = parsed.value.object.get("op") orelse return service.sendError(client, "unknown op ''");
     if (op_value != .string) return service.sendError(client, "op must be a string");
     const op = op_value.string;
+    if (comptime build_options.tablet_testing) {
+        if (std.mem.eql(u8, op, "test_tablet")) {
+            var buffer: [2048]u8 = undefined;
+            var writer = std.Io.Writer.fixed(&buffer);
+            @import("../../TabletTest.zig").request(parsed.value.object, &writer) catch |err| return service.sendError(client, @errorName(err));
+            return service.sendStatic(client, writer.buffered());
+        }
+    }
     if (comptime build_options.output_retry_testing) {
         if (std.mem.eql(u8, op, "test_output_retry")) return service.handleRetryTest(client, parsed.value.object);
     }
     if (std.mem.eql(u8, op, "version")) return service.sendStatic(client, "{\"ok\":true,\"daemon\":\"aqueous-outputd\",\"version\":\"0.0.1\",\"protocol\":1}\n");
     if (std.mem.eql(u8, op, "list")) return service.sendList(client, true, null);
+    if (std.mem.eql(u8, op, "input_devices")) {
+        if (parsed.value.object.count() != 1) return service.sendError(client, "unexpected input_devices parameters");
+        service.sendInputDevices(client) catch service.sendError(client, "input discovery failed");
+        return;
+    }
     if (std.mem.eql(u8, op, "cursor_state")) return service.sendCursorState(client);
     if (std.mem.eql(u8, op, "reload")) {
         const report = service.reload(true);
@@ -655,6 +668,83 @@ fn sendCursorState(service: *Service, client: *Client) void {
     json.endArray() catch return;
     json.endObject() catch return;
     writer.writeByte('\n') catch return;
+    service.sendStatic(client, writer.buffered());
+}
+
+fn sendInputDevices(service: *Service, client: *Client) !void {
+    const Mapping = @import("../../TabletMapping.zig");
+    const policy = @import("tablet");
+    var buffer: [max_response]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    var json: std.json.Stringify = .{ .writer = &writer };
+    try json.beginObject();
+    try field(&json, "ok", true);
+    try field(&json, "session", server.shell_manager.session[0..32]);
+    try field(&json, "internal_policy", server.aqueous.mode.runsInternal());
+    const config = &server.aqueous.config;
+    const loader = @import("../config/loader.zig");
+    var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    try field(&json, "wm_file", loader.resolveWmPath(&path_buffer, loader.Environment.read()) orelse "");
+    try field(&json, "input_file", loader.resolveInputPath(&path_buffer, loader.Environment.read(), config.wm.input_path.slice()) orelse "");
+    try field(&json, "base_tablets_valid", config.tablet_base.valid);
+    var base = std.Io.Writer.Allocating.init(util.gpa);
+    defer base.deinit();
+    for (config.tablet_base.rules[0..config.tablet_base.count]) |*r| try policy.writeRule(&base.writer, r);
+    try field(&json, "base_tablets", base.written());
+    try json.objectField("devices");
+    try json.beginArray();
+    var devices = server.input_manager.devices.iterator(.forward);
+    while (devices.next()) |device| {
+        const id = Mapping.identity(device);
+        try json.beginObject();
+        var id_buf: [20]u8 = undefined;
+        try field(&json, "id", try std.fmt.bufPrint(&id_buf, "{d}", .{device.shell_id}));
+        try field(&json, "name", id.name);
+        try field(&json, "type", @tagName(device.wlr_device.type));
+        try field(&json, "vendor", id.vendor);
+        try field(&json, "product", id.product);
+        try field(&json, "path", id.path);
+        try field(&json, "virtual", id.virtual);
+        try field(&json, "seat", std.mem.span(device.seat.wlr_seat.name));
+        const rule = if (config.wm.input.tablets.valid) config.wm.input.tablets.select(id) else null;
+        try field(&json, "rule", if (rule) |r| r.id.slice() else "");
+        try field(&json, "desired_output", if (rule) |r| r.output.slice() else "");
+        try field(&json, "output_edid", if (rule) |r| r.output_edid.slice() else "");
+        try field(&json, "status", @tagName(device.tablet_mapping.status));
+        var pending = false;
+        var relative_tools = false;
+        var tools = server.input_manager.tablet_tools.iterator(.forward);
+        while (tools.next()) |tool| if (tool.tablet) |tablet| {
+            if (&tablet.device == device and tool.deferred_mapping) pending = true;
+            if (&tablet.device == device and (tool.wp_tool.wlr_tool.type == .mouse or tool.wp_tool.wlr_tool.type == .lens)) relative_tools = true;
+        };
+        try field(&json, "pending", pending);
+        try field(&json, "relative_tools", relative_tools);
+        var name: []const u8 = "";
+        var outputs = server.om.outputs.iterator(.forward);
+        while (outputs.next()) |output| if (device.tablet_mapping.status == .resolved and output.policyId() == device.tablet_mapping.output_id) {
+            name = output.policyName();
+        };
+        try field(&json, "output", name);
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.objectField("outputs");
+    try json.beginArray();
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        const native = output.wlr_output orelse continue;
+        var hash: [71]u8 = undefined;
+        try json.beginObject();
+        try field(&json, "name", output.policyName());
+        try field(&json, "edid", OutputManager.outputIdentityHash(native, &hash) orelse "");
+        try field(&json, "enabled", native.enabled and output.current.state == .enabled);
+        try field(&json, "mirror", !output.current.mirror_of.empty());
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.endObject();
+    try writer.writeByte('\n');
     service.sendStatic(client, writer.buffered());
 }
 

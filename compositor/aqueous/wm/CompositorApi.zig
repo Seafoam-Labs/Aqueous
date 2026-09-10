@@ -631,7 +631,8 @@ pub fn windowConstraints(_: CompositorApi, handle: layout.Handle) geometry.Const
     };
 }
 
-pub fn applyInputConfig(_: CompositorApi, input: wm_config.Input) void {
+pub fn applyInputConfig(_: CompositorApi, input: *const wm_config.Input) void {
+    @import("../TabletMapping.zig").refresh();
     var devices = server.libinput_config.devices.iterator(.forward);
     while (devices.next()) |device| device.policyApply(input);
 

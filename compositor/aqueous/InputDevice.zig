@@ -43,6 +43,8 @@ config: struct {
 /// InputManager.devices
 link: wl.list.Link,
 shell_id: u64,
+identity_path: @import("tablet").Text = .{},
+tablet_mapping: @import("TabletMapping.zig").Mapping = .{},
 
 pub fn init(
     device: *InputDevice,
@@ -61,6 +63,7 @@ pub fn init(
         .link = undefined,
     };
     next_shell_id = std.math.add(u64, next_shell_id, 1) catch @panic("shell identity exhausted");
+    @import("TabletMapping.zig").initializeIdentity(device);
     device.objects.init();
     server.input_manager.devices.append(device);
 
@@ -132,6 +135,7 @@ pub fn createObject(device: *InputDevice, im_v1: *aqueous.InputManagerV1) void {
 }
 
 pub fn deinit(device: *InputDevice) void {
+    @import("TabletMapping.zig").forgetDevice(device);
     if (!device.virtual) {
         {
             var it = device.objects.iterator(.forward);
