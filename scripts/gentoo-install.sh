@@ -164,6 +164,8 @@ cmd_build() {
         "$root/compositor/scripts/build-wlroots-render-hook.sh"
 
     say "building Aqueous compositor..."
+    # Only clear generated staging metadata, never an existing system installation.
+    rm -rf -- "$dist/aqueous-dist/share/aqueous-protocols"
     (
         cd "$root/compositor"
         PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
@@ -212,6 +214,12 @@ verify_build() {
         lib/aqueous/libwlroots-0.20.so
         share/man/man1/aqueousctl.1
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+        share/aqueous-protocols/stable/aqueous-window-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-input-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-bindings-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-libinput-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-layer-shell-v1.xml
     )
     local path
     for path in "${required[@]}"; do

@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -38,7 +38,7 @@ pub const CursorConfigStatus = enum {
 };
 
 global: *wl.Global,
-objects: wl.list.Head(river.InputManagerV1, null),
+objects: wl.list.Head(aqueous.InputManagerV1, null),
 
 new_input: wl.Listener(*wlr.InputDevice) = .init(handleNewInput),
 
@@ -73,7 +73,7 @@ pub fn init(input_manager: *InputManager) !void {
         log.warn("invalid XCURSOR_SIZE; using {d}", .{CursorConfig.default_size});
     }
     input_manager.* = .{
-        .global = try wl.Global.create(server.wl_server, river.InputManagerV1, 2, *InputManager, input_manager, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.InputManagerV1, 2, *InputManager, input_manager, bind),
         // These are automatically freed when the display is destroyed
         .idle_notifier = try wlr.IdleNotifierV1.create(server.wl_server),
         .relative_pointer_manager = try wlr.RelativePointerManagerV1.create(server.wl_server),
@@ -179,7 +179,7 @@ pub fn deinit(input_manager: *InputManager) void {
 }
 
 fn bind(client: *wl.Client, im: *InputManager, version: u32, id: u32) void {
-    const im_v1 = river.InputManagerV1.create(client, version, id) catch {
+    const im_v1 = aqueous.InputManagerV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -197,20 +197,20 @@ fn bind(client: *wl.Client, im: *InputManager, version: u32, id: u32) void {
 }
 
 fn handleRequestInert(
-    im_v1: *river.InputManagerV1,
-    request: river.InputManagerV1.Request,
+    im_v1: *aqueous.InputManagerV1,
+    request: aqueous.InputManagerV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) im_v1.destroy();
 }
 
-fn handleDestroy(im_v1: *river.InputManagerV1, _: *InputManager) void {
+fn handleDestroy(im_v1: *aqueous.InputManagerV1, _: *InputManager) void {
     im_v1.getLink().remove();
 }
 
 fn handleRequest(
-    im_v1: *river.InputManagerV1,
-    request: river.InputManagerV1.Request,
+    im_v1: *aqueous.InputManagerV1,
+    request: aqueous.InputManagerV1.Request,
     im: *InputManager,
 ) void {
     switch (request) {

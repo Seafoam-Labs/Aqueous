@@ -11,7 +11,7 @@ const meta = std.meta;
 const posix = std.posix;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 const wp = @import("wayland").server.wp;
 const SlotMap = @import("slotmap").SlotMap;
 
@@ -79,7 +79,7 @@ pub const FullscreenRequest = union(enum) {
 };
 
 pub const Border = struct {
-    edges: river.WindowV1.Edges = .{},
+    edges: aqueous.WindowV1.Edges = .{},
     width: u31 = 0,
     r: u32 = 0,
     b: u32 = 0,
@@ -103,8 +103,8 @@ const WmRequested = struct {
     dimensions: ?Dimensions,
     bounds: Dimensions,
     ssd: bool,
-    tiled: river.WindowV1.Edges,
-    capabilities: river.WindowV1.Capabilities,
+    tiled: aqueous.WindowV1.Edges,
+    capabilities: aqueous.WindowV1.Capabilities,
     resizing: bool,
     maximized: bool,
     fullscreen: ?*Output,
@@ -139,8 +139,8 @@ pub const Configure = struct {
     /// True if the window has keyboard focus from at least one seat.
     activated: bool,
     ssd: bool,
-    tiled: river.WindowV1.Edges,
-    capabilities: river.WindowV1.Capabilities,
+    tiled: aqueous.WindowV1.Edges,
+    capabilities: aqueous.WindowV1.Capabilities,
     maximized: bool,
     inform_fullscreen: bool,
     resizing: bool,
@@ -178,8 +178,8 @@ const RenderingRequested = struct {
     blur_enabled: bool = true,
     /// Window-content opacity as a 32-bit unsigned fraction (0 = transparent,
     /// 0xffffffff = opaque); null inherits the global default driven by
-    /// river_window_manager_v1.set_opacity. Driven by
-    /// river_window_v1.set_window_opacity.
+    /// aqueous_window_manager_v1.set_opacity. Driven by
+    /// aqueous_window_v1.set_window_opacity.
     opacity: ?u32 = null,
     buffer_scale_policy: scaling.BufferScalePolicy = .native,
     overlay_plane: OverlayPreference = .off,
@@ -278,14 +278,14 @@ workspace_link: wl.list.Link,
 /// The window management protocol object for this window
 /// Created in manageStart() when state is .ready
 /// Set to null in manageStart() when state is .closing
-object: ?*river.WindowV1 = null,
+object: ?*aqueous.WindowV1 = null,
 node: WmNode,
 
 state: enum {
     /// Initial state, also returned to after closed event is sent.
     init,
     /// The window is ready to be configured.
-    /// The river_window_v1 will be created in the next manage sequence.
+    /// The aqueous_window_v1 will be created in the next manage sequence.
     ready,
     /// The first configure has been sent but the window is not yet mapped.
     initialized,
@@ -365,10 +365,10 @@ content_type: wp.ContentTypeV1.Type = .none,
 /// State to be sent to the wm in the next manage sequence.
 wm_scheduled: struct {
     dimensions_hint: DimensionsHint = .{},
-    decoration_hint: river.WindowV1.DecorationHint = .only_supports_csd,
+    decoration_hint: aqueous.WindowV1.DecorationHint = .only_supports_csd,
     /// Whether the window accepts keyboard focus. Wayland-native windows always do;
     /// XWayland windows reflect their ICCCM input model (`none` ⇒ false). Forwarded to
-    /// the wm via river_window_v1.focus_hint so it can avoid focus-stealing popups.
+    /// the wm via aqueous_window_v1.focus_hint so it can avoid focus-stealing popups.
     accepts_focus: bool = true,
     show_window_menu_requested: ?struct { x: i32, y: i32 } = null,
     /// Set back to no_request at the end of each update sequence
@@ -391,7 +391,7 @@ wm_scheduled: struct {
     pointer_move_requested: ?*Seat = null,
     pointer_resize_requested: ?struct {
         seat: *Seat,
-        edges: river.WindowV1.Edges,
+        edges: aqueous.WindowV1.Edges,
     } = null,
 } = .{},
 
@@ -400,7 +400,7 @@ wm_scheduled: struct {
 /// to the wm.
 wm_sent: struct {
     dimensions_hint: DimensionsHint = .{},
-    decoration_hint: river.WindowV1.DecorationHint = .only_supports_csd,
+    decoration_hint: aqueous.WindowV1.DecorationHint = .only_supports_csd,
     accepts_focus: bool = true,
     parent: ?Window.Ref = null,
 } = .{},
@@ -435,7 +435,7 @@ rendering_scheduled: struct {
 rendering_sent: struct {
     width: u31 = 0,
     height: u31 = 0,
-    presentation_hint: river.OutputV1.PresentationMode = .vsync,
+    presentation_hint: aqueous.OutputV1.PresentationMode = .vsync,
 } = .{},
 
 /// Rendering state requested by the wm.
@@ -1008,7 +1008,7 @@ pub fn setDimensions(window: *Window, width: u31, height: u31) void {
     }
 }
 
-pub fn setDecorationHint(window: *Window, hint: river.WindowV1.DecorationHint) void {
+pub fn setDecorationHint(window: *Window, hint: aqueous.WindowV1.DecorationHint) void {
     window.wm_scheduled.decoration_hint = hint;
     if (hint != window.wm_sent.decoration_hint) {
         server.wm.dirtyWindowing();
@@ -1031,7 +1031,7 @@ pub fn manageStart(window: *Window) void {
             const wm_v1 = server.wm.object orelse return;
             const new = window.object == null;
             const window_v1 = window.object orelse blk: {
-                const window_v1 = river.WindowV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
+                const window_v1 = aqueous.WindowV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
                     log.err("out of memory", .{});
                     return; // try again next update
                 };
@@ -1043,7 +1043,7 @@ pub fn manageStart(window: *Window) void {
                 server.wm.rendering_requested.list.append(&window.node);
 
                 // External policy needs the ext identifier before the first map
-                // so it can satisfy river_window_v1.identifier's send-once
+                // so it can satisfy aqueous_window_v1.identifier's send-once
                 // contract. Integrated policy publishes from map() instead.
                 window.publishForeignToplevels();
 
@@ -1080,7 +1080,7 @@ pub fn manageStart(window: *Window) void {
                 sent.decoration_hint = scheduled.decoration_hint;
             }
             if (new or scheduled.accepts_focus != sent.accepts_focus) {
-                // focus_hint (river-window-management-v1 >= 9). Older wm clients won't see it.
+                // focus_hint (aqueous-window-management-v1 >= 9). Older wm clients won't see it.
                 if (window_v1.getVersion() >= 9) {
                     window_v1.sendFocusHint(@as(u32, @intFromBool(scheduled.accepts_focus)));
                 }
@@ -1199,14 +1199,14 @@ fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {
 }
 
 fn handleRequestInert(
-    window_v1: *river.WindowV1,
-    request: river.WindowV1.Request,
+    window_v1: *aqueous.WindowV1,
+    request: aqueous.WindowV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) window_v1.destroy();
 }
 
-fn handleDestroy(_: *river.WindowV1, window: *Window) void {
+fn handleDestroy(_: *aqueous.WindowV1, window: *Window) void {
     window.object = null;
     window.wm_requested = .init;
     window.rendering_requested = .{
@@ -1239,8 +1239,8 @@ fn handleDestroy(_: *river.WindowV1, window: *Window) void {
 }
 
 fn handleRequest(
-    window_v1: *river.WindowV1,
-    request: river.WindowV1.Request,
+    window_v1: *aqueous.WindowV1,
+    request: aqueous.WindowV1.Request,
     window: *Window,
 ) void {
     assert(window.object == window_v1);
@@ -1757,7 +1757,7 @@ pub fn renderStart(window: *Window) void {
     }
 }
 
-fn presentationHint(window: *Window) river.OutputV1.PresentationMode {
+fn presentationHint(window: *Window) aqueous.OutputV1.PresentationMode {
     const root_surface = window.rootSurface() orelse return .vsync;
     return switch (server.tearing_control_manager.hintFromSurface(root_surface)) {
         .async => .async,
@@ -3016,7 +3016,7 @@ pub fn effectiveOpacity(window: *const Window) f32 {
 
 /// Publish this window through both the standard ext list and the legacy wlr
 /// manager used by wlrctl/taskbars. This must not depend on an external
-/// river_window_manager_v1 client: integrated policy deliberately has none.
+/// aqueous_window_manager_v1 client: integrated policy deliberately has none.
 fn publishForeignToplevels(window: *Window) void {
     if (window.foreign_toplevel_handle == null) {
         if (wlr.ExtForeignToplevelHandleV1.create(server.foreign_toplevel_list, &.{
@@ -3125,7 +3125,7 @@ pub fn map(window: *Window) !void {
     }
 
     // Foreign-toplevel protocols describe mapped windows. This is also the
-    // integrated-policy publication path: there is no river_window_manager_v1
+    // integrated-policy publication path: there is no aqueous_window_manager_v1
     // object in that mode, so publication must not depend on manageStart().
     window.publishForeignToplevels();
     window.syncForeignToplevelState();

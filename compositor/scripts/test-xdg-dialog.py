@@ -100,7 +100,7 @@ def main():
         for name, xml in {
             'xdg-shell': protocols / 'stable/xdg-shell/xdg-shell.xml',
             'xdg-dialog': protocols / 'staging/xdg-dialog/xdg-dialog-v1.xml',
-            'river-input': ROOT / 'protocol/river-input-management-v1.xml',
+            'aqueous-input': ROOT / 'protocol/aqueous-input-management-v1.xml',
             'layer-shell': ROOT / 'protocol/upstream/wlr-layer-shell-unstable-v1.xml',
             'xdg-activation': protocols / 'staging/xdg-activation/xdg-activation-v1.xml',
             'security-context': protocols / 'staging/security-context/security-context-v1.xml',

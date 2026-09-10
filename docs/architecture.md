@@ -44,8 +44,8 @@ records provenance. There is no live submodule or second repository.
 ## Policy boundary
 
 Production builds default to internal policy and disable external policy
-attachment. `-Dexternal-policy=true` enables the legacy
-`river_window_manager_v1` external and compare modes for compatibility testing;
+attachment. `-Dexternal-policy=true` enables the optional
+`aqueous_window_manager_v1` external and compare modes for diagnostic testing;
 the project no longer ships an external client.
 
 Configuration is parsed into validated snapshots and reloaded on the Wayland

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<protocol name="river_window_management_v1">
+<protocol name="aqueous_window_management_v1">
   <copyright>
     SPDX-FileCopyrightText: © 2024 Isaac Freund
     SPDX-License-Identifier: MIT
@@ -34,7 +34,7 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_window_manager_v1" version="10">
+  <interface name="aqueous_window_manager_v1" version="10">
     <description summary="window manager global interface">
       This global interface should only be advertised to the window manager
       process. Only one window management client may be active at a time. The
@@ -140,7 +140,7 @@
 
         The Wayland protocol is asynchronous, which means the server may send
         further events until the stop request is processed. The client must wait
-        for a river_window_manager_v1.finished event before destroying this
+        for a aqueous_window_manager_v1.finished event before destroying this
         object.
       </description>
     </request>
@@ -149,18 +149,18 @@
       <description summary="the server has finished with the window manager">
         This event indicates that the server will send no further events on this
         object. The client should destroy the object. See
-        river_window_manager_v1.destroy for more information.
+        aqueous_window_manager_v1.destroy for more information.
       </description>
     </event>
 
     <request name="destroy" type="destructor">
-      <description summary="destroy the river_window_manager_v1 object">
+      <description summary="destroy the aqueous_window_manager_v1 object">
         This request should be called after the finished event has been received
         to complete destruction of the object.
 
         If a client wishes to destroy this object it should send a
-        river_window_manager_v1.stop request and wait for a
-        river_window_manager_v1.finished event. Once the finished event is
+        aqueous_window_manager_v1.stop request and wait for a
+        aqueous_window_manager_v1.finished event. Once the finished event is
         received it is safe to destroy this object and any other objects created
         through this interface.
       </description>
@@ -175,7 +175,7 @@
         window management state as it chooses. Then, the client must make the
         manage_finish request.
 
-        See the description of the river_window_manager_v1 interface for a
+        See the description of the aqueous_window_manager_v1 interface for a
         complete overview of the manage/render sequence loop.
       </description>
     </event>
@@ -191,7 +191,7 @@
         make further changes to window management state until the next
         manage_start event is received.
 
-        See the description of the river_window_manager_v1 interface for a
+        See the description of the aqueous_window_manager_v1 interface for a
         complete overview of the manage/render sequence loop.
       </description>
     </request>
@@ -212,13 +212,13 @@
     <event name="render_start">
       <description summary="start a render sequence">
         This event indicates that the server has sent all
-        river_window_v1.dimensions events necessary.
+        aqueous_window_v1.dimensions events necessary.
 
         In response to this event, the client should make requests modifying
         rendering state as it chooses. Then, the client must make the
         render_finish request.
 
-        See the description of the river_window_manager_v1 interface for a
+        See the description of the aqueous_window_manager_v1 interface for a
         complete overview of the manage/render sequence loop.
       </description>
     </event>
@@ -234,7 +234,7 @@
         make further changes to rendering state until the next manage_start or
         render_start event is received, whichever comes first.
 
-        See the description of the river_window_manager_v1 interface for a
+        See the description of the aqueous_window_manager_v1 interface for a
         complete overview of the manage/render sequence loop.
       </description>
     </request>
@@ -267,7 +267,7 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="id" type="new_id" interface="river_window_v1" summary="new window"/>
+      <arg name="id" type="new_id" interface="aqueous_window_v1" summary="new window"/>
     </event>
 
     <event name="output">
@@ -275,11 +275,11 @@
         A new logical output has been created, perhaps due to a new physical
         monitor being plugged in or perhaps due to a change in configuration.
 
-        This event will be followed by river_output_v1.position and dimensions
+        This event will be followed by aqueous_output_v1.position and dimensions
         events as well as a manage_start event after all other new state has
         been sent by the server.
       </description>
-      <arg name="id" type="new_id" interface="river_output_v1" summary="new output"/>
+      <arg name="id" type="new_id" interface="aqueous_output_v1" summary="new output"/>
     </event>
 
     <event name="seat">
@@ -289,19 +289,19 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="id" type="new_id" interface="river_seat_v1" summary="new seat"/>
+      <arg name="id" type="new_id" interface="aqueous_seat_v1" summary="new seat"/>
     </event>
 
     <request name="get_shell_surface">
-      <description summary="assign the river_shell_surface_v1 surface role">
+      <description summary="assign the aqueous_shell_surface_v1 surface role">
         Create a new shell surface for window manager UI and assign the
-        river_shell_surface_v1 role to the surface.
+        aqueous_shell_surface_v1 role to the surface.
 
         Providing a wl_surface which already has a role or already has a buffer
         attached or committed is a protocol error.
       </description>
-      <arg name="id" type="new_id" interface="river_shell_surface_v1"
-        summary="new river shell surface"/>
+      <arg name="id" type="new_id" interface="aqueous_shell_surface_v1"
+        summary="new Aqueous shell surface"/>
       <arg name="surface" type="object" interface="wl_surface"
         summary="base surface"/>
     </request>
@@ -333,7 +333,7 @@
         the most recent set_blur request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="enabled" type="uint" summary="0 = off, non-zero = on"/>
       <arg name="radius" type="int" summary="blur radius in pixels"/>
@@ -351,7 +351,7 @@
         Only the most recent set_opacity request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="value" type="uint" summary="opacity fraction, 0 = transparent, 0xffffffff = opaque"/>
     </request>
@@ -371,7 +371,7 @@
         requests. Only the most recent request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="enabled" type="uint" summary="0 = off (instant swap), non-zero = on"/>
       <arg name="rate" type="fixed" summary="slide smoothing rate; &lt;= 0 keeps the default"/>
@@ -396,7 +396,7 @@
         requests. Only the most recent request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="noise" type="fixed" summary="stable noise amount, 0 to 1"/>
       <arg name="contrast" type="fixed" summary="contrast multiplier, 0 to 2"/>
@@ -406,7 +406,7 @@
     </request>
   </interface>
 
-  <interface name="river_window_v1" version="9">
+  <interface name="aqueous_window_v1" version="9">
     <description summary="a logical window">
       This represents a logical window. For example, a window may correspond to
       an xdg_toplevel or Xwayland window.
@@ -433,8 +433,8 @@
         This request indicates that the client will no longer use the window
         object and that it may be safely destroyed.
 
-        This request should be made after the river_window_v1.closed event or
-        river_window_manager_v1.finished is received to complete destruction of
+        This request should be made after the aqueous_window_v1.closed event or
+        aqueous_window_manager_v1.finished is received to complete destruction of
         the window.
       </description>
     </request>
@@ -445,9 +445,9 @@
         xdg_toplevel.close request or similar.
 
         The server will send no further events on this object and ignore any
-        request other than river_window_v1.destroy made after this event is
+        request other than aqueous_window_v1.destroy made after this event is
         sent. The client should destroy this object with the
-        river_window_v1.destroy request to free up resources.
+        aqueous_window_v1.destroy request to free up resources.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
@@ -460,11 +460,11 @@
         only close after some delay, perhaps opening a dialog asking the user to
         save their work or similar.
 
-        The server will send a river_window_v1.closed event if/when the window
+        The server will send a aqueous_window_v1.closed event if/when the window
         has been closed.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -475,7 +475,7 @@
         It is a protocol error to make this request more than once for a single
         window.
       </description>
-      <arg name="id" type="new_id" interface="river_node_v1" summary="new node"/>
+      <arg name="id" type="new_id" interface="aqueous_node_v1" summary="new node"/>
     </request>
 
     <event name="dimensions_hint">
@@ -506,7 +506,7 @@
         logical coordinate space. The width and height must be strictly greater
         than zero.
 
-        Note that the dimensions of a river_window_v1 refer to the dimensions of
+        Note that the dimensions of a aqueous_window_v1 refer to the dimensions of
         the window content and are unaffected by the presence of borders or
         decoration surfaces.
 
@@ -535,7 +535,7 @@
 
         The window may not take the exact dimensions proposed. The actual
         dimensions taken by the window will be sent in a subsequent
-        river_window_v1.dimensions event. For example, a terminal emulator may
+        aqueous_window_v1.dimensions event. For example, a terminal emulator may
         only allow dimensions that are multiple of the cell size.
 
         When a propose_dimensions request is made, the server must send a
@@ -545,12 +545,12 @@
         dimensions. In this case, the server will send the dimensions event in a
         future render sequence.
 
-        Note that the dimensions of a river_window_v1 refer to the dimensions of
+        Note that the dimensions of a aqueous_window_v1 refer to the dimensions of
         the window content and are unaffected by the presence of borders or
         decoration surfaces.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="width" type="int" summary="proposed content width"/>
       <arg name="height" type="int" summary="proposed content height"/>
@@ -565,7 +565,7 @@
         the hide request.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -579,7 +579,7 @@
         the hide request.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -629,7 +629,7 @@
         state has been sent by the server.
       </description>
       <arg name="parent" type="object" allow-null="true"
-        interface="river_window_v1" summary="parent window, if any"/>
+        interface="aqueous_window_v1" summary="parent window, if any"/>
     </event>
 
     <enum name="decoration_hint">
@@ -666,7 +666,7 @@
         ever made.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -679,7 +679,7 @@
         decoration, see the decoration_hint event.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -718,12 +718,12 @@
         This request completely overrides all previous set_borders requests.
         Only the most recent set_borders request has an effect.
 
-        Note that the position/dimensions of a river_window_v1 refer to the
+        Note that the position/dimensions of a aqueous_window_v1 refer to the
         position/dimensions of the window content and are unaffected by the
         presence of borders or decoration surfaces.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="edges" type="uint" enum="edges" summary="border edges"/>
       <arg name="width" type="int" summary="border width"/>
@@ -747,21 +747,21 @@
         informed that it is not part of a tiled layout.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="edges" type="uint" enum="edges" summary="tiled edges"/>
     </request>
 
     <request name="get_decoration_above">
       <description summary="create a decoration above the window in z-order">
-        Create a decoration surface and assign the river_decoration_v1 role to
+        Create a decoration surface and assign the aqueous_decoration_v1 role to
         the surface. The created decoration is placed above the window in
-        rendering order, see the description of river_decoration_v1.
+        rendering order, see the description of aqueous_decoration_v1.
 
         Providing a wl_surface which already has a role or already has a buffer
         attached or committed is a protocol error.
       </description>
-      <arg name="id" type="new_id" interface="river_decoration_v1"
+      <arg name="id" type="new_id" interface="aqueous_decoration_v1"
         summary="new decoration surface"/>
       <arg name="surface" type="object" interface="wl_surface"
         summary="base surface"/>
@@ -769,14 +769,14 @@
 
     <request name="get_decoration_below">
       <description summary="create a decoration below the window in z-order">
-        Create a decoration surface and assign the river_decoration_v1 role to
+        Create a decoration surface and assign the aqueous_decoration_v1 role to
         the surface. The created decoration is placed below the window in
-        rendering order, see the description of river_decoration_v1.
+        rendering order, see the description of aqueous_decoration_v1.
 
         Providing a wl_surface which already has a role or already has a buffer
         attached or committed is a protocol error.
       </description>
-      <arg name="id" type="new_id" interface="river_decoration_v1"
+      <arg name="id" type="new_id" interface="aqueous_decoration_v1"
         summary="new decoration surface"/>
       <arg name="surface" type="object" interface="wl_surface"
         summary="base surface"/>
@@ -792,13 +792,13 @@
         interactive move be started, perhaps when a client-side rendered
         titlebar is dragged.
 
-        The window manager may use the river_seat_v1.op_start_pointer request to
+        The window manager may use the aqueous_seat_v1.op_start_pointer request to
         interactively move the window or ignore this event entirely.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="seat" type="object" interface="river_seat_v1"
+      <arg name="seat" type="object" interface="aqueous_seat_v1"
         summary="requested seat"/>
     </event>
 
@@ -816,13 +816,13 @@
         interactive resize be started, perhaps when the corner of client-side
         rendered decorations is dragged.
 
-        The window manager may use the river_seat_v1.op_start_pointer request to
+        The window manager may use the aqueous_seat_v1.op_start_pointer request to
         interactively resize the window or ignore this event entirely.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="seat" type="object" interface="river_seat_v1"
+      <arg name="seat" type="object" interface="aqueous_seat_v1"
         summary="requested seat"/>
       <arg name="edges" type="uint" enum="edges"
         summary="requested edges"/>
@@ -838,7 +838,7 @@
         dimensions of the window while it is resizing.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -849,7 +849,7 @@
         interactive resize that the interactive resize has ended for example.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -875,7 +875,7 @@
         inform windows that all capabilities are supported.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="caps" type="uint" enum="capabilities"
         summary="supported capabilities"/>
@@ -908,7 +908,7 @@
         maximized.
 
         The window manager is free to honor this request using
-        river_window_v1.inform_maximized or ignore it.
+        aqueous_window_v1.inform_maximized or ignore it.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
@@ -921,7 +921,7 @@
         unmaximized.
 
         The window manager is free to honor this request using
-        river_window_v1.inform_unmaximized or ignore it.
+        aqueous_window_v1.inform_unmaximized or ignore it.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
@@ -938,7 +938,7 @@
         dimensions of the window while it is maximized.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -949,7 +949,7 @@
         example.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -962,13 +962,13 @@
         window manager should choose an output.
 
         The window manager is free to honor this request using
-        river_window_v1.fullscreen or ignore it.
+        aqueous_window_v1.fullscreen or ignore it.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
       <arg name="output" type="object" allow-null="true"
-        interface="river_output_v1" summary="fullscreen output requested"/>
+        interface="aqueous_output_v1" summary="fullscreen output requested"/>
     </event>
 
     <event name="exit_fullscreen_requested">
@@ -977,7 +977,7 @@
         fullscreen.
 
         The window manager is free to honor this request using
-        river_window_v1.exit_fullscreen or ignore it.
+        aqueous_window_v1.exit_fullscreen or ignore it.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
@@ -991,11 +991,11 @@
         example.
 
         This request does not affect the size/position of the window or cause it
-        to become the only window rendered, see the river_window_v1.fullscreen
+        to become the only window rendered, see the aqueous_window_v1.fullscreen
         and exit_fullscreen requests for that.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1006,11 +1006,11 @@
         example.
 
         This request does not affect the size/position of the window or cause it
-        to become the only window rendered, see the river_window_v1.fullscreen
+        to become the only window rendered, see the aqueous_window_v1.fullscreen
         and exit_fullscreen requests for that.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1020,7 +1020,7 @@
         fullscreen on the same output at the same time only the "top" window in
         rendering order shall be displayed.
 
-        All river_shell_surface_v1 objects above the top fullscreen window in
+        All aqueous_shell_surface_v1 objects above the top fullscreen window in
         the rendering order will continue to be rendered.
 
         The compositor will handle the position and dimensions of the window
@@ -1041,15 +1041,15 @@
 
         If the output on which a window is currently fullscreen is removed, the
         windowing state is modified as if there were an exit_fullscreen request
-        made in the same manage sequence as the river_output_v1.removed event.
+        made in the same manage sequence as the aqueous_output_v1.removed event.
 
         This request does not inform the window that it is fullscreen, see the
-        river_window_v1.inform_fullscreen and inform_not_fullscreen requests.
+        aqueous_window_v1.inform_fullscreen and inform_not_fullscreen requests.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="output" type="object" interface="river_output_v1"
+      <arg name="output" type="object" interface="aqueous_output_v1"
         summary="fullscreen output"/>
     </request>
 
@@ -1066,10 +1066,10 @@
         frame perfection.
 
         This request does not inform the window that it is fullscreen, see the
-        river_window_v1.inform_fullscreen and inform_not_fullscreen requests.
+        aqueous_window_v1.inform_fullscreen and inform_not_fullscreen requests.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1101,7 +1101,7 @@
         Both set_clip_box and set_content_clip_box may be enabled simultaneously.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="x" type="int" summary="x relative to top left window corner"/>
       <arg name="y" type="int" summary="y relative to top left window corner"/>
@@ -1119,7 +1119,7 @@
         not necessarily a 1-to-1 mapping from PID to window. Multiple windows
         may have the same PID.
 
-        This event is sent once when the river_window_v1 is created and never
+        This event is sent once when the aqueous_window_v1 is created and never
         sent again.
       </description>
       <arg name="unreliable_pid" type="int" summary="unreliable PID"/>
@@ -1145,7 +1145,7 @@
         Both set_clip_box and set_content_clip_box may be enabled simultaneously.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="x" type="int" summary="x relative to top left window corner"/>
       <arg name="y" type="int" summary="y relative to top left window corner"/>
@@ -1160,7 +1160,7 @@
         This event will be followed by a render_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="hint" type="uint" enum="river_output_v1.presentation_mode"
+      <arg name="hint" type="uint" enum="aqueous_output_v1.presentation_mode"
         summary="presentation hint"/>
     </event>
 
@@ -1179,10 +1179,10 @@
            creation/destruction when identifiers are used in out-of-band IPC.
 
         If the compositor implements the ext-foreign-toplevel-list-v1 protocol,
-        the river_window_v1.identifier event must match the corresponding
+        the aqueous_window_v1.identifier event must match the corresponding
         ext_foreign_toplevel_handle_v1.identifier event.
 
-        This event is sent once when the river_window_v1 is created and never
+        This event is sent once when the aqueous_window_v1 is created and never
         sent again.
       </description>
       <arg name="identifier" type="string" summary="unique identifier"/>
@@ -1203,7 +1203,7 @@
         the xdg_toplevel.configure_bounds event for example.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="max_width" type="int" summary="maximum width"/>
       <arg name="max_height" type="int" summary="maximum height"/>
@@ -1222,7 +1222,7 @@
     <request name="set_window_blur" since="7">
       <description summary="enable or disable blur for this window">
         Enable or disable compositor backdrop blur for this specific window,
-        relative to the global blur configured via river_window_manager_v1.set_blur.
+        relative to the global blur configured via aqueous_window_manager_v1.set_blur.
 
         Disabling blur for a window (enabled = 0) is a preference for windows
         that should not pay the per-frame blur cost, such as games or fullscreen
@@ -1236,7 +1236,7 @@
         for this window. Only the most recent request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="enabled" type="uint" summary="0 = excluded (e.g. games), non-zero = blurred"/>
     </request>
@@ -1244,7 +1244,7 @@
     <request name="set_window_opacity" since="8">
       <description summary="set the opacity of this window">
         Set the opacity applied to this specific window's content, overriding
-        the default configured via river_window_manager_v1.set_opacity. The
+        the default configured via aqueous_window_manager_v1.set_opacity. The
         value is a 32-bit unsigned fraction: 0 means fully transparent and
         0xffffffff means fully opaque.
 
@@ -1252,7 +1252,7 @@
         requests for this window. Only the most recent request has an effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="value" type="uint" summary="opacity fraction, 0 = transparent, 0xffffffff = opaque"/>
     </request>
@@ -1306,13 +1306,13 @@
     </event>
   </interface>
 
-  <interface name="river_decoration_v1" version="4">
+  <interface name="aqueous_decoration_v1" version="4">
     <description summary="a window decoration">
       The rendering order of windows with decorations is follows:
 
       1. Decorations created with get_decoration_below at the bottom
       2. Window content
-      3. Borders configured with river_window_v1.set_borders
+      3. Borders configured with aqueous_window_v1.set_borders
       4. Decorations created with get_decoration_above at the top
 
       The relative ordering of decoration surfaces above/below a window is
@@ -1340,7 +1340,7 @@
         protocol and left up to the compositor.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="x" type="int" summary="x relative to top left window corner"/>
       <arg name="y" type="int" summary="y relative to top left window corner"/>
@@ -1350,19 +1350,19 @@
       <description summary="sync next commit with other rendering state">
         Synchronize application of the next wl_surface.commit request on the
         decoration surface with rest of the state atomically applied with the
-        next river_window_manager_v1.render_finish request.
+        next aqueous_window_manager_v1.render_finish request.
 
         The client must make a wl_surface.commit request on the decoration
         surface after this request and before the render_finish request, failure
         to do so is a protocol error.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
   </interface>
 
-  <interface name="river_shell_surface_v1" version="5">
+  <interface name="aqueous_shell_surface_v1" version="5">
     <description summary="a surface for window manager UI">
       The window manager might use a shell surface to display a status bar,
       background image, desktop notifications, launcher, desktop menu, or
@@ -1378,7 +1378,7 @@
         After receiving this event the client must not send any further
         requests on the object and must destroy it. The compositor will not
         reference the object in any subsequent event (e.g. via the
-        river_seat_v1.shell_surface_interaction event).
+        aqueous_seat_v1.shell_surface_interaction event).
       </description>
     </event>
 
@@ -1403,26 +1403,26 @@
         It is a protocol error to make this request more than once for a single
         shell surface.
       </description>
-      <arg name="id" type="new_id" interface="river_node_v1" summary="new node"/>
+      <arg name="id" type="new_id" interface="aqueous_node_v1" summary="new node"/>
     </request>
 
     <request name="sync_next_commit">
       <description summary="sync next surface commit to window manager commit">
         Synchronize application of the next wl_surface.commit request on the
         shell surface with rest of the rendering state atomically applied with
-        the next river_window_manager_v1.render_finish request.
+        the next aqueous_window_manager_v1.render_finish request.
 
         The client must make a wl_surface.commit request on the shell surface
         after this request and before the render_finish request, failure to do
         so is a protocol error.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
   </interface>
 
-  <interface name="river_node_v1" version="4">
+  <interface name="aqueous_node_v1" version="4">
     <description summary="a node in the render list">
       The render list is a list of nodes that determines the rendering order of
       the compositor. Nodes may correspond to windows or shell surfaces. The
@@ -1446,7 +1446,7 @@
         Set the absolute position of the node in the compositor's logical
         coordinate space. The x and y coordinates may be positive or negative.
 
-        Note that the position of a river_window_v1 refers to the position of
+        Note that the position of a aqueous_window_v1 refers to the position of
         the window content and is unaffected by the presence of borders or
         decoration surfaces.
 
@@ -1454,7 +1454,7 @@
         this protocol and left up to the compositor.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="x" type="int" summary="global x coordinate"/>
       <arg name="y" type="int" summary="global y coordinate"/>
@@ -1466,7 +1466,7 @@
         render list.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1476,7 +1476,7 @@
         render list.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1488,9 +1488,9 @@
         Attempting to place a node above itself has no effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="other" type="object" interface="river_node_v1"
+      <arg name="other" type="object" interface="aqueous_node_v1"
         summary="other node"/>
     </request>
 
@@ -1502,14 +1502,14 @@
         Attempting to place a node below itself has no effect.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="other" type="object" interface="river_node_v1"
+      <arg name="other" type="object" interface="aqueous_node_v1"
         summary="other node"/>
     </request>
   </interface>
 
-  <interface name="river_output_v1" version="4">
+  <interface name="aqueous_output_v1" version="4">
     <description summary="a logical output">
       An area in the compositor's logical coordinate space that should be
       treated as a single output for window management purposes. This area may
@@ -1523,7 +1523,7 @@
         This request indicates that the client will no longer use the output
         object and that it may be safely destroyed.
 
-        This request should be made after the river_output_v1.removed event is
+        This request should be made after the aqueous_output_v1.removed event is
         received to complete destruction of the output.
       </description>
     </request>
@@ -1534,9 +1534,9 @@
         part of window management space.
 
         The server will send no further events on this object and ignore any
-        request (other than river_output_v1.destroy) made after this event is
+        request (other than aqueous_output_v1.destroy) made after this event is
         sent. The client should destroy this object with the
-        river_output_v1.destroy request to free up resources.
+        aqueous_output_v1.destroy request to free up resources.
 
         This event may be sent because a corresponding physical output has been
         physically unplugged or because some output configuration has changed.
@@ -1548,19 +1548,19 @@
 
     <event name="wl_output">
       <description summary="corresponding wl_output">
-        The wl_output object corresponding to the river_output_v1. The argument
+        The wl_output object corresponding to the aqueous_output_v1. The argument
         is the global name of the wl_output advertised with wl_registry.global.
 
         It is guaranteed that the corresponding wl_output is advertised before
         this event is sent.
 
         This event is sent exactly once. The wl_output associated with a
-        river_output_v1 cannot change. It is guaranteed that there is a 1-to-1
-        mapping between wl_output and river_output_v1 objects.
+        aqueous_output_v1 cannot change. It is guaranteed that there is a 1-to-1
+        mapping between wl_output and aqueous_output_v1 objects.
 
         The global_remove event for the corresponding wl_output may be sent
-        before the river_output_v1.removed event. This is due to the fact that
-        river_output_v1 state changes are synced to the river window management
+        before the aqueous_output_v1.removed event. This is due to the fact that
+        aqueous_output_v1 state changes are synced to the Aqueous window management
         manage sequence while changes to globals are not.
 
         Rationale: The window manager may need information provided by the
@@ -1576,7 +1576,7 @@
         logical coordinate space. The x and y coordinates may be positive or
         negative.
 
-        This event is sent once when the river_output_v1 is created and again
+        This event is sent once when the aqueous_output_v1 is created and again
         whenever the position changes.
 
         This event will be followed by a manage_start event after all other new
@@ -1596,7 +1596,7 @@
         logical coordinate space. The width and height will always be strictly
         greater than zero.
 
-        This event is sent once when the river_output_v1 is created and again
+        This event is sent once when the aqueous_output_v1 is created and again
         whenever the dimensions change.
 
         This event will be followed by a manage_start event after all other new
@@ -1637,20 +1637,20 @@
         request is never made, the preferred presentation mode is vsync.
 
         This request modifies rendering state and may only be made as part of a
-        render sequence, see the river_window_manager_v1 description.
+        render sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="mode" type="uint" enum="presentation_mode"
         summary="preferred presentation mode"/>
     </request>
   </interface>
 
-  <interface name="river_seat_v1" version="5">
+  <interface name="aqueous_seat_v1" version="5">
     <description summary="a window management seat">
       This object represents a single user's collection of input devices. It
       allows the window manager to route keyboard input to windows, get
       high-level information about pointer input, define pointer bindings, etc.
 
-      For keyboard bindings, see the river-xkb-bindings-v1 protocol.
+      For keyboard bindings, see the aqueous-xkb-bindings-v1 protocol.
 
       Since version 4: The cursor surface/shape set by the window manager on the
       wl_pointer of this seat is used when no client has pointer focus, for
@@ -1670,7 +1670,7 @@
         This request indicates that the client will no longer use the seat
         object and that it may be safely destroyed.
 
-        This request should be made after the river_seat_v1.removed event is
+        This request should be made after the aqueous_seat_v1.removed event is
         received to complete destruction of the seat.
       </description>
     </request>
@@ -1681,9 +1681,9 @@
         destroyed.
 
         The server will send no further events on this object and ignore any
-        request (other than river_seat_v1.destroy) made after this event is
+        request (other than aqueous_seat_v1.destroy) made after this event is
         sent.  The client should destroy this object with the
-        river_seat_v1.destroy request to free up resources.
+        aqueous_seat_v1.destroy request to free up resources.
 
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
@@ -1692,19 +1692,19 @@
 
     <event name="wl_seat">
       <description summary="corresponding wl_seat">
-        The wl_seat object corresponding to the river_seat_v1. The argument is
+        The wl_seat object corresponding to the aqueous_seat_v1. The argument is
         the global name of the wl_seat advertised with wl_registry.global.
 
         It is guaranteed that the corresponding wl_seat is advertised before
         this event is sent.
 
         This event is sent exactly once. The wl_seat associated with a
-        river_seat_v1 cannot change. It is guaranteed that there is a 1-to-1
-        mapping between wl_seat and river_seat_v1 objects.
+        aqueous_seat_v1 cannot change. It is guaranteed that there is a 1-to-1
+        mapping between wl_seat and aqueous_seat_v1 objects.
 
         The global_remove event for the corresponding wl_seat may be sent before
-        the river_seat_v1.removed event. This is due to the fact that
-        river_seat_v1 state changes are synced to the river window management
+        the aqueous_seat_v1.removed event. This is due to the fact that
+        aqueous_seat_v1 state changes are synced to the Aqueous window management
         manage sequence while changes to globals are not.
 
         Rationale: The window manager may want to trigger window management
@@ -1719,9 +1719,9 @@
         Request that the compositor send keyboard input to the given window.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="window" type="object" interface="river_window_v1"
+      <arg name="window" type="object" interface="aqueous_window_v1"
         summary="window to focus"/>
     </request>
 
@@ -1731,9 +1731,9 @@
         surface.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="shell_surface" type="object" interface="river_shell_surface_v1"
+      <arg name="shell_surface" type="object" interface="aqueous_shell_surface_v1"
         summary="shell surface to focus"/>
     </request>
 
@@ -1742,7 +1742,7 @@
         Request that the compositor not send keyboard input to any client.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1751,7 +1751,7 @@
         The seat's pointer entered the given window's area.
 
         The area of a window is defined to include the area defined by the
-        window dimensions, borders configured using river_window_v1.set_borders,
+        window dimensions, borders configured using aqueous_window_v1.set_borders,
         and the input regions of decoration surfaces. In particular, it does not
         include input regions of surfaces belonging to the window that extend
         outside the window dimensions.
@@ -1763,7 +1763,7 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="window" type="object" interface="river_window_v1"
+      <arg name="window" type="object" interface="aqueous_window_v1"
         summary="window entered"/>
     </event>
 
@@ -1795,7 +1795,7 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="window" type="object" interface="river_window_v1"
+      <arg name="window" type="object" interface="aqueous_window_v1"
         summary="window interacted with"/>
     </event>
 
@@ -1818,7 +1818,7 @@
         This event will be followed by a manage_start event after all other new
         state has been sent by the server.
       </description>
-      <arg name="shell_surface" type="object" interface="river_shell_surface_v1"
+      <arg name="shell_surface" type="object" interface="aqueous_shell_surface_v1"
         summary="shell surface interacted with"/>
     </event>
 
@@ -1841,10 +1841,10 @@
         The compositor must ensure that no client has pointer focus from this
         seat during the pointer operation. This means that the window manager
         has control over the pointer's cursor surface/shape during the pointer
-        operation. See the river_seat_v1 description.
+        operation. See the aqueous_seat_v1 description.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1882,7 +1882,7 @@
         This request is ignored if there is no operation in progress.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -1891,7 +1891,7 @@
         This enum is used to describe the keyboard modifiers that must be held
         down to trigger a key binding or pointer binding.
 
-        Note that river and wlroots use the values 2 and 16 for capslock and
+        Note that Aqueous and wlroots use the values 2 and 16 for capslock and
         numlock internally. It doesn't make sense to use locked modifiers for
         bindings however so these values are not included in this enum.
       </description>
@@ -1915,7 +1915,7 @@
         The new pointer binding is not enabled until initial configuration is
         completed and the enable request is made during a manage sequence.
       </description>
-      <arg name="id" type="new_id" interface="river_pointer_binding_v1"
+      <arg name="id" type="new_id" interface="aqueous_pointer_binding_v1"
         summary="new pointer binding"/>
       <arg name="button" type="uint" summary="a Linux input event code"/>
       <arg name="modifiers" type="uint" enum="modifiers"
@@ -1960,7 +1960,7 @@
         will be warped to the closest point inside an output instead.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="x" type="int" summary="global x coordinate"/>
       <arg name="y" type="int" summary="global y coordinate"/>
@@ -1975,7 +1975,7 @@
     </request>
   </interface>
 
-  <interface name="river_pointer_binding_v1" version="4">
+  <interface name="aqueous_pointer_binding_v1" version="4">
     <description summary="configure a pointer binding, receive trigger events">
       This object allows the window manager to configure a pointer binding and
       receive events when the binding is triggered.
@@ -2007,7 +2007,7 @@
         to be triggered.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -2017,7 +2017,7 @@
         may be later re-enabled with the enable request.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 

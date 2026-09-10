@@ -781,7 +781,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             // The wl_output global is created by wlroots when the output is
             // added to the wlr_output_layout and a mode is committed.
             // Wlroots does not directly notify us when the wl_output global is created.
-            // However, we want send the river_output_v1.wl_output event as soon as
+            // However, we want send the aqueous_output_v1.wl_output event as soon as
             // possible and therefore need to check after committing a mode.
             // This is idempotent and retried until it succeeds (also from
             // Output.handleBind and Output.manageStart) so the DRM backend's

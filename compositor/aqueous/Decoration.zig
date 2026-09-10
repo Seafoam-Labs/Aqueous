@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -18,14 +18,14 @@ const Scene = @import("Scene.zig");
 const log = std.log.scoped(.wm);
 
 const role: wlr.Surface.Role = .{
-    .name = "river_decoration_v1",
+    .name = "aqueous_decoration_v1",
     .client_commit = clientCommit,
     .commit = commit,
     .unmap = null,
     .destroy = null,
 };
 
-object: ?*river.DecorationV1,
+object: ?*aqueous.DecorationV1,
 surface: *wlr.Surface,
 tree: *wlr.SceneTree,
 surfaces: Scene.SaveableSurfaces,
@@ -45,9 +45,9 @@ pub fn create(
     surface: *wlr.Surface,
     parent: *wlr.SceneTree,
 ) !*Decoration {
-    const decoration_v1 = try river.DecorationV1.create(client, version, id);
+    const decoration_v1 = try aqueous.DecorationV1.create(client, version, id);
 
-    if (!surface.setRole(&role, @ptrCast(decoration_v1), @intFromEnum(river.WindowManagerV1.Error.role))) {
+    if (!surface.setRole(&role, @ptrCast(decoration_v1), @intFromEnum(aqueous.WindowManagerV1.Error.role))) {
         return error.AlreadyHasRole;
     }
     surface.setRoleObject(@ptrCast(decoration_v1));
@@ -90,21 +90,21 @@ pub fn makeInert(decoration: *Decoration) void {
 }
 
 fn handleRequestInert(
-    node_v1: *river.DecorationV1,
-    request: river.DecorationV1.Request,
+    node_v1: *aqueous.DecorationV1,
+    request: aqueous.DecorationV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) node_v1.destroy();
 }
 
-fn handleDestroy(_: *river.DecorationV1, decoration: *Decoration) void {
+fn handleDestroy(_: *aqueous.DecorationV1, decoration: *Decoration) void {
     decoration.object = null;
     decoration.destroy();
 }
 
 fn handleRequest(
-    decoration_v1: *river.DecorationV1,
-    request: river.DecorationV1.Request,
+    decoration_v1: *aqueous.DecorationV1,
+    request: aqueous.DecorationV1.Request,
     decoration: *Decoration,
 ) void {
     assert(decoration.object == decoration_v1);

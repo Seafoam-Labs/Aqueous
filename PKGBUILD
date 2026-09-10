@@ -81,6 +81,8 @@ build() {
     # Build the Aqueous compositor/policy executable and inspection client.
     msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
+    # Recreate generated protocol metadata so incremental builds cannot ship retired names.
+    rm -rf -- "$srcdir/aqueous-dist/share/aqueous-protocols"
     # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
     # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
     # Keep the manuals deterministic in clean chroots. In-tree builds make
@@ -123,6 +125,12 @@ check() {
         lib/aqueous/libwlroots-0.20.so
         share/man/man1/aqueousctl.1
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+        share/aqueous-protocols/stable/aqueous-window-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-input-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-bindings-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-libinput-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-layer-shell-v1.xml
     )
     local path
     for path in "${required[@]}"; do

@@ -28,7 +28,7 @@ const KeyConsumer = union(enum) {
     /// A null value indicates that the xkb_binding_v1 was destroyed or that
     /// a press event was already sent due to a press on a different keyboard.
     binding: ?*XkbBinding,
-    /// The river_xkb_bindings_seat_v1.ensure_next_key_eaten request caused
+    /// The aqueous_xkb_bindings_seat_v1.ensure_next_key_eaten request caused
     /// the key to be eaten.
     ensure_eaten,
     im_grab,
@@ -305,7 +305,7 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
         // Policy chords are written in terms of the base key on the active
         // layout. For example, `Super+Shift+1` names the 1 key, not the `!`
         // keysym produced after applying Shift. Match level zero first, just
-        // like river_xkb_binding_v1's no-translate path, then retain the
+        // like aqueous_xkb_binding_v1's no-translate path, then retain the
         // translated lookup below for explicitly shifted/layout symbols.
         const keymap = xkb_state.getKeymap();
         const layout = xkb_state.keyGetLayout(xkb_keycode);

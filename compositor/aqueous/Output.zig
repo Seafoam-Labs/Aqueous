@@ -18,7 +18,7 @@ const c = @import("c");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
 const zwlr = wayland.server.zwlr;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -220,7 +220,7 @@ overlay_layer: ?*c.struct_wlr_output_layer = null,
 overlay_candidate: c.struct_wlr_scene_output_layer_candidate = std.mem.zeroes(c.struct_wlr_scene_output_layer_candidate),
 overlay_state: overlay_planes.State = .{},
 
-object: ?*river.OutputV1 = null,
+object: ?*aqueous.OutputV1 = null,
 layer_shell: LayerShellOutput = .{},
 
 /// Tracks the currently presented frame on the output as it pertains to ext-session-lock.
@@ -271,7 +271,7 @@ scheduled: State,
 sent: State,
 link_sent: wl.list.Link,
 sent_wl_output: bool = false,
-/// The wl_output global for which `river_output_v1.wl_output` was last sent.
+/// The wl_output global for which `aqueous_output_v1.wl_output` was last sent.
 /// Tracked so the event is re-sent if wlroots destroys and recreates the
 /// global (e.g. on hotplug/modeset), which would otherwise leave the wm
 /// client referencing a stale global name.
@@ -1693,7 +1693,7 @@ fn handleCommit(
     }
 }
 
-/// Attempts to send the river_output_v1.wl_output event if it has not yet been
+/// Attempts to send the aqueous_output_v1.wl_output event if it has not yet been
 /// sent and the underlying wl_output global now exists. Wlroots creates the
 /// wl_output global lazily (notably on the DRM backend the global is only
 /// created once the output is added to the layout and a mode is committed), so
@@ -1714,7 +1714,7 @@ pub fn trySendWlOutput(output: *Output) void {
 fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.event.Bind) void {
     const output: *Output = @fieldParentPtr("bind", listener);
     // The wl_output.bind event only fires after the wl_output global exists, so
-    // this is a reliable point to (re)send river_output_v1.wl_output when the
+    // this is a reliable point to (re)send aqueous_output_v1.wl_output when the
     // global was still null at manageStart/modeset time (e.g. DRM backend).
     output.trySendWlOutput();
     server.workspace_manager.dirty();
@@ -1876,7 +1876,7 @@ pub fn manageStart(output: *Output) void {
             if (server.wm.object) |wm_v1| {
                 const new = output.object == null;
                 const output_v1 = output.object orelse blk: {
-                    const output_v1 = river.OutputV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
+                    const output_v1 = aqueous.OutputV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
                         log.err("out of memory", .{});
                         return; // try again next update
                     };
@@ -1962,22 +1962,22 @@ pub fn makeInert(output: *Output) void {
 }
 
 fn handleRequestInert(
-    output_v1: *river.OutputV1,
-    request: river.OutputV1.Request,
+    output_v1: *aqueous.OutputV1,
+    request: aqueous.OutputV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) output_v1.destroy();
 }
 
-fn handleObjectDestroy(_: *river.OutputV1, output: *Output) void {
+fn handleObjectDestroy(_: *aqueous.OutputV1, output: *Output) void {
     output.object = null;
     output.sent_wl_output = false;
     output.sent_wl_output_global = null;
 }
 
 fn handleRequest(
-    output_v1: *river.OutputV1,
-    request: river.OutputV1.Request,
+    output_v1: *aqueous.OutputV1,
+    request: aqueous.OutputV1.Request,
     output: *Output,
 ) void {
     assert(output.object == output_v1);

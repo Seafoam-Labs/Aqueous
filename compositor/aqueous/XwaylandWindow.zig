@@ -552,7 +552,7 @@ fn handleSetParent(listener: *wl.Listener(void)) void {
 /// Recompute whether this X11 window accepts keyboard focus from its ICCCM input model
 /// (WM_HINTS `input` flag + WM_TAKE_FOCUS). An input model of `none` (notification toasts,
 /// docks, some splash windows) means the window does not want focus; forward that to the wm
-/// via river_window_v1.focus_hint so it can avoid focus-stealing popups.
+/// via aqueous_window_v1.focus_hint so it can avoid focus-stealing popups.
 fn updateFocusHint(xwindow: *XwaylandWindow) void {
     xwindow.window.setAcceptsFocus(xwindow.xsurface.icccmInputModel() != .none);
 }

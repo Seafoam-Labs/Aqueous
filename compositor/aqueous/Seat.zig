@@ -10,7 +10,7 @@ const math = std.math;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 const xkb = @import("xkbcommon");
 
 const server = &@import("main.zig").server;
@@ -224,7 +224,7 @@ destroying: bool = false,
 /// set when keyboard surface focus is cleared on an empty output.
 selected_output: ?*Output = null,
 
-object: ?*river.SeatV1 = null,
+object: ?*aqueous.SeatV1 = null,
 layer_shell: LayerShellSeat = .{},
 xkb_bindings_seat: XkbBindingsSeat = .{},
 
@@ -590,7 +590,7 @@ pub fn manageStart(seat: *Seat) void {
             assert(seat.xkb_bindings.empty());
             assert(seat.pointer_bindings.empty());
 
-            const seat_v1 = river.SeatV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
+            const seat_v1 = aqueous.SeatV1.create(wm_v1.getClient(), wm_v1.getVersion(), 0) catch {
                 log.err("out of memory", .{});
                 return; // try again next update
             };
@@ -735,14 +735,14 @@ pub fn makeInert(seat: *Seat) void {
 }
 
 fn handleRequestInert(
-    seat_v1: *river.SeatV1,
-    request: river.SeatV1.Request,
+    seat_v1: *aqueous.SeatV1,
+    request: aqueous.SeatV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) seat_v1.destroy();
 }
 
-fn handleDestroy(_: *river.SeatV1, seat: *Seat) void {
+fn handleDestroy(_: *aqueous.SeatV1, seat: *Seat) void {
     seat.object = null;
     seat.opEnd();
 
@@ -756,8 +756,8 @@ fn handleDestroy(_: *river.SeatV1, seat: *Seat) void {
 }
 
 fn handleRequest(
-    seat_v1: *river.SeatV1,
-    request: river.SeatV1.Request,
+    seat_v1: *aqueous.SeatV1,
+    request: aqueous.SeatV1.Request,
     seat: *Seat,
 ) void {
     assert(seat.object == seat_v1);

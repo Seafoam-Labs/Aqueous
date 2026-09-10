@@ -9,7 +9,7 @@ const math = std.math;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 const zwlr = wayland.server.zwlr;
 
 const server = &@import("main.zig").server;
@@ -30,7 +30,7 @@ global: *wl.Global,
 wlr_shell: *wlr.LayerShellV1,
 
 /// The layer shell object of the active window manager, if any
-objects: wl.list.Head(river.LayerShellV1, null),
+objects: wl.list.Head(aqueous.LayerShellV1, null),
 
 surfaces: SlotMap(*LayerSurface) = .empty,
 popups: SlotMap(*XdgPopup) = .empty,
@@ -39,7 +39,7 @@ new_surface: wl.Listener(*wlr.LayerSurfaceV1) = .init(handleNewSurface),
 
 pub fn init(layer_shell: *LayerShell) !void {
     layer_shell.* = .{
-        .global = try wl.Global.create(server.wl_server, river.LayerShellV1, 1, *LayerShell, layer_shell, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.LayerShellV1, 1, *LayerShell, layer_shell, bind),
         .wlr_shell = try wlr.LayerShellV1.create(server.wl_server, 4),
         .objects = undefined,
     };
@@ -57,7 +57,7 @@ pub fn deinit(layer_shell: *LayerShell) void {
 }
 
 fn bind(client: *wl.Client, layer_shell: *LayerShell, version: u32, id: u32) void {
-    const object = river.LayerShellV1.create(client, version, id) catch {
+    const object = aqueous.LayerShellV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -66,13 +66,13 @@ fn bind(client: *wl.Client, layer_shell: *LayerShell, version: u32, id: u32) voi
     layer_shell.objects.append(object);
 }
 
-fn handleDestroy(object: *river.LayerShellV1, _: ?*anyopaque) void {
+fn handleDestroy(object: *aqueous.LayerShellV1, _: ?*anyopaque) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.LayerShellV1,
-    request: river.LayerShellV1.Request,
+    object: *aqueous.LayerShellV1,
+    request: aqueous.LayerShellV1.Request,
     _: ?*anyopaque,
 ) void {
     switch (request) {
@@ -83,7 +83,7 @@ fn handleRequest(
             if (output.layer_shell.object != null) {
                 object.postError(
                     .object_already_created,
-                    "river_layer_shell_output_v1 already created",
+                    "aqueous_layer_shell_output_v1 already created",
                 );
                 return;
             }
@@ -95,7 +95,7 @@ fn handleRequest(
             if (seat.layer_shell.object != null) {
                 object.postError(
                     .object_already_created,
-                    "river_layer_shell_seat_v1 already created",
+                    "aqueous_layer_shell_seat_v1 already created",
                 );
                 return;
             }
@@ -106,8 +106,8 @@ fn handleRequest(
 
 fn supported(layer_shell: *LayerShell) bool {
     // Integrated policy owns layer-shell arrangement and focus directly. The
-    // river_layer_shell_v1 companion object is only required by the optional
-    // external-policy compatibility path.
+    // aqueous_layer_shell_v1 companion object is only required by the optional
+    // external-policy diagnostic path.
     if (server.aqueous.mode.runsInternal()) return true;
 
     const wm_v1 = server.wm.object orelse return false;
@@ -136,7 +136,7 @@ fn handleNewSurface(_: *wl.Listener(*wlr.LayerSurfaceV1), wlr_layer_surface: *wl
     );
 
     if (!server.layer_shell.supported()) {
-        log.info("window manager did not bind river_layer_shell_v1, closing layer surface", .{});
+        log.info("window manager did not bind aqueous_layer_shell_v1, closing layer surface", .{});
         wlr_layer_surface.destroy();
         return;
     }

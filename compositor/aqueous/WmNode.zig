@@ -6,7 +6,7 @@ const WmNode = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -21,7 +21,7 @@ const Type = union(enum) {
 const Tag = @typeInfo(Type).@"union".tag_type.?;
 
 tag: Tag,
-object: ?*river.NodeV1 = null,
+object: ?*aqueous.NodeV1 = null,
 
 /// WindowManager.rendering_requested.list
 link: wl.list.Link,
@@ -49,7 +49,7 @@ pub fn get(node: *WmNode) Type {
 
 pub fn createObject(node: *WmNode, client: *wl.Client, version: u32, id: u32) void {
     assert(node.object == null);
-    const node_v1 = river.NodeV1.create(client, version, id) catch {
+    const node_v1 = aqueous.NodeV1.create(client, version, id) catch {
         std.log.err("out of memory", .{});
         client.postNoMemory();
         return;
@@ -66,20 +66,20 @@ pub fn makeInert(node: *WmNode) void {
 }
 
 fn handleRequestInert(
-    node_v1: *river.NodeV1,
-    request: river.NodeV1.Request,
+    node_v1: *aqueous.NodeV1,
+    request: aqueous.NodeV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) node_v1.destroy();
 }
 
-fn handleDestroy(_: *river.NodeV1, node: *WmNode) void {
+fn handleDestroy(_: *aqueous.NodeV1, node: *WmNode) void {
     node.object = null;
 }
 
 fn handleRequest(
-    node_v1: *river.NodeV1,
-    request: river.NodeV1.Request,
+    node_v1: *aqueous.NodeV1,
+    request: aqueous.NodeV1.Request,
     node: *WmNode,
 ) void {
     assert(node.object == node_v1);

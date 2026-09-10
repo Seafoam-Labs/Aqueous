@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<protocol name="river_layer_shell_v1">
+<protocol name="aqueous_layer_shell_v1">
   <copyright>
     SPDX-FileCopyrightText: © 2025 Isaac Freund
     SPDX-License-Identifier: MIT
@@ -24,7 +24,7 @@
   </copyright>
 
   <description summary="optional layer shell support">
-    This protocol allows the river-window-management-v1 window manager to
+    This protocol allows the aqueous-window-management-v1 window manager to
     support the wlr-layer-shell-unstable-v1 protocol.
 
     The key words "must", "must not", "required", "shall", "shall not",
@@ -32,10 +32,10 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_layer_shell_v1" version="1">
-    <description summary="river layer shell global interface">
+  <interface name="aqueous_layer_shell_v1" version="1">
+    <description summary="Aqueous layer shell global interface">
       This global interface should only be advertised to the client if the
-      river_window_manager_v1 global is also advertised. Binding this interface
+      aqueous_window_manager_v1 global is also advertised. Binding this interface
       indicates that the window manager supports layer shell.
 
       If the window manager does not bind this interface, the compositor should
@@ -49,44 +49,44 @@
     </enum>
 
     <request name="destroy" type="destructor">
-      <description summary="destroy the river_layer_shell_v1 object">
+      <description summary="destroy the aqueous_layer_shell_v1 object">
         This request indicates that the client will no longer use the
-        river_layer_shell_v1 object.
+        aqueous_layer_shell_v1 object.
       </description>
     </request>
 
     <request name="get_output">
       <description summary="get layer shell output state">
         It is a protocol error to make this request more than once for a given
-        river_output_v1 object.
+        aqueous_output_v1 object.
       </description>
-      <arg name="id" type="new_id" interface="river_layer_shell_output_v1"/>
-      <arg name="output" type="object" interface="river_output_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_layer_shell_output_v1"/>
+      <arg name="output" type="object" interface="aqueous_output_v1"/>
     </request>
 
     <request name="get_seat">
       <description summary="get layer shell seat state">
         It is a protocol error to make this request more than once for a given
-        river_seat_v1 object.
+        aqueous_seat_v1 object.
       </description>
-      <arg name="id" type="new_id" interface="river_layer_shell_seat_v1"/>
-      <arg name="seat" type="object" interface="river_seat_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_layer_shell_seat_v1"/>
+      <arg name="seat" type="object" interface="aqueous_seat_v1"/>
     </request>
   </interface>
 
-  <interface name="river_layer_shell_output_v1" version="1">
+  <interface name="aqueous_layer_shell_output_v1" version="1">
     <description summary="layer shell output state">
-      The lifetime of this object is tied to the corresponding river_output_v1.
-      This object is made inert when the river_output_v1.removed event is sent
+      The lifetime of this object is tied to the corresponding aqueous_output_v1.
+      This object is made inert when the aqueous_output_v1.removed event is sent
       and should be destroyed.
     </description>
 
     <request name="destroy" type="destructor">
       <description summary="destroy the object">
         This request indicates that the client will no longer use the
-        river_layer_shell_output_v1 object and that it may be safely destroyed.
+        aqueous_layer_shell_output_v1 object and that it may be safely destroyed.
 
-        This request should be made after the river_output_v1.removed event is
+        This request should be made after the aqueous_output_v1.removed event is
         received to complete destruction of the output.
       </description>
     </request>
@@ -113,30 +113,30 @@
       <description summary="Set default output for layer surfaces">
         Mark this output as the default for new layer surfaces which do not
         request a specific output themselves. This request overrides any
-        previous set_default request on any river_layer_shell_output_v1 object.
+        previous set_default request on any aqueous_layer_shell_output_v1 object.
 
         If no set_default request is made or if the default output is destroyed,
         the default output is undefined until the next set_default request.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
   </interface>
 
-  <interface name="river_layer_shell_seat_v1" version="1">
+  <interface name="aqueous_layer_shell_seat_v1" version="1">
     <description summary="layer shell seat state">
-      The lifetime of this object is tied to the corresponding river_seat_v1.
-      This object is made inert when the river_seat_v1.removed event is sent and
+      The lifetime of this object is tied to the corresponding aqueous_seat_v1.
+      This object is made inert when the aqueous_seat_v1.removed event is sent and
       should be destroyed.
     </description>
 
     <request name="destroy" type="destructor">
       <description summary="destroy the object">
         This request indicates that the client will no longer use the
-        river_layer_shell_seat_v1 object and that it may be safely destroyed.
+        aqueous_layer_shell_seat_v1 object and that it may be safely destroyed.
 
-        This request should be made after the river_seat_v1.removed event is
+        This request should be made after the aqueous_seat_v1.removed event is
         received to complete destruction of the seat.
       </description>
     </request>

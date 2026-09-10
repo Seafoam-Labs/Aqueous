@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const c = @import("c");
 const server = &@import("main.zig").server;
@@ -22,7 +22,7 @@ const PolicyInput = @import("wm/config/wm.zig").Input;
 const PolicyDevice = @import("wm/config/wm.zig").Device;
 
 libinput: *c.libinput_device,
-objects: wl.list.Head(river.LibinputDeviceV1, null),
+objects: wl.list.Head(aqueous.LibinputDeviceV1, null),
 
 /// LibinputConfig.devices
 link: wl.list.Link,
@@ -64,8 +64,8 @@ pub fn policyApply(device: *LibinputDevice, input: PolicyInput) void {
     }
 }
 
-pub fn createObject(device: *LibinputDevice, config_v1: *river.LibinputConfigV1) void {
-    const object = river.LibinputDeviceV1.create(config_v1.getClient(), config_v1.getVersion(), 0) catch {
+pub fn createObject(device: *LibinputDevice, config_v1: *aqueous.LibinputConfigV1) void {
+    const object = aqueous.LibinputDeviceV1.create(config_v1.getClient(), config_v1.getVersion(), 0) catch {
         log.err("out of memory", .{});
         config_v1.postNoMemory();
         return;
@@ -212,20 +212,20 @@ pub fn deinit(device: *LibinputDevice) void {
 }
 
 fn handleRequestInert(
-    object: *river.LibinputDeviceV1,
-    request: river.LibinputDeviceV1.Request,
+    object: *aqueous.LibinputDeviceV1,
+    request: aqueous.LibinputDeviceV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(object: *river.LibinputDeviceV1, _: *LibinputDevice) void {
+fn handleDestroy(object: *aqueous.LibinputDeviceV1, _: *LibinputDevice) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.LibinputDeviceV1,
-    request: river.LibinputDeviceV1.Request,
+    object: *aqueous.LibinputDeviceV1,
+    request: aqueous.LibinputDeviceV1.Request,
     device: *LibinputDevice,
 ) void {
     var send_done = false;
@@ -586,10 +586,10 @@ fn handleRequest(
 }
 
 const Result = struct {
-    object: *river.LibinputResultV1,
+    object: *aqueous.LibinputResultV1,
 
-    pub fn create(object: *river.LibinputDeviceV1, id: u32) ?Result {
-        const result = river.LibinputResultV1.create(object.getClient(), object.getVersion(), id) catch {
+    pub fn create(object: *aqueous.LibinputDeviceV1, id: u32) ?Result {
+        const result = aqueous.LibinputResultV1.create(object.getClient(), object.getVersion(), id) catch {
             log.err("out of memory", .{});
             object.postNoMemory();
             return null;

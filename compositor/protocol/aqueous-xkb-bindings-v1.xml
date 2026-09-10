@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<protocol name="river_xkb_bindings_v1">
+<protocol name="aqueous_xkb_bindings_v1">
   <copyright>
     SPDX-FileCopyrightText: © 2025 Isaac Freund
     SPDX-License-Identifier: MIT
@@ -24,7 +24,7 @@
   </copyright>
 
   <description summary="xkbcommon-based key bindings">
-    This protocol allows the river-window-management-v1 window manager to
+    This protocol allows the aqueous-window-management-v1 window manager to
     define key bindings in terms of xkbcommon keysyms and other configurable
     properties.
 
@@ -33,10 +33,10 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_xkb_bindings_v1" version="3">
+  <interface name="aqueous_xkb_bindings_v1" version="3">
     <description summary="xkbcommon bindings global interface">
       This global interface should only be advertised to the client if the
-      river_window_manager_v1 global is also advertised.
+      aqueous_window_manager_v1 global is also advertised.
     </description>
 
     <enum name="error" since="2">
@@ -44,9 +44,9 @@
     </enum>
 
     <request name="destroy" type="destructor">
-      <description summary="destroy the river_xkb_bindings_v1 object">
+      <description summary="destroy the aqueous_xkb_bindings_v1 object">
         This request indicates that the client will no longer use the
-        river_xkb_bindings_v1 object.
+        aqueous_xkb_bindings_v1 object.
       </description>
     </request>
 
@@ -58,10 +58,10 @@
         The new key binding is not enabled until initial configuration is
         completed and the enable request is made during a manage sequence.
       </description>
-      <arg name="seat" type="object" interface="river_seat_v1"/>
-      <arg name="id" type="new_id" interface="river_xkb_binding_v1"/>
+      <arg name="seat" type="object" interface="aqueous_seat_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_xkb_binding_v1"/>
       <arg name="keysym" type="uint" summary="an xkbcommon keysym"/>
-      <arg name="modifiers" type="uint" enum="river_seat_v1.modifiers"/>
+      <arg name="modifiers" type="uint" enum="aqueous_seat_v1.modifiers"/>
     </request>
 
     <request name="get_seat" since="2">
@@ -69,14 +69,14 @@
         Create an object to manage seat-specific xkb bindings state.
 
         It is a protocol error to make this request more than once for a given
-        river_seat_v1 object.
+        aqueous_seat_v1 object.
       </description>
-      <arg name="id" type="new_id" interface="river_xkb_bindings_seat_v1"/>
-      <arg name="seat" type="object" interface="river_seat_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_xkb_bindings_seat_v1"/>
+      <arg name="seat" type="object" interface="aqueous_seat_v1"/>
     </request>
   </interface>
 
-  <interface name="river_xkb_binding_v1" version="3">
+  <interface name="aqueous_xkb_binding_v1" version="3">
     <description summary="configure a xkb key binding, receive trigger events">
       This object allows the window manager to configure a xkbcommon key binding
       and receive events when the key binding is triggered.
@@ -119,7 +119,7 @@
         keyboard that generated the key event will be used.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
       <arg name="layout" type="uint" summary="0-indexed xkbcommon layout"/>
     </request>
@@ -131,7 +131,7 @@
         triggered.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -141,7 +141,7 @@
         be later re-enabled with the enable request.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -200,7 +200,7 @@
     </event>
   </interface>
 
-  <interface name="river_xkb_bindings_seat_v1" version="3">
+  <interface name="aqueous_xkb_bindings_seat_v1" version="3">
     <description summary="xkb bindings seat">
       This object manages xkb bindings state associated with a specific seat.
     </description>
@@ -218,7 +218,7 @@
         events for this seat are not sent to the currently focused surface.
 
         If the next non-modifier key press triggers a binding, the
-        pressed/released events are sent to the river_xkb_binding_v1 object as
+        pressed/released events are sent to the aqueous_xkb_binding_v1 object as
         usual.
 
         If the next non-modifier key press does not trigger a binding, the
@@ -232,7 +232,7 @@
         is pressed.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -246,12 +246,12 @@
         Rationale: the window manager may wish cancel an uncompleted "chorded"
         keybinding after a timeout of a few seconds. Note that since this
         timeout use-case requires the window manager to trigger a manage sequence
-        with the river_window_manager_v1.manage_dirty request it is possible that
+        with the aqueous_window_manager_v1.manage_dirty request it is possible that
         the ate_unbound_key key event may be sent before the window manager has
         a chance to make the cancel_ensure_next_key_eaten request.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
     </request>
 
@@ -276,9 +276,9 @@
         modifiers.
 
         This request modifies window management state and may only be made as
-        part of a manage sequence, see the river_window_manager_v1 description.
+        part of a manage sequence, see the aqueous_window_manager_v1 description.
       </description>
-      <arg name="modifiers" type="uint" enum="river_seat_v1.modifiers"/>
+      <arg name="modifiers" type="uint" enum="aqueous_seat_v1.modifiers"/>
     </request>
 
     <event name="modifiers_update" since="3">
@@ -305,9 +305,9 @@
         as soon as possible as the capacity of the compositor to buffer incoming
         input events is finite.
       </description>
-      <arg name="old" type="uint" enum="river_seat_v1.modifiers"
+      <arg name="old" type="uint" enum="aqueous_seat_v1.modifiers"
         summary="previously active modifiers"/>
-      <arg name="new" type="uint" enum="river_seat_v1.modifiers"
+      <arg name="new" type="uint" enum="aqueous_seat_v1.modifiers"
         summary="currently active modifiers"/>
     </event>
   </interface>

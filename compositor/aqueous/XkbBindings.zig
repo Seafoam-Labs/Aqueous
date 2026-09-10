@@ -6,7 +6,7 @@ const XkbBindings = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -22,7 +22,7 @@ server_destroy: wl.Listener(*wl.Server) = .init(handleServerDestroy),
 
 pub fn init(bindings: *XkbBindings) !void {
     bindings.* = .{
-        .global = try wl.Global.create(server.wl_server, river.XkbBindingsV1, 3, ?*anyopaque, null, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.XkbBindingsV1, 3, ?*anyopaque, null, bind),
     };
     server.wl_server.addDestroyListener(&bindings.server_destroy);
 }
@@ -34,7 +34,7 @@ fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
 }
 
 fn bind(client: *wl.Client, _: ?*anyopaque, version: u32, id: u32) void {
-    const object = river.XkbBindingsV1.create(client, version, id) catch {
+    const object = aqueous.XkbBindingsV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -44,14 +44,14 @@ fn bind(client: *wl.Client, _: ?*anyopaque, version: u32, id: u32) void {
 }
 
 fn handleRequest(
-    object: *river.XkbBindingsV1,
-    request: river.XkbBindingsV1.Request,
+    object: *aqueous.XkbBindingsV1,
+    request: aqueous.XkbBindingsV1.Request,
     _: ?*anyopaque,
 ) void {
     switch (request) {
         .destroy => object.destroy(),
         .get_xkb_binding => |args| {
-            // Since we make all river_seat_v1 objects inert when the active
+            // Since we make all aqueous_seat_v1 objects inert when the active
             // window manager is destroyed, this check means that only the
             // active window manager can create bindings.
             const seat_data = args.seat.getUserData() orelse return;
@@ -70,7 +70,7 @@ fn handleRequest(
             };
         },
         .get_seat => |args| {
-            // Since we make all river_seat_v1 objects inert when the active
+            // Since we make all aqueous_seat_v1 objects inert when the active
             // window manager is destroyed, this check means that only the
             // active window manager can create a bindings seat.
             const seat_data = args.seat.getUserData() orelse return;
@@ -78,7 +78,7 @@ fn handleRequest(
             if (seat.xkb_bindings_seat.object != null) {
                 object.postError(
                     .object_already_created,
-                    "river_xkb_bindings_seat_v1 already created",
+                    "aqueous_xkb_bindings_seat_v1 already created",
                 );
                 return;
             }

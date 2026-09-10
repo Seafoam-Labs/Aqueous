@@ -1404,7 +1404,7 @@ pub fn handleClientDragStarted(aqueous: *Aqueous) void {
 
 /// Focus and, when configured, raise a window after an explicit, unmodified
 /// pointer interaction. The compositor historically forwarded this only
-/// through river_seat_v1, so the
+/// through aqueous_seat_v1, so the
 /// integrated policy silently discarded click-to-focus when focus-follows-mouse
 /// was disabled. Xwayland games can then receive pointer input while keyboard
 /// events continue going to the previously focused client.

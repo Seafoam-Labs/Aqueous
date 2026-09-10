@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const c = @import("c");
 const server = &@import("main.zig").server;
@@ -19,10 +19,10 @@ const Seat = @import("Seat.zig");
 const log = std.log.scoped(.input);
 
 seat: *Seat,
-object: *river.PointerBindingV1,
+object: *aqueous.PointerBindingV1,
 
 button: u32,
-modifiers: river.SeatV1.Modifiers,
+modifiers: aqueous.SeatV1.Modifiers,
 
 wm_scheduled: struct {
     state_change: enum {
@@ -49,15 +49,15 @@ pub fn create(
     version: u32,
     id: u32,
     button: u32,
-    modifiers: river.SeatV1.Modifiers,
+    modifiers: aqueous.SeatV1.Modifiers,
 ) !void {
     const binding = try util.gpa.create(PointerBinding);
     errdefer util.gpa.destroy(binding);
 
-    const pointer_binding_v1 = try river.PointerBindingV1.create(client, version, id);
+    const pointer_binding_v1 = try aqueous.PointerBindingV1.create(client, version, id);
     errdefer comptime unreachable;
 
-    log.debug("new river_pointer_binding_v1: button: {d}({?s}) modifiers: {d}", .{
+    log.debug("new aqueous_pointer_binding_v1: button: {d}({?s}) modifiers: {d}", .{
         button,
         @as(?[*:0]const u8, c.libevdev_event_code_get_name(c.EV_KEY, button)),
         @as(u32, @bitCast(modifiers)),
@@ -81,14 +81,14 @@ pub fn destroy(binding: *PointerBinding) void {
 }
 
 fn handleRequestInert(
-    pointer_binding_v1: *river.PointerBindingV1,
-    request: river.PointerBindingV1.Request,
+    pointer_binding_v1: *aqueous.PointerBindingV1,
+    request: aqueous.PointerBindingV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) pointer_binding_v1.destroy();
 }
 
-fn handleDestroy(_: *river.PointerBindingV1, binding: *PointerBinding) void {
+fn handleDestroy(_: *aqueous.PointerBindingV1, binding: *PointerBinding) void {
     if (binding.seat.cursor.pressed.getPtr(binding.button)) |value_ptr| {
         // It is possible for the window manager to create duplicate pointer bindings.
         if (value_ptr.* == binding) {
@@ -101,8 +101,8 @@ fn handleDestroy(_: *river.PointerBindingV1, binding: *PointerBinding) void {
 }
 
 fn handleRequest(
-    pointer_binding_v1: *river.PointerBindingV1,
-    request: river.PointerBindingV1.Request,
+    pointer_binding_v1: *aqueous.PointerBindingV1,
+    request: aqueous.PointerBindingV1.Request,
     binding: *PointerBinding,
 ) void {
     assert(binding.object == pointer_binding_v1);

@@ -6,7 +6,7 @@ const LibinputConfig = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const c = @import("c");
 const server = &@import("main.zig").server;
@@ -17,14 +17,14 @@ const LibinputDevice = @import("LibinputDevice.zig");
 const log = std.log.scoped(.input);
 
 global: *wl.Global,
-objects: wl.list.Head(river.LibinputConfigV1, null),
+objects: wl.list.Head(aqueous.LibinputConfigV1, null),
 devices: wl.list.Head(LibinputDevice, .link),
 
 server_destroy: wl.Listener(*wl.Server) = .init(handleServerDestroy),
 
 pub fn init(config: *LibinputConfig) !void {
     config.* = .{
-        .global = try wl.Global.create(server.wl_server, river.LibinputConfigV1, 2, *LibinputConfig, config, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.LibinputConfigV1, 2, *LibinputConfig, config, bind),
         .objects = undefined,
         .devices = undefined,
     };
@@ -40,7 +40,7 @@ fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
 }
 
 fn bind(client: *wl.Client, config: *LibinputConfig, version: u32, id: u32) void {
-    const object = river.LibinputConfigV1.create(client, version, id) catch {
+    const object = aqueous.LibinputConfigV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -54,20 +54,20 @@ fn bind(client: *wl.Client, config: *LibinputConfig, version: u32, id: u32) void
 }
 
 fn handleRequestInert(
-    object: *river.LibinputConfigV1,
-    request: river.LibinputConfigV1.Request,
+    object: *aqueous.LibinputConfigV1,
+    request: aqueous.LibinputConfigV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(object: *river.LibinputConfigV1, _: *LibinputConfig) void {
+fn handleDestroy(object: *aqueous.LibinputConfigV1, _: *LibinputConfig) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.LibinputConfigV1,
-    request: river.LibinputConfigV1.Request,
+    object: *aqueous.LibinputConfigV1,
+    request: aqueous.LibinputConfigV1.Request,
     _: *LibinputConfig,
 ) void {
     switch (request) {

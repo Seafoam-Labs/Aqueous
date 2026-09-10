@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 const xkb = @import("xkbcommon");
 
 const server = &@import("main.zig").server;
@@ -20,7 +20,7 @@ const XkbKeymap = @import("XkbKeymap.zig");
 
 const log = std.log.scoped(.input);
 
-objects: wl.list.Head(river.XkbKeyboardV1, null),
+objects: wl.list.Head(aqueous.XkbKeyboardV1, null),
 
 sent: struct {
     layout_index: ?u32 = null,
@@ -46,8 +46,8 @@ pub fn init(xkb_keyboard: *XkbKeyboard) void {
     }
 }
 
-pub fn createObject(xkb_keyboard: *XkbKeyboard, config_v1: *river.XkbConfigV1) void {
-    const object = river.XkbKeyboardV1.create(config_v1.getClient(), config_v1.getVersion(), 0) catch {
+pub fn createObject(xkb_keyboard: *XkbKeyboard, config_v1: *aqueous.XkbConfigV1) void {
+    const object = aqueous.XkbKeyboardV1.create(config_v1.getClient(), config_v1.getVersion(), 0) catch {
         log.err("out of memory", .{});
         config_v1.postNoMemory();
         return;
@@ -102,20 +102,20 @@ pub fn deinit(xkb_keyboard: *XkbKeyboard) void {
 }
 
 fn handleRequestInert(
-    object: *river.XkbKeyboardV1,
-    request: river.XkbKeyboardV1.Request,
+    object: *aqueous.XkbKeyboardV1,
+    request: aqueous.XkbKeyboardV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(object: *river.XkbKeyboardV1, _: *XkbKeyboard) void {
+fn handleDestroy(object: *aqueous.XkbKeyboardV1, _: *XkbKeyboard) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.XkbKeyboardV1,
-    request: river.XkbKeyboardV1.Request,
+    object: *aqueous.XkbKeyboardV1,
+    request: aqueous.XkbKeyboardV1.Request,
     xkb_keyboard: *XkbKeyboard,
 ) void {
     const device: *InputDevice = @fieldParentPtr("xkb_keyboard", xkb_keyboard);

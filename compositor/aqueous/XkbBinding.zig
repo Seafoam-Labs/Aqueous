@@ -9,7 +9,7 @@ const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -20,10 +20,10 @@ const Seat = @import("Seat.zig");
 const log = std.log.scoped(.input);
 
 seat: *Seat,
-object: *river.XkbBindingV1,
+object: *aqueous.XkbBindingV1,
 
 keysym: xkb.Keysym,
-modifiers: river.SeatV1.Modifiers,
+modifiers: aqueous.SeatV1.Modifiers,
 
 wm_scheduled: struct {
     state_change: enum {
@@ -54,18 +54,18 @@ pub fn create(
     version: u32,
     id: u32,
     keysym: xkb.Keysym,
-    modifiers: river.SeatV1.Modifiers,
+    modifiers: aqueous.SeatV1.Modifiers,
 ) !void {
     const binding = try util.gpa.create(XkbBinding);
     errdefer util.gpa.destroy(binding);
 
-    const xkb_binding_v1 = try river.XkbBindingV1.create(client, version, id);
+    const xkb_binding_v1 = try aqueous.XkbBindingV1.create(client, version, id);
     errdefer comptime unreachable;
 
     {
         var buffer: [64]u8 = undefined;
         const len = keysym.getName(&buffer, buffer.len);
-        log.debug("new river_xkb_binding_v1: keysym: {d}({s}) modifiers: {d}", .{
+        log.debug("new aqueous_xkb_binding_v1: keysym: {d}({s}) modifiers: {d}", .{
             @intFromEnum(keysym),
             buffer[0..@max(0, len)],
             @as(u32, @bitCast(modifiers)),
@@ -90,14 +90,14 @@ pub fn destroy(binding: *XkbBinding) void {
 }
 
 fn handleRequestInert(
-    xkb_binding_v1: *river.XkbBindingV1,
-    request: river.XkbBindingV1.Request,
+    xkb_binding_v1: *aqueous.XkbBindingV1,
+    request: aqueous.XkbBindingV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) xkb_binding_v1.destroy();
 }
 
-fn handleDestroy(_: *river.XkbBindingV1, binding: *XkbBinding) void {
+fn handleDestroy(_: *aqueous.XkbBindingV1, binding: *XkbBinding) void {
     {
         var it = binding.seat.keyboard_groups.iterator(.forward);
         while (it.next()) |group| {
@@ -113,8 +113,8 @@ fn handleDestroy(_: *river.XkbBindingV1, binding: *XkbBinding) void {
 }
 
 fn handleRequest(
-    xkb_binding_v1: *river.XkbBindingV1,
-    request: river.XkbBindingV1.Request,
+    xkb_binding_v1: *aqueous.XkbBindingV1,
+    request: aqueous.XkbBindingV1.Request,
     binding: *XkbBinding,
 ) void {
     assert(binding.object == xkb_binding_v1);

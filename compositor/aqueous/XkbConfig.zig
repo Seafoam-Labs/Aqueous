@@ -6,7 +6,7 @@ const XkbConfig = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 const xkb = @import("xkbcommon");
 
 const server = &@import("main.zig").server;
@@ -17,7 +17,7 @@ const XkbKeyboard = @import("XkbKeyboard.zig");
 const log = std.log.scoped(.input);
 
 global: *wl.Global,
-objects: wl.list.Head(river.XkbConfigV1, null),
+objects: wl.list.Head(aqueous.XkbConfigV1, null),
 keymaps: wl.list.Head(XkbKeymap, .link),
 keyboards: wl.list.Head(XkbKeyboard, .link),
 
@@ -36,7 +36,7 @@ pub fn init(config: *XkbConfig) !void {
     defer default_keymap.unref();
 
     config.* = .{
-        .global = try wl.Global.create(server.wl_server, river.XkbConfigV1, 2, *XkbConfig, config, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.XkbConfigV1, 2, *XkbConfig, config, bind),
         .context = context.ref(),
         .default_keymap = default_keymap.ref(),
         .objects = undefined,
@@ -60,7 +60,7 @@ fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
 }
 
 fn bind(client: *wl.Client, config: *XkbConfig, version: u32, id: u32) void {
-    const object = river.XkbConfigV1.create(client, version, id) catch {
+    const object = aqueous.XkbConfigV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -74,20 +74,20 @@ fn bind(client: *wl.Client, config: *XkbConfig, version: u32, id: u32) void {
 }
 
 fn handleRequestInert(
-    object: *river.XkbConfigV1,
-    request: river.XkbConfigV1.Request,
+    object: *aqueous.XkbConfigV1,
+    request: aqueous.XkbConfigV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(object: *river.XkbConfigV1, _: *XkbConfig) void {
+fn handleDestroy(object: *aqueous.XkbConfigV1, _: *XkbConfig) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.XkbConfigV1,
-    request: river.XkbConfigV1.Request,
+    object: *aqueous.XkbConfigV1,
+    request: aqueous.XkbConfigV1.Request,
     _: *XkbConfig,
 ) void {
     switch (request) {
@@ -122,7 +122,7 @@ fn handleRequest(
 /// The goal of this function is to handle whatever fd the client has sent us without crashing.
 /// The fd may be invalid, impossible to mmap, not contain a valid keymap, etc.
 /// This requires us to avoid the syscall wrappers in std.posix which assert on EBADF for example.
-fn createKeymap(object: *river.XkbConfigV1, id: u32, format: xkb.Keymap.Format, fd: i32) !void {
+fn createKeymap(object: *aqueous.XkbConfigV1, id: u32, format: xkb.Keymap.Format, fd: i32) !void {
     defer _ = std.c.close(fd);
 
     const io = std.Io.Threaded.global_single_threaded.io();

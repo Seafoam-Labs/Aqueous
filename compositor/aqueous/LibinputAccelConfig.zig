@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const c = @import("c");
 const server = &@import("main.zig").server;
@@ -18,7 +18,7 @@ const Seat = @import("Seat.zig");
 
 const log = std.log.scoped(.input);
 
-object: *river.LibinputAccelConfigV1,
+object: *aqueous.LibinputAccelConfigV1,
 libinput: ?*c.libinput_config_accel,
 
 pub fn create(
@@ -29,7 +29,7 @@ pub fn create(
 ) !void {
     const accel_config = try util.gpa.create(LibinputAccelConfig);
     errdefer util.gpa.destroy(accel_config);
-    const object = try river.LibinputAccelConfigV1.create(client, version, id);
+    const object = try aqueous.LibinputAccelConfigV1.create(client, version, id);
     errdefer comptime unreachable;
     accel_config.* = .{
         .object = object,
@@ -38,7 +38,7 @@ pub fn create(
     object.setHandler(*LibinputAccelConfig, handleRequest, handleDestroy, accel_config);
 }
 
-fn handleDestroy(_: *river.LibinputAccelConfigV1, accel_config: *LibinputAccelConfig) void {
+fn handleDestroy(_: *aqueous.LibinputAccelConfigV1, accel_config: *LibinputAccelConfig) void {
     if (accel_config.libinput) |libinput| {
         c.libinput_config_accel_destroy(libinput);
     }
@@ -46,8 +46,8 @@ fn handleDestroy(_: *river.LibinputAccelConfigV1, accel_config: *LibinputAccelCo
 }
 
 fn handleRequest(
-    object: *river.LibinputAccelConfigV1,
-    request: river.LibinputAccelConfigV1.Request,
+    object: *aqueous.LibinputAccelConfigV1,
+    request: aqueous.LibinputAccelConfigV1.Request,
     accel_config: *LibinputAccelConfig,
 ) void {
     assert(accel_config.object == object);
@@ -82,7 +82,7 @@ fn handleRequest(
                 @as([]u8, @ptrCast(points)),
                 @as([*]u8, @ptrCast(args.points.data))[0..args.points.size],
             );
-            const result = river.LibinputResultV1.create(
+            const result = aqueous.LibinputResultV1.create(
                 object.getClient(),
                 object.getVersion(),
                 args.result,

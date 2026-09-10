@@ -4,7 +4,7 @@ gaps_inner = 0
 fallback_layout = "dwindle"
 
 [[window]]
-app_id = "aq-parity-rule"
+app_id = "org.aqueous.test.aq-parity-rule"
 layout = "float"
 floating = true
 workspace = 2
@@ -14,12 +14,12 @@ x = 96
 y = 72
 
 [[window]]
-app_id = "aq-parity-fullscreen"
+app_id = "org.aqueous.test.aq-parity-fullscreen"
 layout = "tile"
 fullscreen = true
 
 [[window]]
-app_id = "aq-parity-game"
+app_id = "org.aqueous.test.aq-parity-game"
 layout = "game-mode"
 anchor = "center"
 size = "480x720"

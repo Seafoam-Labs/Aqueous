@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 const zwlr = wayland.server.zwlr;
 
 const server = &@import("main.zig").server;
@@ -19,7 +19,7 @@ const SceneNodeData = @import("SceneNodeData.zig");
 
 const log = std.log.scoped(.wm);
 
-object: ?*river.LayerShellOutputV1 = null,
+object: ?*aqueous.LayerShellOutputV1 = null,
 
 scheduled: struct {
     non_exclusive_area: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
@@ -38,7 +38,7 @@ pub fn createObject(
     id: u32,
 ) void {
     assert(shell_output.object == null);
-    shell_output.object = river.LayerShellOutputV1.create(client, version, id) catch {
+    shell_output.object = aqueous.LayerShellOutputV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -55,22 +55,22 @@ pub fn makeInert(shell_output: *LayerShellOutput) void {
 }
 
 fn handleRequestInert(
-    object: *river.LayerShellOutputV1,
-    request: river.LayerShellOutputV1.Request,
+    object: *aqueous.LayerShellOutputV1,
+    request: aqueous.LayerShellOutputV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(_: *river.LayerShellOutputV1, shell_output: *LayerShellOutput) void {
+fn handleDestroy(_: *aqueous.LayerShellOutputV1, shell_output: *LayerShellOutput) void {
     shell_output.object = null;
     shell_output.sent = .{};
     shell_output.requested = .{};
 }
 
 fn handleRequest(
-    layer_shell_output_v1: *river.LayerShellOutputV1,
-    request: river.LayerShellOutputV1.Request,
+    layer_shell_output_v1: *aqueous.LayerShellOutputV1,
+    request: aqueous.LayerShellOutputV1.Request,
     shell_output: *LayerShellOutput,
 ) void {
     assert(shell_output.object == layer_shell_output_v1);
@@ -176,7 +176,7 @@ pub fn manageStart(shell_output: *LayerShellOutput) void {
                 shell_output.scheduled.non_exclusive_area.height,
             );
         }
-        // Integrated policy has no river_layer_shell_output_v1 object, but the
+        // Integrated policy has no aqueous_layer_shell_output_v1 object, but the
         // compositor still needs to advance its sent snapshot. Leaving it null
         // makes every later layer arrange look like a new configuration and can
         // keep the manage/render transaction loop permanently dirty.

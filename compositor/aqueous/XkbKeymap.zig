@@ -9,14 +9,14 @@ const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
 
 const log = std.log.scoped(.input);
 
-object: *river.XkbKeymapV1,
+object: *aqueous.XkbKeymapV1,
 xkb_keymap: *xkb.Keymap,
 
 /// XkbConfig.keymaps
@@ -31,7 +31,7 @@ pub fn create(
     const keymap = try util.gpa.create(XkbKeymap);
     errdefer util.gpa.destroy(keymap);
 
-    const object = try river.XkbKeymapV1.create(client, version, id);
+    const object = try aqueous.XkbKeymapV1.create(client, version, id);
     errdefer comptime unreachable;
 
     keymap.* = .{
@@ -46,15 +46,15 @@ pub fn create(
 }
 
 pub fn createFailed(client: *wl.Client, version: u32, id: u32, error_msg: [*:0]const u8) !void {
-    const object = try river.XkbKeymapV1.create(client, version, id);
+    const object = try aqueous.XkbKeymapV1.create(client, version, id);
     errdefer comptime unreachable;
     object.setHandler(?*anyopaque, handleRequestInert, null, null);
     object.sendFailure(error_msg);
 }
 
 fn handleRequestInert(
-    object: *river.XkbKeymapV1,
-    request: river.XkbKeymapV1.Request,
+    object: *aqueous.XkbKeymapV1,
+    request: aqueous.XkbKeymapV1.Request,
     _: ?*anyopaque,
 ) void {
     switch (request) {
@@ -62,15 +62,15 @@ fn handleRequestInert(
     }
 }
 
-fn handleDestroy(_: *river.XkbKeymapV1, keymap: *XkbKeymap) void {
+fn handleDestroy(_: *aqueous.XkbKeymapV1, keymap: *XkbKeymap) void {
     keymap.xkb_keymap.unref();
     keymap.link.remove();
     util.gpa.destroy(keymap);
 }
 
 fn handleRequest(
-    object: *river.XkbKeymapV1,
-    request: river.XkbKeymapV1.Request,
+    object: *aqueous.XkbKeymapV1,
+    request: aqueous.XkbKeymapV1.Request,
     keymap: *XkbKeymap,
 ) void {
     assert(keymap.object == object);

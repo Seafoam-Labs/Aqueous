@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -17,13 +17,13 @@ const Seat = @import("Seat.zig");
 
 const log = std.log.scoped(.wm);
 
-object: ?*river.XkbBindingsSeatV1 = null,
+object: ?*aqueous.XkbBindingsSeatV1 = null,
 
 scheduled: struct {
     ate_unbound_key: bool = false,
     mods_update: ?struct {
-        old: river.SeatV1.Modifiers,
-        new: river.SeatV1.Modifiers,
+        old: aqueous.SeatV1.Modifiers,
+        new: aqueous.SeatV1.Modifiers,
     } = null,
 } = .{},
 requested: struct {
@@ -32,7 +32,7 @@ requested: struct {
         ensure_eaten,
         cancel_ensure_eaten,
     },
-    mods_watched: river.SeatV1.Modifiers,
+    mods_watched: aqueous.SeatV1.Modifiers,
 
     const init: @This() = .{
         .next_key_change = .none,
@@ -49,7 +49,7 @@ pub fn createObject(
     id: u32,
 ) void {
     assert(bindings_seat.object == null);
-    bindings_seat.object = river.XkbBindingsSeatV1.create(client, version, id) catch {
+    bindings_seat.object = aqueous.XkbBindingsSeatV1.create(client, version, id) catch {
         client.postNoMemory();
         return;
     };
@@ -64,21 +64,21 @@ pub fn makeInert(bindings_seat: *XkbBindingsSeat) void {
 }
 
 fn handleRequestInert(
-    object: *river.XkbBindingsSeatV1,
-    request: river.XkbBindingsSeatV1.Request,
+    object: *aqueous.XkbBindingsSeatV1,
+    request: aqueous.XkbBindingsSeatV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(_: *river.XkbBindingsSeatV1, bindings_seat: *XkbBindingsSeat) void {
+fn handleDestroy(_: *aqueous.XkbBindingsSeatV1, bindings_seat: *XkbBindingsSeat) void {
     bindings_seat.object = null;
     bindings_seat.requested = .init;
 }
 
 fn handleRequest(
-    object: *river.XkbBindingsSeatV1,
-    request: river.XkbBindingsSeatV1.Request,
+    object: *aqueous.XkbBindingsSeatV1,
+    request: aqueous.XkbBindingsSeatV1.Request,
     bindings_seat: *XkbBindingsSeat,
 ) void {
     assert(bindings_seat.object == object);

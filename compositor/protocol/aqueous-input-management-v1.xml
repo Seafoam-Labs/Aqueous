@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<protocol name="river_input_management_v1">
+<protocol name="aqueous_input_management_v1">
   <copyright>
     SPDX-FileCopyrightText: © 2025 Isaac Freund
     SPDX-License-Identifier: MIT
@@ -32,7 +32,7 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_input_manager_v1" version="2">
+  <interface name="aqueous_input_manager_v1" version="2">
     <description summary="input manager global interface">
       Input manager global interface.
     </description>
@@ -48,7 +48,7 @@
 
         The Wayland protocol is asynchronous, which means the server may send
         further events until the stop request is processed. The client must wait
-        for a river_input_manager_v1.finished event before destroying this
+        for a aqueous_input_manager_v1.finished event before destroying this
         object.
       </description>
     </request>
@@ -57,12 +57,12 @@
       <description summary="the server has finished with the input manager">
         This event indicates that the server will send no further events on this
         object. The client should destroy the object. See
-        river_input_manager_v1.destroy for more information.
+        aqueous_input_manager_v1.destroy for more information.
       </description>
     </event>
 
     <request name="destroy" type="destructor">
-      <description summary="destroy the river_input_manager_v1 object">
+      <description summary="destroy the aqueous_input_manager_v1 object">
         This request should be called after the finished event has been received
         to complete destruction of the object.
 
@@ -70,8 +70,8 @@
         has been received.
 
         If a client wishes to destroy this object it should send a
-        river_input_manager_v1.stop request and wait for a
-        river_input_manager_v1.finished event. Once the finished event is
+        aqueous_input_manager_v1.stop request and wait for a
+        aqueous_input_manager_v1.finished event. Once the finished event is
         received it is safe to destroy this object and any other objects created
         through this interface.
       </description>
@@ -106,11 +106,11 @@
       <description summary="new input device">
         A new input device has been created.
       </description>
-      <arg name="id" type="new_id" interface="river_input_device_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_input_device_v1"/>
     </event>
   </interface>
 
-  <interface name="river_input_device_v1" version="2">
+  <interface name="aqueous_input_device_v1" version="2">
     <description summary="an input device">
       An input device represents a physical keyboard, mouse, touchscreen, or
       drawing tablet tool. It is assigned to exactly one seat at a time.
@@ -135,9 +135,9 @@
         This event indicates that the input device has been removed.
 
         The server will send no further events on this object and ignore any
-        request (other than river_input_device_v1.destroy) made after this event is
+        request (other than aqueous_input_device_v1.destroy) made after this event is
         sent. The client should destroy this object with the
-        river_input_device_v1.destroy request to free up resources.
+        aqueous_input_device_v1.destroy request to free up resources.
       </description>
     </event>
 
@@ -151,7 +151,7 @@
     <event name="type">
       <description summary="the type of the input device">
         The type of the input device. This event is sent once when the
-        river_input_device_v1 object is created. The device type cannot
+        aqueous_input_device_v1 object is created. The device type cannot
         change during the lifetime of the object.
       </description>
       <arg name="type" type="uint" enum="type"/>
@@ -160,7 +160,7 @@
     <event name="name">
       <description summary="the name of the input device">
         The name of the input device. This event is sent once when the
-        river_input_device_v1 object is created. The device name cannot
+        aqueous_input_device_v1 object is created. The device name cannot
         change during the lifetime of the object.
       </description>
       <arg name="name" type="string"/>
@@ -236,7 +236,7 @@
         This event is sent after all information about the input device has
         been sent.
 
-        This allows changes to one or more river_input_device_v1 properties to
+        This allows changes to one or more aqueous_input_device_v1 properties to
         be seen as atomic, even if they happen via multiple events.
       </description>
     </event>

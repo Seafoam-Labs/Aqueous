@@ -20,11 +20,19 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 [ -x "$AQUEOUS_COMPOSITOR_BIN" ] || die "aqueous binary not found at $AQUEOUS_COMPOSITOR_BIN"
 [ -x "$AQUEOUSCTL_BIN" ] || die "aqueousctl binary not found at $AQUEOUSCTL_BIN"
-for tool in ghostty jq wlrctl timeout; do
+for tool in ghostty jq wlrctl timeout dbus-run-session; do
     have "$tool" || die "$tool is required for real-window policy integration tests"
 done
 [ -r "$FIXTURES/parity-wm.toml" ] || die "missing parity-wm.toml fixture"
 [ -r "$FIXTURES/parity-rules.toml" ] || die "missing parity-rules.toml fixture"
+[ -r "$FIXTURES/parity-dbus.conf" ] || die "missing parity-dbus.conf fixture"
+
+# GTK falls back to "GTK Application" without a session bus. Always use a
+# private bus, with service activation disabled, for deterministic app IDs.
+if [ "${AQUEOUS_POLICY_PRIVATE_BUS:-0}" != 1 ]; then
+    exec dbus-run-session --config-file="$FIXTURES/parity-dbus.conf" -- \
+        env AQUEOUS_POLICY_PRIVATE_BUS=1 bash "$here/scripts/test-policy-parity.sh"
+fi
 
 TEST_ROOT=$(mktemp -d /tmp/aqueous-policy-parity.XXXXXX)
 COMPOSITOR_PID=""
@@ -48,13 +56,37 @@ trace_field() {
     sed -n "s/.* ${key}=\([^ ]*\).*/\1/p" <<<"$line"
 }
 
+wait_settled() {
+    local previous="" current="" stable=0 n=0
+    # Mapping and keyboard actions can complete several configure/focus cycles.
+    # Compare state rather than the sequence number before taking a checkpoint.
+    while [ "$n" -lt 200 ]; do
+        kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited while settling"
+        current=$(trace_line | sed 's/^.*source=/source=/')
+        if [ -n "$current" ] && [ "$current" = "$previous" ]; then
+            stable=$((stable + 1))
+            [ "$stable" -ge 3 ] && return 0
+        else
+            stable=0
+        fi
+        previous=$current
+        sleep 0.05
+        n=$((n + 1))
+    done
+    die "compositor state did not settle"
+}
+
 wait_windows() {
     local wanted=$1 n=0 line value
     while [ "$n" -lt 200 ]; do
         kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited; see $SESSION_LOG"
         line=$(trace_line || true)
         value=$(trace_field "$line" windows)
-        [ "$value" = "$wanted" ] && return 0
+        if [ "$value" = "$wanted" ]; then
+            wait_settled
+            value=$(trace_field "$(trace_line)" windows)
+            [ "$value" = "$wanted" ] && return 0
+        fi
         sleep 0.05
         n=$((n + 1))
     done
@@ -103,6 +135,16 @@ checkpoint() {
 press() {
     local text=$1 modifiers=$2
     wlrctl keyboard type "$text" modifiers "$modifiers"
+    wait_settled
+}
+
+focus_fixture() {
+    local app_id="org.aqueous.test.$1" id
+    id=$("$AQUEOUSCTL_BIN" windows --json | jq -er --arg app_id "$app_id" '
+        map(select(.app_id == $app_id)) |
+        if length == 1 then .[0].id else error("fixture is missing or ambiguous") end')
+    "$AQUEOUSCTL_BIN" window activate --id "$id" --seat default --json >/dev/null
+    wait_settled
 }
 
 wait_toplevel_title() {
@@ -121,12 +163,14 @@ wait_toplevel_title() {
 
 launch_ghostty() {
     local identity=$1
+    # Ghostty's class is a single GTK application ID, including on Wayland.
+    # Keep this namespace in sync with parity-wm.toml and parity-rules.toml.
     ghostty \
         --config-file="$FIXTURES/ghostty.conf" \
         --config-default-files=false \
         --gtk-single-instance=false \
         --window-decoration=false \
-        --class="$identity,$identity" \
+        --class="org.aqueous.test.$identity" \
         --title="$identity" \
         -e sleep 60 >/dev/null 2>&1 &
     CLIENT_PIDS+=("$!")
@@ -197,15 +241,19 @@ exercise_session() {
     wait_windows 1
     legacy_list=$(wait_toplevel_title aq-parity-one) || die "wlrctl did not enumerate the mapped window"
     info_json=$("$AQUEOUSCTL_BIN" windows --json)
-    grep -q '"app_id":"com.mitchellh.ghostty"' <<<"$info_json" || die "aqueousctl JSON omitted the native app_id"
-    grep -q '"workspace":1' <<<"$info_json" || die "aqueousctl JSON omitted the workspace"
+    jq -e 'length == 1 and .[0].backend == "xdg" and
+        .[0].app_id == "org.aqueous.test.aq-parity-one" and .[0].workspace == 1' \
+        <<<"$info_json" >/dev/null || die "unexpected fixture app_id or workspace: $info_json"
     rule_snippet=$("$AQUEOUSCTL_BIN" inspect --rule)
-    grep -q 'app_id = "com.mitchellh.ghostty"' <<<"$rule_snippet" || die "aqueousctl did not generate a usable rule"
+    grep -Fxq 'app_id = "org.aqueous.test.aq-parity-one"' <<<"$rule_snippet" || die "aqueousctl did not generate a usable rule"
     wlrctl pointer move 300 300
     wait_field_ne focus "$focus0"
     focus1=$(trace_field "$(trace_line)" focus)
     geom1=$(trace_field "$(trace_line)" geometry)
     checkpoint one_window_focused
+    # Keep subsequent resize/layout changes from moving a window under the
+    # pointer and unintentionally changing keyboard focus during assertions.
+    wlrctl pointer move -10000 -10000
 
     echo "CHECK: spawn keybinding and tiled geometry"
     press $'\n' SUPER
@@ -274,30 +322,51 @@ exercise_session() {
     launch_ghostty aq-parity-rule
     wait_windows 3
     wait_field_ne geometry "$moved_geom"
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'any(.[];
+        .app_id == "org.aqueous.test.aq-parity-rule" and .workspace == 2 and
+        .matched_rule > 0 and (.states | index("floating")) != null)' >/dev/null ||
+        die "floating fixture did not match its application-ID rule"
     checkpoint floating_workspace_rule
 
     echo "CHECK: fullscreen rule lifecycle and manual override"
     # fullscreen client; a manual toggle must survive a rules reload.
     launch_ghostty aq-parity-fullscreen
     wait_windows 4
-    fullscreen_geom=$(trace_field "$(trace_line)" geometry)
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'any(.[];
+        .app_id == "org.aqueous.test.aq-parity-fullscreen" and
+        .matched_rule > 0 and (.states | index("fullscreen")) != null)' >/dev/null ||
+        die "fullscreen fixture did not match its application-ID rule"
     press c SUPER
     wait_field_ne focus "$return_focus"
     cycle_focus=$(trace_field "$(trace_line)" focus)
     press c SUPER
     wait_field_ne focus "$cycle_focus"
+    # Cycling tests focus changes, but does not guarantee a particular target.
+    focus_fixture aq-parity-fullscreen
+    fullscreen_geom=$(trace_field "$(trace_line)" geometry)
     press f SHIFT,SUPER
     wait_field_ne geometry "$fullscreen_geom"
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'any(.[];
+        .app_id == "org.aqueous.test.aq-parity-fullscreen" and
+        (.states | index("focused")) != null and (.states | index("fullscreen")) == null)' >/dev/null ||
+        die "manual override did not unfullscreen the rule-matched fixture"
     manual_geom=$(trace_field "$(trace_line)" geometry)
     checkpoint manual_fullscreen_override
     press r SUPER
-    sleep 0.35
     wait_field_eq geometry "$manual_geom"
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'any(.[];
+        .app_id == "org.aqueous.test.aq-parity-fullscreen" and
+        (.states | index("fullscreen")) == null)' >/dev/null ||
+        die "reload lost the fixture's manual fullscreen override"
     checkpoint override_survives_reload
 
     echo "CHECK: close keybinding"
+    focus_fixture aq-parity-fullscreen
     press q SUPER
     wait_windows 3
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'all(.[];
+        .app_id != "org.aqueous.test.aq-parity-fullscreen")' >/dev/null ||
+        die "close keybinding did not remove the fullscreen fixture"
     closed_geom=$(trace_field "$(trace_line)" geometry)
     checkpoint close_keybinding
 
@@ -309,6 +378,9 @@ exercise_session() {
     launch_ghostty aq-parity-game
     game_pid=${CLIENT_PIDS[${#CLIENT_PIDS[@]}-1]}
     wait_windows 7
+    "$AQUEOUSCTL_BIN" windows --json | jq -e 'any(.[];
+        .app_id == "org.aqueous.test.aq-parity-game" and .matched_rule > 0)' >/dev/null ||
+        die "game fixture did not match its application-ID rule"
     wait_field_ne geometry "$closed_geom"
     checkpoint game_mode_rows_remainder
 
@@ -316,18 +388,13 @@ exercise_session() {
     press g SUPER
     kill "$game_pid"
     wait_windows 6
-    # Window removal and replacement focus are separate coalesced cycles; wait
-    # for both before comparing the two policy-mode traces.
-    sleep 0.15
     fallback_geom=$(trace_field "$(trace_line)" geometry)
     checkpoint game_mode_dwindle_fallback
     press d SUPER
-    sleep 0.15
     dwindle_after_fallback=$(trace_field "$(trace_line)" geometry)
     [ "$fallback_geom" = "$dwindle_after_fallback" ] || die "game-mode fallback_layout=dwindle does not match the Dwindle engine"
     checkpoint dwindle_matches_game_mode_fallback
     press t SUPER
-    sleep 0.15
     tile_after_fallback=$(trace_field "$(trace_line)" geometry)
     [ "$fallback_geom" != "$tile_after_fallback" ] || die "Dwindle fallback unexpectedly matches Tile with four tiled windows"
     checkpoint tile_differs_from_game_mode_fallback

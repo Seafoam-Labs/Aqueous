@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wayland = @import("wayland");
 const wl = wayland.server.wl;
-const river = wayland.server.river;
+const aqueous = wayland.server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -24,7 +24,7 @@ const Focus = union(enum) {
     none,
 };
 
-object: ?*river.LayerShellSeatV1 = null,
+object: ?*aqueous.LayerShellSeatV1 = null,
 
 scheduled: struct {
     focus: Focus = .none,
@@ -41,7 +41,7 @@ pub fn createObject(
     id: u32,
 ) void {
     assert(shell_seat.object == null);
-    shell_seat.object = river.LayerShellSeatV1.create(client, version, id) catch {
+    shell_seat.object = aqueous.LayerShellSeatV1.create(client, version, id) catch {
         client.postNoMemory();
         return;
     };
@@ -57,20 +57,20 @@ pub fn makeInert(shell_seat: *LayerShellSeat) void {
 }
 
 fn handleRequestInert(
-    object: *river.LayerShellSeatV1,
-    request: river.LayerShellSeatV1.Request,
+    object: *aqueous.LayerShellSeatV1,
+    request: aqueous.LayerShellSeatV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(_: *river.LayerShellSeatV1, shell_seat: *LayerShellSeat) void {
+fn handleDestroy(_: *aqueous.LayerShellSeatV1, shell_seat: *LayerShellSeat) void {
     shell_seat.object = null;
 }
 
 fn handleRequest(
-    object: *river.LayerShellSeatV1,
-    request: river.LayerShellSeatV1.Request,
+    object: *aqueous.LayerShellSeatV1,
+    request: aqueous.LayerShellSeatV1.Request,
     shell_seat: *LayerShellSeat,
 ) void {
     assert(shell_seat.object == object);

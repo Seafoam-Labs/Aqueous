@@ -15,7 +15,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "xdg-dialog-client-protocol.h"
 #include "security-context-client-protocol.h"
-#include "river-input-client-protocol.h"
+#include "aqueous-input-client-protocol.h"
 #include "layer-shell-client-protocol.h"
 #include "xdg-activation-client-protocol.h"
 #include "virtual-pointer-client-protocol.h"
@@ -28,7 +28,7 @@ static struct xdg_wm_dialog_v1 *manager;
 static struct zwlr_virtual_pointer_v1 *pointer;
 static const char *label;
 static struct wp_security_context_manager_v1 *security;
-static struct river_input_manager_v1 *input_manager;
+static struct aqueous_input_manager_v1 *input_manager;
 static struct zwlr_layer_shell_v1 *layer_manager;
 static struct zwlr_layer_surface_v1 *layer;
 static struct xdg_activation_v1 *activation;
@@ -92,11 +92,11 @@ static void layer_configured(void *data, struct zwlr_layer_surface_v1 *object, u
 }
 static void layer_closed(void *data, struct zwlr_layer_surface_v1 *object) { (void)data; (void)object; }
 static const struct zwlr_layer_surface_v1_listener layer_listener = {.configure = layer_configured, .closed = layer_closed};
-static void input_finished(void *data, struct river_input_manager_v1 *object) { (void)data; river_input_manager_v1_destroy(object); }
-static void input_device(void *data, struct river_input_manager_v1 *object, struct river_input_device_v1 *device) {
-    (void)data; (void)object; river_input_device_v1_destroy(device);
+static void input_finished(void *data, struct aqueous_input_manager_v1 *object) { (void)data; aqueous_input_manager_v1_destroy(object); }
+static void input_device(void *data, struct aqueous_input_manager_v1 *object, struct aqueous_input_device_v1 *device) {
+    (void)data; (void)object; aqueous_input_device_v1_destroy(device);
 }
-static const struct river_input_manager_v1_listener input_listener = {.finished = input_finished, .input_device = input_device};
+static const struct aqueous_input_manager_v1_listener input_listener = {.finished = input_finished, .input_device = input_device};
 static void global(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version) {
     (void)data;
     if (!strcmp(interface, "wl_compositor")) compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
@@ -107,9 +107,9 @@ static void global(void *data, struct wl_registry *registry, uint32_t name, cons
     } else if (!strcmp(interface, "xdg_wm_dialog_v1")) {
         manager = wl_registry_bind(registry, name, &xdg_wm_dialog_v1_interface, 1);
         printf("{\"event\":\"global\",\"version\":%u}\n", version);
-    } else if (!strcmp(interface, "river_input_manager_v1")) {
-        input_manager = wl_registry_bind(registry, name, &river_input_manager_v1_interface, 1);
-        river_input_manager_v1_add_listener(input_manager, &input_listener, NULL);
+    } else if (!strcmp(interface, "aqueous_input_manager_v1")) {
+        input_manager = wl_registry_bind(registry, name, &aqueous_input_manager_v1_interface, 1);
+        aqueous_input_manager_v1_add_listener(input_manager, &input_listener, NULL);
     } else if (!strcmp(interface, "zwlr_layer_shell_v1")) {
         layer_manager = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 4);
     } else if (!strcmp(interface, "xdg_activation_v1")) {
@@ -163,8 +163,8 @@ static bool command(char *line) {
         wp_security_context_v1_commit(context); wp_security_context_v1_destroy(context);
         close(fd); close(lifetime[0]); // Keep lifetime[1] open until process exit.
     }
-    else if (!strcmp(op, "create-seat")) river_input_manager_v1_create_seat(input_manager, "dialog-seat");
-    else if (!strcmp(op, "destroy-seat")) river_input_manager_v1_destroy_seat(input_manager, "dialog-seat");
+    else if (!strcmp(op, "create-seat")) aqueous_input_manager_v1_create_seat(input_manager, "dialog-seat");
+    else if (!strcmp(op, "destroy-seat")) aqueous_input_manager_v1_destroy_seat(input_manager, "dialog-seat");
     else if (!strcmp(op, "activate-bogus")) xdg_activation_v1_activate(activation, "invalid-dialog-token", w->surface);
     else if (!strcmp(op, "layer")) {
         assert(!layer);

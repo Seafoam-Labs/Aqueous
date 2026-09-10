@@ -10,7 +10,7 @@ const mem = std.mem;
 const wlr = @import("wlroots");
 const Output = @import("Output.zig");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const c = @import("c");
 const server = &@import("main.zig").server;
@@ -27,7 +27,7 @@ const log = std.log.scoped(.input);
 seat: *Seat,
 wlr_device: *wlr.InputDevice,
 virtual: bool,
-objects: wl.list.Head(river.InputDeviceV1, null),
+objects: wl.list.Head(aqueous.InputDeviceV1, null),
 
 libinput: LibinputDevice,
 xkb_keyboard: XkbKeyboard,
@@ -107,16 +107,16 @@ pub fn init(
     }
 }
 
-pub fn createObject(device: *InputDevice, im_v1: *river.InputManagerV1) void {
+pub fn createObject(device: *InputDevice, im_v1: *aqueous.InputManagerV1) void {
     assert(!device.virtual);
-    const device_type: river.InputDeviceV1.Type = switch (device.wlr_device.type) {
+    const device_type: aqueous.InputDeviceV1.Type = switch (device.wlr_device.type) {
         .keyboard => .keyboard,
         .pointer => .pointer,
         .touch => .touch,
         .tablet => .tablet,
         .@"switch", .tablet_pad => return,
     };
-    const object = river.InputDeviceV1.create(im_v1.getClient(), im_v1.getVersion(), 0) catch {
+    const object = aqueous.InputDeviceV1.create(im_v1.getClient(), im_v1.getVersion(), 0) catch {
         log.err("out of memory", .{});
         im_v1.postNoMemory();
         return;
@@ -206,20 +206,20 @@ fn handleRemove(listener: *wl.Listener(*wlr.InputDevice), _: *wlr.InputDevice) v
 }
 
 fn handleRequestInert(
-    object: *river.InputDeviceV1,
-    request: river.InputDeviceV1.Request,
+    object: *aqueous.InputDeviceV1,
+    request: aqueous.InputDeviceV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(object: *river.InputDeviceV1, _: *InputDevice) void {
+fn handleDestroy(object: *aqueous.InputDeviceV1, _: *InputDevice) void {
     object.getLink().remove();
 }
 
 fn handleRequest(
-    object: *river.InputDeviceV1,
-    request: river.InputDeviceV1.Request,
+    object: *aqueous.InputDeviceV1,
+    request: aqueous.InputDeviceV1.Request,
     device: *InputDevice,
 ) void {
     switch (request) {

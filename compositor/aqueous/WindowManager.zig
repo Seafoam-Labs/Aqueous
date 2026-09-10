@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 const SlotMap = @import("slotmap").SlotMap;
 
 const server = &@import("main.zig").server;
@@ -27,7 +27,7 @@ global: *wl.Global,
 server_destroy: wl.Listener(*wl.Server) = .init(handleServerDestroy),
 
 /// The protocol object of the active window manager, if any.
-object: ?*river.WindowManagerV1 = null,
+object: ?*aqueous.WindowManagerV1 = null,
 
 state: union(enum) {
     idle,
@@ -75,7 +75,7 @@ rendering_requested: struct {
     order_hash: u64 = 0,
 },
 
-/// Global backdrop-blur state driven by river_window_manager_v1.set_blur. Blur
+/// Global backdrop-blur state driven by aqueous_window_manager_v1.set_blur. Blur
 /// nodes and their geometry are owned by each output.
 blur: struct {
     enabled: bool = false,
@@ -84,14 +84,14 @@ blur: struct {
     appearance: fx.BlurAppearance = .{},
 } = .{},
 
-/// Default window-content opacity driven by river_window_manager_v1.set_opacity,
+/// Default window-content opacity driven by aqueous_window_manager_v1.set_opacity,
 /// stored as the raw 32-bit unsigned fraction (0 = transparent, 0xffffffff = opaque).
-/// Windows that received river_window_v1.set_window_opacity use their own value
+/// Windows that received aqueous_window_v1.set_window_opacity use their own value
 /// instead of this default.
 default_opacity: u32 = std.math.maxInt(u32),
 
 /// Workspace-swap slide-transition state driven by
-/// river_window_manager_v1.set_workspace_transition. `enabled` toggles whether
+/// aqueous_window_manager_v1.set_workspace_transition. `enabled` toggles whether
 /// `Output.activateWorkspace` begins a slide (vs. an instant swap); `rate` paces
 /// the slide's exponential smoothing. A non-positive `rate` means "use the
 /// compile-time default" (`fx.workspace_slide_rate`).
@@ -110,7 +110,7 @@ pub fn init(wm: *WindowManager) !void {
     errdefer timeout.remove();
 
     wm.* = .{
-        .global = try wl.Global.create(server.wl_server, river.WindowManagerV1, 10, *WindowManager, wm, bind),
+        .global = try wl.Global.create(server.wl_server, aqueous.WindowManagerV1, 10, *WindowManager, wm, bind),
         .sent = .{
             .outputs = undefined,
             .seats = undefined,
@@ -135,7 +135,7 @@ fn handleServerDestroy(listener: *wl.Listener(*wl.Server), _: *wl.Server) void {
 }
 
 fn bind(client: *wl.Client, wm: *WindowManager, version: u32, id: u32) void {
-    const object = river.WindowManagerV1.create(client, version, id) catch {
+    const object = aqueous.WindowManagerV1.create(client, version, id) catch {
         client.postNoMemory();
         log.err("out of memory", .{});
         return;
@@ -153,15 +153,15 @@ fn bind(client: *wl.Client, wm: *WindowManager, version: u32, id: u32) void {
 }
 
 fn handleRequestInert(
-    object: *river.WindowManagerV1,
-    request: river.WindowManagerV1.Request,
+    object: *aqueous.WindowManagerV1,
+    request: aqueous.WindowManagerV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) object.destroy();
 }
 
-fn handleDestroy(_: *river.WindowManagerV1, wm: *WindowManager) void {
-    log.debug("active river_window_manager_v1 destroyed", .{});
+fn handleDestroy(_: *aqueous.WindowManagerV1, wm: *WindowManager) void {
+    log.debug("active aqueous_window_manager_v1 destroyed", .{});
     wm.object = null;
     {
         var it = server.om.outputs.iterator(.forward);
@@ -184,8 +184,8 @@ fn handleDestroy(_: *river.WindowManagerV1, wm: *WindowManager) void {
 }
 
 fn handleRequest(
-    wm_v1: *river.WindowManagerV1,
-    request: river.WindowManagerV1.Request,
+    wm_v1: *aqueous.WindowManagerV1,
+    request: aqueous.WindowManagerV1.Request,
     wm: *WindowManager,
 ) void {
     assert(wm.object == wm_v1);

@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
-const river = @import("wayland").server.river;
+const aqueous = @import("wayland").server.aqueous;
 
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
@@ -20,14 +20,14 @@ const WmNode = @import("WmNode.zig");
 const log = std.log.scoped(.wm);
 
 const role: wlr.Surface.Role = .{
-    .name = "river_shell_surface_v1",
+    .name = "aqueous_shell_surface_v1",
     .client_commit = clientCommit,
     .commit = commit,
     .unmap = null,
     .destroy = roleDestroy,
 };
 
-object: *river.ShellSurfaceV1,
+object: *aqueous.ShellSurfaceV1,
 surface: *wlr.Surface,
 tree: *wlr.SceneTree,
 surfaces: Scene.SaveableSurfaces,
@@ -46,11 +46,11 @@ pub fn create(
     id: u32,
     surface: *wlr.Surface,
 ) !void {
-    log.debug("new river_shell_surface_v1", .{});
+    log.debug("new aqueous_shell_surface_v1", .{});
 
-    const shell_surface_v1 = try river.ShellSurfaceV1.create(client, version, id);
+    const shell_surface_v1 = try aqueous.ShellSurfaceV1.create(client, version, id);
 
-    if (!surface.setRole(&role, @ptrCast(shell_surface_v1), @intFromEnum(river.WindowManagerV1.Error.role))) {
+    if (!surface.setRole(&role, @ptrCast(shell_surface_v1), @intFromEnum(aqueous.WindowManagerV1.Error.role))) {
         return;
     }
     surface.setRoleObject(@ptrCast(shell_surface_v1));
@@ -113,16 +113,16 @@ fn roleDestroy(wlr_surface: *wlr.Surface) callconv(.c) void {
 }
 
 fn handleRequestInert(
-    shell_surface_v1: *river.ShellSurfaceV1,
-    request: river.ShellSurfaceV1.Request,
+    shell_surface_v1: *aqueous.ShellSurfaceV1,
+    request: aqueous.ShellSurfaceV1.Request,
     _: ?*anyopaque,
 ) void {
     if (request == .destroy) shell_surface_v1.destroy();
 }
 
 fn handleRequest(
-    shell_surface_v1: *river.ShellSurfaceV1,
-    request: river.ShellSurfaceV1.Request,
+    shell_surface_v1: *aqueous.ShellSurfaceV1,
+    request: aqueous.ShellSurfaceV1.Request,
     shell_surface: *ShellSurface,
 ) void {
     assert(shell_surface.object == shell_surface_v1);

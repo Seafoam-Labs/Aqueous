@@ -284,6 +284,12 @@ stdenv.mkDerivation (finalAttrs: {
       share/man/man1/aqueous.1
       share/man/man1/aqueousctl.1
       share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+      share/aqueous-protocols/stable/aqueous-window-management-v1.xml
+      share/aqueous-protocols/stable/aqueous-input-management-v1.xml
+      share/aqueous-protocols/stable/aqueous-xkb-bindings-v1.xml
+      share/aqueous-protocols/stable/aqueous-xkb-config-v1.xml
+      share/aqueous-protocols/stable/aqueous-libinput-config-v1.xml
+      share/aqueous-protocols/stable/aqueous-layer-shell-v1.xml
       share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml
     )
     for path in "''${required[@]}"; do

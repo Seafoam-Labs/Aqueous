@@ -9,7 +9,7 @@ EXIT_FIXTURE_SOURCE="$here/scripts/fixtures/exit-session.c"
 WM_CONFIG="$here/scripts/fixtures/visual-effects-wm.toml"
 LAYOUT_CONFIG="$here/scripts/fixtures/visual-effects-layout.toml"
 RULES_CONFIG="$here/scripts/fixtures/visual-effects-rules.toml"
-WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/river-window-management-v1.xml"
+WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/aqueous-window-management-v1.xml"
 WORKSPACE_PROTOCOL="$here/protocol/upstream/ext-workspace-v1.xml"
 STRESS_FRAMES=${AQUEOUS_VULKAN_PROBE_FRAMES:-4096}
 STRESS_TIMEOUT_SECONDS=${AQUEOUS_VULKAN_PROBE_TIMEOUT_SECONDS:-240}
@@ -201,14 +201,14 @@ cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     -o "$FIXTURE_BIN" $(pkg-config --cflags --libs wayland-client)
 
 wayland-scanner client-header "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-client-protocol.h"
+    "$TEST_ROOT/aqueous-window-management-v1-client-protocol.h"
 wayland-scanner private-code "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c"
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c"
 wayland-scanner private-code "$WORKSPACE_PROTOCOL" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c"
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$EXIT_FIXTURE_SOURCE" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c" \
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c" \
     -o "$EXIT_FIXTURE" $(pkg-config --cflags --libs wayland-client)
 

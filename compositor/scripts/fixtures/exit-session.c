@@ -6,17 +6,17 @@
 #include <string.h>
 #include <wayland-client.h>
 
-#include "river-window-management-v1-client-protocol.h"
+#include "aqueous-window-management-v1-client-protocol.h"
 
-static struct river_window_manager_v1 *manager;
+static struct aqueous_window_manager_v1 *manager;
 
 static void registry_global(void *data, struct wl_registry *registry,
         uint32_t name, const char *interface, uint32_t version) {
     (void)data;
-    if (strcmp(interface, river_window_manager_v1_interface.name) == 0) {
+    if (strcmp(interface, aqueous_window_manager_v1_interface.name) == 0) {
         uint32_t bind_version = version < 4 ? version : 4;
         manager = wl_registry_bind(registry, name,
-            &river_window_manager_v1_interface, bind_version);
+            &aqueous_window_manager_v1_interface, bind_version);
     }
 }
 
@@ -39,13 +39,13 @@ int main(void) {
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, NULL);
     if (wl_display_roundtrip(display) < 0 || manager == NULL ||
-            river_window_manager_v1_get_version(manager) < 4) {
+            aqueous_window_manager_v1_get_version(manager) < 4) {
         wl_registry_destroy(registry);
         wl_display_disconnect(display);
         return EXIT_FAILURE;
     }
 
-    river_window_manager_v1_exit_session(manager);
+    aqueous_window_manager_v1_exit_session(manager);
     if (wl_display_flush(display) < 0) {
         wl_registry_destroy(registry);
         wl_display_disconnect(display);

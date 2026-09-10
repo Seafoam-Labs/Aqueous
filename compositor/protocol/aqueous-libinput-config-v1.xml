@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<protocol name="river_libinput_config_v1">
+<protocol name="aqueous_libinput_config_v1">
   <copyright>
     SPDX-FileCopyrightText: © 2025 Isaac Freund
     SPDX-License-Identifier: MIT
@@ -47,10 +47,10 @@
     document are to be interpreted as described in IETF RFC 2119.
   </description>
 
-  <interface name="river_libinput_config_v1" version="2">
+  <interface name="aqueous_libinput_config_v1" version="2">
     <description summary="libinput config global interface">
       Global interface for configuring libinput devices. This global should
-      only be advertised if river_input_manager_v1 is advertised as well.
+      only be advertised if aqueous_input_manager_v1 is advertised as well.
     </description>
 
     <enum name="error">
@@ -66,7 +66,7 @@
 
         The Wayland protocol is asynchronous, which means the server may send
         further events until the stop request is processed. The client must wait
-        for a river_libinput_config_v1.finished event before destroying this
+        for a aqueous_libinput_config_v1.finished event before destroying this
         object.
       </description>
     </request>
@@ -75,12 +75,12 @@
       <description summary="the server has finished with the object">
         This event indicates that the server will send no further events on this
         object. The client should destroy the object. See
-        river_libinput_config_v1.destroy for more information.
+        aqueous_libinput_config_v1.destroy for more information.
       </description>
     </event>
 
     <request name="destroy" type="destructor">
-      <description summary="destroy the river_libinput_config_v1 object">
+      <description summary="destroy the aqueous_libinput_config_v1 object">
         This request should be called after the finished event has been received
         to complete destruction of the object.
 
@@ -88,8 +88,8 @@
         has been received.
 
         If a client wishes to destroy this object it should send a
-        river_libinput_config_v1.stop request and wait for a
-        river_libinput_config_v1.finished event. Once the finished event is
+        aqueous_libinput_config_v1.stop request and wait for a
+        aqueous_libinput_config_v1.finished event. Once the finished event is
         received it is safe to destroy this object and any other objects created
         through this interface.
       </description>
@@ -97,28 +97,28 @@
 
     <event name="libinput_device">
       <description summary="new libinput device">
-        A new libinput device has been created. Not every river_input_device_v1
+        A new libinput device has been created. Not every aqueous_input_device_v1
         is necessarily a libinput device as well.
       </description>
-      <arg name="id" type="new_id" interface="river_libinput_device_v1"/>
+      <arg name="id" type="new_id" interface="aqueous_libinput_device_v1"/>
     </event>
 
     <request name="create_accel_config">
       <description summary="create a acceleration config">
         Create a acceleration config which can be applied
-        with river_libinput_device_v1.apply_accel_config.
+        with aqueous_libinput_device_v1.apply_accel_config.
       </description>
       <arg name="id" type="new_id"
-        interface="river_libinput_accel_config_v1"/>
+        interface="aqueous_libinput_accel_config_v1"/>
       <arg name="profile" type="uint"
-        enum="river_libinput_device_v1.accel_profile"/>
+        enum="aqueous_libinput_device_v1.accel_profile"/>
     </request>
   </interface>
 
-  <interface name="river_libinput_device_v1" version="2">
+  <interface name="aqueous_libinput_device_v1" version="2">
     <description summary="a libinput device">
       In general, *_support events will be sent exactly once directly after the
-      river_libinput_device_v1 is created. *_default events will be sent after
+      aqueous_libinput_device_v1 is created. *_default events will be sent after
       *_support events if the config option is supported, and *_current events
       willl be sent after the *_default events and again whenever the config
       option is changed.
@@ -141,19 +141,19 @@
         This event indicates that the libinput device has been removed.
 
         The server will send no further events on this object and ignore any
-        request (other than river_libinput_device_v1.destroy) made after this
+        request (other than aqueous_libinput_device_v1.destroy) made after this
         event is sent. The client should destroy this object with the
-        river_libinput_device_v1.destroy request to free up resources.
+        aqueous_libinput_device_v1.destroy request to free up resources.
       </description>
     </event>
 
     <event name="input_device">
-      <description summary="corresponding river input device">
-        The river_input_device_v1 corresponding to this libinput device.
+      <description summary="corresponding Aqueous input device">
+        The aqueous_input_device_v1 corresponding to this libinput device.
         This event will always be the first event sent on the
-        river_libinput_device_v1 object, and it will be sent exactly once.
+        aqueous_libinput_device_v1 object, and it will be sent exactly once.
       </description>
-      <arg name="device" type="object" interface="river_input_device_v1"/>
+      <arg name="device" type="object" interface="aqueous_input_device_v1"/>
     </event>
 
     <enum name="send_events_modes" bitfield="true">
@@ -187,7 +187,7 @@
       <description summary="set send events mode">
         Set the send events mode for the device.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="mode" type="uint" enum="send_events_modes"/>
     </request>
 
@@ -223,7 +223,7 @@
         Configure tap-to-click on this device, with a default mapping of
         1, 2, 3 finger tap mapping to left, right, middle click, respectively.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="tap_state"/>
     </request>
 
@@ -254,7 +254,7 @@
         default mapping on most devices is to have a 1, 2 and 3 finger tap to
         map to the left, right and middle button, respectively.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="button_map" type="uint" enum="tap_button_map"/>
     </request>
 
@@ -281,7 +281,7 @@
       <description summary="set tap-and-drag state">
         Configure tap-and-drag functionality on the device.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="drag_state"/>
     </request>
 
@@ -313,7 +313,7 @@
         lifting the finger during a tap-and-drag will immediately stop the drag.
         See the libinput documentation for more details.
        </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="drag_lock_state"/>
     </request>
 
@@ -349,7 +349,7 @@
       <description summary="set three finger drag state">
         Configure three finger drag functionality for the device.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="three_finger_drag_state"/>
     </request>
 
@@ -378,7 +378,7 @@
       <description summary="set calibration matrix">
         Set calibration matrix.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="matrix" type="array" summary="array of 6 floats"/>
     </request>
 
@@ -421,7 +421,7 @@
       <description summary="set acceleration profile">
         Set the acceleration profile.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="profile" type="uint" enum="accel_profile"/>
     </request>
 
@@ -445,7 +445,7 @@
         the default acceleration for this device, -1 is the slowest acceleration
         and 1 is the maximum acceleration available on this device.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="speed" type="array" summary="double"/>
     </request>
 
@@ -453,8 +453,8 @@
       <description summary="apply acceleration config">
         Apply a pointer accleration config.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
-      <arg name="config" type="object" interface="river_libinput_accel_config_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
+      <arg name="config" type="object" interface="aqueous_libinput_accel_config_v1"/>
     </request>
 
     <event name="natural_scroll_support">
@@ -487,7 +487,7 @@
       <description summary="set natural scroll state">
         Set natural scroll state.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="natural_scroll_state"/>
     </request>
 
@@ -521,7 +521,7 @@
       <description summary="set left-handed mode state">
         Set left-handed mode state.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="left_handed_state"/>
     </request>
 
@@ -562,7 +562,7 @@
       <description summary="set click method">
         Set click method.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="method" type="uint" enum="click_method"/>
     </request>
 
@@ -592,7 +592,7 @@
         Set clickfinger button map.
         Supported if click_methods.clickfinger is supported.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="button_map" type="uint" enum="clickfinger_button_map"/>
     </request>
 
@@ -627,7 +627,7 @@
       <description summary="set middle mouse button emulation state">
         Set middle mouse button emulation state.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="middle_emulation_state"/>
     </request>
 
@@ -670,7 +670,7 @@
       <description summary="set scroll method">
         Set scroll method.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="method" type="uint" enum="scroll_method"/>
     </request>
 
@@ -695,7 +695,7 @@
         Set scroll button.
         Supported if scroll_methods.on_button_down is supported.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="button" type="uint"/>
     </request>
 
@@ -725,7 +725,7 @@
         Set scroll button lock state.
         Supported if scroll_methods.on_button_down is supported.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="scroll_button_lock_state"/>
     </request>
 
@@ -760,7 +760,7 @@
       <description summary="set disable-while-typing state">
         Set disable-while-typing state.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="dwt_state"/>
     </request>
 
@@ -795,7 +795,7 @@
       <description summary="set disable-while-trackpointing state">
         Set disable-while-trackpointing state.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="state" type="uint" enum="dwtp_state"/>
     </request>
 
@@ -825,7 +825,7 @@
         Set rotation angle in degrees clockwise off the logical neutral
         position. Angle must be in the range [0-360).
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="angle" type="uint"/>
     </request>
 
@@ -834,13 +834,13 @@
         This event is sent after all information about the libinput device has
         been sent.
 
-        This allows changes to one or more river_libinput_device_v1 properties
+        This allows changes to one or more aqueous_libinput_device_v1 properties
         to be seen as atomic, even if they happen via multiple events.
       </description>
     </event>
   </interface>
 
-  <interface name="river_libinput_accel_config_v1" version="1">
+  <interface name="aqueous_libinput_accel_config_v1" version="1">
     <description summary="acceleration config">
       The result returned by libinput on setting configuration for a device.
     </description>
@@ -868,14 +868,14 @@
         Defines the acceleration function for a given movement type
         in an acceleration configuration with custom accel profile.
       </description>
-      <arg name="result" type="new_id" interface="river_libinput_result_v1"/>
+      <arg name="result" type="new_id" interface="aqueous_libinput_result_v1"/>
       <arg name="type" type="uint" enum="accel_type"/>
       <arg name="step" type="array" summary="double"/>
       <arg name="points" type="array" summary="array of doubles"/>
     </request>
   </interface>
 
-  <interface name="river_libinput_result_v1" version="1">
+  <interface name="aqueous_libinput_result_v1" version="1">
     <description summary="config application result">
       The result returned by libinput on setting configuration for a device.
     </description>

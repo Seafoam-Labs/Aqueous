@@ -85,7 +85,7 @@ pub fn build(b: *Build) !void {
     const external_policy = b.option(
         bool,
         "external-policy",
-        "Enable the legacy river_window_manager_v1 external/compare policy modes. Defaults to false.",
+        "Enable aqueous_window_manager_v1 external/compare policy modes for diagnostics. Defaults to false.",
     ) orelse false;
 
     const options = b.addOptions();
@@ -114,14 +114,14 @@ pub fn build(b: *Build) !void {
     scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
     scanner.addSystemProtocol("unstable/xdg-foreign/xdg-foreign-unstable-v2.xml");
 
-    scanner.addCustomProtocol(b.path("protocol/river-window-management-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-window-management-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-window-info-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-shell-v1.xml"));
-    scanner.addCustomProtocol(b.path("protocol/river-xkb-bindings-v1.xml"));
-    scanner.addCustomProtocol(b.path("protocol/river-layer-shell-v1.xml"));
-    scanner.addCustomProtocol(b.path("protocol/river-input-management-v1.xml"));
-    scanner.addCustomProtocol(b.path("protocol/river-libinput-config-v1.xml"));
-    scanner.addCustomProtocol(b.path("protocol/river-xkb-config-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-xkb-bindings-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-layer-shell-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-input-management-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-libinput-config-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-xkb-config-v1.xml"));
 
     scanner.addCustomProtocol(b.path("protocol/upstream/wlr-layer-shell-unstable-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/upstream/wlr-output-management-unstable-v1.xml"));
@@ -162,14 +162,14 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_manager_v1", 3);
     scanner.generate("wp_color_representation_manager_v1", 1);
 
-    scanner.generate("river_window_manager_v1", 10);
+    scanner.generate("aqueous_window_manager_v1", 10);
     scanner.generate("aqueous_window_info_manager_v1", 7);
     scanner.generate("aqueous_shell_manager_v1", 2);
-    scanner.generate("river_xkb_bindings_v1", 3);
-    scanner.generate("river_layer_shell_v1", 1);
-    scanner.generate("river_input_manager_v1", 2);
-    scanner.generate("river_libinput_config_v1", 2);
-    scanner.generate("river_xkb_config_v1", 2);
+    scanner.generate("aqueous_xkb_bindings_v1", 3);
+    scanner.generate("aqueous_layer_shell_v1", 1);
+    scanner.generate("aqueous_input_manager_v1", 2);
+    scanner.generate("aqueous_libinput_config_v1", 2);
+    scanner.generate("aqueous_xkb_config_v1", 2);
 
     scanner.generate("zwlr_output_power_manager_v1", 1);
     scanner.generate("zwlr_output_manager_v1", 4);
@@ -313,16 +313,16 @@ pub fn build(b: *Build) !void {
         , .{ b.install_prefix, full_version }));
         b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-protocols.pc").step);
         inline for (&.{
-            "river-window-management-v1.xml",
+            "aqueous-window-management-v1.xml",
             "aqueous-window-info-v1.xml",
             "aqueous-shell-v1.xml",
             "aqueous-shell-v1.md",
             "aqueous-shell-v1.schema.json",
-            "river-xkb-bindings-v1.xml",
-            "river-layer-shell-v1.xml",
-            "river-input-management-v1.xml",
-            "river-libinput-config-v1.xml",
-            "river-xkb-config-v1.xml",
+            "aqueous-xkb-bindings-v1.xml",
+            "aqueous-layer-shell-v1.xml",
+            "aqueous-input-management-v1.xml",
+            "aqueous-libinput-config-v1.xml",
+            "aqueous-xkb-config-v1.xml",
         }) |protocol| {
             b.installFile("protocol/" ++ protocol, "share/aqueous-protocols/stable/" ++ protocol);
         }

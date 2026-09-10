@@ -5,7 +5,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 AQUEOUS_COMPOSITOR_BIN=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
 TEST_POLICY=${AQUEOUS_TEST_POLICY:-internal}
 EXIT_FIXTURE_SOURCE="$here/scripts/fixtures/exit-session.c"
-WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/river-window-management-v1.xml"
+WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/aqueous-window-management-v1.xml"
 WORKSPACE_PROTOCOL="$here/protocol/upstream/ext-workspace-v1.xml"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -51,14 +51,14 @@ chmod 700 "$RUNTIME_DIR"
 ln -s "$HOST_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" "$RUNTIME_DIR/aqueous-vulkan-host"
 
 wayland-scanner client-header "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-client-protocol.h"
+    "$TEST_ROOT/aqueous-window-management-v1-client-protocol.h"
 wayland-scanner private-code "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c"
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c"
 wayland-scanner private-code "$WORKSPACE_PROTOCOL" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c"
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$EXIT_FIXTURE_SOURCE" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c" \
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c" \
     -o "$EXIT_FIXTURE" $(pkg-config --cflags --libs wayland-client)
 

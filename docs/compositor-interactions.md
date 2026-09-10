@@ -748,11 +748,11 @@ are freed. Slot-map removal invalidates the stable handle. Policy cleanup has
 already removed minimized-MRU, pending-focus, and drag references, so later
 actions safely ignore the stale handle.
 
-## External compatibility mode
+## External diagnostic mode
 
 Normal builds run only the internal flow described above. With
-`-Dexternal-policy=true`, the legacy `river_window_manager_v1` path can be
-enabled for compatibility and trace comparison. In external mode,
+`-Dexternal-policy=true`, the optional `aqueous_window_manager_v1` path can be
+enabled for diagnostic testing and trace comparison. In external mode,
 `WindowManager` publishes compositor state over that protocol and waits for
 the client to finish manage/render phases. It is not part of the shipped
 single-process session and there is no bundled external policy client.

@@ -14,7 +14,7 @@ EXIT_SOURCE="$here/scripts/fixtures/exit-session.c"
 WM_CONFIG="$here/scripts/fixtures/vulkan-dwindle-blur-wm.toml"
 RULES_CONFIG="$here/scripts/fixtures/vulkan-dwindle-blur-rules.toml"
 LAYER_SHELL_PROTOCOL="$here/protocol/upstream/wlr-layer-shell-unstable-v1.xml"
-WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/river-window-management-v1.xml"
+WINDOW_MANAGEMENT_PROTOCOL="$here/protocol/aqueous-window-management-v1.xml"
 WORKSPACE_PROTOCOL="$here/protocol/upstream/ext-workspace-v1.xml"
 UNCACHED_ORACLE=${AQUEOUS_VULKAN_BLUR_UNCACHED:-0}
 TEST_BACKEND=${AQUEOUS_VULKAN_EFFECTS_BACKEND:-auto}
@@ -141,9 +141,9 @@ wayland-scanner client-header "$LAYER_SHELL_PROTOCOL" \
 wayland-scanner private-code "$LAYER_SHELL_PROTOCOL" \
     "$TEST_ROOT/wlr-layer-shell-unstable-v1-protocol.c"
 wayland-scanner client-header "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-client-protocol.h"
+    "$TEST_ROOT/aqueous-window-management-v1-client-protocol.h"
 wayland-scanner private-code "$WINDOW_MANAGEMENT_PROTOCOL" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c"
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c"
 wayland-scanner private-code "$WORKSPACE_PROTOCOL" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c"
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
@@ -158,7 +158,7 @@ cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     $(pkg-config --cflags --libs wayland-client)
 cc -std=c11 -Wall -Wextra -Werror -O2 -I"$TEST_ROOT" \
     "$EXIT_SOURCE" \
-    "$TEST_ROOT/river-window-management-v1-protocol.c" \
+    "$TEST_ROOT/aqueous-window-management-v1-protocol.c" \
     "$TEST_ROOT/ext-workspace-v1-protocol.c" \
     -o "$EXIT_BIN" \
     $(pkg-config --cflags --libs wayland-client)

@@ -87,6 +87,7 @@ jobs:
           AQUEOUS_WLROOTS_PREFIX="$GITHUB_WORKSPACE/.deps/wlroots-render-hook" \
             compositor/scripts/test-ext-capture-formats.sh
           cd compositor
+          rm -rf -- "$GITHUB_WORKSPACE/publish/aqueous-compositor/share/aqueous-protocols"
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install

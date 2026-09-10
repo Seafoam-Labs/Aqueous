@@ -18,6 +18,7 @@ on:
       - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
+      - 'compositor/scripts/test-aqueous-protocols.py'
   pull_request:
     branches:
       - master
@@ -35,6 +36,7 @@ on:
       - 'compositor/scripts/test-proton-hdr-color-management.sh'
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
+      - 'compositor/scripts/test-aqueous-protocols.py'
   workflow_dispatch:
 
 permissions:
@@ -57,7 +59,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
-            base-devel git curl patch tar nodejs \
+            base-devel git curl patch tar nodejs python \
             wayland wayland-protocols libxkbcommon libinput \
             pixman libdrm libevdev mesa systemd-libs seatd \
             pkgconf ninja meson libdisplay-info libliftoff lcms2 \
@@ -166,3 +168,16 @@ jobs:
               grep -qi 'scenefx'; then
             exit 1
           fi
+
+      - name: Test Aqueous protocol replacement
+        shell: bash
+        run: |
+          cd compositor
+          PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
+            zig build -Dexternal-policy=true -Dvulkan-effects=false \
+              --prefix "$RUNNER_TEMP/aqueous-protocol-test"
+          for policy in internal external compare; do
+            python3 scripts/test-aqueous-protocols.py \
+              --compositor "$RUNNER_TEMP/aqueous-protocol-test/bin/aqueous" \
+              --policy "$policy"
+          done

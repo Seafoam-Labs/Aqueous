@@ -237,10 +237,21 @@ wlroots library for protocol and scene APIs.
 Distribution builds should target a suitably generic CPU rather than
 inheriting the build machine's instruction set.
 
-The normal build contains only Aqueous's integrated policy. The retired
-`river_window_manager_v1` external-policy path is available solely for
-compatibility testing with `-Dexternal-policy=true`; shipped builds disable it
+The normal build contains only Aqueous's integrated policy. The optional
+`aqueous_window_manager_v1` external-policy path is available solely for
+diagnostic testing with `-Dexternal-policy=true`; shipped builds disable it
 and do not include an external policy client.
+
+Aqueous's compositor-specific Wayland protocols use the `aqueous_` namespace.
+The inherited River protocol names have been replaced completely. Clients using
+those interfaces must regenerate bindings from the Aqueous XML definitions
+installed under `share/aqueous-protocols/stable/` and update their interface
+names. No River aliases or fallback interfaces are provided. Standard Wayland
+and upstream extension names are unchanged.
+
+Package builds recreate their generated protocol staging directory. For manual
+in-place installations, use a clean staging prefix: `zig build install` does not
+remove XML files left by an older installation.
 
 ## Run a nested development session
 
