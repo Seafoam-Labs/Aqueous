@@ -579,6 +579,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             placement.stack_order = workspace_stack.rank(placement.handle);
         }
         std.mem.sort(layout_types.Placement, requested.items, {}, stacking.lessThan);
+        try stacking.orderDialogs(util.gpa, output.windows, requested.items);
         for (requested.items) |*placement| {
             placement.output_scale = output.scale;
             placement.output_origin_x = output.area.x;
@@ -2986,6 +2987,9 @@ fn outputFocusCandidateValid(context: OutputFocusContext, handle: layout_types.H
     if (!containsWindow(context.windows, handle)) return false;
     if (!context.aqueous.api.windowOnWorkspace(handle, context.output_id, context.workspace_number)) return false;
     const state = context.aqueous.window_states.get(handle) orelse return false;
+    // Otherwise cycling from a dialog can repeatedly select its blocked
+    // parent and resolve straight back to the same dialog.
+    if (context.aqueous.api.resolveModalHandle(handle) != handle) return false;
     return state.kind() != .minimized and state.focus_allowed and !state.skip_switcher;
 }
 
@@ -3374,14 +3378,14 @@ fn requestFocusRaise(aqueous: *Aqueous, handle: layout_types.Handle) void {
     if (!aqueous.config.wm.input.raise_on_focus) return;
     const delay = aqueous.config.wm.input.raise_on_focus_delay_ms;
     if (delay == 0 or aqueous.raise_focus_timer == null) {
-        aqueous.requested_stack_focus = handle;
+        aqueous.requested_stack_focus = aqueous.api.resolveModalHandle(handle);
         return;
     }
-    aqueous.pending_raise = handle;
+    aqueous.pending_raise = aqueous.api.resolveModalHandle(handle);
     aqueous.raise_focus_timer.?.timerUpdate(@intCast(delay)) catch {
         log.warn("unable to arm delayed focus raise; raising immediately", .{});
         aqueous.pending_raise = null;
-        aqueous.requested_stack_focus = handle;
+        aqueous.requested_stack_focus = aqueous.api.resolveModalHandle(handle);
     };
 }
 

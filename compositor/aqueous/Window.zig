@@ -2821,7 +2821,8 @@ pub fn getParent(window: *const Window) ?*Window {
     switch (window.impl) {
         .toplevel => |toplevel| {
             const wlr_parent = toplevel.wlr_toplevel.parent orelse return null;
-            const parent: *XdgToplevel = @ptrCast(@alignCast(wlr_parent.base.data));
+            const data = wlr_parent.base.data orelse return null;
+            const parent: *XdgToplevel = @ptrCast(@alignCast(data));
             return parent.window;
         },
         .xwayland => |xwindow| {
@@ -2834,6 +2835,67 @@ pub fn getParent(window: *const Window) ?*Window {
         },
         .destroying => return null,
     }
+}
+
+pub fn isDialog(window: *const Window) bool {
+    return window.impl == .toplevel and window.impl.toplevel.dialog.object != null and window.getParent() != null;
+}
+
+fn modalChildEligible(window: *Window, parent: *Window) bool {
+    const workspace = window.workspace orelse return false;
+    const output = workspace.output;
+    return window.isDialog() and window.impl.toplevel.dialog.modal() and
+        window.getParent() == parent and window.state == .mapped and
+        window.workspace == parent.workspace and output.policyWorkspaceActive(workspace) and
+        output.sent.state == .enabled and output.wlr_output != null and
+        window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed and
+        window.policy_state.isVisible() and !window.rendering_requested.hidden and !window.overview_hidden;
+}
+
+const ModalContext = struct {
+    pub fn child(_: ModalContext, handle: u64) ?u64 {
+        const ref: Ref = @bitCast(handle);
+        const parent = ref.get() orelse return null;
+        // The rendering list is ordered bottom to top and includes the latest
+        // committed policy order. Prefer it to slot allocation order.
+        var ordered = server.wm.rendering_requested.list.iterator(.reverse);
+        while (ordered.next()) |node| switch (node.get()) {
+            .window => |window| if (window.modalChildEligible(parent)) return @bitCast(window.ref),
+            .shell_surface => {},
+        };
+        // Newly mapped children may not have entered that list yet.
+        var result: ?u64 = null;
+        var windows = server.wm.windows.iterator();
+        while (windows.next()) |window| {
+            if (window.modalChildEligible(parent)) {
+                const candidate: u64 = @bitCast(window.ref);
+                if (result == null or candidate > result.?) result = candidate;
+            }
+        }
+        return result;
+    }
+};
+
+pub fn resolveModalHandle(handle: u64) u64 {
+    if (!server.aqueous.mode.runsInternal()) return handle;
+    return @import("wm/focus/dialog.zig").resolve(ModalContext{}, handle, server.wm.windows.count);
+}
+
+/// Dialogs share a fullscreen ancestor's scene layer only along live dialog
+/// edges on the same workspace. This must also enter the scene-order hash.
+pub fn inFullscreenLayer(window: *Window) bool {
+    if (window.wm_requested.fullscreen != null) return true;
+    if (!server.aqueous.mode.runsInternal()) return false;
+    var current = window;
+    for (0..server.wm.windows.count) |_| {
+        if (!current.isDialog()) return false;
+        const parent = current.getParent() orelse return false;
+        if (parent.workspace != window.workspace or parent.state != .mapped or
+            !parent.policy_state.isVisible() or parent.rendering_requested.hidden) return false;
+        if (parent.wm_requested.fullscreen != null) return true;
+        current = parent;
+    }
+    return false;
 }
 
 pub fn unreliablePid(window: *Window) i32 {

@@ -11,6 +11,7 @@
 #include <wlr/types/wlr_output_layer.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_fifo_v1.h>
+#include <wlr/types/wlr_xdg_dialog_v1.h>
 
 #if !defined(WLR_AQUEOUS_FIFO_VERSION) || WLR_AQUEOUS_FIFO_VERSION != 1
 #error "Aqueous requires the pinned wlroots FIFO API"

@@ -26,6 +26,7 @@ window: *Window,
 wlr_toplevel: *wlr.XdgToplevel,
 
 decoration: ?XdgDecoration = null,
+dialog: @import("XdgDialogManager.zig").Dialog = .{},
 
 /// A zxdg_toplevel_decoration_v1 request must receive a configure even when
 /// policy keeps the same effective mode. This is also set for a newly-created
@@ -95,6 +96,7 @@ pub fn create(wlr_toplevel: *wlr.XdgToplevel) error{OutOfMemory}!void {
     toplevel.window = window;
 
     wlr_toplevel.base.data = toplevel;
+    toplevel.dialog.discover(wlr_toplevel);
     wlr_toplevel.base.surface.data = &window.tree.node;
 
     wlr_toplevel.events.destroy.add(&toplevel.destroy);
@@ -271,6 +273,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
         decoration.deinit();
     }
     assert(toplevel.decoration == null);
+    toplevel.dialog.deinit();
 
     toplevel.destroy.link.remove();
     toplevel.ack_configure.link.remove();
@@ -290,6 +293,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
 
     // The wlr_surface may outlive the wlr_xdg_toplevel so we must clean up the user data.
     toplevel.wlr_toplevel.base.surface.data = null;
+    toplevel.wlr_toplevel.base.data = null;
 
     const window = toplevel.window;
     switch (window.state) {

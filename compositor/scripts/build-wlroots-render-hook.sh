@@ -150,6 +150,8 @@ for symbol in \
     wlr_xdg_toplevel_set_constrained \
     wlr_aqueous_capture_color_manager_v1_create \
     wlr_fifo_manager_v1_create \
+    wlr_xdg_wm_dialog_v1_create \
+    wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel \
     wlr_fifo_manager_v1_get_global \
     wlr_fifo_manager_v1_output_pending \
     wlr_fifo_manager_v1_prepare \

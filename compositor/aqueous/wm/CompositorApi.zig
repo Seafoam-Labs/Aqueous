@@ -251,6 +251,10 @@ pub fn requestFocus(api: CompositorApi, handle: layout.Handle) void {
     api.requestFocusOnSeat(handle, null);
 }
 
+pub fn resolveModalHandle(_: CompositorApi, handle: layout.Handle) layout.Handle {
+    return Window.resolveModalHandle(handle);
+}
+
 pub const FocusCause = enum { non_pointer, pointer };
 
 pub fn requestFocusOnSeat(api: CompositorApi, handle: layout.Handle, name: ?[]const u8) void {
@@ -505,6 +509,7 @@ pub fn directionalNeighbor(_: CompositorApi, handle: layout.Handle, dx: i32, dy:
     var windows = server.wm.windows.iterator();
     while (windows.next()) |candidate| {
         if (candidate == origin or candidate.workspace != workspace or candidate.state == .closing or candidate.state == .init) continue;
+        if (Window.resolveModalHandle(@bitCast(candidate.ref)) == handle) continue;
         const cx = candidate.box.x + @divTrunc(candidate.box.width, 2);
         const cy = candidate.box.y + @divTrunc(candidate.box.height, 2);
         const delta_x = cx - ox;
@@ -759,6 +764,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
             windows.appendAssumeCapacity(.{
                 .handle = window_snapshot.handle,
                 .parent = window_snapshot.parent_handle,
+                .dialog = window.isDialog(),
                 .app_id = app_id,
                 .title = title,
                 .content_type = window_snapshot.content_type,

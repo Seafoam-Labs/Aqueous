@@ -189,8 +189,10 @@ pub fn cancelFocusWarp(seat: *Seat) void {
 
 pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
     seat.cancelFocusWarp();
-    const ref: Window.Ref = @bitCast(handle);
+    seat.modal_focus_origin = null;
+    const ref: Window.Ref = @bitCast(Window.resolveModalHandle(handle));
     if (ref.get()) |window| {
+        seat.modal_focus_origin = .{ .requested = @bitCast(handle), .resolved = ref };
         if (window.workspace) |workspace| seat.selected_output = workspace.output;
         seat.wm_requested.focus = .{ .window = ref };
     }
@@ -198,6 +200,7 @@ pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
 
 pub fn policyClearFocus(seat: *Seat) void {
     seat.cancelFocusWarp();
+    seat.modal_focus_origin = null;
     seat.wm_requested.focus = .clear;
 }
 
@@ -270,6 +273,9 @@ wm_requested: struct {
 
 /// Resolved after scene geometry and stacking have committed.
 focus_warp: ?Window.Ref = null,
+/// Retain the authorized target while a modal redirect waits for a manage
+/// transaction, so destruction/unset can fall back to the original parent.
+modal_focus_origin: ?struct { requested: Window.Ref, resolved: Window.Ref } = null,
 output_warp: ?PointerWarp = null,
 
 xkb_bindings: wl.list.Head(XkbBinding, .link),
@@ -820,6 +826,7 @@ fn handleRequest(
 }
 
 pub fn manageFinish(seat: *Seat) void {
+    defer seat.modal_focus_origin = null;
     seat.xkb_bindings_seat.manageFinish();
 
     if (server.lock_manager.state != .unlocked) {
@@ -828,6 +835,34 @@ pub fn manageFinish(seat: *Seat) void {
         return;
     }
     const previous_focus = seat.policyFocusedHandle();
+    // Revalidate deferred requests, and react to immediate dialog hints only
+    // within the currently focused group. Non-window focus/grabs retain control.
+    if (server.aqueous.mode.runsInternal() and seat.layer_shell.sent.focus == .none and
+        seat.wlr_seat.keyboard_state.grab == seat.wlr_seat.keyboard_state.default_grab)
+    {
+        const target: ?Window.Ref = switch (seat.wm_requested.focus) {
+            .window => |ref| blk: {
+                if (seat.modal_focus_origin) |origin| {
+                    if (@as(u64, @bitCast(ref)) == @as(u64, @bitCast(origin.resolved))) {
+                        if (origin.requested.get()) |window| {
+                            if (window.state == .mapped) break :blk origin.requested;
+                        }
+                    }
+                }
+                break :blk ref;
+            },
+            .none => if (seat.focused == .window) seat.focused.window.ref else null,
+            else => null,
+        };
+        if (target) |ref| {
+            const resolved: Window.Ref = @bitCast(Window.resolveModalHandle(@bitCast(ref)));
+            if (seat.wm_requested.focus == .window or
+                @as(u64, @bitCast(resolved)) != @as(u64, @bitCast(ref)))
+            {
+                seat.wm_requested.focus = .{ .window = resolved };
+            }
+        }
+    }
     const requested_focus = seat.wm_requested.focus;
     const follow_focus = seat.wm_requested.follow_focus;
     seat.wm_requested.follow_focus = false;

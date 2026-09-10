@@ -57,6 +57,113 @@ fn findWindow(windows: []const types.Window, handle: types.Handle) ?types.Window
     return null;
 }
 
+fn dialogParent(windows: []const types.Window, placements: []const types.Placement, handle: types.Handle) ?types.Handle {
+    const window = findWindow(windows, handle) orelse return null;
+    if (!window.dialog) return null;
+    const parent = window.parent orelse return null;
+    if (parent == handle) return null;
+    for (placements) |placement| {
+        if (placement.handle == parent and placement.visible) return parent;
+    }
+    return null;
+}
+
+fn fullscreenDialogParent(windows: []const types.Window, placements: []const types.Placement, handle: types.Handle) ?types.Handle {
+    const parent = dialogParent(windows, placements, handle) orelse return null;
+    var current = parent;
+    for (0..windows.len) |_| {
+        const ancestor = findWindow(windows, current) orelse return null;
+        if (ancestor.fullscreen) return parent;
+        current = dialogParent(windows, placements, current) orelse return null;
+    }
+    return null;
+}
+
+/// Keep fullscreen dialog groups contiguous at their root's stacking position.
+/// Ordinary dialogs retain existing transient bands and raise-on-focus rules;
+/// grouping those at a tiled parent's rank would bury them under floating peers.
+/// This prevents a dialog from jumping above unrelated fullscreen groups.
+/// Iterate breadth-first without recursion; malformed cycles retain their
+/// original order and cannot exhaust the compositor's stack.
+pub fn orderDialogs(allocator: std.mem.Allocator, windows: []const types.Window, placements: []types.Placement) !void {
+    const has_dialog = for (windows) |window| {
+        if (window.dialog) break true;
+    } else false;
+    if (!has_dialog) return;
+    var ordered: std.ArrayListUnmanaged(types.Placement) = .empty;
+    defer ordered.deinit(allocator);
+    try ordered.ensureTotalCapacity(allocator, placements.len);
+    for (placements) |root| {
+        if (fullscreenDialogParent(windows, placements, root.handle) != null) continue;
+        var next = ordered.items.len;
+        ordered.appendAssumeCapacity(root);
+        while (next < ordered.items.len) : (next += 1) {
+            const parent = ordered.items[next].handle;
+            for (placements) |child| {
+                if (fullscreenDialogParent(windows, placements, child.handle) == parent) {
+                    ordered.appendAssumeCapacity(child);
+                }
+            }
+        }
+    }
+    // A cycle has no root. Each node has at most one parent, so it cannot also
+    // have been reached from a valid root above.
+    for (placements) |placement| {
+        var found = false;
+        for (ordered.items) |item| if (item.handle == placement.handle) {
+            found = true;
+            break;
+        };
+        if (!found) ordered.appendAssumeCapacity(placement);
+    }
+    @memcpy(placements, ordered.items);
+}
+
+test "dialogs stay above their own fullscreen group without overtaking another" {
+    const windows = [_]types.Window{
+        .{ .handle = 1, .fullscreen = true },
+        .{ .handle = 2, .parent = 1, .dialog = true },
+        .{ .handle = 3, .parent = 2, .dialog = true },
+        .{ .handle = 4, .fullscreen = true },
+    };
+    var placements = [_]types.Placement{
+        .{ .handle = 2, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 3, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 1, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 4, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+    };
+    try orderDialogs(std.testing.allocator, &windows, &placements);
+    for (placements, [_]types.Handle{ 1, 2, 3, 4 }) |p, expected| try std.testing.expectEqual(expected, p.handle);
+}
+
+test "dialog stacking tolerates cycles and missing parents" {
+    const windows = [_]types.Window{
+        .{ .handle = 1, .parent = 2, .dialog = true },
+        .{ .handle = 2, .parent = 1, .dialog = true },
+        .{ .handle = 3, .parent = 99, .dialog = true },
+    };
+    var placements = [_]types.Placement{
+        .{ .handle = 1, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 2, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 3, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+    };
+    try orderDialogs(std.testing.allocator, &windows, &placements);
+    for (placements, [_]types.Handle{ 1, 2, 3 }) |p, expected| try std.testing.expectEqual(expected, p.handle);
+}
+
+test "ordinary dialogs retain transient stacking over unrelated floating windows" {
+    const windows = [_]types.Window{
+        .{ .handle = 1 }, .{ .handle = 2, .parent = 1, .dialog = true }, .{ .handle = 3 },
+    };
+    var placements = [_]types.Placement{
+        .{ .handle = 1, .geometry = .empty, .z_order = 0, .visible = true, .border = .none },
+        .{ .handle = 3, .geometry = .empty, .z_order = floating_band, .visible = true, .border = .none },
+        .{ .handle = 2, .geometry = .empty, .z_order = transient_band, .visible = true, .border = .none },
+    };
+    try orderDialogs(std.testing.allocator, &windows, &placements);
+    for (placements, [_]types.Handle{ 1, 3, 2 }) |p, expected| try std.testing.expectEqual(expected, p.handle);
+}
+
 test "semantic bands sort tiled, maximized, floating, transient, and fullscreen" {
     var placements = [_]types.Placement{
         .{ .handle = 5, .geometry = .empty, .z_order = fullscreen_band, .visible = true, .border = .none },

@@ -37,6 +37,7 @@ pub const Window = struct {
     /// The policy uses this relationship to keep dialogs and file pickers out
     /// of the tiling set.
     parent: ?Handle = null,
+    dialog: bool = false,
     app_id: ?[]u8 = null,
     title: ?[]u8 = null,
     content_type: wp.ContentTypeV1.Type = .none,

@@ -36,6 +36,21 @@ capture, locking, output power, layout edges, and configure sequencing. See the
 [implementation record](../docs/xdg-shell-v6-v7-implementation-plan.md) for policy
 details and validation limits.
 
+xdg-dialog-v1 is available in both builds, including for security-context
+clients. Integrated policy follows modal hints when focusing a parent, preserves
+transient natural-size placement, and keeps dialogs above fullscreen parents.
+Clients still filter input to their own modal parents. External policy exposes
+the protocol but keeps its window manager's focus and placement decisions;
+modal metadata is not exported through the legacy external-policy protocol.
+
+Run `python3 scripts/test-xdg-dialog.py --renderer vulkan` with the effects
+build, or `--renderer pixman` with the diagnostic build. The private-session
+fixture requires a C compiler, `wayland-scanner`, `grim`, Python Pillow, and
+Wayland/xkbcommon development libraries. It checks lifecycle/error behavior,
+sandboxed clients, immediate hints, nested dialogs, focus cycling, two seats,
+locking, exclusive layers, remapping, and fullscreen pixels/hit testing. See the
+[implementation record](../docs/xdg-dialog-v1-implementation-plan.md).
+
 Build the pinned dependency before the default build:
 
 ```sh

@@ -37,7 +37,6 @@ qualification remain outstanding; see the
 
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
-| xdg-dialog-v1 | `xdg_wm_dialog_v1` | Present: `wlr_xdg_wm_dialog_v1_create`. | Explicit dialog/modal hints relative to an xdg parent. Integrate placement, stacking, and focus policy, including hint changes and destruction. Clients remain responsible for filtering parent input for modal dialogs. |
 | xdg-toplevel-icon-v1 | `xdg_toplevel_icon_manager_v1` | Present: `wlr_xdg_toplevel_icon_manager_v1_create`. | Per-window named or pixel-buffer icons for overviews, switchers, and taskbars. Retain icon state and provide a path for the compositor UI/DMS to consume it; creating the global alone does not display icons. |
 | commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
 | xdg-toplevel-drag-v1 | `xdg_toplevel_drag_manager_v1` | No implementation found. | Move a real toplevel during drag-and-drop, enabling tab detachment and reattachment. Integrate mapping, movement, drop/cancellation, and window lifetime with the existing drag path. |
@@ -118,7 +117,7 @@ xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), security-context-v1, wayland-fixes,
-content-type-v1, fifo-v1.
+content-type-v1, fifo-v1, xdg-dialog-v1.
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
 each client's bound version. Suspension follows workspace/output visibility,
@@ -126,6 +125,13 @@ locking, and active capture demand; visible previews and outstanding resize
 buffers conservatively keep clients active. Edge hints follow client-initiated
 resize eligibility, independently of modifier-driven resizing. See the
 [implementation and validation record](xdg-shell-v6-v7-implementation-plan.md).
+
+xdg-dialog-v1 (global `xdg_wm_dialog_v1`, v1) supports immediate dialog/modal
+hints, lifecycle cleanup, and sandboxed clients. Integrated policy redirects
+parent focus to eligible modal descendants and keeps dialogs above fullscreen
+parents, while reusing ordinary transient placement. External policy receives
+the global but retains its own focus/placement authority. See the
+[implementation and validation record](xdg-dialog-v1-implementation-plan.md).
 
 **wayland-protocols ext/staging:** ext-idle-notify-v1, ext-session-lock-v1,
 ext-image-copy-capture-v1, ext-output-image-capture-source-v1,
@@ -156,7 +162,6 @@ advertising protocol globals. Recommended order for general desktop use:
 
 | Priority | Work | Estimated scope |
 |---|---|---|
-| High | **xdg-dialog-v1** | Small–medium: the dependency implements the protocol; integrate dialog/modal policy. |
 | Medium | **xdg-toplevel-icon-v1** | Medium: icon lifetime, rendering, and shell/DMS consumption. |
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
 | Medium | **xdg-toplevel-drag-v1** | Medium–large: coordinate drag-and-drop with window movement and lifetime. |

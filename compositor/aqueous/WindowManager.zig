@@ -624,7 +624,7 @@ fn renderFinish(wm: *WindowManager) void {
             switch (node.get()) {
                 .window => |window| {
                     hash.update(@ptrCast(&window.ref));
-                    hash.update(&.{@intFromBool(window.wm_requested.fullscreen != null)});
+                    hash.update(&.{@intFromBool(window.inFullscreenLayer())});
                 },
                 .shell_surface => |shell_surface| {
                     hash.update(@ptrCast(&shell_surface));
@@ -647,7 +647,7 @@ fn renderFinish(wm: *WindowManager) void {
                 .window => |window| {
                     window.renderFinish();
                     if (!reorder) continue;
-                    if (window.wm_requested.fullscreen != null) {
+                    if (window.inFullscreenLayer()) {
                         window.tree.node.reparent(server.scene.layers.fullscreen);
                         window.tree.node.raiseToTop();
                         found_fullscreen = true;

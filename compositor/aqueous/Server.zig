@@ -27,6 +27,7 @@ const InputManager = @import("InputManager.zig");
 const LockManager = @import("LockManager.zig");
 const LegacyServerDecoration = @import("LegacyServerDecoration.zig");
 const FifoManager = @import("FifoManager.zig");
+const XdgDialogManager = @import("XdgDialogManager.zig");
 const Output = @import("Output.zig");
 const OutputManager = @import("OutputManager.zig");
 const Overview = @import("Overview.zig");
@@ -167,6 +168,7 @@ toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceM
 
 content_type_manager: *wlr.ContentTypeManagerV1,
 fifo: FifoManager,
+xdg_dialog: XdgDialogManager,
 
 /// Count render-capable GPUs by probing the conventional render-node range.
 /// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
@@ -457,6 +459,7 @@ pub fn init(
 
         .content_type_manager = try wlr.ContentTypeManagerV1.create(wl_server, 1),
         .fifo = try FifoManager.init(wl_server),
+        .xdg_dialog = try XdgDialogManager.init(wl_server),
 
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
@@ -576,6 +579,7 @@ pub fn init(
 
     server.renderer.events.lost.add(&server.renderer_lost);
     server.xdg_shell.events.new_toplevel.add(&server.new_xdg_toplevel);
+    server.xdg_dialog.listen();
     server.xdg_decoration_manager.events.new_toplevel_decoration.add(&server.new_toplevel_decoration);
     server.xdg_activation.events.request_activate.add(&server.request_activate);
     server.cursor_shape_manager.events.request_set_shape.add(&server.request_set_cursor_shape);
@@ -592,6 +596,7 @@ pub fn deinit(server: *Server) void {
 
     server.renderer_lost.link.remove();
     server.new_xdg_toplevel.link.remove();
+    server.xdg_dialog.deinit();
     server.new_toplevel_decoration.link.remove();
     server.request_activate.link.remove();
     server.request_set_cursor_shape.link.remove();
@@ -759,6 +764,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.subcompositor.global or
         global == server.cursor_shape_manager.global or
         global == server.xdg_shell.global or
+        global == server.xdg_dialog.global() or
         global == server.xdg_decoration_manager.global or
         global == server.legacy_server_decoration.global() or
         global == server.xdg_activation.global or
