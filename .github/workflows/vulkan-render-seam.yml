@@ -174,7 +174,7 @@ jobs:
         run: |
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
-            zig build -Dexternal-policy=true -Dvulkan-effects=false \
+            zig build -Dexternal-policy=true -Dvulkan-effects=false -Dllvm=true \
               --prefix "$RUNNER_TEMP/aqueous-protocol-test"
           for policy in internal external compare; do
             python3 scripts/test-aqueous-protocols.py \
