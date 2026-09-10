@@ -22,7 +22,7 @@ The Git packages (including Intel and `PKGBUILD-DMS`) use the
 `dms-shell` package and the DMS chooser. The backend configuration selects the
 shell's source picker. Noctalia packages
 install `noctalia.conf`, which calls `noctalia dmenu`. DMS packages target **DMS
-1.7 or newer** and install `dms.conf`, a small Zig bridge, and the independent
+1.6.1 or newer** and install `dms.conf`, a small Zig bridge, and the independent
 `aqueousPortal` DMS daemon plugin. No additional launcher is required. Both
 configurations use `chooser_type=dmenu`, so combined monitor/window requests
 are handled without the upstream default chooser skipping `slurp` and searching
@@ -102,9 +102,8 @@ installation, backend config precedence, and DMS component test pass. The DMS
 component test passes both v1.6.0 and prospective 1.7 upstream master commit
 `59a03f450dbf5ae5dd8aa2cd301b89d9293c68a3`, with its pinned
 `dank-qml-common` commit `26396ce432d6c71c3f5367438f96f4a8d667e160`.
-Upstream has not published a DMS 1.7 tag, so final verification against the
-released 1.7 build and real recorder/browser stream startup remain release
-checks. Keep the 1.7 requirement rather than treating master as a release.
+Final verification against DMS 1.6.1 and real recorder/browser stream startup
+remain release checks.
 
 The pinned tarball SHA-256 is
 `3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400`.

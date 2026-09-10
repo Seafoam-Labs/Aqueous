@@ -8,6 +8,6 @@
   "capabilities": ["daemon"],
   "component": "./PortalDaemon.qml",
   "icon": "screen_share",
-  "requires_dms": ">=1.7.0",
+  "requires_dms": ">=1.6.1",
   "permissions": ["settings_read"]
 }

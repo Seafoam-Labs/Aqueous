@@ -7,5 +7,5 @@
   "component": "./Daemon.qml",
   "capabilities": ["daemon"],
   "permissions": ["settings_read", "settings_write"],
-  "requires_dms": ">=1.7.0"
+  "requires_dms": ">=1.6.1"
 }

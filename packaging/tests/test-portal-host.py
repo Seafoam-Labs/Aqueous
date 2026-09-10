@@ -2,7 +2,7 @@
 """Real Quickshell socket/UI test using DMS QML, without a desktop session.
 
 DMS_SOURCE selects the host checkout. Reports its revision; callers must not
-claim DMS 1.7 compatibility from a run against an older checkout.
+claim compatibility with a DMS release from a run against an older checkout.
 """
 import os
 from pathlib import Path

@@ -29,7 +29,7 @@ if stage:
         runtime = 'usr/share/aqueous/dms-plugins/aqueousPortal'
         manifest = json.loads((stage / runtime / 'plugin.json').read_text())
         assert manifest['id'] == 'aqueousPortal' and manifest['type'] == 'daemon'
-        assert manifest['requires_dms'] == '>=1.7.0'
+        assert manifest['requires_dms'] == '>=1.6.1'
         assert (stage / runtime / manifest['component']).is_file()
         assert (stage / 'usr/lib/aqueous/aqueous-dms-portal-chooser').stat().st_mode & 0o111
         link = stage / 'etc/xdg/quickshell/dms-plugins/aqueousPortal'
