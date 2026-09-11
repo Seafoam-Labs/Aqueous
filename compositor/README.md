@@ -366,7 +366,13 @@ to subsurfaces, and keep all VSCodium/Shelly opt-ins confined to its fixture.
 The XWayland harnesses additionally require a build with `-Dxwayland`,
 XWayland, a C compiler, `wayland-scanner`, and X11/Wayland/xkbcommon development
 files. The input harness verifies active keyboard grabs and pointer confinement
-for real X11 clients under the headless backend. The floating harness sends
+for real X11 clients under the headless backend, both at 1× and across mixed
+1×/1.5× outputs. Set `AQUEOUS_XWAYLAND_SCALING=native` to exercise native X11
+projection. The output-focus harness also checks locking and confinement on
+static Wayland surfaces without an additional surface commit, including motion
+against window edges. These grabs require the patched wlroots initial-region
+fix; rebuild the dependency and restart Aqueous when updating from an older
+library. The floating harness sends
 real `_NET_WM_MOVERESIZE` requests and verifies titlebar-style move and resize
 for persistent floats and workspace-floating windows without a compositor
 modifier, while tiled-policy windows reject the same requests.

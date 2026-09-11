@@ -165,7 +165,7 @@ move_to_output_right = "Super+Ctrl+Alt+Right"
             outputs = sorted(wait_for(lambda: records('output') if len(records('output')) == 2 else None), key=lambda o: o['name'])
             # Negative origins, gaps, fractional scaling and a rotated output.
             request('set', changes=[
-                dict(name=outputs[0]['name'], scale=1.25, transform='normal', position=[-1200, -100]),
+                dict(name=outputs[0]['name'], scale=1 if follows_mouse else 1.25, transform='normal', position=[-1200, -100]),
                 dict(name=outputs[1]['name'], scale=1.5, transform='90', position=[200, 50]),
             ])
             left, right = sorted(records('output'), key=lambda o: o['bounds']['x'])
@@ -193,8 +193,24 @@ move_to_output_right = "Super+Ctrl+Alt+Right"
             wait_for(lambda: records('window')[0]['output'] == right['id'])
 
             for kind in ('lock', 'confine'):
-                send(first, 'pointer-' + kind)
+                # A NULL region uses the current surface input region immediately;
+                # a static app must not need another surface commit to activate.
+                time.sleep(.15)
+                send(first, 'pointer-' + kind + '-no-commit')
                 expect(first_messages, 'pointer ' + ('locked' if kind == 'lock' else 'confined'))
+                # Exercise the grab through motion, including each window edge,
+                # rather than only checking its activation and policy release.
+                time.sleep(.1)
+                origin = request('cursor_state')
+                for dx, dy in ((2000, 0), (0, 2000), (-2000, 0), (0, -2000), (20, 20)):
+                    subprocess.run(['wlrctl', 'pointer', 'move', str(dx), str(dy)],
+                                   env=env, check=True, timeout=5)
+                    time.sleep(.1)
+                    current = request('cursor_state')
+                    if kind == 'lock':
+                        assert (current['x'], current['y']) == (origin['x'], origin['y']), current
+                    assert inside(records('window')[0]), (kind, current, records('window')[0])
+                    assert records('seat')[0]['window'] == first_window['id']
                 navigate('left', left)
                 expect(first_messages, 'pointer ' + ('unlocked' if kind == 'lock' else 'unconfined'))
                 assert records('seat')[0]['window'] is None

@@ -275,17 +275,19 @@ int main(int argc, char **argv) {
                 zwp_virtual_keyboard_v1_key(virtual_keyboard, 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
                 zwp_virtual_keyboard_v1_key(virtual_keyboard, 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
-            } else if (!strcmp(command, "pointer-lock\n")) {
+            } else if (!strcmp(command, "pointer-lock\n") || !strcmp(command, "pointer-lock-no-commit\n")) {
                 assert(window && pointer && constraints && !pointer_lock);
                 pointer_lock = zwp_pointer_constraints_v1_lock_pointer(constraints, window, pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
                 zwp_locked_pointer_v1_add_listener(pointer_lock, &pointer_lock_listener, NULL);
-                zwp_locked_pointer_v1_set_cursor_position_hint(pointer_lock, wl_fixed_from_int(10), wl_fixed_from_int(10));
-                wl_surface_commit(window);
-            } else if (!strcmp(command, "pointer-confine\n")) {
+                if (!strcmp(command, "pointer-lock\n")) {
+                    zwp_locked_pointer_v1_set_cursor_position_hint(pointer_lock, wl_fixed_from_int(10), wl_fixed_from_int(10));
+                    wl_surface_commit(window);
+                }
+            } else if (!strcmp(command, "pointer-confine\n") || !strcmp(command, "pointer-confine-no-commit\n")) {
                 assert(window && pointer && constraints && !pointer_confine);
                 pointer_confine = zwp_pointer_constraints_v1_confine_pointer(constraints, window, pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
                 zwp_confined_pointer_v1_add_listener(pointer_confine, &pointer_confine_listener, NULL);
-                wl_surface_commit(window);
+                if (!strcmp(command, "pointer-confine\n")) wl_surface_commit(window);
             } else if (!strcmp(command, "pointer-release\n")) {
                 if (pointer_lock) { zwp_locked_pointer_v1_destroy(pointer_lock); pointer_lock = NULL; }
                 if (pointer_confine) { zwp_confined_pointer_v1_destroy(pointer_confine); pointer_confine = NULL; }

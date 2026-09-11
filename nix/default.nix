@@ -118,6 +118,7 @@ let
       "${src}/compositor/patches/wlroots/0015-ext-capture-formats-and-color.patch"
       "${src}/compositor/patches/wlroots/0016-toplevel-icon-lifetime.patch"
       "${src}/compositor/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
+      "${src}/compositor/patches/wlroots/0018-pointer-constraint-initial-region.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

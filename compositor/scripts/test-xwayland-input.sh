@@ -81,17 +81,34 @@ wait_for_text() {
 }
 
 run_case() {
-    local mode=$1
-    local runtime="$TEST_ROOT/$mode-runtime"
+    local mode=$1 scale=$2
+    local runtime="$TEST_ROOT/$mode-$scale-runtime"
     local socket="" n=0
     mkdir -p "$runtime/config" "$runtime/home"
     chmod 700 "$runtime"
-    COMPOSITOR_LOG="$TEST_ROOT/$mode-compositor.log"
-    CLIENT_LOG="$TEST_ROOT/$mode-client.log"
+    COMPOSITOR_LOG="$TEST_ROOT/$mode-$scale-compositor.log"
+    CLIENT_LOG="$TEST_ROOT/$mode-$scale-client.log"
+    local output_count=1
+    local outputs_config="$runtime/outputs.toml"
+    : >"$outputs_config"
+    if [ "$scale" != 1 ]; then
+        output_count=2
+        cat >"$outputs_config" <<EOF
+[[output]]
+name = "HEADLESS-1"
+position = [0, 0]
+scale = $scale
+[[output]]
+name = "HEADLESS-2"
+position = [853, 0]
+scale = 1.0
+EOF
+    fi
 
     WLR_BACKENDS=headless \
-    WLR_HEADLESS_OUTPUTS=1 \
+    WLR_HEADLESS_OUTPUTS="$output_count" \
     WLR_RENDERER=pixman \
+    AQUEOUS_OUTPUTS="$outputs_config" \
     XDG_RUNTIME_DIR="$runtime" \
     XDG_CONFIG_HOME="$runtime/config" \
     HOME="$runtime/home" \
@@ -143,9 +160,8 @@ run_case() {
     # callback. A post-map motion establishes pointer focus in that ordering.
     wlrctl pointer move 1 1
     wait_for_text "$COMPOSITOR_LOG" "honoring Xwayland keyboard grab" "$mode Wayland keyboard grab"
-    if [ "$mode" = managed ]; then
-        wait_for_text "$COMPOSITOR_LOG" "activating pointer constraint" "$mode pointer constraint"
-    else
+    wait_for_text "$COMPOSITOR_LOG" "activating pointer constraint" "$mode pointer constraint (scale=$scale)"
+    if [ "$mode" = override ]; then
         wait_for_text "$COMPOSITOR_LOG" "Xwayland grab-focus override-redirect" \
             "$mode grab-focus synchronization"
     fi
@@ -158,14 +174,16 @@ run_case() {
     kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor crashed after the $mode grab"
     cleanup_session
     if [ "$mode" = managed ]; then
-        echo "PASS: managed X11 keyboard and confined-pointer grabs"
+        echo "PASS: managed X11 keyboard and confined-pointer grabs (scale=$scale)"
     else
-        echo "PASS: override-redirect X11 keyboard grab and grab-focus"
+        echo "PASS: override-redirect X11 pointer/keyboard grabs and grab-focus (scale=$scale)"
     fi
 }
 
-run_case managed
-run_case override
+run_case managed 1
+run_case override 1
+run_case managed 1.5
+run_case override 1.5
 if [ "$RENDER_ONLY" = 1 ]; then
     echo "ALL XWAYLAND RENDER CHECKS PASSED"
 else

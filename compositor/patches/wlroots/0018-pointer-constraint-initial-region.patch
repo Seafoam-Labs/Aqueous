@@ -1,0 +1,20 @@
+pointer-constraints: initialize the effective region for NULL regions
+
+A NULL region means the surface input region, including when the constraint
+is first created. Initialize it before new_constraint so a grab on a static
+surface can activate without waiting for another wl_surface.commit. Xwayland
+can otherwise switch between confinement and locking without either taking
+effect, allowing the pointer to escape to another output.
+
+--- a/types/wlr_pointer_constraints_v1.c
++++ b/types/wlr_pointer_constraints_v1.c
+@@ -268,8 +268,8 @@
+ 	if (region_resource) {
+ 		pixman_region32_copy(&constraint->current.region,
+ 			wlr_region_from_resource(region_resource));
+-		update_region(constraint);
+ 	}
++	update_region(constraint);
+ 
+ 	constraint->surface_destroy.notify = handle_surface_destroy;
+ 	wl_signal_add(&surface->events.destroy, &constraint->surface_destroy);
