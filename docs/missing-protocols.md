@@ -11,6 +11,9 @@ registries. Verified against protocol manager creation in
 wlroots 0.20.2 headers. This is a source audit, not a runtime registry probe;
 some globals depend on build options or hardware. Dependency support below
 refers to this pinned wlroots, not an assertion about upstream development.
+The staging inventory was rechecked September 10, 2026 against
+[Wayland Explorer](https://wayland.app/protocols/) and compositor manager
+initialization; its current classification is used below.
 
 ## Supported compatibility protocols
 
@@ -56,14 +59,19 @@ for behavior and remaining physical-display qualification.
 
 ### wayland-protocols staging
 
+All five missing staging protocols listed by Wayland Explorer are below.
+The remaining staging protocol families are implemented, with runtime
+availability subject to build, renderer, hardware, and client-policy conditions.
+This inventory tracks protocol presence, not conformance to every interface
+version or request.
+
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
-| commit-timing-v1 | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
-| xdg-toplevel-tag-v1 | `xdg_toplevel_tag_manager_v1` | No implementation found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Add tag/description storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
-| drm-lease-v1 | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
-| pointer-warp-v1 | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
-| xdg-session-management-v1 | `xdg_session_manager_v1` | No implementation found. | Restore participating applications' toplevel state across application/compositor restarts. Needs session identity, persistent state, restoration policy, and lifecycle handling. Does not itself relaunch applications or restore their document contents. |
-| ext-transient-seat-v1 | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
+| [commit-timing-v1](https://wayland.app/protocols/commit-timing-v1) | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
+| [xdg-toplevel-tag-v1](https://wayland.app/protocols/xdg-toplevel-tag-v1) | `xdg_toplevel_tag_manager_v1` | API present: `wlr_xdg_toplevel_tag_v1.h`; no Aqueous manager initialization found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Wire the manager's tag/description events into per-window storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
+| [drm-lease-v1](https://wayland.app/protocols/drm-lease-v1) | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
+| [pointer-warp-v1](https://wayland.app/protocols/pointer-warp-v1) | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
+| [ext-transient-seat-v1](https://wayland.app/protocols/ext-transient-seat-v1) | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
 
 Protocol definitions are under `staging/<protocol>/<protocol>-v1.xml` in
 [wayland-protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tree/main/staging);
@@ -71,6 +79,17 @@ xdg-shell is under `stable/xdg-shell/xdg-shell.xml`. The installed XMLs under
 `/usr/share/wayland-protocols` were used to verify interface names and semantics.
 The dependency headers are under
 `compositor/.deps/wlroots-render-hook/include/wlroots-0.20/wlr/types/`.
+
+### wayland-protocols experimental (session-management correction)
+
+Session management was previously listed above as staging
+`xdg-session-management-v1`. Wayland Explorer currently lists it as experimental
+`xx-session-management-v1`; it is excluded from the five staging gaps. This
+section preserves that entry and is not a complete experimental inventory.
+
+| Protocol | Global interface | Benefit and required integration |
+|---|---|---|
+| [xx-session-management-v1](https://wayland.app/protocols/xx-session-management-v1) | `xx_session_manager_v1` | Restore participating applications' toplevel state across executions. Needs session identity, persistent state, restoration policy, and lifecycle handling. Does not itself relaunch applications or restore their document contents. No Aqueous manager initialization found. |
 
 ### wlr-protocols compatibility
 
@@ -134,7 +153,7 @@ pointer-constraints-v1, tablet-v2, input-method-v2, text-input-v3,
 xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
-color-management-v1 (v2/v3), security-context-v1, wayland-fixes,
+color-management-v1 (v2/v3), color-representation-v1, security-context-v1, wayland-fixes,
 content-type-v1, fifo-v1, xdg-dialog-v1, xdg-system-bell-v1.
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
@@ -185,7 +204,7 @@ advertising protocol globals. Recommended order for general desktop use:
 
 Raise **drm-lease-v1** to high priority for directly connected VR headset
 support. Consider **pointer-warp-v1** for applications needing explicit cursor
-repositioning, **xdg-session-management-v1** for window-state restoration, and
+repositioning, experimental **xx-session-management-v1** for window-state restoration, and
 **ext-transient-seat-v1** for independent remote-desktop users. Session
 management and transient seats require broader persistence/input work.
 
