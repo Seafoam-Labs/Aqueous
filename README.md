@@ -343,7 +343,7 @@ satisfies this dependency through its `provides` entry, allowing a switch to
 `dms-shell` without breaking the Aqueous dependency. They include the
 standalone settings application, optional DMS typography bridge, and screen-sharing chooser, start DMS automatically,
 and use DMS Spotlight and region screenshots in the packaged bindings.
-`GitPKGBUILD/PKGBUILD` enables the dependency's standard `dms.service` through
+`GitPKGBUILD/PKGBUILD` and `IntelPKGBUILD/PKGBUILD` enable the dependency's standard `dms.service` through
 `graphical-session.target`; the other source variants use `aqueous-dms.service`.
 The prebuilt `PKGBUILD-bin` retains Noctalia integration.
 `gitNoctalia/PKGBUILD` and its accompanying `aqueous.install` preserve the
@@ -356,7 +356,7 @@ screenshot commands in `~/.config/aqueous/wm.toml` from the defaults in
 `dms ipc call spotlight toggle` for the launcher and `dms screenshot region`
 for both screenshot actions and direct screenshot bindings. Disable any
 manually enabled shell service or startup command before using the packaged
-startup. When switching to `GitPKGBUILD/PKGBUILD`, remove any manual enablement
+startup. When switching to `GitPKGBUILD/PKGBUILD` or `IntelPKGBUILD/PKGBUILD`, remove any manual enablement
 of the old `aqueous-dms.service` so only `dms.service` starts the shell. The Noctalia
 Welcome app is omitted from the DMS source packages; use DMS Settings for appearance.
 

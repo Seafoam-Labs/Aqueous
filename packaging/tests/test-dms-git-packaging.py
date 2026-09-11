@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             check=True,
         )
         units = stage / "usr/lib/systemd/user"
-        if variant == "GitPKGBUILD/PKGBUILD":
+        if variant in ("GitPKGBUILD/PKGBUILD", "IntelPKGBUILD/PKGBUILD"):
             assert (units / "graphical-session.target.wants/dms.service").readlink() == Path("../dms.service")
             # The dependency owns the unit; Aqueous only owns its enablement.
             assert not (units / "dms.service").exists()
