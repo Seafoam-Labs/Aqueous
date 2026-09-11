@@ -303,6 +303,11 @@ layout; add `--set grid` before `--json` to change it immediately.
 `aqueousctl cursor set --theme NAME --size SIZE --json` for a live update.
 `aqueousctl overlay-planes [--json]` reports per-output overlay eligibility,
 rejection backoff, promotion transitions, and composed fallback counters.
+Overlay mode requests libliftoff as an optional backend. Initialization or
+unpromoted startup-commit failure falls back to ordinary atomic composition;
+required overlay assignments are then rejected and their windows remain composed.
+Enabling overlays clears the old `WLR_DRM_FORCE_LIBLIFTOFF` setting inherited
+from earlier sessions; `-no-drm-overlay-planes` clears both backend settings.
 
 For desktop slowdowns when a Proton game loses focus, use the
 [focus-stall capture instructions](../docs/proton-wayland-focus-stall.md) to

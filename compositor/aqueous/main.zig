@@ -166,9 +166,15 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         startup_config.wm.overlay_planes;
     startup_config.wm.overlay_planes = overlay_planes_enabled;
     if (overlay_planes_enabled) {
-        if (setenv("WLR_DRM_FORCE_LIBLIFTOFF", "1", 1) != 0) return error.SetEnvironmentFailed;
-    } else if (result.flags.@"no-drm-overlay-planes") {
+        // Older Aqueous sessions exported FORCE to their child processes.
+        // Do not let that inherited setting disable startup recovery.
         if (unsetenv("WLR_DRM_FORCE_LIBLIFTOFF") != 0) return error.SetEnvironmentFailed;
+        if (setenv("WLR_DRM_PREFER_LIBLIFTOFF", "1", 1) != 0) return error.SetEnvironmentFailed;
+    } else {
+        if (unsetenv("WLR_DRM_PREFER_LIBLIFTOFF") != 0) return error.SetEnvironmentFailed;
+        if (result.flags.@"no-drm-overlay-planes") {
+            if (unsetenv("WLR_DRM_FORCE_LIBLIFTOFF") != 0) return error.SetEnvironmentFailed;
+        }
     }
     const startup_command = blk: {
         if (result.flags.c) |command| {

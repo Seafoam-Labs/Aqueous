@@ -1,0 +1,289 @@
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -9,7 +9,7 @@
+ #ifndef WLR_TYPES_WLR_SCENE_H
+ #define WLR_TYPES_WLR_SCENE_H
+ 
+-#define WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 2
++#define WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 3
+ 
+ /**
+  * The scene-graph API provides a declarative way to display surfaces. The
+--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -99,6 +99,7 @@
+ 	struct wlr_drm_backend *parent;
+ 	const struct wlr_drm_interface *iface;
+ 	bool addfb2_modifiers;
++	bool liftoff_fallback_allowed; // Only until the first real KMS commit
+ 
+ 	int fd;
+ 	char *name;
+--- a/include/backend/drm/iface.h
++++ b/include/backend/drm/iface.h
+@@ -34,6 +34,7 @@
+ bool create_fb_damage_clips_blob(struct wlr_drm_backend *drm,
+ 	int width, int height, const pixman_region32_t *damage, uint32_t *blob_id);
+ bool drm_atomic_reset(struct wlr_drm_backend *drm);
++uint64_t drm_atomic_pick_max_bpc(struct wlr_drm_connector *conn, struct wlr_drm_fb *fb);
+ 
+ bool drm_atomic_connector_prepare(struct wlr_drm_connector_state *state,
+ 	bool modeset);
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -111,6 +111,13 @@
+ 	} else {
+ 		wlr_log(WLR_DEBUG, "Using atomic DRM interface");
+ 		drm->iface = &atomic_iface;
++#if HAVE_LIBLIFTOFF
++		if (env_parse_bool("WLR_DRM_PREFER_LIBLIFTOFF")) {
++			wlr_log(WLR_INFO, "Trying optional libliftoff interface");
++			drm->iface = &liftoff_iface;
++			drm->liftoff_fallback_allowed = true;
++		}
++#endif
+ 	}
+ #ifdef DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT
+ 	if (drm->iface == &atomic_iface && drmSetClientCap(drm->fd, DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, 1) == 0) {
+@@ -347,7 +354,13 @@
+ 	}
+ 
+ 	if (drm->iface->init != NULL && !drm->iface->init(drm)) {
+-		goto error_crtcs;
++		if (!drm->liftoff_fallback_allowed) {
++			goto error_crtcs;
++		}
++		wlr_log(WLR_ERROR, "Optional libliftoff initialization failed, using atomic DRM");
++		drm->iface->finish(drm);
++		drm->iface = &atomic_iface;
++		drm->liftoff_fallback_allowed = false;
+ 	}
+ 
+ 	drmModeFreeResources(res);
+@@ -689,6 +702,36 @@
+ 	}
+ }
+ 
++static bool can_fallback_from_liftoff(struct wlr_drm_backend *drm,
++		const struct wlr_drm_device_state *state) {
++	if (!drm->liftoff_fallback_allowed) {
++		return false;
++	}
++	for (size_t i = 0; i < state->connectors_len; i++) {
++		const struct wlr_output_state *base = state->connectors[i].base;
++		for (size_t j = 0; j < base->layers_len; j++) {
++			if (base->layers[j].buffer != NULL || base->layers[j].must_scan_out) {
++				return false;
++			}
++		}
++	}
++	return true;
++}
++
++static void fallback_from_liftoff(struct wlr_drm_backend *drm) {
++	// TEST_ONLY may have created backend layer addons. Destroy them before
++	// their libliftoff outputs, keeping the compositor-owned layers alive.
++	for (size_t i = 0; i < drm->num_crtcs; i++) {
++		struct wlr_drm_layer *layer, *tmp;
++		wl_list_for_each_safe(layer, tmp, &drm->crtcs[i].layers, link) {
++			layer_handle_addon_destroy(&layer->addon);
++		}
++	}
++	drm->iface->finish(drm);
++	drm->iface = &atomic_iface;
++	drm->liftoff_fallback_allowed = false;
++}
++
+ static bool drm_commit(struct wlr_drm_backend *drm,
+ 		const struct wlr_drm_device_state *state,
+ 		uint32_t flags, bool test_only) {
+@@ -705,7 +748,24 @@
+ 	}
+ 
+ 	bool ok = drm->iface->commit(drm, state, page_flip, flags, test_only);
++	if (!ok && can_fallback_from_liftoff(drm, state)) {
++		wlr_log(WLR_ERROR, "Optional libliftoff startup commit failed, retrying atomic DRM");
++		fallback_from_liftoff(drm);
++		// The failed attempt rolled back its blobs and closed its fence FDs.
++		// Restore a clean baseline in case the retry also fails to prepare.
++		for (size_t i = 0; i < state->connectors_len; i++) {
++			struct wlr_drm_connector_state *conn_state = &state->connectors[i];
++			struct wlr_drm_connector *conn = conn_state->connector;
++			conn_state->mode_id = conn->crtc->mode_id;
++			conn_state->gamma_lut = conn->crtc->gamma_lut;
++			conn_state->hdr_output_metadata = conn->hdr_output_metadata;
++			conn_state->fb_damage_clips = 0;
++			conn_state->primary_in_fence_fd = -1;
++		}
++		ok = drm->iface->commit(drm, state, page_flip, flags, test_only);
++	}
+ 	if (ok && !test_only) {
++		drm->liftoff_fallback_allowed = false;
+ 		for (size_t i = 0; i < state->connectors_len; i++) {
+ 			drm_connector_apply_commit(&state->connectors[i], page_flip);
+ 		}
+@@ -868,7 +928,13 @@
+ 	}
+ 
+ 	if (!crtc->liftoff) {
+-		return true; // libliftoff is disabled
++		for (size_t i = 0; i < state->layers_len; i++) {
++			state->layers[i].accepted = false;
++			if (state->layers[i].must_scan_out) {
++				return false;
++			}
++		}
++		return true; // libliftoff is disabled; compose every layer
+ 	}
+ 
+ 	assert(state->committed & WLR_OUTPUT_STATE_LAYERS);
+@@ -959,8 +1025,8 @@
+ 	}
+ 
+ 	if ((state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION) &&
+-			conn->backend->iface != &atomic_iface) {
+-		wlr_log(WLR_DEBUG, "Image descriptions are only supported by the atomic interface");
++			conn->backend->iface == &legacy_iface) {
++		wlr_log(WLR_DEBUG, "Image descriptions require an atomic DRM interface");
+ 		return false;
+ 	}
+ 
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -274,7 +274,7 @@
+ 	}
+ }
+ 
+-static uint64_t pick_max_bpc(struct wlr_drm_connector *conn, struct wlr_drm_fb *fb) {
++uint64_t drm_atomic_pick_max_bpc(struct wlr_drm_connector *conn, struct wlr_drm_fb *fb) {
+ 	uint32_t format = DRM_FORMAT_INVALID;
+ 	struct wlr_dmabuf_attributes attribs = {0};
+ 	if (wlr_buffer_get_dmabuf(fb->wlr_buf, &attribs)) {
+@@ -508,7 +508,7 @@
+ 			DRM_MODE_CONTENT_TYPE_GRAPHICS);
+ 	}
+ 	if (modeset && active && conn->props.max_bpc != 0 && conn->max_bpc_bounds[1] != 0) {
+-		atomic_add(atom, conn->id, conn->props.max_bpc, pick_max_bpc(conn, state->primary_fb));
++		atomic_add(atom, conn->id, conn->props.max_bpc, drm_atomic_pick_max_bpc(conn, state->primary_fb));
+ 	}
+ 	if (conn->props.colorspace != 0) {
+ 		atomic_add(atom, conn->id, conn->props.colorspace, state->colorspace);
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -121,24 +121,34 @@
+ static void finish(struct wlr_drm_backend *drm) {
+ 	for (size_t i = 0; i < drm->num_crtcs; i++) {
+ 		struct wlr_drm_crtc *crtc = &drm->crtcs[i];
+-
+-		if (crtc->primary) {
++		if (crtc->primary && crtc->primary->liftoff_layer) {
+ 			liftoff_layer_destroy(crtc->primary->liftoff_layer);
+-		}
+-		if (crtc->cursor) {
++			crtc->primary->liftoff_layer = NULL;
++		}
++		if (crtc->cursor && crtc->cursor->liftoff_layer) {
+ 			liftoff_layer_destroy(crtc->cursor->liftoff_layer);
+-		}
+-
+-		liftoff_layer_destroy(crtc->liftoff_composition_layer);
+-		liftoff_output_destroy(crtc->liftoff);
+-	}
+-
++			crtc->cursor->liftoff_layer = NULL;
++		}
++		if (crtc->liftoff_composition_layer) {
++			liftoff_layer_destroy(crtc->liftoff_composition_layer);
++			crtc->liftoff_composition_layer = NULL;
++		}
++		if (crtc->liftoff) {
++			liftoff_output_destroy(crtc->liftoff);
++			crtc->liftoff = NULL;
++		}
++	}
+ 	for (size_t i = 0; i < drm->num_planes; i++) {
+ 		struct wlr_drm_plane *plane = &drm->planes[i];
+-		liftoff_plane_destroy(plane->liftoff);
+-	}
+-
+-	liftoff_device_destroy(drm->liftoff);
++		if (plane->liftoff) {
++			liftoff_plane_destroy(plane->liftoff);
++			plane->liftoff = NULL;
++		}
++	}
++	if (drm->liftoff) {
++		liftoff_device_destroy(drm->liftoff);
++		drm->liftoff = NULL;
++	}
+ }
+ 
+ static bool add_prop(drmModeAtomicReq *req, uint32_t obj,
+@@ -171,8 +181,19 @@
+ 		liftoff_layer_set_property(layer, "FB_ID", fb->id) == 0;
+ }
+ 
++static bool set_layer_in_fence(struct liftoff_layer *layer, int fd) {
++	if (fd < 0) {
++		// libliftoff retains properties across tests and commits. The previous
++		// fence has been closed; omitting an update would reuse that descriptor.
++		liftoff_layer_unset_property(layer, "IN_FENCE_FD");
++		return true;
++	}
++	return liftoff_layer_set_property(layer, "IN_FENCE_FD", fd) == 0;
++}
++
+ static bool disable_plane(struct wlr_drm_plane *plane) {
+-	return liftoff_layer_set_property(plane->liftoff_layer, "FB_ID", 0) == 0;
++	return set_layer_in_fence(plane->liftoff_layer, -1) &&
++		liftoff_layer_set_property(plane->liftoff_layer, "FB_ID", 0) == 0;
+ }
+ 
+ static uint64_t to_fp16(double v) {
+@@ -242,9 +263,7 @@
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_Y", src_y) == 0 &&
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_W", src_w) == 0 &&
+ 		liftoff_layer_set_property(layer->liftoff, "SRC_H", src_h) == 0 &&
+-		(layer->pending_in_fence_fd < 0 ||
+-			liftoff_layer_set_property(layer->liftoff, "IN_FENCE_FD",
+-				layer->pending_in_fence_fd) == 0) &&
++		set_layer_in_fence(layer->liftoff, layer->pending_in_fence_fd) &&
+ 		liftoff_layer_set_property(layer->liftoff, "FB_DAMAGE_CLIPS", fb_damage_clips) == 0;
+ }
+ 
+@@ -323,7 +342,17 @@
+ 		ok = ok && add_prop(req, conn->id, conn->props.content_type,
+ 			DRM_MODE_CONTENT_TYPE_GRAPHICS);
+ 	}
+-	// TODO: set "max bpc"
++	if (modeset && active && conn->props.max_bpc != 0 && conn->max_bpc_bounds[1] != 0) {
++		ok = ok && add_prop(req, conn->id, conn->props.max_bpc,
++			drm_atomic_pick_max_bpc(conn, state->primary_fb));
++	}
++	if (conn->props.colorspace != 0) {
++		ok = ok && add_prop(req, conn->id, conn->props.colorspace, state->colorspace);
++	}
++	if (conn->props.hdr_output_metadata != 0) {
++		ok = ok && add_prop(req, conn->id, conn->props.hdr_output_metadata,
++			state->hdr_output_metadata);
++	}
+ 	ok = ok &&
+ 		add_prop(req, crtc->id, crtc->props.mode_id, state->mode_id) &&
+ 		add_prop(req, crtc->id, crtc->props.active, active);
+@@ -349,12 +378,10 @@
+ 		liftoff_layer_set_property(crtc->liftoff_composition_layer,
+ 			"FB_DAMAGE_CLIPS", state->fb_damage_clips);
+ 
+-		if (state->primary_in_fence_fd >= 0) {
+-			liftoff_layer_set_property(crtc->primary->liftoff_layer,
+-				"IN_FENCE_FD", state->primary_in_fence_fd);
+-			liftoff_layer_set_property(crtc->liftoff_composition_layer,
+-				"IN_FENCE_FD", state->primary_in_fence_fd);
+-		}
++		ok = ok && set_layer_in_fence(crtc->primary->liftoff_layer,
++			state->primary_in_fence_fd);
++		ok = ok && set_layer_in_fence(crtc->liftoff_composition_layer,
++			state->primary_in_fence_fd);
+ 
+ 		if (state->base->committed & WLR_OUTPUT_STATE_LAYERS) {
+ 			for (size_t i = 0; i < state->base->layers_len; i++) {

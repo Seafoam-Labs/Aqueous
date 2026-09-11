@@ -26,7 +26,7 @@
 #error "Aqueous requires the pinned wlroots FIFO API"
 #endif
 
-#if !defined(WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION) || WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION != 2
+#if !defined(WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION) || WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION != 3
 #error "Aqueous requires the pinned wlroots output-layer promotion API"
 #endif
 

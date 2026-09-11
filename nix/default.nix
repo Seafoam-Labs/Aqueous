@@ -17,6 +17,7 @@
   libdrm,
   libevdev,
   libinput,
+  libliftoff,
   libpng,
   libxkbcommon,
   linkFarm,
@@ -95,6 +96,7 @@ let
   aqueousWlroots = wlroots_0_20.overrideAttrs (old: {
     pname = "aqueous-wlroots";
     version = "0.20.2";
+    buildInputs = (old.buildInputs or [ ]) ++ [ libliftoff ];
     src = fetchurl {
       url = "https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz";
       hash = "sha256-lyx6xEsXgo9HAr+ufNg0c0aj+1ssEHbPosP87axew0M=";
@@ -119,6 +121,7 @@ let
       "${src}/compositor/patches/wlroots/0016-toplevel-icon-lifetime.patch"
       "${src}/compositor/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
       "${src}/compositor/patches/wlroots/0018-pointer-constraint-initial-region.patch"
+      "${src}/compositor/patches/wlroots/0019-overlay-backend-recovery.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
@@ -129,6 +132,7 @@ let
       "-Drenderers=vulkan"
       "-Dbackends=drm,libinput,x11"
       "-Dallocators=gbm"
+      "-Dlibliftoff=enabled"
       "-Dsession=enabled"
       "-Dcolor-management=enabled"
     ];

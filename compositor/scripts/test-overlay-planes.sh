@@ -19,9 +19,9 @@ for tool in jq zig; do command -v "$tool" >/dev/null 2>&1 || skip "$tool is requ
 [ -r "$patched_prefix/include/wlroots-0.20/wlr/types/wlr_scene.h" ] ||
     die "patched wlroots headers not found; run scripts/build-wlroots-render-hook.sh"
 
-grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 2' \
+grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 3' \
     "$patched_prefix/include/wlroots-0.20/wlr/types/wlr_scene.h" ||
-    die "wlroots promotion API version 2 is not installed"
+    die "wlroots promotion API version 3 is not installed"
 grep -Fq 'bool must_scan_out;' \
     "$patched_prefix/include/wlroots-0.20/wlr/types/wlr_output_layer.h" ||
     die "wlroots required-layer contract is missing"

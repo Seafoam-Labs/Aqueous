@@ -47,6 +47,8 @@ inside the compositor.
 	Enable the startup-only DRM overlay-plane promotion path, overriding
 	*[render].overlay_planes*. One rule-selected window may be promoted per
 	output after an atomic TEST_ONLY commit succeeds.
+	If the optional overlay backend cannot initialize or accept an unpromoted
+	startup commit, Aqueous falls back to ordinary atomic composition.
 
 *-no-drm-overlay-planes*
 	Disable DRM overlay-plane promotion, overriding the configuration and any

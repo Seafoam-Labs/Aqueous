@@ -24,13 +24,14 @@ patch_files=(
     "$here/patches/wlroots/0016-toplevel-icon-lifetime.patch"
     "$here/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
     "$here/patches/wlroots/0018-pointer-constraint-initial-region.patch"
+    "$here/patches/wlroots/0019-overlay-backend-recovery.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
 archive="$cache_dir/wlroots-$version.tar.gz"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
-for tool in cc curl meson ninja patch pkg-config sha256sum tar; do
+for tool in cc curl meson ninja patch pkg-config python3 sha256sum tar; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 pkg-config --atleast-version=1.49 wayland-protocols ||
@@ -93,7 +94,7 @@ grep -Fq 'connector_update_layers_acceptance(&state->connectors[i])' \
     die "patched wlroots does not enforce output-layer TEST_ONLY acceptance"
 scene_header="$source_dir/include/wlr/types/wlr_scene.h"
     grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
-    grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 2' "$scene_header" &&
+    grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 3' "$scene_header" &&
     grep -Fq 'scene_entry_try_output_layer' "$scene_source" &&
     grep -Fq 'wlr_scene_output_layer_candidate_finish' "$scene_source" ||
     die "patched wlroots does not provide scene output-layer promotion"
@@ -134,6 +135,7 @@ meson setup "$build_dir" "$source_dir" \
     -Dbackends=drm,libinput,x11 \
     -Dallocators=gbm \
     -Dsession=enabled \
+    -Dlibliftoff=enabled \
     -Dcolor-management=enabled
 meson compile -C "$build_dir"
 meson install -C "$build_dir"
@@ -211,6 +213,8 @@ cc "$here/scripts/fixtures/wlroots-scene-order.c" \
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$scene_order_probe" ||
     die "patched wlroots did not preserve scene render ordering"
+
+python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 
 echo "patched wlroots $version installed at $prefix"
 echo "export PKG_CONFIG_PATH=$prefix/lib/pkgconfig"
