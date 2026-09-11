@@ -322,6 +322,16 @@ see the application guide for custom-bar upgrade instructions.
 
 ## Packaging
 
+Fedora users can build and install the latest Git `master` as a local RPM:
+
+```sh
+bash scripts/fedora-install.sh
+```
+
+Run as your normal user; the script uses sudo for DNF transactions. See the
+[Fedora installation guide](docs/fedora-install.md) for dependencies, DMS
+repository options, building without installing, and removal.
+
 The packages install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection
 and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
