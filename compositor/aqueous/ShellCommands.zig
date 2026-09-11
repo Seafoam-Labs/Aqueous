@@ -110,6 +110,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
             const ws = if (action == .window_move_workspace) findWorkspace(value) orelse return .not_found else (findOutput(value, cmd.output_by_id) orelse return .not_found).active_workspace orelse return .unavailable;
             if (!ws.output.policyExposed()) return .unavailable;
             server.aqueous.cancelOverview();
+            window.policy_state.overrideWorkspace();
             window.setWorkspace(ws);
         },
         .workspace_rename => {

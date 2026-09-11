@@ -249,18 +249,6 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
 
     var snapshot = try aqueous.api.policySnapshot(util.gpa);
     defer snapshot.deinit(util.gpa);
-    const fullscreen_requests = try aqueous.api.takeClientFullscreenRequests(util.gpa);
-    defer util.gpa.free(fullscreen_requests);
-    if (fullscreen_requests.len > 0) {
-        aqueous.applyClientFullscreenRequests(&snapshot, fullscreen_requests);
-
-        // A usable output hint can move a window between outputs. Rebuild the
-        // policy view so this same cycle lays it out under its new owner rather
-        // than using the stale output grouping captured above.
-        const refreshed = try aqueous.api.policySnapshot(util.gpa);
-        snapshot.deinit(util.gpa);
-        snapshot = refreshed;
-    }
     const client_requests = try aqueous.api.takeClientWindowRequests(util.gpa);
     defer util.gpa.free(client_requests);
     if (aqueous.applyClientWindowRequests(&snapshot, client_requests)) {
@@ -281,10 +269,29 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
     }
-    if (aqueous.reconcileRulePlacements(&snapshot)) {
+    const placement_changed = blk: {
+        var placement_snapshot = try aqueous.api.rulePlacementSnapshot(util.gpa);
+        defer placement_snapshot.deinit(util.gpa);
+        break :blk aqueous.reconcileRulePlacements(&placement_snapshot);
+    };
+    if (placement_changed) {
         // Output rules can transfer a window between the per-output slices in
         // this snapshot. Rebuild before layout so the source never arranges a
         // window which already belongs to the destination.
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
+    // Resolve the current matcher and its placement claim before interpreting
+    // fullscreen output hints, including requests made before the first map.
+    const fullscreen_requests = try aqueous.api.takeClientFullscreenRequests(util.gpa);
+    defer util.gpa.free(fullscreen_requests);
+    if (fullscreen_requests.len > 0) {
+        aqueous.applyClientFullscreenRequests(&snapshot, fullscreen_requests);
+
+        // A usable output hint can move a window between outputs. Rebuild the
+        // policy view so this same cycle lays it out under its new owner rather
+        // than using the stale output grouping captured above.
         const refreshed = try aqueous.api.policySnapshot(util.gpa);
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
@@ -656,15 +663,21 @@ fn applyClientFullscreenRequests(
                 aqueous.api.clearFullscreen(request.handle);
             },
             .enter => |output_hint| {
-                const target = findPolicyOutput(snapshot, output_hint) orelse
-                    findPolicyOutput(snapshot, request.current_output_id) orelse
-                    if (snapshot.outputs.len > 0) &snapshot.outputs[0] else null;
+                const current_output_id = if (aqueous.api.windowWorkspace(request.handle)) |workspace|
+                    workspace.output_id
+                else
+                    request.current_output_id;
+                // A rule owns the composite output/workspace placement. Honor
+                // fullscreen itself without letting a client hint relocate it.
+                const target = if (state.rule_workspace_owned)
+                    findPolicyOutput(snapshot, current_output_id)
+                else
+                    findPolicyOutput(snapshot, output_hint) orelse
+                        findPolicyOutput(snapshot, current_output_id) orelse
+                        if (snapshot.outputs.len > 0) &snapshot.outputs[0] else null;
                 const output = target orelse continue;
 
-                // A fullscreen output hint may target a different display. Move
-                // the window to that output's active workspace so ownership,
-                // focus, and subsequent layout snapshots agree with rendering.
-                if (request.current_output_id != output.id) {
+                if (!state.rule_workspace_owned and current_output_id != output.id) {
                     _ = aqueous.api.moveWindowToWorkspace(
                         request.handle,
                         output.id,

@@ -78,7 +78,7 @@ matters.
 | `anchor` | string | no (default `center`) | `center` / `top` / `bottom` / `left` / `right`. |
 | `size` | string | no (default `"native"`) | `"native"` (use the client's requested buffer) / `"WxH"` (exact pixels) / `"FxF"` (fractions of the output's usable area, 0..1). |
 | `scale` | double | no (default `1.0`) | Multiplied into the resolved size before clamping. |
-| `fullscreen` | bool | no (default `false`) | When `true`, the rule attaches but is NOT treated as an anchor - use the normal `toggle_fullscreen` path for true exclusive fullscreen instead. |
+| `fullscreen` | bool | no (default `false`) | Start the window fullscreen. Client fullscreen requests and manual toggles can override this property independently of output/workspace placement. |
 | `buffer_scale_policy` | string | no | Override the global client-buffer policy with `"native"` or `"integer-ceil"`. Integer-ceil advertises the next integer scale before initial root/popup configures while retaining fractional logical geometry; it may improve toolkit text rasterization at the cost of larger buffers and more GPU/memory bandwidth. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
 | `overlay_plane` | string | no (default `"off"`) | `"prefer"` requests promotion of this window's root buffer to the output's single DRM overlay layer. `[render].overlay_planes = true` must be enabled before startup. Promotion falls back to normal composition when TEST_ONLY rejects the complete state, when content overlaps the window, during capture/software-cursor forcing, or when scaling, transforms, effects, opacity, clipping, or buffer format constraints require composition. |
@@ -90,6 +90,12 @@ not activate an inactive workspace. A missing or disabled output falls back to
 normal admission placement and does not move the established window if the
 output appears later. Manual workspace and output moves override the placement
 rule until a different matcher becomes active.
+
+While a rule owns placement, client fullscreen output hints preserve that
+output and workspace, including inactive workspaces. Fullscreen entry and exit
+still work normally. Once a manual move releases the placement claim, or no
+available placement target is claimed, fullscreen output hints follow normal
+compositor behavior.
 
 For example, open Firefox with the full-width scrolling preset:
 

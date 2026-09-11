@@ -716,6 +716,16 @@ pub const PolicySnapshot = struct {
 };
 
 pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySnapshot {
+    return snapshotWindows(allocator, false);
+}
+
+/// Placement ownership must follow rule edits even on inactive workspaces.
+/// Keep these windows out of the ordinary layout/focus snapshot.
+pub fn rulePlacementSnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySnapshot {
+    return snapshotWindows(allocator, true);
+}
+
+fn snapshotWindows(allocator: std.mem.Allocator, include_inactive: bool) !PolicySnapshot {
     var output_count: usize = 0;
     var output_it = server.om.outputs.iterator(.forward);
     while (output_it.next()) |output| {
@@ -744,7 +754,7 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
         var window_it = server.wm.windows.iterator();
         while (window_it.next()) |window| {
             const window_snapshot = window.policySnapshot();
-            if (!window_snapshot.active) continue;
+            if (!window_snapshot.active and !(include_inactive and window.state == .mapped)) continue;
             // A newly created xdg_toplevel has to receive its initial configure
             // before it can map. Workspace assignment historically happened in
             // Window.map(), so requiring an output here creates a deadlock for
@@ -758,8 +768,8 @@ pub fn policySnapshot(_: CompositorApi, allocator: std.mem.Allocator) !PolicySna
                 const initial_ouput = window.initialOutput() orelse continue;
                 if (initial_ouput != output) continue;
             }
-            const app_id = if (window_snapshot.app_id) |value| try allocator.dupe(u8, std.mem.span(value)) else null;
-            const title = if (window_snapshot.title) |value|
+            const app_id = if (window.getAppId()) |value| try allocator.dupe(u8, std.mem.span(value)) else null;
+            const title = if (window.getTitle()) |value|
                 allocator.dupe(u8, std.mem.span(value)) catch |err| {
                     if (app_id) |owned| allocator.free(owned);
                     return err;
@@ -1023,7 +1033,7 @@ pub const RulePlacementResult = enum { unchanged, changed, unavailable };
 /// active workspace. Explicit output names target only visible, enabled heads
 /// so a rule cannot silently admit a new window onto a powered-off display.
 pub fn applyRulePlacement(
-    _: CompositorApi,
+    api: CompositorApi,
     handle: layout.Handle,
     admission_output_id: u64,
     output_name: ?[]const u8,
@@ -1045,8 +1055,15 @@ pub fn applyRulePlacement(
         output.active_workspace orelse return .unavailable
     else
         output.policyWorkspaceAt(workspace_number) orelse return .unavailable;
-    if (window.workspace == workspace) return .unchanged;
+    const retarget_fullscreen = window.wm_requested.fullscreen != null and window.wm_requested.fullscreen != output;
+    if (window.workspace == workspace and !retarget_fullscreen) return .unchanged;
     window.setWorkspace(workspace);
+    // Rule reloads can move a window which is already fullscreen without a new
+    // client request. Keep its configure size and rendering output in sync.
+    if (retarget_fullscreen) {
+        api.clearOtherFullscreen(output.policyId(), handle);
+        window.policySetFullscreen(output);
+    }
     return .changed;
 }
 

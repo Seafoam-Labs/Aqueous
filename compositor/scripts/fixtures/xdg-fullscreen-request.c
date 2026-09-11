@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,6 +24,12 @@ enum phase {
     PHASE_REDUNDANT_ENTER,
     PHASE_EXIT,
     PHASE_DONE,
+    PHASE_COMMAND,
+};
+
+struct output {
+    struct wl_output *object;
+    char name[128];
 };
 
 struct app {
@@ -34,7 +41,9 @@ struct app {
     struct xdg_surface *xdg_surface;
     struct xdg_toplevel *toplevel;
     struct wl_shm_pool *pool;
-    struct wl_buffer *buffers[16];
+    struct wl_buffer *buffers[128];
+    struct output outputs[8];
+    size_t output_count;
     size_t buffer_count;
     enum phase phase;
     bool pending_fullscreen;
@@ -150,6 +159,39 @@ static const struct xdg_wm_base_listener wm_base_listener = {
     .ping = wm_base_ping,
 };
 
+static void output_geometry(void *data, struct wl_output *output, int32_t x, int32_t y,
+    int32_t width, int32_t height, int32_t subpixel, const char *make, const char *model, int32_t transform) {
+    (void)data; (void)output; (void)x; (void)y; (void)width; (void)height;
+    (void)subpixel; (void)make; (void)model; (void)transform;
+}
+static void output_mode(void *data, struct wl_output *output, uint32_t flags,
+    int32_t width, int32_t height, int32_t refresh) {
+    (void)data; (void)output; (void)flags; (void)width; (void)height; (void)refresh;
+}
+static void output_done(void *data, struct wl_output *output) { (void)data; (void)output; }
+static void output_scale(void *data, struct wl_output *output, int32_t scale) { (void)data; (void)output; (void)scale; }
+static void output_name(void *data, struct wl_output *output, const char *name) {
+    (void)output;
+    struct output *entry = data;
+    snprintf(entry->name, sizeof(entry->name), "%s", name);
+}
+static void output_description(void *data, struct wl_output *output, const char *description) {
+    (void)data; (void)output; (void)description;
+}
+static const struct wl_output_listener output_listener = {
+    .geometry = output_geometry, .mode = output_mode, .done = output_done,
+    .scale = output_scale, .name = output_name, .description = output_description,
+};
+
+static struct wl_output *find_output(struct app *app, const char *name) {
+    if (strcmp(name, "none") == 0) return NULL;
+    for (size_t i = 0; i < app->output_count; i++) {
+        if (strcmp(app->outputs[i].name, name) == 0) return app->outputs[i].object;
+    }
+    fail(app, "requested output not found");
+    return NULL;
+}
+
 static void registry_global(
     void *data,
     struct wl_registry *registry,
@@ -157,7 +199,15 @@ static void registry_global(
     const char *interface,
     uint32_t version) {
     struct app *app = data;
-    if (strcmp(interface, wl_compositor_interface.name) == 0) {
+    if (strcmp(interface, wl_output_interface.name) == 0 && app->phase == PHASE_COMMAND) {
+        if (version < 4 || app->output_count == sizeof(app->outputs) / sizeof(app->outputs[0])) {
+            fail(app, "output globals unavailable or exhausted");
+            return;
+        }
+        struct output *output = &app->outputs[app->output_count++];
+        output->object = wl_registry_bind(registry, name, &wl_output_interface, 4);
+        wl_output_add_listener(output->object, &output_listener, output);
+    } else if (strcmp(interface, wl_compositor_interface.name) == 0) {
         const uint32_t bind_version = version < 4 ? version : 4;
         app->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, bind_version);
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
@@ -272,6 +322,10 @@ static void surface_configure(void *data, struct xdg_surface *xdg_surface, uint3
                 app->phase = PHASE_DONE;
             }
             break;
+        case PHASE_COMMAND:
+            printf("{\"event\":\"configure\",\"fullscreen\":%s,\"width\":%d,\"height\":%d}\n",
+                app->pending_fullscreen ? "true" : "false", width, height);
+            break;
         case PHASE_DONE:
             break;
     }
@@ -281,13 +335,70 @@ static const struct xdg_surface_listener surface_listener = {
     .configure = surface_configure,
 };
 
+// Commands let placement tests inspect a settled window, reload its rules, or
+// move it manually before sending another real xdg_toplevel fullscreen hint.
+static void dispatch_commands(struct app *app) {
+    while (!app->failed && app->phase != PHASE_DONE) {
+        while (wl_display_prepare_read(app->display) != 0) {
+            if (wl_display_dispatch_pending(app->display) < 0) goto disconnected;
+        }
+        if (wl_display_flush(app->display) < 0) {
+            wl_display_cancel_read(app->display);
+            goto disconnected;
+        }
+        struct pollfd fds[] = {
+            { .fd = wl_display_get_fd(app->display), .events = POLLIN },
+            { .fd = STDIN_FILENO, .events = POLLIN },
+        };
+        int ready = poll(fds, 2, -1);
+        if (ready < 0) {
+            wl_display_cancel_read(app->display);
+            if (errno == EINTR) continue;
+            goto disconnected;
+        }
+        if (fds[0].revents) {
+            if (wl_display_read_events(app->display) < 0) goto disconnected;
+        } else wl_display_cancel_read(app->display);
+        if (wl_display_dispatch_pending(app->display) < 0) goto disconnected;
+        if (fds[1].revents) {
+            char line[384], op[32], value[128], hint[128];
+            if (!fgets(line, sizeof(line), stdin)) break;
+            int fields = sscanf(line, "%31s %127s %127s", op, value, hint);
+            if (fields == 1 && strcmp(op, "quit") == 0) break;
+            if (fields == 2 && strcmp(op, "fullscreen") == 0) {
+                struct wl_output *output = find_output(app, value);
+                if (app->failed) break;
+                xdg_toplevel_set_fullscreen(app->toplevel, output);
+            } else if (fields == 1 && strcmp(op, "windowed") == 0) {
+                xdg_toplevel_unset_fullscreen(app->toplevel);
+            } else if ((fields == 2 || fields == 3) && strcmp(op, "identity") == 0) {
+                xdg_toplevel_set_app_id(app->toplevel, value);
+                if (fields == 3) {
+                    struct wl_output *output = find_output(app, hint);
+                    if (app->failed) break;
+                    xdg_toplevel_set_fullscreen(app->toplevel, output);
+                }
+            } else { fail(app, "invalid command"); break; }
+            wl_surface_commit(app->surface);
+            if (wl_display_roundtrip(app->display) < 0) goto disconnected;
+            printf("{\"event\":\"command\",\"value\":\"%.*s\"}\n", (int)strcspn(line, "\n"), line);
+        }
+    }
+    app->phase = PHASE_DONE;
+    return;
+disconnected:
+    fail(app, "Wayland display disconnected");
+}
+
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s SYNC_DIR\n", argv[0]);
+    const bool commands = argc >= 3 && strcmp(argv[1], "--commands") == 0;
+    if ((!commands && argc != 2) || (commands && argc > 4)) {
+        fprintf(stderr, "usage: %s SYNC_DIR | --commands APP_ID [INITIAL_OUTPUT]\n", argv[0]);
         return 2;
     }
 
-    struct app app = { .phase = PHASE_INITIAL, .sync_dir = argv[1] };
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    struct app app = { .phase = commands ? PHASE_COMMAND : PHASE_INITIAL, .sync_dir = argv[1] };
     app.display = wl_display_connect(NULL);
     if (app.display == NULL) {
         fputs("failed to connect to Wayland display\n", stderr);
@@ -301,6 +412,8 @@ int main(int argc, char **argv) {
         fputs("required Wayland globals unavailable\n", stderr);
         return 1;
     }
+
+    if (commands && (wl_display_roundtrip(app.display) < 0 || app.failed)) return 1;
 
     const size_t pool_size = 4096u * 4096u * 4u;
     const int pool_fd = create_shm_file(pool_size);
@@ -318,10 +431,16 @@ int main(int argc, char **argv) {
     app.toplevel = xdg_surface_get_toplevel(app.xdg_surface);
     xdg_toplevel_add_listener(app.toplevel, &toplevel_listener, &app);
     xdg_toplevel_set_title(app.toplevel, "Aqueous fullscreen request fixture");
-    xdg_toplevel_set_app_id(app.toplevel, "aqueous.fullscreen-request");
+    xdg_toplevel_set_app_id(app.toplevel, commands ? argv[2] : "aqueous.fullscreen-request");
+    if (commands && argc == 4) {
+        struct wl_output *output = find_output(&app, argv[3]);
+        if (app.failed) return 1;
+        xdg_toplevel_set_fullscreen(app.toplevel, output);
+    }
     wl_surface_commit(app.surface);
 
-    while (app.phase != PHASE_DONE && wl_display_dispatch(app.display) >= 0) {}
+    if (commands) dispatch_commands(&app);
+    else while (app.phase != PHASE_DONE && wl_display_dispatch(app.display) >= 0) {}
     if (!app.failed && app.phase != PHASE_DONE) fail(&app, "Wayland display disconnected");
 
     for (size_t index = 0; index < app.buffer_count; index++) wl_buffer_destroy(app.buffers[index]);
@@ -332,6 +451,7 @@ int main(int argc, char **argv) {
     xdg_wm_base_destroy(app.wm_base);
     wl_shm_destroy(app.shm);
     wl_compositor_destroy(app.compositor);
+    for (size_t i = 0; i < app.output_count; i++) wl_output_release(app.outputs[i].object);
     wl_registry_destroy(registry);
     wl_display_disconnect(app.display);
 
