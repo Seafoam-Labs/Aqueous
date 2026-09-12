@@ -122,6 +122,7 @@ let
       "${src}/compositor/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
       "${src}/compositor/patches/wlroots/0018-pointer-constraint-initial-region.patch"
       "${src}/compositor/patches/wlroots/0019-overlay-backend-recovery.patch"
+      "${src}/compositor/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
