@@ -48,6 +48,7 @@ pointer_gestures: *wlr.PointerGesturesV1,
 virtual_pointer_manager: *wlr.VirtualPointerManagerV1,
 virtual_keyboard_manager: *wlr.VirtualKeyboardManagerV1,
 pointer_constraints: *wlr.PointerConstraintsV1,
+pointer_warp: @import("PointerWarpManager.zig"),
 input_method_manager: *wlr.InputMethodManagerV2,
 text_input_manager: *wlr.TextInputManagerV3,
 tablet_manager: *wlr.TabletManagerV2,
@@ -82,6 +83,7 @@ pub fn init(input_manager: *InputManager) !void {
         .virtual_pointer_manager = try wlr.VirtualPointerManagerV1.create(server.wl_server),
         .virtual_keyboard_manager = try wlr.VirtualKeyboardManagerV1.create(server.wl_server),
         .pointer_constraints = try wlr.PointerConstraintsV1.create(server.wl_server),
+        .pointer_warp = undefined,
         .input_method_manager = try wlr.InputMethodManagerV2.create(server.wl_server),
         .text_input_manager = try wlr.TextInputManagerV3.create(server.wl_server),
         .tablet_manager = try wlr.TabletManagerV2.create(server.wl_server),
@@ -98,6 +100,7 @@ pub fn init(input_manager: *InputManager) !void {
     input_manager.tablet_tools.init();
     input_manager.seats.init();
 
+    try input_manager.pointer_warp.init();
     try Seat.create(default_seat_name);
 
     log.info("cursor theme={s} size={d}", .{
@@ -162,6 +165,7 @@ pub fn setCursorConfig(input_manager: *InputManager, theme: []const u8, size: u3
 pub fn deinit(input_manager: *InputManager) void {
     if (comptime build_options.toplevel_drag_testing) @import("ToplevelDragTest.zig").finish();
     if (comptime build_options.tablet_testing) @import("TabletTest.zig").finish();
+    input_manager.pointer_warp.deinit();
     input_manager.global.destroy();
 
     if (build_options.xwayland) {

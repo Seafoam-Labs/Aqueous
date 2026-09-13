@@ -22,6 +22,21 @@ against the same pinned wlroots dependency. Production builds run integrated
 policy by default. For legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
 
+pointer-warp-v1 is available in both renderer builds, including for sandboxed
+applications and optional external/compare policy modes. Focused applications
+can request surface-local pointer positions, including while holding a button.
+Warps respect pointer locks/confinement and compositor input ownership. This
+requires rebuilding the pinned wlroots dependency with patch 0022 before
+building Aqueous.
+
+Run `python3 scripts/test-pointer-warp.py --renderer pixman` with the diagnostic
+build or `--renderer vulkan` with the effects build. Use `--compositor` and `--ctl`
+for an alternate installation prefix, and `--policy external` or `--policy compare`
+for the compatibility build. The harness uses private headless sessions and
+requires a C compiler, Wayland/xkbcommon development tools, and `wayland-scanner`.
+See the [implementation and validation record](../docs/pointer-warp-v1-implementation-plan.md)
+for request policy and remaining hardware qualification.
+
 FIFO v1 is available in both builds. After building with
 `-Doutput-retry-testing=true`, run `python3 scripts/test-fifo.py --renderer vulkan`
 (or `--renderer pixman` for the diagnostic build). See the

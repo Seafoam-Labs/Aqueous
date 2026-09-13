@@ -439,6 +439,87 @@ pub fn warpForPolicy(cursor: *Cursor, x: i32, y: i32) void {
     cursor.updateState();
 }
 
+/// Apply an application request only after validating its complete destination.
+/// This path must not unlock constraints or synthesize physical input.
+pub fn warpForClient(cursor: *Cursor, surface: *wlr.Surface, sx: f64, sy: f64) void {
+    if (server.lock_manager.state != .unlocked or server.aqueous.overview != null or
+        cursor.seat.op != null or cursor.seat.drag != .none or
+        server.aqueous.interactiveDragActive() or
+        cursor.seat.wlr_seat.drag != null or cursor.seat.wlr_seat.pointerHasGrab() or
+        (cursor.mode != .passthrough and cursor.mode != .down)) return;
+    if (server.session) |session| if (!session.active) return;
+    if (!surface.mapped or cursor.seat.wlr_seat.pointer_state.focused_surface != surface or
+        !math.isFinite(sx) or !math.isFinite(sy) or sx < 0 or sy < 0 or
+        sx >= @as(f64, @floatFromInt(surface.current.width)) or
+        sy >= @as(f64, @floatFromInt(surface.current.height))) return;
+
+    const node = scene_surface_projection.nodeForSurface(surface) orelse return;
+    var nx: i32 = undefined;
+    var ny: i32 = undefined;
+    if (!node.coords(&nx, &ny)) return;
+    // Picking deliberately uses integer scene origins even when rendering has
+    // a fractional animation origin. Use the same origin as physical motion.
+    const destination = scene_surface_projection.surfaceToDestination(node, sx, sy);
+    const buffer = wlr.SceneBuffer.fromNode(node);
+    if (destination.x < 0 or destination.y < 0 or
+        destination.x >= @as(f64, @floatFromInt(buffer.dst_width)) or
+        destination.y >= @as(f64, @floatFromInt(buffer.dst_height))) return;
+    const lx = @as(f64, @floatFromInt(nx)) + destination.x;
+    const ly = @as(f64, @floatFromInt(ny)) + destination.y;
+    const output = server.om.output_layout.outputAt(lx, ly) orelse return;
+    if (!output.enabled) return;
+    if (cursor.mode == .passthrough) {
+        const hit = server.scene.at(lx, ly) orelse return;
+        if (hit.surface != surface or @abs(hit.sx - sx) > 1.0 / 256.0 or
+            @abs(hit.sy - sy) > 1.0 / 256.0) return;
+    }
+
+    var confined_point: ?struct { x: f64, y: f64 } = null;
+    if (cursor.constraint) |constraint| {
+        if (constraint.state == .active) {
+            if (constraint.wlr_constraint.type == .locked) return;
+            const state = constraint.state.active;
+            var cx: i32 = undefined;
+            var cy: i32 = undefined;
+            if (!state.node.coords(&cx, &cy)) return;
+            const origin = scene_surface_projection.surfaceToDestination(state.node, 0, 0);
+            const scale = scene_surface_projection.scale(state.node);
+            const target_sx = (lx - @as(f64, @floatFromInt(cx)) - origin.x) * scale;
+            const target_sy = (ly - @as(f64, @floatFromInt(cy)) - origin.y) * scale;
+            var allowed_sx: f64 = undefined;
+            var allowed_sy: f64 = undefined;
+            if (!wlr.region.confine(&constraint.wlr_constraint.region, state.sx, state.sy, target_sx, target_sy, &allowed_sx, &allowed_sy)) return;
+            // Confinement is path-sensitive, including disconnected regions.
+            // Do not mutate the constraint or silently clamp a rejected request.
+            if (@abs(allowed_sx - target_sx) > 0.000001 or
+                @abs(allowed_sy - target_sy) > 0.000001) return;
+            confined_point = .{ .x = target_sx, .y = target_sy };
+        }
+    }
+
+    if (!cursor.wlr_cursor.warp(null, lx, ly)) return;
+    if (confined_point) |point| {
+        cursor.constraint.?.state.active.sx = point.x;
+        cursor.constraint.?.state.active.sy = point.y;
+    }
+    cursor.seat.wm_requested.follow_focus = false;
+    cursor.seat.focus_warp = null;
+    // Keep any explicit policy output warp intact.
+    cursor.invalidateLastSent();
+    if (cursor.mode == .down) {
+        cursor.mode.down = .{ .lx = lx, .ly = ly, .sx = sx, .sy = sy, .surface_scale = scene_surface_projection.scale(node) };
+    } else {
+        cursor.updateHovered(false);
+    }
+    cursor.seat.wlr_seat.pointerNotifyMotion(util.msecTimestamp(), sx, sy);
+    cursor.last_sent_lx = lx;
+    cursor.last_sent_ly = ly;
+    cursor.last_sent_sx = sx;
+    cursor.last_sent_sy = sy;
+    if (cursor.constraint) |constraint| constraint.maybeActivate();
+    cursor.seat.wlr_seat.pointerNotifyFrame();
+}
+
 /// Prefer the visible center, retaining the user's position when already over
 /// the target. Hit testing excludes occluding windows, panels and popup grabs.
 pub fn warpToFocusedWindow(cursor: *Cursor, window: *Window) void {

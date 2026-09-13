@@ -140,6 +140,8 @@ pub fn build(b: *Build) !void {
     // These versions control Zig code generation and have no effect on anything internal
     // to wlroots. Therefore, the only thing that can happen due to a version being too
     // old is that river fails to compile.
+    scanner.addSystemProtocol("staging/pointer-warp/pointer-warp-v1.xml");
+    scanner.generate("wp_pointer_warp_v1", 1);
     scanner.generate("wp_content_type_manager_v1", 1);
     scanner.generate("ext_background_effect_manager_v1", 1);
     scanner.generate("wl_compositor", 4);

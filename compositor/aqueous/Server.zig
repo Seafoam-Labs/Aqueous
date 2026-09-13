@@ -802,6 +802,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.om.xdg_output_manager.global or
         global == server.input_manager.relative_pointer_manager.global or
         global == server.input_manager.pointer_constraints.global or
+        global == server.input_manager.pointer_warp.global or
         global == server.input_manager.text_input_manager.global or
         global == server.input_manager.tablet_manager.global or
         global == server.input_manager.pointer_gestures.global or

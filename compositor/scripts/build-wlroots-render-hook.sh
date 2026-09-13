@@ -27,6 +27,7 @@ patch_files=(
     "$here/patches/wlroots/0019-overlay-backend-recovery.patch"
     "$here/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
     "$here/patches/wlroots/0021-drm-lease-lifetime.patch"
+    "$here/patches/wlroots/0022-pointer-enter-serial-validation.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -142,6 +143,11 @@ meson setup "$build_dir" "$source_dir" \
 meson compile -C "$build_dir"
 meson install -C "$build_dir"
 
+# Exercise the exact bounded enter history shipped in pointer dispatch.
+cc -std=c11 -Wall -Wextra -Werror -I"$source_dir/include" \
+    "$here/scripts/fixtures/pointer-enter-serial.c" -o "$build_root/pointer-enter-serial"
+"$build_root/pointer-enter-serial" || die "pointer enter serial validation failed"
+
 # Exercise the exact conversion helper shipped in the patched screencopy path.
 cc -std=c11 -Wall -Wextra -Werror -O2 -DWLR_USE_UNSTABLE \
     -I"$source_dir/include" \
@@ -153,6 +159,7 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_seat_client_validate_pointer_enter_serial \
     wlr_xdg_toplevel_set_suspended \
     wlr_xdg_toplevel_set_constrained \
     wlr_aqueous_capture_color_manager_v1_create \
@@ -215,6 +222,8 @@ cc "$here/scripts/fixtures/wlroots-scene-order.c" \
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$scene_order_probe" ||
     die "patched wlroots did not preserve scene render ordering"
+
+python3 "$here/scripts/test-pointer-enter.py" "$source_dir" "$prefix"
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"

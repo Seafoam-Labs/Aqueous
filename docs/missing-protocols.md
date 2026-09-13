@@ -67,11 +67,18 @@ and revokes/blanks leases on lock and session changes. Protocol, allocator,
 lifecycle, and both renderer headless tests pass; physical DRM/VR qualification
 remains outstanding. See the [implementation and validation record](drm-lease-v1-implementation-plan.md).
 
+`pointer-warp-v1` is implemented by `PointerWarpManager.zig` and the dedicated
+client cursor path. Requests validate exact recent enter serials, seat/client
+ownership, focused surface coordinates, grabs, constraints, and compositor input
+ownership. Pixman/Vulkan integration, external/compare policy checks, and seat
+lifecycle tests pass. Rebuild the pinned wlroots dependency with patch 0022;
+see the [implementation and validation record](pointer-warp-v1-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols staging
 
-The three remaining missing staging protocols listed by Wayland Explorer are below.
+The two remaining missing staging protocols listed by Wayland Explorer are below.
 The remaining staging protocol families are implemented, with runtime
 availability subject to build, renderer, hardware, and client-policy conditions.
 This inventory tracks protocol presence, not conformance to every interface
@@ -80,7 +87,6 @@ version or request.
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
 | [commit-timing-v1](https://wayland.app/protocols/commit-timing-v1) | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
-| [pointer-warp-v1](https://wayland.app/protocols/pointer-warp-v1) | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
 | [ext-transient-seat-v1](https://wayland.app/protocols/ext-transient-seat-v1) | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
 
 Protocol definitions are under `staging/<protocol>/<protocol>-v1.xml` in
@@ -94,7 +100,7 @@ The dependency headers are under
 
 Session management was previously listed above as staging
 `xdg-session-management-v1`. Wayland Explorer currently lists it as experimental
-`xx-session-management-v1`; it is excluded from the three staging gaps. This
+`xx-session-management-v1`; it is excluded from the two staging gaps. This
 section preserves that entry and is not a complete experimental inventory.
 
 | Protocol | Global interface | Benefit and required integration |
@@ -214,8 +220,7 @@ advertising protocol globals. Recommended order for general desktop use:
 
 Prioritize physical **drm-lease-v1** qualification for directly connected VR
 headsets; see the [validation checklist](drm-lease-v1-implementation-plan.md).
-Consider **pointer-warp-v1** for applications needing explicit cursor
-repositioning, experimental **xx-session-management-v1** for window-state restoration, and
+Consider experimental **xx-session-management-v1** for window-state restoration and
 **ext-transient-seat-v1** for independent remote-desktop users. Session
 management and transient seats require broader persistence/input work.
 

@@ -102,7 +102,7 @@ pub fn maybeActivate(constraint: *PointerConstraint) void {
     // Find the constrained surface's own scene node instead of accepting only
     // the top-most result of a whole-scene hit test. This keeps child surfaces
     // and same-client overlays from masking a valid root-surface constraint.
-    const node = sceneNodeForSurface(constraint.wlr_constraint.surface) orelse {
+    const node = scene_surface_projection.nodeForSurface(constraint.wlr_constraint.surface) orelse {
         constraint.activationBlocked(.no_scene_surface, seat);
         return;
     };
@@ -196,30 +196,6 @@ fn activationBlocked(constraint: *PointerConstraint, reason: ActivationBlock, se
 
 fn surfaceAddress(surface: ?*wlr.Surface) usize {
     return if (surface) |s| @intFromPtr(s) else 0;
-}
-
-const SurfaceNodeSearch = struct {
-    target: *wlr.Surface,
-    node: ?*wlr.SceneNode = null,
-};
-
-fn findSurfaceNode(
-    buffer: *wlr.SceneBuffer,
-    _: c_int,
-    _: c_int,
-    search: *SurfaceNodeSearch,
-) void {
-    if (search.node != null) return;
-    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
-    if (scene_surface.surface == search.target) search.node = &buffer.node;
-}
-
-fn sceneNodeForSurface(surface: *wlr.Surface) ?*wlr.SceneNode {
-    const root_data = surface.getRootSurface().data orelse return null;
-    const root_node: *wlr.SceneNode = @ptrCast(@alignCast(root_data));
-    var search: SurfaceNodeSearch = .{ .target = surface };
-    root_node.forEachBuffer(*SurfaceNodeSearch, findSurfaceNode, &search);
-    return search.node;
 }
 
 /// Called when the cursor position or content in the scene graph changes

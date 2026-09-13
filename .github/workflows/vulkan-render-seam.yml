@@ -19,6 +19,8 @@ on:
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
       - 'compositor/scripts/test-aqueous-protocols.py'
+      - 'compositor/scripts/test-pointer-warp.py'
+      - 'compositor/scripts/test-pointer-enter.py'
   pull_request:
     branches:
       - master
@@ -37,6 +39,8 @@ on:
       - 'compositor/scripts/test-vulkan-effects.sh'
       - 'compositor/scripts/test-vulkan-render-seam.sh'
       - 'compositor/scripts/test-aqueous-protocols.py'
+      - 'compositor/scripts/test-pointer-warp.py'
+      - 'compositor/scripts/test-pointer-enter.py'
   workflow_dispatch:
 
 permissions:
@@ -181,3 +185,21 @@ jobs:
               --compositor "$RUNNER_TEMP/aqueous-protocol-test/bin/aqueous" \
               --policy "$policy"
           done
+
+      - name: Test pointer warp
+        shell: bash
+        run: |
+          cd compositor
+          for policy in internal external compare; do
+            python3 scripts/test-pointer-warp.py \
+              --compositor "$RUNNER_TEMP/aqueous-protocol-test/bin/aqueous" \
+              --ctl "$RUNNER_TEMP/aqueous-protocol-test/bin/aqueousctl" \
+              --policy "$policy"
+          done
+          if compgen -G '/dev/dri/renderD*' > /dev/null; then
+            for policy in internal external compare; do
+              python3 scripts/test-pointer-warp.py --renderer vulkan --policy "$policy"
+            done
+          else
+            echo 'Vulkan pointer-warp runtime tests require a DRM render node; Pixman runtime and Vulkan build covered.'
+          fi

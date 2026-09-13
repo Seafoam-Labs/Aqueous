@@ -32,3 +32,31 @@ pub fn surfaceToDestination(
     wlr_scene_surface_map_point_to_destination(surface, sx, sy, &dx, &dy);
     return .{ .x = dx, .y = dy };
 }
+
+const SurfaceNodeSearch = struct {
+    target: *wlr.Surface,
+    node: ?*wlr.SceneNode = null,
+};
+
+fn findSurfaceNode(
+    buffer: *wlr.SceneBuffer,
+    _: c_int,
+    _: c_int,
+    search: *SurfaceNodeSearch,
+) void {
+    if (search.node != null) return;
+    const scene_surface = wlr.SceneSurface.tryFromBuffer(buffer) orelse return;
+    if (scene_surface.surface == search.target) search.node = &buffer.node;
+}
+
+pub fn nodeForSurface(surface: *wlr.Surface) ?*wlr.SceneNode {
+    // Popups have their own wl_surface root, but do not store a scene pointer
+    // on it. Search the live input tree in that case, never capture/saved trees.
+    const root_node: *wlr.SceneNode = if (surface.getRootSurface().data) |root_data|
+        @ptrCast(@alignCast(root_data))
+    else
+        &@import("main.zig").server.scene.interactive_tree.node;
+    var search: SurfaceNodeSearch = .{ .target = surface };
+    root_node.forEachBuffer(*SurfaceNodeSearch, findSurfaceNode, &search);
+    return search.node;
+}
