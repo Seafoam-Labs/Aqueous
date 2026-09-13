@@ -173,6 +173,7 @@ xdg_dialog: XdgDialogManager,
 system_bell: @import("SystemBellManager.zig") = .{},
 xdg_toplevel_drag: *wl.Global,
 xdg_icon: XdgToplevelIconManager,
+xdg_tag: @import("XdgToplevelTagManager.zig"),
 
 /// Count render-capable GPUs by probing the conventional render-node range.
 /// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
@@ -466,6 +467,7 @@ pub fn init(
         .xdg_dialog = try XdgDialogManager.init(wl_server),
         .xdg_toplevel_drag = try @import("XdgToplevelDragManager.zig").init(wl_server),
         .xdg_icon = try XdgToplevelIconManager.init(wl_server),
+        .xdg_tag = try @import("XdgToplevelTagManager.zig").init(wl_server),
 
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
@@ -588,6 +590,7 @@ pub fn init(
     try server.system_bell.init();
     server.xdg_dialog.listen();
     server.xdg_icon.listen();
+    server.xdg_tag.listen();
     server.xdg_decoration_manager.events.new_toplevel_decoration.add(&server.new_toplevel_decoration);
     server.xdg_activation.events.request_activate.add(&server.request_activate);
     server.cursor_shape_manager.events.request_set_shape.add(&server.request_set_cursor_shape);
@@ -607,6 +610,7 @@ pub fn deinit(server: *Server) void {
     server.system_bell.deinit();
     server.xdg_dialog.deinit();
     server.xdg_icon.deinit();
+    server.xdg_tag.deinit();
     server.new_toplevel_decoration.link.remove();
     server.request_activate.link.remove();
     server.request_set_cursor_shape.link.remove();
@@ -781,6 +785,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
         global == server.system_bell.global() or
         global == server.xdg_toplevel_drag or
         global == server.xdg_icon.global() or
+        global == server.xdg_tag.global() or
         global == server.xdg_decoration_manager.global or
         global == server.legacy_server_decoration.global() or
         global == server.xdg_activation.global or

@@ -28,6 +28,7 @@ wlr_toplevel: *wlr.XdgToplevel,
 decoration: ?XdgDecoration = null,
 dialog: @import("XdgDialogManager.zig").Dialog = .{},
 icon: @import("ToplevelIcon.zig") = .{},
+tag_metadata: @import("ToplevelTag.zig") = .{},
 
 /// A zxdg_toplevel_decoration_v1 request must receive a configure even when
 /// policy keeps the same effective mode. This is also set for a newly-created
@@ -278,6 +279,7 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     assert(toplevel.decoration == null);
     toplevel.dialog.deinit();
     toplevel.icon.deinit();
+    toplevel.tag_metadata.reset(util.gpa);
     server.ipc_server.invalidateIcons(toplevel.window.ref);
 
     toplevel.destroy.link.remove();
@@ -342,6 +344,9 @@ fn handleUnmap(listener: *wl.Listener(void)) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("unmap", listener);
 
     toplevel.window.unmap();
+    // xdg-shell discards toplevel attributes on unmap. Requests after this
+    // callback belong to the next mapping and must survive its initial commit.
+    toplevel.tag_metadata.reset(util.gpa);
 }
 
 fn handleNewPopup(listener: *wl.Listener(*wlr.XdgPopup), wlr_xdg_popup: *wlr.XdgPopup) void {

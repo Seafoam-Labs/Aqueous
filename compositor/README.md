@@ -509,3 +509,25 @@ hardware monitors are disabled. The base suite uses a fake player, two headless
 outputs, `wlr-randr`, `grim`, and Pillow. `--policy external` runs the registry and
 lifecycle smoke test against an external-policy-enabled build. See the
 [implementation record](../docs/xdg-system-bell-v1-implementation-plan.md).
+
+## Toplevel purpose tags
+
+Aqueous advertises `xdg_toplevel_tag_manager_v1` version 1, including to
+security-context clients and in external-policy builds. Native windows retain
+owned, independently updated tags and translated descriptions. Updates take
+effect without a surface commit; unmapping resets the metadata. Internal policy
+supports `tag` globs in `rules.toml` and the settings rule editor.
+
+`aqueousctl windows --json`, window-info version 8, and socket shell snapshots
+expose nullable `tag` and `description` fields. `aqueousctl inspect --rule`
+combines app ID with a literal non-empty tag. Older inspection bindings remain
+supported. Descriptions are display text, not rule matchers or window IDs.
+
+```sh
+python3 scripts/test-xdg-toplevel-tag.py --renderer pixman --compositor /path/to/pixman/aqueous
+python3 scripts/test-xdg-toplevel-tag.py --renderer vulkan --compositor /path/to/vulkan/aqueous
+```
+
+The Pixman fixture needs a `-Dvulkan-effects=false` build. See the
+[implementation and validation record](../docs/xdg-toplevel-tag-v1-implementation-plan.md)
+and [rule syntax](../docs/rules.md#window-purpose-tags).

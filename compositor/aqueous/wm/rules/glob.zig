@@ -44,3 +44,49 @@ test "glob is anchored, case-sensitive, and handles empty values" {
     try std.testing.expect(!matches("APP", "app"));
     try std.testing.expect(matches("a**b", "ab"));
 }
+
+/// Tag patterns additionally allow backslash to quote the following byte.
+/// Missing metadata never matches, even for the wildcard or empty pattern.
+pub fn matchesTag(pattern: []const u8, value: ?[]const u8) bool {
+    const actual = value orelse return false;
+    var pi: usize = 0;
+    var vi: usize = 0;
+    var star: ?usize = null;
+    var retry: usize = 0;
+    while (vi < actual.len) {
+        if (pi < pattern.len and pattern[pi] == '*') {
+            pi += 1;
+            star = pi;
+            retry = vi;
+            continue;
+        }
+        if (pi < pattern.len) {
+            const escaped = pattern[pi] == '\\' and pi + 1 < pattern.len;
+            const token = pattern[pi + @intFromBool(escaped)];
+            if ((!escaped and token == '?') or token == actual[vi]) {
+                pi += if (escaped) @as(usize, 2) else 1;
+                vi += 1;
+                continue;
+            }
+        }
+        if (star) |start| {
+            retry += 1;
+            vi = retry;
+            pi = start;
+        } else return false;
+    }
+    while (pi < pattern.len and pattern[pi] == '*') pi += 1;
+    return pi == pattern.len;
+}
+
+test "tag globs distinguish absent values and support literal metacharacters" {
+    try std.testing.expect(!matchesTag("*", null));
+    try std.testing.expect(!matchesTag("", null));
+    try std.testing.expect(matchesTag("", ""));
+    try std.testing.expect(matchesTag("*", ""));
+    try std.testing.expect(matchesTag("set*?gs", "settings"));
+    try std.testing.expect(!matchesTag("Settings", "settings"));
+    try std.testing.expect(matchesTag("a\\*\\?\\\\b", "a*?\\b"));
+    try std.testing.expect(!matchesTag("a\\*", "anything"));
+    try std.testing.expect(matchesTag("*\\**", "literal*tag"));
+}

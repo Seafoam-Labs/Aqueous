@@ -70,16 +70,18 @@ aqueous_shell_manager_v1 protocol for live state and typed policy actions.
 *windows*
 	Print a tabular list containing the stable identifier, backend, application
 	identity, title, output, workspace, geometry, layout, committed
-	wp_content_type_v1 content type, and state.
+	wp_content_type_v1 content type, tag, description, and state.
 
 *windows --json*
 	Print the same snapshot as a JSON array for scripts and diagnostics. The
 	content_type field is null when the client has not committed a content
-	type.
+	type. Tag and description are null when unset or on XWayland windows;
+	explicitly empty metadata is an empty string.
 
 *inspect --rule*
 	Print one ready-to-paste rules.toml entry per mapped window. Native Wayland
-	windows use *app_id*; XWayland windows use *class*. The title is included as
+	windows use *app_id*, plus a literal *tag* matcher when the tag is non-empty;
+	XWayland windows use *class*. The title is included as
 	a commented optional matcher.
 
 *scene*

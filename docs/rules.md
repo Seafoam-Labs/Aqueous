@@ -58,9 +58,10 @@ matters.
 
 | Key | Type | Required | Description |
 | --- | --- | --- | --- |
-| `app_id` | string (glob) | one of `app_id` / `class` / `title` / `content_type` must be set | Match `xdg_toplevel.app_id`. |
+| `app_id` | string (glob) | one of `app_id` / `class` / `title` / `tag` / `content_type` must be set | Match `xdg_toplevel.app_id`. |
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
+| `tag` | string (glob) | " | Match the untranslated purpose supplied through `xdg-toplevel-tag-v1`. Native Wayland windows only; combine with `app_id` to scope a rule to one application. |
 | `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. Omitted leaves the workspace layout unchanged. Game mode requires explicit `"game-mode"` (or `"game_mode"`). |
 | `floating` | bool | no | Force floating placement. |
@@ -133,6 +134,35 @@ does not automatically enable it for Chromium, Electron, GTK, VSCodium, or
 Shelly. Existing popups follow their owning window when the policy or output
 scale changes, and newly created popups receive the preference before their
 first configure.
+
+### Window purpose tags
+
+Applications supporting `xdg-toplevel-tag-v1` can identify purposes such as
+`settings` independently of a changing title. Discover these with
+`aqueousctl windows --json` or generate a rule using `aqueousctl inspect --rule`.
+The settings rule editor exposes the same **Window tag** matcher.
+
+```toml
+[[window]]
+app_id = "org.example.Editor"
+tag = "settings"
+floating = true
+```
+
+Tag matching is case-sensitive and combines with all other matchers in the
+rule. `*` matches any sequence and `?` matches one byte; a backslash quotes the
+next byte. For example, `tag = 'literal\*\?'` matches the exact tag `literal*?`.
+Single-quoted TOML strings preserve backslashes; in double-quoted strings,
+write `\\` for each backslash. `inspect --rule` handles both quoting layers.
+
+An unset tag never matches, even with `tag = "*"`; `tag = ""` matches only an
+explicitly empty tag. Multiple windows, including windows in different apps,
+can share a tag. A tag change re-evaluates rules through the normal placement
+and manual-override policy. Combining a tag with `content_type` still limits
+the rule to visual settings. The translated `description` is display text and
+is never a matcher. Metadata resets when a toplevel unmaps. Tags alone do not
+save window geometry across application restarts, and untagged applications
+continue to use the existing identity/title matchers.
 
 ### `[[layer]]`
 

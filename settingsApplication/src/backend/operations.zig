@@ -1091,7 +1091,7 @@ const rule_keys: []const []const u8 = &.{
     "floating",             "fullscreen",    "ignore_struts", "width",        "height",         "x",             "y",
     "placement_policy",     "anchor",        "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
     "hdr_expand",           "overlay_plane", "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
-    "scrolling_full_width",
+    "scrolling_full_width", "tag",
 };
 
 fn writeWindowRules(json: *std.json.Stringify, document: *const config.Document) !void {
@@ -1123,6 +1123,10 @@ fn writeWindowRules(json: *std.json.Stringify, document: *const config.Document)
 }
 
 fn writeRuleJsonValue(json: *std.json.Stringify, key: []const u8, raw: []const u8) !void {
+    if (std.mem.eql(u8, key, "tag")) {
+        var buffer: [128 * 1024]u8 = undefined;
+        return json.write(try decodeRuleTag(raw, &buffer));
+    }
     if (ruleBoolean(key)) {
         if (std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "true")) return json.write(true);
         if (std.mem.eql(u8, std.mem.trim(u8, raw, " \t\r"), "false")) return json.write(false);
@@ -1189,7 +1193,7 @@ fn applyWindowRuleChanges(allocator: Allocator, document: *config.Document, requ
         var first_value: ?Json = null;
         while (iterator.next()) |entry| {
             if (!ruleKnown(entry.key_ptr.*)) return error.InvalidWindowRuleKey;
-            if (entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) continue;
+            if (entry.value_ptr.* == .null or (jsonEmptyString(entry.value_ptr.*) and !std.mem.eql(u8, entry.key_ptr.*, "tag"))) continue;
             first_key = entry.key_ptr.*;
             first_value = entry.value_ptr.*;
             break;
@@ -1202,7 +1206,7 @@ fn applyWindowRuleChanges(allocator: Allocator, document: *config.Document, requ
         iterator = values.object.iterator();
         while (iterator.next()) |entry| {
             if (std.mem.eql(u8, entry.key_ptr.*, key)) continue;
-            if (!ruleKnown(entry.key_ptr.*) or entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) continue;
+            if (!ruleKnown(entry.key_ptr.*) or entry.value_ptr.* == .null or (jsonEmptyString(entry.value_ptr.*) and !std.mem.eql(u8, entry.key_ptr.*, "tag"))) continue;
             const encoded = try encodeRuleValue(allocator, entry.key_ptr.*, entry.value_ptr.*);
             try setTableRaw(document, table_index, entry.key_ptr.*, encoded);
         }
@@ -1215,7 +1219,7 @@ fn applyRuleValues(allocator: Allocator, document: *config.Document, table_index
     while (iterator.next()) |entry| {
         const key = entry.key_ptr.*;
         if (!ruleKnown(key)) return error.InvalidWindowRuleKey;
-        if (entry.value_ptr.* == .null or jsonEmptyString(entry.value_ptr.*)) {
+        if (entry.value_ptr.* == .null or (jsonEmptyString(entry.value_ptr.*) and !std.mem.eql(u8, entry.key_ptr.*, "tag"))) {
             _ = try document.deleteTableEntry(table_index, key);
         } else {
             const encoded = try encodeRuleValue(allocator, key, entry.value_ptr.*);
@@ -1265,7 +1269,7 @@ fn validateWindowRules(document: *const config.Document) !void {
         for (entries) |entry| {
             if (entry.table_index != table.index) continue;
             if (ruleKnown(entry.key)) try validateRuleRaw(entry.key, entry.value);
-            if ((std.mem.eql(u8, entry.key, "app_id") or std.mem.eql(u8, entry.key, "class") or std.mem.eql(u8, entry.key, "title") or std.mem.eql(u8, entry.key, "content_type")) and unquoteToml(entry.value).len > 0) matcher = true;
+            if ((std.mem.eql(u8, entry.key, "app_id") or std.mem.eql(u8, entry.key, "class") or std.mem.eql(u8, entry.key, "title") or std.mem.eql(u8, entry.key, "content_type") or std.mem.eql(u8, entry.key, "tag")) and (unquoteToml(entry.value).len > 0 or std.mem.eql(u8, entry.key, "tag"))) matcher = true;
         }
         if (!matcher) return error.WindowRuleMissingMatcher;
     }
@@ -1324,7 +1328,21 @@ fn ruleDouble(key: []const u8) bool {
     return std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "opacity");
 }
 
+fn decodeRuleTag(raw: []const u8, buffer: []u8) ![]const u8 {
+    const value = std.mem.trim(u8, raw, " \t\r");
+    if (value.len > 0 and value[0] == '"') {
+        var storage = std.heap.FixedBufferAllocator.init(buffer);
+        return std.json.parseFromSliceLeaky([]const u8, storage.allocator(), value, .{}) catch error.InvalidWindowRuleValue;
+    }
+    return unquoteToml(value);
+}
+
 fn validateRuleRaw(key: []const u8, raw: []const u8) !void {
+    if (std.mem.eql(u8, key, "tag")) {
+        var buffer: [128 * 1024]u8 = undefined;
+        _ = try decodeRuleTag(raw, &buffer);
+        return;
+    }
     if (ruleBoolean(key)) {
         const value = std.mem.trim(u8, raw, " \t\r");
         if (!std.mem.eql(u8, value, "true") and !std.mem.eql(u8, value, "false")) return error.InvalidWindowRuleValue;
@@ -2225,4 +2243,42 @@ test "custom bell filenames round trip escaped quotes and backslashes" {
     const encoded = try encodeTomlValue(arena.allocator(), file, .{ .string = original });
     var buffer: [8192]u8 = undefined;
     try std.testing.expectEqualStrings(original, try decodeBellPath(encoded, &buffer));
+}
+
+test "tag-only rules survive backend add, edit and JSON round trips" {
+    try std.testing.expectError(error.InvalidWindowRuleValue, validateRuleRaw("tag", "\"bad\\q\""));
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var document = try config.Document.init(a, "");
+    defer document.deinit();
+    const add = try std.json.parseFromSliceLeaky(Json, a,
+        \\[{"op":"add","values":{"tag":"settings","floating":true}}]
+    , .{});
+    try applyWindowRuleChanges(a, &document, add.array.items);
+    try validateWindowRules(&document);
+    var output: std.Io.Writer.Allocating = .init(a);
+    var json: std.json.Stringify = .{ .writer = &output.writer };
+    try writeWindowRules(&json, &document);
+    const snapshot = try std.json.parseFromSliceLeaky(Json, a, output.written(), .{});
+    const rule = snapshot.array.items[0].object;
+    try std.testing.expectEqualStrings("settings", rule.get("values").?.object.get("tag").?.string);
+    const id = rule.get("id").?.string;
+    const table = try ruleTableFromId(&document, id);
+    const escaped = try std.json.parseFromSliceLeaky(Json, a,
+        \\{"tag":"literal\\*\\?\\\\purpose\"#\n\t"}
+    , .{});
+    try applyRuleValues(a, &document, table, escaped.object);
+    try validateWindowRules(&document);
+    output.clearRetainingCapacity();
+    json = .{ .writer = &output.writer };
+    try writeWindowRules(&json, &document);
+    const updated = try std.json.parseFromSliceLeaky(Json, a, output.written(), .{});
+    try std.testing.expectEqualStrings(escaped.object.get("tag").?.string, updated.array.items[0].object.get("values").?.object.get("tag").?.string);
+    const empty = try std.json.parseFromSliceLeaky(Json, a, "{\"tag\":\"\"}", .{});
+    try applyRuleValues(a, &document, table, empty.object);
+    try validateWindowRules(&document);
+    const remove = try std.json.parseFromSliceLeaky(Json, a, "{\"tag\":null}", .{});
+    try applyRuleValues(a, &document, table, remove.object);
+    try std.testing.expectError(error.WindowRuleMissingMatcher, validateWindowRules(&document));
 }

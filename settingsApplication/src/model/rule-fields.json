@@ -24,6 +24,14 @@
     "placeholder": "Any title"
   },
   {
+    "key": "tag",
+    "label": "Window tag",
+    "type": "string",
+    "group": "Match windows",
+    "description": "Untranslated window purpose reported by a Wayland app. Case-sensitive glob; combine with Application ID to scope a rule.",
+    "placeholder": "Any tag"
+  },
+  {
     "key": "content_type",
     "label": "Content type",
     "type": "select",

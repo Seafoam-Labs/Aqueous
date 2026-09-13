@@ -24,7 +24,7 @@ def run(app, env, base, config, ui, control, click, focus, inject, capture):
             assert child.poll() is None
             assert control('select_rule')['selected'] == '1 · App: steam_app_*'
             assert {c['key'] for c in ui()['controls'] if c['action'] == 'rule_field'} == {
-                'app_id', 'class', 'title', 'content_type', 'layout', 'blur', 'opacity'}
+                'app_id', 'class', 'title', 'tag', 'content_type', 'layout', 'blur', 'opacity'}
             assert control('rule_field', 'blur')['selected'] == 'Off'
             select_step('rule_field', 'blur', 103)
             assert control('rule_field', 'blur')['selected'] == 'On', (control('rule_field', 'blur'), ui()['focus'], ui()['pending'])

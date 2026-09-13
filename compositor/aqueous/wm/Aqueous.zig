@@ -364,6 +364,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .app_id = window.app_id,
                 .class = window.app_id,
                 .title = window.title,
+                .tag = window.tag,
                 .content_type = window.content_type,
             });
             aqueous.api.ensureWorkspace(window.handle, output.id);
@@ -504,6 +505,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .app_id = window.app_id,
                 .class = window.app_id,
                 .title = window.title,
+                .tag = window.tag,
                 .content_type = window.content_type,
             });
             const focus_opacity: ?f64 = if (aqueous.config.wm.opacity_enabled and aqueous.config.wm.opacity_focus_sensitive)
@@ -3100,6 +3102,7 @@ fn reconcileRulePlacements(aqueous: *Aqueous, snapshot: *const CompositorApi.Pol
             .app_id = window.app_id,
             .class = window.app_id,
             .title = window.title,
+            .tag = window.tag,
             .content_type = window.content_type,
         });
         if (aqueous.prepareWindowRuleMatch(window, output.id, rule)) refresh = true;

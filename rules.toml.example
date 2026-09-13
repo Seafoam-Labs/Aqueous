@@ -216,3 +216,10 @@ gaps_inner = 8             # integer >= 0
 # Migration: older versions defaulted most rules with no layout to Game Mode.
 # Add layout = "game-mode" to game rules that relied on that default.
 # Visual-only and placement-only rules can omit layout to preserve the workspace layout.
+
+# Native Wayland apps may identify a window's untranslated purpose with a tag.
+# Use aqueousctl inspect --rule to discover and quote tags correctly.
+# [[window]]
+# app_id = "org.example.Editor"
+# tag = "settings"
+# floating = true

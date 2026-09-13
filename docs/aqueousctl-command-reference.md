@@ -66,11 +66,15 @@ aqueousctl inspect --rule
 ```
 
 Window inspection includes IDs, backend, application identity, title, output,
-workspace number, geometry, layout, content type, and states. JSON also includes
+workspace number, geometry, layout, content type, client-provided tag and
+description, and states. Tag and description are null when unset (including
+XWayland), and empty strings when explicitly set empty. JSON also includes
 decoration information and the matched rule index.
 
 `inspect --rule` prints a TOML rule entry for each mapped window: `app_id` for
-native Wayland applications and `class` for XWayland. Titles are included as
+native Wayland applications and `class` for XWayland. Native windows with a
+non-empty tag also get a literal `tag` matcher, with TOML and glob escaping.
+Titles are included as
 commented optional matchers. Copy the entries you need into `rules.toml`.
 
 ## Inspect outputs, rendering, and the scene graph

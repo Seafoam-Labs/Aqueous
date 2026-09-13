@@ -40,6 +40,7 @@ pub const Window = struct {
     dialog: bool = false,
     app_id: ?[]u8 = null,
     title: ?[]u8 = null,
+    tag: ?[]u8 = null,
     content_type: wp.ContentTypeV1.Type = .none,
     accepts_focus: bool = true,
     min_width: i32 = 0,

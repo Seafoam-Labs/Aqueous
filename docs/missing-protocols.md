@@ -55,11 +55,17 @@ isolated PipeWire null sink. External-policy registry/lifecycle smoke checks pas
 See the [implementation and validation record](xdg-system-bell-v1-implementation-plan.md)
 for behavior and remaining physical-display qualification.
 
+`xdg-toplevel-tag-v1` is implemented with owned per-toplevel tags/descriptions,
+initial and runtime tag rules, settings-editor support, versioned CLI inspection,
+and socket metadata updates. Pixman/Vulkan protocol tests and legacy inspection
+bindings pass. Tags remain client-provided and need not be unique. See the
+[implementation and validation record](xdg-toplevel-tag-v1-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols staging
 
-All five missing staging protocols listed by Wayland Explorer are below.
+The four remaining missing staging protocols listed by Wayland Explorer are below.
 The remaining staging protocol families are implemented, with runtime
 availability subject to build, renderer, hardware, and client-policy conditions.
 This inventory tracks protocol presence, not conformance to every interface
@@ -68,7 +74,6 @@ version or request.
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
 | [commit-timing-v1](https://wayland.app/protocols/commit-timing-v1) | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
-| [xdg-toplevel-tag-v1](https://wayland.app/protocols/xdg-toplevel-tag-v1) | `xdg_toplevel_tag_manager_v1` | API present: `wlr_xdg_toplevel_tag_v1.h`; no Aqueous manager initialization found. | Client-provided tags identify window purposes across launches, improving rules without matching changing titles. Wire the manager's tag/description events into per-window storage, rule matching, and inspection/UI exposure. Tags need not be unique; benefit depends on client adoption. |
 | [drm-lease-v1](https://wayland.app/protocols/drm-lease-v1) | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
 | [pointer-warp-v1](https://wayland.app/protocols/pointer-warp-v1) | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
 | [ext-transient-seat-v1](https://wayland.app/protocols/ext-transient-seat-v1) | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
@@ -84,7 +89,7 @@ The dependency headers are under
 
 Session management was previously listed above as staging
 `xdg-session-management-v1`. Wayland Explorer currently lists it as experimental
-`xx-session-management-v1`; it is excluded from the five staging gaps. This
+`xx-session-management-v1`; it is excluded from the four staging gaps. This
 section preserves that entry and is not a complete experimental inventory.
 
 | Protocol | Global interface | Benefit and required integration |
@@ -200,7 +205,6 @@ advertising protocol globals. Recommended order for general desktop use:
 | Priority | Work | Estimated scope |
 |---|---|---|
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
-| Medium | **xdg-toplevel-tag-v1** | Small–medium: metadata plus rule/inspection integration; value depends on participating clients. |
 
 Raise **drm-lease-v1** to high priority for directly connected VR headset
 support. Consider **pointer-warp-v1** for applications needing explicit cursor

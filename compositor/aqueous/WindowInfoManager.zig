@@ -38,7 +38,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            7,
+            8,
             *WindowInfoManager,
             manager,
             bind,
@@ -451,6 +451,10 @@ fn sendSnapshot(
         .xdg => .xdg,
         .xwayland => .xwayland,
     });
+    if (manager.getVersion() >= 8) {
+        if (snapshot.tag) |tag| info.sendTag(tag);
+        if (snapshot.description) |description| info.sendDescription(description);
+    }
     if (snapshot.app_id) |app_id| info.sendAppId(app_id);
     if (snapshot.class) |class| info.sendClass(class);
     if (snapshot.output) |output| info.sendOutput(output);
@@ -492,6 +496,7 @@ fn sendSnapshot(
             if (rule.app_id) |pattern| sendRuleMatcher(info, .app_id, pattern);
             if (rule.class) |pattern| sendRuleMatcher(info, .class, pattern);
             if (rule.title) |pattern| sendRuleMatcher(info, .title, pattern);
+            if (manager.getVersion() >= 8) if (rule.tag) |pattern| sendRuleMatcher(info, .tag, pattern);
             if (supports_content_type) if (rule.content_type) |content_type| {
                 sendRuleMatcher(info, .content_type, @tagName(content_type));
             };

@@ -165,7 +165,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("aqueous_window_manager_v1", 10);
-    scanner.generate("aqueous_window_info_manager_v1", 7);
+    scanner.generate("aqueous_window_info_manager_v1", 8);
     scanner.generate("aqueous_shell_manager_v1", 2);
     scanner.generate("aqueous_xkb_bindings_v1", 3);
     scanner.generate("aqueous_layer_shell_v1", 1);
@@ -764,6 +764,8 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&b.addRunArtifact(xdg_state_test).step);
         const bell_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/system_bell.zig"), .target = target, .optimize = optimize }) });
         test_step.dependOn(&b.addRunArtifact(bell_test).step);
+        const tag_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/ToplevelTag.zig"), .target = target, .optimize = optimize }) });
+        test_step.dependOn(&b.addRunArtifact(tag_test).step);
         test_step.dependOn(&run_scene_buffer_clone_test.step);
         test_step.dependOn(&run_slotmap_test.step);
         test_step.dependOn(&run_effect_metadata_test.step);

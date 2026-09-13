@@ -15,6 +15,7 @@ pub const Identity = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
+    tag: ?[]const u8 = null,
     content_type: wp.ContentTypeV1.Type = .none,
 };
 
@@ -66,6 +67,7 @@ pub const Rule = struct {
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
+    tag: ?[]const u8 = null,
     /// Matches the wp_content_type_v1 state committed by the client. Rules
     /// with this matcher only apply visual/client-buffer effects (blur,
     /// opacity, buffer_scale_policy, and hdr_expand); layout and placement
@@ -107,6 +109,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
+        hashOptionalString(&hash, rule.tag);
         hashOptionalContentType(&hash, rule.content_type);
         hashOptionalEnum(&hash, rule.layout);
         hash.update(std.mem.asBytes(&rule.placement.floating));
@@ -156,6 +159,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
+        hashOptionalString(&hash, rule.tag);
         hashOptionalContentType(&hash, rule.content_type);
         const value = hash.final();
         return if (value == 0) 1 else value;
@@ -166,6 +170,7 @@ pub const Rule = struct {
         placement_only.app_id = null;
         placement_only.class = null;
         placement_only.title = null;
+        placement_only.tag = null;
         placement_only.content_type = null;
         placement_only.layout = null;
         placement_only.fullscreen = false;
@@ -243,10 +248,11 @@ pub fn reloadSnapshot(
 
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     for (engine.rules) |rule| {
-        if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) continue;
+        if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null) continue;
         if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) continue;
         if (rule.class != null and !glob.matches(rule.class, identity.class)) continue;
         if (rule.title != null and !glob.matches(rule.title, identity.title)) continue;
+        if (rule.tag) |pattern| if (!glob.matchesTag(pattern, identity.tag)) continue;
         if (rule.content_type) |expected| if (expected != identity.content_type) continue;
         if (rule.content_type == null) return rule;
         // Content-type rules are visual-only: drop every layout and placement
@@ -291,6 +297,7 @@ fn freeRules(allocator: std.mem.Allocator, rules: []Rule) void {
         if (rule.app_id) |value| allocator.free(value);
         if (rule.class) |value| allocator.free(value);
         if (rule.title) |value| allocator.free(value);
+        if (rule.tag) |value| allocator.free(value);
         if (rule.placement.output) |value| allocator.free(value);
     }
     if (rules.len > 0) allocator.free(rules);
@@ -304,6 +311,7 @@ fn cloneRules(allocator: std.mem.Allocator, rules: []const Rule) ![]Rule {
             if (rule.app_id) |value| allocator.free(value);
             if (rule.class) |value| allocator.free(value);
             if (rule.title) |value| allocator.free(value);
+            if (rule.tag) |value| allocator.free(value);
             if (rule.placement.output) |value| allocator.free(value);
         }
         allocator.free(result);
@@ -323,6 +331,8 @@ fn cloneRule(allocator: std.mem.Allocator, source: Rule) !Rule {
     errdefer if (result.class) |value| allocator.free(value);
     result.title = if (source.title) |value| try allocator.dupe(u8, value) else null;
     errdefer if (result.title) |value| allocator.free(value);
+    result.tag = if (source.tag) |value| try allocator.dupe(u8, value) else null;
+    errdefer if (result.tag) |value| allocator.free(value);
     result.placement.output = if (source.placement.output) |value| try allocator.dupe(u8, value) else null;
     return result;
 }
@@ -510,4 +520,27 @@ test "floating fingerprints ignore visual edits but detect geometry edits" {
     const geometry_edit: Rule = .{ .placement = .{ .floating = true, .width = 700 }, .opacity = 0.5 };
     try std.testing.expectEqual(first.floatingFingerprint(), visual_edit.floatingFingerprint());
     try std.testing.expect(first.floatingFingerprint() != geometry_edit.floatingFingerprint());
+}
+
+test "tag identity composes matchers, owns strings and preserves visual-only policy" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reload(&.{
+        .{ .app_id = "editor", .tag = "settings", .placement = .{ .floating = true } },
+        .{ .tag = "game*", .content_type = .game, .placement = .{ .workspace = 4 }, .skip_taskbar = true, .blur = false },
+        .{ .tag = "*", .skip_switcher = true },
+    });
+    try std.testing.expect(engine.resolve(.{ .app_id = "editor" }) == null);
+    try std.testing.expect(engine.resolve(.{ .app_id = "editor", .tag = "settings" }).?.placement.floating);
+    try std.testing.expect(engine.resolve(.{ .app_id = "other", .tag = "settings" }).?.skip_switcher);
+    const visual = engine.resolve(.{ .tag = "game window", .content_type = .game }).?;
+    try std.testing.expectEqual(@as(u32, 0), visual.placement.workspace);
+    try std.testing.expect(!visual.skip_taskbar);
+    try std.testing.expectEqual(@as(?bool, false), visual.blur);
+    const original = engine.rules[0];
+    var changed = original;
+    changed.tag = "other";
+    try std.testing.expect(original.fingerprint() != changed.fingerprint());
+    try std.testing.expect(original.matcherFingerprint() != changed.matcherFingerprint());
+    try std.testing.expectEqual(original.floatingFingerprint(), changed.floatingFingerprint());
 }

@@ -71,6 +71,8 @@ pub fn resolveDiscoveredPath(buffer: []u8, env_override: ?[]const u8, configured
 }
 
 pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []const u8) !void {
+    var strings = std.heap.ArenaAllocator.init(allocator);
+    defer strings.deinit();
     var parsed: std.ArrayListUnmanaged(Engine.Rule) = .empty;
     defer parsed.deinit(allocator);
     var parsed_layers: std.ArrayListUnmanaged(Engine.LayerRule) = .empty;
@@ -105,7 +107,13 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
         }
         const equal = toml.indexUnquoted(line, '=') orelse continue;
         const key = std.mem.trim(u8, line[0..equal], " \t");
-        const value = toml.unquote(std.mem.trim(u8, line[equal + 1 ..], " \t"));
+        const raw = std.mem.trim(u8, line[equal + 1 ..], " \t");
+        // Decode basic-string escapes for tags so inspection-generated literal
+        // glob patterns round-trip. Single-quoted TOML strings stay literal.
+        const value = if (section == .window and std.mem.eql(u8, key, "tag") and raw.len > 0 and raw[0] == '"')
+            try std.json.parseFromSliceLeaky([]const u8, strings.allocator(), raw, .{})
+        else
+            toml.unquote(raw);
         switch (section) {
             .window => if (current) |*rule| applyValue(rule, key, value),
             .layer => if (current_layer) |*rule| applyLayerValue(
@@ -143,7 +151,7 @@ fn hash(source: []const u8) u64 {
 }
 
 fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
-    if (rule.app_id == null and rule.class == null and rule.title == null and rule.content_type == null) return;
+    if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null) return;
     try rules.append(allocator, rule);
 }
 
@@ -173,6 +181,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "app_id")) rule.app_id = value;
     if (std.mem.eql(u8, key, "class")) rule.class = value;
     if (std.mem.eql(u8, key, "title")) rule.title = value;
+    if (std.mem.eql(u8, key, "tag")) rule.tag = value;
     if (std.mem.eql(u8, key, "content_type")) rule.content_type = parseContentType(value) orelse rule.content_type;
     if (std.mem.eql(u8, key, "floating")) rule.placement.floating = parseBool(value) orelse rule.placement.floating;
     if (std.mem.eql(u8, key, "output") and value.len > 0) rule.placement.output = value;
@@ -545,4 +554,29 @@ test "rules accept reverse dwindle layouts and game-mode children" {
     try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.resolve(.{ .app_id = "editor" }).?.layout.?);
     try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.reverse_dwindle, engine.game_mode.fallback_layout);
+}
+
+test "tag rules parse empty, literal and escaped basic strings and survive reload" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\tag = ""
+        \\skip_taskbar = true
+        \\[[window]]
+        \\app_id = "editor"
+        \\tag = "literal\\*\\?\\\\purpose\"#\n\t"
+        \\floating = true
+        \\[[window]]
+        \\tag = 'settings'
+        \\skip_switcher = true
+    );
+    try std.testing.expectEqual(@as(usize, 3), engine.rules.len);
+    try std.testing.expect(engine.resolve(.{}) == null);
+    try std.testing.expect(engine.resolve(.{ .tag = "" }).?.skip_taskbar);
+    try std.testing.expect(engine.resolve(.{ .app_id = "editor", .tag = "literal*?\\purpose\"#\n\t" }).?.placement.floating);
+    try std.testing.expect(engine.resolve(.{ .app_id = "editor", .tag = "literalXXpurpose\"#\n\t" }) == null);
+    try std.testing.expect(engine.resolve(.{ .tag = "settings" }).?.skip_switcher);
+    try std.testing.expectError(error.SyntaxError, parseAndReload(std.testing.allocator, &engine, "[[window]]\ntag = \"bad\\q\""));
+    try std.testing.expectEqual(@as(usize, 3), engine.rules.len);
 }

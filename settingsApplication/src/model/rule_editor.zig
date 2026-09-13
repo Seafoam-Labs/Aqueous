@@ -1,12 +1,12 @@
 const std = @import("std");
 const j = @import("json.zig");
 
-pub const match_keys = [_][]const u8{ "app_id", "class", "title", "content_type" };
+pub const match_keys = [_][]const u8{ "app_id", "class", "title", "tag", "content_type" };
 
 pub fn label(a: std.mem.Allocator, values: j.Value, index: usize) ![]const u8 {
     var result = try std.fmt.allocPrint(a, "{d}", .{index + 1});
     var matched = false;
-    for (match_keys, [_][]const u8{ "App", "Class", "Title", "Content" }) |key, name| {
+    for (match_keys, [_][]const u8{ "App", "Class", "Title", "Tag", "Content" }) |key, name| {
         if (j.get(values, key) == .null) continue;
         matched = true;
         result = try std.fmt.allocPrint(a, "{s} · {s}: {s}", .{ result, name, if (j.text(values, key).len == 0) "(empty)" else j.text(values, key) });
@@ -96,4 +96,11 @@ test "rule labels identify class-only and content-only rules" {
     try std.testing.expectEqualStrings("2 · Class: Steam", try label(a, try j.parse(a, "{\"class\":\"Steam\"}"), 1));
     try std.testing.expectEqualStrings("1 · Content: game", try label(a, try j.parse(a, "{\"content_type\":\"game\"}"), 0));
     try std.testing.expectEqualStrings("1 · No matching conditions", try label(a, .null, 0));
+}
+
+test "rule labels include untranslated tags" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("1 · Tag: settings", try label(a, try j.parse(a, "{\"tag\":\"settings\"}"), 0));
 }

@@ -218,6 +218,7 @@ pub const PolicySnapshot = struct {
     active: bool,
     app_id: ?[*:0]const u8,
     title: ?[*:0]const u8,
+    tag: ?[*:0]const u8,
     content_type: wp.ContentTypeV1.Type,
     accepts_focus: bool,
     fullscreen: bool,
@@ -243,10 +244,12 @@ pub const InfoBackend = enum { xdg, xwayland };
 /// Strings borrow their backing protocol/output objects and are consumed
 /// synchronously while servicing the request.
 pub const InfoSnapshot = struct {
+    description: ?[*:0]const u8,
     backend: InfoBackend,
     app_id: ?[*:0]const u8,
     class: ?[*:0]const u8,
     title: ?[*:0]const u8,
+    tag: ?[*:0]const u8,
     content_type: wp.ContentTypeV1.Type,
     output: ?[*:0]const u8,
     workspace: u32,
@@ -554,6 +557,7 @@ pub fn policySnapshot(window: *const Window) PolicySnapshot {
         // filtered by the caller anyway.
         .app_id = if (active) window.getAppId() else null,
         .title = if (active) window.getTitle() else null,
+        .tag = if (active) window.getTag() else null,
         .content_type = window.content_type,
         .accepts_focus = window.wm_scheduled.accepts_focus,
         .fullscreen = window.wm_requested.fullscreen != null,
@@ -2918,6 +2922,20 @@ pub fn getTitle(window: Window) ?[*:0]const u8 {
     };
 }
 
+pub fn getTag(window: Window) ?[*:0]const u8 {
+    return switch (window.impl) {
+        .toplevel => |toplevel| if (toplevel.tag_metadata.tag) |value| value.ptr else null,
+        .xwayland, .destroying => null,
+    };
+}
+
+pub fn getDescription(window: Window) ?[*:0]const u8 {
+    return switch (window.impl) {
+        .toplevel => |toplevel| if (toplevel.tag_metadata.description) |value| value.ptr else null,
+        .xwayland, .destroying => null,
+    };
+}
+
 /// Return the current app_id of the window if any.
 pub fn getAppId(window: Window) ?[*:0]const u8 {
     return switch (window.impl) {
@@ -2949,6 +2967,8 @@ pub fn infoSnapshot(window: *const Window) InfoSnapshot {
         .app_id = app_id,
         .class = class,
         .title = window.getTitle(),
+        .tag = window.getTag(),
+        .description = window.getDescription(),
         .content_type = window.content_type,
         .output = if (workspace) |ws|
             if (ws.output.wlr_output) |output| output.name else null

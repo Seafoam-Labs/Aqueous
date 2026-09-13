@@ -145,6 +145,8 @@ const Window = struct {
 
     identifier: ?[]u8 = null,
     title: ?[]u8 = null,
+    tag: ?[]u8 = null,
+    description: ?[]u8 = null,
     foreign_app_id: ?[]u8 = null,
     app_id: ?[]u8 = null,
     class: ?[]u8 = null,
@@ -165,11 +167,15 @@ const Window = struct {
     rule_app_id: ?[]u8 = null,
     rule_class: ?[]u8 = null,
     rule_title: ?[]u8 = null,
+    rule_tag: ?[]u8 = null,
 
     fn deinit(window: *Window) void {
         inline for (.{
             window.identifier,
             window.title,
+            window.tag,
+            window.description,
+            window.rule_tag,
             window.foreign_app_id,
             window.app_id,
             window.class,
@@ -541,7 +547,7 @@ fn registryListener(_: *wl.Registry, event: wl.Registry.Event, state: *State) vo
                 state.list_version = global.version;
             } else if (mem.eql(u8, name, mem.span(aqueous.WindowInfoManagerV1.interface.name))) {
                 state.info_name = global.name;
-                state.info_version = global.version;
+                state.info_version = @min(global.version, aqueous.WindowInfoManagerV1.generated_version);
             } else if (state.collect_outputs and mem.eql(u8, name, mem.span(zwlr.OutputManagerV1.interface.name))) {
                 state.output_manager_name = global.name;
                 state.output_manager_version = @min(global.version, zwlr.OutputManagerV1.generated_version);
@@ -848,6 +854,8 @@ fn infoListener(_: *aqueous.WindowInfoV1, event: aqueous.WindowInfoV1.Event, win
         .geometry => |value| window.geometry = .{ .x = value.x, .y = value.y, .width = value.width, .height = value.height },
         .state => |value| window.states = value.state,
         .layout => |value| replaceString(&window.layout, mem.span(value.layout)),
+        .tag => |value| replaceString(&window.tag, mem.span(value.tag)),
+        .description => |value| replaceString(&window.description, mem.span(value.description)),
         .content_type => |value| window.content_type = contentTypeName(value.content_type),
         .matched_rule => |value| window.matched_rule = value.index,
         .decoration => |value| {
@@ -861,6 +869,7 @@ fn infoListener(_: *aqueous.WindowInfoV1, event: aqueous.WindowInfoV1.Event, win
             .class => replaceString(&window.rule_class, mem.span(value.pattern)),
             .title => replaceString(&window.rule_title, mem.span(value.pattern)),
             .content_type => {},
+            .tag => replaceString(&window.rule_tag, mem.span(value.pattern)),
             _ => {},
         },
         .done => window.info_done = true,
@@ -1165,7 +1174,7 @@ fn writeDotEscaped(writer: *Io.Writer, value: []const u8) !void {
 }
 
 fn writeHuman(writer: *Io.Writer, state: *const State) !void {
-    try writer.writeAll("ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tSTATE\n");
+    try writer.writeAll("ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tTAG\tDESCRIPTION\tSTATE\n");
     for (state.windows.items) |window| {
         if (window.closed or !window.info_done) continue;
         const identity = window.app_id orelse window.class orelse window.foreign_app_id orelse "";
@@ -1183,6 +1192,7 @@ fn writeHuman(writer: *Io.Writer, state: *const State) !void {
             window.layout orelse "",
             window.content_type orelse "",
         });
+        try writer.print("{s}\t{s}\t", .{ window.tag orelse "", window.description orelse "" });
         try writeStates(writer, window.states);
         try writer.writeByte('\n');
     }
@@ -1229,6 +1239,8 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
             window.workspace, window.geometry.x, window.geometry.y, window.geometry.width, window.geometry.height,
         });
         try jsonField(writer, "layout", window.layout, false);
+        try jsonField(writer, "tag", window.tag, false);
+        try jsonField(writer, "description", window.description, false);
         try jsonField(writer, "content_type", window.content_type, false);
         try writer.writeAll(",\"decoration\":{\"capability\":");
         try jsonString(writer, decorationCapabilityName(window.decoration_capability));
@@ -1294,6 +1306,18 @@ fn jsonString(writer: *Io.Writer, value: []const u8) !void {
     try writer.writeByte('"');
 }
 
+// JSON basic-string quoting is also valid TOML. Escape tag glob operators
+// before quoting, so inspection produces a literal matcher for arbitrary tags.
+fn tagRuleString(writer: *Io.Writer, tag: []const u8) !void {
+    var literal: std.Io.Writer.Allocating = .init(allocator);
+    defer literal.deinit();
+    for (tag) |byte| {
+        if (byte == '*' or byte == '?' or byte == '\\') try literal.writer.writeByte('\\');
+        try literal.writer.writeByte(byte);
+    }
+    try jsonString(writer, literal.written());
+}
+
 fn writeRules(writer: *Io.Writer, state: *const State) !void {
     for (state.windows.items) |window| {
         if (window.closed or !window.info_done) continue;
@@ -1311,6 +1335,12 @@ fn writeRules(writer: *Io.Writer, state: *const State) !void {
             try writer.writeAll("app_id = ");
             try jsonString(writer, window.app_id orelse window.foreign_app_id orelse "");
         }
+        if (window.backend == .xdg) if (window.tag) |tag| {
+            if (tag.len > 0) {
+                try writer.writeAll("\ntag = ");
+                try tagRuleString(writer, tag);
+            }
+        };
         try writer.writeAll("\n# title = ");
         try jsonString(writer, title);
         try writer.writeAll("\n\n");
@@ -1468,8 +1498,8 @@ test "human output selects identity fallback and ordered states" {
     try writeHuman(&writer, &state);
 
     try std.testing.expectEqualStrings(
-        "ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tSTATE\n" ++
-            "window-1\txdg\tEditorClass\tEditor\tDP-1:4\t-10,20 1280x720\tdwindle\tgame\tfocused,fullscreen,visible\n",
+        "ID\tBACKEND\tAPP_ID/CLASS\tTITLE\tOUTPUT:WORKSPACE\tGEOMETRY\tLAYOUT\tCONTENT\tTAG\tDESCRIPTION\tSTATE\n" ++
+            "window-1\txdg\tEditorClass\tEditor\tDP-1:4\t-10,20 1280x720\tdwindle\tgame\t\t\tfocused,fullscreen,visible\n",
         writer.buffered(),
     );
 }
@@ -1509,7 +1539,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
 
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"content_type\":null,\"decoration\":{\"capability\":\"unavailable\",\"requested\":\"client-side\",\"effective\":\"client-side\",\"configure_pending\":false},\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"tag\":null,\"description\":null,\"content_type\":null,\"decoration\":{\"capability\":\"unavailable\",\"requested\":\"client-side\",\"effective\":\"client-side\",\"configure_pending\":false},\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
             "]\n",
         writer.buffered(),
     );
@@ -1601,4 +1631,13 @@ test {
 
 test {
     _ = @import("Input.zig");
+}
+
+test "tag rule generation quotes TOML and glob metacharacters" {
+    var output: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try tagRuleString(&output.writer, "literal*?\\purpose\"#\n\t");
+    const decoded = try std.json.parseFromSlice([]const u8, std.testing.allocator, output.written(), .{});
+    defer decoded.deinit();
+    try std.testing.expectEqualStrings("literal\\*\\?\\\\purpose\"#\n\t", decoded.value);
 }

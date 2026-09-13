@@ -776,12 +776,24 @@ fn snapshotWindows(allocator: std.mem.Allocator, include_inactive: bool) !Policy
                 }
             else
                 null;
+            // Placement reconciliation includes inactive workspaces; read the
+            // live identity just as for app_id/title instead of the active-only
+            // policy snapshot, or moving off-workspace loses rule ownership.
+            const tag = if (window.getTag()) |value|
+                allocator.dupe(u8, std.mem.span(value)) catch |err| {
+                    if (app_id) |owned| allocator.free(owned);
+                    if (title) |owned| allocator.free(owned);
+                    return err;
+                }
+            else
+                null;
             windows.appendAssumeCapacity(.{
                 .handle = window_snapshot.handle,
                 .parent = window_snapshot.parent_handle,
                 .dialog = window.isDialog(),
                 .app_id = app_id,
                 .title = title,
+                .tag = tag,
                 .content_type = window_snapshot.content_type,
                 .accepts_focus = window_snapshot.accepts_focus,
                 .fullscreen = window_snapshot.fullscreen,
@@ -1115,6 +1127,7 @@ fn freeWindowStrings(allocator: std.mem.Allocator, windows: []const layout.Windo
     for (windows) |window| {
         if (window.app_id) |value| allocator.free(value);
         if (window.title) |value| allocator.free(value);
+        if (window.tag) |value| allocator.free(value);
     }
 }
 

@@ -15,10 +15,11 @@
     committed wp_content_type_v1 state and content-type rule matchers. Version
     5 adds a read-only DRM overlay-plane diagnostic snapshot. Version 6 adds
     xdg-decoration negotiation state to window snapshots. Version 7 adds
-    query and live control of the compositor-owned cursor theme.
+    query and live control of the compositor-owned cursor theme. Version 8 adds
+    client-provided toplevel tags, descriptions, and tag rule matchers.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="7">
+  <interface name="aqueous_window_info_manager_v1" version="8">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -119,7 +120,7 @@
     </event>
   </interface>
 
-  <interface name="aqueous_window_info_v1" version="3">
+  <interface name="aqueous_window_info_v1" version="8">
     <description summary="one-shot window information snapshot">
       A read-only snapshot of compositor-owned state for one mapped toplevel.
       The state bitfield also reports stacking layer, snap, fixed-position,
@@ -151,6 +152,7 @@
       <entry name="class" value="1"/>
       <entry name="title" value="2"/>
       <entry name="content_type" value="3" since="2"/>
+      <entry name="tag" value="4" since="8"/>
     </enum>
 
     <enum name="decoration_capability">
@@ -241,6 +243,21 @@
     <request name="destroy" type="destructor">
       <description summary="destroy this snapshot object"/>
     </request>
+    <event name="tag" since="8">
+      <description summary="untranslated client-provided window purpose">
+        Omitted when never set; an explicitly empty tag is sent as an empty
+        string. Tags are not unique and do not replace the foreign identifier.
+      </description>
+      <arg name="tag" type="string"/>
+    </event>
+
+    <event name="description" since="8">
+      <description summary="translated client-provided window purpose">
+        Display text only, independent of the tag. Omitted when never set;
+        an explicitly empty description is sent as an empty string.
+      </description>
+      <arg name="description" type="string"/>
+    </event>
   </interface>
 
   <interface name="aqueous_scene_snapshot_v1" version="1">

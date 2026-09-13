@@ -259,7 +259,11 @@ focus_follows_mouse = true
                 # requests. A window can disappear between them during hide.
                 for attempt in range(6):
                     try:
-                        return json.loads(run([args.ctl.resolve(), "windows", "--json"]))
+                        rows = json.loads(run([args.ctl.resolve(), "windows", "--json"]))
+                        for row in rows:
+                            if row["backend"] == "xwayland":
+                                assert row["tag"] is None and row["description"] is None, row
+                        return rows
                     except RuntimeError as error:
                         transient = any(message in str(error) for message in (
                             "foreign toplevel is not owned by Aqueous", "foreign toplevel is no longer mapped"))

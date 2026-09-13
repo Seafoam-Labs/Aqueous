@@ -38,6 +38,7 @@ struct connection {
     struct wl_registry *registry;
     uint32_t globals[6];
     bool unavailable;
+    bool toplevel_tag;
 };
 static struct aqueous_xkb_bindings_v1 *bindings;
 static struct aqueous_layer_shell_v1 *layer;
@@ -370,6 +371,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
                    const char *interface, uint32_t version) {
     struct connection *connection = data;
     assert(strncmp(interface, "river_", 6) != 0);
+    if (!strcmp(interface, "xdg_toplevel_tag_manager_v1")) {
+        assert(version == 1 && !connection->toplevel_tag);
+        connection->toplevel_tag = true;
+    }
     for (unsigned i = 0; i < 6; i++) {
         if (strcmp(interface, interfaces[i]->name)) continue;
         assert(!connection->globals[i] && version == versions[i]);
@@ -421,6 +426,7 @@ static void connect_client(struct connection *connection, const char *name, bool
     assert(wl_registry_add_listener(connection->registry, &registry_listener, connection) == 0);
     assert(wl_display_roundtrip(connection->display) >= 0);
     for (unsigned i = 0; i < 6; i++) assert((connection->globals[i] != 0) == !restricted);
+    assert(connection->toplevel_tag);
 }
 static void roundtrips(struct connection *connection) {
     for (unsigned i = 0; i < 8; i++) {
