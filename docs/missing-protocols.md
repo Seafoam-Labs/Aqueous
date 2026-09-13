@@ -34,6 +34,12 @@ and syncobj remap tests pass. Physical DRM/VRR and FIFO plane-promotion
 qualification remain outstanding; see the
 [implementation and validation record](fifo-v1-implementation-plan.md).
 
+`commit-timing-v1` is implemented with ordered per-commit deadlines, synchronized
+subsurface snapshots, and event-loop wakeups in the patched wlroots dependency.
+Pixman/Vulkan presentation, lifecycle, sanitizer, FIFO/syncobj remap, and client
+policy checks pass. Physical DRM/VRR, scanout, and plane-promotion timing remain
+outstanding; see the [implementation and validation record](commit-timing-v1-implementation-plan.md).
+
 `xdg-toplevel-icon-v1` is implemented with committed per-window state, owned
 pixel snapshots, built-in overview icons, shell metadata, and bounded socket PNG
 retrieval. The native overview uses a placeholder for name-only icons; DMS can
@@ -78,7 +84,7 @@ see the [implementation and validation record](pointer-warp-v1-implementation-pl
 
 ### wayland-protocols staging
 
-The two remaining missing staging protocols listed by Wayland Explorer are below.
+The remaining missing staging protocol from the audited inventory is below.
 The remaining staging protocol families are implemented, with runtime
 availability subject to build, renderer, hardware, and client-policy conditions.
 This inventory tracks protocol presence, not conformance to every interface
@@ -86,7 +92,6 @@ version or request.
 
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
-| [commit-timing-v1](https://wayland.app/protocols/commit-timing-v1) | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
 | [ext-transient-seat-v1](https://wayland.app/protocols/ext-transient-seat-v1) | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
 
 Protocol definitions are under `staging/<protocol>/<protocol>-v1.xml` in
@@ -170,7 +175,7 @@ xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), color-representation-v1, security-context-v1, wayland-fixes,
-content-type-v1, fifo-v1, xdg-dialog-v1, xdg-system-bell-v1, drm-lease-v1
+content-type-v1, fifo-v1, commit-timing-v1, xdg-dialog-v1, xdg-system-bell-v1, drm-lease-v1
 (per usable DRM backend).
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
@@ -211,23 +216,15 @@ zwlr_virtual_keyboard_manager_v1, xwayland_shell_v1.
 
 ## Recommendations
 
-Effort estimates include useful compositor behavior and validation, not just
-advertising protocol globals. Recommended order for general desktop use:
-
-| Priority | Work | Estimated scope |
-|---|---|---|
-| Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
-
 Prioritize physical **drm-lease-v1** qualification for directly connected VR
 headsets; see the [validation checklist](drm-lease-v1-implementation-plan.md).
 Consider experimental **xx-session-management-v1** for window-state restoration and
 **ext-transient-seat-v1** for independent remote-desktop users. Session
 management and transient seats require broader persistence/input work.
 
-For gaming, commit timing can take precedence over window icons. Resolve
-outstanding FIFO, presentation-feedback, and output-retry correctness issues
-first. Validate timing/queue interactions with automated tests and actual
-presentation timing on DRM hardware; headless tests alone do not qualify it.
+For gaming, prioritize physical commit-timing/FIFO presentation qualification,
+including VRR, direct scanout, overlays, and tearing. Automated queue and
+headless presentation tests pass; they do not establish physical display timing.
 
 content-type-v1 was implemented in the content-type-v1 change: the protocol
 global plus policy integration (visual-only `content_type` rule matcher,

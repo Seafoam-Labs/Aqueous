@@ -26,6 +26,7 @@ const IdleInhibitManager = @import("IdleInhibitManager.zig");
 const InputManager = @import("InputManager.zig");
 const LockManager = @import("LockManager.zig");
 const LegacyServerDecoration = @import("LegacyServerDecoration.zig");
+const CommitTimingManager = @import("CommitTimingManager.zig");
 const FifoManager = @import("FifoManager.zig");
 const XdgToplevelIconManager = @import("XdgToplevelIconManager.zig");
 const XdgDialogManager = @import("XdgDialogManager.zig");
@@ -170,6 +171,7 @@ toplevel_capture_request: wl.Listener(*wlr.ExtForeignToplevelImageCaptureSourceM
 
 content_type_manager: *wlr.ContentTypeManagerV1,
 fifo: FifoManager,
+commit_timing: CommitTimingManager,
 xdg_dialog: XdgDialogManager,
 system_bell: @import("SystemBellManager.zig") = .{},
 xdg_toplevel_drag: *wl.Global,
@@ -465,6 +467,7 @@ pub fn init(
 
         .content_type_manager = try wlr.ContentTypeManagerV1.create(wl_server, 1),
         .fifo = try FifoManager.init(wl_server),
+        .commit_timing = try CommitTimingManager.init(wl_server),
         .xdg_dialog = try XdgDialogManager.init(wl_server),
         .xdg_toplevel_drag = try @import("XdgToplevelDragManager.zig").init(wl_server),
         .xdg_icon = try XdgToplevelIconManager.init(wl_server),
@@ -775,6 +778,7 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
     // with an assertion failure.
     return global == server.fixes.global or
         global == server.fifo.global() or
+        global == server.commit_timing.global() or
         global == server.shm.global or
         global == server.single_pixel_buffer_manager.global or
         global == server.alpha_modifier.global or

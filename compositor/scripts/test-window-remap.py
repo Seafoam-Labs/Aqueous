@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--compositor", type=Path, default=ROOT / "zig-out/bin/aqueous")
     parser.add_argument("--ctl", type=Path, default=ROOT / "zig-out/bin/aqueousctl")
     parser.add_argument("--renderer", choices=["pixman", "vulkan"], default="pixman")
+    parser.add_argument("--commit-timing", action="store_true", help="Delay native buffer commits with commit-timing-v1")
     parser.add_argument("--fifo", action="store_true", help="Constrain native buffer updates with fifo-v1, including syncobj")
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--reopen-wait", type=float, default=0.5,
@@ -126,6 +127,7 @@ def main():
     protocols = Path(run(["pkg-config", "--variable=pkgdatadir", "wayland-protocols"]).strip())
     for name, xml in [
         ("fifo-v1", protocols / "staging/fifo/fifo-v1.xml"),
+        ("commit-timing-v1", protocols / "staging/commit-timing/commit-timing-v1.xml"),
         ("xdg-shell", protocols / "stable/xdg-shell/xdg-shell.xml"),
         ("linux-drm-syncobj-v1", protocols / "staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml"),
         ("linux-dmabuf-v1", protocols / "stable/linux-dmabuf/linux-dmabuf-v1.xml"),
@@ -139,11 +141,13 @@ def main():
         flags = ["-DX11"] if backend == "x11" else [work / "xdg-shell-protocol.c"]
         if args.fifo and backend == "wayland":
             flags += ["-DTEST_FIFO_V1", work / "fifo-v1-protocol.c"]
+        if args.commit_timing and backend == "wayland":
+            flags += ["-DTEST_COMMIT_TIMING_V1", work / "commit-timing-v1-protocol.c"]
         libs = "x11" if backend == "x11" else "wayland-client"
         run([*cc, source, *flags, "-o", work / backend,
              *shlex.split(run(["pkg-config", "--cflags", "--libs", libs]))])
     if "wayland-syncobj" in (args.backend or []):
-        run([*cc, source, *(["-DTEST_FIFO_V1", work / "fifo-v1-protocol.c"] if args.fifo else []), "-DSYNCOBJ", work / "xdg-shell-protocol.c",
+        run([*cc, source, *(["-DTEST_COMMIT_TIMING_V1", work / "commit-timing-v1-protocol.c"] if args.commit_timing else []), *(["-DTEST_FIFO_V1", work / "fifo-v1-protocol.c"] if args.fifo else []), "-DSYNCOBJ", work / "xdg-shell-protocol.c",
              work / "linux-drm-syncobj-v1-protocol.c", work / "linux-dmabuf-v1-protocol.c",
              "-o", work / "wayland-syncobj",
              *shlex.split(run(["pkg-config", "--cflags", "--libs", "wayland-client", "libdrm", "gbm"]))])

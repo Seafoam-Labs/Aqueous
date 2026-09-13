@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--commit-timing', action='store_true', help='Constrain client frames with commit-timing-v1')
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
@@ -120,6 +121,8 @@ def main():
             'xdg-shell': Path('/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml'),
             'presentation-time': Path('/usr/share/wayland-protocols/stable/presentation-time/presentation-time.xml'),
         }
+        if args.commit_timing:
+            definitions['commit-timing-v1'] = Path('/usr/share/wayland-protocols/staging/commit-timing/commit-timing-v1.xml')
         generated = []
         for name, xml in definitions.items():
             run(['wayland-scanner', 'client-header', xml, work / f'{name}-client-protocol.h'])
@@ -127,7 +130,7 @@ def main():
             run(['wayland-scanner', 'private-code', xml, code])
             generated.append(code)
         run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2', f'-I{work}',
-             ROOT / 'scripts/fixtures/output-retry.c', *generated, '-lwayland-client', '-o', work / 'client'])
+             ROOT / 'scripts/fixtures/output-retry.c', *(['-DTEST_COMMIT_TIMING_V1'] if args.commit_timing else []), *generated, '-lwayland-client', '-o', work / 'client'])
         shell_definitions = {
             'xdg-activation': '/usr/share/wayland-protocols/staging/xdg-activation/xdg-activation-v1.xml',
             'shortcuts': '/usr/share/wayland-protocols/unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml',

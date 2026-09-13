@@ -28,6 +28,7 @@ patch_files=(
     "$here/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
     "$here/patches/wlroots/0021-drm-lease-lifetime.patch"
     "$here/patches/wlroots/0022-pointer-enter-serial-validation.patch"
+    "$here/patches/wlroots/0023-commit-timing-v1.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -69,6 +70,9 @@ grep -Fq '#define WM_BASE_VERSION 7' "$source_dir/types/xdg_shell/wlr_xdg_shell.
 grep -Fq '#define WLR_AQUEOUS_FIFO_VERSION 1' \
     "$source_dir/include/wlr/types/wlr_fifo_v1.h" ||
     die "patched wlroots does not expose the required FIFO API"
+grep -Fq '#define WLR_AQUEOUS_COMMIT_TIMING_VERSION 1' \
+    "$source_dir/include/wlr/types/wlr_commit_timing_v1.h" ||
+    die "patched wlroots does not expose the required commit timing API"
 scene_source="$source_dir/types/scene/wlr_scene.c"
 grep -Fq 'scene_output_damage_internal(scene_output, &damage, false, NULL);' \
     "$scene_source" ||
@@ -164,6 +168,8 @@ for symbol in \
     wlr_xdg_toplevel_set_constrained \
     wlr_aqueous_capture_color_manager_v1_create \
     wlr_fifo_manager_v1_create \
+    wlr_commit_timing_manager_v1_create \
+    wlr_commit_timing_manager_v1_get_global \
     wlr_xdg_toplevel_drag_manager_v1_create \
     wlr_xdg_toplevel_drag_v1_try_from_data_source \
     wlr_xdg_wm_dialog_v1_create \
@@ -205,6 +211,12 @@ for symbol in \
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"
 done
+
+cc "$here/scripts/fixtures/wlroots-commit-timing-api.c" \
+    -o "$build_root/commit-timing-api" \
+    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs wlroots-0.20 wayland-server)
+LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$build_root/commit-timing-api" || die "commit timing API probe failed"
 
 probe="$build_root/scene-precise-position"
 cc "$here/scripts/fixtures/wlroots-precise-position.c" \

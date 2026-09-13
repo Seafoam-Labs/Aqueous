@@ -64,6 +64,13 @@ int main(int argc, char **argv) {
 static struct wp_fifo_manager_v1 *fifo_manager;
 static struct wp_fifo_v1 *fifo;
 #endif
+#ifdef TEST_COMMIT_TIMING_V1
+#include <assert.h>
+#include <time.h>
+#include "commit-timing-v1-client-protocol.h"
+static struct wp_commit_timing_manager_v1 *timing_manager;
+static struct wp_commit_timer_v1 *commit_timer;
+#endif
 #ifdef SYNCOBJ
 #include <errno.h>
 #include <fcntl.h>
@@ -133,6 +140,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
     #endif
     if (!strcmp(interface, "wl_compositor"))
         compositor = wl_registry_bind(registry, name, &wl_compositor_interface, version < 4 ? version : 4);
+    #ifdef TEST_COMMIT_TIMING_V1
+    if (!strcmp(interface, "wp_commit_timing_manager_v1"))
+        timing_manager = wl_registry_bind(registry, name, &wp_commit_timing_manager_v1_interface, 1);
+    #endif
     if (!strcmp(interface, "wl_shm"))
         shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
     if (!strcmp(interface, "xdg_wm_base")) {
@@ -215,6 +226,12 @@ static void configured(void *data, struct xdg_surface *xdg, uint32_t serial) {
     wp_fifo_v1_wait_barrier(fifo);
     wp_fifo_v1_set_barrier(fifo);
     #endif
+    #ifdef TEST_COMMIT_TIMING_V1
+    struct timespec now; assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+    uint64_t ns = (uint64_t)now.tv_sec * 1000000000 + now.tv_nsec + 50000000;
+    uint64_t sec = ns / 1000000000;
+    wp_commit_timer_v1_set_timestamp(commit_timer, sec >> 32, sec, ns % 1000000000);
+    #endif
     wl_surface_commit(surface);
     puts("BUFFER_COMMITTED");
 }
@@ -240,6 +257,10 @@ int main(int argc, char **argv) {
     wl_registry_add_listener(registry, &registry_listener, NULL);
     if (wl_display_roundtrip(display) < 0 || !compositor || !shm || !wm) return 1;
     surface = wl_compositor_create_surface(compositor);
+    #ifdef TEST_COMMIT_TIMING_V1
+    if (!timing_manager) return 1;
+    commit_timer = wp_commit_timing_manager_v1_get_timer(timing_manager, surface);
+    #endif
     #ifdef TEST_FIFO_V1
     if (!fifo_manager) return 1;
     fifo = wp_fifo_manager_v1_get_fifo(fifo_manager, surface);

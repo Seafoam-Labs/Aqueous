@@ -6,6 +6,17 @@
 #include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
+#ifdef TEST_COMMIT_TIMING_V1
+#include <inttypes.h>
+#include "commit-timing-v1-client-protocol.h"
+static struct wp_commit_timing_manager_v1 *timing_manager;
+static struct wp_commit_timer_v1 *commit_timer;
+static uint64_t deadlines[65536], batch_deadline;
+static bool timing_enabled = true;
+#ifdef TEST_FIFO_V1
+static bool timing_fifo = true;
+#endif
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,7 +64,15 @@ static void feedback_presented(void *data, struct wp_presentation_feedback *feed
         uint32_t hi, uint32_t lo, uint32_t ns, uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) {
     (void)hi; (void)lo; (void)ns; (void)refresh; (void)seq_hi; (void)seq_lo; (void)flags;
     presented++;
+    #ifdef TEST_COMMIT_TIMING_V1
+    unsigned frame = (unsigned)(uintptr_t)data;
+    uint64_t actual = ((((uint64_t)hi << 32) | lo) * 1000000000) + ns;
+    assert(frame < 65536 && actual >= deadlines[frame]);
+    printf("{\"event\":\"presented\",\"frame\":%u,\"ms\":%.3f,\"requested_ns\":%" PRIu64 ",\"presented_ns\":%" PRIu64 "}\n",
+        frame, now_ms(), deadlines[frame], actual);
+    #else
     printf("{\"event\":\"presented\",\"frame\":%u,\"ms\":%.3f}\n", (unsigned)(uintptr_t)data, now_ms());
+    #endif
     wp_presentation_feedback_destroy(feedback);
 }
 static void feedback_discarded(void *data, struct wp_presentation_feedback *feedback) {
@@ -86,8 +105,26 @@ static void draw(void) {
     wl_surface_attach(surface, buffer, 0, 0);
     wl_surface_damage_buffer(surface, 0, 0, width, height);
     #ifdef TEST_FIFO_V1
+    #ifdef TEST_COMMIT_TIMING_V1
+    if (timing_fifo) {
+    #endif
     wp_fifo_v1_wait_barrier(fifo);
     wp_fifo_v1_set_barrier(fifo);
+    #ifdef TEST_COMMIT_TIMING_V1
+    }
+    #endif
+    #endif
+    #ifdef TEST_COMMIT_TIMING_V1
+    assert(frame < 65536);
+    if (timing_enabled) {
+        struct timespec now; assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+        uint64_t deadline = batch_deadline ? batch_deadline :
+            (uint64_t)now.tv_sec * 1000000000 + now.tv_nsec + 150000000;
+        if (batch_deadline) batch_deadline += 50000000;
+        deadlines[frame] = deadline;
+        uint64_t sec = deadline / 1000000000;
+        wp_commit_timer_v1_set_timestamp(commit_timer, sec >> 32, sec, deadline % 1000000000);
+    }
     #endif
     wl_surface_commit(surface);
     printf("{\"event\":\"submitted\",\"frame\":%u,\"color\":%u,\"ms\":%.3f}\n", frame, color, now_ms());
@@ -111,6 +148,10 @@ static void ping(void *data, struct xdg_wm_base *object, uint32_t serial) {
 static const struct xdg_wm_base_listener wm_listener = { .ping = ping };
 static void presentation_clock(void *data, struct wp_presentation *object, uint32_t id) {
     (void)data; (void)object; (void)id;
+    #ifdef TEST_COMMIT_TIMING_V1
+    assert(id == CLOCK_MONOTONIC);
+    printf("{\"event\":\"clock\",\"id\":%u}\n", id);
+    #endif
 }
 static const struct wp_presentation_listener presentation_listener = { .clock_id = presentation_clock };
 static void geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t w, int32_t h,
@@ -136,6 +177,12 @@ static void global(void *data, struct wl_registry *registry, uint32_t id, const 
     if (!strcmp(interface, "wp_fifo_manager_v1")) {
         assert(version == 1);
         fifo_manager = wl_registry_bind(registry, id, &wp_fifo_manager_v1_interface, 1);
+    }
+    #endif
+    #ifdef TEST_COMMIT_TIMING_V1
+    if (!strcmp(interface, "wp_commit_timing_manager_v1")) {
+        assert(version == 1);
+        timing_manager = wl_registry_bind(registry, id, &wp_commit_timing_manager_v1_interface, 1);
     }
     #endif
     if (!strcmp(interface, "wl_shm")) shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
@@ -177,6 +224,10 @@ int main(int argc, char **argv) {
     assert(fifo_manager);
     fifo = wp_fifo_manager_v1_get_fifo(fifo_manager, surface);
     #endif
+    #ifdef TEST_COMMIT_TIMING_V1
+    assert(timing_manager);
+    commit_timer = wp_commit_timing_manager_v1_get_timer(timing_manager, surface);
+    #endif
     xdg = xdg_wm_base_get_xdg_surface(wm, surface);
     xdg_surface_add_listener(xdg, &xdg_listener, NULL);
     struct xdg_toplevel *top = xdg_surface_get_toplevel(xdg);
@@ -201,7 +252,23 @@ int main(int argc, char **argv) {
             if (read(STDIN_FILENO, &command, 1) != 1 || command == 'q') return 0;
             if (command == 'd') draw();
             #ifdef TEST_FIFO_V1
+            #ifdef TEST_COMMIT_TIMING_V1
+            if (command == 'b') {
+                struct timespec now; assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+                batch_deadline = (uint64_t)now.tv_sec * 1000000000 + now.tv_nsec + 150000000;
+                for (unsigned i = 0; i < burst; i++) draw();
+                batch_deadline = 0;
+            }
+            if (command == 'n') { timing_fifo = false; draw(); timing_fifo = true; }
+            if (command == 'x') {
+                draw();
+                wp_commit_timer_v1_destroy(commit_timer);
+                commit_timer = wp_commit_timing_manager_v1_get_timer(timing_manager, surface);
+                timing_enabled = false; draw(); timing_enabled = true;
+            }
+            #else
             if (command == 'b') for (unsigned i = 0; i < burst; i++) draw();
+            #endif
             if (command == 'h') { wl_surface_attach(surface, NULL, 0, 0); wl_surface_commit(surface); configured = false; }
             if (command == 'm') wl_surface_commit(surface);
             #endif

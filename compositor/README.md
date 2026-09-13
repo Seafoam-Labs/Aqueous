@@ -37,6 +37,15 @@ requires a C compiler, Wayland/xkbcommon development tools, and `wayland-scanner
 See the [implementation and validation record](../docs/pointer-warp-v1-implementation-plan.md)
 for request policy and remaining hardware qualification.
 
+commit-timing-v1 is available in both builds and all policy modes, including for
+sandboxed clients. Rebuild the pinned wlroots dependency with patch 0023 before
+building Aqueous. With `-Doutput-retry-testing=true`, run
+`python3 scripts/test-commit-timing.py --renderer vulkan` (or `--renderer pixman`
+for the diagnostic build). The scheduler conservatively holds commits until
+their earliest presentation timestamp; predictive scheduling is deferred.
+See the [implementation and validation record](../docs/commit-timing-v1-implementation-plan.md)
+for queue/subsurface semantics, explicit-sync checks, and physical DRM gaps.
+
 FIFO v1 is available in both builds. After building with
 `-Doutput-retry-testing=true`, run `python3 scripts/test-fifo.py --renderer vulkan`
 (or `--renderer pixman` for the diagnostic build). See the
