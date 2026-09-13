@@ -38,7 +38,7 @@ qualification remain outstanding; see the
 subsurface snapshots, and event-loop wakeups in the patched wlroots dependency.
 Pixman/Vulkan presentation, lifecycle, sanitizer, FIFO/syncobj remap, and client
 policy checks pass. Physical DRM/VRR, scanout, and plane-promotion timing remain
-outstanding; see the [implementation and validation record](commit-timing-v1-implementation-plan.md).
+outstanding; see the [performance and validation record](commit-timing-v1-performance-results.md).
 
 `xdg-toplevel-icon-v1` is implemented with committed per-window state, owned
 pixel snapshots, built-in overview icons, shell metadata, and bounded socket PNG

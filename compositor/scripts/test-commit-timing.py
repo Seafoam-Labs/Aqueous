@@ -108,7 +108,7 @@ def main():
         checked(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-g',
                  *(['-fsanitize=address,undefined'] if args.sanitize else []), f'-I{work}',
                  ROOT / 'scripts/fixtures/wlroots-commit-timing.c', *generated[:2], '-ldl', '-o', work / 'unit', *flags])
-        for case in ('queue', 'timer', 'many', 'subsurface', 'waits', 'lifetime', 'reentry', 'parent-destroy', 'duplicate', 'invalid', 'timestamp-exists', 'recreate-pending', 'surface-destroyed', 'bypass'):
+        for case in ('fast-path', 'fast-boundary', 'transition', 'fast-destroy', 'fast-reentry', 'pool', 'pool-cap', 'pool-oom', 'wakeups', 'deadline-changes', 'dispatch-unlock', 'late-timer', 'queued-burst', 'deep-tree', 'queue', 'timer', 'many', 'subsurface', 'waits', 'lifetime', 'reentry', 'parent-destroy', 'duplicate', 'invalid', 'timestamp-exists', 'recreate-pending', 'surface-destroyed', 'bypass'):
             result = run([work / 'unit', case])
             (work / f'unit-{case}.log').write_text(result.stdout)
             negative = case == 'bypass'

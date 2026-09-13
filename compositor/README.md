@@ -43,8 +43,9 @@ building Aqueous. With `-Doutput-retry-testing=true`, run
 `python3 scripts/test-commit-timing.py --renderer vulkan` (or `--renderer pixman`
 for the diagnostic build). The scheduler conservatively holds commits until
 their earliest presentation timestamp; predictive scheduling is deferred.
-See the [implementation and validation record](../docs/commit-timing-v1-implementation-plan.md)
-for queue/subsurface semantics, explicit-sync checks, and physical DRM gaps.
+See the [performance and validation record](../docs/commit-timing-v1-performance-results.md)
+for the immediate transaction path, bounded snapshot reuse, scheduling changes,
+queue/subsurface and explicit-sync checks, and remaining performance/DRM gaps.
 
 FIFO v1 is available in both builds. After building with
 `-Doutput-retry-testing=true`, run `python3 scripts/test-fifo.py --renderer vulkan`
