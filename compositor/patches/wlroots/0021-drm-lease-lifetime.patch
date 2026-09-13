@@ -1,0 +1,282 @@
+--- a/types/wlr_drm_lease_v1.c
++++ b/types/wlr_drm_lease_v1.c
+@@ -68,6 +68,18 @@
+ 
+ 	wlr_log(WLR_DEBUG, "Destroying connector %s", connector->output->name);
+ 
++	// Requests outlive connector offers. Clear every borrowed pointer before
++	// freeing the connector, including requests invalidated by another output.
++	struct wlr_drm_lease_request_v1 *request;
++	wl_list_for_each(request, &connector->device->requests, link) {
++		for (size_t i = 0; i < request->n_connectors; i++) {
++			if (request->connectors[i] == connector) {
++				request->invalid = true;
++				request->connectors[i] = NULL;
++			}
++		}
++	}
++
+ 	struct wl_resource *resource, *tmp;
+ 	wl_resource_for_each_safe(resource, tmp, &connector->resources) {
+ 		wp_drm_lease_connector_v1_send_withdrawn(resource);
+@@ -149,6 +161,7 @@
+ 
+ 	struct wlr_drm_lease_v1 *lease = calloc(1, sizeof(*lease));
+ 	if (!lease) {
++		request->invalid = true;
+ 		wl_resource_post_no_memory(request->resource);
+ 		return NULL;
+ 	}
+@@ -166,7 +179,7 @@
+ 	lease->drm_lease = wlr_drm_create_lease(outputs, request->n_connectors, &fd);
+ 	if (!lease->drm_lease) {
+ 		wlr_log(WLR_ERROR, "wlr_drm_create_lease failed");
+-		wp_drm_lease_v1_send_finished(lease->resource);
++		wlr_drm_lease_request_v1_reject(request);
+ 		free(lease);
+ 		return NULL;
+ 	}
+@@ -273,6 +286,8 @@
+ 			n_connectors * sizeof(struct wlr_drm_lease_connector_v1 *));
+ 	if (!tmp_connectors) {
+ 		wlr_log(WLR_ERROR, "Failed to grow connectors request array");
++		request->invalid = true;
++		wl_resource_post_no_memory(request_resource);
+ 		return;
+ 	}
+ 
+@@ -289,6 +304,7 @@
+ 	if (!lease_resource) {
+ 		wlr_log(WLR_ERROR, "Failed to allocate wl_resource");
+ 		wl_resource_post_no_memory(resource);
++		wl_resource_destroy(resource);
+ 		return;
+ 	}
+ 
+@@ -300,6 +316,7 @@
+ 	if (!request) {
+ 		wlr_log(WLR_DEBUG, "Request has been destroyed");
+ 		wp_drm_lease_v1_send_finished(lease_resource);
++		wl_resource_destroy(resource);
+ 		return;
+ 	}
+ 
+@@ -307,11 +324,13 @@
+ 	if (request->invalid) {
+ 		wlr_log(WLR_ERROR, "Invalid request");
+ 		wp_drm_lease_v1_send_finished(lease_resource);
++		wl_resource_destroy(resource);
+ 		return;
+ 	} else if (request->n_connectors == 0) {
+-		wl_resource_post_error(lease_resource,
++		wl_resource_post_error(resource,
+ 				WP_DRM_LEASE_REQUEST_V1_ERROR_EMPTY_LEASE,
+ 				"Lease request has no connectors");
++		wl_resource_destroy(resource);
+ 		return;
+ 	}
+ 
+@@ -352,6 +371,7 @@
+ 		&wp_drm_lease_request_v1_interface, version, id);
+ 	if (!request_resource) {
+ 		wlr_log(WLR_ERROR, "Failed to allocate wl_resource");
++		wl_resource_post_no_memory(resource);
+ 		return;
+ 	}
+ 
+--- a/include/wlr/types/wlr_drm_lease_v1.h
++++ b/include/wlr/types/wlr_drm_lease_v1.h
+@@ -8,6 +8,8 @@
+ 
+ #ifndef WLR_TYPES_WLR_DRM_LEASE_V1_H
+ #define WLR_TYPES_WLR_DRM_LEASE_V1_H
++
++#define WLR_AQUEOUS_DRM_LEASE_VERSION 1
+ 
+ #include <wayland-server-core.h>
+ 
+--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -107,6 +107,8 @@
+ 	struct wlr_drm_plane *planes;
+ 
+ 	struct wl_event_source *drm_event;
++	struct wl_event_source *lease_rescan;
++	bool destroying;
+ 
+ 	struct wl_listener session_destroy;
+ 	struct wl_listener session_active;
+@@ -200,6 +202,7 @@
+ 	uint32_t id;
+ 	uint64_t max_bpc_bounds[2];
+ 	struct wlr_drm_lease *lease;
++	bool lease_pending;
+ 
+ 	struct wlr_drm_crtc *crtc;
+ 	uint32_t possible_crtcs;
+--- a/backend/drm/backend.c
++++ b/backend/drm/backend.c
+@@ -33,6 +33,12 @@
+ 
+ 	struct wlr_drm_backend *drm = get_drm_backend_from_backend(backend);
+ 
++	drm->destroying = true;
++	if (drm->lease_rescan != NULL) {
++		wl_event_source_remove(drm->lease_rescan);
++		drm->lease_rescan = NULL;
++	}
++
+ 	struct wlr_drm_connector *conn, *next;
+ 	wl_list_for_each_safe(conn, next, &drm->connectors, link) {
+ 		conn->crtc = NULL; // leave CRTCs on when shutting down
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -1427,10 +1427,18 @@
+ 
+ 		// Only request a CRTC if the connected is currently enabled or it's the
+ 		// connector the user wants to enable
+-		bool want_crtc = conn == want_conn || conn->output.enabled;
++		bool want_crtc = conn == want_conn || conn->output.enabled || conn->lease_pending;
+ 
+ 		if (conn->status == DRM_MODE_CONNECTED && want_crtc) {
+ 			connector_constraints[i] = conn->possible_crtcs;
++			for (size_t j = 0; j < drm->num_crtcs; j++) {
++				if (drm->crtcs[j].lease != NULL) {
++					connector_constraints[i] &= ~(1u << j);
++				}
++			}
++			if (conn->lease_pending && conn->crtc != NULL) {
++				connector_constraints[i] &= 1u << (conn->crtc - drm->crtcs);
++			}
+ 		} else {
+ 			// Will always fail to match anything
+ 			connector_constraints[i] = 0;
+@@ -1809,6 +1817,16 @@
+ 		}
+ 
+ 		if (wlr_conn && wlr_conn->lease) {
++			// Leasing hides the wlr_output, not the physical connector. Do not
++			// mistake it for a removed connector during an unrelated scan.
++			seen[index] = true;
++			drmModeConnector *leased_conn = drmModeGetConnector(drm->fd, conn_id);
++			if (leased_conn != NULL) {
++				if (leased_conn->connection != DRM_MODE_CONNECTED) {
++					wlr_drm_lease_terminate(wlr_conn->lease);
++				}
++				drmModeFreeConnector(leased_conn);
++			}
+ 			continue;
+ 		}
+ 
+@@ -2114,6 +2132,9 @@
+ }
+ 
+ void destroy_drm_connector(struct wlr_drm_connector *conn) {
++	if (conn->lease != NULL) {
++		wlr_drm_lease_terminate(conn->lease);
++	}
+ 	disconnect_drm_connector(conn);
+ 
+ 	wl_list_remove(&conn->link);
+@@ -2151,6 +2172,26 @@
+ 
+ 	struct wlr_drm_backend *drm =
+ 			get_drm_backend_from_backend(outputs[0]->backend);
++
++	// Validate before setting temporary allocation constraints.
++	for (size_t i = 0; i < n_outputs; i++) {
++		struct wlr_drm_connector *conn = get_drm_connector_from_output(outputs[i]);
++		if (conn->backend != drm || conn->lease != NULL) {
++			return NULL;
++		}
++		for (size_t j = 0; j < i; j++) {
++			if (outputs[i] == outputs[j]) {
++				return NULL;
++			}
++		}
++	}
++	for (size_t i = 0; i < n_outputs; i++) {
++		get_drm_connector_from_output(outputs[i])->lease_pending = true;
++	}
++	realloc_crtcs(drm, NULL);
++	for (size_t i = 0; i < n_outputs; i++) {
++		get_drm_connector_from_output(outputs[i])->lease_pending = false;
++	}
+ 
+ 	int n_objects = 0;
+ 	uint32_t objects[4 * n_outputs + 1];
+@@ -2167,7 +2208,7 @@
+ 		objects[n_objects++] = conn->id;
+ 		wlr_log(WLR_DEBUG, "Connector %d", conn->id);
+ 
+-		if (!drm_connector_alloc_crtc(conn)) {
++		if (conn->crtc == NULL) {
+ 			wlr_log(WLR_ERROR, "Failed to allocate connector CRTC");
+ 			return NULL;
+ 		}
+@@ -2220,15 +2261,46 @@
+ 
+ 	wlr_log(WLR_DEBUG, "Terminating DRM lease %d", lease->lessee_id);
+ 	int ret = drmModeRevokeLease(drm->fd, lease->lessee_id);
+-	if (ret < 0) {
+-		wlr_log_errno(WLR_ERROR, "Failed to terminate lease");
++	if (ret < 0 && errno != ENOENT && errno != ENODEV) {
++		// Never report a revoked lease or reuse its objects without kernel
++		// confirmation. Closing the lessor on process exit revokes descendants.
++		wlr_log_errno(WLR_ERROR, "Cannot confirm DRM lease revocation; aborting");
++		abort();
+ 	}
+ 
+ 	drm_lease_destroy(lease);
++}
++
++static void handle_lease_rescan(void *data) {
++	struct wlr_drm_backend *drm = data;
++	drm->lease_rescan = NULL;
++	if (!drm->destroying && drm->session->active) {
++		scan_drm_connectors(drm, NULL);
++	}
+ }
+ 
+ void drm_lease_destroy(struct wlr_drm_lease *lease) {
+ 	struct wlr_drm_backend *drm = lease->backend;
++
++	// A lessee may have left a framebuffer scanning out. Disable its CRTCs
++	// before notifying clients (and before a compositor acknowledges a lock).
++	// These CRTCs are still marked leased and cannot belong to the desktop.
++	for (size_t i = 0; i < drm->num_crtcs; i++) {
++		struct wlr_drm_crtc *crtc = &drm->crtcs[i];
++		if (crtc->lease != lease) {
++			continue;
++		}
++		if (drmModeSetCrtc(drm->fd, crtc->id, 0, 0, 0, NULL, 0, NULL) < 0 &&
++			errno != ENOENT && errno != ENODEV) {
++			if (drm->destroying || (!drm->session->active && !drmIsMaster(drm->fd))) {
++				// The inactive/removed device cannot acknowledge a session lock.
++				wlr_log_errno(WLR_ERROR, "Cannot blank inactive leased CRTC");
++			} else {
++				wlr_log_errno(WLR_ERROR, "Cannot blank leased CRTC; aborting");
++				abort();
++			}
++		}
++	}
+ 
+ 	wl_signal_emit_mutable(&lease->events.destroy, NULL);
+ 
+@@ -2248,5 +2320,14 @@
+ 	}
+ 
+ 	free(lease);
+-	scan_drm_connectors(drm, NULL);
+-}
++
++	// Defer rediscovery until the caller has finished destroying resources.
++	// This also makes lease scans and backend/connector removal non-reentrant.
++	if (!drm->destroying && drm->session->active && drm->lease_rescan == NULL) {
++		drm->lease_rescan = wl_event_loop_add_idle(drm->session->event_loop,
++			handle_lease_rescan, drm);
++		if (drm->lease_rescan == NULL) {
++			wlr_log(WLR_ERROR, "Failed to schedule DRM lease rediscovery");
++		}
++	}
++}

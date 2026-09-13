@@ -26,6 +26,7 @@ patch_files=(
     "$here/patches/wlroots/0018-pointer-constraint-initial-region.patch"
     "$here/patches/wlroots/0019-overlay-backend-recovery.patch"
     "$here/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
+    "$here/patches/wlroots/0021-drm-lease-lifetime.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -217,6 +218,8 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-drm-lease-protocol.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-drm-lease-backend.py" "$source_dir" "$prefix"
 
 echo "patched wlroots $version installed at $prefix"
 echo "export PKG_CONFIG_PATH=$prefix/lib/pkgconfig"

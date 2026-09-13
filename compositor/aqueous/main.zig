@@ -415,6 +415,7 @@ fn grepRiverctl(path: [:0]const u8) !bool {
 // Scopes should be added to this list sparingly.
 // Only add new scopes if filtering based on them would be meaningful.
 const LogScope = enum {
+    drm_lease,
     ipc,
     default,
     wlroots,

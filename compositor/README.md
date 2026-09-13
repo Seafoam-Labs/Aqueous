@@ -531,3 +531,36 @@ python3 scripts/test-xdg-toplevel-tag.py --renderer vulkan --compositor /path/to
 The Pixman fixture needs a `-Dvulkan-effects=false` build. See the
 [implementation and validation record](../docs/xdg-toplevel-tag-v1-implementation-plan.md)
 and [rule syntax](../docs/rules.md#window-purpose-tags).
+
+### DRM leasing for VR headsets
+
+`drm-lease-v1` version 1 offers DRM connectors marked non-desktop, while keeping
+them out of desktop layouts, output configuration, workspaces, mirroring, and
+capture. Eligible ordinary clients receive leases while the session is active
+and unlocked; security-context clients cannot discover the lease globals.
+Locking or switching away revokes leases, and clients must request new ones
+when the session returns. Headless/nested backends expose no lease device.
+
+Rebuild the pinned wlroots dependency when upgrading: the compositor requires
+its DRM lease lifetime and allocation fixes. An unrecoverable kernel revocation
+or active-display blanking error ends the session instead of reporting a
+successful lock. Hardware and driver qualification remains outstanding.
+
+For a headset on a second GPU, explicitly include all required cards in
+`WLR_DRM_DEVICES` before startup; Aqueous's automatic GPU selection can otherwise
+limit the backend to a single card. A headset without the DRM non-desktop flag
+is not automatically eligible. No desktop-monitor override is provided.
+
+```sh
+zig build test-drm-lease
+python3 scripts/test-drm-lease.py --renderer vulkan
+python3 scripts/test-drm-lease.py --hardware --device /dev/dri/card1 --connector DP-3
+```
+
+The first integration command starts a private headless compositor. Hardware
+mode connects to the current session and leases only the explicitly named,
+already-advertised connector; it tests resource ownership and recovery, not
+headset scanout. Use `--renderer pixman` with a no-effects build and
+`--compositor`/`--ctl` for separate build prefixes. See the
+[implementation and validation record](../docs/drm-lease-v1-implementation-plan.md)
+for the complete policy, dependency fixes, tests, and remaining hardware checks.

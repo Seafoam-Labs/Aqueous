@@ -61,11 +61,17 @@ and socket metadata updates. Pixman/Vulkan protocol tests and legacy inspection
 bindings pass. Tags remain client-provided and need not be unique. See the
 [implementation and validation record](xdg-toplevel-tag-v1-implementation-plan.md).
 
+`drm-lease-v1` is implemented for non-desktop DRM connectors. It reserves
+headsets outside desktop output handling, restricts security-context clients,
+and revokes/blanks leases on lock and session changes. Protocol, allocator,
+lifecycle, and both renderer headless tests pass; physical DRM/VR qualification
+remains outstanding. See the [implementation and validation record](drm-lease-v1-implementation-plan.md).
+
 ## Not supported
 
 ### wayland-protocols staging
 
-The four remaining missing staging protocols listed by Wayland Explorer are below.
+The three remaining missing staging protocols listed by Wayland Explorer are below.
 The remaining staging protocol families are implemented, with runtime
 availability subject to build, renderer, hardware, and client-policy conditions.
 This inventory tracks protocol presence, not conformance to every interface
@@ -74,7 +80,6 @@ version or request.
 | Protocol | Global interface | Dependency support | Benefit and required integration |
 |---|---|---|---|
 | [commit-timing-v1](https://wayland.app/protocols/commit-timing-v1) | `wp_commit_timing_manager_v1` | No implementation found. | Earliest presentation timestamps complement FIFO. Add per-commit timing state, ordered readiness gating alongside FIFO/syncobj, and timer-driven output wakeups before scene construction. Use the presentation clock and preserve constraints after timer-object destruction. Conservative gating can precede predictive scheduling. |
-| [drm-lease-v1](https://wayland.app/protocols/drm-lease-v1) | `wp_drm_lease_device_v1` (per DRM node) | Present: `wlr_drm_lease_v1.h`. | Lease display resources to clients, useful for directly connected VR headsets. Needs DRM backend wiring, connector-selection policy, request handling, and lease/hotplug lifecycle management. |
 | [pointer-warp-v1](https://wayland.app/protocols/pointer-warp-v1) | `wp_pointer_warp_v1` | No implementation found. | Client requests to reposition a pointer within a surface. Validate focus, enter serial, bounds, and coordinate transforms. Existing internal cursor warping and pointer constraints do not expose this protocol. |
 | [ext-transient-seat-v1](https://wayland.app/protocols/ext-transient-seat-v1) | `ext_transient_seat_manager_v1` | Present: `wlr_transient_seat_v1.h`. | Temporary independent seats for remote-desktop users. Requires seat creation/destruction and virtual-input routing. `InputManager.zig` currently ignores virtual-pointer seat suggestions, so manager creation is insufficient. |
 
@@ -89,7 +94,7 @@ The dependency headers are under
 
 Session management was previously listed above as staging
 `xdg-session-management-v1`. Wayland Explorer currently lists it as experimental
-`xx-session-management-v1`; it is excluded from the four staging gaps. This
+`xx-session-management-v1`; it is excluded from the three staging gaps. This
 section preserves that entry and is not a complete experimental inventory.
 
 | Protocol | Global interface | Benefit and required integration |
@@ -159,7 +164,8 @@ xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), color-representation-v1, security-context-v1, wayland-fixes,
-content-type-v1, fifo-v1, xdg-dialog-v1, xdg-system-bell-v1.
+content-type-v1, fifo-v1, xdg-dialog-v1, xdg-system-bell-v1, drm-lease-v1
+(per usable DRM backend).
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
 each client's bound version. Suspension follows workspace/output visibility,
@@ -206,8 +212,9 @@ advertising protocol globals. Recommended order for general desktop use:
 |---|---|---|
 | Medium | **commit-timing-v1** | Medium–large: surface queue correctness, scheduling, and presentation validation. Existing FIFO is a useful foundation. |
 
-Raise **drm-lease-v1** to high priority for directly connected VR headset
-support. Consider **pointer-warp-v1** for applications needing explicit cursor
+Prioritize physical **drm-lease-v1** qualification for directly connected VR
+headsets; see the [validation checklist](drm-lease-v1-implementation-plan.md).
+Consider **pointer-warp-v1** for applications needing explicit cursor
 repositioning, experimental **xx-session-management-v1** for window-state restoration, and
 **ext-transient-seat-v1** for independent remote-desktop users. Session
 management and transient seats require broader persistence/input work.

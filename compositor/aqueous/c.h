@@ -18,6 +18,12 @@
 #include <wlr/types/wlr_xdg_toplevel_drag_v1.h>
 #include <wlr/types/wlr_xdg_toplevel_icon_v1.h>
 #include <wlr/types/wlr_xdg_toplevel_tag_v1.h>
+#include <wlr/backend/drm.h>
+#include <wlr/types/wlr_drm_lease_v1.h>
+
+#if !defined(WLR_AQUEOUS_DRM_LEASE_VERSION) || WLR_AQUEOUS_DRM_LEASE_VERSION != 1
+#error "Aqueous requires the pinned wlroots DRM lease lifetime fixes"
+#endif
 
 #if !defined(WLR_AQUEOUS_TOPLEVEL_ICON_VERSION) || WLR_AQUEOUS_TOPLEVEL_ICON_VERSION != 1
 #error "Aqueous requires the pinned wlroots toplevel icon fixes"

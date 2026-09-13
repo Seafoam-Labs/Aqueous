@@ -87,6 +87,8 @@ pub fn deinit(om: *OutputManager) void {
 fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     log.debug("new output {s}", .{wlr_output.name});
 
+    if (server.drm_lease.reserve(wlr_output)) return;
+
     Output.create(wlr_output) catch |err| {
         switch (err) {
             error.OutOfMemory => log.err("out of memory", .{}),

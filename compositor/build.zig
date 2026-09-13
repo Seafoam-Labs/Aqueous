@@ -773,6 +773,30 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_auto_hdr_test.step);
         test_step.dependOn(&run_color_management_test.step);
         test_step.dependOn(&run_global_filter_test.step);
+        const drm_lease_policy_test = b.addTest(.{ .root_module = b.createModule(.{
+            .root_source_file = b.path("aqueous/drm_lease_policy.zig"),
+            .target = target,
+            .optimize = optimize,
+        }) });
+        test_step.dependOn(&b.addRunArtifact(drm_lease_policy_test).step);
+        const drm_lease_test = b.addTest(.{ .root_module = b.createModule(.{
+            .root_source_file = b.path("aqueous/drm_lease_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }), .use_llvm = use_llvm, .use_lld = use_llvm });
+        drm_lease_test.root_module.addImport("wayland", wayland);
+        drm_lease_test.root_module.addImport("wlroots", wlroots);
+        drm_lease_test.root_module.addImport("c", translate_c.mod);
+        drm_lease_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        drm_lease_test.root_module.linkSystemLibrary("wayland-server", .{});
+        drm_lease_test.root_module.addCSourceFile(.{
+            .file = b.path("scripts/fixtures/drm-lease-manager.c"),
+            .flags = &.{ "-std=c11", "-DWLR_USE_UNSTABLE", "-DWLR_PRIVATE=", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter" },
+        });
+        const run_drm_lease_test = b.addRunArtifact(drm_lease_test);
+        test_step.dependOn(&run_drm_lease_test.step);
+        b.step("test-drm-lease", "Test DRM lease policy and manager lifecycle").dependOn(&run_drm_lease_test.step);
         test_step.dependOn(&run_legacy_server_decoration_test.step);
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);

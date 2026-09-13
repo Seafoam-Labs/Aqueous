@@ -145,6 +145,7 @@ xkb_config: XkbConfig,
 om: OutputManager,
 idle_inhibit_manager: IdleInhibitManager,
 lock_manager: LockManager,
+drm_lease: @import("DrmLeaseManager.zig") = .{},
 wm: WindowManager,
 aqueous: Aqueous,
 workspace_manager: WorkspaceManager,
@@ -596,11 +597,13 @@ pub fn init(
     server.cursor_shape_manager.events.request_set_shape.add(&server.request_set_cursor_shape);
     server.toplevel_capture_source_manager.events.new_request.add(&server.toplevel_capture_request);
 
+    server.drm_lease.init(wl_server, server.backend, server.session);
     wl_server.setGlobalFilter(*Server, globalFilter, server);
 }
 
 /// Free allocated memory and clean up. Note: order is important here
 pub fn deinit(server: *Server) void {
+    server.drm_lease.stop();
     server.ipc_server.deinit();
     server.sigint_source.remove();
     server.sigterm_source.remove();
@@ -634,6 +637,7 @@ pub fn deinit(server: *Server) void {
     server.overview.deinit();
 
     server.backend.destroy();
+    server.drm_lease.deinit();
 
     // The scene graph needs to be destroyed after the backend but before the renderer
     // Output destruction requires the scene graph to still be around while the scene
@@ -809,7 +813,8 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
 
 /// Returns true if the global is blocked for security contexts
 fn blocklist(server: *Server, global: *const wl.Global) bool {
-    return global == server.security_context_manager.global or
+    return global_filter.dynamicallyBlocklistedInterface(global.getInterface().name) or
+        global == server.security_context_manager.global or
         global == server.wm.global or
         global == server.layer_shell.global or
         global == server.layer_shell.wlr_shell.global or

@@ -88,6 +88,7 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
         server.aqueous.cancelSnapPreview();
         server.system_bell.cancel();
         manager.state = .waiting_for_lock_surfaces;
+        server.drm_lease.setLocked(true);
         var drag_seats = server.input_manager.seats.iterator(.forward);
         while (drag_seats.next()) |seat| seat.toplevel_drag.cancel();
         var tools = server.input_manager.tablet_tools.iterator(.forward);
@@ -203,6 +204,8 @@ fn handleUnlock(listener: *wl.Listener(void)) void {
     }
 
     handleDestroy(&manager.destroy);
+
+    server.drm_lease.setLocked(false);
 
     server.wm.dirtyWindowing();
 }
