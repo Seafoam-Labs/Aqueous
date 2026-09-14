@@ -41,6 +41,22 @@ reload; a successful command exit or `accepted` reply does not count as an
 `applied` acknowledgement. `--report-reload yes` keeps the legacy stderr report.
 Clients must inspect capabilities before using additive interfaces.
 
+`candidate_impact_v1` classifies window-rule, custom-binding, named snap-layout
+and legacy snap-zone changes through their collection semantics. The helper
+validates both the original and candidate collections, including rule ordering,
+explicit false/zero and field removal, command arguments, layout references and
+zone geometry. Known collection changes report `runtime_non_display`; proven
+equivalent collections report `none`. Classification comes from the canonical
+sources, including raw edits, rather than the caller's mutation type or a file
+name. Mixed display changes still require native display projection and preview.
+
+Unknown collection fields, malformed original values, unsupported commands,
+ambiguous declarations and multiline source remain `complete:false`; protected
+apply rejects them. The classifier uses native binding parsing/command decoding
+and native storage limits, so a legacy writer accepting a value does not by
+itself prove that the compositor can represent it. Collection source preconditions
+and protected candidate-digest composition remain a separate contract limitation.
+
 Always use a private HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_RUNTIME_DIR and
 private bus/compositor for integration testing. Do not point tests at a running
 desktop. Hardware feature acceptance is separate from headless testing.

@@ -34,6 +34,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         path=base/name; path.mkdir(mode=0o700); env[key]=str(path)
     cfg=base/'config/aqueous'; cfg.mkdir()
     (cfg/'wm.toml').write_text('[workspace_transition]\nenabled = false\n')
+    (cfg/'rules.toml').write_text('')
     bindir=base/'bin';bindir.mkdir();notify=bindir/'notify-send';notify.write_text('#!/bin/sh\nexit 0\n');notify.chmod(0o755)
     env['PATH']=str(bindir)+':'+os.environ['PATH']
     env.update(WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER='pixman', LD_LIBRARY_PATH=str(ROOT/'.deps/wlroots-render-hook/lib'))
@@ -48,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
             return p.read_text().splitlines()[0] if p.exists() and len(p.read_text().splitlines())==2 else None
         path=wait(socket_path)
         env.update(AQUEOUS_SOCKET=path, WAYLAND_DISPLAY=(base/'run/socket').read_text().splitlines()[1], PATH=str(bindir)+':'+str(BIN.parent)+':'+os.environ['PATH'])
-        helper=ROOT.parent/'settingsApplication/zig-out/bin/aqueous-config'
+        helper=Path(os.environ.get('AQUEOUS_CONFIG_HELPER', ROOT.parent/'settingsApplication/zig-out/bin/aqueous-config'))
         def helper_call(op, request=None, flags=(), read_deadline=None):
             if read_deadline is None: read_deadline=time.monotonic()+8
             args=[str(helper),op,'--shell','none',*flags]
@@ -174,6 +175,16 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         wait(lambda: status(token)['state']=='reverted')
         assert model()['active_profile']==before_profile and [o['actual'] for o in model()['outputs']]==before_actual
         request,params=candidate(model(),{'x':400})
+        # A collection mutation remains on the native display path when mixed
+        # with an output change, and the lease binds the entire candidate.
+        request['window_rule_changes']=[dict(op='add',values=dict(app_id='pearl-test-*',floating=False,opacity=0.8))]
+        request['backup_dir']=str(base/'backups')
+        validation=helper_call('validate',request)
+        impact=validation['candidate_impact']
+        assert impact['complete'] and impact['display'] is not None,impact
+        assert 'runtime_non_display' in impact['effects'] and 'display_live' in impact['effects'],impact
+        params['candidate_digest']=impact['candidate_digest']
+        request['protected_apply']=True
         lease=c.call('display.preview.begin',params)['result'];token=lease['token']
         wait(lambda: status(token)['state']=='previewing')
         id=str(int(time.time()))+'-'+uuid.uuid4().hex
@@ -183,6 +194,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         ack=result['reload_acknowledgement'];assert ack['session']==query.session and ack['generation']==result['after_generation'] and ack['candidate_digest']==result['candidate_digest']
         assert status(token)['state']=='kept'
         assert (cfg/'outputs.toml').read_text()==params['outputs_source']
+        assert 'pearl-test-*' in (cfg/'rules.toml').read_text()
         assert helper_call('operation-status',flags=('--operation-id',id))==result
         assert helper_call('apply',request,('--result','v1','--operation-id',id))==result
         # An unchanged reviewed candidate can still end its lease through a

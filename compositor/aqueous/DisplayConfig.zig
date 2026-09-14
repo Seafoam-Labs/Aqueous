@@ -6,6 +6,11 @@ pub const document = @import("ConfigDocument.zig");
 pub const ipc = @import("ConfigIpcClient.zig");
 pub const transaction = @import("ConfigTransaction.zig");
 pub const config = @import("wm/output/config.zig");
+// Pure configuration parsers shared with the helper's collection classifier.
+pub const collection_actions = @import("wm/config/actions.zig");
+pub const collection_layout = @import("wm/config/layout.zig");
+pub const collection_toml = @import("wm/config/wm.zig");
+pub const decodeBindingCommand = @import("wm/config/loader.zig").decodeBasic;
 const scaling = @import("scaling");
 
 pub fn field(json: *std.json.Stringify, key: []const u8, value: anytype) !void {

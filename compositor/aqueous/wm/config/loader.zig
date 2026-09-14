@@ -272,7 +272,7 @@ fn parseGestureKey(key: []const u8) ?ParsedGestureKey {
     };
 }
 
-fn decodeBasic(value: []const u8, buffer: []u8) ?[]const u8 {
+pub fn decodeBasic(value: []const u8, buffer: []u8) ?[]const u8 {
     var read: usize = 0;
     var write: usize = 0;
     while (read < value.len) : (read += 1) {
