@@ -4,9 +4,9 @@
     .fingerprint = 0x709f97c586187a8e,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .quark = .{
-            .url = "git+https://codeberg.org/pparaxan/quark.git#c104e1c953347d677fb1b363260854842217d967",
-            .hash = "quark-0.2.0-Uqg3xpBHCQDmN0ctA7UhteVoZ88LIxJTVMloQ6S4mkfu",
+        .gobject = .{
+            .url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.9.0-2026-05-22-28-1/ghostty-gobject-0.9.0-2026-05-22-28-1.tar.zst",
+            .hash = "gobject-0.3.1-Skun7CCNogB9kSZJzqLTf_TwzMPW3-Rqdw86UgxADV-z",
         },
     },
     .paths = .{
@@ -14,5 +14,6 @@
         "build.zig.zon",
         "README.md",
         "src",
+        "tests",
     },
 }

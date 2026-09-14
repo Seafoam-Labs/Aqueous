@@ -38,7 +38,7 @@ jobs:
             libxkbcommon libinput \
             pixman libdrm libevdev \
             mesa libglvnd systemd-libs seatd pipewire libinih \
-            libdecor \
+            libdecor gtk4 \
             pkgconf ninja meson \
             wlroots0.20 \
             libdisplay-info libliftoff lcms2 \
@@ -217,13 +217,6 @@ jobs:
              publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr/
           cp packaging/aqueous.tmpfiles publish/aqueous-linux-x64/lib/tmpfiles.d/aqueous.conf
           cp packaging/aqueous-session.target publish/aqueous-linux-x64/lib/systemd/user/
-          # Noctalia shell unit + its graphical-session.target.wants symlink, so a
-          # tarball/binary install also brings up the SNI tray watcher before the
-          # autostart target (mirrors PKGBUILD package()).
-          cp packaging/noctalia.service publish/aqueous-linux-x64/lib/systemd/user/
-          mkdir -p publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants
-          ln -sf ../noctalia.service \
-             publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
           cp packaging/udev/70-aqueous-uaccess.rules \
              publish/aqueous-linux-x64/lib/udev/rules.d/ 2>/dev/null || true
 
@@ -239,6 +232,14 @@ jobs:
             mkdir -p publish/aqueous-linux-x64/share/aqueous/wallpapers
             cp packaging/wallpapers/*.avif publish/aqueous-linux-x64/share/aqueous/wallpapers/ 2>/dev/null || true
           fi
+
+          # Shared welcome/session staging keeps release archives shell-neutral.
+          AQUEOUS_WELCOME_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-welcome" \
+            DESTDIR="$GITHUB_WORKSPACE/publish/welcome-stage" \
+            sh packaging/install-welcome.sh
+          cp -a publish/welcome-stage/usr/. publish/aqueous-linux-x64/
+          cp -a publish/welcome-stage/etc/. publish/aqueous-linux-x64/etc/
+          rm -f publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
 
           # Strip debug symbols
           find publish/aqueous-linux-x64 -type f \( -name '*.dbg' -o -name '*.pdb' \) -delete

@@ -26,35 +26,14 @@ print_session_information() {
 
     Screen recording and sharing use the packaged Aqueous portal backend;
     xdg-desktop-portal-wlr does not need to be installed separately.
-    The source picker uses the shell selected by your Aqueous package.
+    Welcome to Aqueous selects Pearl (pearl-de), DMS, Noctalia, or Nothing.
+    Changes take effect at the next login. Super+Return opens a terminal;
+    Super+Shift+F1 opens welcome. Shelly installs all optional dependencies.
+    The source picker follows the active shell, with a GTK picker for Pearl/Nothing.
     Existing user portal configs override the packaged chooser settings.
 
     SDDM and other Wayland-capable display managers also work.
 EOF
-
-    if [ -e /usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service ]; then
-        cat <<'EOF'
-
-    DankMaterialShell (dms-shell) starts automatically with the Aqueous session.
-    Use DMS Settings for shell appearance. Aqueous Screen Sharing is a separate
-    plugin, enabled on first use; an intentional disable is preserved.
-    The optional greetd-dms-greeter-bin provides a display-manager frontend.
-
-    Existing user configuration is preserved. When switching shells, merge
-    the bindings from /usr/share/aqueous/wm.toml into ~/.config/aqueous/wm.toml:
-        launcher: dms ipc call spotlight toggle
-        screenshots (including direct bindings): dms screenshot region
-    Disable any manually enabled shell service or startup command so that
-    only the packaged aqueous-dms.service starts the shell.
-EOF
-    elif [ -e /usr/lib/systemd/user/graphical-session.target.wants/noctalia.service ]; then
-        cat <<'EOF'
-
-    Noctalia starts automatically with the Aqueous graphical session.
-    Existing custom Noctalia bar layouts are preserved.
-    The optional noctalia-greeter provides a display-manager frontend.
-EOF
-    fi
 
     if command -v aqueous-welcome >/dev/null 2>&1; then
         cat <<'EOF'

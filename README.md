@@ -74,12 +74,10 @@ model; they do not replace it.
   session lock, pointer constraints, color management, and other modern Wayland
   protocols are supported. Optional XWayland is started and managed directly by
   Aqueous—no `xwayland-satellite` process is required.
-- **A cohesive desktop without a mandatory suite.** The source packages start
-  [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell)
-  (`dms-shell`) as their shell, while
-  Aqueous continues to use standard layer-shell interfaces and does not embed
-  the shell into the compositor.
-  These packages include the [canonical configuration helper](settingsApplication/README.md) for Pearl.
+- **Choose your desktop.** The GTK [Welcome to Aqueous](welcome/README.md)
+  installs and sets up Pearl (`pearl-de`), DankMaterialShell, Noctalia, or a
+  shell-free session. Shelly handles package installation and all optional
+  dependencies; the shell stays separate from the compositor.
 
 ## Performance by design
 
@@ -336,28 +334,28 @@ and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
 Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
-`PKGBUILD`, `PKGBUILD-git`, `GitPKGBUILD/PKGBUILD`, the generic-CPU Intel variants, and
-`PKGBUILD-DMS` depend on `dms-shell`. The older `dms-aqueous` package also
-satisfies this dependency through its `provides` entry, allowing a switch to
-`dms-shell` without breaking the Aqueous dependency. They include the
-canonical configuration helper, optional DMS typography bridge, and screen-sharing chooser, start DMS automatically,
-and use DMS Spotlight and region screenshots in the packaged bindings.
-`GitPKGBUILD/PKGBUILD` and `IntelPKGBUILD/PKGBUILD` enable the dependency's standard `dms.service` through
-`graphical-session.target`; the other source variants use `aqueous-dms.service`.
-The prebuilt `PKGBUILD-bin` retains Noctalia integration.
-`gitNoctalia/PKGBUILD` and its accompanying `aqueous.install` preserve the
-Noctalia Git package, including the canonical configuration helper and Welcome app.
-It builds `aqueous-git` as an alternative to the DMS Git package.
+All Arch source variants and the release archive include the GTK welcome app,
+Shelly, and a terminal without requiring a desktop shell. On first login, choose
+Pearl (`pearl-de`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
+Shelly's password request through a GTK popup and selects all optional dependencies.
+A normal launcher invocation can reopen setup later. Existing completion markers
+are honored; upgrades do not force the wizard onto established users.
 
-When switching an existing profile to a DMS source package, update the launcher and
-screenshot commands in `~/.config/aqueous/wm.toml` from the defaults in
-`/usr/share/aqueous/wm.toml`; existing user files are preserved. Use
-`dms ipc call spotlight toggle` for the launcher and `dms screenshot region`
-for both screenshot actions and direct screenshot bindings. Disable any
-manually enabled shell service or startup command before using the packaged
-startup. When switching to `GitPKGBUILD/PKGBUILD` or `IntelPKGBUILD/PKGBUILD`, remove any manual enablement
-of the old `aqueous-dms.service` so only `dms.service` starts the shell. The Noctalia
-Welcome app is omitted from the DMS source packages; use DMS Settings for appearance.
+The selection is stored in `~/.config/aqueous/session.toml` and becomes active at
+the next login. Conditional Aqueous user units start exactly the selected shell;
+upstream shell units are suppressed only inside Aqueous. Existing custom startup
+files must be reviewed when they conflict. Shell packages and preferences remain
+installed when switching, including when choosing Nothing.
+
+Packaged launcher, screenshot and lock actions follow the active session.
+`Super+Return` opens Ghostty, and `Super+Shift+F1` reopens welcome. Pearl and Nothing
+use the GTK screen-sharing picker; DMS and Noctalia use their own integration.
+Welcome preserves custom commands and updates recognized legacy shell bindings
+through `aqueous-config`, with a recovery journal and backups. See the
+[welcome documentation](welcome/README.md) for recovery and verification details.
+
+Fedora and NixOS retain their existing installation and declarative shell setup;
+Shelly installation in welcome currently targets Arch-compatible systems.
 
 Aqueous has no
 .NET, `aqueous-wm-client`, `aqueous-outputd`, `wlr-randr`, or

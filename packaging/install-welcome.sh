@@ -1,0 +1,92 @@
+#!/bin/sh
+# Shared, relocatable staging for GTK welcome and the shell-neutral Arch session.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+destination=${DESTDIR:-}
+prefix=${PREFIX:-/usr}
+sysconfdir=${SYSCONFDIR:-/etc}
+binary=${AQUEOUS_WELCOME_BINARY:-$root/welcome/zig-out/bin/aqueous-welcome}
+install -Dm755 "$binary" "$destination$prefix/bin/aqueous-welcome"
+install -Dm644 "$root/welcome/src/setup.py" "$destination$prefix/lib/aqueous/welcome-setup.py"
+install -Dm644 "$root/packaging/aqueous-welcome.desktop" "$destination$prefix/share/applications/org.aqueous.Welcome.desktop"
+install -Dm644 "$root/packaging/aqueous-welcome-autostart.desktop" "$destination$sysconfdir/xdg/autostart/org.aqueous.Welcome.desktop"
+install -Dm644 "$root/packaging/noctalia/config.toml" "$destination$prefix/share/aqueous/noctalia/config.toml"
+units="$destination$prefix/lib/systemd/user"
+install -d "$units/graphical-session.target.wants" "$destination$prefix/bin"
+for shell in pearl dms noctalia; do
+    unit="aqueous-$shell.service"
+    case "$shell" in
+        pearl) type=simple; command="$prefix/bin/pearl" ;;
+        dms) type=dbus; command="$prefix/bin/dms run --session" ;;
+        noctalia) type=forking; command="$prefix/bin/noctalia --daemon" ;;
+    esac
+    cat > "$units/$unit" <<EOF
+[Unit]
+Description=$shell desktop for Aqueous
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+Before=xdg-desktop-autostart.target
+OnFailure=aqueous-shell-failed.service
+
+[Service]
+Type=$type
+ExecCondition=/usr/bin/python3 $prefix/lib/aqueous/welcome-setup.py condition $shell
+ExecStart=$command
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+Slice=app-graphical.slice
+EOF
+    if [ "$shell" = dms ]; then
+        printf '%s\n' 'BusName=org.freedesktop.Notifications' >> "$units/$unit"
+    fi
+    if [ "$shell" = pearl ]; then
+        printf '%s\n' '# The locker must survive a shell restart.' 'KillMode=process' >> "$units/$unit"
+    fi
+    ln -sf "../$unit" "$units/graphical-session.target.wants/$unit"
+    # Package-owned global enablement is replaced by conditional Aqueous units.
+    rm -f "$units/graphical-session.target.wants/$shell.service"
+    install -d "$units/$shell.service.d"
+    cat > "$units/$shell.service.d/50-aqueous-selection.conf" <<EOF
+[Service]
+ExecCondition=/usr/bin/python3 $prefix/lib/aqueous/welcome-setup.py external-condition
+EOF
+done
+cat > "$units/aqueous-shell-failed.service" <<EOF
+[Unit]
+Description=Recover failed Aqueous shell startup
+PartOf=graphical-session.target
+
+[Service]
+Type=exec
+ExecStart=$prefix/bin/aqueous-welcome --message "Your desktop shell failed to start. Review setup or choose another shell."
+EOF
+cat > "$destination$prefix/bin/aqueous-shell-action" <<EOF
+#!/bin/sh
+exec /usr/bin/python3 '$prefix/lib/aqueous/welcome-setup.py' action "\$@"
+EOF
+chmod 755 "$destination$prefix/bin/aqueous-shell-action"
+install -d "$destination$sysconfdir/xdg/xdg-desktop-portal-aqueous"
+cat > "$destination$sysconfdir/xdg/xdg-desktop-portal-aqueous/config" <<EOF
+[screencast]
+chooser_type=dmenu
+chooser_cmd=$prefix/bin/aqueous-shell-action chooser
+EOF
+# Only package defaults are transformed. Existing user files go through the
+# canonical helper and the reviewed setup transaction.
+python3 - "$root/wm.toml" "$destination$prefix/share/aqueous/wm.toml" "$destination$sysconfdir/xdg/aqueous/wm.toml" <<'PY'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+for key, action in [('toggle_start_menu', 'launcher'), ('screenshot', 'screenshot'), ('lock_screen', 'lock')]:
+    if not re.search(r'(?m)^' + key + r'\s*=\s*"', text.split('[keybinds]')[0]):
+        text = text.replace('[actions]', '[actions]\n' + key + ' = "aqueous-shell-action ' + action + '"', 1)
+    text = re.sub(r'(?m)^' + key + r'\s*=\s*"[^\n]*$', key + ' = "aqueous-shell-action ' + action + '"', text, count=1)
+text = text.replace('spawn:dms screenshot region', 'spawn:aqueous-shell-action screenshot')
+text = text.replace('spawn:noctalia msg screenshot-region', 'spawn:aqueous-shell-action screenshot')
+text = re.sub(r'(?m)^\[keybinds.custom\]$', '[keybinds.custom]\n"Super+Shift+F1" = "spawn:aqueous-welcome"', text, count=1)
+for name in sys.argv[2:]:
+    path = pathlib.Path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+PY

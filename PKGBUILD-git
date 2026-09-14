@@ -8,9 +8,9 @@ pkgdesc="Aqueous single-process Wayland compositor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT' 'custom:PX')
-depends=('freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
+depends=('ghostty' 'sudo' 'python' 'gtk4' 'freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libpng' 'libdrm' 'libevdev'
-         'dms-shell' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
+         'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
          'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
          # uwsm manages the session lifecycle (env export, graphical-session.target,
@@ -63,6 +63,11 @@ prepare() {
 }
 
 build() {
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-local" \
+        zig build --build-file "$srcdir/aqueous/welcome/build.zig" \
+        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-welcome-dist"
+
     # Canonical configuration helper; Pearl supplies the settings UI.
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
@@ -236,14 +241,7 @@ package() {
     install -Dm644 "$srcdir/aqueous/packaging/aqueous-session.target" \
         "$pkgdir/usr/lib/systemd/user/aqueous-session.target"
 
-    # DMS as a graphical-session user unit. The unit's XDG_CURRENT_DESKTOP
-    # condition restricts it to Aqueous even though graphical-session.target is
-    # shared by every desktop and compositor in the user's systemd manager.
-    install -Dm644 "$srcdir/aqueous/packaging/aqueous-dms.service" \
-        "$pkgdir/usr/lib/systemd/user/aqueous-dms.service"
-    install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
-    ln -s ../aqueous-dms.service \
-        "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service"
+    # Shell startup units are installed by install-welcome.sh below.
 
     # tmpfiles snippet: materialises per-user state/cache/config dirs at
     # login via systemd-tmpfiles --user.
@@ -279,4 +277,6 @@ package() {
             "$pkgdir/usr/share/licenses/$pkgname/compositor/"
     fi
 
+    AQUEOUS_WELCOME_BINARY="$srcdir/aqueous-welcome-dist/bin/aqueous-welcome" \
+        DESTDIR="$pkgdir" sh "$srcdir/aqueous/packaging/install-welcome.sh"
 }

@@ -14,7 +14,7 @@ license=(None)
 install=aqueous-meta.install
 
 depends=(
-    # Aqueous compositor, Noctalia shell, portals, screenshots, clipboard,
+    # Aqueous compositor, shell chooser, portals, screenshots, clipboard,
     # XWayland, session management, and the packaged configuration UI.
     aqueous
 
@@ -65,8 +65,8 @@ depends=(
     blueman
 
     # Authentication, secrets, removable media, phones, cameras, and common
-    # network filesystems. No second polkit agent is installed: Noctalia owns
-    # the graphical authentication agent for the Aqueous session.
+    # network filesystems. Welcome uses Shelly for installation authentication;
+    # the chosen shell supplies its own desktop authentication integration.
     polkit
     gnome-keyring
     gvfs

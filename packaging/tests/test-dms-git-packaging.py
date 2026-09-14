@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage each DMS source package with fixture binaries and verify its DMS session."""
+"""Stage source packages with fixture binaries and verify selectable desktop sessions."""
 
 import json
 import os
@@ -18,6 +18,7 @@ variants = (
     "PKGBUILD-intel",
     "IntelPKGBUILD/PKGBUILD",
     "PKGBUILD-DMS",
+    "gitNoctalia/PKGBUILD",
 )
 
 with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
@@ -31,6 +32,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/bin/aqueousctl",
         "aqueous-dist/lib/aqueous/libwlroots-0.20.so",
         "aqueous-config-dist/bin/aqueous-config",
+        "aqueous-welcome-dist/bin/aqueous-welcome",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser",
         "xdg-desktop-portal-wlr-0.8.4/LICENSE",
@@ -46,10 +48,11 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             [
                 "bash", "-euc",
                 'source "$1"\n'
-                '[[ " ${depends[*]} " == *" dms-shell "* ]]\n'
+                '[[ " ${depends[*]} " != *" dms-shell "* ]]\n'
+                '[[ " ${depends[*]} " != *" noctalia "* ]]\n'
+                '[[ " ${depends[*]} " != *" pearl-de "* ]]\n'
+                'for dependency in gtk4 shelly python sudo ghostty; do [[ " ${depends[*]} " == *" $dependency "* ]]; done\n'
                 '[[ " ${depends[*]} " != *" dms-aqueous "* ]]\n'
-                '[[ " ${checkdepends[*]-} " == *" gsettings-desktop-schemas "* ]]\n'
-                '[[ " ${depends[*]} ${checkdepends[*]-} ${optdepends[*]} " != *noctalia* ]]\n'
                 'package',
                 "test-dms-git-packaging", str(repo / variant),
             ],
@@ -57,24 +60,20 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             check=True,
         )
         units = stage / "usr/lib/systemd/user"
-        if variant in ("GitPKGBUILD/PKGBUILD", "IntelPKGBUILD/PKGBUILD"):
-            assert (units / "graphical-session.target.wants/dms.service").readlink() == Path("../dms.service")
-            # The dependency owns the unit; Aqueous only owns its enablement.
-            assert not (units / "dms.service").exists()
-            assert not (units / "aqueous-dms.service").exists()
-            assert not (units / "graphical-session.target.wants/aqueous-dms.service").is_symlink()
-        else:
-            assert (units / "graphical-session.target.wants/aqueous-dms.service").readlink() == Path("../aqueous-dms.service")
-            assert "ExecStart=/usr/bin/dms run --session" in (units / "aqueous-dms.service").read_text()
-            assert not (units / "graphical-session.target.wants/dms.service").is_symlink()
-        assert not any("noctalia" in str(p.relative_to(stage)).lower() for p in stage.rglob("*"))
+        for shell in ("pearl", "dms", "noctalia"):
+            unit = f"aqueous-{shell}.service"
+            assert (units / "graphical-session.target.wants" / unit).readlink() == Path("..") / unit
+            assert f"welcome-setup.py condition {shell}" in (units / unit).read_text()
+            assert not (units / "graphical-session.target.wants" / f"{shell}.service").is_symlink()
+            assert "external-condition" in (units / f"{shell}.service.d/50-aqueous-selection.conf").read_text()
+        assert (stage / "usr/share/aqueous/noctalia/config.toml").is_file()
         assert not (stage / "usr/share/aqueous/settings-application").exists()
         assert (stage / "usr/bin/aqueous-config").exists()
         assert not (stage / "usr/share/aqueous/dms-plugins/aqueousSettings").exists()
         assert not (stage / "usr/bin/aqueous-settings").exists()
         assert not (stage / "usr/share/applications/org.aqueous.Settings.desktop").exists()
-        assert not (stage / "usr/bin/aqueous-welcome").exists()
-        assert not (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
+        assert (stage / "usr/bin/aqueous-welcome").exists()
+        assert (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
 
         menu_path = stage / "etc/xdg/menus/aqueous-applications.menu"
         assert menu_path.read_bytes() == (repo / "packaging/menus/aqueous-applications.menu").read_bytes()
@@ -83,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         for element in ("DefaultAppDirs", "DefaultDirectoryDirs", "Include/All"):
             assert menu.find(element) is not None
 
-        for plugin_id in ("aqueousSettingsAppearance", "aqueousPortal"):
+        for plugin_id in (() if variant == "gitNoctalia/PKGBUILD" else ("aqueousSettingsAppearance", "aqueousPortal")):
             runtime = Path("usr/share/aqueous/dms-plugins") / plugin_id
             manifest = json.loads((stage / runtime / "plugin.json").read_text())
             assert manifest["id"] == plugin_id
@@ -93,18 +92,17 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
             for component in components.values():
                 assert (stage / runtime / component).is_file()
 
-        assert (stage / "etc/xdg/xdg-desktop-portal-aqueous/config").read_bytes() == (repo / "packaging/portal/dms.conf").read_bytes()
-        for executable in ("usr/bin/aqueous-config", "usr/lib/aqueous/aqueous-dms-portal-chooser"):
+        assert "aqueous-shell-action chooser" in (stage / "etc/xdg/xdg-desktop-portal-aqueous/config").read_text()
+        for executable in ("usr/bin/aqueous-config", "usr/bin/aqueous-welcome", "usr/bin/aqueous-shell-action"):
             assert os.access(stage / executable, os.X_OK)
 
         defaults = stage / "usr/share/aqueous/wm.toml"
         assert defaults.read_bytes() == (stage / "etc/xdg/aqueous/wm.toml").read_bytes()
-        assert "noctalia" not in defaults.read_text().lower()
         config = tomllib.loads(defaults.read_text())
-        assert config["actions"]["toggle_start_menu"] == "dms ipc call spotlight toggle"
-        assert config["actions"]["screenshot"] == "dms screenshot region"
-        assert config["keybinds"]["custom"]["Super+Shift+S"] == "spawn:dms screenshot region"
-        print(f"{variant}: DMS dependency, session, plugins, portal and bindings passed")
+        assert config["actions"]["toggle_start_menu"] == "aqueous-shell-action launcher"
+        assert config["actions"]["screenshot"] == "aqueous-shell-action screenshot"
+        assert config["keybinds"]["custom"]["Super+Shift+S"] == "spawn:aqueous-shell-action screenshot"
+        print(f"{variant}: shell-neutral dependencies, GTK welcome, conditional sessions, portal and bindings passed")
 
     relocated = work / "relocated"
     subprocess.run(

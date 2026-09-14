@@ -7,4 +7,5 @@ TryExec=aqueous-welcome
 Icon=system-software-install
 Terminal=false
 NoDisplay=true
+OnlyShowIn=Aqueous;
 X-GNOME-Autostart-enabled=true

@@ -15,20 +15,22 @@ set -u
 # System-owned defaults copied into otherwise unconfigured user profiles.
 AQUEOUS_SHARE_DIR="${AQUEOUS_SHARE_DIR:-/usr/share/aqueous}"
 
-# Seed the Noctalia (v5) default config on first launch. Idempotent and
-# non-destructive: only runs when the user has no config.toml yet. Noctalia v5
-# reads every *.toml in ~/.config/noctalia/ and merges them; we seed the
-# hand-written base layer (config.toml) with Aqueous defaults (the packaged
-# settings plugin on the default bar, idle/lock timeouts, blurred lock screen,
-# and default wallpapers pointing at /usr/share/aqueous/wallpapers). GUI
-# changes land in ~/.local/state/noctalia/settings.toml and are never touched
-# here.
-NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
-NOCTALIA_DEFAULTS="$AQUEOUS_SHARE_DIR/noctalia/config.toml"
-if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
-    mkdir -p "$NOCTALIA_USER_CFG_DIR"
-    cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/config.toml"
-    chmod 600 "$NOCTALIA_USER_CFG_DIR/config.toml"
+# Select the desktop before graphical-session.target starts shell units. The
+# runtime snapshot keeps current-session shortcuts stable after a new selection.
+# Declarative/non-Arch packages omit this helper and retain their own startup.
+if [ "${AQUEOUS_NESTED:-0}" != 1 ] && [ -f /usr/lib/aqueous/welcome-setup.py ]; then
+    python3 /usr/lib/aqueous/welcome-setup.py prepare-session || {
+        echo "Aqueous shell selection failed; open aqueous-welcome to recover." >&2
+    }
+elif [ ! -f /usr/lib/aqueous/welcome-setup.py ]; then
+    # Declarative/legacy packages continue to supply their own Noctalia profile.
+    NOCTALIA_USER_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/noctalia"
+    NOCTALIA_DEFAULTS="$AQUEOUS_SHARE_DIR/noctalia/config.toml"
+    if [ ! -e "$NOCTALIA_USER_CFG_DIR/config.toml" ] && [ -r "$NOCTALIA_DEFAULTS" ]; then
+        mkdir -p "$NOCTALIA_USER_CFG_DIR"
+        cp "$NOCTALIA_DEFAULTS" "$NOCTALIA_USER_CFG_DIR/config.toml"
+        chmod 600 "$NOCTALIA_USER_CFG_DIR/config.toml"
+    fi
 fi
 
 # Ghostty's client-side frame obscures the compositor-provided rounded border.

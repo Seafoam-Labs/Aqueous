@@ -12,9 +12,9 @@ desktop_setup_message() {
     login shell with:
         uwsm start aqueous.desktop
 
-    No separate PolicyKit agent should be started. Noctalia supplies the agent
-    for the Aqueous session; running another agent at the same time conflicts
-    with it.
+    Welcome to Aqueous lets you select Pearl, DMS, Noctalia, or Nothing.
+    Shelly requests installation authentication through welcome's password popup.
+    The selected shell manages authentication for its own desktop features.
 EOF
 }
 

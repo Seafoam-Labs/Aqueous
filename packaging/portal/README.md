@@ -18,26 +18,21 @@ The desktop portal router is configured by `packaging/aqueous-portals.conf` to
 use this backend only for ScreenCast and Screenshot. GTK continues to handle
 the remaining portal interfaces.
 
-The Git packages (including Intel and `PKGBUILD-DMS`) use the
-`dms-shell` package and the DMS chooser. The backend configuration selects the
-shell's source picker. Noctalia packages
-install `noctalia.conf`, which calls `noctalia dmenu`. DMS packages target **DMS
-1.6.1 or newer** and install `dms.conf`, a small Zig bridge, and the independent
-`aqueousPortal` DMS daemon plugin. No additional launcher is required. Both
-configurations use `chooser_type=dmenu`, so combined monitor/window requests
-are handled without the upstream default chooser skipping `slurp` and searching
-for menu programs that are not installed.
+Arch packages use `aqueous-shell-action chooser`, which follows the active
+session selected in Welcome to Aqueous. DMS uses the existing Zig bridge and
+`aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl and Nothing use
+`aqueous-welcome --choose`, a standalone GTK picker. All use `chooser_type=dmenu`
+and return the selected original source line, with no output on cancellation.
 
-The package variant chooses the default; merely installing a second shell does
-not change it. DMS screen sharing does not depend on the optional Aqueous
-Settings plugin or a DankBar widget. On the first request the bridge waits up
-to ten seconds for plugin discovery and enables only `aqueousPortal` through
-DMS IPC. An explicit `enabled: false` in DMS's plugin settings is preserved.
-To enable it again, use DMS Settings → Plugins → Aqueous Screen Sharing, or:
+Installing another shell does not change an active session. Welcome writes the
+next-login selection and preserves custom portal overrides. It updates recognized
+legacy chooser commands while retaining other settings. NixOS retains its
+explicit Noctalia chooser configuration.
 
-```sh
-dms ipc call plugins enable aqueousPortal
-```
+DMS screen sharing requires DMS 1.6.1 or newer. Its bridge enables only the
+`aqueousPortal` plugin through DMS IPC on first use; an explicit plugin disable
+is preserved. Enable it again in DMS Settings or with
+`dms ipc call plugins enable aqueousPortal`.
 
 The bridge exchanges the original choice list and a selected index with DMS
 over a private per-request Unix socket in `$XDG_RUNTIME_DIR/aqueous-portal`.

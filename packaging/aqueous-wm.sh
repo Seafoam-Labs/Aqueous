@@ -60,7 +60,7 @@ echo "[aqueous-wm] $(date -Is) starting uid=$(id -u) greeter=${XDG_GREETER_DATA_
 # pinning a stale/empty WAYLAND_DISPLAY into the user manager.
 
 # Seed user config from the system default if missing. Never overwrite.
-cfg="$HOME/.config/aqueous/wm.toml"
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/wm.toml"
 if [ ! -f "$cfg" ] && [ -f /etc/xdg/aqueous/wm.toml ]; then
     # Non-fatal: a quirky $HOME/.config (e.g. odd ownership during a
     # greetd autologin handoff) must not abort the whole session. Aqueous

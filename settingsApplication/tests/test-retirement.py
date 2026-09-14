@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-retirement-') as tmp:
     for relative in ['aqueous-dist/bin/aqueous','aqueous-dist/bin/aqueousctl','aqueous-dist/lib/aqueous/libwlroots-0.20.so','aqueous-config-dist/bin/aqueous-config','aqueous-welcome-dist/bin/aqueous-welcome','aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous','aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE','xdg-desktop-portal-wlr-0.8.4/LICENSE']:
         path=source/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture\n');path.chmod(0o755)
     archive=base/'archive'
-    for binary in ['aqueous','aqueousctl','aqueous-settings','aqueous-config','aqueous-init','aqueous-wm']:
+    for binary in ['aqueous','aqueousctl','aqueous-settings','aqueous-config','aqueous-init','aqueous-wm','aqueous-welcome','aqueous-shell-action']:
         path=archive/'bin'/binary;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture\n');path.chmod(0o755)
     binary_stage=base/'binary'
     for relative in ['share/applications/org.aqueous.Settings.desktop', 'share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg', 'share/aqueous/settings-application/themes/old.json', 'share/licenses/aqueous-settings/quark-LICENSE']:

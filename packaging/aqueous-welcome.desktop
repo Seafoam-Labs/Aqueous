@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Welcome to Aqueous
-Comment=Choose and install applications for your Aqueous desktop
+Comment=Set up Pearl, DMS, Noctalia, or a shell-free Aqueous desktop
 Exec=aqueous-welcome
 TryExec=aqueous-welcome
 Icon=system-software-install
