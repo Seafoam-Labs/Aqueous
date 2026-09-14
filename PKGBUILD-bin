@@ -1,167 +1,118 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
-# Maintainer: Caroline Snyder <hirpeng@gmail.com>
-pkgname=aqueous-bin
-pkgbase=aqueous
+# Component archives are introduced by the next release; do not reuse old bundles.
+pkgbase=aqueous-bin
+pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
 pkgver=0.7.0
-pkgrel=1
-pkgdesc="Aqueous single-process Wayland compositor (prebuilt release)"
+pkgrel=2
+# Keep tested binary/library bytes and component manifests stable.
+options=('!strip' '!debug' '!zipman')
+pkgdesc="Aqueous component packages (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT' 'custom:PX')
-depends=('freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
-         'pixman' 'libpng' 'libdrm' 'libevdev'
-         'gtk4' 'python' 'shelly' 'sudo' 'ghostty' 'libdecor' 'grim' 'slurp' 'xorg-xwayland'
-         'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'
-         'xdg-desktop-portal-gtk' 'libnotify' 'glib2' 'fontconfig'
-         # uwsm manages the session lifecycle; the aqueous.desktop session
-         # entry execs `uwsm start`.
-         'uwsm'
-         'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff'
-         'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm')
-optdepends=('noctalia-greeter: recommended display manager / login greeter'
-            'greetd: alternative minimal login manager for tuigreet'
-            'ghostty: recommended terminal emulator'
-            'nemo: recommended file manager'
-            'firefox: web browser'
-            'qt5ct: synchronize the Aqueous desktop font with Qt 5 applications'
-            'qt6ct: synchronize the Aqueous desktop font with Qt 6 applications')
-provides=('aqueous')
-conflicts=('aqueous' 'aqueous-git')
-install=aqueous.install
-backup=('etc/xdg/xdg-desktop-portal-aqueous/config'
-        'etc/xdg/aqueous/wm.toml'
-        'etc/xdg/uwsm/env-aqueous'
-        'etc/xdg/menus/aqueous-applications.menu')
-source_x86_64=(
-    "Aqueous-linux-x64-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-linux-x64.tar.gz"
-)
-# Update this checksum when bumping pkgver to match the published release.
-sha256sums_x86_64=('SKIP')
+makedepends=('bash' 'jq' 'binutils')
+source=("Aqueous-components-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-components-${pkgver}-x86_64.tar.gz")
+# The release process must replace this before publishing the binary recipe.
+# Intentionally fail closed instead of accepting SKIP for executable archives.
+sha256sums=('REPLACE_WITH_RELEASE_SHA256')
 
 check() {
-    # Refuse release archives that are incomplete or still contain executables
-    # and user units retired by the single-process cutover.
-    if compgen -G "$srcdir/share/aqueous-protocols/stable/river-*.xml" >/dev/null; then
-        error "release archive contains retired River protocol definitions"
-        return 1
-    fi
-    local required=(
-        bin/aqueous-config
-        bin/aqueous
-        bin/aqueousctl
-        lib/aqueous/libwlroots-0.20.so
-        lib/aqueous/xdg-desktop-portal-aqueous
-        share/aqueous-protocols/stable/aqueous-window-info-v1.xml
-        share/aqueous-protocols/stable/aqueous-window-management-v1.xml
-        share/aqueous-protocols/stable/aqueous-input-management-v1.xml
-        share/aqueous-protocols/stable/aqueous-xkb-bindings-v1.xml
-        share/aqueous-protocols/stable/aqueous-xkb-config-v1.xml
-        share/aqueous-protocols/stable/aqueous-libinput-config-v1.xml
-        share/aqueous-protocols/stable/aqueous-layer-shell-v1.xml
-        bin/aqueous-init
-        bin/aqueous-wm
-        share/wayland-sessions/aqueous.desktop
-        share/xdg-desktop-portal/aqueous-portals.conf
-        share/xdg-desktop-portal/portals/aqueous.portal
-        share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service
-        etc/xdg/xdg-desktop-portal-aqueous/config
-        etc/xdg/aqueous/wm.toml
-        etc/xdg/uwsm/env-aqueous
-        etc/xdg/menus/aqueous-applications.menu
-        lib/systemd/user/aqueous-session.target
-        lib/systemd/user/xdg-desktop-portal-aqueous.service
-        share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE
-        bin/aqueous-welcome
-        bin/aqueous-shell-action
-        lib/aqueous/welcome-setup.py
-        lib/systemd/user/aqueous-pearl.service
-        lib/systemd/user/aqueous-noctalia.service
-        lib/tmpfiles.d/aqueous.conf
-        lib/udev/rules.d/70-aqueous-uaccess.rules
-    )
-    local path
-    for path in "${required[@]}"; do
-        if [[ ! -e "$srcdir/$path" ]]; then
-            error "release archive is missing required file: $path"
-            return 1
-        fi
-    done
-    strings "$srcdir/lib/aqueous/xdg-desktop-portal-aqueous" |
-        grep -F 'org.freedesktop.impl.portal.desktop.aqueous' >/dev/null
-    if strings "$srcdir/lib/aqueous/xdg-desktop-portal-aqueous" |
-        grep -E 'org\.freedesktop\.impl\.portal\.desktop\.wlr|XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config' >/dev/null; then
-        error "release portal backend still contains the wlr backend identity"
-        return 1
-    fi
-    readelf -d "$srcdir/bin/aqueous" |
-        grep -F '$ORIGIN/../lib/aqueous' >/dev/null
-    if readelf -d "$srcdir/bin/aqueous" |
-        grep -i 'scenefx' >/dev/null; then
-        error "release compositor still links SceneFX"
-        return 1
-    fi
-
-    local retired=(
-        bin/aqueous-backend-test
-        lib/aqueous/enable-noctalia-plugin
-        share/aqueous/noctalia-plugins
-        bin/aqueous-settings
-        share/applications/org.aqueous.Settings.desktop
-        share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg
-        share/aqueous/settings-application
-        share/licenses/aqueous-settings
-        share/aqueous/dms-plugins/aqueousSettings
-        etc/xdg/quickshell/dms-plugins/aqueousSettings
-        bin/aqueous-outputd
-        bin/aqueous-wm-client
-        bin/riverdelta
-        lib/systemd/user/aqueous-outputd.service
-        lib/systemd/user/xwayland-satellite.service
-        lib/systemd/user/graphical-session.target.wants/xwayland-satellite.service
-    )
-    for path in "${retired[@]}"; do
-        if [[ -e "$srcdir/$path" || -L "$srcdir/$path" ]]; then
-            error "release archive contains retired file: $path"
-            return 1
-        fi
-    done
+    bash "$srcdir/components/tools/verify-release.sh" "$srcdir/components" --version "$pkgver" --architecture "$CARCH"
 }
 
-package() {
-    # The release tarball is staged with a /bin, /share, /lib, /etc layout
-    # rooted at the archive top-level. Install it into $pkgdir mirroring
-    # the binary build output of the source PKGBUILD.
-    install -d "$pkgdir/usr"
+_stage_component() {
+    # Revalidate even when makepkg --nocheck is used.
+    check
+    install -d "$pkgdir"
+    cp -dr --preserve=mode,timestamps --no-preserve=ownership "$srcdir/components/$1/root/." "$pkgdir/"
+}
 
-    # Binaries
-    install -Dm755 "$srcdir/bin/aqueous-config" "$pkgdir/usr/bin/aqueous-config"
-    install -d "$pkgdir/usr/bin"
-    install -Dm755 "$srcdir/bin/aqueous"      "$pkgdir/usr/bin/aqueous"
-    install -Dm755 "$srcdir/bin/aqueousctl"   "$pkgdir/usr/bin/aqueousctl"
-    install -Dm755 "$srcdir/bin/aqueous-init" "$pkgdir/usr/bin/aqueous-init"
-    install -Dm755 "$srcdir/bin/aqueous-wm"   "$pkgdir/usr/bin/aqueous-wm"
+package_aqueous-core-bin() {
+    pkgdesc="Aqueous core (prebuilt)"
+    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-core=$pkgver-$pkgrel")
+    _stage_component core
+}
 
-    install -Dm755 "$srcdir/bin/aqueous-welcome" "$pkgdir/usr/bin/aqueous-welcome"
-    install -Dm755 "$srcdir/bin/aqueous-shell-action" "$pkgdir/usr/bin/aqueous-shell-action"
+package_aqueous-session-bin() {
+    pkgdesc="Aqueous session (prebuilt)"
+    depends=("aqueous-core-bin=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-session=$pkgver-$pkgrel")
+    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
+    _stage_component session
+}
 
-    # Shared data (wayland-sessions, Aqueous config tree and man pages, etc.)
-    if [ -d "$srcdir/share" ]; then
-        install -d "$pkgdir/usr/share"
-        cp -dr --no-preserve=ownership "$srcdir/share/." "$pkgdir/usr/share/"
-        rm -f "$pkgdir/usr/share/applications/org.aqueous.Settings.desktop" \
-            "$pkgdir/usr/share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg"
-        rm -rf "$pkgdir/usr/share/aqueous/settings-application" "$pkgdir/usr/share/licenses/aqueous-settings"
-    fi
+package_aqueous-welcome-bin() {
+    pkgdesc="Aqueous welcome (prebuilt)"
+    depends=("aqueous-session-bin=$pkgver-$pkgrel" "gtk4" "shelly" "sudo")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-welcome' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-welcome=$pkgver-$pkgrel")
+    _stage_component welcome
+}
 
-    # systemd user units, tmpfiles configuration, and udev rules
-    if [ -d "$srcdir/lib" ]; then
-        install -d "$pkgdir/usr/lib"
-        cp -dr --no-preserve=ownership "$srcdir/lib/." "$pkgdir/usr/lib/"
-    fi
+package_xdg-desktop-portal-aqueous-bin() {
+    pkgdesc="Aqueous portal (prebuilt)"
+    depends=("libinih" "pipewire" "wayland" "systemd-libs" "xdg-desktop-portal")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'xdg-desktop-portal-aqueous' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("xdg-desktop-portal-aqueous=$pkgver-$pkgrel")
+    _stage_component portal
+}
 
-    # Default system-wide config
-    if [ -d "$srcdir/etc" ]; then
-        install -d "$pkgdir/etc"
-        cp -dr --no-preserve=ownership "$srcdir/etc/." "$pkgdir/etc/"
-    fi
+package_aqueous-integration-dms-bin() {
+    pkgdesc="Aqueous integration-dms (prebuilt)"
+    depends=("aqueous-session-bin=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-bin=$pkgver-$pkgrel")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-dms' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-integration-dms=$pkgver-$pkgrel")
+    _stage_component integration-dms
+}
+
+package_aqueous-integration-noctalia-bin() {
+    pkgdesc="Aqueous integration-noctalia (prebuilt)"
+    depends=("aqueous-session-bin=$pkgver-$pkgrel")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-noctalia' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-integration-noctalia=$pkgver-$pkgrel")
+    _stage_component integration-noctalia
+}
+
+package_aqueous-integration-pearl-bin() {
+    pkgdesc="Aqueous integration-pearl (prebuilt)"
+    depends=("aqueous-session-bin=$pkgver-$pkgrel")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-pearl' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    provides=("aqueous-integration-pearl=$pkgver-$pkgrel")
+    _stage_component integration-pearl
+}
+
+package_aqueous-shell-dms-bin() {
+    pkgdesc="Aqueous aqueous-shell-dms (prebuilt)"
+    depends=("aqueous-integration-dms-bin=$pkgver-$pkgrel" "dms-shell")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-dms')
+    provides=("aqueous-shell-dms=$pkgver-$pkgrel")
+    : # Dependency-only preset.
+}
+
+package_aqueous-shell-noctalia-bin() {
+    pkgdesc="Aqueous aqueous-shell-noctalia (prebuilt)"
+    depends=("aqueous-integration-noctalia-bin=$pkgver-$pkgrel" "noctalia")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-noctalia')
+    provides=("aqueous-shell-noctalia=$pkgver-$pkgrel")
+    : # Dependency-only preset.
+}
+
+package_aqueous-shell-pearl-bin() {
+    pkgdesc="Aqueous aqueous-shell-pearl (prebuilt)"
+    depends=("aqueous-integration-pearl-bin=$pkgver-$pkgrel" "pearl-de")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl')
+    provides=("aqueous-shell-pearl=$pkgver-$pkgrel")
+    : # Dependency-only preset.
+}
+
+package_aqueous-bin() {
+    pkgdesc="Aqueous aqueous (prebuilt)"
+    depends=("aqueous-core-bin=$pkgver-$pkgrel" "aqueous-session-bin=$pkgver-$pkgrel" "aqueous-welcome-bin=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-bin=$pkgver-$pkgrel" "aqueous-integration-dms-bin=$pkgver-$pkgrel" "aqueous-integration-noctalia-bin=$pkgver-$pkgrel" "aqueous-integration-pearl-bin=$pkgver-$pkgrel")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous')
+    provides=("aqueous=$pkgver-$pkgrel")
+    install=aqueous.install
+    : # Dependency-only preset.
 }

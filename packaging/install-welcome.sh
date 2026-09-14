@@ -7,7 +7,6 @@ prefix=${PREFIX:-/usr}
 sysconfdir=${SYSCONFDIR:-/etc}
 binary=${AQUEOUS_WELCOME_BINARY:-$root/welcome/zig-out/bin/aqueous-welcome}
 install -Dm755 "$binary" "$destination$prefix/bin/aqueous-welcome"
-install -Dm644 "$root/welcome/src/setup.py" "$destination$prefix/lib/aqueous/welcome-setup.py"
 install -Dm644 "$root/packaging/aqueous-welcome.desktop" "$destination$prefix/share/applications/org.aqueous.Welcome.desktop"
 install -Dm644 "$root/packaging/aqueous-welcome-autostart.desktop" "$destination$sysconfdir/xdg/autostart/org.aqueous.Welcome.desktop"
 install -Dm644 "$root/packaging/noctalia/config.toml" "$destination$prefix/share/aqueous/noctalia/config.toml"
@@ -31,7 +30,7 @@ OnFailure=aqueous-shell-failed.service
 
 [Service]
 Type=$type
-ExecCondition=/usr/bin/python3 $prefix/lib/aqueous/welcome-setup.py condition $shell
+ExecCondition=$prefix/bin/aqueous-welcome --worker condition $shell
 ExecStart=$command
 Restart=on-failure
 RestartSec=2
@@ -50,7 +49,7 @@ EOF
     install -d "$units/$shell.service.d"
     cat > "$units/$shell.service.d/50-aqueous-selection.conf" <<EOF
 [Service]
-ExecCondition=/usr/bin/python3 $prefix/lib/aqueous/welcome-setup.py external-condition
+ExecCondition=$prefix/bin/aqueous-welcome --worker external-condition
 EOF
 done
 cat > "$units/aqueous-shell-failed.service" <<EOF
@@ -64,7 +63,7 @@ ExecStart=$prefix/bin/aqueous-welcome --message "Your desktop shell failed to st
 EOF
 cat > "$destination$prefix/bin/aqueous-shell-action" <<EOF
 #!/bin/sh
-exec /usr/bin/python3 '$prefix/lib/aqueous/welcome-setup.py' action "\$@"
+exec '$prefix/bin/aqueous-welcome' --worker action "\$@"
 EOF
 chmod 755 "$destination$prefix/bin/aqueous-shell-action"
 install -d "$destination$sysconfdir/xdg/xdg-desktop-portal-aqueous"
@@ -75,18 +74,16 @@ chooser_cmd=$prefix/bin/aqueous-shell-action chooser
 EOF
 # Only package defaults are transformed. Existing user files go through the
 # canonical helper and the reviewed setup transaction.
-python3 - "$root/wm.toml" "$destination$prefix/share/aqueous/wm.toml" "$destination$sysconfdir/xdg/aqueous/wm.toml" <<'PY'
-import pathlib, re, sys
-text = pathlib.Path(sys.argv[1]).read_text()
-for key, action in [('toggle_start_menu', 'launcher'), ('screenshot', 'screenshot'), ('lock_screen', 'lock')]:
-    if not re.search(r'(?m)^' + key + r'\s*=\s*"', text.split('[keybinds]')[0]):
-        text = text.replace('[actions]', '[actions]\n' + key + ' = "aqueous-shell-action ' + action + '"', 1)
-    text = re.sub(r'(?m)^' + key + r'\s*=\s*"[^\n]*$', key + ' = "aqueous-shell-action ' + action + '"', text, count=1)
-text = text.replace('spawn:dms screenshot region', 'spawn:aqueous-shell-action screenshot')
-text = text.replace('spawn:noctalia msg screenshot-region', 'spawn:aqueous-shell-action screenshot')
-text = re.sub(r'(?m)^\[keybinds.custom\]$', '[keybinds.custom]\n"Super+Shift+F1" = "spawn:aqueous-welcome"', text, count=1)
-for name in sys.argv[2:]:
-    path = pathlib.Path(name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
-PY
+install -d "$destination$prefix/share/aqueous" "$destination$sysconfdir/xdg/aqueous"
+awk '
+    /^\[actions\]$/ {
+        print; print "toggle_start_menu = \"aqueous-shell-action launcher\""
+        print "screenshot = \"aqueous-shell-action screenshot\""
+        print "lock_screen = \"aqueous-shell-action lock\""; actions=1; next
+    }
+    /^\[/ { actions=0 }
+    actions && /^(toggle_start_menu|screenshot|lock_screen)[[:space:]]*=/ { next }
+    /^\[keybinds.custom\]$/ { print; print "\"Super+Shift+F1\" = \"spawn:aqueous-welcome\""; next }
+    { gsub(/spawn:dms screenshot region|spawn:noctalia msg screenshot-region/, "spawn:aqueous-shell-action screenshot"); print }
+' "$root/wm.toml" > "$destination$prefix/share/aqueous/wm.toml"
+install -m644 "$destination$prefix/share/aqueous/wm.toml" "$destination$sysconfdir/xdg/aqueous/wm.toml"

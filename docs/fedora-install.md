@@ -14,7 +14,7 @@ repository files.
 
 The installer uses sudo for DNF transactions. It installs Fedora build and
 runtime dependencies, verifies the dependency archive checksums recorded on
-master, and runs that checkout's `PKGBUILD` prepare, build, check, and package
+master, and runs that checkout's legacy `PKGBUILD-git` prepare, build, check, and package
 functions. This reuses the maintained DMS source-package recipe without running
 pacman or Arch install hooks. The resulting local `aqueous-git` RPM includes the
 compositor, private patched wlroots, canonical configuration helper, DMS integration,
@@ -26,7 +26,7 @@ versions. Both x86_64 and aarch64 are accepted. Atomic desktops such as
 Silverblue and Kinoite, and bootc installations, require a separate image or
 layered-package workflow; this installer does not modify those hosts.
 
-DankMaterialShell 1.6.1 or newer must be available from your enabled repositories.
+For the default desktop installation, DankMaterialShell 1.6.1 or newer must be available from your enabled repositories.
 If you want the upstream DMS development package, explicitly enable its COPR
 through the installer:
 
@@ -47,6 +47,13 @@ manager shortcut, both installed from Fedora packages. Existing files in
 install Ghostty separately or change `spawn_terminal` in `wm.toml` to `foot`.
 RPM preserves edited system configuration with `%config(noreplace)` and may
 write updated defaults as `.rpmnew` files.
+
+For the separate shell-independent core RPM, use
+`bash scripts/fedora-install.sh --core-only`. It does not install DMS/session
+runtime dependencies or stage host integration. `--build-only` and `--skip-deps`
+work with this selector; `--dms-git` does not. Remove it with
+`sudo dnf remove aqueous-core`. This is an explicit alternative to the legacy
+`aqueous-git` RPM, not an automatic upgrade migration.
 
 ## Build, update, and remove
 

@@ -6,6 +6,7 @@ fedora_repo=https://github.com/Seafoam-Labs/Aqueous.git
 fedora_build_only=false
 fedora_skip_deps=false
 fedora_dms_git=false
+fedora_component=desktop
 fedora_yes=()
 fedora_output=${AQUEOUS_FEDORA_OUTPUT:-${XDG_CACHE_HOME:-$HOME/.cache}/aqueous/fedora}
 
@@ -21,6 +22,7 @@ then install a local aqueous-git RPM through sudo dnf.
 
   --build-only       Produce the RPM without installing Aqueous
   --skip-deps        Use dependencies already installed on the build machine
+  --core-only        Build/install shell-independent core without desktop dependencies
   --dms-git          Enable avengemedia/dms-git COPR for the DMS dependency
   -y, --yes          Accept DNF transaction prompts
   -h, --help         Show this help
@@ -63,7 +65,6 @@ fedora_dependencies() {
         git curl patch tar gzip xz gcc gcc-c++ clang llvm lld binutils \
         rpm-build redhat-rpm-config meson ninja-build pkgconf-pkg-config \
         scdoc glslang glslc hwdata python3 jq ripgrep desktop-file-utils \
-        qt6-qtdeclarative-devel gsettings-desktop-schemas \
         'zig >= 0.16.0' 'pkgconfig(wayland-protocols) >= 1.49' \
         'pkgconfig(wayland-server)' 'pkgconfig(wayland-client)' \
         'pkgconfig(wayland-scanner)' 'pkgconfig(xkbcommon)' \
@@ -76,6 +77,8 @@ fedora_dependencies() {
         'pkgconfig(xcb)' 'pkgconfig(xcb-errors)' 'pkgconfig(xcb-icccm)' \
         'pkgconfig(xcb-renderutil)' 'pkgconfig(libsystemd)' \
         xorg-x11-server-Xwayland
+    [[ $fedora_component == core ]] && return 0
+    sudo dnf "${fedora_yes[@]}" install qt6-qtdeclarative-devel gsettings-desktop-schemas gtk4-devel
     # Resolve session dependencies before spending time compiling. DMS can
     # come from enabled repositories or the explicitly selected upstream COPR.
     sudo dnf "${fedora_yes[@]}" install \
@@ -97,6 +100,7 @@ fedora_tools_check() {
         fedora_die "Zig >= 0.16.0 is required; found $version."
     pkg-config --atleast-version=1.49 wayland-protocols ||
         fedora_die 'wayland-protocols >= 1.49 is required. Update Fedora packages before retrying.'
+    [[ $fedora_component == core ]] && return 0
     # Fedora exposes Qt tools with a -qt6 suffix, unlike the Arch recipe.
     export QMLTESTRUNNER=${QMLTESTRUNNER:-$(command -v qmltestrunner-qt6 || true)}
     export QMLFORMAT=${QMLFORMAT:-$(command -v qmlformat-qt6 || true)}
@@ -119,7 +123,14 @@ fedora_build_source() (
     msg() { fedora_say "$*"; }
     error() { printf 'Aqueous build: %s\n' "$*" >&2; }
     # shellcheck disable=SC1091
-    source ./PKGBUILD
+    if [[ $fedora_component == desktop && -f PKGBUILD-git ]]; then
+        source ./PKGBUILD-git
+    else
+        source ./PKGBUILD
+    fi
+    if [[ $fedora_component == core ]]; then
+        package() { package_aqueous-core; }
+    fi
     local phase entry archive url checksum index
     for phase in prepare build check package; do
         declare -F "$phase" >/dev/null || fedora_die "master PKGBUILD is missing $phase()."
@@ -146,13 +157,19 @@ fedora_build_source() (
     export ZIG_GLOBAL_CACHE_DIR=$fedora_work/zig-global
     # Run phases in their own subshells, as makepkg does, so a phase's cd
     # cannot change the starting directory for the following phase.
-    (cd "$srcdir"; prepare)
-    (cd "$srcdir"; build)
-    (cd "$srcdir"; check)
+    if [[ $fedora_component == core ]]; then
+        AQUEOUS_DIST="$srcdir" bash "$srcdir/aqueous/scripts/gentoo-install.sh" --core-only build
+    else
+        (cd "$srcdir"; prepare)
+        (cd "$srcdir"; build)
+        (cd "$srcdir"; check)
+    fi
     (cd "$srcdir"; package)
     # Fedora's official foot package provides a working default terminal.
+    if [[ $fedora_component == desktop ]]; then
     sed -i 's/^spawn_terminal = "ghostty"$/spawn_terminal = "foot"/' \
         "$pkgdir/etc/xdg/aqueous/wm.toml" "$pkgdir/usr/share/aqueous/wm.toml"
+    fi
     install -Dm644 "$fedora_work/commit" "$pkgdir/usr/share/doc/aqueous/master-commit"
 )
 
@@ -162,28 +179,21 @@ fedora_make_rpm() {
     tar -czf "$top/SOURCES/payload.tar.gz" -C "$fedora_work/payload" .
     # List files individually: recursively owning /usr or /etc would claim
     # directories that belong to Fedora. Own only Aqueous-specific directories.
-    python3 - "$fedora_work/payload" > "$top/SOURCES/files.list" <<'PY'
-import os, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-owned = (
-    '/usr/lib/aqueous', '/usr/share/aqueous', '/usr/share/aqueous-protocols',
-    '/usr/share/doc/aqueous', '/usr/share/licenses/aqueous',
-    '/usr/share/licenses/aqueous-config', '/usr/share/doc/aqueous-config', '/etc/xdg/aqueous',
-    '/etc/xdg/xdg-desktop-portal-aqueous',
-)
-for directory, dirs, files in os.walk(root):
-    for name in sorted(dirs + files):
-        path = pathlib.Path(directory, name)
-        target = '/' + path.relative_to(root).as_posix()
-        if any(c in target for c in '\n\r\t"\\%'):
-            raise SystemExit(f'Unsupported RPM path: {target!r}')
-        if path.is_dir() and not path.is_symlink():
-            if any(target == p or target.startswith(p + '/') for p in owned):
-                print(f'%dir "{target}"')
-        else:
-            flag = '%config(noreplace) ' if target.startswith('/etc/') and not path.is_symlink() else ''
-            print(f'{flag}"{target}"')
-PY
+    local file target flag
+    while IFS= read -r -d '' file; do
+        target=/${file#"$fedora_work/payload/"}
+        [[ $target =~ ^/[a-zA-Z0-9_./+-]+$ ]] || fedora_die "Unsupported RPM path: $target"
+        if [[ -d $file && ! -L $file ]]; then
+            case $target in
+                /usr/lib/aqueous|/usr/lib/aqueous/*|/usr/share/aqueous|/usr/share/aqueous/*|/usr/share/aqueous-protocols|/usr/share/aqueous-protocols/*|/usr/share/doc/aqueous*|/usr/share/licenses/aqueous*|/etc/xdg/aqueous|/etc/xdg/aqueous/*|/etc/xdg/xdg-desktop-portal-aqueous|/etc/xdg/xdg-desktop-portal-aqueous/*)
+                    printf '%%dir "%s"\n' "$target" ;;
+            esac
+        else
+            flag=
+            [[ $target != /etc/* || -L $file ]] || flag='%config(noreplace) '
+            printf '%s"%s"\n' "$flag" "$target"
+        fi
+    done < <(find "$fedora_work/payload" -mindepth 1 -print0 | sort -z) > "$top/SOURCES/files.list"
     cat > "$top/SPECS/aqueous-git.spec" <<'SPEC'
 # Local binary packaging: sources were built and checked by fedora-install.sh.
 %global debug_package %{nil}
@@ -222,14 +232,24 @@ tar -xzf "%{SOURCE0}" -C "%{buildroot}"
 %files -f "%{SOURCE1}"
 %defattr(-,root,root,-)
 SPEC
+    if [[ $fedora_component == core ]]; then
+        sed -i \
+            -e 's/^Name: aqueous-git$/Name: aqueous-core/' \
+            -e '/^Provides: aqueous = /d' \
+            -e '/^Requires:/d' \
+            -e 's/^Conflicts:.*/Conflicts: aqueous aqueous-bin aqueous-git aqueous-git-intel aqueous-git-dms/' \
+            -e '/^Conflicts:/a Requires: fontconfig glib2 systemd dbus xorg-x11-server-Xwayland pipewire mesa-vulkan-drivers' \
+            -e 's/Aqueous compositor, canonical config helper, DMS integration and private screen-sharing backend./Shell-independent Aqueous compositor, canonical helper and inspection client./' \
+            "$top/SPECS/aqueous-git.spec"
+    fi
     rpmbuild -bb --define "_topdir $top" \
         --define "aqueous_version $(cat "$fedora_work/version")" \
         --define "aqueous_build_time $(date -u +%Y%m%d%H%M%S)" \
         "$top/SPECS/aqueous-git.spec"
     local -a packages
     shopt -s nullglob
-    packages=("$top"/RPMS/*/aqueous-git-*.rpm)
-    [[ ${#packages[@]} -eq 1 ]] || fedora_die 'Expected exactly one aqueous-git RPM.'
+    packages=("$top"/RPMS/*/aqueous-*.rpm)
+    [[ ${#packages[@]} -eq 1 ]] || fedora_die 'Expected exactly one selected Aqueous component RPM.'
     fedora_rpm=${packages[0]}
     rpm -qp --requires "$fedora_rpm" > "$fedora_work/rpm-requires.txt"
     fedora_say "RPM ready: $fedora_rpm"
@@ -238,6 +258,7 @@ SPEC
 fedora_main() {
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --core-only) fedora_component=core ;;
             --build-only) fedora_build_only=true ;;
             --skip-deps) fedora_skip_deps=true ;;
             --dms-git) fedora_dms_git=true ;;
@@ -247,6 +268,9 @@ fedora_main() {
         esac
         shift
     done
+    if [[ $fedora_component == core ]] && $fedora_dms_git; then
+        fedora_die "--dms-git cannot be combined with --core-only."
+    fi
     if $fedora_skip_deps && $fedora_dms_git; then
         fedora_die '--dms-git cannot be combined with --skip-deps.'
     fi

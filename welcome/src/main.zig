@@ -97,7 +97,7 @@ const State = struct {
             for (owned.items) |s| a.free(s);
             owned.deinit(a);
         }
-        argv.appendSlice(a, &.{ "python3", self.helper.ptr, @tagName(mode) }) catch return;
+        argv.appendSlice(a, &.{ self.helper.ptr, "--worker", @tagName(mode) }) catch return;
         if (mode == .setup) {
             argv.append(a, @ptrCast(names[selected.?].ptr)) catch return;
             for (self.apps, 0..) |button, i| {
@@ -431,6 +431,10 @@ fn activate(_: *gio.Application, self: *State) callconv(.c) void {
 
 pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
+    const executable = try std.process.executablePathAlloc(init.io, a);
+    defer a.free(executable);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "--worker"))
+        std.process.exit(@import("setup.zig").run(init, executable, args[2..]));
     var first = false;
     var chooser = false;
     var message: ?[:0]const u8 = null;
@@ -444,10 +448,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
     if (first and (!first_run.isAqueousDesktop(init.environ_map) or first_run.isComplete(a, init.io, init.environ_map))) return;
-    const executable = try std.process.executablePathAlloc(init.io, a);
-    defer a.free(executable);
-    const prefix = std.fs.path.dirname(std.fs.path.dirname(executable).?).?;
-    const helper_path = try std.fmt.allocPrintSentinel(a, "{s}/lib/aqueous/welcome-setup.py", .{prefix}, 0);
+    const helper_path = try a.dupeZ(u8, executable);
     defer a.free(helper_path);
     const app = gtk.Application.new("org.aqueous.Welcome", .{ .non_unique = chooser });
     defer app.unref();

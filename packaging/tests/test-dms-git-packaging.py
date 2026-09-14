@@ -12,7 +12,6 @@ import xml.etree.ElementTree as ET
 
 repo = Path(__file__).resolve().parents[2]
 variants = (
-    "PKGBUILD",
     "PKGBUILD-git",
     "GitPKGBUILD/PKGBUILD",
     "PKGBUILD-intel",
@@ -51,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 '[[ " ${depends[*]} " != *" dms-shell "* ]]\n'
                 '[[ " ${depends[*]} " != *" noctalia "* ]]\n'
                 '[[ " ${depends[*]} " != *" pearl-de "* ]]\n'
-                'for dependency in gtk4 shelly python sudo ghostty; do [[ " ${depends[*]} " == *" $dependency "* ]]; done\n'
+                'for dependency in gtk4 shelly sudo ghostty; do [[ " ${depends[*]} " == *" $dependency "* ]]; done\n'
                 '[[ " ${depends[*]} " != *" dms-aqueous "* ]]\n'
                 'package',
                 "test-dms-git-packaging", str(repo / variant),
@@ -63,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         for shell in ("pearl", "dms", "noctalia"):
             unit = f"aqueous-{shell}.service"
             assert (units / "graphical-session.target.wants" / unit).readlink() == Path("..") / unit
-            assert f"welcome-setup.py condition {shell}" in (units / unit).read_text()
+            assert f"aqueous-welcome --worker condition {shell}" in (units / unit).read_text()
             assert not (units / "graphical-session.target.wants" / f"{shell}.service").is_symlink()
             assert "external-condition" in (units / f"{shell}.service.d/50-aqueous-selection.conf").read_text()
         assert (stage / "usr/share/aqueous/noctalia/config.toml").is_file()
@@ -73,6 +72,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         assert not (stage / "usr/bin/aqueous-settings").exists()
         assert not (stage / "usr/share/applications/org.aqueous.Settings.desktop").exists()
         assert (stage / "usr/bin/aqueous-welcome").exists()
+        assert not (stage / "usr/lib/aqueous/welcome-setup.py").exists()
         assert (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
 
         menu_path = stage / "etc/xdg/menus/aqueous-applications.menu"

@@ -23,6 +23,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 dist="${AQUEOUS_DIST:-$root/dist}"
 destdir="${AQUEOUS_PREFIX:-}"
+component=desktop
+if [[ ${1:-} == --core-only ]]; then component=core; shift; fi
 zig_required=0.16.0
 zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.16.0}"
 xdpw_version=0.8.4
@@ -97,6 +99,19 @@ emerge_atoms=(
     dev-lang/python
     app-text/ripgrep
 )
+
+if [[ $component == core ]]; then
+    core_atoms=()
+    for atom in "${emerge_atoms[@]}"; do
+        case $atom in
+            x11-libs/libnotify|x11-misc/wl-clipboard|gui-apps/grim|gui-apps/slurp|dev-util/uwsm|sys-apps/xdg-desktop-portal|gui-libs/xdg-desktop-portal-gtk|media-video/wireplumber) ;;
+            *) core_atoms+=("$atom") ;;
+        esac
+    done
+    emerge_atoms=("${core_atoms[@]}")
+else
+    emerge_atoms+=(gui-libs/gtk app-admin/sudo)
+fi
 
 zig_install() {
     local arch
@@ -181,6 +196,12 @@ cmd_build() {
             --prefix "$dist/aqueous-config-dist" install
     )
 
+    if [[ $component == core ]]; then
+        verify_build
+        return
+    fi
+    zig build --build-file "$root/welcome/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-welcome-dist"
+    zig build --build-file "$root/packaging/portal/bridge/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-portal-chooser-dist"
     local portal_tmp
     portal_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-portal.XXXXXX")
     say "building bundled Aqueous portal backend $xdpw_version..."
@@ -236,13 +257,17 @@ verify_build() {
     fi
     [ -x "$dist/aqueous-config-dist/bin/aqueous-config" ] ||
         die "build output missing: aqueous-config-dist/bin/aqueous-config"
+    if [[ $component == desktop ]]; then
     [ -x "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" ] ||
         die "build output missing: aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
+    fi
     zig build --build-file "$root/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$dist/aqueous-config-tests"
     "$root/settingsApplication/tests/test-backend.sh" "$dist/aqueous-config-tests/bin/aqueous-backend-test"
     AQUEOUSCTL_BINARY="$dist/aqueous-dist/bin/aqueousctl" AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" "$root/settingsApplication/tests/test-packaging.sh"
+    if [[ $component == desktop ]]; then
     "$root/packaging/tests/test-portal-packaging.sh" \
         "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
+    fi
     say "build verified"
 }
 
@@ -280,126 +305,69 @@ tree_list() {
 }
 
 install_into() {
-    local D=$1
-
-    # Binaries + bundled patched wlroots.
-    install -Dm755 "$dist/aqueous-dist/bin/aqueous" "$D/usr/bin/aqueous"
-    install -Dm755 "$dist/aqueous-dist/bin/aqueousctl" "$D/usr/bin/aqueousctl"
-    AQUEOUSCTL_BINARY="$dist/aqueous-dist/bin/aqueousctl" AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" \
-        DESTDIR="$D" PREFIX=/usr "$root/settingsApplication/packaging/install.sh" --with-dms-appearance
-    install -Dm755 "$dist/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
-        "$D/usr/lib/aqueous/libwlroots-0.20.so"
-    install -Dm755 \
-        "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
-        "$D/usr/lib/aqueous/xdg-desktop-portal-aqueous"
-
-    # Man pages + protocol metadata from the zig build.
-    if [ -d "$dist/aqueous-dist/share" ]; then
-        install -d "$D/usr/share"
-        cp -dr --no-preserve=ownership "$dist/aqueous-dist/share/"* "$D/usr/share/"
+    local D=$1 stage part file relative
+    stage=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-components.XXXXXX")
+    local parts=(core)
+    if [[ $component == desktop ]]; then
+        parts+=(session welcome portal integration-dms integration-noctalia integration-pearl)
     fi
-
-    # Session / packaging scripts.
-    install -Dm755 "$root/packaging/aqueous-init" "$D/usr/bin/aqueous-init"
-    install -Dm755 "$root/packaging/aqueous-wm.sh" "$D/usr/bin/aqueous-wm"
-    install -Dm644 "$root/aqueous.desktop" "$D/usr/share/wayland-sessions/aqueous.desktop"
-    install -Dm644 "$root/packaging/portal/noctalia.conf" \
-        "$D/etc/xdg/xdg-desktop-portal-aqueous/config"
-    install -Dm644 "$root/packaging/aqueous-portals.conf" \
-        "$D/usr/share/xdg-desktop-portal/aqueous-portals.conf"
-    install -Dm644 "$root/packaging/portal/aqueous.portal" \
-        "$D/usr/share/xdg-desktop-portal/portals/aqueous.portal"
-    install -Dm644 \
-        "$root/packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service" \
-        "$D/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service"
-    install -Dm644 "$root/wm.toml" "$D/usr/share/aqueous/wm.toml"
-    install -Dm644 "$root/outputs.toml" "$D/usr/share/aqueous/outputs.toml"
-
-    # System-wide config (never clobbered).
-    install_etc "$D/etc/xdg/uwsm/env-aqueous" "$root/packaging/uwsm/env-aqueous"
-    install_etc "$D/etc/xdg/aqueous/wm.toml" "$root/wm.toml"
-    install_etc "$D/etc/xdg/aqueous/outputs.toml" "$root/outputs.toml"
-
-    # systemd user units.
-    install -Dm644 "$root/packaging/aqueous-session.target" \
-        "$D/usr/lib/systemd/user/aqueous-session.target"
-    install -Dm644 "$root/packaging/portal/xdg-desktop-portal-aqueous.service" \
-        "$D/usr/lib/systemd/user/xdg-desktop-portal-aqueous.service"
-    install -Dm644 "$root/packaging/noctalia.service" \
-        "$D/usr/lib/systemd/user/noctalia.service"
-    install -d "$D/usr/lib/systemd/user/graphical-session.target.wants"
-    ln -sf ../noctalia.service \
-        "$D/usr/lib/systemd/user/graphical-session.target.wants/noctalia.service"
-
-    # tmpfiles + udev.
-    install -Dm644 "$root/packaging/aqueous.tmpfiles" "$D/usr/lib/tmpfiles.d/aqueous.conf"
-    install -Dm644 "$root/packaging/udev/70-aqueous-uaccess.rules" \
-        "$D/usr/lib/udev/rules.d/70-aqueous-uaccess.rules"
-
-    # Noctalia / ghostty defaults.
-    install -Dm644 "$root/packaging/noctalia/config.toml" \
-        "$D/usr/share/aqueous/noctalia/config.toml"
-    install -Dm644 "$root/packaging/ghostty/config.ghostty" \
-        "$D/usr/share/aqueous/ghostty/config.ghostty"
-
-    # Wallpapers referenced by the shipped Noctalia config.
-    install -d "$D/usr/share/aqueous/wallpapers"
-    install -m644 "$root/packaging/wallpapers/"*.avif "$D/usr/share/aqueous/wallpapers/"
-
-    # Docs / licenses.
-    install -Dm644 "$root/packaging/greetd/config.toml.example" \
-        "$D/usr/share/doc/aqueous/greetd-config.toml.example"
-    install -Dm644 "$root/README.md" "$D/usr/share/doc/aqueous/README.md"
-    if [ -f "$root/LICENSE" ]; then
-        install -Dm644 "$root/LICENSE" "$D/usr/share/licenses/aqueous/LICENSE"
-    fi
-    if [ -d "$root/compositor/LICENSES" ]; then
-        install -d "$D/usr/share/licenses/aqueous/compositor"
-        cp -dr --no-preserve=ownership "$root/compositor/LICENSES/." \
-            "$D/usr/share/licenses/aqueous/compositor/"
-    fi
-    install -Dm644 \
-        "$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE" \
-        "$D/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE"
+    for part in "${parts[@]}"; do
+        AQUEOUS_COMPOSITOR_DIST="$dist/aqueous-dist" \
+        AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" \
+        AQUEOUS_WELCOME_BINARY="$dist/aqueous-welcome-dist/bin/aqueous-welcome" \
+        AQUEOUS_PORTAL_BINARY="$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+        AQUEOUS_PORTAL_LICENSE="$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE" \
+        AQUEOUS_PORTAL_CHOOSER_BINARY="$dist/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser" \
+            DESTDIR="$stage/$part" PREFIX=/usr "$root/packaging/stage-component.sh" "$part"
+    done
+    # Staging is complete before any installed files are touched.
+    : > "$stage/manifest"
+    for part in "${parts[@]}"; do
+        while IFS= read -r -d '' file; do
+            relative=${file#"$stage/$part/"}
+            printf 'F\t%s\n' "$D/$relative" >> "$stage/manifest"
+            if [[ $relative == etc/* && ! -L $file ]]; then
+                install_etc "$D/$relative" "$file"
+                install -Dm644 "$file" "$D/var/lib/aqueous/defaults/$relative"
+                printf 'F\t%s\n' "$D/var/lib/aqueous/defaults/$relative" >> "$stage/manifest"
+                if [[ -f $D/$relative.aqnew ]]; then
+                    printf 'F\t%s\n' "$D/$relative.aqnew" >> "$stage/manifest"
+                fi
+            else
+                install -d "${D}/${relative%/*}"
+                cp -aT -- "$file" "$D/$relative"
+            fi
+        done < <(find "$stage/$part" \( -type f -o -type l \) -print0)
+    done
+    local manifest="$D/var/lib/aqueous/manifest"
+    install -d "${manifest%/*}"
+    if [[ -f $manifest ]]; then cat "$manifest" >> "$stage/manifest"; fi
+    LC_ALL=C sort -u "$stage/manifest" > "$manifest"
+    rm -rf -- "$stage"
 }
 
 cmd_install() {
     [ -d "$dist/aqueous-dist" ] || die "compositor not built (run: $0 build)"
     [ -d "$dist/aqueous-config-dist" ] || die "configuration helper not built (run: $0 build)"
-    [ -d "$dist/aqueous-portal-dist" ] || die "portal backend not built (run: $0 build)"
+    if [[ $component == desktop ]]; then
+        [ -d "$dist/aqueous-portal-dist" ] || die "portal backend not built (run: $0 build)"
+    fi
     if [ -z "$destdir" ] && ! is_root; then
         die "install needs root (dry run: AQUEOUS_PREFIX=/tmp/aq $0 install)"
     fi
 
     say "installing into prefix ${destdir:-/}"
-    local before after mf diff_tmp
-    before=$(tree_list "$destdir")
+    # Record known payload paths even for a live-root install. Never scan / or
+    # infer ownership from unrelated filesystem changes during installation.
     install_into "$destdir"
-    after=$(tree_list "$destdir")
-
-    # Manifest = tree entries that appeared during this install, so
-    # uninstall only ever removes what this script installed.
-    diff_tmp=$(mktemp)
-    if [ -n "$before" ]; then
-        LC_ALL=C comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") >"$diff_tmp"
-    else
-        printf '%s\n' "$after" >"$diff_tmp"
-    fi
-    mf="$destdir/var/lib/aqueous/manifest"
-    mkdir -p "$destdir/var/lib/aqueous"
-    # Cumulative union: a reinstall must keep recording files from earlier
-    # installs, or uninstall would only remove the latest diff. The manifest
-    # never lists itself (uninstall removes it explicitly at the end).
-    if [ -f "$mf" ]; then
-        cat "$mf" "$diff_tmp" | LC_ALL=C sort -u >"$mf.new"
-        mv "$mf.new" "$mf"
-    else
-        cp "$diff_tmp" "$mf"
-    fi
-    rm -f "$diff_tmp"
+    local mf="$destdir/var/lib/aqueous/manifest"
 
     say "installed $(grep -c "^F" "$mf") files into ${destdir:-/}"
-    print_install_notice
+    if [[ $component == core ]]; then
+        say "Shell-independent core installed. No session was configured."
+    else
+        print_install_notice
+    fi
 }
 
 print_install_notice() {
@@ -443,12 +411,10 @@ EOF
 
 # Shipped source for a known /etc config file, empty for anything else.
 etc_source() {
-    case "$1" in
-        "$destdir/etc/xdg/uwsm/env-aqueous") echo "$root/packaging/uwsm/env-aqueous" ;;
-        "$destdir/etc/xdg/aqueous/wm.toml") echo "$root/wm.toml" ;;
-        "$destdir/etc/xdg/aqueous/outputs.toml") echo "$root/outputs.toml" ;;
-        *) return 1 ;;
-    esac
+    local relative=${1#"$destdir/"}
+    local original="$destdir/var/lib/aqueous/defaults/$relative"
+    [[ -f $original ]] || return 1
+    printf '%s\n' "$original"
 }
 
 cmd_uninstall() {
@@ -503,7 +469,7 @@ cmd_uninstall() {
 
 usage() {
     cat <<EOF
-Usage: sudo $0 [all|deps|build|install|uninstall]
+Usage: sudo $0 [--core-only] [all|deps|build|install|uninstall]
 
   all        deps + build + install (default)
   deps       emerge runtime/build deps, fetch zig if missing

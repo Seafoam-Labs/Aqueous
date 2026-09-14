@@ -32,14 +32,14 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
-            base-devel git curl patch tar xz nodejs python \
+            base-devel git curl patch tar xz nodejs python jq libarchive \
             clang llvm lld \
             wayland wayland-protocols wayland-utils \
             libxkbcommon libinput \
             pixman libdrm libevdev \
             mesa libglvnd systemd-libs seatd pipewire libinih \
             libdecor gtk4 \
-            pkgconf ninja meson \
+            pkgconf ninja meson scdoc \
             wlroots0.20 \
             libdisplay-info libliftoff lcms2 \
             glslang shaderc vulkan-headers vulkan-icd-loader freetype2 \
@@ -89,7 +89,8 @@ jobs:
           cd compositor
           rm -rf -- "$GITHUB_WORKSPACE/publish/aqueous-compositor/share/aqueous-protocols"
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
-          zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
           cmp "$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so" \
             "$GITHUB_WORKSPACE/publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so"
@@ -142,135 +143,32 @@ jobs:
             AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
             settingsApplication/tests/test-packaging.sh
 
-      - name: Stage bundle
+      - name: Build DMS chooser and publishable components
         shell: bash
         run: |
-          set -euxo pipefail
-          mkdir -p publish/aqueous-linux-x64/bin
-          mkdir -p publish/aqueous-linux-x64/share/wayland-sessions
-          mkdir -p publish/aqueous-linux-x64/share/applications
-          mkdir -p publish/aqueous-linux-x64/share/aqueous
-          mkdir -p publish/aqueous-linux-x64/lib/systemd/user
-          mkdir -p publish/aqueous-linux-x64/lib/aqueous
-          mkdir -p publish/aqueous-linux-x64/lib/udev/rules.d
-          mkdir -p publish/aqueous-linux-x64/lib/tmpfiles.d
-          mkdir -p publish/aqueous-linux-x64/etc/xdg/aqueous
-          mkdir -p publish/aqueous-linux-x64/etc/xdg/autostart
-          mkdir -p publish/aqueous-linux-x64/etc/xdg/uwsm
-          mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal
-          mkdir -p publish/aqueous-linux-x64/share/xdg-desktop-portal/portals
-          mkdir -p publish/aqueous-linux-x64/share/dbus-1/services
-          mkdir -p publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr
-
-          AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config" \
-            AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
-            DESTDIR="$GITHUB_WORKSPACE/publish/aqueous-config-image" PREFIX=/usr \
-            settingsApplication/packaging/install.sh --with-dms-appearance
-          cp -a publish/aqueous-config-image/usr/. publish/aqueous-linux-x64/
-          cp -a publish/aqueous-config-image/etc/. publish/aqueous-linux-x64/etc/
-          test -x publish/aqueous-linux-x64/bin/aqueous-config
-          test ! -e publish/aqueous-linux-x64/bin/aqueous-settings
-          test ! -e publish/aqueous-linux-x64/share/applications/org.aqueous.Settings.desktop
-          test ! -e publish/aqueous-linux-x64/bin/aqueous-backend-test
-          test ! -e publish/aqueous-linux-x64/share/aqueous/dms-plugins/aqueousSettings
-          test ! -e publish/aqueous-linux-x64/share/aqueous/noctalia-plugins
-
-          # Binaries
-          cp publish/aqueous-compositor/bin/aqueous publish/aqueous-linux-x64/bin/
-          cp publish/aqueous-compositor/bin/aqueousctl publish/aqueous-linux-x64/bin/
-          cp publish/aqueous-welcome/bin/aqueous-welcome publish/aqueous-linux-x64/bin/
-          cp publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so \
-            publish/aqueous-linux-x64/lib/aqueous/
-          cp publish/aqueous-portal/usr/lib/aqueous/xdg-desktop-portal-aqueous \
-            publish/aqueous-linux-x64/lib/aqueous/
-
-          # Compositor share data (man pages and protocol ABI metadata) if present
-          if [ -d publish/aqueous-compositor/share ]; then
-            cp -r publish/aqueous-compositor/share/. publish/aqueous-linux-x64/share/
-          fi
-
-          # Packaging scripts / config / units
-          cp packaging/aqueous-init   publish/aqueous-linux-x64/bin/
-          cp packaging/aqueous-wm.sh  publish/aqueous-linux-x64/bin/aqueous-wm
-          chmod +x publish/aqueous-linux-x64/bin/aqueous-init publish/aqueous-linux-x64/bin/aqueous-wm
-          cp aqueous.desktop publish/aqueous-linux-x64/share/wayland-sessions/
-          cp packaging/aqueous-welcome.desktop \
-             publish/aqueous-linux-x64/share/applications/org.aqueous.Welcome.desktop
-          cp packaging/aqueous-welcome-autostart.desktop \
-             publish/aqueous-linux-x64/etc/xdg/autostart/org.aqueous.Welcome.desktop
-          cp wm.toml         publish/aqueous-linux-x64/etc/xdg/aqueous/
-          cp wm.toml         publish/aqueous-linux-x64/share/aqueous/
-          cp packaging/uwsm/env-aqueous publish/aqueous-linux-x64/etc/xdg/uwsm/
-          install -Dm644 packaging/menus/aqueous-applications.menu \
-            publish/aqueous-linux-x64/etc/xdg/menus/aqueous-applications.menu
-          install -Dm644 packaging/portal/noctalia.conf \
-            publish/aqueous-linux-x64/etc/xdg/xdg-desktop-portal-aqueous/config
-          cp packaging/aqueous-portals.conf \
-             publish/aqueous-linux-x64/share/xdg-desktop-portal/aqueous-portals.conf
-          cp packaging/portal/aqueous.portal \
-             publish/aqueous-linux-x64/share/xdg-desktop-portal/portals/
-          cp packaging/portal/org.freedesktop.impl.portal.desktop.aqueous.service \
-             publish/aqueous-linux-x64/share/dbus-1/services/
-          cp packaging/portal/xdg-desktop-portal-aqueous.service \
-             publish/aqueous-linux-x64/lib/systemd/user/
-          cp /tmp/xdg-desktop-portal-wlr-0.8.4/LICENSE \
-             publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr/
-          cp packaging/aqueous.tmpfiles publish/aqueous-linux-x64/lib/tmpfiles.d/aqueous.conf
-          cp packaging/aqueous-session.target publish/aqueous-linux-x64/lib/systemd/user/
-          cp packaging/udev/70-aqueous-uaccess.rules \
-             publish/aqueous-linux-x64/lib/udev/rules.d/ 2>/dev/null || true
-
-          # Noctalia (v5) default config asset
-          if [ -d packaging/noctalia ]; then
-            mkdir -p publish/aqueous-linux-x64/share/aqueous/noctalia
-            cp packaging/noctalia/*.toml publish/aqueous-linux-x64/share/aqueous/noctalia/ 2>/dev/null || true
-          fi
-          mkdir -p publish/aqueous-linux-x64/share/aqueous/ghostty
-          cp packaging/ghostty/config.ghostty \
-             publish/aqueous-linux-x64/share/aqueous/ghostty/
-          if [ -d packaging/wallpapers ]; then
-            mkdir -p publish/aqueous-linux-x64/share/aqueous/wallpapers
-            cp packaging/wallpapers/*.avif publish/aqueous-linux-x64/share/aqueous/wallpapers/ 2>/dev/null || true
-          fi
-
-          # Shared welcome/session staging keeps release archives shell-neutral.
-          AQUEOUS_WELCOME_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-welcome" \
-            DESTDIR="$GITHUB_WORKSPACE/publish/welcome-stage" \
-            sh packaging/install-welcome.sh
-          cp -a publish/welcome-stage/usr/. publish/aqueous-linux-x64/
-          cp -a publish/welcome-stage/etc/. publish/aqueous-linux-x64/etc/
-          rm -f publish/aqueous-linux-x64/lib/systemd/user/graphical-session.target.wants/noctalia.service
-
-          # Strip debug symbols
-          find publish/aqueous-linux-x64 -type f \( -name '*.dbg' -o -name '*.pdb' \) -delete
-
-      - name: Create tarballs
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cd publish
-          tar -czf Aqueous-linux-x64.tar.gz -C aqueous-linux-x64 .
-          tar -czf Aqueous-Compositor-linux-x64.tar.gz  -C aqueous-compositor .
-
-      - name: Generate SHA256 checksums
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cd publish
-          sha256sum \
-            Aqueous-linux-x64.tar.gz \
-            Aqueous-Compositor-linux-x64.tar.gz \
-            > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          set -euo pipefail
+          zig build --build-file packaging/portal/bridge/build.zig \
+            -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$GITHUB_WORKSPACE/publish/aqueous-chooser"
+          export AQUEOUS_COMPOSITOR_DIST="$GITHUB_WORKSPACE/publish/aqueous-compositor"
+          export AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config"
+          export AQUEOUS_WELCOME_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-welcome"
+          export AQUEOUS_PORTAL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-portal/usr/lib/aqueous/xdg-desktop-portal-aqueous"
+          export AQUEOUS_PORTAL_LICENSE=/tmp/xdg-desktop-portal-wlr-0.8.4/LICENSE
+          export AQUEOUS_PORTAL_CHOOSER_BINARY="$GITHUB_WORKSPACE/publish/aqueous-chooser/bin/aqueous-dms-portal-chooser"
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          bash packaging/tests/test-components.sh
+          bash packaging/release-components.sh publish --version "${tag#v}" --architecture x86_64
+          tar -czf publish/Aqueous-Compositor-linux-x64.tar.gz -C publish/aqueous-compositor .
+          (cd publish && sha256sum Aqueous-Compositor-linux-x64.tar.gz >> SHA256SUMS.txt)
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
           name: aqueous-release
           path: |
-            publish/Aqueous-linux-x64.tar.gz
-            publish/Aqueous-Compositor-linux-x64.tar.gz
+            publish/Aqueous-*.tar.gz
             publish/SHA256SUMS.txt
+            publish/PKGBUILD-bin
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -281,9 +179,9 @@ jobs:
           name: ${{ github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
           files: |
-            publish/Aqueous-linux-x64.tar.gz
-            publish/Aqueous-Compositor-linux-x64.tar.gz
+            publish/Aqueous-*.tar.gz
             publish/SHA256SUMS.txt
+            publish/PKGBUILD-bin
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

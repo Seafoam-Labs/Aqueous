@@ -8,7 +8,7 @@ pkgdesc="Aqueous single-process Wayland compositor (portable generic x86-64 buil
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL3' 'MIT' 'custom:PX')
-depends=('ghostty' 'sudo' 'python' 'gtk4' 'freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
+depends=('ghostty' 'sudo' 'gtk4' 'freetype2' 'wayland' 'wayland-protocols>=1.49' 'libxkbcommon' 'libinput'
          'pixman' 'libpng' 'libdrm' 'libevdev'
          'libdecor' 'grim' 'slurp' 'xorg-xwayland'
          'xdg-desktop-portal' 'pipewire-audio' 'wireplumber' 'libinih' 'wl-clipboard'

@@ -319,6 +319,12 @@ operation. The default helper build has no GUI dependency or desktop launcher.
 
 ## Packaging
 
+`aqueous-core` is the shell-independent compositor/helper package for Pearl.
+`aqueous` installs the optional desktop composition. `aqueous-git` and
+`aqueous-git-intel` remain legacy DMS-integrated packages. See the
+[component packaging guide](docs/packaging-components.md) for ownership,
+explicit shell presets, migrations and release validation.
+
 Fedora users can build and install the latest Git `master` as a local RPM:
 
 ```sh
@@ -329,12 +335,12 @@ Run as your normal user; the script uses sudo for DNF transactions. See the
 [Fedora installation guide](docs/fedora-install.md) for dependencies, DMS
 repository options, building without installing, and removal.
 
-The packages install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection
+The full desktop packages install `/usr/bin/aqueous` and its `/usr/bin/aqueousctl` inspection
 and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
 Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
-All Arch source variants and the release archive include the GTK welcome app,
+Full Arch desktop packages and the combined release archive include the GTK welcome app,
 Shelly, and a terminal without requiring a desktop shell. On first login, choose
 Pearl (`pearl-de`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
 Shelly's password request through a GTK popup and selects all optional dependencies.
@@ -348,7 +354,7 @@ files must be reviewed when they conflict. Shell packages and preferences remain
 installed when switching, including when choosing Nothing.
 
 Packaged launcher, screenshot and lock actions follow the active session.
-`Super+Return` opens Ghostty, and `Super+Shift+F1` reopens welcome. Pearl and Nothing
+`Super+Return` opens Ghostty. Open `aqueous-welcome` to review setup; legacy packages also retain the `Super+Shift+F1` shortcut. Pearl and Nothing
 use the GTK screen-sharing picker; DMS and Noctalia use their own integration.
 Welcome preserves custom commands and updates recognized legacy shell bindings
 through `aqueous-config`, with a recovery journal and backups. See the

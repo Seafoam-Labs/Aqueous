@@ -74,11 +74,20 @@ Pearl requires the inspected helper 0.8.0 configuration capability set.
 
 ## Build and verification
 
-Build with Zig 0.16, GTK4 development packages, pkg-config, and Python 3.11+.
+Build with Zig 0.16, GTK4 development packages and pkg-config. The native worker
+integration tests additionally require Bash, jq and standard Unix utilities.
 The generated GTK/GLib/GIO bindings are pinned in `build.zig.zon`. The frontend
-has no Quark or direct Vulkan dependency. `src/setup.py` is the standard-library
-worker and session selector, installed beside the executable under
-`lib/aqueous/welcome-setup.py`.
+has no Quark or direct Vulkan dependency. `src/setup.zig` runs inside the same
+executable in `--worker` mode, before GTK initializes. Its modules implement
+Shelly transport, configuration review, recovery journals and legacy session
+selection. The UI starts its own executable and exchanges bounded JSON lines
+with that child; no Python worker is installed or required at runtime.
+
+Split packages delegate session selection and action dispatch to the session
+component's shell runtime. Legacy session launchers call
+`aqueous-welcome --worker prepare-session`, `condition`, `external-condition`
+and `action`. Recovery journals retain their version-1 format, including base64
+file backups, so native setup can recover operations begun by the former worker.
 
 ```sh
 zig build -Doptimize=ReleaseSafe
@@ -106,8 +115,12 @@ creates only temporary profiles and fake package installations, exercises all
 four choices, and saves screenshots/logs under its printed `/tmp` directory.
 Test hooks are disabled by default and are never enabled by package builds.
 
-Verified during implementation: native build, worker/unit tests, seven staged
-source-package variants, existing init tests, GTK rendering and picker selection,
+Verified during the native worker port: 13 Zig unit tests, shell integration
+tests covering authentication, cancellation/disconnection during commit, stale
+replies and generations, all 16 session transitions, legacy journal recovery,
+custom configuration preservation and split-runtime delegation; six legacy
+source-package staging fixtures, component packaging checks, existing init tests,
+Nix evaluation, GTK rendering and picker selection,
 and all four complete GTK setup flows using fake Shelly plus real aqueous-config.
 Actual package downloads/installation, physical desktop login, hardware behavior,
 and accessibility with a screen reader remain release acceptance checks.

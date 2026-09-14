@@ -3,9 +3,10 @@
 Status: implemented, September 14, 2026. See [welcome documentation](../welcome/README.md)
 for the delivered behavior, verification commands, and remaining release checks.
 
-Implementation refinements: the native GTK frontend remains Zig; a Python
-standard-library worker owns subprocess supervision, journaling, and session
-selection. The inspected Shelly build exposes sudo password prompts through its
+Implementation refinements: the GTK frontend and setup worker are both Zig,
+compiled into `aqueous-welcome`. Its `--worker` mode owns subprocess supervision,
+journaling and legacy session selection; split packages keep their independent
+shell session runtime. The inspected Shelly build exposes sudo password prompts through its
 controlling terminal, so the worker provides a private terminal and replies there;
 package JSON uses separate pipes. No invented authentication frame or external
 Shelly modification is required. Programmatic GTK widgets replace Quark. This

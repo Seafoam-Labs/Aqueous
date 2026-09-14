@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "legacy_packages": [
+    "aqueous-git",
+    "aqueous-git-intel"
+  ],
+  "components": {
+    "core": {
+      "owns": [
+        "usr/bin/aqueous",
+        "usr/bin/aqueousctl",
+        "usr/bin/aqueous-config",
+        "usr/lib/aqueous/libwlroots-0.20.so",
+        "usr/share/man/man1/aqueous*.1",
+        "usr/share/aqueous-protocols/*",
+        "usr/share/pkgconfig/aqueous-protocols.pc",
+        "usr/share/aqueous/build-policy.json",
+        "usr/share/licenses/aqueous-core/*",
+        "usr/share/licenses/aqueous-config/*",
+        "usr/share/doc/aqueous-core/*",
+        "usr/share/doc/aqueous-config/*"
+      ],
+      "required": [
+        "usr/bin/aqueous",
+        "usr/bin/aqueousctl",
+        "usr/bin/aqueous-config",
+        "usr/lib/aqueous/libwlroots-0.20.so",
+        "usr/share/man/man1/aqueous.1",
+        "usr/share/man/man1/aqueousctl.1",
+        "usr/share/aqueous/build-policy.json",
+        "usr/share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml"
+      ],
+      "depends": []
+    },
+    "session": {
+      "owns": [
+        "usr/bin/aqueous-init",
+        "usr/bin/aqueous-wm",
+        "usr/bin/aqueous-shell-action",
+        "usr/lib/aqueous/session-runtime.sh",
+        "usr/share/wayland-sessions/aqueous.desktop",
+        "usr/share/xdg-desktop-portal/aqueous-portals.conf",
+        "usr/lib/systemd/user/aqueous-session.target",
+        "usr/lib/systemd/user/aqueous-shell-failed.service",
+        "usr/lib/tmpfiles.d/aqueous.conf",
+        "usr/share/aqueous/wm.toml",
+        "usr/share/aqueous/outputs.toml",
+        "usr/share/aqueous/ghostty/*",
+        "usr/share/aqueous/wallpapers/*",
+        "usr/share/doc/aqueous-session/*",
+        "etc/xdg/uwsm/env-aqueous",
+        "etc/xdg/menus/aqueous-applications.menu",
+        "etc/xdg/aqueous/wm.toml",
+        "etc/xdg/aqueous/outputs.toml",
+        "etc/xdg/xdg-desktop-portal-aqueous/config"
+      ],
+      "required": [
+        "usr/lib/aqueous/session-runtime.sh",
+        "usr/bin/aqueous-init",
+        "usr/bin/aqueous-wm",
+        "usr/bin/aqueous-shell-action",
+        "etc/xdg/xdg-desktop-portal-aqueous/config"
+      ],
+      "depends": [
+        "core"
+      ]
+    },
+    "welcome": {
+      "owns": [
+        "usr/bin/aqueous-welcome",
+        "usr/share/applications/org.aqueous.Welcome.desktop",
+        "etc/xdg/autostart/org.aqueous.Welcome.desktop"
+      ],
+      "required": [
+        "usr/bin/aqueous-welcome"
+      ],
+      "depends": [
+        "session"
+      ]
+    },
+    "portal": {
+      "owns": [
+        "usr/lib/aqueous/xdg-desktop-portal-aqueous",
+        "usr/lib/systemd/user/xdg-desktop-portal-aqueous.service",
+        "usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service",
+        "usr/share/xdg-desktop-portal/portals/aqueous.portal",
+        "usr/share/licenses/xdg-desktop-portal-aqueous/LICENSE"
+      ],
+      "required": [
+        "usr/lib/aqueous/xdg-desktop-portal-aqueous",
+        "usr/share/xdg-desktop-portal/portals/aqueous.portal"
+      ],
+      "depends": []
+    },
+    "integration-dms": {
+      "owns": [
+        "usr/lib/systemd/user/aqueous-dms.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service",
+        "usr/lib/systemd/user/dms.service.d/50-aqueous-selection.conf",
+        "usr/lib/aqueous/aqueous-dms-portal-chooser",
+        "usr/share/aqueous/dms-plugins/aqueousPortal/*",
+        "usr/share/aqueous/dms-plugins/aqueousSettingsAppearance/*",
+        "etc/xdg/quickshell/dms-plugins/aqueousPortal",
+        "etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance"
+      ],
+      "required": [
+        "usr/lib/systemd/user/aqueous-dms.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-dms.service",
+        "usr/lib/systemd/user/dms.service.d/50-aqueous-selection.conf",
+        "usr/lib/aqueous/aqueous-dms-portal-chooser",
+        "etc/xdg/quickshell/dms-plugins/aqueousPortal",
+        "etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance"
+      ],
+      "depends": [
+        "session",
+        "portal"
+      ]
+    },
+    "integration-noctalia": {
+      "owns": [
+        "usr/lib/systemd/user/aqueous-noctalia.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-noctalia.service",
+        "usr/lib/systemd/user/noctalia.service.d/50-aqueous-selection.conf",
+        "usr/share/aqueous/noctalia/config.toml"
+      ],
+      "required": [
+        "usr/lib/systemd/user/aqueous-noctalia.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-noctalia.service",
+        "usr/lib/systemd/user/noctalia.service.d/50-aqueous-selection.conf",
+        "usr/share/aqueous/noctalia/config.toml"
+      ],
+      "depends": [
+        "session"
+      ]
+    },
+    "integration-pearl": {
+      "owns": [
+        "usr/lib/systemd/user/aqueous-pearl.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-pearl.service",
+        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf"
+      ],
+      "required": [
+        "usr/lib/systemd/user/aqueous-pearl.service",
+        "usr/lib/systemd/user/graphical-session.target.wants/aqueous-pearl.service",
+        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf"
+      ],
+      "depends": [
+        "session"
+      ]
+    }
+  }
+}

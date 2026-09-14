@@ -10,7 +10,8 @@ env=dict(os.environ, HOME=str(work/'home'), XDG_CONFIG_HOME=str(work/'config'), 
 for name in ('DISPLAY','WAYLAND_DISPLAY','LD_PRELOAD','AQUEOUS_SOCKET','DBUS_SESSION_BUS_ADDRESS'):env.pop(name,None)
 for name in ('INPUT','LAYOUT','OUTPUTS','RULES'):env['AQUEOUS_'+name]=str(work/('missing-'+name))
 fixtures=work/'bin';fixtures.mkdir()
-helper=root/'settingsApplication/zig-out/bin/aqueous-config'
+helper=pathlib.Path(os.environ.get('AQUEOUS_CONFIG_BINARY', str(root/'settingsApplication/zig-out/bin/aqueous-config')))
+welcome=pathlib.Path(os.environ.get('AQUEOUS_WELCOME_BINARY', str(root/'welcome/zig-out/bin/aqueous-welcome')))
 assert helper.is_file(), 'Build settingsApplication first'
 (fixtures/'aqueous-config').symlink_to(helper)
 for name in ('pearl','dms','noctalia'):
@@ -56,7 +57,7 @@ try:
    time.sleep(.05)
   env['WAYLAND_DISPLAY']=next(p.name for p in (work/'run').glob('wayland-*') if not p.name.endswith('.lock'))
   for args,source in [([],None),(['--choose'],'Monitor: HEADLESS-1\nWindow: Test\n')]:
-   proc=subprocess.Popen([str(root/'welcome/zig-out/bin/aqueous-welcome'),*args],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+   proc=subprocess.Popen([str(welcome),*args],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
    processes.append(proc)
    if source:
     proc.stdin.write(source);proc.stdin.close();proc.stdin=None
@@ -72,7 +73,7 @@ try:
   env.pop('AQUEOUS_WELCOME_TEST_CLOSE_MS',None)
   for shell in ('pearl','dms','noctalia','none'):
    env['AQUEOUS_WELCOME_TEST_SETUP']=shell
-   result=subprocess.run([str(root/'welcome/zig-out/bin/aqueous-welcome')],env=env,text=True,capture_output=True,timeout=20)
+   result=subprocess.run([str(welcome)],env=env,text=True,capture_output=True,timeout=20)
    selection=work/'config/aqueous/session.toml'
    assert result.returncode==0, result.stderr
    assert selection.exists() and ('shell = "'+shell+'"') in selection.read_text(), (shell,result.stderr,selection.read_text() if selection.exists() else 'no selection')

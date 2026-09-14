@@ -15,7 +15,7 @@ install=aqueous-meta.install
 
 depends=(
     # Aqueous compositor, shell chooser, portals, screenshots, clipboard,
-    # XWayland, session management, and the packaged configuration UI.
+    # XWayland, session management, and optional GTK welcome (settings are supplied by Pearl).
     aqueous
 
     # Aqueous requires Vulkan at runtime. This virtual dependency lets pacman
