@@ -18,6 +18,7 @@ if [ -n "${AQUEOUS_CAPTURE_ARTIFACT_DIR:-}" ]; then
 fi
 protocol_dir=$(pkg-config --variable=pkgdatadir wayland-protocols)
 protocols=(
+    "$protocol_dir/stable/linux-dmabuf/linux-dmabuf-v1.xml"
     "$protocol_dir/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml"
     "$protocol_dir/staging/ext-image-capture-source/ext-image-capture-source-v1.xml"
     "$protocol_dir/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml"

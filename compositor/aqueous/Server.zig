@@ -14,6 +14,11 @@ const wl = wayland.server.wl;
 const wp = wayland.server.wp;
 
 extern fn wlr_aqueous_capture_color_manager_v1_create(display: *wl.Server) ?*wl.Global;
+// NULL creates an inert source (the standard denied/unavailable-source reply).
+extern fn wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(
+    request: *wlr.ExtForeignToplevelImageCaptureSourceManagerV1.Request,
+    source: ?*wlr.ExtImageCaptureSourceV1,
+) bool;
 
 const util = @import("util.zig");
 const fx = @import("fx.zig");
@@ -1047,7 +1052,14 @@ fn handleToplevelCaptureRequest(
     request: *wlr.ExtForeignToplevelImageCaptureSourceManagerV1.Request,
 ) void {
     const server: *Server = @fieldParentPtr("toplevel_capture_request", listener);
-    const window = @as(?*Window, @ptrCast(@alignCast(request.toplevel_handle.data))) orelse return;
+    const window = @as(?*Window, @ptrCast(@alignCast(request.toplevel_handle.data))) orelse {
+        _ = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, null);
+        return;
+    };
+    if (!window.captureAllowed()) {
+        _ = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, null);
+        return;
+    }
 
     const capture_source = window.capture_source orelse wlr.ExtImageCaptureSourceV1.createWithSceneNode(
         &window.capture_scene.tree.node,
@@ -1056,6 +1068,7 @@ fn handleToplevelCaptureRequest(
         server.renderer,
     ) catch {
         log.err("failed to create ext image capture source", .{});
+        _ = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, null);
         return;
     };
 

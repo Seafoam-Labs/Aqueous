@@ -69,7 +69,10 @@ static void draw(void) {
     assert(fd >= 0 && ftruncate(fd, (off_t)size) == 0);
     uint32_t *pixels = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     assert(pixels != MAP_FAILED);
-    for (size_t i = 0; i < size / 4; ++i) pixels[i] = 0xff204060;
+#ifndef FIXTURE_PIXEL
+#define FIXTURE_PIXEL 0xff204060
+#endif
+    for (size_t i = 0; i < size / 4; ++i) pixels[i] = FIXTURE_PIXEL;
     struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, (int)size);
     struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, WL_SHM_FORMAT_XRGB8888);
     wl_buffer_add_listener(buffer, &buffer_listener, NULL);

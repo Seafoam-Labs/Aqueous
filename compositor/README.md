@@ -120,9 +120,11 @@ separate cursor sources retain their own constraints. Invalid or stale formats
 fail with the protocol's recoverable buffer-constraints reason.
 
 The experimental `aqueous-capture-color-v1` companion supplies destination color
-metadata for an individual output SHM frame before `ready`. Clients request it
-before capture and must handle `unavailable`; DMA-BUF and generic scene/cursor
-color metadata are not qualified. Native HDR export requires this metadata and
+metadata for an individual output SHM or supported isolated scene frame before
+`ready`. Scene captures describe the rendered SDR destination with sRGB primaries
+and gamma 2.2, including supported HDR-to-SDR conversion. Clients request metadata
+before capture and must handle `unavailable`; output DMA-BUF and separate cursor
+color metadata remain unqualified. Native HDR export requires this metadata and
 an encoder that preserves its encoding. The XML is installed under
 `share/aqueous-protocols/experimental/`. Existing grabit clients continue to use
 the legacy path; adopting ext capture requires changes in grabit itself.
@@ -132,6 +134,8 @@ Run the protocol/copy tests without a GPU, or against generated Vulkan buffers:
 ```sh
 scripts/test-ext-capture-formats.sh
 scripts/test-ext-capture-formats.sh --vulkan /dev/dri/renderD128
+python3 scripts/test-scene-capture.py
+python3 scripts/test-scene-capture.py --renderer vulkan
 AQUEOUS_CAPTURE_BENCHMARK=4k \
   AQUEOUS_CAPTURE_ARTIFACT_DIR=/tmp/aqueous-capture-4k \
   scripts/test-ext-capture-formats.sh --vulkan /dev/dri/renderD128
@@ -141,6 +145,8 @@ Set `AQUEOUS_WLROOTS_PREFIX` when testing a dependency installed elsewhere.
 Benchmark sizes are `1080p` and `4k`; artifacts contain synthetic native/SDR
 pixels and JSON frame metadata. Vulkan tests use a synthetic output and do not
 capture the desktop. GPU allocation support can limit the tested native formats.
+See [isolated capture colors](../docs/isolated-capture-color.md) for scene transport
+coverage, client handling, private compositor checks and reference-pixel evidence.
 The synchronous CPU fallback is intended for screenshots; measured dual-capture
 cost was approximately 78 ms at 1080p and 317 ms at 4K on the tested AMD GPU.
 Continuous recording needs a faster conversion path and separate qualification.

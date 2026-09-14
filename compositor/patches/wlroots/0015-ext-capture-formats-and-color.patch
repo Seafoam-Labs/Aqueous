@@ -1,6 +1,7 @@
---- a/include/types/capture_output.h
+diff --git a/include/types/capture_output.h b/include/types/capture_output.h
+--- /dev/null
 +++ b/include/types/capture_output.h
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,31 @@
 +#ifndef TYPES_CAPTURE_OUTPUT_H
 +#define TYPES_CAPTURE_OUTPUT_H
 +
@@ -14,6 +15,10 @@
 +bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
 +	struct wlr_buffer *src, struct wlr_renderer *renderer,
 +	const struct wlr_output_image_description *description);
++
++// known_sdr is established by the completed scene render, never buffer format.
++bool capture_copy_scene(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++	struct wlr_buffer *src, struct wlr_renderer *renderer, bool known_sdr);
 +
 +static inline bool capture_can_convert_sdr(const struct wlr_output_image_description *desc) {
 +	return desc == NULL ||
@@ -148,9 +153,10 @@
 +	struct wl_resource *resource);
 +
  #endif
---- a/protocol/aqueous-capture-color-v1.xml
+diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-color-v1.xml
+--- /dev/null
 +++ b/protocol/aqueous-capture-color-v1.xml
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,110 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<protocol name="aqueous_capture_color_v1">
 +  <copyright>
@@ -206,9 +212,13 @@
 +      Events describe destination pixels: an SDR conversion has SDR metadata,
 +      while native SHM capture retains its source encoding. Information remains
 +      valid after the frame is destroyed. Destroy this object when done with it.
-+      This version does not guarantee metadata for DMA-BUF, scene or cursor
-+      sources; clients must handle unavailable and must not infer HDR from
-+      buffer bit depth. All luminances use 0.0001 cd/m² units.
++      Scene captures describe the rendered destination, including conversion of
++      HDR inputs to SDR. A described SDR scene frame uses sRGB primaries and
++      gamma22, not the transfer function of its original surface buffers.
++      Unsupported input conversion or unproven copy paths yield unavailable.
++      This version does not guarantee metadata for every renderer, DMA-BUF or
++      cursor path; clients must handle unavailable and must not infer encoding
++      from buffer bit depth. All luminances use 0.0001 cd/m² units.
 +    </description>
 +    <request name="destroy" type="destructor"/>
 +    <enum name="primaries">
@@ -694,6 +704,7 @@
 +	aqueous_capture_color_info_v1_send_done(info->resource);
 +	info->sent = true;
 +}
+diff --git a/types/wlr_ext_image_copy_capture_v1.c b/types/wlr_ext_image_copy_capture_v1.c
 --- a/types/wlr_ext_image_copy_capture_v1.c
 +++ b/types/wlr_ext_image_copy_capture_v1.c
 @@ -8,6 +8,8 @@
@@ -754,9 +765,9 @@
  
 -bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
 -		struct wlr_buffer *src, struct wlr_renderer *renderer) {
-+bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++static bool capture_copy(struct wlr_ext_image_copy_capture_frame_v1 *frame,
 +		struct wlr_buffer *src, struct wlr_renderer *renderer,
-+		const struct wlr_output_image_description *description) {
++		const struct wlr_output_image_description *description, bool scene_sdr) {
  	struct wlr_buffer *dst = frame->buffer;
  
  	if (src->width != dst->width || src->height != dst->height) {
@@ -804,7 +815,7 @@
  		}
  		wlr_buffer_end_data_ptr_access(dst);
  	}
-@@ -191,7 +209,19 @@
+@@ -191,7 +209,36 @@
  		return false;
  	}
  
@@ -814,8 +825,25 @@
 +	};
 +	// DMA-BUF uses a rendering path whose HDR color preservation is not yet
 +	// guaranteed. Never label those bytes as native PQ without qualification.
-+	capture_color_send(frame, shm ? (converted ? &sdr : description) : NULL);
++	capture_color_send(frame, (shm || scene_sdr) ? (converted ? &sdr : description) : NULL);
  	return true;
++}
++
++bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer,
++		const struct wlr_output_image_description *description) {
++	return capture_copy(frame, src, renderer, description, false);
++}
++
++bool capture_copy_scene(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer, bool known_sdr) {
++	// The scene render pass already converted the input into this encoding.
++	// The subsequent default SDR blit keeps that encoding for DMA-BUF too.
++	const struct wlr_output_image_description sdr = {
++		.primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB,
++		.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22,
++	};
++	return capture_copy(frame, src, renderer, known_sdr ? &sdr : NULL, known_sdr);
 +}
 +
 +bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
@@ -824,7 +852,7 @@
  }
  
  void wlr_ext_image_copy_capture_frame_v1_fail(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-@@ -207,7 +237,7 @@
+@@ -207,7 +254,7 @@
  
  static void frame_handle_attach_buffer(struct wl_client *client,
  		struct wl_resource *frame_resource, struct wl_resource *buffer_resource) {
@@ -833,7 +861,7 @@
  	if (frame == NULL) {
  		return;
  	}
-@@ -232,7 +262,7 @@
+@@ -232,7 +279,7 @@
  static void frame_handle_damage_buffer(struct wl_client *client,
  		struct wl_resource *frame_resource, int32_t x, int32_t y,
  		int32_t width, int32_t height) {
@@ -842,7 +870,7 @@
  	if (frame == NULL) {
  		return;
  	}
-@@ -257,7 +287,7 @@
+@@ -257,7 +304,7 @@
  
  static void frame_handle_capture(struct wl_client *client,
  		struct wl_resource *frame_resource) {
@@ -851,7 +879,7 @@
  	if (frame == NULL) {
  		return;
  	}
-@@ -415,6 +445,10 @@
+@@ -415,6 +462,10 @@
  		void *data) {
  	struct wlr_ext_image_copy_capture_session_v1 *session =
  		wl_container_of(listener, session, source_constraints_update);
@@ -922,3 +950,197 @@
  	wlr_texture_destroy(texture);
  
  out:
+diff --git a/types/ext_image_capture_source_v1/scene.c b/types/ext_image_capture_source_v1/scene.c
+--- a/types/ext_image_capture_source_v1/scene.c
++++ b/types/ext_image_capture_source_v1/scene.c
+@@ -8,6 +8,8 @@
+ #include <wlr/util/log.h>
+ 
+ #include "types/wlr_output.h"
++#include "types/capture_output.h"
++#include "ext-image-copy-capture-v1-protocol.h"
+ #include "types/wlr_scene.h"
+ 
+ struct scene_node_source {
+@@ -20,6 +22,7 @@
+ 	struct wlr_scene_output *scene_output;
+ 
+ 	size_t num_started;
++	bool frame_sdr;
+ 
+ 	struct wl_listener node_destroy;
+ 	struct wl_listener scene_output_destroy;
+@@ -30,12 +33,21 @@
+ 	struct wlr_ext_image_capture_source_v1_frame_event base;
+ 	struct wlr_buffer *buffer;
+ 	struct timespec when;
++	bool sdr;
+ };
+ 
+ static size_t last_output_num = 0;
+ 
+ static void _get_scene_node_extents(struct wlr_scene_node *node, int lx, int ly,
+ 		int *x_min, int *y_min, int *x_max, int *y_max) {
++	if (!node->enabled) {
++		return;
++	}
++	if (node->type == WLR_SCENE_NODE_BUFFER &&
++			!wlr_scene_buffer_from_node(node)->buffer &&
++			!wlr_scene_buffer_from_node(node)->texture) {
++		return;
++	}
+ 	switch (node->type) {
+ 	case WLR_SCENE_NODE_TREE:;
+ 		struct wlr_scene_tree *scene_tree = wlr_scene_tree_from_node(node);
+@@ -67,25 +79,79 @@
+ 
+ static void get_scene_node_extents(struct wlr_scene_node *node, struct wlr_box *box) {
+ 	int lx = 0, ly = 0;
+-	wlr_scene_node_coords(node, &lx, &ly);
++	if (!wlr_scene_node_coords(node, &lx, &ly)) {
++		*box = (struct wlr_box){0};
++		return;
++	}
+ 	*box = (struct wlr_box){ .x = INT_MAX, .y = INT_MAX };
+ 	int x_max = INT_MIN, y_max = INT_MIN;
+ 	_get_scene_node_extents(node, lx, ly, &box->x, &box->y, &x_max, &y_max);
++	if (box->x == INT_MAX || box->y == INT_MAX) {
++		*box = (struct wlr_box){0};
++		return;
++	}
+ 	box->width = x_max - box->x;
+ 	box->height = y_max - box->y;
+ }
+ 
++// The private output uses the scene renderer's default destination: sRGB
++// primaries and gamma 2.2. A renderer which ignores input color transforms can
++// only establish that encoding if every sampled buffer is already in it.
++static bool scene_sdr_inputs(struct wlr_scene_node *node, bool transforms) {
++	if (!node->enabled) {
++		return true;
++	}
++	if (node->type == WLR_SCENE_NODE_TREE) {
++		struct wlr_scene_node *child;
++		wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
++			if (!scene_sdr_inputs(child, transforms)) {
++				return false;
++			}
++		}
++	} else if (node->type == WLR_SCENE_NODE_BUFFER) {
++		struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
++		if (!buffer->buffer && !buffer->texture) {
++			return true;
++		}
++		bool sdr = (buffer->transfer_function == 0 ||
++			buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_GAMMA22) &&
++			(buffer->primaries == 0 || buffer->primaries == WLR_COLOR_NAMED_PRIMARIES_SRGB);
++		// Single-pixel buffers take the rect fast path, which doesn't apply
++		// the buffer's input color description, even on Vulkan.
++		if ((!transforms || buffer->is_single_pixel_buffer) && !sdr) {
++			return false;
++		}
++	}
++	return true;
++}
++
++static void source_fail_frame(struct scene_node_source *source) {
++	pixman_region32_t damage;
++	pixman_region32_init_rect(&damage, 0, 0,
++		source->base.width ? source->base.width : 1,
++		source->base.height ? source->base.height : 1);
++	struct scene_node_source_frame_event event = { .base.damage = &damage };
++	wl_signal_emit_mutable(&source->base.events.frame, &event.base);
++	pixman_region32_fini(&damage);
++}
++
+ static void source_render(struct scene_node_source *source) {
+ 	struct wlr_scene_output *scene_output = source->scene_output;
+ 
+ 	struct wlr_box extents;
+ 	get_scene_node_extents(source->node, &extents);
+ 
+-	if (extents.width == 0 || extents.height == 0) {
++	if (extents.width <= 0 || extents.height <= 0) {
++		source_fail_frame(source);
+ 		return;
+ 	}
+ 
+ 	wlr_scene_output_set_position(scene_output, extents.x, extents.y);
++	struct wlr_renderer *renderer = source->output.renderer;
++	source->frame_sdr = source->output.image_description == NULL &&
++		scene_output->gamma_lut_color_transform == NULL &&
++		scene_sdr_inputs(&scene_output->scene->tree.node,
++			renderer->features.input_color_transform && renderer->features.output_color_transform);
+ 
+ 	struct wlr_output_state state;
+ 	wlr_output_state_init(&state);
+@@ -96,7 +162,7 @@
+ 	wlr_output_state_finish(&state);
+ 
+ 	if (!ok) {
+-		// TODO: send failure
++		source_fail_frame(source);
+ 		return;
+ 	}
+ }
+@@ -134,6 +200,12 @@
+ static void source_request_frame(struct wlr_ext_image_capture_source_v1 *base,
+ 		bool schedule_frame) {
+ 	struct scene_node_source *source = wl_container_of(base, source, base);
++	struct wlr_box extents;
++	get_scene_node_extents(source->node, &extents);
++	if (extents.width <= 0 || extents.height <= 0) {
++		source_fail_frame(source);
++		return;
++	}
+ 	if (source->output.frame_pending) {
+ 		wlr_output_send_frame(&source->output);
+ 	}
+@@ -148,8 +220,12 @@
+ 	struct scene_node_source *source = wl_container_of(base, source, base);
+ 	struct scene_node_source_frame_event *event = wl_container_of(base_event, event, base);
+ 
+-	if (wlr_ext_image_copy_capture_frame_v1_copy_buffer(frame,
+-			event->buffer, source->output.renderer)) {
++	if (event->buffer == NULL) {
++		wlr_ext_image_copy_capture_frame_v1_fail(frame,
++			EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_UNKNOWN);
++		return;
++	}
++	if (capture_copy_scene(frame, event->buffer, source->output.renderer, event->sdr)) {
+ 		wlr_ext_image_copy_capture_frame_v1_ready(frame,
+ 			source->output.transform, &event->when);
+ 	}
+@@ -241,6 +317,7 @@
+ 		.base = { .damage = damage },
+ 		.buffer = buffer,
+ 		.when = now,
++		.sdr = source->frame_sdr,
+ 	};
+ 	wl_signal_emit_mutable(&source->base.events.frame, &frame_event.base);
+ 
+@@ -319,10 +396,23 @@
+ 	snprintf(name, sizeof(name), "CAPTURE-%zu", output_num);
+ 	wlr_output_set_name(&source->output, name);
+ 
+-	wlr_output_init_render(&source->output, allocator, renderer);
++	if (!wlr_output_init_render(&source->output, allocator, renderer)) {
++		wlr_output_finish(&source->output);
++		wlr_backend_finish(&source->backend);
++		free(source);
++		return NULL;
++	}
++	// Never substitute a client buffer for the rendered SDR destination.
++	wlr_output_lock_attach_render(&source->output, true);
+ 
+ 	struct wlr_scene *scene = scene_node_get_root(node);
+ 	source->scene_output = wlr_scene_output_create(scene, &source->output);
++	if (!source->scene_output) {
++		wlr_output_finish(&source->output);
++		wlr_backend_finish(&source->backend);
++		free(source);
++		return NULL;
++	}
+ 
+ 	source->node_destroy.notify = source_handle_node_destroy;
+ 	wl_signal_add(&node->events.destroy, &source->node_destroy);

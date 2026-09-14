@@ -10,6 +10,7 @@ const math = std.math;
 const meta = std.meta;
 const posix = std.posix;
 const wlr = @import("wlroots");
+const pixman = @import("pixman");
 const wl = @import("wayland").server.wl;
 const aqueous = @import("wayland").server.aqueous;
 const wp = @import("wayland").server.wp;
@@ -1517,7 +1518,37 @@ pub fn trackCaptureSource(window: *Window, source: *wlr.ExtImageCaptureSourceV1)
     window.capture_impl = source.impl.*;
     window.capture_impl.start = captureStart;
     window.capture_impl.stop = captureStop;
+    window.capture_impl.request_frame = captureRequestFrame;
+    window.capture_impl.copy_frame = captureCopyFrame;
     source.impl = &window.capture_impl;
+}
+
+pub fn captureAllowed(window: *const Window) bool {
+    return window.state == .mapped and server.lock_manager.state == .unlocked;
+}
+
+fn captureRequestFrame(source: *wlr.ExtImageCaptureSourceV1, schedule: bool) callconv(.c) void {
+    const window: *Window = @fieldParentPtr("capture_impl", @constCast(source.impl));
+    if (!window.captureAllowed()) {
+        // Wake an already queued frame even if an unmapped/locked source no
+        // longer produces damage. captureCopyFrame fails it before any copy.
+        var damage: pixman.Region32 = undefined;
+        damage.initRect(0, 0, @max(1, source.width), @max(1, source.height));
+        defer damage.deinit();
+        var event: wlr.ExtImageCaptureSourceV1.event.Frame = .{ .damage = &damage };
+        source.events.frame.emit(&event);
+        return;
+    }
+    if (window.capture_original_impl.request_frame) |request| request(source, schedule);
+}
+
+fn captureCopyFrame(source: *wlr.ExtImageCaptureSourceV1, frame: *wlr.ExtImageCopyCaptureFrameV1, event: *wlr.ExtImageCaptureSourceV1.event.Frame) callconv(.c) void {
+    const window: *Window = @fieldParentPtr("capture_impl", @constCast(source.impl));
+    if (!window.captureAllowed()) {
+        frame.fail(.stopped);
+        return;
+    }
+    window.capture_original_impl.copy_frame(source, frame, event);
 }
 
 fn captureStart(source: *wlr.ExtImageCaptureSourceV1, cursors: bool) callconv(.c) void {

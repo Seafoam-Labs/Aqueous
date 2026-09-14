@@ -136,10 +136,10 @@ static void capture_fence(struct wlr_buffer *buffer, const char *event) {
     capture_wait(renderer, "AQUEOUS_CAPTURE_WAIT_SOURCE");''')
     i.edit(p, 'copy_dmabuf(dst, src, renderer, &frame->buffer_damage)',
            'copy_dmabuf(dst, src, renderer, capture_flag("AQUEOUS_CAPTURE_FULL_COPY") ? NULL : &frame->buffer_damage)')
-    i.edit(p, 'capture_color_send(frame, shm ? (converted ? &sdr : description) : NULL);', '''capture_wait(renderer, "AQUEOUS_CAPTURE_WAIT_COPY");
+    i.edit(p, 'capture_color_send(frame, (shm || scene_sdr) ? (converted ? &sdr : description) : NULL);', '''capture_wait(renderer, "AQUEOUS_CAPTURE_WAIT_COPY");
     capture_fence(dst, "copy_fence");
     capture_trace("copy_submitted", (uintptr_t)src, (uintptr_t)dst, shm, 0);
-    capture_color_send(frame, shm ? (converted ? &sdr : description) : NULL);''')
+    capture_color_send(frame, (shm || scene_sdr) ? (converted ? &sdr : description) : NULL);''')
     i.edit(p, 'ext_image_copy_capture_frame_v1_send_ready(frame->resource);',
            'capture_trace("frame_ready", (uintptr_t)frame, (uintptr_t)frame->buffer, 0, 0);\n\text_image_copy_capture_frame_v1_send_ready(frame->resource);')
     p = 'types/ext_image_capture_source_v1/output.c'

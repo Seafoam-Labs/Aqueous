@@ -20,10 +20,18 @@
 #include <wlr/render/allocator.h>
 #include <wlr/render/interface.h>
 #include <wlr/render/vulkan.h>
+#include <wlr/render/pixman.h>
+#include <wlr/util/log.h>
+#include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
+#include "ext-foreign-toplevel-list-v1-client-protocol.h"
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
 #include <wlr/types/wlr_ext_image_copy_capture_v1.h>
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_shm.h>
+#include <wlr/types/wlr_linux_dmabuf_v1.h>
+#include "linux-dmabuf-v1-client-protocol.h"
+static struct zwp_linux_dmabuf_v1 *dmabufs;
 #include <drm_fourcc.h>
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
@@ -129,14 +137,42 @@ static struct ext_output_image_capture_source_manager_v1 *sources;
 static struct ext_image_copy_capture_manager_v1 *captures;
 static struct aqueous_capture_color_manager_v1 *colors;
 static struct zwlr_screencopy_manager_v1 *legacy;
+static struct ext_foreign_toplevel_image_capture_source_manager_v1 *foreign_sources;
+static struct ext_foreign_toplevel_handle_v1 *foreign_handle;
+static struct wlr_ext_image_capture_source_v1 *scene_source;
+static void foreign_string(void *data, struct ext_foreign_toplevel_handle_v1 *h, const char *s) {}
+static void foreign_done(void *data, struct ext_foreign_toplevel_handle_v1 *h) {}
+static void foreign_closed(void *data, struct ext_foreign_toplevel_handle_v1 *h) {}
+static const struct ext_foreign_toplevel_handle_v1_listener foreign_listener = {
+	.title = foreign_string, .app_id = foreign_string, .identifier = foreign_string,
+	.done = foreign_done, .closed = foreign_closed,
+};
+static void foreign_top(void *data, struct ext_foreign_toplevel_list_v1 *list, struct ext_foreign_toplevel_handle_v1 *h) {
+	foreign_handle = h;
+	ext_foreign_toplevel_handle_v1_add_listener(h, &foreign_listener, NULL);
+}
+static void foreign_finished(void *data, struct ext_foreign_toplevel_list_v1 *list) {}
+static const struct ext_foreign_toplevel_list_v1_listener foreign_list_listener = {
+	.toplevel = foreign_top, .finished = foreign_finished,
+};
+static void scene_request(struct wl_listener *listener, void *data) {
+	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *request = data;
+	assert(wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, scene_source));
+}
 static void registry_global(void *data, struct wl_registry *registry, uint32_t name,
 		const char *interface, uint32_t version) {
 #define BIND(variable, iface, v) if (!strcmp(interface, #iface)) variable = wl_registry_bind(registry, name, &iface##_interface, v)
 	BIND(shm, wl_shm, 1);
+	BIND(dmabufs, zwp_linux_dmabuf_v1, 4);
 	BIND(wl_output, wl_output, 1);
 	BIND(sources, ext_output_image_capture_source_manager_v1, 1);
 	BIND(captures, ext_image_copy_capture_manager_v1, 1);
 	BIND(colors, aqueous_capture_color_manager_v1, 1);
+	BIND(foreign_sources, ext_foreign_toplevel_image_capture_source_manager_v1, 1);
+	if (!strcmp(interface, "ext_foreign_toplevel_list_v1")) {
+		struct ext_foreign_toplevel_list_v1 *list = wl_registry_bind(registry, name, &ext_foreign_toplevel_list_v1_interface, 1);
+		ext_foreign_toplevel_list_v1_add_listener(list, &foreign_list_listener, NULL);
+	}
 	BIND(legacy, zwlr_screencopy_manager_v1, 3);
 #undef BIND
 }
@@ -385,8 +421,154 @@ static void save_capture(const struct frame *native, const struct frame *sdr) {
 	assert(fclose(file) == 0);
 }
 
+// Independent ST2084 encoding, with absolute scene luminance in cd/m2.
+static unsigned pq_code(double nits) {
+	double p = pow(nits / 10000.0, 2610.0 / 16384.0);
+	return (unsigned)lround(1023.0 * pow((3424.0 / 4096.0 + 2413.0 / 128.0 * p) /
+		(1.0 + 2392.0 / 128.0 * p), 2523.0 / 32.0));
+}
+static void wait_frame(struct frame *frame) {
+	for (int i = 0; i < 1000 && !frame->ready && !frame->failed; i++) { roundtrip(); usleep(1000); }
+	assert(frame->ready || frame->failed);
+}
+static void scene_dma_frame(struct session *session, struct wlr_scene_buffer *node,
+        struct wlr_buffer *source, const uint32_t *palette) {
+    assert(dmabufs);
+    const struct wlr_drm_format *format = wlr_drm_format_set_get(&scene_source->dmabuf_formats, DRM_FORMAT_XRGB8888);
+    assert(format);
+    struct wlr_buffer *dst = wlr_allocator_create_buffer(gpu_allocator, WIDTH, HEIGHT, format); assert(dst);
+    struct wlr_dmabuf_attributes attrs; assert(wlr_buffer_get_dmabuf(dst, &attrs));
+    struct zwp_linux_buffer_params_v1 *params=zwp_linux_dmabuf_v1_create_params(dmabufs);
+    for (int i=0;i<attrs.n_planes;i++) zwp_linux_buffer_params_v1_add(params,attrs.fd[i],i,
+        attrs.offset[i],attrs.stride[i],attrs.modifier>>32,attrs.modifier&0xffffffff);
+    struct frame f={0};
+    f.buffer=zwp_linux_buffer_params_v1_create_immed(params,WIDTH,HEIGHT,attrs.format,0);
+    zwp_linux_buffer_params_v1_destroy(params);
+    f.proxy=ext_image_copy_capture_session_v1_create_frame(session->proxy);
+    ext_image_copy_capture_frame_v1_add_listener(f.proxy,&frame_listener,&f);
+    f.info=aqueous_capture_color_manager_v1_get_frame_info(colors,f.proxy);
+    aqueous_capture_color_info_v1_add_listener(f.info,&color_listener,&f);
+    ext_image_copy_capture_frame_v1_attach_buffer(f.proxy,f.buffer);
+    ext_image_copy_capture_frame_v1_damage_buffer(f.proxy,0,0,WIDTH,HEIGHT);
+    ext_image_copy_capture_frame_v1_capture(f.proxy);
+    wlr_scene_buffer_set_buffer(node,source); wait_frame(&f);
+    assert(f.ready && f.color_done && !f.unavailable &&
+        f.tf==AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22 &&
+        f.primaries==AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB);
+    struct wlr_texture *texture=wlr_texture_from_buffer(gpu_renderer,dst); assert(texture);
+    uint32_t *pixels=calloc(WIDTH*HEIGHT,4); assert(pixels);
+    assert(wlr_texture_read_pixels(texture,&(struct wlr_texture_read_pixels_options){
+        .data=pixels,.format=DRM_FORMAT_XRGB8888,.stride=WIDTH*4}));
+    for (int i=0;i<WIDTH*HEIGHT;i++) for (int ch=0;ch<3;ch++)
+        assert(abs((int)((pixels[i]>>(8*ch))&255)-(int)((palette[i%4]>>(8*ch))&255))<=1);
+    free(pixels); wlr_texture_destroy(texture);
+    ext_image_copy_capture_frame_v1_destroy(f.proxy); aqueous_capture_color_info_v1_destroy(f.info);
+    wl_buffer_destroy(f.buffer); roundtrip(); wlr_buffer_drop(dst);
+    puts("PASS: scene DMA-BUF destination pixels and SDR metadata");
+}
+static void scene_frames(struct wlr_allocator *memory_allocator) {
+	struct wlr_renderer *renderer = gpu_renderer ? gpu_renderer : wlr_pixman_renderer_create();
+	assert(renderer);
+	struct wlr_backend backend; wlr_backend_init(&backend, &backend_impl);
+	backend.buffer_caps = WLR_BUFFER_CAP_SHM;
+	struct wlr_allocator *scene_allocator = gpu_allocator ? gpu_allocator : wlr_allocator_autocreate(&backend, renderer);
+	assert(scene_allocator);
+	if (gpu_renderer) assert(wlr_linux_dmabuf_v1_create_with_renderer(server,4,gpu_renderer));
+	struct wlr_scene *scene = wlr_scene_create(); assert(scene);
+	struct wlr_drm_format fmt = {.format = DRM_FORMAT_XRGB8888};
+	struct wlr_buffer *buffer = allocate(memory_allocator, WIDTH, HEIGHT, &fmt);
+	struct memory_buffer *b = wl_container_of(buffer, b, base);
+	const uint32_t palette[] = {0xff000000, 0xff204060, 0xff808080, 0xffffffff};
+	for (int y = 0; y < HEIGHT; y++) for (int x = 0; x < WIDTH; x++)
+		memcpy(b->pixels + ((size_t)y * WIDTH + x) * 4, &palette[x % 4], 4);
+	struct wlr_scene_buffer *node = wlr_scene_buffer_create(&scene->tree, buffer); assert(node);
+	scene_source = wlr_ext_image_capture_source_v1_create_with_scene_node(&scene->tree.node,
+		wl_display_get_event_loop(server), scene_allocator, renderer);
+	assert(scene_source);
+	struct wlr_ext_foreign_toplevel_list_v1 *list = wlr_ext_foreign_toplevel_list_v1_create(server, 1); assert(list);
+	struct wlr_ext_foreign_toplevel_handle_v1 *handle = wlr_ext_foreign_toplevel_handle_v1_create(list,
+		&(struct wlr_ext_foreign_toplevel_handle_v1_state){.title="scene", .app_id="scene"}); assert(handle);
+	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1 *manager =
+		wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(server, 1); assert(manager);
+	struct wl_listener request = {.notify = scene_request}; wl_signal_add(&manager->events.new_request, &request);
+	roundtrip(); roundtrip(); assert(foreign_handle && foreign_sources);
+	struct session session = {0};
+	session.source = ext_foreign_toplevel_image_capture_source_manager_v1_create_source(foreign_sources, foreign_handle);
+	session.proxy = ext_image_copy_capture_manager_v1_create_session(captures, session.source, 0);
+	ext_image_copy_capture_session_v1_add_listener(session.proxy, &session_listener, &session);
+	roundtrip(); assert(session.batches && session.width == WIDTH && session.height == HEIGHT);
+	uint32_t format = session.formats[0]; assert(format == WL_SHM_FORMAT_ARGB8888 || format == WL_SHM_FORMAT_XRGB8888);
+	for (int repeat = 0; repeat < 2; repeat++) {
+		struct frame frame; frame_init(&frame, &session, format, true);
+		wlr_scene_buffer_set_buffer(node, buffer); wait_frame(&frame);
+		assert(frame.ready && frame.color_done && !frame.unavailable);
+		assert(frame.primaries == AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB &&
+			frame.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22);
+		assert(frame.reference == 800000 && frame.white == 800000 && !frame.mastering_max && !frame.max_cll);
+		for (int x = 0; x < WIDTH; x++) for (int ch = 0; ch < 3; ch++) {
+			int expected = (palette[x % 4] >> (ch * 8)) & 255;
+			assert(abs(frame.pixels[x * 4 + ch] - expected) <= (gpu_renderer ? 1 : 0));
+		}
+		padding_unchanged(&frame); frame_finish(&frame);
+	}
+	puts("PASS: actual scene renderer SDR samples, gamma22 metadata and repeat capture");
+	if (gpu_renderer) scene_dma_frame(&session,node,buffer,palette);
+	// The renderer converts known PQ/BT.2020 values into its SDR destination.
+	// Reference matrix and transfer formulas are independent of wlroots helpers.
+	// Scene rendering maps PQ reference white (203 nits) to SDR white.
+	const double input[3] = {.10, .20, .30};
+	const double bt2020_to_srgb[9] = {1.660491,-.587641,-.072850,-.124550,1.132900,-.008349,-.018151,-.100579,1.118730};
+	for (int gamut = 0; gamut < 2; gamut++) {
+		b->format = DRM_FORMAT_XRGB2101010;
+		uint32_t code = 3u << 30 | pq_code(input[0] * 203) << 20 | pq_code(input[1] * 203) << 10 | pq_code(input[2] * 203);
+		for (size_t i = 0; i < (size_t)WIDTH * HEIGHT; i++) memcpy(b->pixels + i * 4, &code, 4);
+		wlr_scene_buffer_set_transfer_function(node, WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ);
+		wlr_scene_buffer_set_primaries(node, gamut ? WLR_COLOR_NAMED_PRIMARIES_BT2020 : WLR_COLOR_NAMED_PRIMARIES_SRGB);
+		wlr_scene_buffer_set_buffer(node, NULL); wlr_scene_buffer_set_buffer(node, buffer);
+		struct frame frame; frame_init(&frame, &session, format, true); wait_frame(&frame);
+		assert(frame.ready);
+		if (gpu_renderer) {
+			assert(frame.color_done && frame.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22 && !frame.mastering_max && !frame.max_cll);
+			for (int ch = 0; ch < 3; ch++) {
+				double linear = input[ch];
+				if (gamut) linear = bt2020_to_srgb[ch*3]*input[0] + bt2020_to_srgb[ch*3+1]*input[1] + bt2020_to_srgb[ch*3+2]*input[2];
+				int expected = lround(pow(fmax(0, fmin(1, linear)), 1.0/2.2) * 255);
+				int actual = frame.pixels[2-ch];
+				if (abs(actual - expected) > 3) fprintf(stderr, "scene HDR gamut=%d channel=%d got=%d expected=%d\n", gamut,ch,actual,expected);
+				assert(abs(actual - expected) <= 3);
+			}
+		} else assert(frame.unavailable && !frame.color_done);
+		frame_finish(&frame);
+	}
+	puts(gpu_renderer ? "PASS: PQ sRGB/BT2020 scene inputs converted to reference SDR pixels" : "PASS: Pixman HDR input remains metadata-unavailable");
+	// A buffer format cannot establish encoding, including a high-bit-depth SDR input.
+	wlr_scene_buffer_set_transfer_function(node, WLR_COLOR_TRANSFER_FUNCTION_GAMMA22);
+	wlr_scene_buffer_set_primaries(node, WLR_COLOR_NAMED_PRIMARIES_SRGB);
+	struct frame frame; frame_init(&frame, &session, format, true); wait_frame(&frame);
+	assert(frame.ready && frame.color_done && frame.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22);
+	frame_finish(&frame);
+	frame_init(&frame, &session, WL_SHM_FORMAT_XBGR2101010, true); wlr_scene_buffer_set_buffer(node, buffer); wait_frame(&frame);
+	assert(frame.failed && frame.unavailable && !frame.ready); frame_finish(&frame);
+	wlr_scene_node_set_enabled(&node->node, false);
+	frame_init(&frame, &session, format, true); roundtrip();
+	assert(frame.failed && frame.unavailable && !frame.ready); frame_finish(&frame);
+	wlr_scene_node_set_enabled(&node->node, true);
+	frame_init(&frame, &session, format, false);
+	wlr_scene_node_destroy(&scene->tree.node); scene_source = NULL; roundtrip();
+	assert(frame.failed && frame.unavailable && session.stopped && !frame.ready); frame_finish(&frame);
+	puts("PASS: scene format rejection, disabled source, destruction before ready and metadata lifetime");
+	ext_image_copy_capture_session_v1_destroy(session.proxy); ext_image_capture_source_v1_destroy(session.source);
+	wlr_ext_foreign_toplevel_handle_v1_destroy(handle); wl_list_remove(&request.link);
+	wlr_buffer_drop(buffer);
+	if (!gpu_allocator) wlr_allocator_destroy(scene_allocator);
+	wlr_backend_finish(&backend);
+	if (!gpu_renderer) wlr_renderer_destroy(renderer);
+	roundtrip();
+}
+
 int main(int argc, char **argv) {
 	alarm(60);
+	if (getenv("AQUEOUS_CAPTURE_DEBUG")) wlr_log_init(WLR_DEBUG, NULL);
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	server = wl_display_create(); assert(server);
 	struct wlr_backend backend; wlr_backend_init(&backend, &backend_impl);
@@ -568,6 +750,7 @@ int main(int argc, char **argv) {
 		"PASS: import/read failure, cancellation, output removal and metadata lifetime");
 	ext_image_copy_capture_session_v1_destroy(native.proxy); ext_image_capture_source_v1_destroy(native.source);
 	ext_image_copy_capture_session_v1_destroy(sdr.proxy); ext_image_capture_source_v1_destroy(sdr.source);
+	scene_frames(&allocator);
 	wl_display_disconnect(client); wl_display_destroy_clients(server); wl_display_destroy(server);
 	wlr_buffer_drop(base); wlr_allocator_destroy(&allocator); wlr_renderer_destroy(&renderer);
 	wlr_backend_finish(&backend); wlr_drm_format_set_finish(&render_formats);

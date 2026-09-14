@@ -141,6 +141,7 @@ pub fn build(b: *Build) !void {
     // to wlroots. Therefore, the only thing that can happen due to a version being too
     // old is that river fails to compile.
     scanner.addSystemProtocol("staging/pointer-warp/pointer-warp-v1.xml");
+    scanner.addSystemProtocol("staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml");
     scanner.generate("wp_pointer_warp_v1", 1);
     scanner.generate("wp_content_type_manager_v1", 1);
     scanner.generate("ext_background_effect_manager_v1", 1);
@@ -161,6 +162,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("zxdg_exporter_v2", 1);
     scanner.generate("ext_session_lock_manager_v1", 1);
     scanner.generate("ext_foreign_toplevel_list_v1", 1);
+    scanner.generate("ext_image_copy_capture_manager_v1", 1);
     scanner.generate("wp_cursor_shape_manager_v1", 1);
     scanner.generate("wp_tearing_control_manager_v1", 1);
     scanner.generate("wp_color_manager_v1", 3);

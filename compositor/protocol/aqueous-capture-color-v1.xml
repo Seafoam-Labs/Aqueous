@@ -53,9 +53,13 @@
       Events describe destination pixels: an SDR conversion has SDR metadata,
       while native SHM capture retains its source encoding. Information remains
       valid after the frame is destroyed. Destroy this object when done with it.
-      This version does not guarantee metadata for DMA-BUF, scene or cursor
-      sources; clients must handle unavailable and must not infer HDR from
-      buffer bit depth. All luminances use 0.0001 cd/m² units.
+      Scene captures describe the rendered destination, including conversion of
+      HDR inputs to SDR. A described SDR scene frame uses sRGB primaries and
+      gamma22, not the transfer function of its original surface buffers.
+      Unsupported input conversion or unproven copy paths yield unavailable.
+      This version does not guarantee metadata for every renderer, DMA-BUF or
+      cursor path; clients must handle unavailable and must not infer encoding
+      from buffer bit depth. All luminances use 0.0001 cd/m² units.
     </description>
     <request name="destroy" type="destructor"/>
     <enum name="primaries">
