@@ -1,0 +1,109 @@
+pkgbase = aqueous-desktop-git
+	pkgdesc = Aqueous Git desktop components and optional shell presets (co-installable with stable)
+	pkgver = 0.7.0.r0.g0000000
+	pkgrel = 1
+	url = https://github.com/Seafoam-Labs/Aqueous
+	arch = x86_64
+	arch = aarch64
+	license = GPL3
+	license = MIT
+	checkdepends = jq
+	checkdepends = ripgrep
+	makedepends = git
+	makedepends = patch
+	makedepends = zig>=0.16
+	makedepends = gtk4
+	makedepends = libinih
+	makedepends = pipewire
+	makedepends = wayland
+	makedepends = wayland-protocols
+	makedepends = systemd-libs
+	makedepends = mesa
+	makedepends = meson
+	makedepends = ninja
+	makedepends = pkgconf
+	makedepends = jq
+	options = !strip
+	options = !debug
+	options = !zipman
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git
+	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
+	sha256sums = SKIP
+	sha256sums = 3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
+
+pkgname = aqueous-session-git
+	pkgdesc = Aqueous Git login session and runtime
+	depends = aqueous-core-git=0.7.0.r0.g0000000-1
+	depends = bash
+	depends = jq
+	depends = coreutils
+	depends = uwsm
+	depends = dbus
+	depends = systemd
+	depends = ghostty
+	depends = grim
+	depends = slurp
+	depends = wl-clipboard
+	depends = libnotify
+	depends = xdg-desktop-portal
+	depends = xdg-desktop-portal-gtk
+	backup = etc/xdg/aqueous-git/wm.toml
+	backup = etc/xdg/aqueous-git/outputs.toml
+	backup = etc/xdg/uwsm/env-aqueous-git
+	backup = etc/xdg/menus/aqueous-git-applications.menu
+	backup = etc/xdg/xdg-desktop-portal-aqueous-git/config
+
+pkgname = aqueous-welcome-git
+	pkgdesc = Aqueous Git native welcome and setup
+	depends = aqueous-session-git=0.7.0.r0.g0000000-1
+	depends = gtk4
+	depends = shelly
+	depends = sudo
+
+pkgname = xdg-desktop-portal-aqueous-git
+	pkgdesc = Aqueous Git screen capture portal
+	depends = libinih
+	depends = pipewire
+	depends = wayland
+	depends = systemd-libs
+	depends = mesa
+	depends = xdg-desktop-portal
+
+pkgname = aqueous-integration-dms-git
+	pkgdesc = DMS integration for Aqueous Git
+	depends = aqueous-session-git=0.7.0.r0.g0000000-1
+	depends = aqueous-welcome-git=0.7.0.r0.g0000000-1
+	depends = xdg-desktop-portal-aqueous-git=0.7.0.r0.g0000000-1
+
+pkgname = aqueous-integration-noctalia-git
+	pkgdesc = Noctalia integration for Aqueous Git
+	depends = aqueous-session-git=0.7.0.r0.g0000000-1
+
+pkgname = aqueous-integration-pearl-git
+	pkgdesc = Pearl integration for Aqueous Git
+	depends = aqueous-session-git=0.7.0.r0.g0000000-1
+
+pkgname = aqueous-shell-dms-git
+	pkgdesc = Optional DMS shell preset for Aqueous Git
+	depends = aqueous-integration-dms-git=0.7.0.r0.g0000000-1
+	depends = dms-shell
+
+pkgname = aqueous-shell-noctalia-git
+	pkgdesc = Optional Noctalia shell preset for Aqueous Git
+	depends = aqueous-integration-noctalia-git=0.7.0.r0.g0000000-1
+	depends = noctalia
+
+pkgname = aqueous-shell-pearl-git
+	pkgdesc = Optional Pearl shell preset for Aqueous Git
+	depends = aqueous-integration-pearl-git=0.7.0.r0.g0000000-1
+	depends = pearl-git
+
+pkgname = aqueous-desktop-git
+	pkgdesc = Complete Aqueous Git desktop (shell selected through welcome)
+	depends = aqueous-core-git=0.7.0.r0.g0000000-1
+	depends = aqueous-session-git=0.7.0.r0.g0000000-1
+	depends = aqueous-welcome-git=0.7.0.r0.g0000000-1
+	depends = xdg-desktop-portal-aqueous-git=0.7.0.r0.g0000000-1
+	depends = aqueous-integration-dms-git=0.7.0.r0.g0000000-1
+	depends = aqueous-integration-noctalia-git=0.7.0.r0.g0000000-1
+	depends = aqueous-integration-pearl-git=0.7.0.r0.g0000000-1

@@ -1,5 +1,6 @@
 //! Native compatibility for legacy session callers; split sessions own a shell runtime.
 const std = @import("std");
+const instance = @import("../instance.zig");
 const u = @import("common.zig");
 const c = u.c;
 const Context = u.Context;
@@ -10,18 +11,18 @@ pub fn valid(shell: []const u8) bool {
     return false;
 }
 pub fn package(shell: []const u8) ?[]const u8 {
-    if (eq(u8, shell, "pearl")) return "pearl-de";
+    if (eq(u8, shell, "pearl")) return if (instance.suffix.len == 0) "pearl" else "pearl-git";
     if (eq(u8, shell, "dms")) return "dms-shell";
     if (eq(u8, shell, "noctalia")) return "noctalia";
     return null;
 }
 pub fn runtime(ctx: *Context) !?[:0]const u8 {
-    const path = try ctx.z(u.env("AQUEOUS_SESSION_RUNTIME") orelse try ctx.path(&.{ std.fs.path.dirname(std.fs.path.dirname(ctx.executable).?).?, "lib/aqueous/session-runtime.sh" }));
+    const path = try ctx.z(u.env("AQUEOUS_SESSION_RUNTIME") orelse try ctx.path(&.{ std.fs.path.dirname(ctx.executable).?, instance.runtime_relative }));
     return if (u.exists(path)) path else null;
 }
 pub fn inAqueous() bool {
     var it = std.mem.splitScalar(u8, u.env("XDG_CURRENT_DESKTOP") orelse "", ':');
-    while (it.next()) |s| if (std.ascii.eqlIgnoreCase(s, "aqueous")) return true;
+    while (it.next()) |s| if (std.ascii.eqlIgnoreCase(s, instance.desktop)) return true;
     return false;
 }
 pub fn nested() bool {
@@ -77,10 +78,10 @@ pub fn selection(ctx: *Context) ![]const u8 {
         if (!valid(result)) return ctx.fail("Invalid session runtime response", .{});
         return result;
     }
-    if (try ctx.read(try ctx.path(&.{ try ctx.config(), "aqueous/session.toml" }))) |bytes| return parseSelection(ctx, bytes);
+    if (try ctx.read(try ctx.path(&.{ try ctx.config(), instance.name ++ "/session.toml" }))) |bytes| return parseSelection(ctx, bytes);
     var found: ?[]const u8 = null;
     var count: usize = 0;
-    if (try ctx.read(try ctx.path(&.{ try ctx.config(), "aqueous/wm.toml" }))) |bytes| {
+    if (try ctx.read(try ctx.path(&.{ try ctx.config(), instance.name ++ "/wm.toml" }))) |bytes| {
         for (shells[0..3]) |shell| {
             const legacy_command = if (eq(u8, shell, "pearl")) "pearlctl " else try std.fmt.allocPrint(ctx.a, "{s} ", .{shell});
             if (std.mem.indexOf(u8, bytes, legacy_command) != null) {
@@ -119,7 +120,7 @@ pub fn active(ctx: *Context) ![]const u8 {
 }
 pub fn complete(ctx: *Context) !void {
     try ctx.atomic(try ctx.path(&.{ try ctx.state(), "welcome-v1" }), "Aqueous welcome completed\n");
-    try ctx.atomic(try ctx.path(&.{ try ctx.config(), "autostart/org.aqueous.Welcome.desktop" }), "[Desktop Entry]\nType=Application\nName=Welcome to Aqueous\nHidden=true\n");
+    try ctx.atomic(try ctx.path(&.{ try ctx.config(), "autostart/" ++ instance.app_id ++ ".desktop" }), "[Desktop Entry]\nType=Application\nName=Welcome to Aqueous\nHidden=true\n");
 }
 pub fn exec(ctx: *Context, args: []const []const u8) !void {
     const argv = try ctx.argv(args);
@@ -150,7 +151,7 @@ pub fn prepare(ctx: *Context) !void {
     try ctx.jsonWrite(try ctx.runtime(), try ctx.value(.{ .shell = shell, .display = u.env("WAYLAND_DISPLAY") }));
     if (eq(u8, shell, "noctalia")) {
         const destination = try ctx.path(&.{ try ctx.config(), "noctalia/config.toml" });
-        const source = try ctx.path(&.{ u.env("AQUEOUS_SHARE_DIR") orelse "/usr/share/aqueous", "noctalia/config.toml" });
+        const source = try ctx.path(&.{ u.env("AQUEOUS_SHARE_DIR") orelse "/usr/share/" ++ instance.name, "noctalia/config.toml" });
         if (!u.exists(destination)) if (try ctx.read(source)) |bytes| {
             try ctx.atomic(destination, bytes);
         };
@@ -196,7 +197,7 @@ pub fn action(ctx: *Context, name: []const u8) !void {
         return;
     }
     if (eq(u8, name, "chooser")) {
-        if (eq(u8, shell, "dms")) return exec(ctx, &.{try ctx.path(&.{ std.fs.path.dirname(std.fs.path.dirname(ctx.executable).?).?, "lib/aqueous/aqueous-dms-portal-chooser" })});
+        if (eq(u8, shell, "dms") and instance.suffix.len == 0) return exec(ctx, &.{try ctx.path(&.{ std.fs.path.dirname(std.fs.path.dirname(ctx.executable).?).?, "lib/aqueous/aqueous-dms-portal-chooser" })});
         if (eq(u8, shell, "noctalia")) return exec(ctx, &.{ "noctalia", "dmenu", "-p", "Select a source to share:" });
         return exec(ctx, &.{ ctx.executable, "--choose" });
     }

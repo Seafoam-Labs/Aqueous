@@ -75,7 +75,7 @@ answer | jq -e '. == {"$kind":"a.provider",QuestionId:"3",SelectedIndex:42}' >/d
 frame '{"$kind":"q.transaction","QuestionId":"4","QuestionText":"Install packages?","Packages":[{"Name":"test"}]}'
 answer | jq -e '. == {"$kind":"a.transaction",QuestionId:"4",Accept:true}' >/dev/null
 head -c 100000 /dev/zero >&2
-jq -n --arg name "$3" '[{Name:$name,Id:$name}]' > "$FIXTURE_ROOT/packages"
+jq -n --args '$ARGS.positional | map(select(. != "--ui-mode") | {Name:.,Id:.})' -- "${@:3}" > "$FIXTURE_ROOT/packages"
 frame '{"$kind":"alpm.info","EventType":"TransactionDone","Message":"Installed"}'
 SH
 chmod +x "$base/bin/aqueous-config" "$base/bin/shelly"
@@ -134,7 +134,7 @@ worker pearl
 [[ $(jq -s '[.[]|select(.kind=="password")]|length' "$base/events") == 2 ]]
 ! grep -q fixture-secret "$base/events" "$base/state/aqueous/welcome-operation.json"
 [[ $($binary --worker selection) == pearl && $($binary --worker active-selection) == dms ]]
-grep -q 'install standard pearl-de --ui-mode' "$base/install-log"
+grep -q 'install standard pearl --ui-mode' "$base/install-log"
 [[ $(cat "$base/validations") == 2 ]]
 printf 'Password terminal, fragmented questions, optional dependencies and active-session preservation: passed\n'
 for scenario in failure no-done cancelled malformed commit disconnect echo stale stale-response decline; do
@@ -241,7 +241,7 @@ reset
 export AQUEOUS_SESSION_RUNTIME=$repo/packaging/components/session-runtime.sh
 export AQUEOUS_SYSCONFDIR=$base/etc
 worker pearl
-grep -q 'install standard aqueous-shell-pearl --ui-mode' "$base/install-log"
+grep -q 'install standard pearl aqueous-shell-pearl --ui-mode' "$base/install-log"
 [[ $($binary --worker active-selection) == dms && $($binary --worker selection) == pearl ]]
 export AQUEOUS_SESSION_RUNTIME=$base/no-runtime
 printf 'Split runtime delegation and shell preset installation: passed\n'

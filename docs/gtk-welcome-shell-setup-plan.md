@@ -65,9 +65,9 @@ Local source inspected: Aqueous `1d038dc`, Pearl `5e7e10f`, and Shelly-ALPM
   exist, independently of a user shell choice. Bindings and portal chooser
   configuration also depend on the packaged shell.
 - Pearl is a separate GTK4 shell, not just a settings app. Assume it is available
-  from the configured repositories as `pearl-de`, per the requested distribution
+  from the configured repositories as `pearl`, per the requested distribution
   contract. The inspected local package recipe still uses `pearl`; welcome must
-  target `pearl-de`. It starts through `pearl.service` and provides `pearlctl`. Its current
+  target `pearl`. It starts through `pearl.service` and provides `pearlctl`. Its current
   packaging requires an Aqueous helper capability contract that must be checked
   against this checkout before advertising a working installation.
 - Both Pearl and Shelly's GTK UI use pinned generated `ghostty-gobject`
@@ -93,7 +93,7 @@ Local source inspected: Aqueous `1d038dc`, Pearl `5e7e10f`, and Shelly-ALPM
 
 | Choice | Package identity to validate | Setup behavior |
 | --- | --- | --- |
-| Pearl | `pearl-de` (assumed available in configured repositories) | Check Aqueous/helper capabilities; seed missing Pearl settings; select Pearl startup, bindings, and compatible portal configuration. |
+| Pearl | `pearl` (assumed available in configured repositories) | Check Aqueous/helper capabilities; seed missing Pearl settings; select Pearl startup, bindings, and compatible portal configuration. |
 | DMS | `dms-shell`, recognizing supported providers such as `dms-aqueous` | Preserve DMS preferences; select one supported DMS startup unit, DMS bindings, and the existing DMS portal integration. |
 | Noctalia | `noctalia` for the packaged native v5 integration | Seed missing v5 settings; select Noctalia startup, bindings, and its existing portal chooser. |
 | Nothing | None | Install no shell and select no managed shell startup. Keep a terminal shortcut, compositor controls, welcome launcher, and shell-independent portal behavior. |
@@ -156,7 +156,7 @@ Suggested module boundaries under `welcome/src/`:
   backend mapping. Do not silently change sources, add repositories, or invent
   Flatpak shell IDs when a package is unavailable.
 - Invoke argv arrays beginning with `shelly`, for example
-  `shelly install standard pearl-de --ui-mode`. Keep welcome unprivileged and
+  `shelly install standard pearl --ui-mode`. Keep welcome unprivileged and
   let Shelly own elevation. Welcome must not prepend sudo or pkexec, configure
   `SUDO_ASKPASS`, or launch a separate elevation helper. Validate Shelly's
   elevation route, including AUR builds under the invoking user's identity.
@@ -260,7 +260,7 @@ Suggested module boundaries under `welcome/src/`:
 
 1. **Lock integration contracts.** Record tested Shelly command/event schemas,
    GTK binding pins, package sources/providers, shell launch/readiness checks,
-   and Aqueous/helper capabilities. Use `pearl-de` as the assumed available Pearl
+   and Aqueous/helper capabilities. Use `pearl` as the assumed available Pearl
    repository package and resolve its required helper contract. Deliver the
    adapter manifest and source-derived protocol fixtures, including password
    requests/responses and selection of all optional dependencies. Include any
@@ -315,7 +315,7 @@ Keep automatic shell removal, greeter/display-manager changes, full live shell
 switching, and wholesale settings import outside this migration. The existing
 optional application catalog can stay without making those features prerequisites.
 
-Pearl availability is assumed under the repository package name `pearl-de`;
+Pearl availability is assumed under the repository package name `pearl`;
 package publication is not an outstanding prerequisite in this plan. The
 implementation still needs to establish the matching helper capability set,
 the compatible Shelly version, Pearl/Nothing portal chooser behavior, and the

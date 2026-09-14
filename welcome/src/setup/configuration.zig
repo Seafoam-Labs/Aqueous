@@ -1,5 +1,6 @@
 //! Reviewed configuration changes and version-1 recovery journals.
 const std = @import("std");
+const instance = @import("../instance.zig");
 const u = @import("common.zig");
 const Context = u.Context;
 const Value = u.Value;
@@ -23,7 +24,7 @@ pub fn request(ctx: *Context, snapshot: Value) !Request {
     var preserved = ctx.array();
     for (u.items(get(snapshot, "fields"))) |field| {
         inline for (actions) |action| if (eq(u8, string(field, "id"), action[0])) {
-            const desired = "aqueous-shell-action " ++ action[1];
+            const desired = "aqueous-shell-action" ++ instance.suffix ++ " " ++ action[1];
             if (!eq(u8, string(field, "value"), desired)) {
                 if (u.yes(get(field, "inherited")) or contains(action[2], string(field, "value")))
                     try changes.array.append(try ctx.value(.{ .id = action[0], .value = desired }))
@@ -36,7 +37,7 @@ pub fn request(ctx: *Context, snapshot: Value) !Request {
         const command = string(binding, "command");
         if (!std.mem.startsWith(u8, command, "spawn:")) continue;
         inline for (actions) |action| if (contains(action[2], command[6..])) {
-            try custom.array.append(try ctx.value(.{ .id = get(binding, "id"), .op = "update", .chord = get(binding, "chord"), .command = "spawn:aqueous-shell-action " ++ action[1] }));
+            try custom.array.append(try ctx.value(.{ .id = get(binding, "id"), .op = "update", .chord = get(binding, "chord"), .command = "spawn:aqueous-shell-action" ++ instance.suffix ++ " " ++ action[1] }));
         };
     }
     if (get(snapshot, "generation") == .null) return ctx.fail("Configuration snapshot lacks a generation", .{});
@@ -44,10 +45,10 @@ pub fn request(ctx: *Context, snapshot: Value) !Request {
 }
 pub const Portal = struct { path: []const u8, data: ?[]const u8, note: ?[]const u8 = null };
 pub fn portal(ctx: *Context) !Portal {
-    const root = try ctx.path(&.{ try ctx.config(), "xdg-desktop-portal-aqueous" });
-    const upper = try ctx.path(&.{ root, "Aqueous" });
+    const root = try ctx.path(&.{ try ctx.config(), "xdg-desktop-portal-" ++ instance.name });
+    const upper = try ctx.path(&.{ root, instance.desktop });
     const path = if (u.exists(upper)) upper else try ctx.path(&.{ root, "config" });
-    const desired = "aqueous-shell-action chooser";
+    const desired = "aqueous-shell-action" ++ instance.suffix ++ " chooser";
     const bytes = (try ctx.read(path)) orelse return .{ .path = path, .data = "[screencast]\nchooser_type=dmenu\nchooser_cmd=" ++ desired ++ "\n" };
     if (!std.unicode.utf8ValidateSlice(bytes)) return ctx.fail("Invalid portal configuration encoding", .{});
     var lines = std.mem.splitScalar(u8, bytes, '\n');
@@ -159,7 +160,7 @@ pub fn startupConflicts(ctx: *Context) ![]const u8 {
                 if (std.mem.startsWith(u8, line, "OnlyShowIn=")) {
                     applicable = false;
                     var desktops = std.mem.splitScalar(u8, line[11..], ';');
-                    while (desktops.next()) |desktop| if (eq(u8, desktop, "Aqueous")) {
+                    while (desktops.next()) |desktop| if (eq(u8, desktop, instance.desktop)) {
                         applicable = true;
                     };
                 }

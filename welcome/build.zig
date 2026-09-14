@@ -18,7 +18,12 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport(name, gobject.module(name));
     exe.root_module.linkSystemLibrary("gtk4", .{});
     const options = b.addOptions();
-    options.addOption(bool, "test_hooks", b.option(bool, "test-hooks", "Enable isolated GUI smoke-test hooks") orelse false);
+    const instance_name = b.option([]const u8, "instance-name", "Desktop package identity") orelse "aqueous";
+    const test_hooks = b.option(bool, "test-hooks", "Enable isolated GUI smoke-test hooks") orelse false;
+    options.addOption([]const u8, "instance_name", instance_name);
+    options.addOption(bool, "test_hooks", test_hooks);
+    const metadata = b.addWriteFiles().add("build-instance.json", b.fmt("{{\"schema\":1,\"instance\":\"{s}\",\"test_hooks\":{s}}}\n", .{ instance_name, if (test_hooks) "true" else "false" }));
+    b.getInstallStep().dependOn(&b.addInstallFile(metadata, "share/aqueous/build-instance.json").step);
     exe.root_module.addOptions("build_options", options);
     b.installArtifact(exe);
 

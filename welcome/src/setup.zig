@@ -1,5 +1,6 @@
 //! Native setup worker entry point. No GTK initialization or elevated worker.
 const std = @import("std");
+const instance = @import("instance.zig");
 const u = @import("setup/common.zig");
 const session = @import("setup/session.zig");
 const configuration = @import("setup/configuration.zig");
@@ -51,7 +52,15 @@ fn installBatch(ctx: *Context, backend: []const u8, names: []const []const u8) !
 fn setup(ctx: *Context, shell: []const u8, specs: []const [:0]const u8) !void {
     if (!session.valid(shell)) return ctx.fail("Unknown desktop", .{});
     var packages: std.ArrayList(Package) = .empty;
-    if (session.package(shell)) |name| try addPackage(ctx, &packages, .{ .backend = "standard", .name = if (try session.runtime(ctx) != null) try std.fmt.allocPrint(ctx.a, "aqueous-shell-{s}", .{shell}) else name });
+    if (session.package(shell)) |name| {
+        // Request and verify the selected shell itself, including when its
+        // preset was already installed but the shell package is missing.
+        try addPackage(ctx, &packages, .{ .backend = "standard", .name = name });
+        // Git welcome belongs to the split desktop even during recovery from
+        // a missing runtime. Do not fall back to a legacy shell-only install.
+        if (instance.suffix.len > 0 or try session.runtime(ctx) != null)
+            try addPackage(ctx, &packages, .{ .backend = "standard", .name = try std.fmt.allocPrint(ctx.a, "aqueous-shell-{s}" ++ instance.suffix, .{shell}) });
+    }
     for (specs) |spec| try addPackage(ctx, &packages, parsePackage(spec) catch return ctx.fail("Invalid package identity", .{}));
     try ctx.mkdir(try ctx.state());
     const lock = u.c.open(try ctx.path(&.{ try ctx.state(), "welcome.lock" }), u.c.O_CREAT | u.c.O_RDWR | u.c.O_NOFOLLOW | u.c.O_CLOEXEC, @as(u.c.mode_t, 0o600));
@@ -63,7 +72,7 @@ fn setup(ctx: *Context, shell: []const u8, specs: []const [:0]const u8) !void {
     const conflicts = try configuration.startupConflicts(ctx);
     if (conflicts.len > 0) return ctx.fail("Review custom shell startup before switching:\n{s}", .{conflicts});
     const snapshot = try ctx.helper("snapshot", null);
-    const selection_path = try ctx.path(&.{ try ctx.config(), "aqueous/session.toml" });
+    const selection_path = try ctx.path(&.{ try ctx.config(), instance.name ++ "/session.toml" });
     const selection_before = try ctx.read(selection_path);
     if (eq(u8, shell, "pearl")) for (caps) |cap| {
         if (!has(get(snapshot, "capabilities"), cap)) return ctx.fail("This aqueous-config build lacks Pearl's required configuration capabilities", .{});
@@ -122,7 +131,7 @@ fn setup(ctx: *Context, shell: []const u8, specs: []const [:0]const u8) !void {
 }
 fn inspect(ctx: *Context) !void {
     const selected = try session.selection(ctx);
-    const explicit = u.exists(try ctx.path(&.{ try ctx.config(), "aqueous/session.toml" }));
+    const explicit = u.exists(try ctx.path(&.{ try ctx.config(), instance.name ++ "/session.toml" }));
     var status: std.ArrayList(u8) = .empty;
     if (installed(ctx, "standard")) |names| {
         for (session.shells[0..3], 0..) |shell, i| {

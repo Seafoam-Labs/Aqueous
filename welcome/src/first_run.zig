@@ -1,13 +1,14 @@
 const std = @import("std");
+const instance = @import("instance.zig");
 
 pub const marker_name = "welcome-v1";
-pub const autostart_name = "org.aqueous.Welcome.desktop";
+pub const autostart_name = instance.app_id ++ ".desktop";
 
 pub fn isAqueousDesktop(environ: *const std.process.Environ.Map) bool {
     const desktops = environ.get("XDG_CURRENT_DESKTOP") orelse return false;
     var iterator = std.mem.splitScalar(u8, desktops, ':');
     while (iterator.next()) |desktop| {
-        if (std.ascii.eqlIgnoreCase(desktop, "Aqueous")) return true;
+        if (std.ascii.eqlIgnoreCase(desktop, instance.desktop)) return true;
     }
     return false;
 }
@@ -17,10 +18,10 @@ pub fn stateDirectory(
     environ: *const std.process.Environ.Map,
 ) ![]u8 {
     if (environ.get("XDG_STATE_HOME")) |state_home| {
-        return std.fs.path.join(allocator, &.{ state_home, "aqueous" });
+        return std.fs.path.join(allocator, &.{ state_home, instance.name });
     }
     const home = environ.get("HOME") orelse return error.HomeNotSet;
-    return std.fs.path.join(allocator, &.{ home, ".local", "state", "aqueous" });
+    return std.fs.path.join(allocator, &.{ home, ".local", "state", instance.name });
 }
 
 pub fn markerPath(

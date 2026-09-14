@@ -6,6 +6,7 @@ const gobject = @import("gobject2");
 const first_run = @import("first_run.zig");
 const registry = @import("sections.zig");
 const options = @import("build_options");
+pub const aqueous_instance_name = options.instance_name;
 const a = std.heap.c_allocator;
 
 const State = struct {
@@ -450,7 +451,7 @@ pub fn main(init: std.process.Init) !void {
     if (first and (!first_run.isAqueousDesktop(init.environ_map) or first_run.isComplete(a, init.io, init.environ_map))) return;
     const helper_path = try a.dupeZ(u8, executable);
     defer a.free(helper_path);
-    const app = gtk.Application.new("org.aqueous.Welcome", .{ .non_unique = chooser });
+    const app = gtk.Application.new(@import("instance.zig").app_id, .{ .non_unique = chooser });
     defer app.unref();
     var self: State = .{ .app = app, .helper = helper_path, .chooser = chooser, .message = message };
     defer {

@@ -1,0 +1,89 @@
+# Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
+pkgbase=aqueous-desktop-intel-git
+pkgname=(aqueous-session-intel-git aqueous-welcome-intel-git xdg-desktop-portal-aqueous-intel-git
+         aqueous-integration-dms-intel-git aqueous-integration-noctalia-intel-git aqueous-integration-pearl-intel-git
+         aqueous-shell-dms-intel-git aqueous-shell-noctalia-intel-git aqueous-shell-pearl-intel-git aqueous-desktop-intel-git)
+_channel=intel-git
+pkgver=0.7.0.r0.g0000000
+pkgrel=1
+pkgdesc='Aqueous Git desktop components and optional shell presets (co-installable with stable)'
+arch=('x86_64')
+url='https://github.com/Seafoam-Labs/Aqueous'
+license=('GPL3' 'MIT')
+options=('!strip' '!debug' '!zipman')
+makedepends=('git' 'patch' 'zig>=0.16' 'gtk4' 'libinih' 'pipewire' 'wayland' 'wayland-protocols'
+             'systemd-libs' 'mesa' 'meson' 'ninja' 'pkgconf' 'jq')
+checkdepends=('jq' 'ripgrep')
+source=("aqueous::git+${url}.git"
+        'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
+sha256sums=('SKIP' '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
+# These packages have distinct identities and do not replace legacy packages.
+pkgver() {
+    cd "$srcdir/aqueous"
+    local version
+    version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
+    if [[ -z $version ]]; then version="0.7.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    printf '%s\n' "$version"
+}
+build() {
+    srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" build "$_channel"
+}
+check() {
+    srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" check "$_channel"
+}
+_stage() {
+    srcdir="$srcdir" pkgdir="$pkgdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" package "$_channel" "$1"
+}
+package_aqueous-session-intel-git() {
+    pkgdesc='Aqueous Intel Git login session and runtime'
+    depends=("aqueous-core-$_channel=$pkgver-$pkgrel" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
+             'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal' 'xdg-desktop-portal-gtk')
+    backup=('etc/xdg/aqueous-intel-git/wm.toml' 'etc/xdg/aqueous-intel-git/outputs.toml'
+            'etc/xdg/uwsm/env-aqueous-intel-git' 'etc/xdg/menus/aqueous-intel-git-applications.menu'
+            'etc/xdg/xdg-desktop-portal-aqueous-intel-git/config')
+    _stage session
+}
+package_aqueous-welcome-intel-git() {
+    pkgdesc='Aqueous Intel Git native welcome and setup'
+    depends=("aqueous-session-$_channel=$pkgver-$pkgrel" 'gtk4' 'shelly' 'sudo')
+    _stage welcome
+}
+package_xdg-desktop-portal-aqueous-intel-git() {
+    pkgdesc='Aqueous Intel Git screen capture portal'
+    depends=('libinih' 'pipewire' 'wayland' 'systemd-libs' 'mesa' 'xdg-desktop-portal')
+    _stage portal
+}
+package_aqueous-integration-dms-intel-git() {
+    pkgdesc='DMS integration for Aqueous Intel Git'
+    depends=("aqueous-session-$_channel=$pkgver-$pkgrel" "aqueous-welcome-$_channel=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel")
+    _stage integration-dms
+}
+package_aqueous-integration-noctalia-intel-git() {
+    pkgdesc='Noctalia integration for Aqueous Intel Git'
+    depends=("aqueous-session-$_channel=$pkgver-$pkgrel")
+    _stage integration-noctalia
+}
+package_aqueous-integration-pearl-intel-git() {
+    pkgdesc='Pearl integration for Aqueous Intel Git'
+    depends=("aqueous-session-$_channel=$pkgver-$pkgrel")
+    _stage integration-pearl
+}
+package_aqueous-shell-dms-intel-git() {
+    pkgdesc='Optional DMS shell preset for Aqueous Intel Git'
+    depends=("aqueous-integration-dms-$_channel=$pkgver-$pkgrel" 'dms-shell')
+}
+package_aqueous-shell-noctalia-intel-git() {
+    pkgdesc='Optional Noctalia shell preset for Aqueous Intel Git'
+    depends=("aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel" 'noctalia')
+}
+package_aqueous-shell-pearl-intel-git() {
+    pkgdesc='Optional Pearl shell preset for Aqueous Intel Git'
+    depends=("aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
+}
+package_aqueous-desktop-intel-git() {
+    pkgdesc='Complete Aqueous Intel Git desktop (shell selected through welcome)'
+    depends=("aqueous-core-$_channel=$pkgver-$pkgrel" "aqueous-session-$_channel=$pkgver-$pkgrel"
+             "aqueous-welcome-$_channel=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel"
+             "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel"
+             "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel")
+}

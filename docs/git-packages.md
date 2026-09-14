@@ -1,5 +1,9 @@
 # Co-installable Git core packages
 
+For the complete desktop and login entries, use the optional
+[`aqueous-desktop-git` or `aqueous-desktop-intel-git` meta packages](git-desktop-packages.md).
+The core packages below remain available independently.
+
 These packages install development compositor/helper tools alongside stable
 Aqueous and the existing combined legacy packages. They do not replace packages,
 claim stable package provisions, install session entries or enable shell services.

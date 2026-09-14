@@ -2,8 +2,17 @@
 
 A native Zig + GTK4 first-run application for selecting **Pearl**, **DMS**,
 **Noctalia**, or **Nothing**, with an optional application catalog. Pearl is
-installed as the repository package `pearl-de`. Nothing installs no desktop
+installed as `pearl` for stable Aqueous and `pearl-git` for both Git variants.
+Nothing installs no desktop
 shell. Close the window to leave the current selection unchanged.
+
+On split desktops, welcome explicitly installs the selected shell and its
+matching integration preset together. Stable Pearl selection requests `pearl`
+plus `aqueous-shell-pearl`. Git selection requests `pearl-git` plus
+`aqueous-shell-pearl-git` or `aqueous-shell-pearl-intel-git`, according to the
+welcome build. Both packages
+must be reported installed before setup completes. Git welcome retains its Git
+preset choice when recovering from a missing session runtime.
 
 Welcome launches `shelly` directly. When Shelly's elevation process requests a
 password, a GTK popup collects it and replies through a private controlling

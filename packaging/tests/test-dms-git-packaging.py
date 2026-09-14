@@ -49,7 +49,8 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 'source "$1"\n'
                 '[[ " ${depends[*]} " != *" dms-shell "* ]]\n'
                 '[[ " ${depends[*]} " != *" noctalia "* ]]\n'
-                '[[ " ${depends[*]} " != *" pearl-de "* ]]\n'
+                '[[ " ${depends[*]} " != *" pearl "* ]]\n'
+                '[[ " ${depends[*]} " != *" pearl-git "* ]]\n'
                 'for dependency in gtk4 shelly sudo ghostty; do [[ " ${depends[*]} " == *" $dependency "* ]]; done\n'
                 '[[ " ${depends[*]} " != *" dms-aqueous "* ]]\n'
                 'package',

@@ -1,5 +1,6 @@
 //! Bounded worker I/O. The worker runs before GTK initializes, in its own process.
 const std = @import("std");
+const instance = @import("../instance.zig");
 pub const c = @cImport({
     @cDefine("_GNU_SOURCE", "1");
     @cUndef("_FORTIFY_SOURCE");
@@ -117,10 +118,10 @@ pub const Context = struct {
         return self.z(env("XDG_CONFIG_HOME") orelse try self.path(&.{ env("HOME") orelse return error.HomeNotSet, ".config" }));
     }
     pub fn state(self: *Context) ![:0]u8 {
-        return self.path(&.{ env("XDG_STATE_HOME") orelse try self.path(&.{ env("HOME") orelse return error.HomeNotSet, ".local/state" }), "aqueous" });
+        return self.path(&.{ env("XDG_STATE_HOME") orelse try self.path(&.{ env("HOME") orelse return error.HomeNotSet, ".local/state" }), instance.name });
     }
     pub fn runtime(self: *Context) ![:0]u8 {
-        return self.path(&.{ env("XDG_RUNTIME_DIR") orelse return self.fail("XDG_RUNTIME_DIR is required", .{}), "aqueous/welcome-session.json" });
+        return self.path(&.{ env("XDG_RUNTIME_DIR") orelse return self.fail("XDG_RUNTIME_DIR is required", .{}), instance.name ++ "/welcome-session.json" });
     }
     pub fn parse(self: *Context, bytes: []const u8) !Value {
         return std.json.parseFromSliceLeaky(Value, self.a, bytes, .{ .allocate = .alloc_always }) catch return self.fail("Invalid JSON from setup transport or recovery file", .{});
@@ -273,7 +274,7 @@ pub const Context = struct {
         return result;
     }
     pub fn helper(self: *Context, command: []const u8, request: ?Value) !Value {
-        const args = if (request != null) &[_][]const u8{ "aqueous-config", command, "--shell", "none", "--request", "-" } else &[_][]const u8{ "aqueous-config", command, "--shell", "none" };
+        const args = if (request != null) &[_][]const u8{ "aqueous-config" ++ instance.suffix, command, "--shell", "none", "--request", "-" } else &[_][]const u8{ "aqueous-config" ++ instance.suffix, command, "--shell", "none" };
         const v = try self.parse(try self.run(args, request));
         if (v != .object) return self.fail("Invalid aqueous-config response", .{});
         const ok = get(v, "ok");

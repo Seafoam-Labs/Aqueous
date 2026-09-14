@@ -102,7 +102,7 @@ package_aqueous-shell-noctalia-bin() {
 
 package_aqueous-shell-pearl-bin() {
     pkgdesc="Aqueous aqueous-shell-pearl (prebuilt)"
-    depends=("aqueous-integration-pearl-bin=$pkgver-$pkgrel" "pearl-de")
+    depends=("aqueous-integration-pearl-bin=$pkgver-$pkgrel" "pearl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl')
     provides=("aqueous-shell-pearl=$pkgver-$pkgrel")
     : # Dependency-only preset.

@@ -26,7 +26,7 @@ print_session_information() {
 
     Screen recording and sharing use the packaged Aqueous portal backend;
     xdg-desktop-portal-wlr does not need to be installed separately.
-    Welcome to Aqueous selects Pearl (pearl-de), DMS, Noctalia, or Nothing.
+    Welcome to Aqueous selects Pearl (pearl), DMS, Noctalia, or Nothing.
     Changes take effect at the next login. Super+Return opens a terminal;
     Super+Shift+F1 opens welcome. Shelly installs all optional dependencies.
     The source picker follows the active shell, with a GTK picker for Pearl/Nothing.

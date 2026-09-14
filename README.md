@@ -75,7 +75,7 @@ model; they do not replace it.
   protocols are supported. Optional XWayland is started and managed directly by
   Aqueous—no `xwayland-satellite` process is required.
 - **Choose your desktop.** The GTK [Welcome to Aqueous](welcome/README.md)
-  installs and sets up Pearl (`pearl-de`), DankMaterialShell, Noctalia, or a
+  installs and sets up Pearl (`pearl`), DankMaterialShell, Noctalia, or a
   shell-free session. Shelly handles package installation and all optional
   dependencies; the shell stays separate from the compositor.
 
@@ -330,6 +330,11 @@ For development tools that coexist with stable, build `aqueous-core-git` or
 private libraries and separate configuration defaults. See the
 [Git package guide](docs/git-packages.md) for building and running them.
 
+`aqueous-desktop-git` and `aqueous-desktop-intel-git` add the matching login
+session, native welcome, private portal and optional shell integrations. Follow
+the [Git desktop installation guide](docs/git-desktop-packages.md) to install a
+complete Git desktop alongside stable Aqueous.
+
 Fedora users can build and install the latest Git `master` as a local RPM:
 
 ```sh
@@ -347,7 +352,7 @@ Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
 Full Arch desktop packages and the combined release archive include the GTK welcome app,
 Shelly, and a terminal without requiring a desktop shell. On first login, choose
-Pearl (`pearl-de`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
+Pearl (`pearl`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
 Shelly's password request through a GTK popup and selects all optional dependencies.
 A normal launcher invocation can reopen setup later. Existing completion markers
 are honored; upgrades do not force the wizard onto established users.
