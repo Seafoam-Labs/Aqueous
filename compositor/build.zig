@@ -358,8 +358,9 @@ pub fn build(b: *Build) !void {
         inline for (.{ "aqueous", "aqueousctl" }) |page| {
             // Workaround for https://github.com/ziglang/zig/issues/16369
             // Even passing a buffer to std.Build.Step.Run appears to be racy and occasionally deadlocks.
-            const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "scdoc < doc/" ++ page ++ ".1.scd" });
-            // This makes the caching work for the Workaround, and the extra argument is ignored by /bin/sh.
+            const scdoc = b.addSystemCommand(&.{ "/bin/sh", "-c", "exec scdoc < \"$1\"", "scdoc" });
+            // Track the input for caching and pass its resolved path as $1 so
+            // --build-file works from outside the compositor directory.
             scdoc.addFileArg(b.path("doc/" ++ page ++ ".1.scd"));
 
             const stdout = scdoc.captureStdOut(.{});
