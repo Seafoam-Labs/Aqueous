@@ -5,6 +5,7 @@ const cursor_sync = @import("cursor_sync.zig");
 const schema = @import("schema.zig");
 const collections = @import("collection_schema.zig");
 const collection_tx = @import("collection_transaction.zig");
+const display_mutations = @import("display_mutations.zig");
 const review = @import("candidate_review.zig");
 
 const Allocator = std.mem.Allocator;
@@ -91,6 +92,15 @@ fn writeSnapshot(
     try @import("display_config").write(&json, files.items[@intFromEnum(schema.FileId.wm)].document.source, files.items[@intFromEnum(schema.FileId.outputs)].document.source);
     try json.objectField("display_declarations");
     try writeDisplayDeclarations(&json, files);
+    try field(&json, "display_declaration_mutations", .{ .version = 1, .request = "display_declaration_changes", .identity_scope = "generation_source_occurrence", .protected_apply_required = true, .operations = .{ "add", "update", "delete", "move" }, .sources = .{ "wm", "outputs" }, .schema = "aqueous-config-additions-v1.schema.json#/$defs/display_declaration_changes" });
+    try json.objectField("display_source_ids");
+    try json.beginObject();
+    for ([_]schema.FileId{ .wm, .outputs }) |id| {
+        const source_id = try display_mutations.identity(files.allocator, files, id, 0);
+        defer files.allocator.free(source_id);
+        try field(&json, id.name(), source_id);
+    }
+    try json.endObject();
     try field(&json, "collection_identity", .{
         .version = 1,
         .scope = "generation",
@@ -465,6 +475,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
     var expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
     const requested_generation = expected;
+    const display_contract = try display_mutations.preflight(request);
     const collection_contract = try collection_tx.parse(request);
     const typography_sync_requested = if (request.get("sync_typography")) |value|
         jsonBool(value) orelse return error.InvalidTypographySyncRequest
@@ -484,6 +495,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     // when the protocol-1 generation happens to match (absent != empty).
     if (collection_contract) |contract| try contract.check(allocator, &files);
     if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) {
+        if (display_contract != null) return error.ExternalChange;
         if (collection_contract == null) try checkCollectionPreconditions(allocator, request, &files);
         rebased = try allocator.dupe(u8, generationText(&files, &generation_buffer));
         expected = rebased.?;
@@ -499,6 +511,12 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     defer for (original_paths) |path| allocator.free(path);
 
     var dirty = [_]bool{false} ** schema.file_count;
+    if (display_contract) |touched| {
+        try display_mutations.apply(allocator, &files, request, touched);
+        for (touched, 0..) |value, i| if (value) {
+            dirty[i] = true;
+        };
+    }
     if (request.get("raw_files")) |raw_files| {
         if (raw_files != .object) return error.InvalidRawFiles;
         var iterator = raw_files.object.iterator();
@@ -676,12 +694,13 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         state.candidate_digest = candidate_review.candidate_digest[0..64].*;
     }
     if (collection_contract != null) @import("display_config").transaction.checkpoint("collection_candidate_validated");
+    if (display_contract != null) @import("display_config").transaction.checkpoint("display_candidate_validated");
 
     if (do_apply and jsonBool(request.get("protected_apply") orelse .{ .bool = false }) == true) {
         const classified = try std.json.parseFromSlice(Json, allocator, candidate_impact, .{});
         defer classified.deinit();
         if (!classified.value.object.get("complete").?.bool) return error.UnclassifiedCandidate;
-        if (collection_contract != null) try collection_tx.checkCandidateDigest(request, candidate_review.candidate_digest);
+        if (collection_contract != null or display_contract != null) try collection_tx.checkCandidateDigest(request, candidate_review.candidate_digest);
         if (classified.value.object.get("display")) |projection| if (projection == .object and request.get("preview_token") == null) {
             const expected_revision = jsonString(request.get("expected_display_revision")) orelse return error.MissingDisplayRevision;
             const expected_session = jsonString(request.get("expected_session")) orelse return error.MissingDisplayRevision;
@@ -694,7 +713,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         };
     }
     try control.check();
-    if (collection_contract != null or (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null))) {
+    if (collection_contract != null or display_contract != null or (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null))) {
         // Re-resolve sources under the writer lock, immediately before writes.
         // Include absent vs empty files, which protocol-1 generation omits.
         var current_files = try config.ConfigFiles.init(allocator);
@@ -832,9 +851,13 @@ fn writeDisplayDeclarations(json: *std.json.Stringify, files: *const config.Conf
         defer files.allocator.free(tables);
         const entries = try file.document.entries(files.allocator);
         defer files.allocator.free(entries);
+        var parent: ?usize = null;
         for (tables) |table| {
+            const member = table.repeated and std.mem.eql(u8, table.name, "display.profile.output");
+            if (!member) parent = null;
             if (!std.mem.eql(u8, table.name, "output") and !std.mem.eql(u8, table.name, "display") and !std.mem.startsWith(u8, table.name, "display.")) continue;
             try json.beginObject();
+            try display_mutations.writeIdentity(json, files, id, table, if (member) parent else null);
             try field(json, "source", id.name());
             try field(json, "path", file.path);
             try field(json, "declaration", table.index);
@@ -847,6 +870,7 @@ fn writeDisplayDeclarations(json: *std.json.Stringify, files: *const config.Conf
             };
             try json.endArray();
             try json.endObject();
+            if (table.repeated and std.mem.eql(u8, table.name, "display.profile")) parent = table.index;
         }
     }
     try json.endArray();
@@ -1697,6 +1721,11 @@ fn applyMonitorChanges(
 ) !void {
     for (monitor_changes) |change| {
         if (change != .object) return error.InvalidMonitorChange;
+        for (change.object.keys()) |key| {
+            inline for (.{ "id", "name", "x", "y", "transform", "mirror_of", "mode", "scale" }) |allowed| {
+                if (std.mem.eql(u8, key, allowed)) break;
+            } else return error.InvalidMonitorChange;
+        }
         const id = jsonString(change.object.get("id")) orelse return error.MissingMonitorId;
         const name = jsonString(change.object.get("name")) orelse return error.MissingMonitorName;
         if (name.len == 0 or name.len > 128) return error.InvalidMonitorName;
@@ -2214,6 +2243,13 @@ pub fn errorCode(err: anyerror) []const u8 {
         error.InvalidCollectionPreconditions => "invalid_collection_preconditions",
         error.InvalidCollectionContract => "invalid_collection_contract",
         error.InvalidGeneration => "invalid_generation",
+        error.ConflictingDisplayEdits => "conflicting_edits",
+        error.InvalidDisplayMutation => "invalid_display_mutation",
+        error.InvalidDisplayId => "invalid_display_id",
+        error.InvalidDisplayField => "invalid_display_field",
+        error.InvalidDisplayValue => "invalid_display_value",
+        error.InvalidDisplaySource => "invalid_display_source",
+        error.InvalidDisplayReference => "invalid_display_reference",
         error.JsonDepthExceeded => "json_depth_exceeded",
         error.SystemConfigReadOnly => "system_config_read_only",
         error.BackupDirRequired => "backup_dir_required",

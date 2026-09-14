@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-t11-") as scratch:
         return result
 
     version = run("version")
-    assert version["protocol"] == 1 and version["version"] == "0.8.1"
+    assert version["protocol"] == 1 and version["version"] == "0.8.2"
     assert not {"display_preview_v1"} & set(version["capabilities"])
     initial = run("snapshot")
     assert initial["display_model"]["version"] == 2

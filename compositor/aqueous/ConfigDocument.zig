@@ -276,6 +276,16 @@ pub const Document = struct {
         self.source = owned;
     }
 
+    /// Exact block bytes, including comments, for helper-owned batch editing.
+    pub fn tableSource(self: *const Document, wanted: usize) ?[]const u8 {
+        if (wanted == 0) {
+            const first = self.tableBounds(1) orelse return self.source;
+            return self.source[0..first[0]];
+        }
+        const bounds = self.tableBounds(wanted) orelse return null;
+        return self.source[bounds[0]..bounds[1]];
+    }
+
     fn tableBounds(self: *const Document, wanted: usize) ?[2]usize {
         var table_index: usize = 0;
         var start: ?usize = null;

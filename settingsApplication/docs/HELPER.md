@@ -62,6 +62,12 @@ source-checked rebasing and mandatory full-candidate digest enforcement. Legacy
 requests retain their existing behavior; mixed display changes still use the
 native preview contract.
 
+Helper 0.8.2 adds [structured display declarations](DISPLAY_MUTATIONS.md).
+Negotiate `display_declaration_mutations_v1` for source-bound declaration IDs,
+explicit set/unset edits, profile CRUD/order and membership operations. Full
+candidate validation, digest binding and native preview protections still apply.
+Legacy monitor mutations now reject unknown fields instead of ignoring them.
+
 Always use a private HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_RUNTIME_DIR and
 private bus/compositor for integration testing. Do not point tests at a running
 desktop. Hardware feature acceptance is separate from headless testing.

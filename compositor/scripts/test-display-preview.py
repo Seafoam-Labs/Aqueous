@@ -154,11 +154,29 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         assert not (cfg/'outputs.toml').exists()
         for fields in [dict(enabled=False),dict(transform='90'),dict(mode='800x600@60')]:
             current=model();before_actual=[o['actual'] for o in current['outputs']]
-            lease=begin(c,**fields);token=lease['token']
+            snap=helper_call('snapshot')
+            structured=dict(protocol=1,expected_generation=snap['generation'],protected_apply=True,
+                display_declaration_changes=dict(version=1,sources={'outputs':snap['display_source_ids']['outputs']},operations=[
+                    dict(op='add',source='outputs',kind='output',parent=None,set=dict(name=current['outputs'][0]['connector'],**fields))]))
+            reviewed=helper_call('validate',structured)
+            params=dict(display_revision=current['display_revision'],expected_generation=snap['generation'],
+                candidate_digest=reviewed['candidate_review']['candidate_digest'],wm_source=reviewed['raw_files']['wm'],outputs_source=reviewed['raw_files']['outputs'])
+            lease=c.call('display.preview.begin',params)['result'];token=lease['token']
             wait(lambda: status(token)['state']=='previewing')
             query.call('display.preview.revert',dict(token=token))
             wait(lambda: status(token)['state']=='reverted')
             assert [o['actual'] for o in model()['outputs']]==before_actual
+        # Structured HDR and adaptive sync cannot bypass backend feature gates.
+        for feature in ['hdr','adaptive_sync']:
+            snap=helper_call('snapshot');current=model()
+            structured=dict(protocol=1,expected_generation=snap['generation'],protected_apply=True,
+                display_declaration_changes=dict(version=1,sources={'outputs':snap['display_source_ids']['outputs']},operations=[
+                    dict(op='add',source='outputs',kind='output',parent=None,set={'name':current['outputs'][0]['connector'],feature:True})]))
+            reviewed=helper_call('validate',structured)
+            params=dict(display_revision=current['display_revision'],expected_generation=snap['generation'],
+                candidate_digest=reviewed['candidate_review']['candidate_digest'],wm_source=reviewed['raw_files']['wm'],outputs_source=reviewed['raw_files']['outputs'])
+            assert not c.call('display.preview.begin',params,ok=False)['ok']
+            assert not (cfg/'outputs.toml').exists()
         # Reject an entire unusable plan without starting a lease.
         _,params=candidate(model(),{'enabled':False})
         params['outputs_source']=''.join('[[output]]\nname = '+json.dumps(o['connector'])+'\nenabled = false\n' for o in model()['outputs'])
@@ -183,7 +201,18 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         request,params=candidate(model(),{'x':300})
         params['outputs_source']='[display]\nfallback_profile = "rescue"\n[[output]]\nname = "DISCONNECTED"\nscale = 1.25\n[[display.profile]]\nname = "rescue"\n[[display.profile.output]]\nname = '+json.dumps(model()['outputs'][0]['connector'])+'\nposition = [333, 0]\n'
         request['raw_files']['outputs']=params['outputs_source']
+        raw_validation=helper_call('validate',request)
+        # The structured profile/membership path must produce the same native
+        # candidate as protected raw editing, including fallback activation.
+        request.pop('raw_files')
+        request.update(protected_apply=True,display_declaration_changes=dict(version=1,sources={'outputs':helper_call('snapshot')['display_source_ids']['outputs']},operations=[
+            dict(op='add',source='outputs',kind='policy',set=dict(fallback_profile='rescue')),
+            dict(op='add',source='outputs',kind='output',parent=None,set=dict(name='DISCONNECTED',scale=1.25)),
+            dict(op='add',source='outputs',kind='profile',ref='rescue',set=dict(name='rescue')),
+            dict(op='add',source='outputs',kind='output',parent='new:rescue',set=dict(name=model()['outputs'][0]['connector'],position=[333,0]))]))
         validation=helper_call('validate',request)
+        assert validation['candidate_impact']['display']==raw_validation['candidate_impact']['display']
+        params['outputs_source']=validation['raw_files']['outputs']
         assert validation['candidate_impact']['display']['activated_profile']=='rescue',validation['candidate_impact']
         params['candidate_digest']=validation['candidate_review']['candidate_digest']
         lease=c.call('display.preview.begin',params)['result'];token=lease['token']
@@ -197,12 +226,22 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         # with an output change, and the lease binds the entire candidate.
         request['window_rule_changes']=[dict(op='add',values=dict(app_id='pearl-test-*',floating=False,opacity=0.8))]
         request['backup_dir']=str(base/'backups')
+        request.pop('raw_files')
+        request.update(protected_apply=True,display_declaration_changes=dict(version=1,sources={'outputs':helper_call('snapshot')['display_source_ids']['outputs']},operations=[
+            dict(op='add',source='outputs',kind='output',parent=None,set=dict(name=model()['outputs'][0]['connector'],position=[400,0]))]))
         validation=helper_call('validate',request)
         impact=validation['candidate_impact']
         assert impact['complete'] and impact['display'] is not None,impact
         assert 'runtime_non_display' in impact['effects'] and 'display_live' in impact['effects'],impact
         params['candidate_digest']=impact['candidate_digest']
+        params['outputs_source']=validation['raw_files']['outputs']
         request['protected_apply']=True
+        for extra,code in [({},'candidate_mismatch'),({'candidate_digest':'0'*64},'candidate_mismatch'),
+                ({'candidate_digest':params['candidate_digest']},'missing_display_revision'),
+                ({'candidate_digest':params['candidate_digest'],'expected_display_revision':model()['display_revision'],'expected_session':query.session},'display_preview_required')]:
+            rejected=subprocess.run([str(helper),'apply','--shell','none','--request','-'],input=json.dumps(request|extra),text=True,capture_output=True,env=env,timeout=35)
+            assert json.loads(rejected.stdout).get('code')==code,(rejected.stdout,rejected.stderr)
+            assert not (cfg/'outputs.toml').exists() and not (base/'backups').exists()
         lease=c.call('display.preview.begin',params)['result'];token=lease['token']
         wait(lambda: status(token)['state']=='previewing')
         id=str(int(time.time()))+'-'+uuid.uuid4().hex
@@ -218,6 +257,8 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         # An unchanged reviewed candidate can still end its lease through a
         # durable decision; it must not require a fabricated file replacement.
         request,params=candidate(model(),{'x':400})
+        request['raw_files']['outputs']=params['outputs_source']=(cfg/'outputs.toml').read_text()
+        params['candidate_digest']=helper_call('validate',request)['candidate_review']['candidate_digest']
         lease=c.call('display.preview.begin',params)['result'];token=lease['token']
         wait(lambda: status(token)['state']=='previewing')
         id=str(int(time.time()))+'-'+uuid.uuid4().hex
@@ -294,6 +335,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
             assert (cfg/'outputs.toml').read_text()==(params['outputs_source'] if stage=='journal_committed' else before)
             assert model()['config_generation']==helper_call('snapshot')['generation']
         print('PASS: native headless placement/mode/enable/primary/profile/mirror preview, Keep and rollback')
+        print('PASS: structured profile/raw projection equivalence and mixed declaration/collection protected commit')
         print('PASS: protected collection apply and native generation/digest-bound reload acknowledgement')
         print('PASS: owner disconnect, timeout, stale revision, mirror-source removal, helper death and compositor restart/recovery')
 

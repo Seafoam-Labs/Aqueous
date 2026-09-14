@@ -58,7 +58,7 @@ pub const Spec = struct {
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.mirror_of != null or spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null;
+        return spec.mirror_of != null or spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null or spec.primary != null;
     }
 };
 
@@ -472,6 +472,11 @@ test "primary preserves an explicit false override" {
     try std.testing.expectEqual(@as(u8, 2), snapshot.output_count);
     try std.testing.expectEqual(true, snapshot.outputs[0].primary.?);
     try std.testing.expectEqual(false, snapshot.outputs[1].primary.?);
+    var destination: [max_outputs * 2]Spec = undefined;
+    const empty: Snapshot = .{};
+    const folded = configuredSpecs(&empty, &snapshot, &destination);
+    try std.testing.expectEqual(@as(usize, 2), folded.len);
+    try std.testing.expectEqual(false, folded[1].primary.?);
 }
 
 test "mode scale and transform validation matches outputd contract" {
