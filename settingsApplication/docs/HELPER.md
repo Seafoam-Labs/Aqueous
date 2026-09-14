@@ -54,15 +54,21 @@ Unknown collection fields, malformed original values, unsupported commands,
 ambiguous declarations and multiline source remain `complete:false`; protected
 apply rejects them. The classifier uses native binding parsing/command decoding
 and native storage limits, so a legacy writer accepting a value does not by
-itself prove that the compositor can represent it. Collection source preconditions
-and protected candidate-digest composition remain a separate contract limitation.
+itself prove that the compositor can represent it.
+
+Helper 0.8.1 adds [protected collection transactions](PROTECTED_COLLECTIONS.md).
+Negotiate `protected_collection_apply_v1` and `collection_preconditions_v2` for
+source-checked rebasing and mandatory full-candidate digest enforcement. Legacy
+requests retain their existing behavior; mixed display changes still use the
+native preview contract.
 
 Always use a private HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_RUNTIME_DIR and
 private bus/compositor for integration testing. Do not point tests at a running
 desktop. Hardware feature acceptance is separate from headless testing.
 
-The additive T11 contracts and remaining capability gates are documented in
-[T11.md](T11.md) and [T11_TRANSACTIONS.md](T11_TRANSACTIONS.md). For recoverable
+The additive observation and result contracts are defined in the
+[helper schema](aqueous-config-additions-v1.schema.json); protected collection
+requests are documented in [PROTECTED_COLLECTIONS.md](PROTECTED_COLLECTIONS.md). For recoverable
 results use `apply --result v1 --operation-id ID`; query lost replies with
 `operation-status --operation-id ID`. The shared document and journal sources
 now live at `compositor/aqueous/ConfigDocument.zig` and `ConfigTransaction.zig`;

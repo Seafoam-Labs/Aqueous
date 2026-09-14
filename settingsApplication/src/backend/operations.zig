@@ -4,6 +4,7 @@ const toolkit_sync = @import("toolkit_sync.zig");
 const cursor_sync = @import("cursor_sync.zig");
 const schema = @import("schema.zig");
 const collections = @import("collection_schema.zig");
+const collection_tx = @import("collection_transaction.zig");
 const review = @import("candidate_review.zig");
 
 const Allocator = std.mem.Allocator;
@@ -20,7 +21,7 @@ pub fn execute(allocator: Allocator, io: std.Io, command: Command, shell: Shell,
         .snapshot, .raw => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
-            if (command == .raw) try writeRaw(writer, &files, schema.FileId.fromName(request) orelse return error.UnknownFile) else try writeSnapshot(io, writer, &files, null, null, shell, null, null);
+            if (command == .raw) try writeRaw(writer, &files, schema.FileId.fromName(request) orelse return error.UnknownFile) else try writeSnapshot(io, writer, &files, null, null, shell, null, null, null);
         },
         .validate, .apply => try handleRequest(allocator, io, writer, request, command == .apply, shell),
     }
@@ -48,6 +49,7 @@ fn writeSnapshot(
     shell: toolkit_sync.Shell,
     candidate_review: ?*const review.Report,
     candidate_impact: ?[]const u8,
+    collection_transaction: ?collection_tx.Report,
 ) !void {
     var generation_buffer: [16]u8 = undefined;
     const generation = generationText(files, &generation_buffer);
@@ -70,6 +72,7 @@ fn writeSnapshot(
         defer parsed_impact.deinit();
         try field(&json, "candidate_impact", parsed_impact.value);
     }
+    if (collection_transaction) |report| try field(&json, "collection_transaction", report);
     try json.objectField("display_model");
     try json.beginObject();
     try field(&json, "version", 2);
@@ -104,6 +107,8 @@ fn writeSnapshot(
         try field(&json, id.name(), digest);
     }
     try json.endObject();
+    try json.objectField("collection_preconditions_v2");
+    try collection_tx.writePreconditions(&json, files);
     try json.objectField("collection_schema");
     try writeCollectionSchema(&json);
     const stacking_schema = schema.find("layout.options.float.placement").?;
@@ -459,6 +464,8 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     const protocol = jsonInteger(request.get("protocol")) orelse return error.MissingProtocol;
     if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
     var expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
+    const requested_generation = expected;
+    const collection_contract = try collection_tx.parse(request);
     const typography_sync_requested = if (request.get("sync_typography")) |value|
         jsonBool(value) orelse return error.InvalidTypographySyncRequest
     else
@@ -473,17 +480,23 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     var generation_buffer: [16]u8 = undefined;
     var rebased: ?[]u8 = null;
     defer if (rebased) |bytes| allocator.free(bytes);
+    // The stronger source contract also checks existence and source selection
+    // when the protocol-1 generation happens to match (absent != empty).
+    if (collection_contract) |contract| try contract.check(allocator, &files);
     if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) {
-        try checkCollectionPreconditions(allocator, request, &files);
+        if (collection_contract == null) try checkCollectionPreconditions(allocator, request, &files);
         rebased = try allocator.dupe(u8, generationText(&files, &generation_buffer));
         expected = rebased.?;
     }
     var original_existence: [schema.file_count]bool = undefined;
-    for (files.items, 0..) |file, index| original_existence[index] = pathExists(file.path);
+    for (files.items, 0..) |file, index| original_existence[index] = try collection_tx.exists(file.path);
 
     var originals: [schema.file_count][]u8 = undefined;
     for (files.items, 0..) |file_item, index| originals[index] = try allocator.dupe(u8, file_item.document.source);
     defer for (originals) |original| allocator.free(original);
+    var original_paths: [schema.file_count][]u8 = undefined;
+    for (files.items, 0..) |file, index| original_paths[index] = try allocator.dupe(u8, file.path);
+    defer for (original_paths) |path| allocator.free(path);
 
     var dirty = [_]bool{false} ** schema.file_count;
     if (request.get("raw_files")) |raw_files| {
@@ -662,11 +675,13 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         state.after_generation = generationText(&files, &generation_buffer)[0..16].*;
         state.candidate_digest = candidate_review.candidate_digest[0..64].*;
     }
+    if (collection_contract != null) @import("display_config").transaction.checkpoint("collection_candidate_validated");
 
     if (do_apply and jsonBool(request.get("protected_apply") orelse .{ .bool = false }) == true) {
         const classified = try std.json.parseFromSlice(Json, allocator, candidate_impact, .{});
         defer classified.deinit();
         if (!classified.value.object.get("complete").?.bool) return error.UnclassifiedCandidate;
+        if (collection_contract != null) try collection_tx.checkCandidateDigest(request, candidate_review.candidate_digest);
         if (classified.value.object.get("display")) |projection| if (projection == .object and request.get("preview_token") == null) {
             const expected_revision = jsonString(request.get("expected_display_revision")) orelse return error.MissingDisplayRevision;
             const expected_session = jsonString(request.get("expected_session")) orelse return error.MissingDisplayRevision;
@@ -679,24 +694,27 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         };
     }
     try control.check();
-    if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null)) {
+    if (collection_contract != null or (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null))) {
         // Re-resolve sources under the writer lock, immediately before writes.
         // Include absent vs empty files, which protocol-1 generation omits.
         var current_files = try config.ConfigFiles.init(allocator);
         defer current_files.deinit();
+        if (collection_contract) |contract| try contract.check(allocator, &current_files);
         if (!std.mem.eql(u8, expected, generationText(&current_files, &generation_buffer))) return error.ExternalChange;
         for (current_files.items, 0..) |file, index| {
-            if (pathExists(file.path) != original_existence[index]) return error.ExternalChange;
+            if (!std.mem.eql(u8, file.path, original_paths[index]) or !std.mem.eql(u8, file.document.source, originals[index])) return error.ExternalChange;
+            if (try collection_tx.exists(file.path) != original_existence[index]) return error.ExternalChange;
             if (!std.mem.eql(u8, file.path, files.items[index].path) and pathExists(files.items[index].path)) return error.ExternalChange;
         }
+    }
+    if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null)) {
         if (jsonString(request.get("preview_token"))) |token| {
             const classified = try std.json.parseFromSlice(Json, allocator, candidate_impact, .{});
             defer classified.deinit();
             if (classified.value.object.get("complete").?.bool != true) return error.UnclassifiedCandidate;
             const state = control.current orelse return error.OperationRecordRequired;
             if (state.operation_id == null or token.len != 64) return error.OperationRecordRequired;
-            const supplied_digest = jsonString(request.get("candidate_digest")) orelse return error.CandidateMismatch;
-            if (!std.mem.eql(u8, supplied_digest, candidate_review.candidate_digest)) return error.CandidateMismatch;
+            try collection_tx.checkCandidateDigest(request, candidate_review.candidate_digest);
             state.preview_token = token;
             var client = try @import("display_config").ipc.Client.open(allocator);
             defer client.close();
@@ -730,8 +748,12 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             for (files.items, 0..) |file, index| {
                 if (!dirty[index]) continue;
                 const before = try tx.readOptional(allocator, io, file.path, tx.max_file_bytes);
+                errdefer if (before) |bytes| allocator.free(bytes);
                 // The source may be a system file while the authorized target
                 // is a newly created user override: absence is the baseline.
+                if (std.mem.eql(u8, file.path, original_paths[index])) {
+                    if ((before != null) != original_existence[index]) return error.ExternalChange;
+                } else if (before != null) return error.ExternalChange;
                 if (before) |bytes| {
                     if (!std.mem.eql(u8, bytes, originals[index])) return error.ExternalChange;
                 }
@@ -792,6 +814,13 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         shell,
         &candidate_review,
         candidate_impact,
+        if (collection_contract) |contract| .{
+            .requested_generation = requested_generation,
+            .effective_generation = expected,
+            .rebased = rebased != null,
+            .candidate_digest = candidate_review.candidate_digest,
+            .base_preconditions = contract.preconditions,
+        } else null,
     );
 }
 
@@ -2183,6 +2212,8 @@ pub fn errorCode(err: anyerror) []const u8 {
         error.StaleDisplayRevision => "stale_display_revision",
         error.DisplayPreviewRequired => "display_preview_required",
         error.InvalidCollectionPreconditions => "invalid_collection_preconditions",
+        error.InvalidCollectionContract => "invalid_collection_contract",
+        error.InvalidGeneration => "invalid_generation",
         error.JsonDepthExceeded => "json_depth_exceeded",
         error.SystemConfigReadOnly => "system_config_read_only",
         error.BackupDirRequired => "backup_dir_required",

@@ -73,6 +73,24 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         def model():
             value=query.call('display.snapshot')['result'];VALIDATOR.validate(value);return value
         baseline=wait(lambda: (m if (m:=model())['observation']=='current' and len(m['outputs'])==2 else None))
+        # Collection-only protected apply has no display lease, but its native
+        # reload acknowledgement must still bind the freshly reviewed candidate.
+        snap=helper_call('snapshot')
+        collection_request=dict(protocol=1,collection_apply_version=1,protected_apply=True,
+            expected_generation=snap['generation'],
+            collection_preconditions_v2=dict(version=2,sources={'rules':snap['collection_preconditions_v2']['sources']['rules']}),
+            window_rule_changes=[dict(op='add',values=dict(app_id='protected-collection-test-*',floating=False))])
+        reviewed=helper_call('validate',collection_request)
+        assert reviewed['candidate_impact']['complete'] and reviewed['candidate_impact']['display'] is None
+        report=reviewed['collection_transaction']
+        collection_request.update(expected_generation=report['effective_generation'],candidate_digest=report['candidate_digest'])
+        collection_id=str(int(time.time()))+'-'+uuid.uuid4().hex
+        result=helper_call('apply',collection_request,('--result','v1','--operation-id',collection_id))
+        assert result['save']=='saved' and result['reload']=='applied' and result['display']=='not_requested',result
+        ack=result['reload_acknowledgement']
+        assert ack['session']==query.session and ack['generation']==result['after_generation'] and ack['candidate_digest']==report['candidate_digest'],ack
+        assert helper_call('operation-status',flags=('--operation-id',collection_id))==result
+        baseline=wait(lambda: (m if (m:=model())['observation']=='current' and len(m['outputs'])==2 else None))
         def candidate(m, fields):
             o=m['outputs'][0]
             text='[[output]]\nname = '+json.dumps(o['connector'])+'\n'
@@ -276,6 +294,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
             assert (cfg/'outputs.toml').read_text()==(params['outputs_source'] if stage=='journal_committed' else before)
             assert model()['config_generation']==helper_call('snapshot')['generation']
         print('PASS: native headless placement/mode/enable/primary/profile/mirror preview, Keep and rollback')
+        print('PASS: protected collection apply and native generation/digest-bound reload acknowledgement')
         print('PASS: owner disconnect, timeout, stale revision, mirror-source removal, helper death and compositor restart/recovery')
 
     except Exception:

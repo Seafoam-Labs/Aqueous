@@ -646,6 +646,12 @@
             "live"
           ],
           "additionalProperties": false
+        },
+        "collection_preconditions_v2": {
+          "$ref": "#/$defs/collection_preconditions_v2"
+        },
+        "collection_transaction": {
+          "$ref": "#/$defs/collection_transaction"
         }
       },
       "required": [
@@ -1394,6 +1400,202 @@
         "reason"
       ],
       "additionalProperties": false
+    },
+    "collection_source_v2": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "exists",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "collection_preconditions_v2": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "sources": {
+          "type": "object",
+          "properties": {
+            "wm": {
+              "$ref": "#/$defs/collection_source_v2"
+            },
+            "rules": {
+              "$ref": "#/$defs/collection_source_v2"
+            },
+            "layout": {
+              "$ref": "#/$defs/collection_source_v2"
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "collection_transaction": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "requested_generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$"
+        },
+        "effective_generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$"
+        },
+        "rebased": {
+          "type": "boolean"
+        },
+        "candidate_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "base_preconditions": {
+          "$ref": "#/$defs/collection_preconditions_v2"
+        }
+      },
+      "required": [
+        "version",
+        "requested_generation",
+        "effective_generation",
+        "rebased",
+        "candidate_digest",
+        "base_preconditions"
+      ],
+      "additionalProperties": false
+    },
+    "protected_collection_request": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": 1
+        },
+        "expected_generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$"
+        },
+        "collection_apply_version": {
+          "const": 1
+        },
+        "protected_apply": {
+          "const": true
+        },
+        "collection_preconditions_v2": {
+          "$ref": "#/$defs/collection_preconditions_v2"
+        },
+        "candidate_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "backup_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "create_user_override": {
+          "type": "boolean"
+        },
+        "default_snap_layout": {
+          "type": "string"
+        },
+        "window_rule_changes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Mutation semantics are validated by the helper collection schema."
+        },
+        "custom_keybind_changes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Mutation semantics are validated by the helper collection schema."
+        },
+        "snap_layouts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Mutation semantics are validated by the helper collection schema."
+        },
+        "snap_zone_changes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Mutation semantics are validated by the helper collection schema."
+        }
+      },
+      "required": [
+        "protocol",
+        "expected_generation",
+        "collection_apply_version",
+        "protected_apply",
+        "collection_preconditions_v2"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "window_rule_changes"
+          ]
+        },
+        {
+          "required": [
+            "custom_keybind_changes"
+          ]
+        },
+        {
+          "required": [
+            "snap_layouts"
+          ]
+        },
+        {
+          "required": [
+            "snap_zone_changes"
+          ]
+        }
+      ],
+      "dependentRequired": {
+        "default_snap_layout": [
+          "snap_layouts"
+        ]
+      },
+      "additionalProperties": false
+    },
+    "protected_collection_apply_request": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/protected_collection_request"
+        },
+        {
+          "required": [
+            "candidate_digest"
+          ]
+        }
+      ]
     }
   }
 }

@@ -138,6 +138,11 @@ fn option(args: []const []const u8, name: []const u8) ?[]const u8 {
 }
 
 fn fault(label: []const u8) void {
+    // Test-driver only: the parent observes SIGSTOP, edits a fixture source or
+    // attempts a competing writer, then resumes us with SIGCONT.
+    if (std.c.getenv("AQUEOUS_TEST_STOP_AT")) |wanted| {
+        if (std.mem.eql(u8, label, std.mem.span(wanted))) _ = std.c.raise(.STOP);
+    }
     const wanted = std.c.getenv("AQUEOUS_TEST_CRASH_AT") orelse return;
     if (std.mem.eql(u8, label, std.mem.span(wanted))) std.process.exit(97);
 }

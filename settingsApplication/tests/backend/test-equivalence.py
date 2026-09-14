@@ -25,8 +25,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-backend-equivalence-') as tmp:
     new_results, new_files = sequence(driver)
     # Protocol 1 permits negotiated additive members. Compare every original
     # member, capability and saved byte; omit only explicitly new contracts.
-    additions = {'display_configuration', 'display_declarations', 'candidate_review', 'collection_identity', 'display_model', 'display_observation', 'candidate_impact', 'collection_schema', 'collection_preconditions'}
-    extra_capabilities = {'display_configuration_v1', 'candidate_review_v1', 'helper_writer_lock_v1', 'apply_result_v1', 'collection_identity_v1', 'display_model_v2', 'recoverable_commit_v1', 'operation_receipts_v1', 'candidate_impact_v1', 'display_observation_v1', 'display_preview_commit_v1', 'collection_schema_v1', 'collection_preconditions_v1'}
+    additions = {'display_configuration', 'display_declarations', 'candidate_review', 'collection_identity', 'display_model', 'display_observation', 'candidate_impact', 'collection_schema', 'collection_preconditions', 'collection_preconditions_v2', 'collection_transaction'}
+    extra_capabilities = {'display_configuration_v1', 'candidate_review_v1', 'helper_writer_lock_v1', 'apply_result_v1', 'collection_identity_v1', 'display_model_v2', 'recoverable_commit_v1', 'operation_receipts_v1', 'candidate_impact_v1', 'display_observation_v1', 'display_preview_commit_v1', 'collection_schema_v1', 'collection_preconditions_v1', 'collection_preconditions_v2', 'protected_collection_apply_v1'}
     for (old_code, old), (new_code, new) in zip(old_results, new_results, strict=True):
         assert old_code == new_code
         for key in additions:
