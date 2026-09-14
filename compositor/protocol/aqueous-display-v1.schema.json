@@ -1,0 +1,630 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Aqueous native display v1 result payloads",
+  "description": "IPC request frames are specified in aqueous-ipc-v1.schema.json. Features are independently negotiated per output; physical preview acceptance is pending.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/observation"
+    },
+    {
+      "$ref": "#/$defs/lease"
+    },
+    {
+      "$ref": "#/$defs/candidate"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "complete": {
+          "const": false
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "complete",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "config_generation": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "display_revision": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "observation": {
+          "enum": [
+            "current",
+            "transitioning"
+          ]
+        },
+        "active_profile": {
+          "type": "string"
+        },
+        "preview_active": {
+          "type": "boolean"
+        },
+        "effective_profile": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "fallback_profile": {
+          "type": "string"
+        },
+        "loaded_configuration": {
+          "type": "object"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "version",
+        "config_generation",
+        "session",
+        "display_revision",
+        "observation",
+        "active_profile",
+        "preview_active",
+        "effective_profile",
+        "fallback_profile",
+        "loaded_configuration",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "lease": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "enum": [
+            "applying",
+            "previewing",
+            "commit_authorized",
+            "kept",
+            "reverting",
+            "reverted",
+            "invalidated",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "remaining_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15000
+        },
+        "display_revision": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "candidate_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_generation": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "after_generation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rollback_partial": {
+          "type": "boolean"
+        },
+        "fallback_used": {
+          "type": "boolean"
+        },
+        "affected_outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "instance": {
+                "type": "string",
+                "pattern": "^[0-9]{1,20}$"
+              },
+              "connected": {
+                "type": "boolean"
+              },
+              "restored": {
+                "type": "boolean"
+              },
+              "still_owned": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "instance",
+              "connected",
+              "restored",
+              "still_owned",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 64
+        },
+        "affected_output_count": {
+          "type": "integer"
+        },
+        "supported_actions": {
+          "type": "object",
+          "properties": {
+            "revert": {
+              "type": "boolean"
+            },
+            "commit": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "revert",
+            "commit"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "session",
+        "token",
+        "state",
+        "reason",
+        "remaining_ms",
+        "display_revision",
+        "candidate_digest",
+        "expected_generation",
+        "after_generation",
+        "rollback_partial",
+        "fallback_used",
+        "affected_outputs",
+        "affected_output_count",
+        "supported_actions"
+      ],
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "effective_outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "instance": {
+                "type": "string",
+                "pattern": "^[0-9]{1,20}$"
+              },
+              "resolved": {
+                "$ref": "#/$defs/state"
+              }
+            },
+            "required": [
+              "instance",
+              "resolved"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 64
+        },
+        "activated_profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "display_revision": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "display_live",
+              "display_deferred"
+            ]
+          },
+          "maxItems": 2
+        },
+        "required_action": {
+          "const": "preview"
+        },
+        "deferred_save_requires_lease": {
+          "const": true
+        },
+        "now": {
+          "type": "string"
+        },
+        "on_reload": {
+          "type": "string"
+        },
+        "at_startup": {
+          "type": "string"
+        },
+        "on_hotplug": {
+          "type": "string"
+        },
+        "policies": {
+          "type": "object"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "effective_outputs",
+        "activated_profile",
+        "complete",
+        "session",
+        "display_revision",
+        "effects",
+        "required_action",
+        "deferred_save_requires_lease",
+        "now",
+        "on_reload",
+        "at_startup",
+        "on_hotplug",
+        "policies",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "instance": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "make": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serial": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "monitor_identity": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "make_model_serial_hash"
+            },
+            "raw_edid_available": {
+              "const": false
+            },
+            "ambiguous": {
+              "type": "boolean"
+            },
+            "match_count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "value",
+            "kind",
+            "raw_edid_available",
+            "ambiguous",
+            "match_count"
+          ],
+          "additionalProperties": false
+        },
+        "actual": {
+          "$ref": "#/$defs/state"
+        },
+        "actual_hdr": {
+          "type": "boolean"
+        },
+        "actual_vrr": {
+          "type": "boolean"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "configured": {
+          "type": "object"
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "refresh_mhz": {
+                "type": "integer"
+              },
+              "preferred": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "refresh_mhz",
+              "preferred"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 4096
+        },
+        "support": {
+          "type": "object",
+          "properties": {
+            "placement": {
+              "$ref": "#/$defs/support"
+            },
+            "mode": {
+              "$ref": "#/$defs/support"
+            },
+            "enable": {
+              "$ref": "#/$defs/support"
+            },
+            "hdr": {
+              "$ref": "#/$defs/support"
+            },
+            "vrr": {
+              "$ref": "#/$defs/support"
+            },
+            "mirroring": {
+              "$ref": "#/$defs/support"
+            },
+            "profiles": {
+              "$ref": "#/$defs/support"
+            },
+            "policies": {
+              "$ref": "#/$defs/support"
+            },
+            "primary": {
+              "$ref": "#/$defs/support"
+            },
+            "custom_mode": {
+              "$ref": "#/$defs/support"
+            }
+          },
+          "required": [
+            "placement",
+            "mode",
+            "enable",
+            "hdr",
+            "vrr",
+            "mirroring",
+            "profiles",
+            "policies",
+            "primary",
+            "custom_mode"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "instance",
+        "connector",
+        "connected",
+        "enabled",
+        "make",
+        "model",
+        "serial",
+        "monitor_identity",
+        "actual",
+        "actual_hdr",
+        "actual_vrr",
+        "primary",
+        "configured",
+        "modes",
+        "support"
+      ],
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "refresh_mhz": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "width",
+                "height",
+                "refresh_mhz"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scale": {
+          "type": "number"
+        },
+        "transform": {
+          "enum": [
+            "normal",
+            "90",
+            "180",
+            "270",
+            "flipped",
+            "flipped-90",
+            "flipped-180",
+            "flipped-270"
+          ]
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "mirror_of": {
+          "type": "string"
+        },
+        "adaptive_sync": {
+          "type": "boolean"
+        },
+        "hdr": {
+          "type": "boolean"
+        },
+        "hdr_level": {
+          "enum": [
+            100,
+            400,
+            1000
+          ]
+        },
+        "sdr_white_level": {
+          "type": "number"
+        },
+        "auto_hdr": {
+          "type": "boolean"
+        },
+        "auto_hdr_boost": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "enabled",
+        "mode",
+        "scale",
+        "transform",
+        "x",
+        "y",
+        "mirror_of",
+        "adaptive_sync",
+        "hdr",
+        "hdr_level",
+        "sdr_white_level",
+        "auto_hdr",
+        "auto_hdr_boost"
+      ],
+      "additionalProperties": false
+    },
+    "support": {
+      "type": "object",
+      "properties": {
+        "store": {
+          "type": "boolean"
+        },
+        "test": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "store",
+        "test",
+        "preview",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

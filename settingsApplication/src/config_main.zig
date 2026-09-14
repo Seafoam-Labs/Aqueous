@@ -68,8 +68,16 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
         };
         var result: std.Io.Writer.Allocating = .init(allocator);
         defer result.deinit();
-        try writeResult(allocator, &result.writer, &control, if (snapshot.written().len > 15 * 1024 * 1024) "" else snapshot.written(), if (snapshot.written().len > 15 * 1024 * 1024) error.SnapshotTooLarge else failure);
-        if (control.operation_id) |id| try backend.receipts.finish(allocator, io, id, result.written());
+        const result_snapshot = if (snapshot.written().len > 15 * 1024 * 1024) "" else snapshot.written();
+        const result_failure: ?anyerror = if (snapshot.written().len > 15 * 1024 * 1024) error.SnapshotTooLarge else failure;
+        try writeResult(allocator, &result.writer, &control, result_snapshot, result_failure, true);
+        if (control.operation_id) |id| backend.receipts.finish(allocator, io, id, result.written()) catch |receipt_error| {
+            // The durable decision survives receipt/transport failure. Preserve
+            // known save and external outcomes in this reply; status can recover
+            // the journal decision even if terminal receipt storage failed.
+            result.clearRetainingCapacity();
+            try writeResult(allocator, &result.writer, &control, result_snapshot, result_failure orelse receipt_error, false);
+        };
         try writer.writeAll(result.written());
     } else {
         if (option(args, "--operation-id") != null) return error.InvalidResultFormat;
@@ -78,7 +86,7 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
     if (option(args, "--report-reload")) |_| std.debug.print("reload={s}\n", .{@tagName(control.reload)});
 }
 
-fn writeResult(a: Allocator, writer: *std.Io.Writer, state: *const backend.Control, snapshot: []const u8, failure: ?anyerror) !void {
+fn writeResult(a: Allocator, writer: *std.Io.Writer, state: *const backend.Control, snapshot: []const u8, failure: ?anyerror, receipt_available: bool) !void {
     const parsed = std.json.parseFromSlice(std.json.Value, a, snapshot, .{}) catch null;
     defer if (parsed) |value| value.deinit();
     const value: ?std.json.ObjectMap = if (parsed) |p| if (p.value == .object) p.value.object else null else null;
@@ -86,7 +94,7 @@ fn writeResult(a: Allocator, writer: *std.Io.Writer, state: *const backend.Contr
     defer if (decision_bytes) |bytes| a.free(bytes);
     const decision = if (decision_bytes) |bytes| std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch null else null;
     defer if (decision) |v| v.deinit();
-    const save: []const u8 = if (state.saved and state.writing) "saved" else if (state.writing) "uncertain" else if (failure != null) "failed" else "unchanged";
+    const save: []const u8 = if (state.saved) if (state.writing) "saved" else "unchanged" else if (state.writing) "uncertain" else if (failure != null) "failed" else "unchanged";
     try std.json.Stringify.value(.{
         .ok = failure == null,
         .protocol = 1,
@@ -111,7 +119,7 @@ fn writeResult(a: Allocator, writer: *std.Io.Writer, state: *const backend.Contr
         .snapshot = if (parsed) |p| p.value else null,
         .failure = if (failure) |err| .{ .code = backend.errorCode(err), .message = @errorName(err), .retryable = !state.writing and err == error.ConfigWriterBusy } else null,
         .operation_id = state.operation_id,
-        .receipt = if (state.operation_id != null) "complete" else "unavailable",
+        .receipt = if (state.operation_id != null and receipt_available) "complete" else "unavailable",
     }, .{}, writer);
 }
 

@@ -44,3 +44,10 @@ Clients must inspect capabilities before using additive interfaces.
 Always use a private HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_RUNTIME_DIR and
 private bus/compositor for integration testing. Do not point tests at a running
 desktop. Hardware feature acceptance is separate from headless testing.
+
+The additive T11 contracts and remaining capability gates are documented in
+[T11.md](T11.md) and [T11_TRANSACTIONS.md](T11_TRANSACTIONS.md). For recoverable
+results use `apply --result v1 --operation-id ID`; query lost replies with
+`operation-status --operation-id ID`. The shared document and journal sources
+now live at `compositor/aqueous/ConfigDocument.zig` and `ConfigTransaction.zig`;
+backend imports retain their compatibility wrapper.

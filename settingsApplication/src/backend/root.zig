@@ -20,7 +20,11 @@ pub fn execute(a: std.mem.Allocator, io: std.Io, command: Command, shell: Shell,
     const execution_error: ?anyerror = blk: {
         const lock = if (command != .version) try @import("writer_lock.zig").Lock.acquire(a, io, command == .apply) else null;
         defer if (lock) |held| held.release();
-        if (lock != null) _ = try transaction.recover(a, io);
+        if (command == .validate) {
+            // Validation is read-only even after an interrupted writer. A
+            // snapshot/status/startup recovery must establish a generation first.
+            if (try transaction.pending(a, io)) return error.RecoveryRequired;
+        } else if (lock != null) _ = try transaction.recover(a, io);
         operations.execute(a, io, command, shell, request, writer) catch |err| {
             if (!state.saved) return err;
             break :blk err;

@@ -22,7 +22,7 @@ pub fn prepare(a: A, files: *const config.ConfigFiles, originals: [6][]u8, gener
         // These parsers do not share a full multiline TOML AST. Preserve such
         // input and report uncertainty instead of scanning inside its strings.
         if (std.mem.indexOf(u8, originals[index], "\"\"\"") != null or std.mem.indexOf(u8, file.document.source, "\"\"\"") != null or
-            std.mem.indexOf(u8, originals[index], "'''") != null)
+            std.mem.indexOf(u8, originals[index], "'''") != null or std.mem.indexOf(u8, file.document.source, "'''") != null)
         {
             unknown = true;
             continue;

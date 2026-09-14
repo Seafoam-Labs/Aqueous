@@ -6,7 +6,7 @@ const A = std.mem.Allocator;
 pub const lifetime_seconds = 7 * 24 * 60 * 60;
 pub const max_records = 256;
 pub const max_result_bytes = 16 * 1024 * 1024;
-const Intent = struct { version: u32 = 1, request_digest: [64]u8, operation_id: []const u8 };
+const Intent = struct { version: u32 = 1, request_digest: [64]u8, operation_id: []const u8, preview_token: ?[]const u8 = null, candidate_digest: ?[]const u8 = null, expected_generation: ?[]const u8 = null };
 
 fn timestamp(id: []const u8) !i64 {
     if (!tx.validOperationId(id) or id.len < 32 or id[10] != '-') return error.InvalidOperationId;
@@ -59,7 +59,17 @@ pub fn begin(a: A, io: std.Io, id: []const u8, shell: []const u8, request: []con
         return try statusLocked(a, io, id);
     }
     try prune(a, io);
-    const bytes = try std.json.Stringify.valueAlloc(a, Intent{ .request_digest = fingerprint, .operation_id = id }, .{});
+    try @import("operations.zig").validateJsonDepth(request);
+    const candidate = try std.json.parseFromSlice(std.json.Value, a, request, .{});
+    defer candidate.deinit();
+    const binding = if (candidate.value == .object) candidate.value.object else return error.InvalidJson;
+    const bytes = try std.json.Stringify.valueAlloc(a, Intent{
+        .request_digest = fingerprint,
+        .operation_id = id,
+        .preview_token = boundString(binding, "preview_token", 64),
+        .candidate_digest = boundString(binding, "candidate_digest", 64),
+        .expected_generation = boundString(binding, "expected_generation", 16),
+    }, .{});
     defer a.free(bytes);
     try tx.durableWrite(a, io, path, bytes, 0o600);
     tx.checkpoint("operation_intent");
@@ -88,10 +98,10 @@ pub fn status(a: A, io: std.Io, id: []const u8) ![]u8 {
 fn statusLocked(a: A, io: std.Io, id: []const u8) ![]u8 {
     const now = std.Io.Clock.real.now(io).toSeconds();
     const started = try timestamp(id);
-    if (started < now - lifetime_seconds) return unknown(a, id, "expired");
+    if (started < now - lifetime_seconds) return unknown(a, id, "expired", null);
     const result_path = try tx.receiptPath(a, id, "result");
     defer a.free(result_path);
-    if (try tx.readOptional(a, io, result_path, max_result_bytes)) |bytes| return bytes;
+    if (tx.readOptional(a, io, result_path, max_result_bytes) catch null) |bytes| return bytes;
     const decision_path = try tx.receiptPath(a, id, "decision");
     defer a.free(decision_path);
     if (try tx.readOptional(a, io, decision_path, 64 * 1024)) |bytes| {
@@ -118,13 +128,15 @@ fn statusLocked(a: A, io: std.Io, id: []const u8) ![]u8 {
     const intent_path = try tx.receiptPath(a, id, "intent");
     defer a.free(intent_path);
     if (try tx.readOptional(a, io, intent_path, 4096)) |bytes| {
-        a.free(bytes);
-        return unknown(a, id, "incomplete");
+        defer a.free(bytes);
+        const parsed = try std.json.parseFromSlice(std.json.Value, a, bytes, .{});
+        defer parsed.deinit();
+        return unknown(a, id, "incomplete", parsed.value.object);
     }
-    return unknown(a, id, "absent");
+    return unknown(a, id, "absent", null);
 }
-fn unknown(a: A, id: []const u8, reason: []const u8) ![]u8 {
-    return std.json.Stringify.valueAlloc(a, .{ .ok = true, .protocol = 1, .result_version = 1, .operation_id = id, .receipt = "unknown", .reason = reason, .save = "uncertain", .reload = "unknown", .display = "not_requested", .retry_allowed = false }, .{});
+fn unknown(a: A, id: []const u8, reason: []const u8, binding: ?std.json.ObjectMap) ![]u8 {
+    return std.json.Stringify.valueAlloc(a, .{ .ok = true, .protocol = 1, .result_version = 1, .operation_id = id, .receipt = "unknown", .reason = reason, .save = "uncertain", .reload = "unknown", .display = try displayState(a, if (binding) |b| b.get("preview_token") else null), .before_generation = if (binding) |b| b.get("expected_generation") else null, .candidate_digest = if (binding) |b| b.get("candidate_digest") else null, .retry_allowed = false }, .{});
 }
 
 fn displayState(a: A, token: ?std.json.Value) ![]const u8 {
@@ -145,4 +157,9 @@ pub fn decision(a: A, io: std.Io, id: []const u8) !?[]u8 {
     const path = try tx.receiptPath(a, id, "decision");
     defer a.free(path);
     return tx.readOptional(a, io, path, 65536);
+}
+
+fn boundString(object: std.json.ObjectMap, key: []const u8, size: usize) ?[]const u8 {
+    const value = object.get(key) orelse return null;
+    return if (value == .string and value.string.len == size) value.string else null;
 }

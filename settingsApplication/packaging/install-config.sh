@@ -18,3 +18,4 @@ install -Dm644 "$root/docs/T11.md" "$destination$prefix/share/doc/aqueous-config
 install -Dm644 "$root/docs/T11_VERIFICATION.md" "$destination$prefix/share/doc/aqueous-config/T11_VERIFICATION.md"
 install -Dm644 "$root/docs/aqueous-config-additions-v1.schema.json" "$destination$prefix/share/doc/aqueous-config/aqueous-config-additions-v1.schema.json"
 install -Dm644 "$root/../docs/aqueousctl-command-reference.md" "$destination$prefix/share/doc/aqueous-config/aqueousctl-command-reference.md"
+install -Dm644 "$root/../compositor/protocol/aqueous-display-v1.schema.json" "$destination$prefix/share/doc/aqueous-config/aqueous-display-v1.schema.json"

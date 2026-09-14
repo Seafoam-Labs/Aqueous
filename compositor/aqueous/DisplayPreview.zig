@@ -26,6 +26,8 @@ const Lease = struct {
     rollback_partial: bool = false,
     fallback_used: bool = false,
     revision: u64,
+    before_profile: Config.Text = .{},
+    after_profile: Config.Text = .{},
     state: Status = .applying,
     reason: []const u8 = "applying",
     deadline_ms: i64,
@@ -35,6 +37,7 @@ const Lease = struct {
 const Configs = struct { legacy: Config.Snapshot, preferred: Config.Snapshot };
 var lease: ?Lease = null;
 var timer: ?*wl.EventSource = null;
+pub var test_fail_next = false;
 fn now() i64 {
     return std.Io.Clock.awake.now(std.Io.Threaded.global_single_threaded.io()).toMilliseconds();
 }
@@ -114,6 +117,12 @@ fn tick(_: *u8) c_int {
 }
 var timer_data: u8 = 0;
 fn testStates(states: []const Manager.Pending) !void {
+    if (comptime @import("build_options").output_retry_testing) {
+        if (test_fail_next) {
+            test_fail_next = false;
+            return error.TestFailed;
+        }
+    }
     var backend_states: std.ArrayList(wlr.Backend.OutputState) = .empty;
     defer backend_states.deinit(util.gpa);
     defer for (backend_states.items) |*s| s.base.finish();
@@ -137,6 +146,7 @@ fn revert(reason: []const u8, removed_instance: ?u64) void {
     l.reason = reason;
     server.aqueous.output_service.preview_config = null;
     server.aqueous.output_service.preview_persisted = null;
+    if (std.mem.eql(u8, server.aqueous.output_service.active_profile.slice(), l.after_profile.slice())) server.aqueous.output_service.active_profile = l.before_profile;
     var pending: [Config.max_outputs]Manager.Pending = undefined;
     var len: usize = 0;
     var it = server.om.outputs.iterator(.forward);
@@ -206,8 +216,9 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     const legacy = Config.parse(wm_source);
     const preferred = Config.parse(outputs_source);
     if (legacy.unknown_fields != 0 or preferred.unknown_fields != 0 or legacy.rejected_declarations != 0 or preferred.rejected_declarations != 0) return error.UnclassifiedDisplayProperty;
-    var specs: [Config.max_outputs * 2]Config.Spec = undefined;
-    const plan = try server.om.prepareSpecs(if (Config.effectiveApplyOnReload(&legacy, &preferred)) Config.configuredSpecs(&legacy, &preferred, &specs) else &.{});
+    const Service = @import("wm/output/Service.zig");
+    const projected: Service.ConfiguredPlan = if (Config.effectiveApplyOnReload(&legacy, &preferred)) try Service.prepareConfigured(&legacy, &preferred) else .{ .plan = .{} };
+    const plan = projected.plan;
     for (plan.report.rejections[0..plan.report.rejection_count]) |rejection| if (rejection.reason != .unknown_output) return error.RejectedDisplayDeclaration;
     var pending: [Config.max_outputs]Manager.Pending = undefined;
     var count: usize = 0;
@@ -215,6 +226,8 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     errdefer a.destroy(configs);
     configs.* = .{ .legacy = legacy, .preferred = preferred };
     var l: Lease = .{ .configs = configs, .token = undefined, .candidate_digest = digest[0..64].*, .generation = generation[0..16].*, .display_digest = try displayDigest(wm_source, outputs_source), .owner = owner, .revision = revision, .deadline_ms = now() + 5000 };
+    l.before_profile = server.aqueous.output_service.active_profile;
+    l.after_profile = projected.activated_profile orelse l.before_profile;
     var it = server.om.outputs.iterator(.forward);
     while (it.next()) |o| {
         const w = o.wlr_output orelse continue;
@@ -250,6 +263,7 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     try timer.?.timerUpdate(100);
     if (lease) |old| a.destroy(old.configs);
     lease = l;
+    server.aqueous.output_service.active_profile = l.after_profile;
     server.aqueous.output_service.preview_config = &configs.legacy;
     server.aqueous.output_service.preview_persisted = &configs.preferred;
     for (pending[0..count]) |entry| entry.output.scheduled = entry.state;
@@ -314,6 +328,11 @@ pub fn authorize(params: std.json.ObjectMap) !void {
     defer a.free(intent_path);
     const intent = try Tx.readOptional(a, std.Io.Threaded.global_single_threaded.io(), intent_path, 4096) orelse return error.OperationRecordRequired;
     defer a.free(intent);
+    const record = try std.json.parseFromSlice(std.json.Value, a, intent, .{});
+    defer record.deinit();
+    if (!std.mem.eql(u8, try Codec.string(record.value.object, "preview_token"), &l.token) or
+        !std.mem.eql(u8, try Codec.string(record.value.object, "candidate_digest"), &l.candidate_digest) or
+        !std.mem.eql(u8, try Codec.string(record.value.object, "expected_generation"), &l.generation)) return error.CandidateMismatch;
     @memcpy(l.operation_id[0..id.len], id);
     l.operation_len = id.len;
     l.state = .commit_authorized;
@@ -337,7 +356,8 @@ fn readDecision() !void {
     const parsed = try std.json.parseFromSlice(std.json.Value, a, bytes, .{});
     defer parsed.deinit();
     const obj = parsed.value.object;
-    if (!std.mem.eql(u8, try Codec.string(obj, "save"), "saved") or
+    const save = try Codec.string(obj, "save");
+    if ((!std.mem.eql(u8, save, "saved") and !std.mem.eql(u8, save, "unchanged")) or
         !std.mem.eql(u8, try Codec.string(obj, "candidate_digest"), &l.candidate_digest)) return error.CommitNotDurable;
     const generation = try Codec.string(obj, "after_generation");
     if (generation.len != 16) return error.Invalid;

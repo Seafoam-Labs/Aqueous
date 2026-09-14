@@ -62,6 +62,14 @@ for stage in ['journal_prepared',*[f'written_file_{i}' for i in range(6)],'journ
         assert not (f.root/'reloads').exists(), 'replay executed an external effect'
         assert status['reload']=='unknown'
 
+# Validation cannot perform recovery writes as a hidden side effect.
+with Fixture() as f:
+    req=f.request();f.call('apply',req,crash='written_file_0')
+    before={name:path.read_bytes() for name,path in f.files.items()}
+    result=f.call('validate',req);assert not result['ok'],result
+    assert {name:path.read_bytes() for name,path in f.files.items()}==before
+    assert (f.root/'state/aqueous/config-writer/active.json').exists()
+
 # Recovery can itself die, and recovery conflicts preserve newer external bytes.
 with Fixture() as f:
     req=f.request(); f.call('apply',req,crash='written_file_1')
@@ -93,6 +101,15 @@ with Fixture() as f:
     assert f.status(f.opid())['receipt']=='unknown'
     expired='1000000000-'+uuid.uuid4().hex
     assert not f.call('apply',req,('--result','v1','--operation-id',expired))['ok']
+# Terminal receipt storage failure cannot erase an already durable save.
+with Fixture() as f:
+    req=f.request();id=f.opid()
+    (f.root/'state/aqueous/config-writer/receipts'/f'{id}.result').mkdir(parents=True)
+    result=f.call('apply',req,('--result','v1','--operation-id',id))
+    assert result['save']=='saved' and result['reload']=='applied' and result['receipt']=='unavailable',result
+    recovered=f.status(id);assert recovered['save']=='saved' and recovered['reload']=='unknown',recovered
+    assert (f.root/'reloads').read_text().splitlines()==['reload']
+
 # Death before save produces uncertainty, never an automatic retry.
 with Fixture() as f:
     req=f.request(); id=f.opid()

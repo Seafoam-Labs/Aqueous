@@ -678,7 +678,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         };
     }
     try control.check();
-    if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested)) {
+    if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested or request.get("preview_token") != null)) {
         // Re-resolve sources under the writer lock, immediately before writes.
         // Include absent vs empty files, which protocol-1 generation omits.
         var current_files = try config.ConfigFiles.init(allocator);
@@ -720,9 +720,9 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             const backup_dir = jsonString(request.get("backup_dir")) orelse return error.BackupDirRequired;
             try backupOriginals(allocator, backup_dir, expected, &files, originals, dirty);
         }
-        if (changed_count > 0) {
+        if (changed_count > 0 or request.get("preview_token") != null) {
             for (&files.items, 0..) |*file_item, index| file_item.dirty = dirty[index];
-            control.markWriting();
+            if (changed_count > 0) control.markWriting();
             const tx = @import("display_config").transaction;
             var entries: std.ArrayList(tx.Entry) = .empty;
             defer entries.deinit(allocator);
@@ -2272,6 +2272,7 @@ pub fn errorCode(err: anyerror) []const u8 {
         error.ExternalChange => "external_change",
         error.ConfigWriterBusy => "config_writer_busy",
         error.RecoveryConflict => "recovery_conflict",
+        error.RecoveryRequired => "recovery_required",
         error.InvalidJournal => "invalid_journal",
         error.OperationIdReused => "operation_id_reused",
         error.OperationIdExpired => "operation_id_expired",
@@ -2531,8 +2532,8 @@ fn writeCollectionSchema(json: *std.json.Stringify) !void {
     }
     try json.endArray();
     try json.endObject();
-    try field(json, "custom_bindings", .{ .operations = .{ "add", "update", "delete" }, .chord = .{ .min_bytes = 1, .max_bytes = 128, .semantic_validation = "compositor", .separator = "+", .key_count = 1, .modifiers = .{ "Super", "Mod4", "Logo", "Win", "Meta", "Ctrl", "Control", "Alt", "Mod1", "Shift" }, .modifier_case_sensitive = false, .super = "configured_primary_modifier", .meta = "physical_super", .key = "XKB_keysym_or_wheel_direction" }, .command = .{ .min_bytes = 1, .max_bytes = 1024 } });
-    try field(json, "snap_layouts", .{ .operations = .{"replace"}, .padding = .{ .min = 0, .max = 512 }, .default = "must_reference_existing_layout", .zone = .{ .unit = "fraction_of_work_area", .x = .{ 0, 1 }, .y = .{ 0, 1 }, .width = .{ 0, 1 }, .height = .{ 0, 1 }, .positive_dimensions = true, .contained = true } });
+    try field(json, "custom_bindings", .{ .operations = .{ "add", "update", "delete" }, .chord = .{ .min_bytes = 1, .max_bytes = 128, .semantic_validation = "compositor", .separator = "+", .key_count = 1, .modifiers = .{ "Super", "Mod4", "Logo", "Win", "Meta", "Ctrl", "Control", "Alt", "Mod1", "Shift" }, .modifier_case_sensitive = false, .super = "configured_primary_modifier", .meta = "physical_super", .key = "XKB_keysym_or_wheel_direction" }, .command = .{ .min_bytes = 1, .max_bytes = 1024, .semantic_validation = "compositor", .prefix_separator = ":", .prefixes = .{ "spawn", "launch", "set_layout", "builtin" }, .spawn = "shell_command", .launch = "application_profile", .set_layout = "layout_name", .builtin = "compositor_action" } });
+    try field(json, "snap_layouts", .{ .operations = .{"replace"}, .max_layouts = 8, .max_zones_per_layout = 16, .id = .{ .min_bytes = 1, .max_bytes = 32, .pattern = "^[A-Za-z0-9_-]+$", .unique_within = "parent_collection" }, .padding = .{ .min = 0, .max = 512 }, .default = "must_reference_existing_layout", .zone = .{ .unit = "fraction_of_work_area", .x = .{ 0, 1 }, .y = .{ 0, 1 }, .width = .{ 0, 1 }, .height = .{ 0, 1 }, .positive_dimensions = true, .contained = true } });
     try json.endObject();
 }
 fn ruleOptions(key: []const u8) []const []const u8 {
@@ -2546,7 +2547,7 @@ fn ruleOptions(key: []const u8) []const []const u8 {
     return &.{};
 }
 
-fn validateJsonDepth(bytes: []const u8) !void {
+pub fn validateJsonDepth(bytes: []const u8) !void {
     var quoted = false;
     var escaped = false;
     var depth: usize = 0;

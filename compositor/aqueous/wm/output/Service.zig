@@ -184,6 +184,7 @@ fn hasPrimary(specs: []const Config.Spec) bool {
 }
 
 pub fn pollReload(service: *Service) bool {
+    if (@import("../../DisplayPreview.zig").active()) return false;
     const tx = @import("../../ConfigTransaction.zig");
     const io = std.Io.Threaded.global_single_threaded.io();
     const lock = tx.Lock.acquire(util.gpa, io, false) catch return false;
@@ -195,6 +196,28 @@ pub fn pollReload(service: *Service) bool {
     _ = service.reload(true);
     log.info("output configuration hot-reloaded", .{});
     return true;
+}
+
+/// Pure projection of applyConfigured, including its all-rejected fallback.
+/// No state is published until the caller tests/accepts the complete plan.
+pub const ConfiguredPlan = struct { plan: OutputManager.Plan, activated_profile: ?Config.Text = null };
+pub fn prepareConfigured(legacy: *const Config.Snapshot, preferred: *const Config.Snapshot) !ConfiguredPlan {
+    var selected: [Config.max_outputs * 2]Config.Spec = undefined;
+    const specs = Config.configuredSpecs(legacy, preferred, &selected);
+    if (specs.len == 0) return .{ .plan = .{} };
+    const fallback = Config.effectiveFallbackProfile(legacy, preferred);
+    const prepared = server.om.prepareSpecs(specs) catch |err| {
+        const profile = Config.effectiveProfile(legacy, preferred, fallback) orelse return err;
+        const plan = try server.om.prepareSpecs(profile.outputs[0..profile.output_count]);
+        return .{ .plan = plan, .activated_profile = if (reportOk(&plan.report)) profile.name else null };
+    };
+    if (prepared.report.applied == 0 and prepared.report.total_rejections != 0 and fallback.len != 0) {
+        if (Config.effectiveProfile(legacy, preferred, fallback)) |profile| {
+            const plan = server.om.prepareSpecs(profile.outputs[0..profile.output_count]) catch return .{ .plan = prepared };
+            return .{ .plan = plan, .activated_profile = if (reportOk(&plan.report)) profile.name else null };
+        }
+    }
+    return .{ .plan = prepared };
 }
 
 fn applyConfigured(service: *Service) OutputManager.ApplyReport {
@@ -400,6 +423,12 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
     }
     if (std.mem.eql(u8, op, "cursor_state")) return service.sendCursorState(client);
     if (std.mem.eql(u8, op, "reload")) {
+        if (@import("../../DisplayPreview.zig").active()) return service.sendError(client, "display_preview_busy");
+        const tx = @import("../../ConfigTransaction.zig");
+        const io = std.Io.Threaded.global_single_threaded.io();
+        const lock = tx.Lock.acquire(util.gpa, io, false) catch |err| return service.sendError(client, @errorName(err));
+        defer lock.release();
+        _ = tx.recover(util.gpa, io) catch |err| return service.sendError(client, @errorName(err));
         const report = service.reload(true);
         service.broadcastOutputChanged();
         if (report) |*value| return service.sendList(client, reportOk(value), value);
@@ -442,6 +471,8 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
                 .disable_retry = jsonBool(request.get("disable_retry")) orelse false,
                 .simulate_overlay = jsonBool(request.get("simulate_overlay")) orelse false,
             };
+        } else if (std.mem.eql(u8, action, "preview_test_failure")) {
+            @import("../../DisplayPreview.zig").test_fail_next = true;
         } else if (std.mem.eql(u8, action, "damage")) {
             if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
             wlr_output.scheduleFrame();
@@ -548,6 +579,12 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
 }
 
 fn handleSaveProfile(service: *Service, client: *Client, request: *const std.json.Value) void {
+    if (@import("../../DisplayPreview.zig").active()) return service.sendError(client, "display_preview_busy");
+    const tx = @import("../../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = tx.Lock.acquire(util.gpa, io, true) catch |err| return service.sendError(client, @errorName(err));
+    defer lock.release();
+    _ = tx.recover(util.gpa, io) catch |err| return service.sendError(client, @errorName(err));
     const name = jsonString(request.object.get("name")) orelse return service.sendError(client, "missing 'name'");
     const outputs = request.object.get("outputs") orelse return service.sendError(client, "missing 'outputs' array");
     if (outputs != .array) return service.sendError(client, "missing 'outputs' array");
@@ -574,6 +611,7 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
     @memcpy(dir_buffer[0..directory.len], directory);
     const io = std.Io.Threaded.global_single_threaded.io();
     try std.Io.Dir.cwd().createDirPath(io, directory);
+    const original_stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
     const existing = std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, util.gpa, .limited(max_config_bytes)) catch |err| switch (err) {
         error.FileNotFound => try util.gpa.dupe(u8, ""),
         else => return err,
@@ -617,15 +655,14 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
         if (spec.auto_hdr) |v| try writer.print("auto_hdr = {}\n", .{v});
         if (spec.auto_hdr_boost) |v| try writer.print("auto_hdr_boost = {d}\n", .{v});
     }
-    var tmp_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const tmp = try std.fmt.bufPrint(&tmp_buffer, "{s}.tmp", .{path});
-    var file = try std.Io.Dir.createFileAbsolute(io, tmp, .{ .truncate = true });
-    defer file.close(io);
-    var file_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(io, &file_buffer);
-    try file_writer.interface.writeAll(writer.buffered());
-    try file_writer.interface.flush();
-    try std.Io.Dir.renameAbsolute(tmp, path, io);
+    const tx = @import("../../ConfigTransaction.zig");
+    const current = try tx.readOptional(util.gpa, io, path, max_config_bytes);
+    defer if (current) |bytes| util.gpa.free(bytes);
+    if ((current == null) != (original_stat == null)) return error.ExternalChange;
+    if (current) |bytes| if (!std.mem.eql(u8, bytes, existing)) return error.ExternalChange;
+    // One cooperating file: atomic replacement and parent fsync form the
+    // complete generation boundary, under the same helper/loader lock.
+    try tx.durableWrite(util.gpa, io, path, writer.buffered(), if (original_stat) |stat| @intCast(stat.permissions.toMode() & 0o777) else 0o600);
 }
 
 fn writeTomlString(writer: *std.Io.Writer, value: []const u8) !void {

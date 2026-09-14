@@ -153,7 +153,7 @@ fn matches(current: ?[]const u8, expected: ?[]const u8) bool {
 }
 
 fn validate(j: Journal) !void {
-    if (j.version != 1 or j.entries.len > 6 or j.entries.len == 0 or j.transaction_id.len != 64 or j.candidate_digest.len != 64 or j.before_generation.len != 16 or j.after_generation.len != 16) return error.InvalidJournal;
+    if (j.version != 1 or j.entries.len > 6 or (j.entries.len == 0 and j.preview_token == null) or j.transaction_id.len != 64 or j.candidate_digest.len != 64 or j.before_generation.len != 16 or j.after_generation.len != 16) return error.InvalidJournal;
     for (j.entries, 0..) |e, index| {
         if (!std.fs.path.isAbsolute(e.path) or e.path.len > std.fs.max_path_bytes or std.mem.indexOfScalar(u8, e.path, 0) != null or e.after.len > max_file_bytes or e.mode & ~@as(u32, 0o777) != 0) return error.InvalidJournal;
         if (!std.mem.eql(u8, &digest(e.after), &e.after_digest)) return error.InvalidJournal;
@@ -162,6 +162,15 @@ fn validate(j: Journal) !void {
         } else if (e.before_digest != null) return error.InvalidJournal;
         for (j.entries[0..index]) |old| if (std.mem.eql(u8, old.path, e.path)) return error.InvalidJournal;
     }
+}
+
+pub fn pending(a: Allocator, io: std.Io) !bool {
+    std.debug.assert(lock_depth != 0);
+    const path = try journalPath(a);
+    defer a.free(path);
+    const bytes = try readOptional(a, io, path, max_journal_bytes) orelse return false;
+    a.free(bytes);
+    return true;
 }
 
 pub fn recover(a: Allocator, io: std.Io) !Recovery {
@@ -258,7 +267,7 @@ fn recordDecision(a: Allocator, io: std.Io, id: []const u8, j: Journal) !void {
     const bytes = try std.json.Stringify.valueAlloc(a, .{
         .operation_id = id,
         .preview_token = j.preview_token,
-        .save = if (j.phase == .committed) "saved" else "failed",
+        .save = if (j.phase == .committed) if (j.entries.len == 0) "unchanged" else "saved" else "failed",
         .before_generation = j.before_generation,
         .after_generation = if (j.phase == .committed) @as(?[]const u8, j.after_generation) else null,
         .candidate_digest = j.candidate_digest,

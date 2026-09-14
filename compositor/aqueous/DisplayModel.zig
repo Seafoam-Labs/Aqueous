@@ -95,7 +95,7 @@ pub fn write(json: *std.json.Stringify) !void {
             .profiles = support(w.isHeadless(), "hardware_acceptance_pending"),
             .policies = support(w.isHeadless(), "hardware_acceptance_pending"),
             .primary = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .custom_mode = support(false, "custom_mode_test_required"),
+            .custom_mode = support(w.isHeadless(), "custom_mode_hardware_test_required"),
         });
         try json.endObject();
     }
@@ -135,7 +135,7 @@ fn writeEffective(json: *std.json.Stringify, output: *Output) !void {
     try json.beginObject();
     // Omitted values inherit runtime state. This is the actual resolver input,
     // not fabricated defaults for a head which has not yet been connected.
-    inline for (.{ "enabled", "mode", "scale", "transform", "x", "y", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |key| {
+    inline for (.{ "enabled", "mode", "scale", "transform", "x", "y", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "mirror_of" }) |key| {
         var value: @FieldType(Config.Spec, key) = null;
         var declaration: ?usize = null;
         var fold_order: ?usize = null;
@@ -150,15 +150,22 @@ fn writeEffective(json: *std.json.Stringify, output: *Output) !void {
                 fold_order = index;
             }
         };
-        try field(json, key, .{ .value = value, .declaration = declaration, .source = if (fold_order) |order| @as(?[]const u8, if (order < legacy_count) "wm" else "outputs") else null, .fold_order = fold_order, .inherit_runtime = value == null });
+        const exposed = if (comptime std.mem.eql(u8, key, "mirror_of")) if (value) |v| @as(?[]const u8, v.slice()) else null else value;
+        try field(json, key, .{ .value = exposed, .declaration = declaration, .source = if (fold_order) |order| @as(?[]const u8, if (order < legacy_count) "wm" else "outputs") else null, .fold_order = fold_order, .inherit_runtime = value == null });
     }
-    var mirror: ?Config.Text = null;
-    for (specs) |spec| if (Manager.matchesSpec(&spec, output.wlr_output.?)) {
-        if (spec.mirror_of) |v| {
-            mirror = v;
-        }
-    };
-    try field(json, "mirror_of", if (mirror) |v| @as(?[]const u8, v.slice()) else null);
+    try json.objectField("primary");
+    try json.beginObject();
+    try field(json, "effective", service.primaryOutput() == output);
+    try field(json, "resolver", "primaryOutput");
+    try field(json, "active_profile", service.active_profile.slice());
+    try json.objectField("matching_declarations");
+    try json.beginArray();
+    const primary = Service.resolvePrimarySpecs(&service.config, &service.persisted, service.active_profile);
+    for ([_][]const Config.Spec{ primary.base, primary.preferred }) |source_specs| {
+        for (source_specs) |spec| if (Manager.matchesSpec(&spec, output.wlr_output.?)) try Projection.writeSpec(json, spec);
+    }
+    try json.endArray();
+    try json.endObject();
     try json.endObject();
 }
 
@@ -170,8 +177,8 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
     const legacy = Config.parse(try Preview.source(params, "wm_source"));
     const preferred = Config.parse(try Preview.source(params, "outputs_source"));
     const service = &server.aqueous.output_service;
-    var specs: [Config.max_outputs * 2]Config.Spec = undefined;
-    const plan = server.om.prepareSpecs(Config.configuredSpecs(&legacy, &preferred, &specs)) catch return json.write(.{ .complete = false, .reason = "resolver_rejected_candidate" });
+    const projected = Service.prepareConfigured(&legacy, &preferred) catch return json.write(.{ .complete = false, .reason = "resolver_rejected_candidate" });
+    const plan = projected.plan;
     var offline_only_rejections = true;
     for (plan.report.rejections[0..plan.report.rejection_count]) |rejection| if (rejection.reason != .unknown_output) {
         offline_only_rejections = false;
@@ -184,8 +191,7 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
     const ambiguous = legacy.unknown_fields != 0 or preferred.unknown_fields != 0 or legacy.rejected_declarations != 0 or preferred.rejected_declarations != 0;
     // No save-only assertion about inactive profiles is made without checking
     // their activation/fallback dependencies in the same observation.
-    const profile_uncertain = false;
-    const primary_specs = Service.resolvePrimarySpecs(&legacy, &preferred, service.active_profile);
+    const primary_specs = Service.resolvePrimarySpecs(&legacy, &preferred, if (reload) projected.activated_profile orelse service.active_profile else service.active_profile);
     var next_primary: ?*Output = null;
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |o| {
@@ -204,7 +210,7 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
         };
         if (primary and next_primary == null) next_primary = o;
     }
-    if (next_primary != service.primaryOutput()) live = true;
+    const primary_live = next_primary != service.primaryOutput();
     var resolved: [Config.max_outputs]Manager.Pending = undefined;
     var resolved_count: usize = 0;
     var heads = server.om.outputs.iterator(.forward);
@@ -239,14 +245,15 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
     var revision: [20]u8 = undefined;
     try json.write(.{
         .effective_outputs = parsed.value,
-        .complete = !ambiguous and !profile_uncertain and offline_only_rejections,
+        .activated_profile = if (reload) if (projected.activated_profile) |profile| @as(?[]const u8, profile.slice()) else null else null,
+        .complete = !ambiguous and offline_only_rejections,
         .session = server.shell_manager.session[0..32],
         .display_revision = try std.fmt.bufPrint(&revision, "{d}", .{server.om.display_revision}),
-        .effects = if (live and reload) &[_][]const u8{ "display_live", "display_deferred" } else &[_][]const u8{"display_deferred"},
+        .effects = if ((live and reload) or primary_live) &[_][]const u8{ "display_live", "display_deferred" } else &[_][]const u8{"display_deferred"},
         .required_action = "preview",
         .deferred_save_requires_lease = true,
         .now = "unchanged_until_reload",
-        .on_reload = if (reload and live) "output_plan_changes" else "no_output_modeset",
+        .on_reload = if ((reload and live) or primary_live) "output_plan_changes" else "no_output_modeset",
         .at_startup = if (Config.effectiveApplyOnStart(&legacy, &preferred)) "configured_plan" else "backend_defaults",
         .on_hotplug = "configured_plan_and_fallback_validation",
         .policies = .{
@@ -256,6 +263,6 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
             .identify_by = .{ .runtime_effect = false, .reason = "compatibility_only" },
             .rollback_seconds = .{ .runtime_effect = false, .crash_safe_lease = false },
         },
-        .reason = if (ambiguous) @as(?[]const u8, "unknown_or_rejected_declaration") else if (profile_uncertain) @as(?[]const u8, "profile_activation_requires_protection") else if (!offline_only_rejections) @as(?[]const u8, "rejected_declaration") else null,
+        .reason = if (ambiguous) @as(?[]const u8, "unknown_or_rejected_declaration") else if (!offline_only_rejections) @as(?[]const u8, "rejected_declaration") else null,
     });
 }
