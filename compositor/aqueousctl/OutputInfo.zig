@@ -3,6 +3,7 @@
 //! Optional Aqueous metadata supplement to the standard output-management list.
 //! A missing service must not prevent output discovery on other compositors.
 const std = @import("std");
+const instance_name = @import("build_options").instance_name;
 const linux = std.os.linux;
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 
@@ -13,7 +14,7 @@ pub fn read(allocator: std.mem.Allocator) ?std.json.Parsed(std.json.Value) {
 pub fn readRequest(allocator: std.mem.Allocator, request: []const u8) ?std.json.Parsed(std.json.Value) {
     const runtime = getenv("XDG_RUNTIME_DIR") orelse return null;
     var address: linux.sockaddr.un = .{ .path = [_]u8{0} ** 108 };
-    const path = std.fmt.bufPrint(address.path[0 .. address.path.len - 1], "{s}/aqueous/outputd.sock", .{std.mem.span(runtime)}) catch return null;
+    const path = std.fmt.bufPrint(address.path[0 .. address.path.len - 1], "{s}/" ++ instance_name ++ "/outputd.sock", .{std.mem.span(runtime)}) catch return null;
     address.path[path.len] = 0;
     const rc = linux.socket(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.NONBLOCK | linux.SOCK.CLOEXEC, 0);
     if (linux.errno(rc) != .SUCCESS) return null;

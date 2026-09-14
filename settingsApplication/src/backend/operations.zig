@@ -2071,12 +2071,8 @@ fn replaceDocumentSource(document: *config.Document, source: []const u8) !void {
 
 fn retargetUserOverride(allocator: Allocator, file_item: *config.ConfigFiles.File, file_id: schema.FileId) !void {
     const filename = try std.fmt.allocPrint(allocator, "{s}.toml", .{file_id.name()});
-    const replacement = if (getenv("XDG_CONFIG_HOME")) |xdg|
-        try std.fmt.allocPrint(allocator, "{s}/aqueous/{s}", .{ xdg, filename })
-    else if (getenv("HOME")) |home|
-        try std.fmt.allocPrint(allocator, "{s}/.config/aqueous/{s}", .{ home, filename })
-    else
-        return error.ConfigPathUnavailable;
+    defer allocator.free(filename);
+    const replacement = try config.userPath(allocator, filename);
     file_item.document.allocator.free(file_item.path);
     file_item.path = replacement;
 }

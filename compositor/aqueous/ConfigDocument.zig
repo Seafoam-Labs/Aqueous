@@ -1,4 +1,5 @@
 const std = @import("std");
+const instance = @import("Instance.zig");
 
 const max_config_bytes = 1024 * 1024;
 
@@ -609,7 +610,7 @@ fn resolveWmPath(allocator: std.mem.Allocator) ![]u8 {
     const home = getenv("HOME");
     if (getenv("AQUEOUS_CONFIG")) |path| return expandHome(allocator, path, home);
     if (try existingUserPath(allocator, "wm.toml")) |path| return path;
-    if (exists("/etc/xdg/aqueous/wm.toml")) return allocator.dupe(u8, "/etc/xdg/aqueous/wm.toml");
+    if (exists("/etc/xdg/" ++ instance.name ++ "/wm.toml")) return allocator.dupe(u8, "/etc/xdg/" ++ instance.name ++ "/wm.toml");
     return userPath(allocator, "wm.toml");
 }
 
@@ -620,7 +621,7 @@ fn resolveLayoutPath(
 ) ![]u8 {
     const home = getenv("HOME");
     if (home) |base| {
-        const path = try std.fmt.allocPrint(allocator, "{s}/.config/aqueous/layout.toml", .{base});
+        const path = try std.fmt.allocPrint(allocator, "{s}/.config/" ++ instance.name ++ "/layout.toml", .{base});
         if (exists(path)) return path;
         allocator.free(path);
     }
@@ -635,11 +636,11 @@ fn resolveLayoutPath(
         }
     }
     if (getenv("XDG_CONFIG_HOME")) |xdg| {
-        const path = try std.fmt.allocPrint(allocator, "{s}/aqueous/layout.toml", .{xdg});
+        const path = try std.fmt.allocPrint(allocator, "{s}/" ++ instance.name ++ "/layout.toml", .{xdg});
         if (exists(path)) return path;
         allocator.free(path);
     }
-    if (exists("/etc/xdg/aqueous/layout.toml")) return allocator.dupe(u8, "/etc/xdg/aqueous/layout.toml");
+    if (exists("/etc/xdg/" ++ instance.name ++ "/layout.toml")) return allocator.dupe(u8, "/etc/xdg/" ++ instance.name ++ "/layout.toml");
     return userPath(allocator, "layout.toml");
 }
 
@@ -651,7 +652,7 @@ fn resolveInputPath(allocator: std.mem.Allocator, configured_raw: ?[]const u8) !
         if (configured.len > 0) return expandHome(allocator, configured, home);
     }
     if (try existingUserPath(allocator, "input.toml")) |path| return path;
-    if (exists("/etc/xdg/aqueous/input.toml")) return allocator.dupe(u8, "/etc/xdg/aqueous/input.toml");
+    if (exists("/etc/xdg/" ++ instance.name ++ "/input.toml")) return allocator.dupe(u8, "/etc/xdg/" ++ instance.name ++ "/input.toml");
     return userPath(allocator, "input.toml");
 }
 
@@ -682,24 +683,24 @@ fn resolveAppearancePath(allocator: std.mem.Allocator) ![]u8 {
 
 fn existingUserPath(allocator: std.mem.Allocator, filename: []const u8) !?[]u8 {
     if (getenv("XDG_CONFIG_HOME")) |xdg| {
-        const path = try std.fmt.allocPrint(allocator, "{s}/aqueous/{s}", .{ xdg, filename });
+        const path = try std.fmt.allocPrint(allocator, "{s}/" ++ instance.name ++ "/{s}", .{ xdg, filename });
         if (exists(path)) return path;
         allocator.free(path);
     }
     if (getenv("HOME")) |home| {
-        const path = try std.fmt.allocPrint(allocator, "{s}/.config/aqueous/{s}", .{ home, filename });
+        const path = try std.fmt.allocPrint(allocator, "{s}/.config/" ++ instance.name ++ "/{s}", .{ home, filename });
         if (exists(path)) return path;
         allocator.free(path);
     }
     return null;
 }
 
-fn userPath(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
+pub fn userPath(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
     if (getenv("XDG_CONFIG_HOME")) |xdg| {
-        return std.fmt.allocPrint(allocator, "{s}/aqueous/{s}", .{ xdg, filename });
+        return std.fmt.allocPrint(allocator, "{s}/" ++ instance.name ++ "/{s}", .{ xdg, filename });
     }
     if (getenv("HOME")) |home| {
-        return std.fmt.allocPrint(allocator, "{s}/.config/aqueous/{s}", .{ home, filename });
+        return std.fmt.allocPrint(allocator, "{s}/.config/" ++ instance.name ++ "/{s}", .{ home, filename });
     }
     return error.ConfigPathUnavailable;
 }

@@ -2,3 +2,4 @@
 const shared = @import("display_config").document;
 pub const Document = shared.Document;
 pub const ConfigFiles = shared.ConfigFiles;
+pub const userPath = shared.userPath;

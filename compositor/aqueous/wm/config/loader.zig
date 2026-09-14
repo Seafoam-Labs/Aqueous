@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
+const instance = @import("../../Instance.zig");
 const layout = @import("layout.zig");
 const wm = @import("wm.zig");
 const actions = @import("actions.zig");
@@ -490,14 +491,14 @@ pub fn resolveWmPath(buffer: []u8, env: Environment) ?[]const u8 {
 fn resolveWmPathWithExists(buffer: []u8, env: Environment, path_exists: *const fn ([]const u8) bool) ?[]const u8 {
     if (env.wm_override) |path| return expandHome(buffer, path, env.home);
     if (env.xdg) |xdg| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/wm.toml", .{xdg}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/wm.toml", .{xdg}) catch return null;
         if (path_exists(candidate)) return candidate;
     }
     if (env.home) |home| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/wm.toml", .{home}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/wm.toml", .{home}) catch return null;
         if (path_exists(candidate)) return candidate;
     }
-    if (path_exists("/etc/xdg/aqueous/wm.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/wm.toml", .{}) catch null;
+    if (path_exists("/etc/xdg/" ++ instance.name ++ "/wm.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/" ++ instance.name ++ "/wm.toml", .{}) catch null;
     return null;
 }
 
@@ -505,18 +506,18 @@ fn resolveWmPathWithExists(buffer: []u8, env: Environment, path_exists: *const f
 pub fn resolvePath(buffer: []u8, xdg_config_home: ?[]const u8, home: ?[]const u8, filename: []const u8) ?[]const u8 {
     if (xdg_config_home) |base| {
         if (base.len == 0) return null;
-        return std.fmt.bufPrint(buffer, "{s}/aqueous/{s}", .{ base, filename }) catch null;
+        return std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/{s}", .{ base, filename }) catch null;
     }
     const base = home orelse return null;
     if (base.len == 0) return null;
-    return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/{s}", .{ base, filename }) catch null;
+    return std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/{s}", .{ base, filename }) catch null;
 }
 
 pub fn resolveLayoutPath(buffer: []u8, env: Environment, configured: []const u8, wm_dir: []const u8) ?[]const u8 {
     // Preserve the C# reader's unusual compatibility order: the traditional
     // HOME location wins before explicit sidecar overrides when it exists.
     if (env.home) |home| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/layout.toml", .{home}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/layout.toml", .{home}) catch return null;
         if (exists(candidate)) return candidate;
     }
     if (env.layout_override) |path| return expandHome(buffer, path, env.home);
@@ -525,10 +526,10 @@ pub fn resolveLayoutPath(buffer: []u8, env: Environment, configured: []const u8,
         return std.fmt.bufPrint(buffer, "{s}/{s}", .{ wm_dir, configured }) catch null;
     }
     if (env.xdg) |xdg| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/layout.toml", .{xdg}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/layout.toml", .{xdg}) catch return null;
         if (exists(candidate)) return candidate;
     }
-    if (exists("/etc/xdg/aqueous/layout.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/layout.toml", .{}) catch null;
+    if (exists("/etc/xdg/" ++ instance.name ++ "/layout.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/" ++ instance.name ++ "/layout.toml", .{}) catch null;
     return null;
 }
 
@@ -536,14 +537,14 @@ pub fn resolveInputPath(buffer: []u8, env: Environment, configured: []const u8) 
     if (env.input_override) |path| return expandHome(buffer, path, env.home);
     if (configured.len > 0) return expandHome(buffer, configured, env.home);
     if (env.xdg) |xdg| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/input.toml", .{xdg}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/input.toml", .{xdg}) catch return null;
         if (exists(candidate)) return candidate;
     }
     if (env.home) |home| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/input.toml", .{home}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/input.toml", .{home}) catch return null;
         if (exists(candidate)) return candidate;
     }
-    if (exists("/etc/xdg/aqueous/input.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/input.toml", .{}) catch null;
+    if (exists("/etc/xdg/" ++ instance.name ++ "/input.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/" ++ instance.name ++ "/input.toml", .{}) catch null;
     return null;
 }
 
@@ -848,8 +849,8 @@ fn hashSource(seed: u64, source: []const u8) u64 {
 
 test "config paths prefer XDG and fall back to HOME" {
     var buffer: [256]u8 = undefined;
-    try std.testing.expectEqualStrings("/xdg/aqueous/wm.toml", resolvePath(&buffer, "/xdg", "/home/test", "wm.toml").?);
-    try std.testing.expectEqualStrings("/home/test/.config/aqueous/layout.toml", resolvePath(&buffer, null, "/home/test", "layout.toml").?);
+    try std.testing.expectEqualStrings("/xdg/" ++ instance.name ++ "/wm.toml", resolvePath(&buffer, "/xdg", "/home/test", "wm.toml").?);
+    try std.testing.expectEqualStrings("/home/test/.config/" ++ instance.name ++ "/layout.toml", resolvePath(&buffer, null, "/home/test", "layout.toml").?);
     try std.testing.expectEqual(@as(?[]const u8, null), resolvePath(&buffer, null, null, "wm.toml"));
 }
 
@@ -860,24 +861,24 @@ test "explicit config path expands home" {
 }
 
 fn xdgAndHomeWmExist(path: []const u8) bool {
-    return std.mem.eql(u8, path, "/xdg/aqueous/wm.toml") or
-        std.mem.eql(u8, path, "/home/test/.config/aqueous/wm.toml");
+    return std.mem.eql(u8, path, "/xdg/" ++ instance.name ++ "/wm.toml") or
+        std.mem.eql(u8, path, "/home/test/.config/" ++ instance.name ++ "/wm.toml");
 }
 
 fn homeWmExists(path: []const u8) bool {
-    return std.mem.eql(u8, path, "/home/test/.config/aqueous/wm.toml");
+    return std.mem.eql(u8, path, "/home/test/.config/" ++ instance.name ++ "/wm.toml");
 }
 
 fn systemWmExists(path: []const u8) bool {
-    return std.mem.eql(u8, path, "/etc/xdg/aqueous/wm.toml");
+    return std.mem.eql(u8, path, "/etc/xdg/" ++ instance.name ++ "/wm.toml");
 }
 
 test "wm config discovery checks XDG HOME and system fallback in order" {
     const env: Environment = .{ .xdg = "/xdg", .home = "/home/test", .wm_override = null, .layout_override = null, .input_override = null };
     var buffer: [256]u8 = undefined;
-    try std.testing.expectEqualStrings("/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, xdgAndHomeWmExist).?);
-    try std.testing.expectEqualStrings("/home/test/.config/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, homeWmExists).?);
-    try std.testing.expectEqualStrings("/etc/xdg/aqueous/wm.toml", resolveWmPathWithExists(&buffer, env, systemWmExists).?);
+    try std.testing.expectEqualStrings("/xdg/" ++ instance.name ++ "/wm.toml", resolveWmPathWithExists(&buffer, env, xdgAndHomeWmExist).?);
+    try std.testing.expectEqualStrings("/home/test/.config/" ++ instance.name ++ "/wm.toml", resolveWmPathWithExists(&buffer, env, homeWmExists).?);
+    try std.testing.expectEqualStrings("/etc/xdg/" ++ instance.name ++ "/wm.toml", resolveWmPathWithExists(&buffer, env, systemWmExists).?);
 }
 
 test "mouse follows focus sidecar presence and invalid values" {

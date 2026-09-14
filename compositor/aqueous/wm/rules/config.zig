@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const std = @import("std");
+const instance = @import("../../Instance.zig");
 const Engine = @import("engine.zig");
 const toml = @import("../config/wm.zig");
 const wp = @import("wayland").server.wp;
@@ -49,22 +50,22 @@ fn getenv(name: [*:0]const u8) ?[]const u8 {
 pub fn resolvePath(buffer: []u8, xdg_config_home: ?[]const u8, home: ?[]const u8) ?[]const u8 {
     if (xdg_config_home) |base| {
         if (base.len == 0) return null;
-        return std.fmt.bufPrint(buffer, "{s}/aqueous/rules.toml", .{base}) catch null;
+        return std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/rules.toml", .{base}) catch null;
     }
     const base = home orelse return null;
     if (base.len == 0) return null;
-    return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/rules.toml", .{base}) catch null;
+    return std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/rules.toml", .{base}) catch null;
 }
 
 pub fn resolveDiscoveredPath(buffer: []u8, env_override: ?[]const u8, configured: []const u8, xdg: ?[]const u8, home: ?[]const u8) ?[]const u8 {
     if (env_override) |path| return expandHome(buffer, path, home);
     if (configured.len > 0) return expandHome(buffer, configured, home);
     if (xdg) |base| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/rules.toml", .{base}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/rules.toml", .{base}) catch return null;
         if (exists(candidate)) return candidate;
     }
     if (home) |base| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/rules.toml", .{base}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/rules.toml", .{base}) catch return null;
         if (exists(candidate)) return candidate;
     }
     return null;

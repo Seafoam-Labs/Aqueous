@@ -1,5 +1,6 @@
 // Canonical configuration CLI for Pearl and other protocol-1 clients.
 const std = @import("std");
+pub const aqueous_instance_name = @import("build_options").instance_name;
 const backend = @import("backend");
 const Allocator = std.mem.Allocator;
 const Command = backend.Command;
@@ -42,7 +43,8 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
         return writer.writeAll(bytes);
     }
     const op = parseCommand(args[1]) orelse return error.UnknownCommand;
-    const shell = std.meta.stringToEnum(backend.Shell, option(args, "--shell") orelse "noctalia") orelse return error.UnknownShell;
+    const default_shell = if (std.mem.eql(u8, aqueous_instance_name, "aqueous")) "noctalia" else "none";
+    const shell = std.meta.stringToEnum(backend.Shell, option(args, "--shell") orelse default_shell) orelse return error.UnknownShell;
     var request: []const u8 = option(args, "--file") orelse "";
     if (op == .validate or op == .apply) {
         const path = option(args, "--request") orelse return error.MissingRequest;

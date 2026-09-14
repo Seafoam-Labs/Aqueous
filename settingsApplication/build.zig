@@ -2,6 +2,9 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const instance_name = b.option([]const u8, "instance-name", "Private package configuration/state namespace") orelse "aqueous";
+    const instance_metadata = b.addWriteFiles().add("build-instance.json", b.fmt("{{\"schema\":1,\"instance\":\"{s}\"}}\n", .{instance_name}));
+    b.getInstallStep().dependOn(&b.addInstallFile(instance_metadata, "share/aqueous/build-instance.json").step);
     const scaling = b.createModule(.{ .root_source_file = b.path("../compositor/aqueous/scaling.zig"), .target = target, .optimize = optimize });
     const tablet = b.createModule(.{ .root_source_file = b.path("../compositor/common/tablet.zig"), .target = target, .optimize = optimize });
     const display_config = b.createModule(.{ .root_source_file = b.path("../compositor/aqueous/DisplayConfig.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{ .{ .name = "scaling", .module = scaling }, .{ .name = "tablet", .module = tablet } } });
@@ -16,10 +19,12 @@ pub fn build(b: *std.Build) void {
     const config_cli = b.createModule(.{ .root_source_file = b.path("src/config_main.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "backend", .module = backend }} });
     const production_options = b.addOptions();
     production_options.addOption(bool, "fault_injection", false);
+    production_options.addOption([]const u8, "instance_name", instance_name);
     config_cli.addOptions("build_options", production_options);
     const driver_cli = b.createModule(.{ .root_source_file = b.path("src/config_main.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "backend", .module = backend }} });
     const driver_options = b.addOptions();
     driver_options.addOption(bool, "fault_injection", true);
+    driver_options.addOption([]const u8, "instance_name", instance_name);
     driver_cli.addOptions("build_options", driver_options);
     const helper = b.addExecutable(.{ .name = "aqueous-config", .root_module = config_cli });
     const helper_install = b.addInstallArtifact(helper, .{});

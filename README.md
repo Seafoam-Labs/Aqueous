@@ -325,6 +325,11 @@ operation. The default helper build has no GUI dependency or desktop launcher.
 [component packaging guide](docs/packaging-components.md) for ownership,
 explicit shell presets, migrations and release validation.
 
+For development tools that coexist with stable, build `aqueous-core-git` or
+`aqueous-core-intel-git` from `packaging/arch/`. They install suffixed commands,
+private libraries and separate configuration defaults. See the
+[Git package guide](docs/git-packages.md) for building and running them.
+
 Fedora users can build and install the latest Git `master` as a local RPM:
 
 ```sh

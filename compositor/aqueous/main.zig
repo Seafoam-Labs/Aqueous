@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 const build_options = @import("build_options");
+pub const aqueous_instance_name = build_options.instance_name;
+const instance = @import("Instance.zig");
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
@@ -226,6 +228,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     // Native [[exec]] and keybinding children inherit the compositor socket.
     // This is intentionally delayed until addSocketAuto() has produced it.
     if (setenv("WAYLAND_DISPLAY", socket.ptr, 1) != 0) return error.SetEnvironmentFailed;
+    if (setenv("AQUEOUS_INSTANCE", instance.name ++ "\x00", 1) != 0) return error.SetEnvironmentFailed;
     if (build_options.xwayland) {
         if (server.xwayland) |xwayland| _ = setenv("DISPLAY", xwayland.display_name, 1);
     }
@@ -298,6 +301,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             if (mem.eql(u8, name, "WAYLAND_DISPLAY")) continue;
             if (mem.eql(u8, name, "DISPLAY")) continue;
             if (mem.eql(u8, name, "AQUEOUS_SOCKET")) continue;
+            if (mem.eql(u8, name, "AQUEOUS_INSTANCE")) continue;
             // Drop any inherited copy of a GPU-pin var we are about to set so a
             // stale value (e.g. from a nested session) cannot shadow the
             // compositor's choice. Mirrors the WAYLAND_DISPLAY filter above.
@@ -308,6 +312,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             try env_list.append(util.gpa, entry);
         }
         try env_list.append(util.gpa, wayland_display.ptr);
+        try env_list.append(util.gpa, "AQUEOUS_INSTANCE=" ++ instance.name);
         if (ipc_env) |value| try env_list.append(util.gpa, value.ptr);
         if (display_buf) |d| try env_list.append(util.gpa, d.ptr);
         // Append the resolved GPU-pin selector vars (each null unless applicable
@@ -355,9 +360,9 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
 fn defaultInitPath(environ: std.process.Environ) !?[:0]const u8 {
     const path = blk: {
         if (environ.getPosix("XDG_CONFIG_HOME")) |xdg_config_home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ xdg_config_home, "aqueous/init" });
+            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ xdg_config_home, instance.name ++ "/init" });
         } else if (environ.getPosix("HOME")) |home| {
-            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config/aqueous/init" });
+            break :blk try fs.path.joinZ(util.gpa, &[_][]const u8{ home, ".config/" ++ instance.name ++ "/init" });
         } else {
             return null;
         }

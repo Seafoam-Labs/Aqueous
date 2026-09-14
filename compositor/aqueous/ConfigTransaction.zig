@@ -2,6 +2,7 @@
 //! Shared helper/loader persistence boundary. Every public operation requires
 //! the caller's Lock. Paths are local journal data, never compositor IPC input.
 const std = @import("std");
+const instance = @import("Instance.zig");
 const Allocator = std.mem.Allocator;
 pub const max_file_bytes = 1024 * 1024;
 pub const max_journal_bytes = 80 * 1024 * 1024;
@@ -20,7 +21,7 @@ pub fn rootPath(a: Allocator) ![]u8 {
         return error.ConfigPathUnavailable;
     defer a.free(base);
     if (!std.fs.path.isAbsolute(base)) return error.ConfigPathUnavailable;
-    return std.fmt.allocPrint(a, "{s}/aqueous/config-writer", .{base});
+    return std.fmt.allocPrint(a, "{s}/" ++ instance.name ++ "/config-writer", .{base});
 }
 
 pub const Lock = struct {

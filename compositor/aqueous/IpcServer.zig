@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 const IpcServer = @This();
 const std = @import("std");
+const instance = @import("Instance.zig");
 const linux = std.os.linux;
 const wl = @import("wayland").server.wl;
 const util = @import("util.zig");
@@ -48,7 +49,7 @@ pub fn start(ipc: *IpcServer) !void {
     const runtime = getenv("XDG_RUNTIME_DIR") orelse return error.NoRuntimeDirectory;
     if (runtime[0] != '/') return error.InvalidRuntimeDirectory;
     try privateDirectory(runtime, false);
-    const parent = try std.fmt.allocPrintSentinel(util.gpa, "{s}/aqueous", .{std.mem.span(runtime)}, 0);
+    const parent = try std.fmt.allocPrintSentinel(util.gpa, "{s}/" ++ instance.name, .{std.mem.span(runtime)}, 0);
     defer util.gpa.free(parent);
     const made = linux.mkdir(parent, 0o700);
     if (linux.errno(made) != .SUCCESS and linux.errno(made) != .EXIST) return error.CreateDirectory;

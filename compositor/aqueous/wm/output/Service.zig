@@ -3,6 +3,7 @@
 
 const Service = @This();
 const std = @import("std");
+const instance = @import("../../Instance.zig");
 const build_options = @import("build_options");
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
@@ -288,7 +289,7 @@ pub fn outputsChanged(service: *Service, hotplug: bool) void {
 fn openSocket(service: *Service) !void {
     const runtime = getenv("XDG_RUNTIME_DIR") orelse "/tmp";
     var directory: [std.fs.max_path_bytes]u8 = undefined;
-    const dir_path = try std.fmt.bufPrint(&directory, "{s}/aqueous", .{runtime});
+    const dir_path = try std.fmt.bufPrint(&directory, "{s}/" ++ instance.name, .{runtime});
     const io = std.Io.Threaded.global_single_threaded.io();
     try std.Io.Dir.cwd().createDirPath(io, dir_path);
     const path = try std.fmt.bufPrint(&service.socket_path, "{s}/outputd.sock", .{dir_path});
@@ -1186,14 +1187,14 @@ fn configFingerprint(wm_config: bool) u64 {
 fn wmPath(buffer: []u8) ?[]const u8 {
     if (getenv("AQUEOUS_CONFIG")) |path| return std.fmt.bufPrint(buffer, "{s}", .{path}) catch null;
     if (getenv("XDG_CONFIG_HOME")) |xdg| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/aqueous/wm.toml", .{xdg}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/wm.toml", .{xdg}) catch return null;
         if (pathExists(candidate)) return candidate;
     }
     if (getenv("HOME")) |home| {
-        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/aqueous/wm.toml", .{home}) catch return null;
+        const candidate = std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/wm.toml", .{home}) catch return null;
         if (pathExists(candidate)) return candidate;
     }
-    return if (pathExists("/etc/xdg/aqueous/wm.toml")) std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/wm.toml", .{}) catch null else null;
+    return if (pathExists("/etc/xdg/" ++ instance.name ++ "/wm.toml")) std.fmt.bufPrint(buffer, "/etc/xdg/" ++ instance.name ++ "/wm.toml", .{}) catch null else null;
 }
 
 fn outputsPath(buffer: []u8) ?[]const u8 {
@@ -1201,16 +1202,16 @@ fn outputsPath(buffer: []u8) ?[]const u8 {
     // Preserve the historical XDG/HOME resolution exactly when no explicit
     // override is present. This keeps legacy profile-only files behaviorally
     // inert and avoids discovering a different pre-existing file by accident.
-    if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/aqueous/outputs.toml", .{xdg}) catch null;
-    if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/outputs.toml", .{home}) catch null;
-    if (pathExists("/etc/xdg/aqueous/outputs.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/aqueous/outputs.toml", .{}) catch null;
+    if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/outputs.toml", .{xdg}) catch null;
+    if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/outputs.toml", .{home}) catch null;
+    if (pathExists("/etc/xdg/" ++ instance.name ++ "/outputs.toml")) return std.fmt.bufPrint(buffer, "/etc/xdg/" ++ instance.name ++ "/outputs.toml", .{}) catch null;
     return null;
 }
 
 fn outputsWritePath(buffer: []u8) ?[]const u8 {
     if (outputsOverride(buffer)) |path| return path;
-    if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/aqueous/outputs.toml", .{xdg}) catch null;
-    if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/aqueous/outputs.toml", .{home}) catch null;
+    if (getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buffer, "{s}/" ++ instance.name ++ "/outputs.toml", .{xdg}) catch null;
+    if (getenv("HOME")) |home| return std.fmt.bufPrint(buffer, "{s}/.config/" ++ instance.name ++ "/outputs.toml", .{home}) catch null;
     return null;
 }
 

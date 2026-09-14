@@ -89,6 +89,10 @@ pub fn build(b: *Build) !void {
     ) orelse false;
 
     const options = b.addOptions();
+    const instance_name = b.option([]const u8, "instance-name", "Private package configuration/state namespace") orelse "aqueous";
+    options.addOption([]const u8, "instance_name", instance_name);
+    const instance_metadata = b.addWriteFiles().add("build-instance.json", b.fmt("{{\"schema\":1,\"instance\":\"{s}\"}}\n", .{instance_name}));
+    b.getInstallStep().dependOn(&b.addInstallFile(instance_metadata, "share/aqueous/build-instance.json").step);
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "vulkan_effects", vulkan_effects);
     options.addOption(bool, "animations", animations);
@@ -312,6 +316,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         aqueousctl.root_module.addImport("wayland", wayland);
+        aqueousctl.root_module.addOptions("build_options", options);
         aqueousctl.root_module.addImport("tablet", tablet);
         aqueousctl.root_module.linkSystemLibrary("wayland-client", .{});
         aqueousctl.pie = pie;
@@ -729,6 +734,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         aqueousctl_test.root_module.addImport("wayland", wayland);
+        aqueousctl_test.root_module.addOptions("build_options", options);
         aqueousctl_test.root_module.addImport("tablet", tablet);
         aqueousctl_test.root_module.linkSystemLibrary("wayland-client", .{});
         const run_aqueousctl_test = b.addRunArtifact(aqueousctl_test);
