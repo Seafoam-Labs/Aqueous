@@ -19,9 +19,10 @@ Nothing. Existing selections and personal files are retained.
 
 ## Build and install from source
 
-The recipes fetch upstream Git. Publish these source changes first, and build
-core and desktop from the **same commit**. Their exact version/release
-dependencies reject mismatched builds. Use a normal Arch build environment with
+The recipes fetch upstream Git. Publish these source changes first. The desktop
+requires its matching Git core at version `0.7.0` or newer. Core is a separate
+VCS recipe, so it does not need to have the desktop's commit/version. Components
+within the desktop recipe retain exact version/release dependencies. Use a normal Arch build environment with
 base-devel and the declared dependencies; Shelly and any selected shell must
 also be available to the package manager. These recipes have not automatically
 been published to the AUR or a binary repository.
@@ -45,14 +46,21 @@ mapfile -t desktop_packages < <(
 sudo pacman -U "${core_packages[@]}" "${desktop_packages[@]}"
 ```
 
-Stop if either build fails. If upstream changes between builds, rebuild both at
-the same revision before installing. Do not use `makepkg -si` in the desktop
+Stop if either build fails. Install all desktop components from the same build.
+Do not use `makepkg -si` in the desktop
 split recipe: it would request all its optional shell preset packages as well.
 
 Once the packages are published in a configured binary repository, the entry
 point becomes `sudo pacman -S aqueous-desktop-git` (or
 `aqueous-desktop-intel-git`). An AUR publication likewise requires publishing the
 matching core recipe; dependency solving must be able to find both package bases.
+
+For Remora/Shelly isolated builds, publish the core in a configured repository
+before queuing the desktop. An exact dependency on the desktop's `$pkgver` would
+ask for its placeholder version during pre-build review, before `pkgver()` runs.
+If Shelly reports `IsolatedAurDependencyUnsupported` for the core, check that
+the uploaded desktop recipe has the minimum-version dependency above and that
+the core is present in the repository database used by the build server.
 
 After installation, log out and select **Aqueous-Git** or **Aqueous-Intel-Git**.
 The stable login entry continues to launch stable Aqueous. The session starts

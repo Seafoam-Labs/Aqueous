@@ -33,7 +33,7 @@ pkgbase = aqueous-desktop-git
 
 pkgname = aqueous-session-git
 	pkgdesc = Aqueous Git login session and runtime
-	depends = aqueous-core-git=0.7.0.r0.g0000000-1
+	depends = aqueous-core-git>=0.7.0
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -100,7 +100,7 @@ pkgname = aqueous-shell-pearl-git
 
 pkgname = aqueous-desktop-git
 	pkgdesc = Complete Aqueous Git desktop (shell selected through welcome)
-	depends = aqueous-core-git=0.7.0.r0.g0000000-1
+	depends = aqueous-core-git>=0.7.0
 	depends = aqueous-session-git=0.7.0.r0.g0000000-1
 	depends = aqueous-welcome-git=0.7.0.r0.g0000000-1
 	depends = xdg-desktop-portal-aqueous-git=0.7.0.r0.g0000000-1

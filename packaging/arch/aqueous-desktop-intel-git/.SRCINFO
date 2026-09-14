@@ -32,7 +32,7 @@ pkgbase = aqueous-desktop-intel-git
 
 pkgname = aqueous-session-intel-git
 	pkgdesc = Aqueous Intel Git login session and runtime
-	depends = aqueous-core-intel-git=0.7.0.r0.g0000000-1
+	depends = aqueous-core-intel-git>=0.7.0
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -99,7 +99,7 @@ pkgname = aqueous-shell-pearl-intel-git
 
 pkgname = aqueous-desktop-intel-git
 	pkgdesc = Complete Aqueous Intel Git desktop (shell selected through welcome)
-	depends = aqueous-core-intel-git=0.7.0.r0.g0000000-1
+	depends = aqueous-core-intel-git>=0.7.0
 	depends = aqueous-session-intel-git=0.7.0.r0.g0000000-1
 	depends = aqueous-welcome-intel-git=0.7.0.r0.g0000000-1
 	depends = xdg-desktop-portal-aqueous-intel-git=0.7.0.r0.g0000000-1

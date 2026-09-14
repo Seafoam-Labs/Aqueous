@@ -36,7 +36,8 @@ _stage() {
 }
 package_aqueous-session-intel-git() {
     pkgdesc='Aqueous Intel Git login session and runtime'
-    depends=("aqueous-core-$_channel=$pkgver-$pkgrel" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
+    # Core is built by a separate VCS recipe. Review occurs before pkgver().
+    depends=("aqueous-core-$_channel>=0.7.0" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
              'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal' 'xdg-desktop-portal-gtk')
     backup=('etc/xdg/aqueous-intel-git/wm.toml' 'etc/xdg/aqueous-intel-git/outputs.toml'
             'etc/xdg/uwsm/env-aqueous-intel-git' 'etc/xdg/menus/aqueous-intel-git-applications.menu'
@@ -82,7 +83,7 @@ package_aqueous-shell-pearl-intel-git() {
 }
 package_aqueous-desktop-intel-git() {
     pkgdesc='Complete Aqueous Intel Git desktop (shell selected through welcome)'
-    depends=("aqueous-core-$_channel=$pkgver-$pkgrel" "aqueous-session-$_channel=$pkgver-$pkgrel"
+    depends=("aqueous-core-$_channel>=0.7.0" "aqueous-session-$_channel=$pkgver-$pkgrel"
              "aqueous-welcome-$_channel=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel")

@@ -44,7 +44,22 @@ for channel in git intel-git; do
     [[ ! -e $base/$channel-integration-dms/etc/xdg/quickshell ]] || fail 'Git installed global DMS plugins'
     recipe=$root/packaging/arch/aqueous-desktop-$channel/PKGBUILD
     bash -c 'set -eu; source "$1"; "package_aqueous-shell-pearl-$2"; [[ ${#depends[@]} == 2 && ${depends[1]} == pearl-git ]]' _ "$recipe" "$channel"
-    bash -c 'set -eu; source "$1"; "package_aqueous-desktop-$2"; [[ ${provides+x} != x && ${conflicts+x} != x && ${replaces+x} != x && ${install+x} != x ]]; [[ ${#depends[@]} == 7 ]]; for dep in "${depends[@]}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done' _ "$recipe" "$channel"
+    bash -c '
+        set -eu
+        source "$1"
+        _stage() { :; }
+        # Review sees the placeholder; the final build sees a VCS revision.
+        # Neither may tie an independently published core to that version.
+        for version in "$pkgver" 0.7.0.r999.gabcdef0; do
+            pkgver=$version
+            "package_aqueous-session-$2"
+            [[ ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
+            "package_aqueous-desktop-$2"
+            [[ ${provides+x} != x && ${conflicts+x} != x && ${replaces+x} != x && ${install+x} != x ]]
+            [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
+            for dep in "${depends[@]:1}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
+        done
+    ' _ "$recipe" "$channel"
     (
         export HOME=$base/home-$channel XDG_CONFIG_HOME=$base/config-$channel XDG_STATE_HOME=$base/state-$channel XDG_RUNTIME_DIR=$base/run-$channel
         export AQUEOUS_SYSCONFDIR=$session/etc AQUEOUS_UNIT_DIR=$base/$channel-integration-dms/usr/lib/systemd/user AQUEOUS_SHARE_DIR=$session/usr/share/$instance
