@@ -554,7 +554,7 @@ pub fn build(b: *Build) !void {
 
         const config_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("aqueous/wm/config_tests.zig"),
+                .root_source_file = b.path("aqueous/config_tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),

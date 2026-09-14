@@ -494,7 +494,7 @@ and [IPC contract](protocol/aqueous-ipc-v1.md) for limits and verification scope
 Aqueous advertises `xdg_system_bell_v1` version 1 in both renderer builds,
 including security-context clients and external-policy mode. The default bell
 briefly highlights the associated output edge. Configure it under **Appearance →
-System bell** in `aqueous-settings`, or in `wm.toml`:
+System bell** through a configuration client such as Pearl, or in `wm.toml`:
 
 ```toml
 [bell]

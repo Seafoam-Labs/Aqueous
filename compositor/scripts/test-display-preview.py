@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Native preview against a private headless compositor and private bus."""
+import socket
+import signal
+import json
+import uuid
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+from ipc_test_client import Client
+
+ROOT=Path(__file__).resolve().parents[1]
+BIN=Path(os.environ.get('AQUEOUS_COMPOSITOR_BIN', ROOT/'zig-out/bin/aqueous'))
+
+def wait(fn, seconds=8):
+    end=time.monotonic()+seconds
+    while time.monotonic()<end:
+        value=fn()
+        if value: return value
+        time.sleep(.03)
+    raise AssertionError('condition timed out')
+
+with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
+    base=Path(tmp)
+    env={k:v for k,v in os.environ.items() if not k.startswith('AQUEOUS_') and k not in ['DBUS_SESSION_BUS_ADDRESS','DISPLAY','WAYLAND_DISPLAY','LD_PRELOAD']}
+    for key,name in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_STATE_HOME','state'),('XDG_RUNTIME_DIR','run')]:
+        path=base/name; path.mkdir(mode=0o700); env[key]=str(path)
+    cfg=base/'config/aqueous'; cfg.mkdir()
+    (cfg/'wm.toml').write_text('[workspace_transition]\nenabled = false\n')
+    bindir=base/'bin';bindir.mkdir();notify=bindir/'notify-send';notify.write_text('#!/bin/sh\nexit 0\n');notify.chmod(0o755)
+    env['PATH']=str(bindir)+':'+os.environ['PATH']
+    env.update(WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER='pixman', LD_LIBRARY_PATH=str(ROOT/'.deps/wlroots-render-hook/lib'))
+    log=(base/'compositor.log').open('w+')
+    proc=subprocess.Popen(['dbus-run-session','--',str(BIN),'-no-xwayland','-c','printenv AQUEOUS_SOCKET WAYLAND_DISPLAY > "$XDG_RUNTIME_DIR/socket"'],env=env,stdout=log,stderr=log,start_new_session=True)
+    clients=[]
+    try:
+        def socket_path():
+            if proc.poll() is not None:
+                log.seek(0); raise AssertionError(log.read())
+            p=base/'run/socket'
+            return p.read_text().splitlines()[0] if p.exists() and len(p.read_text().splitlines())==2 else None
+        path=wait(socket_path)
+        env.update(AQUEOUS_SOCKET=path, WAYLAND_DISPLAY=(base/'run/socket').read_text().splitlines()[1], PATH=str(bindir)+':'+str(BIN.parent)+':'+os.environ['PATH'])
+        helper=ROOT.parent/'settingsApplication/zig-out/bin/aqueous-config'
+        def helper_call(op, request=None, flags=()):
+            args=[str(helper),op,'--shell','none',*flags]
+            if request is not None: args += ['--request','-']
+            p=subprocess.run(args,input=None if request is None else json.dumps(request),text=True,capture_output=True,env=env,timeout=35)
+            result=json.loads(p.stdout)
+            if not result.get('ok') and result.get('code')=='config_writer_busy':
+                # A cooperating reader may be publishing another complete
+                # generation. Retry this read-only query, never replay apply.
+                assert op in ('snapshot','validate','operation-status'),result
+                time.sleep(.1)
+                return helper_call(op,request,flags)
+            assert result['ok'],(result,p.stderr)
+            return result
+        query=Client(path); clients.append(query)
+        def model(): return query.call('display.snapshot')['result']
+        baseline=wait(lambda: (m if (m:=model())['observation']=='current' and len(m['outputs'])==2 else None))
+        def candidate(m, fields):
+            o=m['outputs'][0]
+            text='[[output]]\nname = '+json.dumps(o['connector'])+'\n'
+            if 'x' in fields or 'y' in fields: text+='position = '+json.dumps([fields.get('x',o['actual']['x']),fields.get('y',o['actual']['y'])])+'\n'
+            if 'scale' in fields: text+='scale = '+str(fields['scale'])+'\n'
+            if 'mirror_of' in fields: text+='mirror_of = '+json.dumps(fields['mirror_of'])+'\n'
+            if 'mode' in fields: text+='mode = '+json.dumps(fields['mode'])+'\n'
+            if 'transform' in fields: text+='transform = '+json.dumps(fields['transform'])+'\n'
+            if 'enabled' in fields: text+='enabled = '+str(fields['enabled']).lower()+'\n'
+            snap=helper_call('snapshot')
+            request=dict(protocol=1,expected_generation=snap['generation'],raw_files={'outputs':text})
+            validation=helper_call('validate',request)
+            return request,dict(display_revision=m['display_revision'],candidate_digest=validation['candidate_review']['candidate_digest'],expected_generation=snap['generation'],wm_source=snap['raw_files']['wm'],outputs_source=text)
+        def begin(owner, snapshot=None, **fields):
+            m=snapshot or wait(lambda: (v if (v:=model())['observation']=='current' else None))
+            _,params=candidate(m,fields)
+            return owner.call('display.preview.begin',params)['result']
+        def status(token): return query.call('display.preview.status',dict(token=token))['result']
+        def owner():
+            c=Client(path);clients.append(c);return c
+        c=owner(); lease=begin(c,x=125)
+        token=lease['token']; wait(lambda: status(token)['state']=='previewing')
+        assert model()['outputs'][0]['actual']['x']==125
+        assert not query.call('display.preview.begin',dict(display_revision=model()['display_revision'],candidate_digest='a'*64,expected_generation='b'*16,outputs=[]),ok=False)['ok']
+        query.call('display.preview.revert',dict(token=token))
+        wait(lambda: status(token)['state']=='reverted')
+        assert model()['outputs'][0]['actual']==baseline['outputs'][0]['actual']
+        query.call('display.preview.revert',dict(token=token))
+        _,stale=candidate(model(),{'x':1});stale['display_revision']=baseline['display_revision']
+        assert not c.call('display.preview.begin',stale,ok=False)['ok']
+        lease=begin(c,x=250); token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        c.close(); clients.remove(c)
+        wait(lambda: status(token)['state']=='reverted')
+        assert model()['outputs'][0]['actual']==baseline['outputs'][0]['actual']
+        c=owner(); lease=begin(c,scale=1.25);token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        before=status(token)['remaining_ms'];time.sleep(.2);assert status(token)['remaining_ms']<before
+        wait(lambda: status(token)['state']=='reverted',seconds=17)
+        assert model()['outputs'][0]['actual']==baseline['outputs'][0]['actual']
+        assert (cfg/'wm.toml').read_text()=='[workspace_transition]\nenabled = false\n'
+        assert not (cfg/'outputs.toml').exists()
+        for fields in [dict(enabled=False),dict(transform='90'),dict(mode='800x600@60')]:
+            current=model();before_actual=[o['actual'] for o in current['outputs']]
+            lease=begin(c,**fields);token=lease['token']
+            wait(lambda: status(token)['state']=='previewing')
+            query.call('display.preview.revert',dict(token=token))
+            wait(lambda: status(token)['state']=='reverted')
+            assert [o['actual'] for o in model()['outputs']]==before_actual
+        # Reject an entire unusable plan without starting a lease.
+        _,params=candidate(model(),{'enabled':False})
+        params['outputs_source']=''.join('[[output]]\nname = '+json.dumps(o['connector'])+'\nenabled = false\n' for o in model()['outputs'])
+        assert not c.call('display.preview.begin',params,ok=False)['ok']
+        # Profile declarations, primary routing and reload policy use the
+        # candidate configuration during preview and restore on Revert.
+        for addition in ['[display]\napply_on_reload = false\n', '[[display.profile]]\nname = "offline"\n[[display.profile.output]]\nname = "DISCONNECTED"\nenabled = false\n', '[[output]]\nname = '+json.dumps(model()['outputs'][1]['connector'])+'\nprimary = true\n']:
+            before_primary=[o['primary'] for o in model()['outputs']]
+            request,params=candidate(model(),{'x':300})
+            params['outputs_source']+=addition
+            request['raw_files']['outputs']=params['outputs_source']
+            params['candidate_digest']=helper_call('validate',request)['candidate_review']['candidate_digest']
+            lease=c.call('display.preview.begin',params)['result'];token=lease['token']
+            wait(lambda: status(token)['state']=='previewing')
+            if 'primary = true' in addition: assert model()['outputs'][1]['primary'] is True
+            query.call('display.preview.revert',dict(token=token))
+            wait(lambda: status(token)['state']=='reverted')
+            assert [o['primary'] for o in model()['outputs']]==before_primary
+        request,params=candidate(model(),{'x':400})
+        lease=c.call('display.preview.begin',params)['result'];token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        id=str(int(time.time()))+'-'+uuid.uuid4().hex
+        request.update(preview_token=token,candidate_digest=params['candidate_digest'])
+        result=helper_call('apply',request,('--result','v1','--operation-id',id))
+        assert result['save']=='saved' and result['display']=='kept' and result['reload']=='applied',result
+        ack=result['reload_acknowledgement'];assert ack['session']==query.session and ack['generation']==result['after_generation'] and ack['candidate_digest']==result['candidate_digest']
+        assert status(token)['state']=='kept'
+        assert (cfg/'outputs.toml').read_text()==params['outputs_source']
+        assert helper_call('operation-status',flags=('--operation-id',id))==result
+        assert helper_call('apply',request,('--result','v1','--operation-id',id))==result
+        for stage in ['commit_authorized','journal_prepared','journal_committed']:
+            # The preceding receipt remains queryable while a later operation
+            # is interrupted at each durable boundary.
+            request,params=candidate(model(),{'x':model()['outputs'][0]['actual']['x']+50})
+            lease=c.call('display.preview.begin',params)['result'];token=lease['token']
+            wait(lambda: status(token)['state']=='previewing')
+            id=str(int(time.time()))+'-'+uuid.uuid4().hex
+            request.update(preview_token=token,candidate_digest=params['candidate_digest'])
+            before=(cfg/'outputs.toml').read_text()
+            driver=helper.parent/'aqueous-backend-test'
+            crash_env=env|{'AQUEOUS_TEST_CRASH_AT':stage}
+            p=subprocess.run([str(driver),'apply','--shell','none','--result','v1','--operation-id',id,'--request','-'],input=json.dumps(request),text=True,capture_output=True,env=crash_env,timeout=35)
+            assert p.returncode==97,(stage,p.stdout,p.stderr)
+            receipt=helper_call('operation-status',flags=('--operation-id',id))
+            expected='kept' if stage=='journal_committed' else 'invalidated'
+            wait(lambda: status(token)['state']==expected,seconds=12)
+            assert (cfg/'outputs.toml').read_text()==(params['outputs_source'] if stage=='journal_committed' else before)
+            assert receipt['save']==('saved' if stage=='journal_committed' else 'failed' if stage=='journal_prepared' else 'uncertain'),receipt
+            # Bring the canonical generation into the loader before the next
+            # candidate validation; this is an explicit test-side reload.
+            query.command('session.reload')
+        # Mirroring uses the same lease and complete dependency set.
+        current=model();before_actual=[o['actual'] for o in current['outputs']]
+        source_name=current['outputs'][1]['connector']
+        lease=begin(c,mirror_of=source_name);token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        assert model()['outputs'][0]['actual']['mirror_of']==source_name
+        query.call('display.preview.revert',dict(token=token))
+        wait(lambda: status(token)['state']=='reverted')
+        assert [o['actual'] for o in model()['outputs']]==before_actual
+        lease=begin(c,mirror_of=source_name);token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        with socket.socket(socket.AF_UNIX) as test_socket:
+            test_socket.settimeout(5);test_socket.connect(str(base/'run/aqueous/outputd.sock'))
+            test_socket.sendall(json.dumps(dict(op='test_output_retry',name=source_name,action='destroy')).encode()+b'\n')
+            reply=json.loads(test_socket.makefile().readline());assert reply['ok'],reply
+        wait(lambda: status(token)['state'] in ('invalidated','failed'))
+        remaining=model()['outputs'];assert len(remaining)==1 and remaining[0]['enabled']
+        assert status(token)['rollback_partial'] or status(token)['state']=='failed'
+        print('PASS: native headless preview, test/apply/revert, disconnect, timeout, single owner, stale revision, unchanged canonical files')
+    except Exception:
+        log.seek(0);print('\n'.join(log.read().splitlines()[-35:]));raise
+    finally:
+        for c in clients:c.close()
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:os.killpg(proc.pid, signal.SIGKILL);proc.wait()
+        log.close()

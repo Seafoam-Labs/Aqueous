@@ -3,6 +3,7 @@ const config = @import("config_document.zig");
 const toolkit_sync = @import("toolkit_sync.zig");
 const cursor_sync = @import("cursor_sync.zig");
 const schema = @import("schema.zig");
+const review = @import("candidate_review.zig");
 
 const Allocator = std.mem.Allocator;
 const Json = std.json.Value;
@@ -18,7 +19,7 @@ pub fn execute(allocator: Allocator, io: std.Io, command: Command, shell: Shell,
         .snapshot, .raw => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
-            if (command == .raw) try writeRaw(writer, &files, schema.FileId.fromName(request) orelse return error.UnknownFile) else try writeSnapshot(io, writer, &files, null, null, shell);
+            if (command == .raw) try writeRaw(writer, &files, schema.FileId.fromName(request) orelse return error.UnknownFile) else try writeSnapshot(io, writer, &files, null, null, shell, null, null);
         },
         .validate, .apply => try handleRequest(allocator, io, writer, request, command == .apply, shell),
     }
@@ -44,9 +45,17 @@ fn writeSnapshot(
     applied_report: ?*const toolkit_sync.Report,
     applied_cursor_report: ?*const cursor_sync.Report,
     shell: toolkit_sync.Shell,
+    candidate_review: ?*const review.Report,
+    candidate_impact: ?[]const u8,
 ) !void {
     var generation_buffer: [16]u8 = undefined;
     const generation = generationText(files, &generation_buffer);
+    var observation: std.Io.Writer.Allocating = .init(files.allocator);
+    defer observation.deinit();
+    var observation_json: std.json.Stringify = .{ .writer = &observation.writer };
+    try writeDisplayObservation(files.allocator, &observation_json);
+    const parsed_observation = try std.json.parseFromSlice(Json, files.allocator, observation.written(), .{});
+    defer parsed_observation.deinit();
     var json: std.json.Stringify = .{ .writer = writer };
     try json.beginObject();
     try field(&json, "ok", true);
@@ -54,6 +63,48 @@ fn writeSnapshot(
     try field(&json, "helper_version", schema.helper_version);
     try field(&json, "capabilities", schema.capabilities);
     try field(&json, "generation", generation);
+    if (candidate_review) |report| try field(&json, "candidate_review", report.*);
+    if (candidate_impact) |bytes| {
+        const parsed_impact = try std.json.parseFromSlice(Json, files.allocator, bytes, .{});
+        defer parsed_impact.deinit();
+        try field(&json, "candidate_impact", parsed_impact.value);
+    }
+    try json.objectField("display_model");
+    try json.beginObject();
+    try field(&json, "version", 2);
+    try field(&json, "generation", generation);
+    try field(&json, "candidate", candidate_review != null);
+    try json.objectField("declarations");
+    try writeDisplayDeclarations(&json, files);
+    try json.objectField("configured");
+    try @import("display_config").write(&json, files.items[0].document.source, files.items[3].document.source);
+    try json.objectField("live");
+    try json.write(parsed_observation.value);
+    try json.endObject();
+    try json.objectField("display_observation");
+    try json.write(parsed_observation.value);
+    try json.objectField("display_configuration");
+    try @import("display_config").write(&json, files.items[@intFromEnum(schema.FileId.wm)].document.source, files.items[@intFromEnum(schema.FileId.outputs)].document.source);
+    try json.objectField("display_declarations");
+    try writeDisplayDeclarations(&json, files);
+    try field(&json, "collection_identity", .{
+        .version = 1,
+        .scope = "generation",
+        .generation = generation,
+        .precondition = "expected_generation",
+        .stale_edit = "external_change",
+        .raw_and_structured_same_collection = "conflicting_edits",
+        .rebase = "unsupported",
+    });
+    try json.objectField("collection_preconditions");
+    try json.beginObject();
+    for ([_]schema.FileId{ .wm, .rules, .layout }) |id| {
+        const digest = try collectionDigest(files.allocator, &files.items[@intFromEnum(id)]);
+        try field(&json, id.name(), digest);
+    }
+    try json.endObject();
+    try json.objectField("collection_schema");
+    try writeCollectionSchema(&json);
     const stacking_schema = schema.find("layout.options.float.placement").?;
     try field(
         &json,
@@ -399,13 +450,14 @@ fn writeStringList(json: *std.json.Stringify, raw_value: []const u8) !void {
 fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, source: []const u8, do_apply: bool, shell: toolkit_sync.Shell) !void {
     if (source.len > max_request_bytes) return error.RequestTooLarge;
     try control.check();
+    try validateJsonDepth(source);
     var parsed = try std.json.parseFromSlice(Json, allocator, source, .{});
     defer parsed.deinit();
     if (parsed.value != .object) return error.InvalidRequest;
     const request = parsed.value.object;
     const protocol = jsonInteger(request.get("protocol")) orelse return error.MissingProtocol;
     if (protocol != schema.protocol_version) return error.UnsupportedProtocol;
-    const expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
+    var expected = jsonString(request.get("expected_generation")) orelse return error.MissingGeneration;
     const typography_sync_requested = if (request.get("sync_typography")) |value|
         jsonBool(value) orelse return error.InvalidTypographySyncRequest
     else
@@ -418,7 +470,15 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     var files = try config.ConfigFiles.init(allocator);
     defer files.deinit();
     var generation_buffer: [16]u8 = undefined;
-    if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) return error.ExternalChange;
+    var rebased: ?[]u8 = null;
+    defer if (rebased) |bytes| allocator.free(bytes);
+    if (!std.mem.eql(u8, expected, generationText(&files, &generation_buffer))) {
+        try checkCollectionPreconditions(allocator, request, &files);
+        rebased = try allocator.dupe(u8, generationText(&files, &generation_buffer));
+        expected = rebased.?;
+    }
+    var original_existence: [schema.file_count]bool = undefined;
+    for (files.items, 0..) |file, index| original_existence[index] = pathExists(file.path);
 
     var originals: [schema.file_count][]u8 = undefined;
     for (files.items, 0..) |file_item, index| originals[index] = try allocator.dupe(u8, file_item.document.source);
@@ -592,9 +652,69 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
 
     var sync_report: ?toolkit_sync.Report = null;
     var cursor_report: ?cursor_sync.Report = null;
+    const candidate_review = try review.prepare(allocator, expected, originals, &files);
+    defer candidate_review.deinit(allocator);
+    const candidate_impact = try @import("impact.zig").prepare(allocator, &files, originals, expected, candidate_review.candidate_digest);
+    defer allocator.free(candidate_impact);
+    if (control.current) |state| {
+        state.before_generation = expected[0..16].*;
+        state.after_generation = generationText(&files, &generation_buffer)[0..16].*;
+        state.candidate_digest = candidate_review.candidate_digest[0..64].*;
+    }
 
+    if (do_apply and jsonBool(request.get("protected_apply") orelse .{ .bool = false }) == true) {
+        const classified = try std.json.parseFromSlice(Json, allocator, candidate_impact, .{});
+        defer classified.deinit();
+        if (!classified.value.object.get("complete").?.bool) return error.UnclassifiedCandidate;
+        if (classified.value.object.get("display")) |projection| if (projection == .object and request.get("preview_token") == null) {
+            const expected_revision = jsonString(request.get("expected_display_revision")) orelse return error.MissingDisplayRevision;
+            const expected_session = jsonString(request.get("expected_session")) orelse return error.MissingDisplayRevision;
+            const current_revision = jsonString(projection.object.get("display_revision")) orelse return error.MissingDisplayRevision;
+            const current_session = jsonString(projection.object.get("session")) orelse return error.MissingDisplayRevision;
+            if (!std.mem.eql(u8, expected_revision, current_revision) or !std.mem.eql(u8, expected_session, current_session)) return error.StaleDisplayRevision;
+            // A revision observation alone cannot serialize hotplug/profile activation
+            // with persistence. Even deferred effects require the native lease.
+            return error.DisplayPreviewRequired;
+        };
+    }
     try control.check();
     if (do_apply and (changed_count > 0 or cursor_sync_requested or typography_sync_requested)) {
+        // Re-resolve sources under the writer lock, immediately before writes.
+        // Include absent vs empty files, which protocol-1 generation omits.
+        var current_files = try config.ConfigFiles.init(allocator);
+        defer current_files.deinit();
+        if (!std.mem.eql(u8, expected, generationText(&current_files, &generation_buffer))) return error.ExternalChange;
+        for (current_files.items, 0..) |file, index| {
+            if (pathExists(file.path) != original_existence[index]) return error.ExternalChange;
+            if (!std.mem.eql(u8, file.path, files.items[index].path) and pathExists(files.items[index].path)) return error.ExternalChange;
+        }
+        if (jsonString(request.get("preview_token"))) |token| {
+            const classified = try std.json.parseFromSlice(Json, allocator, candidate_impact, .{});
+            defer classified.deinit();
+            if (classified.value.object.get("complete").?.bool != true) return error.UnclassifiedCandidate;
+            const state = control.current orelse return error.OperationRecordRequired;
+            if (state.operation_id == null or token.len != 64) return error.OperationRecordRequired;
+            const supplied_digest = jsonString(request.get("candidate_digest")) orelse return error.CandidateMismatch;
+            if (!std.mem.eql(u8, supplied_digest, candidate_review.candidate_digest)) return error.CandidateMismatch;
+            state.preview_token = token;
+            var client = try @import("display_config").ipc.Client.open(allocator);
+            defer client.close();
+            const response = try client.call(allocator, "display.preview.authorize", .{
+                .token = token,
+                .operation_id = state.operation_id.?,
+                .candidate_digest = candidate_review.candidate_digest,
+                .expected_generation = expected,
+                .wm_source = files.items[0].document.source,
+                .outputs_source = files.items[3].document.source,
+            });
+            defer allocator.free(response);
+            const parsed_response = try std.json.parseFromSlice(Json, allocator, response, .{});
+            defer parsed_response.deinit();
+            const remaining = jsonInteger(parsed_response.value.object.get("remaining_ms")) orelse return error.InvalidReply;
+            if (remaining <= 1000 or remaining > 10000) return error.CommitExpired;
+            state.commit_deadline_ms = std.Io.Clock.awake.now(io).toMilliseconds() + remaining - 1000;
+            @import("display_config").transaction.checkpoint("commit_authorized");
+        }
         try control.beginCommit();
         if (changed_count > 1) {
             const backup_dir = jsonString(request.get("backup_dir")) orelse return error.BackupDirRequired;
@@ -603,12 +723,57 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         if (changed_count > 0) {
             for (&files.items, 0..) |*file_item, index| file_item.dirty = dirty[index];
             control.markWriting();
-            files.save() catch |save_error| {
-                rollbackOriginals(allocator, &files, originals, dirty);
+            const tx = @import("display_config").transaction;
+            var entries: std.ArrayList(tx.Entry) = .empty;
+            defer entries.deinit(allocator);
+            for (files.items, 0..) |file, index| {
+                if (!dirty[index]) continue;
+                const before = try tx.readOptional(allocator, io, file.path, tx.max_file_bytes);
+                // The source may be a system file while the authorized target
+                // is a newly created user override: absence is the baseline.
+                if (before) |bytes| {
+                    if (!std.mem.eql(u8, bytes, originals[index])) return error.ExternalChange;
+                }
+                const stat = std.Io.Dir.cwd().statFile(io, file.path, .{}) catch null;
+                try entries.append(allocator, .{
+                    .path = file.path,
+                    .before = before,
+                    .after = file.document.source,
+                    .before_digest = if (before) |bytes| tx.digest(bytes) else null,
+                    .after_digest = tx.digest(file.document.source),
+                    .mode = if (stat) |v| @intCast(v.permissions.toMode() & 0o777) else 0o600,
+                });
+            }
+            defer for (entries.items) |entry| if (entry.before) |bytes| allocator.free(bytes);
+            const after = generationText(&files, &generation_buffer);
+            var random: [32]u8 = undefined;
+            std.Io.random(io, &random);
+            const transaction_id = std.fmt.bytesToHex(random, .lower);
+            var durable = false;
+            tx.commit(allocator, io, .{
+                .transaction_id = &transaction_id,
+                .operation_id = if (control.current) |state| state.operation_id else null,
+                .preview_token = if (control.current) |state| state.preview_token else null,
+                .candidate_digest = candidate_review.candidate_digest,
+                .before_generation = expected,
+                .after_generation = after,
+                .phase = .prepared,
+                .entries = entries.items,
+                .commit_deadline_ms = if (control.current) |state| state.commit_deadline_ms else null,
+            }, &durable) catch |save_error| {
+                if (durable) control.markSaved();
+                const recovered = tx.recover(allocator, io) catch return error.RecoveryConflict;
+                if (recovered == .committed) control.markSaved();
                 return save_error;
             };
         }
         control.markSaved();
+        if (control.current) |state| if (state.preview_token) |token| {
+            state.display = .failed;
+            finalizePreview(allocator, token, state.operation_id.?) catch return error.DisplayFinalizeFailed;
+            state.display = .kept;
+            @import("display_config").transaction.checkpoint("display_finalized");
+        };
         if (typography_changed or typography_sync_requested) {
             sync_report = toolkit_sync.applyForShell(allocator, io, &typography, shell);
         }
@@ -624,7 +789,37 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         if (sync_report) |*report| report else null,
         if (cursor_report) |*report| report else null,
         shell,
+        &candidate_review,
+        candidate_impact,
     );
+}
+
+fn writeDisplayDeclarations(json: *std.json.Stringify, files: *const config.ConfigFiles) !void {
+    try json.beginArray();
+    for ([_]schema.FileId{ .wm, .outputs }) |id| {
+        const file = &files.items[@intFromEnum(id)];
+        const tables = try file.document.tables(files.allocator);
+        defer files.allocator.free(tables);
+        const entries = try file.document.entries(files.allocator);
+        defer files.allocator.free(entries);
+        for (tables) |table| {
+            if (!std.mem.eql(u8, table.name, "output") and !std.mem.eql(u8, table.name, "display") and !std.mem.startsWith(u8, table.name, "display.")) continue;
+            try json.beginObject();
+            try field(json, "source", id.name());
+            try field(json, "path", file.path);
+            try field(json, "declaration", table.index);
+            try field(json, "section", table.name);
+            try field(json, "repeated", table.repeated);
+            try json.objectField("entries");
+            try json.beginArray();
+            for (entries) |entry| if (entry.table_index == table.index) {
+                try json.write(.{ .key = entry.key, .raw = entry.value });
+            };
+            try json.endArray();
+            try json.endObject();
+        }
+    }
+    try json.endArray();
 }
 
 fn writeConfiguredMonitors(
@@ -1116,6 +1311,19 @@ fn writeWindowRules(json: *std.json.Stringify, document: *const config.Document)
             try writeRuleJsonValue(json, entry.key, entry.value);
         }
         try json.endObject();
+        try json.objectField("diagnostics");
+        try json.beginArray();
+        for (entries) |entry| {
+            if (entry.table_index != table.index) continue;
+            if (!ruleKnown(entry.key)) {
+                try json.write(.{ .field = entry.key, .code = "unknown_field_preserved" });
+                continue;
+            }
+            validateRuleRaw(entry.key, entry.value) catch {
+                try json.write(.{ .field = entry.key, .code = "invalid_value" });
+            };
+        }
+        try json.endArray();
         try json.endObject();
         position += 1;
     }
@@ -1368,13 +1576,8 @@ fn validateRuleRaw(key: []const u8, raw: []const u8) !void {
 }
 
 fn validRuleText(key: []const u8, value: []const u8) bool {
-    if (std.mem.eql(u8, key, "layout")) return valueIn(value, &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" });
-    if (std.mem.eql(u8, key, "content_type")) return valueIn(value, &.{ "none", "photo", "video", "game" });
-    if (std.mem.eql(u8, key, "placement_policy")) return valueIn(value, &.{ "cascade", "center", "under-pointer", "minimal-overlap" });
-    if (std.mem.eql(u8, key, "anchor")) return valueIn(value, &.{ "center", "top", "bottom", "left", "right" });
-    if (std.mem.eql(u8, key, "buffer_scale_policy")) return valueIn(value, &.{ "native", "integer-ceil" });
-    if (std.mem.eql(u8, key, "overlay_plane")) return valueIn(value, &.{ "off", "prefer" });
-    if (std.mem.eql(u8, key, "stack_layer")) return valueIn(value, &.{ "below", "normal", "above" });
+    const options = ruleOptions(key);
+    if (options.len != 0) return valueIn(value, options);
     if (std.mem.eql(u8, key, "size")) return validRuleSize(value);
     return true;
 }
@@ -1942,24 +2145,9 @@ fn backupOriginals(
     }
 }
 
-fn rollbackOriginals(allocator: Allocator, files: *const config.ConfigFiles, originals: [schema.file_count][]u8, dirty: [schema.file_count]bool) void {
-    for (dirty, 0..) |is_dirty, index| {
-        if (!is_dirty or std.mem.startsWith(u8, files.items[index].path, "/etc/xdg/")) continue;
-        var document = config.Document.init(allocator, originals[index]) catch continue;
-        defer document.deinit();
-        document.write(files.items[index].path) catch {};
-    }
-}
-
 fn generationText(files: *const config.ConfigFiles, buffer: *[16]u8) []const u8 {
-    var state = std.hash.Wyhash.init(0x415155454f5553);
-    for (files.items) |file_item| {
-        state.update(file_item.path);
-        state.update(&.{0});
-        state.update(file_item.document.source);
-        state.update(&.{0xff});
-    }
-    return std.fmt.bufPrint(buffer, "{x:0>16}", .{state.final()}) catch unreachable;
+    buffer.* = @import("display_config").document.generation(files);
+    return buffer;
 }
 
 fn jsonStringLiteral(allocator: Allocator, text: []const u8) ![]u8 {
@@ -2079,9 +2267,26 @@ fn writeError(writer: *std.Io.Writer, code: []const u8, message: []const u8) !vo
     try json.endObject();
 }
 
-fn errorCode(err: anyerror) []const u8 {
+pub fn errorCode(err: anyerror) []const u8 {
     return switch (err) {
         error.ExternalChange => "external_change",
+        error.ConfigWriterBusy => "config_writer_busy",
+        error.RecoveryConflict => "recovery_conflict",
+        error.InvalidJournal => "invalid_journal",
+        error.OperationIdReused => "operation_id_reused",
+        error.OperationIdExpired => "operation_id_expired",
+        error.InvalidOperationId => "invalid_operation_id",
+        error.ReceiptCapacity => "receipt_capacity",
+        error.CandidateMismatch => "candidate_mismatch",
+        error.CommitExpired => "commit_expired",
+        error.DisplayFinalizeFailed => "display_finalize_failed",
+        error.OperationRecordRequired => "operation_record_required",
+        error.UnclassifiedCandidate => "unclassified_candidate",
+        error.MissingDisplayRevision => "missing_display_revision",
+        error.StaleDisplayRevision => "stale_display_revision",
+        error.DisplayPreviewRequired => "display_preview_required",
+        error.InvalidCollectionPreconditions => "invalid_collection_preconditions",
+        error.JsonDepthExceeded => "json_depth_exceeded",
         error.SystemConfigReadOnly => "system_config_read_only",
         error.BackupDirRequired => "backup_dir_required",
         error.InvalidBoolean,
@@ -2281,4 +2486,108 @@ test "tag-only rules survive backend add, edit and JSON round trips" {
     const remove = try std.json.parseFromSliceLeaky(Json, a, "{\"tag\":null}", .{});
     try applyRuleValues(a, &document, table, remove.object);
     try std.testing.expectError(error.WindowRuleMissingMatcher, validateWindowRules(&document));
+}
+
+fn writeDisplayObservation(a: Allocator, json: *std.json.Stringify) !void {
+    var client = @import("display_config").ipc.Client.open(a) catch |err| return json.write(.{ .status = "unavailable", .reason = @errorName(err) });
+    defer client.close();
+    const bytes = client.call(a, "display.snapshot", .{}) catch |err| return json.write(.{ .status = "unavailable", .reason = @errorName(err) });
+    defer a.free(bytes);
+    const parsed = std.json.parseFromSlice(Json, a, bytes, .{}) catch return json.write(.{ .status = "unavailable", .reason = "invalid_reply" });
+    defer parsed.deinit();
+    try json.write(parsed.value);
+}
+
+fn finalizePreview(a: Allocator, token: []const u8, id: []const u8) !void {
+    var client = try @import("display_config").ipc.Client.open(a);
+    defer client.close();
+    const response = try client.call(a, "display.preview.finalize", .{ .token = token, .operation_id = id });
+    defer a.free(response);
+}
+
+fn writeCollectionSchema(json: *std.json.Stringify) !void {
+    try json.beginObject();
+    try field(json, "version", 1);
+    try field(json, "identity", .{ .scope = "generation", .precondition = "expected_generation", .rebase = "requires_new_snapshot", .ordering = "source_order", .duplicate_identity = "distinct_source_indices" });
+    try json.objectField("window_rules");
+    try json.beginObject();
+    try field(json, "operations", .{ "add", "update", "delete", "move" });
+    try field(json, "missing_field", "inherit");
+    try field(json, "matchers", .{ .combination = "all_present", .ordering = "first_match_wins", .glob = .{ .anchored = true, .case_sensitive = true, .star = "zero_or_more_bytes", .question_mark = "one_byte", .missing_value = "empty_string" }, .tag = .{ .backslash_escape = true, .missing_value = "never_matches" } });
+    try json.objectField("fields");
+    try json.beginArray();
+    for (rule_keys) |key| {
+        const kind: []const u8 = if (ruleBoolean(key)) "boolean" else if (ruleInteger(key)) "integer" else if (ruleDouble(key)) "number" else "string";
+        try json.beginObject();
+        try field(json, "key", key);
+        try field(json, "type", kind);
+        try field(json, "default", @as(?bool, null));
+        try field(json, "options", ruleOptions(key));
+        try field(json, "matcher", if (std.mem.eql(u8, key, "app_id") or std.mem.eql(u8, key, "class") or std.mem.eql(u8, key, "title")) @as(?[]const u8, "anchored_case_sensitive_glob") else null);
+        const bounds: ?[2]f64 = if (std.mem.eql(u8, key, "workspace")) .{ 1, std.math.maxInt(u32) } else if (std.mem.eql(u8, key, "width") or std.mem.eql(u8, key, "height")) .{ 1, 100000 } else if (std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) .{ -100000, 100000 } else if (std.mem.eql(u8, key, "scale")) .{ 0, 16 } else if (std.mem.eql(u8, key, "opacity")) .{ 0, 1 } else null;
+        try field(json, "range", bounds);
+        try field(json, "exclusive_minimum", std.mem.eql(u8, key, "scale"));
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.endObject();
+    try field(json, "custom_bindings", .{ .operations = .{ "add", "update", "delete" }, .chord = .{ .min_bytes = 1, .max_bytes = 128, .semantic_validation = "compositor", .separator = "+", .key_count = 1, .modifiers = .{ "Super", "Mod4", "Logo", "Win", "Meta", "Ctrl", "Control", "Alt", "Mod1", "Shift" }, .modifier_case_sensitive = false, .super = "configured_primary_modifier", .meta = "physical_super", .key = "XKB_keysym_or_wheel_direction" }, .command = .{ .min_bytes = 1, .max_bytes = 1024 } });
+    try field(json, "snap_layouts", .{ .operations = .{"replace"}, .padding = .{ .min = 0, .max = 512 }, .default = "must_reference_existing_layout", .zone = .{ .unit = "fraction_of_work_area", .x = .{ 0, 1 }, .y = .{ 0, 1 }, .width = .{ 0, 1 }, .height = .{ 0, 1 }, .positive_dimensions = true, .contained = true } });
+    try json.endObject();
+}
+fn ruleOptions(key: []const u8) []const []const u8 {
+    if (std.mem.eql(u8, key, "layout")) return &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" };
+    if (std.mem.eql(u8, key, "content_type")) return &.{ "none", "photo", "video", "game" };
+    if (std.mem.eql(u8, key, "placement_policy")) return &.{ "cascade", "center", "under-pointer", "minimal-overlap" };
+    if (std.mem.eql(u8, key, "anchor")) return &.{ "center", "top", "bottom", "left", "right" };
+    if (std.mem.eql(u8, key, "buffer_scale_policy")) return &.{ "native", "integer-ceil" };
+    if (std.mem.eql(u8, key, "overlay_plane")) return &.{ "off", "prefer" };
+    if (std.mem.eql(u8, key, "stack_layer")) return &.{ "below", "normal", "above" };
+    return &.{};
+}
+
+fn validateJsonDepth(bytes: []const u8) !void {
+    var quoted = false;
+    var escaped = false;
+    var depth: usize = 0;
+    for (bytes) |ch| {
+        if (quoted) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (ch == '\\') escaped = true else if (ch == '"') quoted = false;
+        } else switch (ch) {
+            '"' => quoted = true,
+            '{', '[' => {
+                depth += 1;
+                if (depth > 32) return error.JsonDepthExceeded;
+            },
+            '}', ']' => {
+                if (depth == 0) return error.InvalidJson;
+                depth -= 1;
+            },
+            else => {},
+        }
+    }
+}
+
+fn collectionDigest(a: Allocator, file: *const config.ConfigFiles.File) ![64]u8 {
+    const bytes = try std.json.Stringify.valueAlloc(a, .{ file.path, file.document.source }, .{});
+    defer a.free(bytes);
+    return @import("display_config").transaction.digest(bytes);
+}
+fn checkCollectionPreconditions(a: Allocator, request: std.json.ObjectMap, files: *const config.ConfigFiles) !void {
+    const preconditions = request.get("collection_preconditions") orelse return error.ExternalChange;
+    if (preconditions != .object) return error.InvalidCollectionPreconditions;
+    var touched = false;
+    for (request.keys()) |key| {
+        if (std.mem.eql(u8, key, "protocol") or std.mem.eql(u8, key, "expected_generation") or std.mem.eql(u8, key, "collection_preconditions") or std.mem.eql(u8, key, "backup_dir") or std.mem.eql(u8, key, "create_user_override") or std.mem.eql(u8, key, "default_snap_layout")) continue;
+        const id: schema.FileId = if (std.mem.eql(u8, key, "window_rule_changes")) .rules else if (std.mem.eql(u8, key, "custom_keybind_changes")) .wm else if (std.mem.eql(u8, key, "snap_layouts") or std.mem.eql(u8, key, "snap_zone_changes")) .layout else return error.InvalidCollectionPreconditions;
+        touched = true;
+        const expected = jsonString(preconditions.object.get(id.name())) orelse return error.InvalidCollectionPreconditions;
+        const actual = try collectionDigest(a, &files.items[@intFromEnum(id)]);
+        if (!std.mem.eql(u8, expected, &actual)) return error.ExternalChange;
+    }
+    if (!touched) return error.InvalidCollectionPreconditions;
 }

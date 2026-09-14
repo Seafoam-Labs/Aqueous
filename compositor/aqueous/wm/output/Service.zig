@@ -28,6 +28,8 @@ socket_path_len: usize = 0,
 config: Config.Snapshot = .{},
 persisted: Config.Snapshot = .{},
 active_profile: Config.Text = .{},
+preview_config: ?*const Config.Snapshot = null,
+preview_persisted: ?*const Config.Snapshot = null,
 known_outputs: [Config.max_outputs]Config.Text = undefined,
 known_output_count: u8 = 0,
 output_fingerprint: u64 = 0,
@@ -77,16 +79,26 @@ pub fn deinit(service: *Service) void {
 }
 
 pub fn reload(service: *Service, apply: bool) ?OutputManager.ApplyReport {
+    if (@import("../../DisplayPreview.zig").active()) return null;
+    const tx = @import("../../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = tx.Lock.acquire(util.gpa, io, false) catch return null;
+    defer lock.release();
+    _ = tx.recover(util.gpa, io) catch return null;
     service.config = loadWmConfig();
+    service.preview_config = null;
+    service.preview_persisted = null;
     service.persisted = loadOutputsConfig();
     service.wm_fingerprint = configFingerprint(true);
     service.persisted_fingerprint = configFingerprint(false);
     service.primary_ambiguity_logged = false;
-    return if (apply and service.applyOnReload()) service.applyConfigured() else null;
+    const adopted = @import("../../DisplayPreview.zig").consumeAdoptedGeneration(server.aqueous.config.canonical_generation);
+    server.om.display_revision += 1;
+    return if (apply and service.applyOnReload() and !adopted) service.applyConfigured() else null;
 }
 
 fn outputsPreferred(service: *const Service) bool {
-    return service.persisted.declarative;
+    return (service.preview_persisted orelse &service.persisted).declarative;
 }
 
 fn applyOnStart(service: *const Service) bool {
@@ -136,30 +148,33 @@ pub fn primaryOutput(service: *Service) ?*Output {
     return primary;
 }
 
-const PrimarySpecs = struct {
+pub const PrimarySpecs = struct {
     base: []const Config.Spec = &.{},
     preferred: []const Config.Spec = &.{},
 };
 
 fn primarySpecs(service: *const Service) PrimarySpecs {
-    if (service.outputsPreferred()) {
-        if (!service.active_profile.empty()) {
-            const profile = service.persisted.profile(service.active_profile.slice()) orelse service.config.profile(service.active_profile.slice());
+    return resolvePrimarySpecs(service.preview_config orelse &service.config, service.preview_persisted orelse &service.persisted, service.active_profile);
+}
+pub fn resolvePrimarySpecs(legacy: *const Config.Snapshot, preferred: *const Config.Snapshot, active_profile: Config.Text) PrimarySpecs {
+    if (preferred.declarative) {
+        if (!active_profile.empty()) {
+            const profile = preferred.profile(active_profile.slice()) orelse legacy.profile(active_profile.slice());
             if (profile) |entry| if (hasPrimary(entry.outputs[0..entry.output_count])) return .{ .preferred = entry.outputs[0..entry.output_count] };
         }
-        const wm_specs = service.config.outputs[0..service.config.output_count];
-        const output_specs = service.persisted.outputs[0..service.persisted.output_count];
+        const wm_specs = legacy.outputs[0..legacy.output_count];
+        const output_specs = preferred.outputs[0..preferred.output_count];
         if (hasPrimary(wm_specs) or hasPrimary(output_specs)) return .{ .base = wm_specs, .preferred = output_specs };
         return .{};
     }
 
-    if (!service.active_profile.empty()) {
-        if (service.config.profile(service.active_profile.slice()) orelse service.persisted.profile(service.active_profile.slice())) |profile| {
+    if (!active_profile.empty()) {
+        if (legacy.profile(active_profile.slice()) orelse preferred.profile(active_profile.slice())) |profile| {
             if (hasPrimary(profile.outputs[0..profile.output_count])) return .{ .preferred = profile.outputs[0..profile.output_count] };
         }
     }
-    if (hasPrimary(service.config.outputs[0..service.config.output_count])) return .{ .preferred = service.config.outputs[0..service.config.output_count] };
-    if (hasPrimary(service.persisted.outputs[0..service.persisted.output_count])) return .{ .preferred = service.persisted.outputs[0..service.persisted.output_count] };
+    if (hasPrimary(legacy.outputs[0..legacy.output_count])) return .{ .preferred = legacy.outputs[0..legacy.output_count] };
+    if (hasPrimary(preferred.outputs[0..preferred.output_count])) return .{ .preferred = preferred.outputs[0..preferred.output_count] };
     return .{};
 }
 
@@ -169,6 +184,11 @@ fn hasPrimary(specs: []const Config.Spec) bool {
 }
 
 pub fn pollReload(service: *Service) bool {
+    const tx = @import("../../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = tx.Lock.acquire(util.gpa, io, false) catch return false;
+    defer lock.release();
+    _ = tx.recover(util.gpa, io) catch return false;
     const wm_fingerprint = configFingerprint(true);
     const persisted_fingerprint = configFingerprint(false);
     if (wm_fingerprint == service.wm_fingerprint and persisted_fingerprint == service.persisted_fingerprint) return false;
@@ -222,6 +242,7 @@ fn applyProfile(service: *Service, name: []const u8) !OutputManager.ApplyReport 
     logApplyReport("output profile", &report);
     if (reportOk(&report)) {
         _ = service.active_profile.set(name);
+        server.om.display_revision += 1;
         service.broadcastProfileChanged();
     }
     return report;
@@ -230,6 +251,7 @@ fn applyProfile(service: *Service, name: []const u8) !OutputManager.ApplyReport 
 pub fn outputsChanged(service: *Service, hotplug: bool) void {
     if (!service.started) return;
     if (hotplug) {
+        @import("../../DisplayPreview.zig").hotplug();
         service.broadcastHotplug();
         service.captureOutputNames();
         _ = service.applyConfigured();
@@ -913,6 +935,7 @@ fn writeSupportedTransferFunctions(json: *std.json.Stringify, mask: u32) !void {
 
 fn sendApplyError(service: *Service, client: *Client, err: OutputManager.ApplyError) void {
     service.sendError(client, switch (err) {
+        error.DisplayPreviewBusy => "display preview owns the output configuration",
         error.MissingMatcher => "missing 'name' or 'edid'",
         error.UnknownOutput => "unknown output or no valid wildcard matches",
         error.WildcardPosition => "position not allowed with wildcard name",
@@ -1221,7 +1244,7 @@ fn configTransformName(value: Config.Transform) []const u8 {
     };
 }
 
-fn identityHash(output: *const @import("wlroots").Output, buffer: *[71]u8) ?[]const u8 {
+pub fn identityHash(output: *const @import("wlroots").Output, buffer: *[71]u8) ?[]const u8 {
     if (output.make == null and output.model == null and output.serial == null) return null;
     var identity: [768]u8 = undefined;
     const source = std.fmt.bufPrint(&identity, "{s}|{s}|{s}", .{ if (output.make) |v| std.mem.span(v) else "", if (output.model) |v| std.mem.span(v) else "", if (output.serial) |v| std.mem.span(v) else "" }) catch return null;

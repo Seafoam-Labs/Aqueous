@@ -4,7 +4,7 @@
 # Usage:
 #   sudo scripts/gentoo-install.sh [all]       deps + build + install (default)
 #   sudo scripts/gentoo-install.sh deps        emerge runtime/build deps, fetch zig
-#   scripts/gentoo-install.sh build            build compositor + settings + portal into dist/
+#   scripts/gentoo-install.sh build            build compositor + config helper + portal into dist/
 #   sudo scripts/gentoo-install.sh install     install into /usr + /etc
 #   sudo scripts/gentoo-install.sh uninstall   remove everything this script installed
 #
@@ -174,11 +174,11 @@ cmd_build() {
                 --prefix "$dist/aqueous-dist" install
     )
 
-    say "building Aqueous Settings..."
+    say "building aqueous-config..."
     (
         cd "$root/settingsApplication"
         zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
-            --prefix "$dist/aqueous-settings-dist" install
+            --prefix "$dist/aqueous-config-dist" install
     )
 
     local portal_tmp
@@ -234,13 +234,13 @@ verify_build() {
     if readelf -d "$dist/aqueous-dist/bin/aqueous" | grep -qi scenefx; then
         die "compositor still links SceneFX"
     fi
-    [ -x "$dist/aqueous-settings-dist/bin/aqueous-settings" ] ||
-        die "build output missing: aqueous-settings-dist/bin/aqueous-settings"
+    [ -x "$dist/aqueous-config-dist/bin/aqueous-config" ] ||
+        die "build output missing: aqueous-config-dist/bin/aqueous-config"
     [ -x "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" ] ||
         die "build output missing: aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
-    zig build --build-file "$root/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$dist/aqueous-settings-tests"
-    "$root/settingsApplication/tests/test-backend.sh" "$dist/aqueous-settings-tests/bin/aqueous-backend-test"
-    AQUEOUS_SETTINGS_BINARY="$dist/aqueous-settings-dist/bin/aqueous-settings" "$root/settingsApplication/tests/test-packaging.sh"
+    zig build --build-file "$root/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$dist/aqueous-config-tests"
+    "$root/settingsApplication/tests/test-backend.sh" "$dist/aqueous-config-tests/bin/aqueous-backend-test"
+    AQUEOUSCTL_BINARY="$dist/aqueous-dist/bin/aqueousctl" AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" "$root/settingsApplication/tests/test-packaging.sh"
     "$root/packaging/tests/test-portal-packaging.sh" \
         "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
     say "build verified"
@@ -285,8 +285,8 @@ install_into() {
     # Binaries + bundled patched wlroots.
     install -Dm755 "$dist/aqueous-dist/bin/aqueous" "$D/usr/bin/aqueous"
     install -Dm755 "$dist/aqueous-dist/bin/aqueousctl" "$D/usr/bin/aqueousctl"
-    AQUEOUS_SETTINGS_BINARY="$dist/aqueous-settings-dist/bin/aqueous-settings" \
-        DESTDIR="$D" PREFIX=/usr "$root/settingsApplication/packaging/install.sh"
+    AQUEOUSCTL_BINARY="$dist/aqueous-dist/bin/aqueousctl" AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" \
+        DESTDIR="$D" PREFIX=/usr "$root/settingsApplication/packaging/install.sh" --with-dms-appearance
     install -Dm755 "$dist/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
         "$D/usr/lib/aqueous/libwlroots-0.20.so"
     install -Dm755 \
@@ -365,7 +365,7 @@ install_into() {
 
 cmd_install() {
     [ -d "$dist/aqueous-dist" ] || die "compositor not built (run: $0 build)"
-    [ -d "$dist/aqueous-settings-dist" ] || die "settings application not built (run: $0 build)"
+    [ -d "$dist/aqueous-config-dist" ] || die "configuration helper not built (run: $0 build)"
     [ -d "$dist/aqueous-portal-dist" ] || die "portal backend not built (run: $0 build)"
     if [ -z "$destdir" ] && ! is_root; then
         die "install needs root (dry run: AQUEOUS_PREFIX=/tmp/aq $0 install)"
@@ -414,7 +414,7 @@ Aqueous is installed.
     template are copied there on first login only when missing).
 
     Useful commands:
-        aqueous-settings
+        aqueous-config snapshot --shell none
         aqueousctl windows
         aqueousctl outputs
         aqueousctl layout --output <name> --json
@@ -507,7 +507,7 @@ Usage: sudo $0 [all|deps|build|install|uninstall]
 
   all        deps + build + install (default)
   deps       emerge runtime/build deps, fetch zig if missing
-  build      build compositor + settings + portal backend into $dist
+  build      build compositor + config helper + portal backend into $dist
   install    install into /usr + /etc (root; AQUEOUS_PREFIX for dry run)
   uninstall  remove everything this script installed
 EOF

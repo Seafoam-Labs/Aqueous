@@ -157,7 +157,10 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     if (result.flags.@"drm-overlay-planes" and result.flags.@"no-drm-overlay-planes") {
         fatal("-drm-overlay-planes and -no-drm-overlay-planes are mutually exclusive", .{});
     }
-    var startup_config = config_loader.load(util.gpa);
+    const startup_lock = try @import("ConfigTransaction.zig").Lock.acquire(util.gpa, std.Io.Threaded.global_single_threaded.io(), false);
+    var startup_locked = true;
+    defer if (startup_locked) startup_lock.release();
+    var startup_config = try config_loader.load(util.gpa);
     const overlay_planes_enabled = if (result.flags.@"drm-overlay-planes")
         true
     else if (result.flags.@"no-drm-overlay-planes")
@@ -235,6 +238,11 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     if (server.ipc_server.path) |path| {
         if (setenv("AQUEOUS_SOCKET", path.ptr, 1) != 0) return error.SetEnvironmentFailed;
     }
+    // Finish every canonical startup reader before releasing the generation
+    // lock; user startup commands run after release.
+    server.aqueous.output_service.start();
+    startup_lock.release();
+    startup_locked = false;
     server.aqueous.start();
 
     // Run the child in a new process group so that we can send SIGTERM to all

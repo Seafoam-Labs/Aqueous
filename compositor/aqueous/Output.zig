@@ -200,6 +200,9 @@ pub const RetryFault = struct {
     simulate_overlay: bool = false,
 };
 
+/// Session-scoped identity, never reused after disconnect.
+display_instance: u64 = 0,
+
 /// Set to null when the wlr_output is destroyed.
 shell_id: u64 = 0,
 wlr_output: ?*wlr.Output,
@@ -608,6 +611,9 @@ pub fn create(wlr_output: *wlr.Output) !void {
     output.workspaces.init();
     output.ensureWorkspaces();
 
+    server.om.next_display_instance += 1;
+    output.display_instance = server.om.next_display_instance;
+    server.om.display_revision += 1;
     wlr_output.events.destroy.add(&output.destroy);
     wlr_output.events.request_state.add(&output.request_state);
     wlr_output.events.frame.add(&output.frame);
@@ -1722,6 +1728,8 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    server.om.display_revision += 1;
+    @import("DisplayPreview.zig").removed(output.display_instance);
     server.system_bell.outputRemoved(output.policyId());
     output.mirror.reset();
     if (output.mirror_source_locked) {

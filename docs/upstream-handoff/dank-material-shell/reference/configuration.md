@@ -3,7 +3,7 @@
 This is the A6 contract from the [DMS implementation plan](../PLAN.md).
 The compositor shell protocol owns runtime observation and typed actions.
 `aqueous-config` owns persistent configuration and toolkit synchronization.
-The existing Aqueous Settings plugin remains supported alongside future upstream
+Pearl replaces the retired Aqueous Settings GUI and plugins alongside future upstream
 DMS settings providers. Adding these contracts does not implement those upstream
 providers or change user enablement preferences.
 
@@ -131,4 +131,4 @@ writes, monitor modes and adapter retries. The 0.7.1 change adds discovery metad
 it does not replace those paths. The [DMS implementation plan](../PLAN.md)
 separates native DMS settings providers and its asynchronous output-apply result
 fix. Those changes belong upstream and are not prerequisites for the local
-Aqueous Settings plugin.
+canonical configuration helper.

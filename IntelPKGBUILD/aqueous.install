@@ -12,11 +12,11 @@ print_session_information() {
     Aqueous also supports separate layout.toml, input.toml, and rules.toml
     files and hot-reloads valid changes without restarting the compositor.
 
-    Open the standalone Aqueous Settings application from the application
-    menu or run aqueous-settings to edit your compositor configuration.
+    Pearl provides the settings frontend. The canonical aqueous-config helper
+    remains available for configuration clients and scripts.
 
     Useful commands:
-        aqueous-settings
+        aqueous-config snapshot --shell none
         aqueousctl windows
         aqueousctl outputs
         aqueousctl layout --output <name> --json
@@ -65,11 +65,10 @@ post_upgrade() {
     ~/.config/aqueous are not overwritten by the session launcher. Review any
     pacnew files created for system-wide configuration before merging them.
 
-    The old DMS aqueousSettings and Noctalia aqueous/settings plugins are
-    replaced by the standalone aqueous-settings application. Remove their
-    widgets from custom bars and change old panel/IPC launch bindings to run
-    aqueous-settings. User settings and backups are kept.
-    The optional DMS aqueousSettingsAppearance typography bridge remains.
+    The aqueous-settings GUI and the old shell settings plugins are retired.
+    Remove their launch bindings and use Pearl for settings. Existing per-user
+    configuration, drafts and backups are retained. The canonical aqueous-config
+    helper and optional DMS typography bridge remain available.
 
     If upgrading while logged in, refresh the user-unit cache first:
         systemctl --user daemon-reload

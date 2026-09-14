@@ -30,6 +30,8 @@ const log = std.log.scoped(.output);
 
 /// The very first modeset is different in that if it fails we exit river.
 first_modeset: bool = true,
+display_revision: u64 = 1,
+next_display_instance: u64 = 0,
 
 new_output: wl.Listener(*wlr.Output) = .init(handleNewOutput),
 
@@ -110,6 +112,7 @@ pub fn outputAt(om: *OutputManager, lx: f64, ly: f64) ?*wlr.Output {
 }
 
 pub const ApplyError = error{
+    DisplayPreviewBusy,
     MissingMatcher,
     UnknownOutput,
     WildcardPosition,
@@ -184,8 +187,19 @@ pub fn rejectionMessage(reason: RejectionReason) []const u8 {
 /// settings for other outputs from being staged. The existing WindowManager
 /// transaction performs the atomic backend commit and restores `current` if
 /// wlroots rejects the modeset.
+pub const Pending = struct { output: *Output, state: Output.State };
+pub const Plan = struct { items: [OutputConfig.max_outputs]Pending = undefined, len: usize = 0, report: ApplyReport = .{} };
 pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!ApplyReport {
-    const Pending = struct { output: *Output, state: Output.State };
+    if (@import("DisplayPreview.zig").active()) return error.DisplayPreviewBusy;
+    const plan = try om.prepareSpecs(specs);
+    for (plan.items[0..plan.len]) |entry| entry.output.scheduled = entry.state;
+    if (plan.len != 0) {
+        om.display_revision += 1;
+        server.wm.dirtyWindowing();
+    }
+    return plan.report;
+}
+pub fn prepareSpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!Plan {
     var pending: [OutputConfig.max_outputs]Pending = undefined;
     var pending_count: usize = 0;
     var report: ApplyReport = .{};
@@ -264,10 +278,8 @@ pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyErr
                 source.wlr_output.?.backend != output.wlr_output.?.backend) return error.InvalidMirror;
         }
     }
-    for (pending[0..pending_count]) |entry| entry.output.scheduled = entry.state;
-    if (pending_count != 0) server.wm.dirtyWindowing();
     report.applied = pending_count;
-    return report;
+    return .{ .items = pending, .len = pending_count, .report = report };
 }
 
 fn coordinatesValid(state: *const Output.State) bool {
@@ -438,6 +450,12 @@ fn handleManagerTest(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.O
 }
 
 fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.OutputConfigurationV1) void {
+    if (@import("DisplayPreview.zig").active()) {
+        config.sendFailed();
+        config.destroy();
+        return;
+    }
+    server.om.display_revision += 1;
     log.info("applying output configuration", .{});
 
     if (!validateConfigCoordinates(config)) {
@@ -565,6 +583,7 @@ fn handlePowerManagerSetMode(
     _: *wl.Listener(*wlr.OutputPowerManagerV1.event.SetMode),
     event: *wlr.OutputPowerManagerV1.event.SetMode,
 ) void {
+    @import("DisplayPreview.zig").competingChange();
     // The output may have been destroyed, in which case there is nothing to do
     const output = @as(?*Output, @ptrCast(@alignCast(event.output.data))) orelse return;
 
@@ -586,33 +605,32 @@ fn handlePowerManagerSetMode(
     server.wm.dirtyWindowing();
 }
 
-pub fn autoLayout(om: *OutputManager) void {
-    // Find the right most edge of any non-autolayout output.
+pub fn layoutPlan(pending: []Pending) void {
     var rightmost_edge: i32 = 0;
     var row_y: i32 = 0;
-    {
-        var it = om.outputs.iterator(.forward);
-        while (it.next()) |output| {
-            if (!output.scheduled.mirror_of.empty() or output.scheduled.state != .enabled or output.scheduled.position_source == .automatic) continue;
-
-            const x = output.scheduled.x + output.scheduled.dimensions()[0];
-            if (x > rightmost_edge) {
-                rightmost_edge = x;
-                row_y = output.scheduled.y;
-            }
+    for (pending) |entry| {
+        const state = entry.state;
+        if (!state.mirror_of.empty() or state.state != .enabled or state.position_source == .automatic) continue;
+        const x = state.x + state.dimensions()[0];
+        if (x > rightmost_edge) {
+            rightmost_edge = x;
+            row_y = state.y;
         }
     }
-    // Place autolayout outputs in a row starting at the rightmost edge.
-    {
-        var it = om.outputs.iterator(.forward);
-        while (it.next()) |output| {
-            if (!output.scheduled.mirror_of.empty() or output.scheduled.state != .enabled or output.scheduled.position_source != .automatic) continue;
-
-            output.scheduled.x = rightmost_edge;
-            output.scheduled.y = row_y;
-            rightmost_edge += output.scheduled.dimensions()[0];
-        }
+    for (pending) |*entry| {
+        if (!entry.state.mirror_of.empty() or entry.state.state != .enabled or entry.state.position_source != .automatic) continue;
+        entry.state.x = rightmost_edge;
+        entry.state.y = row_y;
+        rightmost_edge += entry.state.dimensions()[0];
     }
+}
+pub fn autoLayout(om: *OutputManager) void {
+    var entries: std.ArrayList(Pending) = .empty;
+    defer entries.deinit(util.gpa);
+    var it = om.outputs.iterator(.forward);
+    while (it.next()) |o| entries.append(util.gpa, .{ .output = o, .state = o.scheduled }) catch return;
+    layoutPlan(entries.items);
+    for (entries.items) |entry| entry.output.scheduled = entry.state;
 }
 
 pub fn commitOutputState(om: *OutputManager) void {
@@ -798,6 +816,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             {
                 if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
             }
+            if (!std.meta.eql(output.current, output.sent)) om.display_revision += 1;
             output.current = output.sent;
             // A successful modeset supersedes the old buffer-retry episode.
             // Ordinary window-management cycles must not reset its backoff.
@@ -832,6 +851,7 @@ pub fn commitOutputState(om: *OutputManager) void {
     om.sendConfig() catch {
         log.err("out of memory", .{});
     };
+    @import("DisplayPreview.zig").applied();
     server.aqueous.output_service.outputsChanged(false);
 }
 
@@ -924,6 +944,7 @@ pub fn xwaylandProjectionForX11Point(
 }
 
 fn modesetFailed(om: *OutputManager) void {
+    @import("DisplayPreview.zig").failed();
     const wm = &server.wm;
 
     // If the very first modeset fails, the user's hardware/drivers are

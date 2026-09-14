@@ -182,7 +182,7 @@ active XKB group.
 ## PR 6 — Built-in settings providers
 
 Split this work into independently reviewable keybind, display and appearance
-PRs. The existing Aqueous Settings plugin remains a supported frontend.
+PRs. Pearl supplies the settings frontend; the former Aqueous Settings GUI and plugins are retired.
 
 ### Keybinds and cheatsheet
 

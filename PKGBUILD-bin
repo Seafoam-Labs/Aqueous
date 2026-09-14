@@ -49,9 +49,6 @@ check() {
         bin/aqueous-config
         bin/aqueous
         bin/aqueousctl
-        bin/aqueous-settings
-        share/applications/org.aqueous.Settings.desktop
-        share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg
         lib/aqueous/libwlroots-0.20.so
         lib/aqueous/xdg-desktop-portal-aqueous
         share/aqueous-protocols/stable/aqueous-window-info-v1.xml
@@ -104,6 +101,11 @@ check() {
         bin/aqueous-backend-test
         lib/aqueous/enable-noctalia-plugin
         share/aqueous/noctalia-plugins
+        bin/aqueous-settings
+        share/applications/org.aqueous.Settings.desktop
+        share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg
+        share/aqueous/settings-application
+        share/licenses/aqueous-settings
         share/aqueous/dms-plugins/aqueousSettings
         etc/xdg/quickshell/dms-plugins/aqueousSettings
         bin/aqueous-outputd
@@ -128,7 +130,6 @@ package() {
     install -d "$pkgdir/usr"
 
     # Binaries
-    install -Dm755 "$srcdir/bin/aqueous-settings" "$pkgdir/usr/bin/aqueous-settings"
     install -Dm755 "$srcdir/bin/aqueous-config" "$pkgdir/usr/bin/aqueous-config"
     install -d "$pkgdir/usr/bin"
     install -Dm755 "$srcdir/bin/aqueous"      "$pkgdir/usr/bin/aqueous"
@@ -140,7 +141,10 @@ package() {
     if [ -d "$srcdir/share" ]; then
         install -d "$pkgdir/usr/share"
         cp -dr --no-preserve=ownership "$srcdir/share/." "$pkgdir/usr/share/"
-        rm -f "$pkgdir/usr/share/applications/org.aqueous.Welcome.desktop"
+        rm -f "$pkgdir/usr/share/applications/org.aqueous.Welcome.desktop" \
+            "$pkgdir/usr/share/applications/org.aqueous.Settings.desktop" \
+            "$pkgdir/usr/share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg"
+        rm -rf "$pkgdir/usr/share/aqueous/settings-application" "$pkgdir/usr/share/licenses/aqueous-settings"
     fi
 
     # systemd user units, tmpfiles configuration, and udev rules

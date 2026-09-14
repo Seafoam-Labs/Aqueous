@@ -93,6 +93,7 @@ fn privateDirectory(path: [*:0]const u8, repair_owned: bool) !void {
 }
 
 pub fn deinit(ipc: *IpcServer) void {
+    @import("DisplayPreview.zig").deinit();
     if (ipc.idle) |idle| idle.remove();
     ipc.idle = null;
     for (&ipc.clients) |*slot| if (slot.*) |client| client.close();
@@ -191,6 +192,7 @@ pub const Client = struct {
     }
 
     fn close(client: *Client) void {
+        @import("DisplayPreview.zig").disconnected(@intFromPtr(client));
         client.clearIconJob();
         if (client.source) |source| source.remove();
         _ = linux.close(client.fd);
@@ -326,8 +328,44 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = false },
                 });
+            },
+            .@"display.candidate", .@"display.snapshot", .@"display.preview.begin", .@"display.preview.status", .@"display.preview.revert", .@"display.preview.authorize", .@"display.preview.finalize" => {
+                if (server.lock_manager.state != .unlocked) return client.reject(req.id, "locked");
+                if (server.aqueous.mode != .internal) return client.reject(req.id, "unsupported");
+                const keys: []const []const u8 = switch (op) {
+                    .@"display.snapshot" => &.{},
+                    .@"display.candidate" => &.{ "expected_generation", "wm_source", "outputs_source" },
+                    .@"display.preview.begin" => &.{ "expected_generation", "candidate_digest", "display_revision", "wm_source", "outputs_source" },
+                    .@"display.preview.authorize" => &.{ "token", "operation_id", "candidate_digest", "expected_generation", "wm_source", "outputs_source" },
+                    .@"display.preview.finalize" => &.{ "token", "operation_id" },
+                    else => &.{"token"},
+                };
+                Codec.only(req.params, keys) catch return client.reject(req.id, "invalid");
+                const Preview = @import("DisplayPreview.zig");
+                var output: std.Io.Writer.Allocating = .init(a);
+                var json: std.json.Stringify = .{ .writer = &output.writer };
+                switch (op) {
+                    .@"display.candidate" => @import("DisplayModel.zig").candidate(&json, req.params) catch |err| return client.reject(req.id, @errorName(err)),
+                    .@"display.snapshot" => @import("DisplayModel.zig").write(&json) catch |err| return client.reject(req.id, @errorName(err)),
+                    .@"display.preview.begin" => {
+                        Preview.begin(@intFromPtr(client), req.params) catch |err| return client.reject(req.id, @errorName(err));
+                        Preview.writeStatus(&json, null) catch |err| return client.reject(req.id, @errorName(err));
+                    },
+                    .@"display.preview.authorize", .@"display.preview.finalize" => {
+                        if (op == .@"display.preview.authorize") Preview.authorize(req.params) catch |err| return client.reject(req.id, @errorName(err)) else Preview.finalize(req.params) catch |err| return client.reject(req.id, @errorName(err));
+                        Preview.writeStatus(&json, null) catch |err| return client.reject(req.id, @errorName(err));
+                    },
+                    .@"display.preview.status", .@"display.preview.revert" => {
+                        const token = Codec.string(req.params, "token") catch return client.reject(req.id, "invalid");
+                        if (op == .@"display.preview.revert") Preview.requestRevert(token) catch |err| return client.reject(req.id, @errorName(err));
+                        Preview.writeStatus(&json, token) catch |err| return client.reject(req.id, @errorName(err));
+                    },
+                    else => unreachable,
+                }
+                const value = try std.json.parseFromSliceLeaky(std.json.Value, a, output.written(), .{});
+                try client.reply(value);
             },
             .snapshot => {
                 if (req.params.count() != 0 or client.backend.subscribed) return client.reject(req.id, "invalid");
@@ -443,7 +481,7 @@ pub const Client = struct {
     }
 
     pub fn commandResult(client: *Client, status: Types.Status, sequence: []const u8) !void {
-        if (status == .applied or status == .accepted) return client.reply(.{ .status = @tagName(status), .sequence = sequence });
+        if (status == .applied or status == .accepted) return client.reply(.{ .status = @tagName(status), .sequence = sequence, .session = server.shell_manager.session[0..32], .loaded_generation = server.aqueous.config.canonical_generation, .candidate_digest = server.aqueous.config.canonical_digest });
         try client.reject(client.request_id[0..client.request_len], @tagName(status));
         client.pending = false;
     }

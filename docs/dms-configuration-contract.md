@@ -1,9 +1,9 @@
 # Aqueous embedded configuration contract
 
-The standalone `aqueous-settings` application owns persistent configuration and
-toolkit synchronization through `settingsApplication/src/backend/`. The two
-former settings plugins are retired. `aqueous-config` is a thin compatibility
-CLI over the same backend for DMS providers and external scripts. It retains
+The canonical `aqueous-config` helper owns persistent configuration and toolkit
+synchronization through `settingsApplication/src/backend/`. Pearl supplies the
+settings UI; the former GUI and shell settings plugins are retired. DMS providers
+and external scripts use the same helper backend. It retains
 protocol 1, capability discovery, and `version`, `snapshot`, `validate`, `apply`,
 and `raw` commands. Requests accept `--shell dms|noctalia|none` and
 `--request PATH|-`; the default shell remains `noctalia` for compatibility.
@@ -13,10 +13,9 @@ The compositor shell protocol owns runtime observation and typed actions.
 
 `backend.execute(allocator, io, command, shell, request, control, writer)` accepts
 in-memory requests for snapshot, raw, Validate, and Apply. It does not read stdin,
-parse application arguments, mutate process environment, or terminate the app.
-The serialized worker owns each operation's memory until the UI consumes its
-result. The app consumes the JSON response in memory; external CLI clients use
-the same protocol/version metadata and capability discovery.
+parse CLI arguments, mutate process environment, or terminate the caller. The
+caller owns operation memory and control state until completion. CLI clients use
+protocol/version metadata and capability discovery before using additions.
 
 The CLI preserves the JSON response and capability contract used by existing
 providers. Its Apply also requests the backend's normal compositor reload;
@@ -43,21 +42,21 @@ TOML file to 1 MiB. Validate uses the same structural checks without writing.
 
 External commands have bounded output, reaped process groups, and a five-second
 maximum within the operation's thirty-second budget. Filesystem calls complete
-normally; the application never kills an embedded thread during writes.
+normally; clients must treat an interrupted write as uncertain.
 Opening settings or refreshing outputs does not authorize synchronization.
 
 ## Shell adapters
 
 Shell mode is explicit: `none`, `dms`, or `noctalia`. Neutral mode preserves
 canonical/toolkit behavior while skipping shell writes and reloads. Noctalia's
-existing typography adapter is now compiled into the app. The optional DMS
+existing typography adapter remains compiled into the helper. The optional DMS
 `aqueousSettingsAppearance` bridge uses SettingsData and checks durable storage,
 returning a request ID and pending/saved/failed status. It provides no settings UI
 and does not observe configuration in the background. Family, weight, and normal
 text size are supported; exact face/slant/width and separately scaled bars remain
 partial. Portal plugins have their own lifecycle.
 
-See [the application guide](../settingsApplication/README.md) for launch,
+See [the helper guide](../settingsApplication/README.md) for interfaces,
 installation, upgrade, and remaining platform validation details.
 
 ## Frame reservations and appearance
@@ -101,4 +100,4 @@ writes, monitor modes and adapter retries. The 0.7.1 change adds discovery metad
 it does not replace those paths. The [upstream PR guide](dms-upstream-pr-guide.md)
 separates native DMS settings providers and its asynchronous output-apply result
 fix. Those changes belong upstream and are not prerequisites for the local
-Aqueous Settings plugin.
+canonical configuration helper.

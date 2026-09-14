@@ -829,6 +829,340 @@
         "batch"
       ],
       "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.snapshot"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.candidate"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "expected_generation": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{16}$"
+            },
+            "wm_source": {
+              "type": "string",
+              "maxLength": 1048576
+            },
+            "outputs_source": {
+              "type": "string",
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "expected_generation",
+            "wm_source",
+            "outputs_source"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.preview.begin"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "expected_generation": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{16}$"
+            },
+            "candidate_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "display_revision": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "wm_source": {
+              "type": "string",
+              "maxLength": 1048576
+            },
+            "outputs_source": {
+              "type": "string",
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "expected_generation",
+            "candidate_digest",
+            "display_revision",
+            "wm_source",
+            "outputs_source"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.preview.status"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "token"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.preview.revert"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "token"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.preview.authorize"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "operation_id": {
+              "type": "string",
+              "pattern": "^[0-9]{10}-[A-Za-z0-9_-]{21,53}$"
+            },
+            "candidate_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "expected_generation": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{16}$"
+            },
+            "wm_source": {
+              "type": "string",
+              "maxLength": 1048576
+            },
+            "outputs_source": {
+              "type": "string",
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "token",
+            "operation_id",
+            "candidate_digest",
+            "expected_generation",
+            "wm_source",
+            "outputs_source"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ipc": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "op": {
+          "const": "display.preview.finalize"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "operation_id": {
+              "type": "string",
+              "pattern": "^[0-9]{10}-[A-Za-z0-9_-]{21,53}$"
+            }
+          },
+          "required": [
+            "token",
+            "operation_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ipc",
+        "id",
+        "session",
+        "op",
+        "params"
+      ],
+      "additionalProperties": true
     }
-  ]
+  ],
+  "$defs": {}
 }

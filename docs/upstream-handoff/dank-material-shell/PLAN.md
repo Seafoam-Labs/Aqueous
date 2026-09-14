@@ -247,7 +247,7 @@ Depends on helper discovery. Split further if the existing providers are separat
 
 Reuse helper cursor/typography adapters and existing live cursor commands. Define
 one explicit owner for automatic synchronization when native DMS settings and
-the Aqueous Settings plugin coexist. Merely opening settings must not rewrite
+Pearl coexist; the former Aqueous Settings GUI and plugins are retired. Merely opening settings must not rewrite
 canonical configuration. Preserve partial-success reports and explicit retries.
 Retain known font face/slant/width and scaling limitations in UI reporting.
 

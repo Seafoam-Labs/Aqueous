@@ -31,6 +31,8 @@ pub const Mode = struct { width: i32, height: i32, refresh_mhz: ?i32 = null };
 pub const HdrLevelChoice = enum { auto, l100, l400, l1000 };
 
 pub const Spec = struct {
+    /// Source table ordinal; scoped to this configuration generation.
+    declaration: usize = 0,
     valid: bool = true,
     name: Text = .{},
     edid: Text = .{},
@@ -61,12 +63,15 @@ pub const Spec = struct {
 };
 
 pub const Profile = struct {
+    declaration: usize = 0,
     name: Text = .{},
     outputs: [max_profile_outputs]Spec = undefined,
     output_count: u8 = 0,
 };
 
 pub const Snapshot = struct {
+    unknown_fields: usize = 0,
+    rejected_declarations: usize = 0,
     apply_on_start: bool = true,
     apply_on_start_set: bool = false,
     apply_on_reload: bool = true,
@@ -152,23 +157,25 @@ pub fn parse(source: []const u8) Snapshot {
     var output: ?Spec = null;
     var profile: ?Profile = null;
     var profile_output: ?Spec = null;
+    var declaration: usize = 0;
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw| {
         const line = wm.cleanLine(raw);
         if (line.len == 0) continue;
         if (line[0] == '[') {
+            declaration += 1;
             flushOutput(&snapshot, &output);
-            flushProfileOutput(&profile, &profile_output);
+            flushProfileOutput(&snapshot, &profile, &profile_output);
             if (!std.mem.eql(u8, line, "[[display.profile.output]]")) flushProfile(&snapshot, &profile);
             if (std.mem.eql(u8, line, "[display]")) section = .display else if (std.mem.eql(u8, line, "[[output]]")) {
                 section = .output;
-                output = .{};
+                output = .{ .declaration = declaration };
             } else if (std.mem.eql(u8, line, "[[display.profile]]")) {
                 section = .profile;
-                profile = .{};
+                profile = .{ .declaration = declaration };
             } else if (std.mem.eql(u8, line, "[[display.profile.output]]")) {
                 section = .profile_output;
-                profile_output = .{};
+                profile_output = .{ .declaration = declaration };
             } else section = .none;
             continue;
         }
@@ -177,17 +184,37 @@ pub fn parse(source: []const u8) Snapshot {
         const raw_value = std.mem.trim(u8, line[equal + 1 ..], " \t");
         const value = wm.unquote(raw_value);
         switch (section) {
-            .display => applyDisplay(&snapshot, key, value),
-            .output => if (output) |*entry| applySpec(entry, key, raw_value),
-            .profile => if (profile) |*entry| {
-                if (std.mem.eql(u8, key, "name")) _ = entry.name.set(value);
+            .display => {
+                if (!knownPolicyKey(key)) snapshot.unknown_fields += 1;
+                if ((std.mem.eql(u8, key, "apply_on_start") or std.mem.eql(u8, key, "apply_on_reload")) and parseBool(value) == null) snapshot.rejected_declarations += 1;
+                if (std.mem.eql(u8, key, "rollback_seconds")) _ = std.fmt.parseInt(u16, value, 10) catch blk: {
+                    snapshot.rejected_declarations += 1;
+                    break :blk 0;
+                };
+                if (std.mem.eql(u8, key, "fallback_profile") or std.mem.eql(u8, key, "identify_by")) {
+                    var text: Text = .{};
+                    if (!text.set(value)) snapshot.rejected_declarations += 1;
+                }
+                applyDisplay(&snapshot, key, value);
             },
-            .profile_output => if (profile_output) |*entry| applySpec(entry, key, raw_value),
+            .output => if (output) |*entry| {
+                if (!knownSpecKey(key)) snapshot.unknown_fields += 1;
+                applySpec(entry, key, raw_value);
+            },
+            .profile => if (profile) |*entry| {
+                if (std.mem.eql(u8, key, "name")) {
+                    _ = entry.name.set(value);
+                } else snapshot.unknown_fields += 1;
+            },
+            .profile_output => if (profile_output) |*entry| {
+                if (!knownSpecKey(key)) snapshot.unknown_fields += 1;
+                applySpec(entry, key, raw_value);
+            },
             .none => {},
         }
     }
     flushOutput(&snapshot, &output);
-    flushProfileOutput(&profile, &profile_output);
+    flushProfileOutput(&snapshot, &profile, &profile_output);
     flushProfile(&snapshot, &profile);
     return snapshot;
 }
@@ -292,7 +319,9 @@ pub fn parseMode(value: []const u8) ?Mode {
     if (at) |index| {
         const hz = std.fmt.parseFloat(f64, value[index + 1 ..]) catch return null;
         if (!std.math.isFinite(hz) or hz <= 0) return null;
-        mode.refresh_mhz = @intFromFloat(@round(hz * 1000.0));
+        const mhz = @round(hz * 1000.0);
+        if (mhz < 1 or mhz > std.math.maxInt(i32)) return null;
+        mode.refresh_mhz = @intFromFloat(mhz);
     }
     return mode;
 }
@@ -359,28 +388,39 @@ fn parseBool(value: []const u8) ?bool {
 }
 
 fn flushOutput(snapshot: *Snapshot, pending: *?Spec) void {
-    if (pending.*) |entry| if (entry.valid and (!entry.name.empty() or !entry.edid.empty()) and snapshot.output_count < max_outputs) {
-        snapshot.outputs[snapshot.output_count] = entry;
-        snapshot.output_count += 1;
-        if (entry.hasDisplayField() or entry.primary != null) snapshot.declarative = true;
-    };
-    pending.* = null;
+    defer pending.* = null;
+    const entry = pending.* orelse return;
+    if (!entry.valid or (entry.name.empty() and entry.edid.empty()) or snapshot.output_count == max_outputs) {
+        snapshot.rejected_declarations += 1;
+        return;
+    }
+    snapshot.outputs[snapshot.output_count] = entry;
+    snapshot.output_count += 1;
+    if (entry.hasDisplayField() or entry.primary != null) snapshot.declarative = true;
 }
-
-fn flushProfileOutput(profile: *?Profile, pending: *?Spec) void {
-    if (pending.*) |entry| if (profile.*) |*target| if (entry.valid and (!entry.name.empty() or !entry.edid.empty()) and target.output_count < max_profile_outputs) {
-        target.outputs[target.output_count] = entry;
-        target.output_count += 1;
+fn flushProfileOutput(snapshot: *Snapshot, profile: *?Profile, pending: *?Spec) void {
+    defer pending.* = null;
+    const entry = pending.* orelse return;
+    const target = if (profile.*) |*p| p else {
+        snapshot.rejected_declarations += 1;
+        return;
     };
-    pending.* = null;
+    if (!entry.valid or (entry.name.empty() and entry.edid.empty()) or target.output_count == max_profile_outputs) {
+        snapshot.rejected_declarations += 1;
+        return;
+    }
+    target.outputs[target.output_count] = entry;
+    target.output_count += 1;
 }
-
 fn flushProfile(snapshot: *Snapshot, pending: *?Profile) void {
-    if (pending.*) |entry| if (!entry.name.empty() and snapshot.profile_count < max_profiles) {
-        snapshot.profiles[snapshot.profile_count] = entry;
-        snapshot.profile_count += 1;
-    };
-    pending.* = null;
+    defer pending.* = null;
+    const entry = pending.* orelse return;
+    if (entry.name.empty() or snapshot.profile_count == max_profiles) {
+        snapshot.rejected_declarations += 1;
+        return;
+    }
+    snapshot.profiles[snapshot.profile_count] = entry;
+    snapshot.profile_count += 1;
 }
 
 test "output config parses display specs and profiles" {
@@ -454,6 +494,8 @@ test "clockwise output rotation cycles normal and reflected transforms" {
 }
 
 test "hdr level and sdr white level reject unsupported values" {
+    try std.testing.expect(parseMode("1920x1080@1e300") == null);
+    try std.testing.expect(parseMode("1920x1080@0.00001") == null);
     try std.testing.expectEqual(HdrLevelChoice.auto, parseHdrLevelChoice("auto").?);
     try std.testing.expectEqual(HdrLevelChoice.l1000, parseHdrLevelChoice("1000").?);
     try std.testing.expect(parseHdrLevelChoice("600") == null);
@@ -573,4 +615,26 @@ test "mirror declarations inherit and explicitly clear across config sources" {
     try std.testing.expectEqualStrings("DP-1", profile_config.profiles[0].outputs[0].mirror_of.?.slice());
     const invalid = parse("[[output]]\nname = \"HDMI-A-1\"\nmirror_of = \"DP-*\"\n");
     try std.testing.expectEqual(@as(u8, 0), invalid.output_count);
+}
+
+pub fn knownSpecKey(key: []const u8) bool {
+    inline for (.{ "name", "edid", "mirror_of", "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    return false;
+}
+pub fn knownPolicyKey(key: []const u8) bool {
+    inline for (.{ "apply_on_start", "apply_on_reload", "fallback_profile", "identify_by", "rollback_seconds" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    return false;
+}
+
+test "diagnostics retain unknown, rejected and overflowed display declarations" {
+    const unknown = parse("[[output]]\nname = \"DP-1\"\nfuture = true\n");
+    try std.testing.expectEqual(@as(usize, 1), unknown.unknown_fields);
+    const invalid = parse("[[output]]\nname = \"DP-1\"\nscale = -1\n[display]\napply_on_reload = bogus\n");
+    try std.testing.expectEqual(@as(usize, 2), invalid.rejected_declarations);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
+    for (0..max_outputs + 1) |_| try writer.writer.writeAll("[[output]]\nname = \"DP-1\"\nenabled = true\n");
+    const overflow = parse(writer.written());
+    try std.testing.expectEqual(@as(usize, 1), overflow.rejected_declarations);
+    try std.testing.expectEqual(@as(u8, max_outputs), overflow.output_count);
 }

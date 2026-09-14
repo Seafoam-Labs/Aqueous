@@ -5,9 +5,21 @@ pub const ReloadStatus = enum { not_requested, applied, failed };
 pub const Control = struct {
     phase: std.atomic.Value(Phase) = .init(.preparing),
     deadline_ms: i64,
+    operation_id: ?[]const u8 = null,
+    preview_token: ?[]const u8 = null,
+    display: enum { not_requested, kept, failed } = .not_requested,
+    commit_deadline_ms: ?i64 = null,
     writing: bool = false,
     saved: bool = false,
+    reload_session: ?[32]u8 = null,
+    reload_generation: ?[16]u8 = null,
+    reload_digest: ?[64]u8 = null,
+    reload_sequence: [20]u8 = undefined,
+    reload_sequence_len: usize = 0,
     reload: ReloadStatus = .not_requested,
+    before_generation: ?[16]u8 = null,
+    after_generation: ?[16]u8 = null,
+    candidate_digest: ?[64]u8 = null,
     pub fn init() Control {
         return .{ .deadline_ms = aq_now_ms() + 30000 };
     }

@@ -63,11 +63,11 @@ prepare() {
 }
 
 build() {
-    # Standalone settings, including its embedded configuration backend.
-    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-settings-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-settings-zig-local" \
+    # Canonical configuration helper; Pearl supplies the settings UI.
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
         zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-settings-dist"
+        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
 
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
     # We enforce this here instead of via a pacman version constraint because
@@ -121,12 +121,13 @@ build() {
 }
 
 check() {
-    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-settings-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-settings-zig-local" \
-        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$srcdir/aqueous-settings-tests"
-    AQUEOUS_SETTINGS_BINARY="$srcdir/aqueous-settings-dist/bin/aqueous-settings" \
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
+        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$srcdir/aqueous-config-tests"
+    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-config-dist/bin/aqueous-config" \
+    AQUEOUSCTL_BINARY="$srcdir/aqueous-dist/bin/aqueousctl" \
         "$srcdir/aqueous/settingsApplication/tests/test-packaging.sh"
-    "$srcdir/aqueous/settingsApplication/tests/test-backend.sh" "$srcdir/aqueous-settings-tests/bin/aqueous-backend-test"
+    "$srcdir/aqueous/settingsApplication/tests/test-backend.sh" "$srcdir/aqueous-config-tests/bin/aqueous-backend-test"
 
     python3 "$srcdir/aqueous/packaging/tests/test-dms-git-packaging.py"
     # aqueousctl and its protocol/manual are one feature: reject a partial
@@ -172,8 +173,9 @@ check() {
 }
 
 package() {
-    AQUEOUS_SETTINGS_BINARY="$srcdir/aqueous-settings-dist/bin/aqueous-settings" \
-        DESTDIR="$pkgdir" PREFIX=/usr "$srcdir/aqueous/settingsApplication/packaging/install.sh"
+    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-config-dist/bin/aqueous-config" \
+    AQUEOUSCTL_BINARY="$srcdir/aqueous-dist/bin/aqueousctl" \
+        DESTDIR="$pkgdir" PREFIX=/usr "$srcdir/aqueous/settingsApplication/packaging/install.sh" --with-dms-appearance
 
     # Install the compositor/window-manager and read-only inspection client.
     install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"

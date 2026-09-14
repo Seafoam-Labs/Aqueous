@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-stage=$(mktemp -d /tmp/aqueous-settings-package.XXXXXX)
+stage=$(mktemp -d /tmp/aqueous-config-package.XXXXXX)
 trap 'rm -rf "$stage"' EXIT
 DESTDIR="$stage" PREFIX=/usr "$root/packaging/install.sh"
-"$stage/usr/bin/aqueous-settings" --version
-for file in bin/aqueous-settings share/applications/org.aqueous.Settings.desktop share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg share/aqueous/dms-plugins/aqueousSettingsAppearance/Daemon.qml share/licenses/aqueous-settings/quark-LICENSE share/aqueous/settings-application/quark/prepare.py share/aqueous/settings-application/quark/redesign.py; do
-    test -f "$stage/usr/$file"
+"$stage/usr/bin/aqueous-config" version --json | python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["ok"] and v["protocol"] == 1 and "shell_none" in v["capabilities"] and "shell_dms" in v["capabilities"]'
+for file in bin/aqueous-config bin/aqueousctl share/licenses/aqueous-config/GPL-3.0-only.txt share/doc/aqueous-config/HELPER.md share/doc/aqueous-config/T11.md share/doc/aqueous-config/aqueous-config-additions-v1.schema.json; do
+    test -s "$stage/usr/$file"
 done
-"$stage/usr/bin/aqueous-config" version --json | python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["ok"] and v["protocol"] == 1 and "shell_dms" in v["capabilities"]'
-test ! -e "$stage/usr/bin/aqueous-backend-test"
-test ! -e "$stage/usr/share/aqueous/dms-plugins/aqueousSettings"
-test ! -e "$stage/usr/share/aqueous/noctalia-plugins"
-for file in dms.json.in noctalia.json.in dms.toml.example noctalia.toml.example README.md; do
-    test -s "$stage/usr/share/aqueous/settings-application/themes/$file"
+for file in bin/aqueous-settings bin/aqueous-backend-test share/applications share/icons share/aqueous share/licenses/aqueous-settings; do
+    test ! -e "$stage/usr/$file"
 done
-test "$(readlink "$stage/etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance")" = /usr/share/aqueous/dms-plugins/aqueousSettingsAppearance
-if command -v desktop-file-validate >/dev/null; then desktop-file-validate "$stage/usr/share/applications/org.aqueous.Settings.desktop"; fi
-DESTDIR="$stage/custom" PREFIX=/opt/aqueous SYSCONFDIR=/etc "$root/packaging/install.sh"
-for file in bin/aqueous-settings bin/aqueous-config share/aqueous/settings-application/quark/redesign.py share/licenses/aqueous-settings/quark-SOURCE.md; do
-    test -s "$stage/custom/opt/aqueous/$file"
-done
-printf '%s\n' 'Settings package staging passed (standard and custom prefixes).'
+test ! -e "$stage/etc"
+# Shell compatibility is an explicit backend-only package option.
+DESTDIR="$stage/custom" PREFIX=/opt/aqueous SYSCONFDIR=/etc "$root/packaging/install.sh" --with-dms-appearance
+test -x "$stage/custom/opt/aqueous/bin/aqueous-config"
+test -s "$stage/custom/opt/aqueous/share/aqueous/dms-plugins/aqueousSettingsAppearance/Daemon.qml"
+test "$(readlink "$stage/custom/etc/xdg/quickshell/dms-plugins/aqueousSettingsAppearance")" = /opt/aqueous/share/aqueous/dms-plugins/aqueousSettingsAppearance
+test ! -e "$stage/custom/opt/aqueous/share/applications"
+test ! -e "$stage/custom/opt/aqueous/share/aqueous/settings-application"
+printf '%s\n' 'Canonical helper package staging passed (neutral default and optional DMS bridge).'

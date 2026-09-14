@@ -35,7 +35,7 @@ planned adapters/settings providers are available.
    compositor keybindings using the actual released syntax. Respect existing
    direct-session and UWSM guidance; do not start duplicate shell processes.
 4. Explain configuration ownership: Aqueous TOML is canonical, persistent writes
-   go through `aqueous-config`, and the Aqueous Settings plugin can coexist with
+   go through `aqueous-config`, and Pearl can coexist with
    merged native DMS providers. State which features require which frontend.
    Runtime layout/keyboard/DPMS changes do not imply persistent configuration.
    Only one provider should own automatic cursor/font/color synchronization.

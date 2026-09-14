@@ -129,7 +129,7 @@ jobs:
             -Dcpu=baseline -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-welcome" install
 
-      - name: Build Aqueous Settings
+      - name: Build canonical configuration helper
         shell: bash
         run: |
           zig build --build-file settingsApplication/build.zig test test-driver \
@@ -137,8 +137,9 @@ jobs:
           settingsApplication/tests/test-backend.sh
           zig build --build-file settingsApplication/build.zig \
             -Dcpu=baseline -Doptimize=ReleaseSafe \
-            --prefix "$GITHUB_WORKSPACE/publish/aqueous-settings"
-          AQUEOUS_SETTINGS_BINARY="$GITHUB_WORKSPACE/publish/aqueous-settings/bin/aqueous-settings" \
+            --prefix "$GITHUB_WORKSPACE/publish/aqueous-config"
+          AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config" \
+            AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
             settingsApplication/tests/test-packaging.sh
 
       - name: Stage bundle
@@ -161,12 +162,15 @@ jobs:
           mkdir -p publish/aqueous-linux-x64/share/dbus-1/services
           mkdir -p publish/aqueous-linux-x64/share/licenses/aqueous/xdg-desktop-portal-wlr
 
-          AQUEOUS_SETTINGS_BINARY="$GITHUB_WORKSPACE/publish/aqueous-settings/bin/aqueous-settings" \
-            DESTDIR="$GITHUB_WORKSPACE/publish/aqueous-settings-image" PREFIX=/usr \
-            settingsApplication/packaging/install.sh
-          cp -a publish/aqueous-settings-image/usr/. publish/aqueous-linux-x64/
-          cp -a publish/aqueous-settings-image/etc/. publish/aqueous-linux-x64/etc/
+          AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config" \
+            AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
+            DESTDIR="$GITHUB_WORKSPACE/publish/aqueous-config-image" PREFIX=/usr \
+            settingsApplication/packaging/install.sh --with-dms-appearance
+          cp -a publish/aqueous-config-image/usr/. publish/aqueous-linux-x64/
+          cp -a publish/aqueous-config-image/etc/. publish/aqueous-linux-x64/etc/
           test -x publish/aqueous-linux-x64/bin/aqueous-config
+          test ! -e publish/aqueous-linux-x64/bin/aqueous-settings
+          test ! -e publish/aqueous-linux-x64/share/applications/org.aqueous.Settings.desktop
           test ! -e publish/aqueous-linux-x64/bin/aqueous-backend-test
           test ! -e publish/aqueous-linux-x64/share/aqueous/dms-plugins/aqueousSettings
           test ! -e publish/aqueous-linux-x64/share/aqueous/noctalia-plugins

@@ -1,12 +1,15 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "0.7.2";
+pub const helper_version = "0.8.0";
 pub const capabilities: []const []const u8 = &.{
-    "schema_fields",       "validate",      "generation_check",  "stdin_requests",
-    "atomic_file_replace", "monitor_modes", "monitor_mirroring", "live_outputs",
-    "keybinds",            "window_rules",  "cursor_sync",       "typography_sync",
-    "shell_dms",           "shell_none",    "monitor_scale",
+    "schema_fields",          "validate",                  "generation_check",      "stdin_requests",
+    "atomic_file_replace",    "monitor_modes",             "monitor_mirroring",     "live_outputs",
+    "keybinds",               "window_rules",              "cursor_sync",           "typography_sync",
+    "shell_dms",              "shell_none",                "monitor_scale",         "display_configuration_v1",
+    "candidate_review_v1",    "helper_writer_lock_v1",     "apply_result_v1",       "collection_identity_v1",
+    "display_model_v2",       "recoverable_commit_v1",     "operation_receipts_v1", "candidate_impact_v1",
+    "display_observation_v1", "display_preview_commit_v1", "collection_schema_v1",  "collection_preconditions_v1",
 };
 
 pub const FileId = enum(u8) {

@@ -57,7 +57,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
         .session_exit => return .applied,
         .session_reload => {
             if (target.len != 0 or seat_name.len != 0 or value.len != 0) return .invalid;
-            server.aqueous.reloadConfig();
+            server.aqueous.reloadConfig() catch |err| return if (err == error.ConfigWriterBusy) .busy else .unavailable;
         },
         .window_activate, .workspace_activate => {
             const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;

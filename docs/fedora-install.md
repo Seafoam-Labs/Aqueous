@@ -17,7 +17,7 @@ runtime dependencies, verifies the dependency archive checksums recorded on
 master, and runs that checkout's `PKGBUILD` prepare, build, check, and package
 functions. This reuses the maintained DMS source-package recipe without running
 pacman or Arch install hooks. The resulting local `aqueous-git` RPM includes the
-compositor, private patched wlroots, settings application, DMS integration,
+compositor, private patched wlroots, canonical configuration helper, DMS integration,
 screen-sharing backend, session entry, and configuration defaults.
 
 Fedora must provide Zig 0.16.0 or newer and wayland-protocols 1.49 or newer.

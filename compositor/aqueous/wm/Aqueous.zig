@@ -192,12 +192,19 @@ pub fn allowsExternal(aqueous: *const Aqueous) bool {
     return build_options.external_policy and aqueous.mode.allowsExternal();
 }
 
-pub fn reloadConfig(aqueous: *Aqueous) void {
+pub fn reloadConfig(aqueous: *Aqueous) !void {
+    if (@import("../DisplayPreview.zig").active()) return error.ConfigWriterBusy;
+    const tx = @import("../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = try tx.Lock.acquire(util.gpa, io, false);
+    var lock_held = true;
+    defer if (lock_held) lock.release();
+    _ = try tx.recover(util.gpa, io);
     aqueous.cancelOverview();
     aqueous.cancelSnapPreview();
     aqueous.cancelHoverFocus();
     aqueous.cancelPendingRaise();
-    var replacement = config_loader.load(util.gpa);
+    var replacement = try config_loader.load(util.gpa);
     if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
         log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
@@ -221,6 +228,8 @@ pub fn reloadConfig(aqueous: *Aqueous) void {
     aqueous.api.requestManageCycle();
     aqueous.applyInputConfig();
     _ = aqueous.output_service.reload(true);
+    lock.release();
+    lock_held = false;
     aqueous.runExec(.reload);
     aqueous.notify("Aqueous configuration reloaded", null, false);
     log.info("configuration reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});
@@ -1729,8 +1738,13 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
         if (aqueous.api.focusedWindow()) |handle| aqueous.api.closeWindow(handle);
         return;
     }
-    if (std.mem.eql(u8, action, "reload_config")) return aqueous.reloadConfig();
+    if (std.mem.eql(u8, action, "reload_config")) return aqueous.reloadConfig() catch |err| log.warn("configuration reload rejected: {}", .{err});
     if (std.mem.eql(u8, action, "reload_rules")) {
+        const tx = @import("../ConfigTransaction.zig");
+        const io = std.Io.Threaded.global_single_threaded.io();
+        const lock = tx.Lock.acquire(util.gpa, io, false) catch return;
+        defer lock.release();
+        _ = tx.recover(util.gpa, io) catch return;
         rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
         aqueous.applyLayerRules();
         aqueous.api.requestManageCycle();
@@ -3305,7 +3319,17 @@ fn reconcileWindowRule(
 
 fn handleReloadTimer(aqueous: *Aqueous) c_int {
     defer if (aqueous.reload_timer) |timer| timer.timerUpdate(1000) catch log.warn("unable to re-arm configuration monitor", .{});
-    var replacement = config_loader.load(util.gpa);
+    if (@import("../DisplayPreview.zig").active()) return 0;
+    const tx = @import("../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = tx.Lock.acquire(util.gpa, io, false) catch return 0;
+    var lock_held = true;
+    defer if (lock_held) lock.release();
+    _ = tx.recover(util.gpa, io) catch |err| {
+        log.err("configuration recovery rejected: {}", .{err});
+        return 0;
+    };
+    var replacement = config_loader.load(util.gpa) catch return 0;
     const config_changed = replacement.fingerprint != aqueous.config.fingerprint;
     const rules_fingerprint = rules_config.discoveredFingerprint(util.gpa, replacement.wm.rules_path.slice());
     const rules_changed = rules_fingerprint != aqueous.rules.source_fingerprint;
@@ -3334,6 +3358,8 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
         rules_config.reloadDiscovered(util.gpa, &aqueous.rules, aqueous.config.wm.rules_path.slice());
         aqueous.applyLayerRules();
     }
+    lock.release();
+    lock_held = false;
     aqueous.globals_applied = false;
     aqueous.api.requestManageCycle();
     log.info("configuration hot-reloaded layout={s}", .{@tagName(aqueous.config.layout.default)});

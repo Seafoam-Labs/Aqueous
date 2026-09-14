@@ -16,7 +16,6 @@ pub const Result = extern struct {
         aq_result_free(self);
     }
 };
-extern fn aq_run(argv: [*:null]const ?[*:0]const u8, input: [*]const u8, len: usize, timeout: c_int, result: *Result) void;
 extern fn aq_result_free(result: *Result) void;
 pub fn run(a: std.mem.Allocator, args: []const []const u8, input: []const u8, timeout: c_int) !Result {
     return runLimited(a, args, input, timeout, 16 * 1024 * 1024, 64 * 1024);
@@ -35,4 +34,23 @@ pub fn runLimited(a: std.mem.Allocator, args: []const []const u8, input: []const
     var result: Result = .{};
     aq_run_limits(argv.ptr, input.ptr, input.len, timeout, out_limit, err_limit, &result);
     return result;
+}
+
+test "transport drains stderr and stdin independently and times out" {
+    var result = try run(std.testing.allocator, &.{ "python3", "-c", "import sys; sys.stderr.write('e'*60000); sys.stderr.flush(); print(sys.stdin.read())" }, "literal $() `command`", 3000);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(c_int, 0), result.status);
+    try std.testing.expectEqualStrings("literal $() `command`\n", result.stdout());
+    var timeout = try run(std.testing.allocator, &.{ "python3", "-c", "import time; time.sleep(5)" }, "", 60);
+    defer timeout.deinit();
+    try std.testing.expectEqual(@as(c_int, 2), timeout.status);
+    var missing = try run(std.testing.allocator, &.{"/does-not-exist-aqueous-config"}, "", 100);
+    defer missing.deinit();
+    try std.testing.expectEqual(@as(c_int, 1), missing.status);
+}
+test "bounded transport kills children with oversized output" {
+    var result = try run(std.testing.allocator, &.{ "python3", "-c", "import sys; sys.stderr.write('x'*1000000)" }, "", 2000);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(c_int, 3), result.status);
+    try std.testing.expect(result.err_len <= 64 * 1024);
 }

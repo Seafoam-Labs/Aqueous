@@ -257,9 +257,9 @@ stdenv.mkDerivation (finalAttrs: {
     popd
 
     pushd settingsApplication
-    export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-settings-cache"
+    export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-config-cache"
     zig build --system "${zigDeps}" -Dcpu=baseline -Doptimize=ReleaseSafe \
-      --prefix "$TMPDIR/aqueous-settings-dist"
+      --prefix "$TMPDIR/aqueous-config-dist"
     popd
 
     mkdir -p "$TMPDIR/xdpw-src"
@@ -278,9 +278,10 @@ stdenv.mkDerivation (finalAttrs: {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
-    ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-settings-cache" \
-      zig build --build-file settingsApplication/build.zig --system "${zigDeps}" test test-driver -Dmodel-only=true --prefix "$TMPDIR/aqueous-settings-tests"
-    AQUEOUS_SETTINGS_BINARY="$TMPDIR/aqueous-settings-dist/bin/aqueous-settings" \
+    ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-config-cache" \
+      zig build --build-file settingsApplication/build.zig --system "${zigDeps}" test test-driver -Dmodel-only=true --prefix "$TMPDIR/aqueous-config-tests"
+    AQUEOUS_CONFIG_BINARY="$TMPDIR/aqueous-config-dist/bin/aqueous-config" \
+    AQUEOUSCTL_BINARY="$TMPDIR/aqueous-dist/bin/aqueousctl" \
       bash settingsApplication/tests/test-packaging.sh
 
     AQUEOUS_WLROOTS_PREFIX="${lib.getDev aqueousWlroots}" \
@@ -317,7 +318,7 @@ stdenv.mkDerivation (finalAttrs: {
       exit 1
     fi
 
-    bash settingsApplication/tests/test-backend.sh "$TMPDIR/aqueous-settings-tests/bin/aqueous-backend-test"
+    bash settingsApplication/tests/test-backend.sh "$TMPDIR/aqueous-config-tests/bin/aqueous-backend-test"
     AQUEOUS_PORTAL_EXEC="$out/libexec/aqueous/xdg-desktop-portal-aqueous" \
       packaging/tests/test-portal-packaging.sh \
       "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
@@ -330,8 +331,9 @@ stdenv.mkDerivation (finalAttrs: {
 
     mkdir -p "$out"
     cp -a "$TMPDIR/aqueous-dist/." "$out/"
-    AQUEOUS_SETTINGS_BINARY="$TMPDIR/aqueous-settings-dist/bin/aqueous-settings" \
-      PREFIX="$out" SYSCONFDIR="$out/etc" bash settingsApplication/packaging/install.sh
+    AQUEOUS_CONFIG_BINARY="$TMPDIR/aqueous-config-dist/bin/aqueous-config" \
+    AQUEOUSCTL_BINARY="$TMPDIR/aqueous-dist/bin/aqueousctl" \
+      PREFIX="$out" SYSCONFDIR="$out/etc" bash settingsApplication/packaging/install.sh --with-dms-appearance
 
     install -Dm755 \
       "$TMPDIR/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
@@ -389,8 +391,6 @@ stdenv.mkDerivation (finalAttrs: {
       --prefix PATH : "${lib.makeBinPath [ coreutils systemd ]}"
     wrapProgram "$out/bin/aqueous-init" \
       --prefix PATH : "${lib.makeBinPath [ coreutils dbus systemd uwsm ]}"
-    wrapProgram "$out/bin/aqueous-settings" \
-      --prefix PATH : "${lib.makeBinPath [ fontconfig glib systemd dbus ]}"
     wrapProgram "$out/bin/aqueous-config" \
       --prefix PATH : "$out/bin:${lib.makeBinPath [ fontconfig glib systemd dbus ]}"
 

@@ -168,7 +168,7 @@ root = pathlib.Path(sys.argv[1])
 owned = (
     '/usr/lib/aqueous', '/usr/share/aqueous', '/usr/share/aqueous-protocols',
     '/usr/share/doc/aqueous', '/usr/share/licenses/aqueous',
-    '/usr/share/licenses/aqueous-settings', '/etc/xdg/aqueous',
+    '/usr/share/licenses/aqueous-config', '/usr/share/doc/aqueous-config', '/etc/xdg/aqueous',
     '/etc/xdg/xdg-desktop-portal-aqueous',
 )
 for directory, dirs, files in os.walk(root):
@@ -210,7 +210,7 @@ Requires: pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-gtk
 Requires: xorg-x11-server-Xwayland systemd gsettings-desktop-schemas
 
 %description
-Aqueous compositor, settings, DMS integration and private screen-sharing backend.
+Aqueous compositor, canonical config helper, DMS integration and private screen-sharing backend.
 The exact master commit is recorded in /usr/share/doc/aqueous/master-commit.
 
 %prep

@@ -23,7 +23,7 @@ in
       '';
     };
 
-    noctalia.enable = lib.mkEnableOption "the Noctalia shell and Aqueous settings plugin" // {
+    noctalia.enable = lib.mkEnableOption "the Noctalia shell" // {
       default = true;
     };
 

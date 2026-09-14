@@ -79,7 +79,7 @@ model; they do not replace it.
   (`dms-shell`) as their shell, while
   Aqueous continues to use standard layer-shell interfaces and does not embed
   the shell into the compositor.
-  These packages include the standalone [Aqueous Settings application](settingsApplication/README.md).
+  These packages include the [canonical configuration helper](settingsApplication/README.md) for Pearl.
 
 ## Performance by design
 
@@ -311,14 +311,13 @@ output commit pipeline.
 The output-rotation harness verifies that the runtime quarter-turn keybinding
 targets only the display beneath the pointer.
 
-## Standalone settings application
+## Configuration helper
 
-[Aqueous Settings](settingsApplication/README.md) is a standalone Quark UI
-application for DMS, Noctalia, and sessions with neither shell. Run
-`aqueous-settings` from the terminal or application menu. All eight pages use
-the embedded configuration backend, staged edits, validation, backups, and
-generation conflict checks. It replaces both former shell settings plugins;
-see the application guide for custom-bar upgrade instructions.
+[aqueous-config](settingsApplication/README.md) provides canonical configuration
+reading, validation, persistence, generation checks, backups and toolkit sync.
+Pearl replaces the retired Aqueous Settings GUI. Existing protocol-1 clients and
+scripts remain supported; use `aqueous-config snapshot --shell none` for neutral
+operation. The default helper build has no GUI dependency or desktop launcher.
 
 ## Packaging
 
@@ -341,13 +340,13 @@ application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
 `PKGBUILD-DMS` depend on `dms-shell`. The older `dms-aqueous` package also
 satisfies this dependency through its `provides` entry, allowing a switch to
 `dms-shell` without breaking the Aqueous dependency. They include the
-standalone settings application, optional DMS typography bridge, and screen-sharing chooser, start DMS automatically,
+canonical configuration helper, optional DMS typography bridge, and screen-sharing chooser, start DMS automatically,
 and use DMS Spotlight and region screenshots in the packaged bindings.
 `GitPKGBUILD/PKGBUILD` and `IntelPKGBUILD/PKGBUILD` enable the dependency's standard `dms.service` through
 `graphical-session.target`; the other source variants use `aqueous-dms.service`.
 The prebuilt `PKGBUILD-bin` retains Noctalia integration.
 `gitNoctalia/PKGBUILD` and its accompanying `aqueous.install` preserve the
-Noctalia Git package, including the standalone settings application and Welcome app.
+Noctalia Git package, including the canonical configuration helper and Welcome app.
 It builds `aqueous-git` as an alternative to the DMS Git package.
 
 When switching an existing profile to a DMS source package, update the launcher and

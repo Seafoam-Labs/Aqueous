@@ -6,7 +6,7 @@ pub const max_request = 65536;
 pub const max_batch = 4194304;
 pub const max_frame = max_batch + max_request;
 pub const max_depth = 16;
-pub const Op = enum { hello, snapshot, subscribe, ack, command, @"window.icon" };
+pub const Op = enum { hello, snapshot, subscribe, ack, command, @"window.icon", @"display.snapshot", @"display.candidate", @"display.preview.begin", @"display.preview.status", @"display.preview.revert", @"display.preview.authorize", @"display.preview.finalize" };
 pub const Request = struct {
     id: []const u8,
     number: u128,
@@ -68,7 +68,7 @@ fn optionalString(obj: std.json.ObjectMap, key: []const u8) ![]const u8 {
     return if (obj.contains(key)) try string(obj, key) else "";
 }
 
-fn only(obj: std.json.ObjectMap, keys: []const []const u8) !void {
+pub fn only(obj: std.json.ObjectMap, keys: []const []const u8) !void {
     for (obj.keys()) |key| {
         for (keys) |allowed| {
             if (std.mem.eql(u8, key, allowed)) break;

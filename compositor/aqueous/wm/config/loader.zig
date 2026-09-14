@@ -14,13 +14,24 @@ pub const Snapshot = struct {
     wm: wm.Snapshot = .{},
     actions: actions.Snapshot = .{},
     fingerprint: u64 = 0,
+    canonical_digest: [64]u8 = @splat(0),
+    canonical_generation: [16]u8 = @splat(0),
     tablet_base: @import("tablet").Policy = .{},
 };
 
 /// Build a complete replacement snapshot. Callers publish it only after this
 /// function returns, so a manage cycle never observes a half-applied reload.
-pub fn load(allocator: std.mem.Allocator) Snapshot {
+pub fn load(allocator: std.mem.Allocator) !Snapshot {
+    const tx = @import("../../ConfigTransaction.zig");
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const lock = try tx.Lock.acquire(allocator, io, false);
+    defer lock.release();
+    _ = try tx.recover(allocator, io);
     var snapshot: Snapshot = .{};
+    var canonical = try @import("../../ConfigDocument.zig").ConfigFiles.init(allocator);
+    defer canonical.deinit();
+    snapshot.canonical_digest = @import("../../ConfigDocument.zig").candidateDigest(&canonical);
+    snapshot.canonical_generation = @import("../../ConfigDocument.zig").generation(&canonical);
     actions.initDefaults(&snapshot.actions);
     var wm_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const env = Environment.read();
