@@ -2687,6 +2687,7 @@ fn handlePresent(
 }
 
 fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void {
+    @import("DisplayPreview.zig").presented(output.display_instance, event.commit_seq, event.presented);
     if (!output.current.mirror_of.empty() and event.commit_seq != output.mirror.commit_seq) return;
     if (output.current.mirror_of.empty() and server.fifo.present(output.wlr_output.?, event) and
         output.retryEnabled() and !output.retryDisabledForTest())

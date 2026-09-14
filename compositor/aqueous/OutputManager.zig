@@ -713,6 +713,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         break :blk false;
     };
 
+    @import("DisplayPreview.zig").submitting();
     if (need_modeset) {
         log.debug("committing output state requires modeset", .{});
 
@@ -774,7 +775,20 @@ pub fn commitOutputState(om: *OutputManager) void {
             }
         }
 
-        if (!server.backend.commit(states.items)) {
+        const injected_failure = if (comptime build_options.output_retry_testing) blk: {
+            const preview = @import("DisplayPreview.zig");
+            var fail = preview.test_fail_commit and preview.active();
+            if (preview.test_partial_commit and preview.active() and states.items.len > 1) {
+                // Exercise recovery from a backend which applied one member
+                // before reporting failure for the group.
+                _ = server.backend.commit(states.items[0..1]);
+                fail = true;
+            }
+            preview.test_partial_commit = false;
+            preview.test_fail_commit = false;
+            break :blk fail;
+        } else false;
+        if (injected_failure or !server.backend.commit(states.items)) {
             log.err("failed to commit new output configuration", .{});
             om.modesetFailed();
             return;
@@ -944,7 +958,6 @@ pub fn xwaylandProjectionForX11Point(
 }
 
 fn modesetFailed(om: *OutputManager) void {
-    @import("DisplayPreview.zig").failed();
     const wm = &server.wm;
 
     // If the very first modeset fails, the user's hardware/drivers are
@@ -972,6 +985,8 @@ fn modesetFailed(om: *OutputManager) void {
         }
         wm.dirtyWindowing();
     }
+    // Ordinary cleanup must finish before the lease schedules restoration.
+    @import("DisplayPreview.zig").failed();
 }
 
 /// Send the current output state to all wlr-output-manager clients.

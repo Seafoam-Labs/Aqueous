@@ -473,6 +473,14 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
             };
         } else if (std.mem.eql(u8, action, "preview_test_failure")) {
             @import("../../DisplayPreview.zig").test_fail_next = true;
+        } else if (std.mem.eql(u8, action, "preview_commit_failure")) {
+            @import("../../DisplayPreview.zig").test_fail_commit = true;
+        } else if (std.mem.eql(u8, action, "preview_hold_completion")) {
+            @import("../../DisplayPreview.zig").test_hold_completion = jsonBool(request.get("hold")) orelse return service.sendError(client, "missing hold");
+        } else if (std.mem.eql(u8, action, "preview_partial_commit")) {
+            @import("../../DisplayPreview.zig").test_partial_commit = true;
+        } else if (std.mem.eql(u8, action, "preview_session_inactive")) {
+            @import("../../DisplayPreview.zig").test_session_inactive = jsonBool(request.get("inactive")) orelse return service.sendError(client, "missing inactive");
         } else if (std.mem.eql(u8, action, "damage")) {
             if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
             wlr_output.scheduleFrame();

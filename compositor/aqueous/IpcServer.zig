@@ -328,7 +328,7 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = false },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = false, .display_preview_completion_v1 = true, .display_preview_acceptance_build = @import("build_options").display_preview_acceptance },
                 });
             },
             .@"display.candidate", .@"display.snapshot", .@"display.preview.begin", .@"display.preview.status", .@"display.preview.revert", .@"display.preview.authorize", .@"display.preview.finalize" => {

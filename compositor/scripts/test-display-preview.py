@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
     (cfg/'rules.toml').write_text('')
     bindir=base/'bin';bindir.mkdir();notify=bindir/'notify-send';notify.write_text('#!/bin/sh\nexit 0\n');notify.chmod(0o755)
     env['PATH']=str(bindir)+':'+os.environ['PATH']
-    env.update(WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER='pixman', LD_LIBRARY_PATH=str(ROOT/'.deps/wlroots-render-hook/lib'))
+    env.update(WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER='pixman', LD_LIBRARY_PATH=os.environ.get('AQUEOUS_WLROOTS_LIB', str(ROOT/'.deps/wlroots-render-hook/lib')))
     log=(base/'compositor.log').open('w+')
     proc=subprocess.Popen(['dbus-run-session','--',str(BIN),'-no-xwayland','-c','printenv AQUEOUS_SOCKET WAYLAND_DISPLAY > "$XDG_RUNTIME_DIR/socket"'],env=env,stdout=log,stderr=log,start_new_session=True)
     clients=[]
@@ -122,6 +122,44 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_test_failure'))['ok']
         assert not c.call('display.preview.begin',params,ok=False)['ok']
         assert model()['outputs'][0]['actual']==baseline['outputs'][0]['actual']
+        # The confirmation clock starts only after presentation is observed.
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_hold_completion',hold=True))['ok']
+        delayed=begin(c,x=75); delayed_token=delayed['token']
+        time.sleep(.3)
+        pending=status(delayed_token)
+        assert pending['state']=='applying' and not pending['supported_actions']['commit'],pending
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_hold_completion',hold=False))['ok']
+        wait(lambda: status(delayed_token)['state']=='previewing')
+        assert status(delayed_token)['remaining_ms']>14000
+        query.call('display.preview.revert',dict(token=delayed_token))
+        wait(lambda: status(delayed_token)['state']=='reverted')
+        # Commit failure occurs after the successful preflight and must restore
+        # both scheduled state and observed hardware, without touching files.
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_commit_failure'))['ok']
+        failed=begin(c,scale=1.25); failed_token=failed['token']
+        wait(lambda: status(failed_token)['state']=='invalidated')
+        assert status(failed_token)['reason']=='apply_failed'
+        assert all(o['restored'] and o['hardware_matches'] for o in status(failed_token)['affected_outputs'])
+        assert model()['outputs'][0]['actual']==baseline['outputs'][0]['actual']
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_partial_commit'))['ok']
+        failed=begin(c,scale=1.25); failed_token=failed['token']
+        wait(lambda: status(failed_token)['state']=='invalidated')
+        assert all(o['restored'] and o['hardware_matches'] for o in status(failed_token)['affected_outputs'])
+        suspended=begin(c,x=85); suspended_token=suspended['token']
+        wait(lambda: status(suspended_token)['state']=='previewing')
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_session_inactive',inactive=True))['ok']
+        wait(lambda: status(suspended_token)['state']=='waiting_session')
+        assert not status(suspended_token)['supported_actions']['commit']
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_session_inactive',inactive=False))['ok']
+        wait(lambda: status(suspended_token)['state']=='invalidated')
+        assert all(o['restored'] for o in status(suspended_token)['affected_outputs'])
+        fallback=begin(c,x=95);fallback_token=fallback['token']
+        wait(lambda: status(fallback_token)['state']=='previewing')
+        assert outputd(dict(op='test_output_retry',name=model()['outputs'][0]['connector'],action='preview_test_failure'))['ok']
+        query.call('display.preview.revert',dict(token=fallback_token))
+        wait(lambda: status(fallback_token)['state']=='invalidated')
+        assert status(fallback_token)['fallback_used'] and status(fallback_token)['rollback_partial']
+        assert any(o['enabled'] and not o['actual']['mirror_of'] for o in model()['outputs'])
         lease=begin(c,x=125)
         token=lease['token']; wait(lambda: status(token)['state']=='previewing')
         assert model()['outputs'][0]['actual']['x']==125
@@ -265,6 +303,23 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         request.update(preview_token=token,candidate_digest=params['candidate_digest'],raw_files={})
         result=helper_call('apply',request,('--result','v1','--operation-id',id))
         assert result['save']=='unchanged' and result['display']=='kept' and result['before_generation']==result['after_generation'],{k:result.get(k) for k in ['save','display','before_generation','after_generation','failure']}
+        request,params=candidate(model(),{'x':model()['outputs'][0]['actual']['x']+10})
+        lease=c.call('display.preview.begin',params)['result'];token=lease['token']
+        wait(lambda: status(token)['state']=='previewing')
+        operation=str(int(time.time()))+'-'+uuid.uuid4().hex
+        request.update(preview_token=token,candidate_digest=params['candidate_digest'])
+        paused=subprocess.Popen([str(helper.parent/'aqueous-backend-test'),'apply','--shell','none','--result','v1','--operation-id',operation,'--request','-'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env|{'AQUEOUS_TEST_STOP_AT':'journal_committed'})
+        try:
+            paused.stdin.write(json.dumps(request)); paused.stdin.close(); paused.stdin=None
+            wait(lambda: 'State:\tT' in Path(f'/proc/{paused.pid}/status').read_text())
+            wait(lambda: status(token)['reason']=='waiting_for_commit_writer',seconds=12)
+            assert status(token)['state']=='commit_authorized'
+            paused.send_signal(signal.SIGCONT)
+            stdout,stderr=paused.communicate(timeout=15)
+            assert paused.returncode==0,(stdout,stderr)
+            wait(lambda: status(token)['state']=='kept')
+        finally:
+            if paused.poll() is None: paused.kill();paused.wait(timeout=5)
         for stage in ['commit_authorized','journal_prepared','journal_committed']:
             # The preceding receipt remains queryable while a later operation
             # is interrupted at each durable boundary.
@@ -338,6 +393,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         print('PASS: structured profile/raw projection equivalence and mixed declaration/collection protected commit')
         print('PASS: protected collection apply and native generation/digest-bound reload acknowledgement')
         print('PASS: owner disconnect, timeout, stale revision, mirror-source removal, helper death and compositor restart/recovery')
+        print('PASS: presentation-gated confirmation, failed/partial commits, session resume, tested fallback and commit writer deadline')
 
     except Exception:
         log.seek(0);print('\n'.join(log.read().splitlines()[-35:]));raise

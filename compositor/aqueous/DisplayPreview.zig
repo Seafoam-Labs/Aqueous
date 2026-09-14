@@ -11,8 +11,9 @@ const Manager = @import("OutputManager.zig");
 const Codec = @import("IpcProtocol.zig");
 const Tx = @import("ConfigTransaction.zig");
 const a = std.heap.c_allocator;
-const Status = enum { applying, previewing, commit_authorized, kept, reverting, reverted, invalidated, failed };
-const Item = struct { instance: u64, before: Output.State, after: Output.State };
+pub const Policy = @import("display_preview_policy.zig");
+const Status = enum { applying, previewing, commit_authorized, kept, waiting_session, reverting, reverted, invalidated, failed };
+const Item = struct { instance: u64, before: Output.State, after: Output.State, completion: Policy.Completion, submitted: bool = false };
 const Lease = struct {
     token: [64]u8,
     candidate_digest: [64]u8,
@@ -38,11 +39,81 @@ const Configs = struct { legacy: Config.Snapshot, preferred: Config.Snapshot };
 var lease: ?Lease = null;
 var timer: ?*wl.EventSource = null;
 pub var test_fail_next = false;
+pub var test_fail_commit = false;
+pub var test_hold_completion = false;
+pub var test_session_inactive = false;
+pub var test_partial_commit = false;
+fn sessionActive() bool {
+    if (comptime @import("build_options").output_retry_testing) if (test_session_inactive) return false;
+    return if (server.session) |session| session.active else true;
+}
+pub fn backend(output: *wlr.Output) Policy.Backend {
+    return if (output.isHeadless()) .headless else if (output.isDrm()) .drm else .unsupported;
+}
+pub fn acceptanceOutput(output: *wlr.Output) bool {
+    if (!@import("build_options").display_preview_acceptance or !output.isDrm()) return false;
+    const names = std.c.getenv("AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_OUTPUTS") orelse return false;
+    return Policy.selected(std.mem.span(names), std.mem.span(output.name));
+}
+pub fn supportReason(output: *wlr.Output, feature: Policy.Feature) ?[]const u8 {
+    if (output.isDrm() and feature == .sdr and acceptanceOutput(output)) {
+        if (Output.hdr.active(output)) return "sdr_acceptance_requires_hdr_disabled";
+        if (output.adaptive_sync_status == .enabled) return "sdr_acceptance_requires_vrr_disabled";
+    }
+    return Policy.reason(backend(output), feature, acceptanceOutput(output), @import("OutputMirror.zig").supported());
+}
+fn hardwareMatches(o: *Output, target: Output.State) bool {
+    const w = o.wlr_output orelse return false;
+    if (w.enabled != (target.state == .enabled)) return false;
+    if (!w.enabled) return true;
+    const width, const height = switch (target.mode) {
+        .standard => |m| .{ m.width, m.height },
+        .custom => |m| .{ m.width, m.height },
+        .none => return false,
+    };
+    if (w.width != width or w.height != height or w.scale != target.scale or w.transform != target.transform) return false;
+    const refresh = switch (target.mode) {
+        .standard => |m| m.refresh,
+        .custom => |m| m.refresh,
+        .none => return false,
+    };
+    if (refresh != 0 and w.refresh != refresh) return false;
+    return (w.adaptive_sync_status == .enabled) == target.adaptive_sync and
+        Output.hdr.stateMatches(w, target.hdr_enabled, target.hdr_level, target.sdr_white_level);
+}
+// Present may be synchronous inside a backend commit. Record it here; evaluate
+// completion only after the output manager has published the entire state set.
+pub fn presented(instance: u64, sequence: u32, success: bool) void {
+    const l = if (lease) |*v| v else return;
+    if (!active()) return;
+    for (l.items[0..l.len]) |*item| if (item.instance == instance and item.submitted) item.completion.observe(sequence, success);
+}
+pub fn submitting() void {
+    const l = if (lease) |*v| v else return;
+    if (l.state != .applying and l.state != .reverting) return;
+    // Do not count frames of the previous configuration while waiting for a
+    // window-manager transaction. Arm immediately before publishing this set,
+    // so backends presenting synchronously inside commit are covered too.
+    for (l.items[0..l.len]) |item| {
+        const output = find(item.instance) orelse {
+            if (l.state == .reverting) continue;
+            return;
+        };
+        const target = if (l.state == .applying) item.after else output.scheduled;
+        if (!std.meta.eql(output.sent, target)) return;
+    }
+    for (l.items[0..l.len]) |*item| if (!item.submitted) {
+        if (find(item.instance)) |output| {
+            item.completion = .{ .baseline = output.wlr_output.?.commit_seq };
+            item.submitted = true;
+        }
+    };
+}
 fn now() i64 {
     return std.Io.Clock.awake.now(std.Io.Threaded.global_single_threaded.io()).toMilliseconds();
 }
 pub fn active() bool {
-    return if (lease) |l| l.state == .applying or l.state == .previewing or l.state == .commit_authorized or l.state == .reverting else false;
+    return if (lease) |l| l.state == .applying or l.state == .previewing or l.state == .commit_authorized or l.state == .waiting_session or l.state == .reverting else false;
 }
 fn find(instance: u64) ?*Output {
     var it = server.om.outputs.iterator(.forward);
@@ -70,13 +141,15 @@ pub fn failed() void {
 }
 pub fn applied() void {
     const l = if (lease) |*v| v else return;
-    if (!active() or l.state == .commit_authorized) return;
+    if (!active() or l.state == .commit_authorized or l.state == .waiting_session) return;
     if (l.state == .reverting) {
         for (l.items[0..l.len]) |item| {
             const o = find(item.instance) orelse {
                 l.rollback_partial = true;
                 continue;
             };
+            if (!std.meta.eql(o.current, o.scheduled) or !hardwareMatches(o, o.scheduled)) return;
+            if (o.scheduled.state == .enabled and !item.completion.presented) return;
             if (!std.meta.eql(o.current, item.before)) l.rollback_partial = true;
         }
         if (l.rollback_partial) {
@@ -95,6 +168,11 @@ pub fn applied() void {
             if (l.state == .previewing) revert("competing_change", null);
             return;
         }
+        if (!hardwareMatches(o, item.after)) {
+            if (l.state == .previewing) revert("hardware_state_changed", null);
+            return;
+        }
+        if (item.after.state == .enabled and (!item.completion.presented or test_hold_completion)) return;
     }
     if (l.state == .applying) {
         l.state = .previewing;
@@ -104,12 +182,40 @@ pub fn applied() void {
     }
 }
 fn tick(_: *u8) c_int {
-    if (active() and now() >= lease.?.deadline_ms) {
+    if (active()) {
+        if (!sessionActive() and lease.?.state != .commit_authorized) {
+            lease.?.state = .waiting_session;
+            lease.?.reason = "waiting_for_session_rollback";
+        } else if (lease.?.state == .waiting_session) {
+            lease.?.state = .applying;
+            revert("session_resumed", null);
+        }
+        if (server.lock_manager.state != .unlocked and lease.?.state != .commit_authorized) revert("session_locked", null);
+        if (lease.?.state == .applying or lease.?.state == .previewing) {
+            for (lease.?.items[0..lease.?.len]) |item| if (item.completion.rejected) {
+                revert("presentation_failed", null);
+                break;
+            };
+        }
+        applied();
+    }
+    if (active() and lease.?.state != .waiting_session and now() >= lease.?.deadline_ms) {
         if (lease.?.state == .reverting) {
             lease.?.state = .failed;
             lease.?.reason = "rollback_completion_timeout";
         } else if (lease.?.state == .commit_authorized) {
-            reconcileCommit() catch revert("commit_deadline", null);
+            reconcileCommit() catch |err| {
+                // A live helper can hold the lock at the durable boundary.
+                // Never restore hardware against a still-undecided file commit.
+                if (err == error.ConfigWriterBusy) {
+                    lease.?.reason = "waiting_for_commit_writer";
+                } else if (err == error.CommitNotDurable) {
+                    revert("commit_deadline", null);
+                } else {
+                    lease.?.state = .failed;
+                    lease.?.reason = "commit_recovery_failed";
+                }
+            };
         } else revert("timeout", null);
     }
     if (timer) |t| t.timerUpdate(100) catch {};
@@ -143,6 +249,11 @@ fn testStates(states: []const Manager.Pending) !void {
 fn revert(reason: []const u8, removed_instance: ?u64) void {
     const l = if (lease) |*v| v else return;
     if (!active() or l.state == .reverting) return;
+    if (!sessionActive()) {
+        l.state = .waiting_session;
+        l.reason = "waiting_for_session_rollback";
+        return;
+    }
     l.reason = reason;
     server.aqueous.output_service.preview_config = null;
     server.aqueous.output_service.preview_persisted = null;
@@ -191,6 +302,11 @@ fn revert(reason: []const u8, removed_instance: ?u64) void {
     };
     l.state = .reverting;
     l.deadline_ms = now() + 5000;
+    for (l.items[0..l.len]) |*item| if (find(item.instance)) |o| {
+        item.completion = .{ .baseline = o.wlr_output.?.commit_seq };
+        item.submitted = false;
+        if (o.scene_output) |scene| scene.damage_ring.addWhole();
+    };
     for (pending[0..len]) |item| item.output.scheduled = item.state;
     server.om.display_revision += 1;
     server.wm.dirtyWindowing();
@@ -198,6 +314,8 @@ fn revert(reason: []const u8, removed_instance: ?u64) void {
 
 pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     if (active()) return error.Busy;
+    if (server.lock_manager.state != .unlocked) return error.SessionLocked;
+    if (!sessionActive()) return error.SessionInactive;
     if (server.wm.state != .idle or server.wm.scheduled.dirty) return error.Busy;
     const revision = try std.fmt.parseInt(u64, try Codec.string(params, "display_revision"), 10);
     if (revision != server.om.display_revision) return error.StaleRevision;
@@ -232,17 +350,25 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     while (it.next()) |o| {
         const w = o.wlr_output orelse continue;
         if (count == pending.len or !std.meta.eql(o.current, o.scheduled)) return error.Busy;
-        // Only the simulated backend is enabled until physical acceptance.
-        if (!w.isHeadless()) return error.HardwareAcceptanceRequired;
+        if (backend(w) == .unsupported) return error.UnsupportedPreviewBackend;
+        if (supportReason(w, .sdr) != null) return error.HardwareAcceptanceRequired;
         var target = o.current;
         for (plan.items[0..plan.len]) |entry| if (entry.output == o) {
             target = entry.state;
         };
+        if (w.isDrm()) {
+            // The acceptance build only exercises ordinary SDR with advertised
+            // modes. Feature groups require their own future acceptance.
+            if (target.hdr_enabled or o.current.hdr_enabled or target.auto_hdr or o.current.auto_hdr) return error.HdrAcceptanceRequired;
+            if (target.adaptive_sync or o.current.adaptive_sync) return error.VrrAcceptanceRequired;
+            if (!target.mirror_of.empty() or !o.current.mirror_of.empty()) return error.MirroringAcceptanceRequired;
+            if (target.mode == .custom or o.current.mode == .custom) return error.CustomModeAcceptanceRequired;
+        }
         if (target.hdr_enabled != o.current.hdr_enabled or target.adaptive_sync != o.current.adaptive_sync or
             target.hdr_level != o.current.hdr_level or target.sdr_white_level != o.current.sdr_white_level or
             target.auto_hdr != o.current.auto_hdr or target.auto_hdr_boost != o.current.auto_hdr_boost) return error.HardwareAcceptanceRequired;
         pending[count] = .{ .output = o, .state = target };
-        l.items[count] = .{ .instance = o.display_instance, .before = o.current, .after = target };
+        l.items[count] = .{ .instance = o.display_instance, .before = o.current, .after = target, .completion = .{ .baseline = w.commit_seq } };
         count += 1;
     }
     Manager.layoutPlan(pending[0..count]);
@@ -267,6 +393,7 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     server.aqueous.output_service.preview_config = &configs.legacy;
     server.aqueous.output_service.preview_persisted = &configs.preferred;
     for (pending[0..count]) |entry| entry.output.scheduled = entry.state;
+    for (pending[0..count]) |entry| if (entry.output.scene_output) |scene| scene.damage_ring.addWhole();
     server.wm.dirtyWindowing();
 }
 pub fn requestRevert(token: []const u8) !void {
@@ -282,17 +409,19 @@ pub fn writeStatus(json: *std.json.Stringify, token: ?[]const u8) !void {
     if (token) |t| try checkToken(t);
     const l = lease orelse return error.UnknownLease;
     var names: [Config.max_outputs][20]u8 = undefined;
-    const Affected = struct { instance: []const u8, connected: bool, restored: bool, still_owned: bool, reason: ?[]const u8 };
+    const Affected = struct { instance: []const u8, connected: bool, restored: bool, still_owned: bool, hardware_matches: bool, presented: bool, reason: ?[]const u8 };
     var affected: [Config.max_outputs]Affected = undefined;
     for (l.items[0..l.len], 0..) |item, index| {
         const o = find(item.instance);
-        const restored = if (o) |v| std.meta.eql(v.current, item.before) else false;
+        const restored = if (o) |v| std.meta.eql(v.current, item.before) and hardwareMatches(v, item.before) else false;
         const owned = if (o) |v| std.meta.eql(v.scheduled, item.after) else false;
         affected[index] = .{
             .instance = try std.fmt.bufPrint(&names[index], "{d}", .{item.instance}),
             .connected = o != null,
             .restored = restored,
             .still_owned = owned,
+            .hardware_matches = if (o) |v| hardwareMatches(v, v.current) else false,
+            .presented = item.completion.presented,
             .reason = if (o == null) "output_removed" else if (!restored and !owned) "newer_state_preserved" else null,
         };
     }
@@ -320,7 +449,13 @@ pub fn authorize(params: std.json.ObjectMap) !void {
     const id = try Codec.string(params, "operation_id");
     if (!Tx.validOperationId(id)) return error.Invalid;
     if (l.state != .previewing or now() >= l.deadline_ms) return error.LeaseExpired;
+    if (!sessionActive()) return error.SessionInactive;
+    if (server.lock_manager.state != .unlocked) return error.SessionLocked;
     if (l.revision != server.om.display_revision) return error.StaleRevision;
+    for (l.items[0..l.len]) |item| {
+        const output = find(item.instance) orelse return error.StaleRevision;
+        if (!std.meta.eql(output.current, item.after) or !std.meta.eql(output.scheduled, item.after) or !hardwareMatches(output, item.after)) return error.StaleRevision;
+    }
     if (!std.mem.eql(u8, &l.candidate_digest, try Codec.string(params, "candidate_digest")) or
         !std.mem.eql(u8, &l.generation, try Codec.string(params, "expected_generation")) or
         !std.mem.eql(u8, &l.display_digest, &try displayDigest(try source(params, "wm_source"), try source(params, "outputs_source")))) return error.CandidateMismatch;
@@ -355,9 +490,13 @@ fn readDecision() !void {
     defer a.free(bytes);
     const parsed = try std.json.parseFromSlice(std.json.Value, a, bytes, .{});
     defer parsed.deinit();
+    if (parsed.value != .object) return error.Invalid;
     const obj = parsed.value.object;
     const save = try Codec.string(obj, "save");
     if ((!std.mem.eql(u8, save, "saved") and !std.mem.eql(u8, save, "unchanged")) or
+        !std.mem.eql(u8, try Codec.string(obj, "preview_token"), &l.token) or
+        !std.mem.eql(u8, try Codec.string(obj, "operation_id"), l.operation_id[0..l.operation_len]) or
+        !std.mem.eql(u8, try Codec.string(obj, "before_generation"), &l.generation) or
         !std.mem.eql(u8, try Codec.string(obj, "candidate_digest"), &l.candidate_digest)) return error.CommitNotDurable;
     const generation = try Codec.string(obj, "after_generation");
     if (generation.len != 16) return error.Invalid;

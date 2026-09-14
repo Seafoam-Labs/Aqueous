@@ -85,22 +85,29 @@ pub fn write(json: *std.json.Stringify) !void {
         var modes = w.modes.iterator(.forward);
         while (modes.next()) |mode| try json.write(.{ .width = mode.width, .height = mode.height, .refresh_mhz = mode.refresh, .preferred = mode.preferred });
         try json.endArray();
+        const Preview = @import("DisplayPreview.zig");
+        try field(json, "preview_backend", @tagName(Preview.backend(w)));
+        try field(json, "preview_acceptance_only", Preview.acceptanceOutput(w));
         try field(json, "support", .{
-            .placement = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .mode = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .enable = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .hdr = support(false, if (Output.hdr.capable(w)) "hardware_acceptance_pending" else "hdr_unsupported"),
-            .vrr = support(false, "hardware_test_required"),
-            .mirroring = support(w.isHeadless() and @import("OutputMirror.zig").supported(), "hardware_or_renderer_acceptance_required"),
-            .profiles = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .policies = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .primary = support(w.isHeadless(), "hardware_acceptance_pending"),
-            .custom_mode = support(w.isHeadless(), "custom_mode_hardware_test_required"),
+            .placement = previewSupport(w, .sdr),
+            .mode = previewSupport(w, .sdr),
+            .enable = previewSupport(w, .sdr),
+            .hdr = if (Output.hdr.capable(w)) previewSupport(w, .hdr) else support(false, "hdr_unsupported"),
+            .vrr = previewSupport(w, .vrr),
+            .mirroring = previewSupport(w, .mirroring),
+            .profiles = previewSupport(w, .sdr),
+            .policies = previewSupport(w, .sdr),
+            .primary = previewSupport(w, .sdr),
+            .custom_mode = previewSupport(w, .custom_mode),
         });
         try json.endObject();
     }
     try json.endArray();
     try json.endObject();
+}
+fn previewSupport(output: *@import("wlroots").Output, feature: @import("DisplayPreview.zig").Policy.Feature) @TypeOf(support(false, "")) {
+    const reason = @import("DisplayPreview.zig").supportReason(output, feature);
+    return support(reason == null, reason orelse "");
 }
 fn support(preview: bool, reason: []const u8) struct { store: bool, @"test": bool, preview: bool, reason: ?[]const u8 } {
     return .{ .store = true, .@"test" = preview, .preview = preview, .reason = if (preview) null else reason };

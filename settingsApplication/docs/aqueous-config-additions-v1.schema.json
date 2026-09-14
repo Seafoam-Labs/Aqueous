@@ -1242,6 +1242,16 @@
             "custom_mode"
           ],
           "additionalProperties": false
+        },
+        "preview_backend": {
+          "enum": [
+            "headless",
+            "drm",
+            "unsupported"
+          ]
+        },
+        "preview_acceptance_only": {
+          "type": "boolean"
         }
       },
       "required": [

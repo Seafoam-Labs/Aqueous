@@ -115,7 +115,8 @@
             "reverting",
             "reverted",
             "invalidated",
-            "failed"
+            "failed",
+            "waiting_session"
           ]
         },
         "reason": {
@@ -178,6 +179,12 @@
                   "string",
                   "null"
                 ]
+              },
+              "hardware_matches": {
+                "type": "boolean"
+              },
+              "presented": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -481,6 +488,16 @@
             "custom_mode"
           ],
           "additionalProperties": false
+        },
+        "preview_backend": {
+          "enum": [
+            "headless",
+            "drm",
+            "unsupported"
+          ]
+        },
+        "preview_acceptance_only": {
+          "type": "boolean"
         }
       },
       "required": [

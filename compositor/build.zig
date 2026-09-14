@@ -96,6 +96,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "toplevel_drag_testing", b.option(bool, "toplevel-drag-testing", "Enable private synthetic touch input (tests only)") orelse false);
     options.addOption(bool, "tablet_testing", b.option(bool, "tablet-testing", "Enable private synthetic tablet input (tests only)") orelse false);
     options.addOption(bool, "output_retry_testing", b.option(bool, "output-retry-testing", "Enable private output retry fault injection (tests only)") orelse false);
+    options.addOption(bool, "display_preview_acceptance", b.option(bool, "display-preview-acceptance", "Enable explicitly selected SDR DRM preview acceptance tests; never ship this build") orelse false);
     options.addOption([]const u8, "version", full_version);
 
     const scanner = Scanner.create(b, .{});
@@ -530,6 +531,12 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         const run_output_retry_test = b.addRunArtifact(output_retry_test);
+        const preview_policy_test = b.addTest(.{ .root_module = b.createModule(.{
+            .root_source_file = b.path("aqueous/display_preview_policy.zig"),
+            .target = target,
+            .optimize = optimize,
+        }) });
+        const run_preview_policy_test = b.addRunArtifact(preview_policy_test);
         b.step("test-output-retry", "Test output recovery policy").dependOn(&run_output_retry_test.step);
 
         const aqueous_test = b.addTest(.{
@@ -734,6 +741,7 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        test_step.dependOn(&run_preview_policy_test.step);
         const tablet_test = b.addTest(.{ .root_module = tablet });
         const run_tablet_test = b.addRunArtifact(tablet_test);
         test_step.dependOn(&run_tablet_test.step);
