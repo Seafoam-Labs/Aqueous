@@ -42,6 +42,12 @@ for channel in git intel-git; do
     grep -q "desktop.${instance//-/_}" "$base/$channel-portal/usr/share/xdg-desktop-portal/portals/$instance.portal"
     grep -q 'AQUEOUS_SOCKET AQUEOUS_INSTANCE PATH LD_LIBRARY_PATH' "$session/usr/bin/aqueous-init-$channel"
     [[ ! -e $base/$channel-integration-dms/etc/xdg/quickshell ]] || fail 'Git installed global DMS plugins'
+    pearl_units=$base/$channel-integration-pearl/usr/lib/systemd/user
+    grep -qx 'ExecStart=/usr/bin/pearl-git' "$pearl_units/$instance-pearl.service"
+    [[ -L $pearl_units/graphical-session.target.wants/$instance-pearl.service ]]
+    [[ -f $pearl_units/pearl-git.service.d/60-$instance-selection.conf ]]
+    grep -qx 'pearl_binary=pearl-git' "$runtime"
+    grep -qx 'pearl_control=pearlctl-git' "$runtime"
     recipe=$root/packaging/arch/aqueous-desktop-$channel/PKGBUILD
     bash -c 'set -eu; source "$1"; "package_aqueous-shell-pearl-$2"; [[ ${#depends[@]} == 2 && ${depends[1]} == pearl-git ]]' _ "$recipe" "$channel"
     bash -c '
@@ -80,6 +86,22 @@ for channel in git intel-git; do
         printf 'version=1\nshell="none"\n' > "$XDG_CONFIG_HOME/$instance/session.toml"
         [[ $($runtime active-selection) == dms && $($runtime selection) == none ]]
         AQUEOUS_NESTED=1 "$runtime" prepare-session
+        # Pearl Git alone must satisfy selection; never rely on host pearl.
+        command() {
+            if [[ $1 == -v && $2 == pearl ]]; then return 1; fi
+            builtin command "$@"
+        }
+        export -f command
+        printf '#!/bin/sh\nexit 0\n' > "$base/bin/pearl-git"
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*"\n' > "$base/bin/pearlctl-git"
+        chmod +x "$base/bin/pearl-git" "$base/bin/pearlctl-git"
+        export AQUEOUS_UNIT_DIR=$pearl_units
+        printf 'version=1\nshell="pearl"\n' > "$XDG_CONFIG_HOME/$instance/session.toml"
+        "$runtime" prepare-session
+        "$runtime" condition pearl
+        [[ $("$runtime" action launcher) == 'launcher toggle' ]]
+        [[ $("$runtime" action lock) == lock ]]
+        if "$runtime" condition dms; then fail 'Unselected DMS starts with Pearl'; fi
     )
 done
 [[ -z $(comm -12 "$base/git.files" "$base/intel-git.files") ]] || fail 'Git desktop variants conflict'
@@ -154,6 +176,15 @@ jq -e --arg command "aqueous-shell-action-$channel screenshot" '.changes[0].valu
 grep -q "aqueous-shell-action-$channel chooser" "$XDG_CONFIG_HOME/xdg-desktop-portal-$instance/config"
 grep -q 'shell="dms"' "$XDG_CONFIG_HOME/aqueous/session.toml"
 printf 'PASS: real welcome worker isolation, helper routing, completion, portal configuration and compiled portal identity\n'
+cat > "$prefix/bin/sudo" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == -p && $2 == '[sudo] password for %p: ' && $3 == -- && $4 == shelly ]]
+shift 3
+export FIXTURE_ELEVATED=1
+exec "$@"
+SH
+chmod +x "$prefix/bin/sudo"
 cat > "$prefix/bin/shelly" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -162,6 +193,7 @@ if [[ $1 == list ]]; then
     exit
 fi
 [[ $1 == install && $2 == standard ]]
+[[ ${FIXTURE_ELEVATED:-0} == 1 ]]
 printf '%s\n' "$*" > "$FIXTURE_ROOT/install-log"
 jq -n --args '$ARGS.positional | map(select(. != "--ui-mode") | {Name:.,Id:.})' -- "${@:3}" > "$FIXTURE_ROOT/packages"
 if [[ ${OMIT_PEARL:-0} == 1 ]]; then
@@ -171,8 +203,8 @@ fi
 printf '[JSON]%s[/JSON]\n' "$(printf '%s' '{"$kind":"alpm.info","EventType":"TransactionDone"}' | base64 -w0)"
 SH
 chmod +x "$prefix/bin/shelly"
-printf '#!/bin/sh\nexit 0\n' > "$prefix/bin/pearl"
-chmod +x "$prefix/bin/pearl"
+printf '#!/bin/sh\nexit 0\n' > "$prefix/bin/pearl-git"
+chmod +x "$prefix/bin/pearl-git"
 pearl_setup() {
     local pid output input event status=0
     # Keep the UI transport open until the install completes; EOF is cancellation.

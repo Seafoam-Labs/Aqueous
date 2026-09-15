@@ -111,7 +111,7 @@ fn setup(ctx: *Context, shell: []const u8, specs: []const [:0]const u8) !void {
             for (names.items) |name| try installBatch(ctx, backend, &.{name});
         } else if (names.items.len > 0) try installBatch(ctx, backend, names.items);
     }
-    if (!eq(u8, shell, "none") and !try ctx.which(shell)) return ctx.fail("The installed shell executable is missing", .{});
+    if (!eq(u8, shell, "none") and !try ctx.which(session.shellCommand(shell))) return ctx.fail("The installed shell executable is missing", .{});
     _ = try ctx.helper("validate", request);
     try journal.phase("configuring");
     if (!u.bytesSame(try ctx.read(selection_path), selection_before)) return ctx.fail("Desktop selection changed after review; review setup again", .{});

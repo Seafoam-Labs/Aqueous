@@ -10,6 +10,11 @@ pub fn valid(shell: []const u8) bool {
     for (shells) |s| if (eq(u8, s, shell)) return true;
     return false;
 }
+pub fn shellCommand(shell: []const u8) []const u8 {
+    if (eq(u8, shell, "pearl") and instance.suffix.len != 0) return "pearl-git";
+    return shell;
+}
+pub const pearl_control = if (instance.suffix.len == 0) "pearlctl" else "pearlctl-git";
 pub fn package(shell: []const u8) ?[]const u8 {
     if (eq(u8, shell, "pearl")) return if (instance.suffix.len == 0) "pearl" else "pearl-git";
     if (eq(u8, shell, "dms")) return "dms-shell";
@@ -83,18 +88,18 @@ pub fn selection(ctx: *Context) ![]const u8 {
     var count: usize = 0;
     if (try ctx.read(try ctx.path(&.{ try ctx.config(), instance.name ++ "/wm.toml" }))) |bytes| {
         for (shells[0..3]) |shell| {
-            const legacy_command = if (eq(u8, shell, "pearl")) "pearlctl " else try std.fmt.allocPrint(ctx.a, "{s} ", .{shell});
+            const legacy_command = if (eq(u8, shell, "pearl")) pearl_control ++ " " else try std.fmt.allocPrint(ctx.a, "{s} ", .{shell});
             if (std.mem.indexOf(u8, bytes, legacy_command) != null) {
                 count += 1;
                 found = shell;
             }
         }
-        if (count == 1 and try ctx.which(found.?)) return found.?;
+        if (count == 1 and try ctx.which(shellCommand(found.?))) return found.?;
     }
     // Legacy completed installations may not yet have an explicit selection.
     if (u.exists(try ctx.path(&.{ try ctx.state(), "welcome-v1" }))) {
         count = 0;
-        for (shells[0..3]) |shell| if (try ctx.which(shell)) {
+        for (shells[0..3]) |shell| if (try ctx.which(shellCommand(shell))) {
             count += 1;
             found = shell;
         };
@@ -144,7 +149,7 @@ fn recover(ctx: *Context) !void {
 pub fn prepare(ctx: *Context) !void {
     if (!inAqueous() or nested()) return;
     var shell = try selection(ctx);
-    if (!eq(u8, shell, "none") and !try ctx.which(shell)) {
+    if (!eq(u8, shell, "none") and !try ctx.which(shellCommand(shell))) {
         shell = "none";
         try recover(ctx);
     }
@@ -203,7 +208,7 @@ pub fn action(ctx: *Context, name: []const u8) !void {
     }
     const lock = eq(u8, name, "lock");
     if (!lock and !eq(u8, name, "launcher")) return ctx.fail("Unknown action: {s}", .{name});
-    if (eq(u8, shell, "pearl")) return exec(ctx, if (lock) &.{ "pearlctl", "lock" } else &.{ "pearlctl", "launcher", "toggle" });
+    if (eq(u8, shell, "pearl")) return exec(ctx, if (lock) &.{ pearl_control, "lock" } else &.{ pearl_control, "launcher", "toggle" });
     if (eq(u8, shell, "dms")) return exec(ctx, if (lock) &.{ "dms", "ipc", "call", "lock", "lock" } else &.{ "dms", "ipc", "call", "spotlight", "toggle" });
     if (eq(u8, shell, "noctalia")) return exec(ctx, if (lock) &.{ "noctalia", "msg", "lock" } else &.{ "noctalia", "msg", "panel-toggle", "launcher" });
     return exec(ctx, if (lock) &.{ ctx.executable, "--message", "No screen locker is configured for this shell-free session." } else &.{ctx.executable});

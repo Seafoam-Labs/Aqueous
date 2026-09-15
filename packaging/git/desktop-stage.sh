@@ -47,6 +47,9 @@ session)
     # Each Git session uses the native picker for DMS/Pearl/None. Avoid global
     # DMS plugin discovery paths owned by the stable and legacy integrations.
     sed -i -E 's@dms\) exec .*;;@dms) exec aqueous-welcome-'"$channel"' --choose;;@' "$destination$private/session-runtime.sh"
+    # Git Pearl ships suffixed binaries; retain "pearl" as the selection ID.
+    sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \
+        -e 's/^pearl_control=pearlctl$/pearl_control=pearlctl-git/' "$destination$private/session-runtime.sh"
     # Applications activated through the user manager need the same toolchain
     # and instance marker as direct compositor children.
     sed -i '/^export AQUEOUS_SOCKET=/! s/AQUEOUS_SOCKET /AQUEOUS_SOCKET AQUEOUS_INSTANCE PATH LD_LIBRARY_PATH /g' "$destination$prefix/bin/aqueous-init-$channel"
@@ -107,7 +110,7 @@ integration-dms|integration-noctalia|integration-pearl)
     case $shell in
         dms) kind=dbus; command="$prefix/bin/dms run --session";;
         noctalia) kind=forking; command="$prefix/bin/noctalia --daemon";;
-        pearl) kind=simple; command="$prefix/bin/pearl";;
+        pearl) kind=simple; command="$prefix/bin/pearl-git";;
     esac
     units=$prefix/lib/systemd/user
     unit=$instance-$shell.service
@@ -133,6 +136,10 @@ EOF
     install -d "$destination$units/graphical-session.target.wants"
     ln -s "../$unit" "$destination$units/graphical-session.target.wants/$unit"
     printf '[Service]\nExecCondition=%s/session-runtime.sh external-condition\n' "$private" | write "$units/$shell.service.d/60-$instance-selection.conf"
+    if [[ $shell == pearl ]]; then
+        # Suppress a separately enabled Git shell unit in this managed session.
+        printf '[Service]\nExecCondition=%s/session-runtime.sh external-condition\n' "$private" | write "$units/pearl-git.service.d/60-$instance-selection.conf"
+    fi
     if [[ $shell == noctalia ]]; then transform < "$root/packaging/noctalia/config.toml" | write "$prefix/share/$instance/noctalia/config.toml"; fi
     ;;
 *) aq_die "Unknown Git desktop component: $component";;

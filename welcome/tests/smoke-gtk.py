@@ -16,6 +16,22 @@ assert helper.is_file(), 'Build settingsApplication first'
 (fixtures/'aqueous-config').symlink_to(helper)
 for name in ('pearl','dms','noctalia'):
  (fixtures/name).write_text('#!/bin/sh\nexit 0\n');(fixtures/name).chmod(0o755)
+(fixtures/'sudo').write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == -p && $2 == '[sudo] password for %p: ' && $3 == -- && $4 == shelly ]]
+shift 3
+exec 3<> /dev/tty
+case " $(stty -a <&3) " in *' -echo '*) ;; *) exit 91;; esac
+printf '[sudo] password for fixture: ' >&3
+IFS= read -r secret <&3
+[[ $secret == fixture-secret ]] || exit 92
+unset secret
+printf '\n' >&3
+exec 3>&-
+export FIXTURE_ELEVATED=1
+exec "$@"
+''')
+(fixtures/'sudo').chmod(0o755)
 (fixtures/'shelly').write_text(r'''#!/usr/bin/env python3
 import os, sys, json, base64, pathlib, termios
 state=pathlib.Path(os.environ['XDG_STATE_HOME'])/'fixture-packages.json'
@@ -23,17 +39,13 @@ names=json.loads(state.read_text()) if state.exists() else []
 if sys.argv[1]=='list':
  print(json.dumps([{'Name':name} for name in names]));sys.exit(0)
 assert sys.argv[1:3]==['install','standard']
+assert os.environ.get('FIXTURE_ELEVATED')=='1'
 assert '--no-confirm' not in sys.argv and '--ui-mode' in sys.argv
 package=sys.argv[3]
 def emit(v):
  print('[JSON]'+base64.b64encode(json.dumps(v).encode()).decode()+'[/JSON]',flush=True)
 def reply():
  line=sys.stdin.buffer.readline();return json.loads(base64.b64decode(line[6:line.index(b'[/JSON]')]))
-tty=os.open('/dev/tty',os.O_RDWR)
-assert not termios.tcgetattr(tty)[3] & termios.ECHO
-os.write(tty,b'[sudo] password for fixture: ')
-assert os.read(tty,4096)==b'fixture-secret\n'
-os.write(tty,b'\n');os.close(tty)
 emit({'$kind':'q.optdeps','QuestionId':'1','Options':[{'Index':0,'Name':'optional-one'},{'Index':3,'Name':'optional-two'}]})
 assert reply()=={'$kind':'a.optdeps','QuestionId':'1','SelectedIndices':[0,3]}
 emit({'$kind':'q.transaction','QuestionId':'2','QuestionText':'Install shell and optional dependencies?','Packages':[{'Name':package},{'Name':'optional-one'},{'Name':'optional-two'}]})

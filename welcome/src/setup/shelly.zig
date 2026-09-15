@@ -121,7 +121,18 @@ fn progress(ctx: *Context, cancelled: *bool, event: anytype) !void {
 }
 
 pub fn install(ctx: *Context, args: []const []const u8) !void {
-    const argv = try ctx.argv(args);
+    // Shelly deliberately leaves elevation to its caller in --ui-mode.
+    // Only system package transactions need root; user Flatpaks must retain
+    // the user's identity and session environment.
+    var command: std.ArrayList([]const u8) = .empty;
+    if (args.len >= 3 and (eq(u8, args[2], "standard") or eq(u8, args[2], "aur"))) {
+        if (!try ctx.which("sudo")) return ctx.fail("sudo is required to authorize package installation", .{});
+        // Override sudo's configurable prompt so the private terminal bridge
+        // recognizes it. Never use -S: stdin carries Shelly protocol replies.
+        try command.appendSlice(ctx.a, &.{ "sudo", "-p", "[sudo] password for %p: ", "--" });
+    }
+    try command.appendSlice(ctx.a, args);
+    const argv = try ctx.argv(command.items);
     var master: c_int = -1;
     var slave: c_int = -1;
     if (c.openpty(&master, &slave, null, null, null) != 0) return error.TerminalFailed;
@@ -139,7 +150,7 @@ pub fn install(ctx: *Context, args: []const []const u8) !void {
     defer for (output) |fd| u.close(fd);
     var errors = try pipe();
     defer for (errors) |fd| u.close(fd);
-    if (c.setenv("LC_ALL", "C", 1) != 0 or c.setenv("SHELLY_ELEVATOR", "sudo", 1) != 0) return error.EnvironmentFailed;
+    if (c.setenv("LC_ALL", "C", 1) != 0) return error.EnvironmentFailed;
     const pid = c.fork();
     if (pid < 0) return error.ForkFailed;
     if (pid == 0) {

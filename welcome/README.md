@@ -14,19 +14,22 @@ welcome build. Both packages
 must be reported installed before setup completes. Git welcome retains its Git
 preset choice when recovering from a missing session runtime.
 
-Welcome launches `shelly` directly. When Shelly's elevation process requests a
-password, a GTK popup collects it and replies through a private controlling
-terminal. Package questions travel over separate framed stdin/stdout pipes.
+Welcome launches system package transactions through `sudo -- shelly` because
+Shelly disables automatic elevation in `--ui-mode`. When sudo requests a password,
+a GTK popup collects it and replies through a private controlling terminal.
+Package questions travel over separate framed stdin/stdout pipes. Package lists
+and user Flatpak installs run without elevation; Welcome and its configuration
+worker remain unprivileged.
 All optional dependencies offered by Shelly are selected automatically, including
 for explicitly selected catalog applications. `--no-confirm` is intentionally
 omitted because its current optional-dependency default selects none.
 
 The tested transport matches Shelly-ALPM source `7b0e1007`: JSON/base64 frames,
-`q.optdeps`/`a.optdeps`, and `alpm.info.EventType` transaction results. Shelly owns
-sudo elevation (`SHELLY_ELEVATOR=sudo`). Its standard C-locale sudo password prompt
+`q.optdeps`/`a.optdeps`, and `alpm.info.EventType` transaction results. Welcome sets
+an explicit sudo password prompt with `-p`. That prompt
 is supported, including retries; customized/MFA prompts produce an explicit
-unsupported-authentication error. Welcome does not invoke sudo/pkexec itself,
-use an askpass helper, or require a polkit agent. Passwords are never written to
+unsupported-authentication error. Welcome never elevates its configuration worker,
+uses no askpass helper, and requires no polkit agent. Passwords are never written to
 argv, environment, logs, or the journal. The worker does not cache credentials.
 
 ## Setup and session behavior

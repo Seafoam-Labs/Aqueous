@@ -28,6 +28,28 @@ case $1 in
   cat "$FIXTURE_ROOT/snapshot";;
 esac
 SH
+cat > "$base/bin/sudo" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == -p && $2 == '[sudo] password for %p: ' && $3 == -- && $4 == shelly ]]
+shift 3
+[[ $2 == install && ( $3 == standard || $3 == aur ) ]]
+printf '%s\n' "$*" >> "$FIXTURE_ROOT/elevation-log"
+[[ ${SCENARIO:-} != sudo-denied ]] || exit 1
+exec 3<> /dev/tty
+case " $(stty -a <&3) " in *' -echo '*) ;; *) exit 91;; esac
+if [[ ${SCENARIO:-} == echo ]]; then stty echo <&3; fi
+for attempt in 1 2; do
+ printf '[sudo] password for fixture: ' >&3
+ IFS= read -r secret <&3
+ [[ $secret == fixture-secret ]] || exit 92
+ unset secret
+ printf '\n' >&3
+done
+exec 3>&-
+export FIXTURE_ELEVATED=1
+exec "$@"
+SH
 cat > "$base/bin/shelly" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -39,8 +61,15 @@ frame() {
 }
 answer() { local line; IFS= read -r line; line=${line#'[JSON]'}; line=${line%'[/JSON]'}; printf '%s' "$line" | base64 -d; }
 if [[ $1 == list ]]; then
+ [[ ${FIXTURE_ELEVATED:-0} == 0 ]]
  if [[ -f $FIXTURE_ROOT/packages ]]; then cat "$FIXTURE_ROOT/packages"; else printf '[]\n'; fi
  exit
+fi
+# Like the real --ui-mode CLI, this fixture never elevates itself.
+if [[ $2 == flatpak ]]; then
+ [[ ${FIXTURE_ELEVATED:-0} == 0 && $* == *'--user --remote flathub' ]]
+else
+ [[ ${FIXTURE_ELEVATED:-0} == 1 ]] || exit 93
 fi
 printf '%s\n' "$*" >> "$FIXTURE_ROOT/install-log"
 case ${SCENARIO:-normal} in
@@ -55,17 +84,6 @@ case ${SCENARIO:-normal} in
   frame '{"$kind":"alpm.info","EventType":"TransactionDone"}'
   exit;;
 esac
-exec 3<> /dev/tty
-case " $(stty -a <&3) " in *' -echo '*) ;; *) exit 91;; esac
-if [[ ${SCENARIO:-} == echo ]]; then stty echo <&3; fi
-for attempt in 1 2; do
- printf '[sudo] password for fixture: ' >&3
- IFS= read -r secret <&3
- [[ $secret == fixture-secret ]] || exit 92
- unset secret
- printf '\n' >&3
-done
-exec 3>&-
 for id in 1 2; do
  frame "{\"\$kind\":\"q.optdeps\",\"QuestionId\":\"$id\",\"Options\":[{\"Index\":7},{\"Index\":19,\"IsInstalled\":true},{\"Index\":42}]}"
  answer | jq -e --arg id "$id" '. == {"$kind":"a.optdeps",QuestionId:$id,SelectedIndices:[7,42]}' >/dev/null
@@ -78,12 +96,12 @@ head -c 100000 /dev/zero >&2
 jq -n --args '$ARGS.positional | map(select(. != "--ui-mode") | {Name:.,Id:.})' -- "${@:3}" > "$FIXTURE_ROOT/packages"
 frame '{"$kind":"alpm.info","EventType":"TransactionDone","Message":"Installed"}'
 SH
-chmod +x "$base/bin/aqueous-config" "$base/bin/shelly"
+chmod +x "$base/bin/aqueous-config" "$base/bin/shelly" "$base/bin/sudo"
 for shell in pearl dms noctalia; do printf '#!/bin/sh\nexit 0\n' > "$base/bin/$shell"; chmod +x "$base/bin/$shell"; done
 reset() {
  rm -rf "$base/config" "$base/state" "$base/run"
  mkdir -p "$base/config/aqueous" "$base/state" "$base/run"
- rm -f "$base"/{install-log,helper-log,validations,packages,committed,events,request,apply-request}
+ rm -f "$base"/{install-log,elevation-log,helper-log,validations,packages,committed,events,request,apply-request}
  printf 'version=1\nshell="dms"\n' > "$base/config/aqueous/session.toml"
  cat > "$base/snapshot" <<'JSON'
 {"generation":"g","fields":[],"raw_files":{},"capabilities":["shell_none","schema_fields","validate","generation_check","stdin_requests","apply_result_v1","operation_receipts_v1","candidate_impact_v1","recoverable_commit_v1"]}
@@ -125,7 +143,7 @@ worker() {
 }
 reset
 worker none
-[[ ! -f $base/install-log && -f $base/state/aqueous/welcome-v1 ]]
+[[ ! -f $base/install-log && ! -f $base/elevation-log && -f $base/state/aqueous/welcome-v1 ]]
 [[ $($binary --worker selection) == none ]]
 grep -q 'Hidden=true' "$base/config/autostart/org.aqueous.Welcome.desktop"
 printf 'Nothing completes without Shelly: passed\n'
@@ -135,15 +153,25 @@ worker pearl
 ! grep -q fixture-secret "$base/events" "$base/state/aqueous/welcome-operation.json"
 [[ $($binary --worker selection) == pearl && $($binary --worker active-selection) == dms ]]
 grep -q 'install standard pearl --ui-mode' "$base/install-log"
+grep -qx 'shelly install standard pearl --ui-mode' "$base/elevation-log"
 [[ $(cat "$base/validations") == 2 ]]
 printf 'Password terminal, fragmented questions, optional dependencies and active-session preservation: passed\n'
-for scenario in failure no-done cancelled malformed commit disconnect echo stale stale-response decline; do
+for scenario in sudo-denied failure no-done cancelled malformed commit disconnect echo stale stale-response decline; do
  reset; export SCENARIO=$scenario
  if worker pearl; then printf 'Unexpected success: %s\n' "$scenario" >&2; exit 1; fi
  [[ $($binary --worker selection) == dms && ! -f $base/state/aqueous/welcome-v1 ]]
  [[ $scenario != commit && $scenario != disconnect || -f $base/committed ]]
+ [[ $scenario != sudo-denied || ! -f $base/install-log ]]
 done
 printf 'Failed, cancelled, stale and malformed transactions preserve configuration: passed\n'
+reset
+worker none aur:welcome-fixture
+grep -qx 'shelly install aur welcome-fixture --ui-mode' "$base/elevation-log"
+reset
+worker none flatpak:org.example.WelcomeFixture
+[[ ! -f $base/elevation-log ]]
+[[ $(jq -s '[.[]|select(.kind=="password")]|length' "$base/events") == 0 ]]
+printf 'System and AUR elevation, unprivileged lists and user Flatpaks: passed\n'
 # All 16 transitions keep the old runtime choice until preparation at next login.
 reset
 printf '[bar]\n' > "$base/share/noctalia/config.toml"

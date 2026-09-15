@@ -7,6 +7,11 @@ share=${AQUEOUS_SHARE_DIR:-/usr/share/aqueous}
 units=${AQUEOUS_UNIT_DIR:-/usr/lib/systemd/user}
 snapshot=${XDG_RUNTIME_DIR:-/nonexistent}/aqueous/welcome-session.json
 fail() { printf 'Aqueous session: %s\n' "$*" >&2; return 1; }
+pearl_binary=pearl
+pearl_control=pearlctl
+shell_command() {
+    if [[ $1 == pearl ]]; then printf '%s\n' "$pearl_binary"; else printf '%s\n' "$1"; fi
+}
 valid_shell() { case $1 in pearl|dms|noctalia|none) return 0;; *) return 1;; esac; }
 in_aqueous() { local desktop=${XDG_CURRENT_DESKTOP:-}; case :${desktop,,}: in *:aqueous:*) return 0;; *) return 1;; esac; }
 bounded() { [[ ! -L $1 && -f $1 && $(stat -c %s -- "$1") -le 1048576 ]]; }
@@ -35,7 +40,7 @@ selection() {
     if [[ -e $path || -L $path ]]; then
         bounded "$path" || { fail "Invalid legacy configuration: $path"; return 1; }
         for shell in dms noctalia pearl; do
-            command=$shell; [[ $shell != pearl ]] || command=pearlctl
+            command=$shell; [[ $shell != pearl ]] || command=$pearl_control
             if grep -qF "$command " "$path"; then found+=("$shell"); fi
         done
     fi
@@ -81,7 +86,7 @@ prepare_session() {
     in_aqueous && [[ ${AQUEOUS_NESTED:-0} != 1 ]] || return 0
     local shell=none selected
     if selected=$(selection); then
-        if [[ $selected == none ]] || { command -v "$selected" >/dev/null && [[ -f $units/aqueous-$selected.service ]]; }; then
+        if [[ $selected == none ]] || { command -v "$(shell_command "$selected")" >/dev/null && [[ -f $units/aqueous-$selected.service ]]; }; then
             shell=$selected
         else recover 'The selected shell or its Aqueous integration is missing. Install its aqueous-shell preset or review setup.'; fi
     else recover 'Invalid or ambiguous shell selection; review session.toml or run aqueous-welcome.'; fi
@@ -108,8 +113,8 @@ action() {
             esac;;
     esac
     case $shell:$1 in
-        pearl:launcher) exec pearlctl launcher toggle;;
-        pearl:lock) exec pearlctl lock;;
+        pearl:launcher) exec "$pearl_control" launcher toggle;;
+        pearl:lock) exec "$pearl_control" lock;;
         dms:launcher) exec dms ipc call spotlight toggle;;
         dms:lock) exec dms ipc call lock lock;;
         noctalia:launcher) exec noctalia msg panel-toggle launcher;;
