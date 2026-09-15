@@ -49,4 +49,9 @@ pub fn build(b: *std.Build) void {
     backend_tests.addFileArg(b.path("tests/test-worker.sh"));
     backend_tests.addArtifactArg(exe);
     test_step.dependOn(&backend_tests.step);
+    const activation_tests = b.addSystemCommand(&.{"bash"});
+    activation_tests.addFileArg(b.path("tests/test-activation.sh"));
+    activation_tests.addArtifactArg(exe);
+    activation_tests.addArg(instance_name);
+    test_step.dependOn(&activation_tests.step);
 }

@@ -43,6 +43,7 @@ EOF
     if [ "$shell" = pearl ]; then
         printf '%s\n' '# The locker must survive a shell restart.' 'KillMode=process' >> "$units/$unit"
     fi
+    printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$units/$unit"
     ln -sf "../$unit" "$units/graphical-session.target.wants/$unit"
     # Package-owned global enablement is replaced by conditional Aqueous units.
     rm -f "$units/graphical-session.target.wants/$shell.service"

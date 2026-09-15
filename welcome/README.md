@@ -47,7 +47,8 @@ shell = "pearl" # pearl, dms, noctalia, none
 The session init records the active choice under
 `$XDG_RUNTIME_DIR/aqueous/welcome-session.json`. `aqueous-shell-action` routes
 launcher, screenshot, lock, and portal actions using that active choice, so
-choosing another desktop leaves the current session usable until the next login.
+choosing another desktop leaves the current session usable until you explicitly
+start the new desktop or log in again.
 Shell defaults are seeded only when missing. Pearl and DMS create their own
 preferences on launch; Noctalia uses the packaged Aqueous profile.
 
@@ -66,7 +67,22 @@ updated without replacing unrelated settings or comments.
 
 Completing setup writes the existing `welcome-v1` completion marker and
 `org.aqueous.Welcome.desktop` autostart override. Manual launching always opens.
-The GTK window stays open with the result until closed. Closing during a package
+After successful setup, **Close Welcome and start desktop** hides Welcome,
+enables the selected user service, updates the active session choice, and starts
+the desktop. It stops any other running Aqueous-managed shell for that instance.
+Git builds use `aqueous-git-{shell}.service` or
+`aqueous-intel-git-{shell}.service`; stable uses `aqueous-{shell}.service`.
+Nothing offers **Close Welcome and use no shell**, which stops the managed shell
+without enabling another. The window close control simply dismisses Welcome and
+leaves activation until the next login. **Review setup** allows another choice.
+
+Activation requires the matching Aqueous session and service-manager display.
+Outside that session, completion offers **Close Welcome** with next-login
+instructions. A failed start restores the previous active choice and restarts
+the previous managed shell; Welcome reopens with the error for retry. The saved
+selection and installed packages remain available for the next login.
+
+Closing during a package
 transaction is deferred: use Cancel setup and wait for the active transaction
 to finish. Declining a pending password/package question cancels that operation.
 
@@ -118,6 +134,8 @@ real configuration helper, build a diagnostic Aqueous compositor with
 zig build --build-file settingsApplication/build.zig
 zig build --build-file welcome/build.zig -Dtest-hooks=true
 AQUEOUS_COMPOSITOR_BIN=/path/to/diagnostic/aqueous python3 welcome/tests/smoke-gtk.py
+# Or exercise GTK and activation without a compositor or screenshots:
+AQUEOUS_WELCOME_SMOKE_BACKEND=broadway python3 welcome/tests/smoke-gtk.py
 # Rebuild the distributable executable with test hooks disabled:
 zig build --build-file welcome/build.zig -Doptimize=ReleaseSafe
 ```

@@ -133,6 +133,7 @@ Slice=app-graphical.slice
 EOF
     if [[ $shell == dms ]]; then printf 'BusName=org.freedesktop.Notifications\n' >> "$destination$units/$unit"; fi
     if [[ $shell == pearl ]]; then printf 'KillMode=process\n' >> "$destination$units/$unit"; fi
+    printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     install -d "$destination$units/graphical-session.target.wants"
     ln -s "../$unit" "$destination$units/graphical-session.target.wants/$unit"
     printf '[Service]\nExecCondition=%s/session-runtime.sh external-condition\n' "$private" | write "$units/$shell.service.d/60-$instance-selection.conf"

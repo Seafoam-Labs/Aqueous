@@ -24,6 +24,10 @@ const State = struct {
     worker: ?*gio.Subprocess = null,
     pending: std.ArrayList(u8) = .empty,
     terminal: bool = false,
+    completed: ?usize = null,
+    can_activate: bool = false,
+    activating: bool = false,
+    activated: bool = false,
     dialog: ?*gtk.Window = null,
     password: ?*gtk.PasswordEntry = null,
     request_id: []const u8 = "",
@@ -80,7 +84,7 @@ const State = struct {
         self.request_id = "";
         self.choices.clearRetainingCapacity();
     }
-    fn begin(self: *State, mode: enum { setup, inspect }) void {
+    fn begin(self: *State, mode: enum { setup, inspect, activate }) void {
         if (self.worker != null) return;
         const names = [_][]const u8{ "pearl", "dms", "noctalia", "none" };
         var selected: ?usize = null;
@@ -99,6 +103,7 @@ const State = struct {
             owned.deinit(a);
         }
         argv.appendSlice(a, &.{ self.helper.ptr, "--worker", @tagName(mode) }) catch return;
+        if (mode == .activate) argv.append(a, @ptrCast(names[self.completed orelse return].ptr)) catch return;
         if (mode == .setup) {
             argv.append(a, @ptrCast(names[selected.?].ptr)) catch return;
             for (self.apps, 0..) |button, i| {
@@ -118,11 +123,14 @@ const State = struct {
             return;
         }
         self.terminal = false;
+        self.activating = mode == .activate;
+        self.activated = false;
         self.next.as(gtk.Widget).setSensitive(0);
         self.page.as(gtk.Widget).setSensitive(0);
-        self.cancel.as(gtk.Widget).setSensitive(1);
-        self.text("Checking installed packages and configuration…");
+        self.cancel.as(gtk.Widget).setSensitive(if (self.activating) 0 else 1);
+        self.text(if (self.activating) "Starting your selected desktop…" else "Checking installed packages and configuration…");
         self.app.as(gio.Application).hold();
+        if (self.activating) self.window.?.as(gtk.Widget).setVisible(0);
         self.read();
     }
     fn read(self: *State) void {
@@ -147,7 +155,21 @@ const State = struct {
             self.prompt(root);
         } else {
             self.text(message);
-            if (std.mem.eql(u8, kind, "done") or std.mem.eql(u8, kind, "error")) self.terminal = true;
+            if (std.mem.eql(u8, kind, "done")) {
+                self.terminal = true;
+                const names = [_][]const u8{ "pearl", "dms", "noctalia", "none" };
+                for (names, 0..) |name, i| if (std.mem.eql(u8, string(root, "selected"), name)) {
+                    self.completed = i;
+                };
+                if (root == .object) if (root.object.get("can_activate")) |v| {
+                    self.can_activate = v == .bool and v.bool;
+                };
+            }
+            if (std.mem.eql(u8, kind, "activated")) {
+                self.terminal = true;
+                self.activated = true;
+            }
+            if (std.mem.eql(u8, kind, "error")) self.terminal = true;
             if (root == .object) if (root.object.get("percent")) |v| {
                 if (v == .integer) self.progress.setFraction(@as(f64, @floatFromInt(std.math.clamp(v.integer, 0, 100))) / 100.0);
             };
@@ -298,20 +320,47 @@ fn waited(_: ?*gobject.Object, result: *gio.AsyncResult, data: ?*anyopaque) call
     if (err) |e| e.free();
     if (!self.terminal) self.text("Setup stopped unexpectedly. Reopen Review and set up to retry safely.");
     self.closeDialog();
+    const succeeded = self.worker.?.getSuccessful() != 0;
     self.worker.?.unref();
     self.worker = null;
+    if (self.activating and self.activated and succeeded) {
+        self.window.?.destroy();
+        self.app.as(gio.Application).release();
+        return;
+    }
+    if (self.activating) self.window.?.present();
+    self.activating = false;
     self.next.as(gtk.Widget).setSensitive(1);
-    self.page.as(gtk.Widget).setSensitive(1);
-    self.cancel.as(gtk.Widget).setSensitive(0);
+    self.page.as(gtk.Widget).setSensitive(if (self.completed != null) 0 else 1);
+    self.next.setLabel(if (self.completed) |selected| (if (self.can_activate) (if (selected == 3) "Close Welcome and use no shell" else "Close Welcome and start desktop") else "Close Welcome") else "Review and set up");
+    self.cancel.setLabel(if (self.completed != null) "Review setup" else "Cancel setup");
+    self.cancel.as(gtk.Widget).setSensitive(if (self.completed != null) 1 else 0);
     self.app.as(gio.Application).release();
     if (options.test_hooks) if (glib.getenv("AQUEOUS_WELCOME_TEST_SETUP") != null) {
+        if (self.completed != null and self.can_activate and succeeded and glib.getenv("AQUEOUS_WELCOME_TEST_ACTIVATE") != null) {
+            start(undefined, self);
+            return;
+        }
         _ = glib.timeoutAdd(400, smokeClose, self);
     };
 }
 fn start(_: *gtk.Button, self: *State) callconv(.c) void {
+    if (self.completed != null) {
+        if (self.can_activate) self.begin(.activate) else self.window.?.close();
+        return;
+    }
     self.begin(.setup);
 }
 fn cancel(_: *gtk.Button, self: *State) callconv(.c) void {
+    if (self.worker == null and self.completed != null) {
+        self.completed = null;
+        self.can_activate = false;
+        self.page.as(gtk.Widget).setSensitive(1);
+        self.next.setLabel("Review and set up");
+        self.cancel.setLabel("Cancel setup");
+        self.cancel.as(gtk.Widget).setSensitive(0);
+        return;
+    }
     self.response(.{ .cancel = true });
 }
 fn close(_: *gtk.Window, self: *State) callconv(.c) c_int {
@@ -366,7 +415,7 @@ fn activate(_: *gio.Application, self: *State) callconv(.c) void {
         const title = labelText("Make Aqueous yours");
         title.as(gtk.Widget).addCssClass("title-1");
         outer.append(title.as(gtk.Widget));
-        outer.append(labelText("Choose one desktop. Shelly installs the packages and all optional dependencies; your choice takes effect at the next login.").as(gtk.Widget));
+        outer.append(labelText("Choose one desktop. Shelly installs the packages and all optional dependencies. When setup finishes, you can close Welcome and start your desktop.").as(gtk.Widget));
         const scroll = gtk.ScrolledWindow.new();
         scroll.as(gtk.Widget).setVexpand(1);
         self.page = gtk.Box.new(.vertical, 12);

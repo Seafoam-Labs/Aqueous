@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Opt-in GTK integration with fake Shelly, real helper, and a private compositor."""
-import os, pathlib, subprocess, tempfile, time
+import os, pathlib, subprocess, tempfile, time, json
 root=pathlib.Path(__file__).resolve().parents[2]
 work=pathlib.Path(tempfile.mkdtemp(prefix='aqueous-welcome-smoke-'))
 print('Isolated artifacts:',work,flush=True)
@@ -54,20 +54,46 @@ state.write_text(json.dumps(list(set(names+[package]))))
 emit({'$kind':'alpm.info','EventType':'TransactionDone','Message':'Fixture installation complete'})
 ''')
 (fixtures/'shelly').chmod(0o755)
+(fixtures/'systemctl').write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == --user ]]; shift
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/services.log"
+mkdir -p "$XDG_STATE_HOME/services"
+case $1 in
+ show-environment) printf 'WAYLAND_DISPLAY=%s\n' "$WAYLAND_DISPLAY";;
+ daemon-reload) ;;
+ show) printf 'loaded\n';;
+ enable) touch "$XDG_STATE_HOME/services/$2.enabled";;
+ is-active) [[ $3 == graphical-session.target || -f $XDG_STATE_HOME/services/$3.active ]];;
+ start)
+  shell=${2#aqueous-}; shell=${shell%.service}
+  jq -e --arg shell "$shell" '.shell==$shell' "$XDG_RUNTIME_DIR/aqueous/welcome-session.json" >/dev/null
+  touch "$XDG_STATE_HOME/services/$2.active";;
+ stop) rm -f "$XDG_STATE_HOME/services/$2.active";;
+ *) exit 97;;
+esac
+''')
+(fixtures/'systemctl').chmod(0o755)
 env['PATH']=str(fixtures)+':'+env['PATH']
 env['GSETTINGS_BACKEND']='memory'
 processes=[]
+broadway=os.environ.get('AQUEOUS_WELCOME_SMOKE_BACKEND')=='broadway'
 try:
  dbus=subprocess.Popen(['dbus-daemon','--session','--nofork','--print-address=1'],env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True);processes.append(dbus)
  env['DBUS_SESSION_BUS_ADDRESS']=dbus.stdout.readline().strip()
  with (work/'compositor.log').open('w') as log:
-  wm=subprocess.Popen([os.environ.get('AQUEOUS_COMPOSITOR_BIN', str(root/'compositor/zig-out/bin/aqueous')),'-no-xwayland','-c','true'],env=env,stdout=log,stderr=log);processes.append(wm)
+  if broadway:
+   env.update(GDK_BACKEND='broadway',BROADWAY_DISPLAY=':1',WAYLAND_DISPLAY='welcome-fixture')
+   display_command=['gtk4-broadwayd','--unixsocket='+str(work/'run/broadway-http'),':1']
+  else:display_command=[os.environ.get('AQUEOUS_COMPOSITOR_BIN', str(root/'compositor/zig-out/bin/aqueous')),'-no-xwayland','-c','true']
+  wm=subprocess.Popen(display_command,env=env,stdout=log,stderr=log);processes.append(wm)
   until=time.monotonic()+10
-  while not [p for p in (work/'run').glob('wayland-*') if not p.name.endswith('.lock')]:
+  pattern='broadway*.socket' if broadway else 'wayland-*'
+  while not [p for p in (work/'run').glob(pattern) if not p.name.endswith('.lock')]:
    if wm.poll() is not None:raise RuntimeError((work/'compositor.log').read_text())
    if time.monotonic()>until:raise RuntimeError('compositor start timeout')
    time.sleep(.05)
-  env['WAYLAND_DISPLAY']=next(p.name for p in (work/'run').glob('wayland-*') if not p.name.endswith('.lock'))
+  if not broadway:env['WAYLAND_DISPLAY']=next(p.name for p in (work/'run').glob('wayland-*') if not p.name.endswith('.lock'))
   for args,source in [([],None),(['--choose'],'Monitor: HEADLESS-1\nWindow: Test\n')]:
    proc=subprocess.Popen([str(welcome),*args],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
    processes.append(proc)
@@ -75,14 +101,16 @@ try:
     proc.stdin.write(source);proc.stdin.close();proc.stdin=None
    time.sleep(.7)
    screenshot=work/('chooser.png' if args else 'welcome.png')
-   capture=subprocess.run(['grim',str(screenshot)],env=env,capture_output=True)
-   assert capture.returncode==0, capture.stderr
+   if not broadway:
+    capture=subprocess.run(['grim',str(screenshot)],env=env,capture_output=True)
+    assert capture.returncode==0, capture.stderr
    out,err=proc.communicate(timeout=15)
    result=subprocess.CompletedProcess(proc.args,proc.returncode,out,err)
    print('MODE',args,'EXIT',result.returncode,'STDOUT',result.stdout,'STDERR',result.stderr)
    assert result.returncode==0
    if args:assert result.stdout=='Window: Test\n'
   env.pop('AQUEOUS_WELCOME_TEST_CLOSE_MS',None)
+  env['AQUEOUS_WELCOME_TEST_ACTIVATE']='1'
   for shell in ('pearl','dms','noctalia','none'):
    env['AQUEOUS_WELCOME_TEST_SETUP']=shell
    result=subprocess.run([str(welcome)],env=env,text=True,capture_output=True,timeout=20)
@@ -90,7 +118,11 @@ try:
    assert result.returncode==0, result.stderr
    assert selection.exists() and ('shell = "'+shell+'"') in selection.read_text(), (shell,result.stderr,selection.read_text() if selection.exists() else 'no selection')
    assert (work/'state/aqueous/welcome-v1').exists()
-   print('GTK + Shelly password + optional dependencies + helper:',shell,'passed',flush=True)
+   assert json.loads((work/'run/aqueous/welcome-session.json').read_text())['shell']==shell
+   for candidate in ('pearl','dms','noctalia'):
+    assert (work/('state/services/aqueous-'+candidate+'.service.active')).exists()==(candidate==shell)
+   if shell!='none':assert (work/('state/services/aqueous-'+shell+'.service.enabled')).exists()
+   print('GTK + Shelly password + helper + close and activate:',shell,'passed',flush=True)
 finally:
  for proc in reversed(processes):
   proc.terminate()

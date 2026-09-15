@@ -131,6 +131,7 @@ EOF
         dms) printf 'BusName=org.freedesktop.Notifications\n' >> "$destination$units/$unit" ;;
         pearl) printf '# The locker must survive a shell restart.\nKillMode=process\n' >> "$destination$units/$unit" ;;
     esac
+    printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     link "$units/graphical-session.target.wants/$unit" "../$unit"
     printf '[Service]\nExecCondition=%s/lib/aqueous/session-runtime.sh external-condition\n' "$prefix" | write "$units/$shell.service.d/50-aqueous-selection.conf"
     if [[ $shell == noctalia ]]; then relocate "$root/packaging/noctalia/config.toml" | write "$prefix/share/aqueous/noctalia/config.toml"; fi

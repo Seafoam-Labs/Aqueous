@@ -5,6 +5,7 @@ const u = @import("setup/common.zig");
 const session = @import("setup/session.zig");
 const configuration = @import("setup/configuration.zig");
 const shelly = @import("setup/shelly.zig");
+const activation = @import("setup/activation.zig");
 const Context = u.Context;
 const Value = u.Value;
 const get = u.get;
@@ -127,7 +128,7 @@ fn setup(ctx: *Context, shell: []const u8, specs: []const [:0]const u8) !void {
     try journal.write(selection_path, try std.fmt.allocPrint(ctx.a, "version = 1\nshell = \"{s}\"\n", .{shell}));
     try journal.phase("complete");
     try session.complete(ctx);
-    try ctx.emit(.{ .kind = "done", .message = "Setup complete. Log out and back in to use your selected desktop." });
+    try ctx.emit(.{ .kind = "done", .selected = shell, .can_activate = activation.available(), .message = if (activation.available()) "Setup complete. Use the Close Welcome button to apply your choice to this session." else "Setup complete. Close Welcome, then log out and back in to use your selected desktop." });
 }
 fn inspect(ctx: *Context) !void {
     const selected = try session.selection(ctx);
@@ -146,6 +147,11 @@ fn inspect(ctx: *Context) !void {
 }
 fn dispatch(ctx: *Context, args: []const [:0]const u8) !u8 {
     if (args.len == 0) return ctx.fail("Missing worker command", .{});
+    if (eq(u8, args[0], "activate")) {
+        if (args.len != 2) return error.InvalidArguments;
+        try activation.start(ctx, args[1]);
+        return 0;
+    }
     if (eq(u8, args[0], "setup")) {
         if (args.len < 2) return ctx.fail("Choose a desktop", .{});
         try setup(ctx, args[1], args[2..]);
@@ -166,7 +172,7 @@ pub fn run(init: std.process.Init, executable: []const u8, args: []const [:0]con
     var ctx: Context = .{ .a = arena.allocator(), .io = init.io, .executable = executable };
     return dispatch(&ctx, args) catch |err| {
         const message = ctx.message orelse @errorName(err);
-        if (args.len > 0 and (eq(u8, args[0], "setup") or eq(u8, args[0], "inspect")))
+        if (args.len > 0 and (eq(u8, args[0], "setup") or eq(u8, args[0], "inspect") or eq(u8, args[0], "activate")))
             ctx.emit(.{ .kind = "error", .message = message }) catch {}
         else {
             u.write(2, message) catch {};
