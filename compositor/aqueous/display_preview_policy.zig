@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Shared admission and observation policy. Physical production qualification
-//! stays closed; selected feature groups can run in isolated acceptance builds.
+//! Shared admission and observation policy. Production DRM previews use hardware
+//! capabilities; isolated acceptance builds additionally restrict test selection.
 const std = @import("std");
 pub const Backend = enum { headless, drm, unsupported };
 pub const Feature = enum { sdr, hdr, vrr, hdr_vrr, auto_hdr, mirroring, custom_mode };
@@ -127,7 +127,8 @@ pub fn support(ctx: Context, feature: Feature) Support {
         .mirroring => .mirroring_hardware_acceptance_pending,
         .custom_mode => .custom_mode_hardware_acceptance_pending,
     };
-    if (!ctx.acceptance_build or feature == .mirroring or feature == .custom_mode) return .{ .status = .pending_qualification, .reason = pending };
+    if (feature == .mirroring or feature == .custom_mode) return .{ .status = .pending_qualification, .reason = pending };
+    if (!ctx.acceptance_build) return .{ .status = .available };
     if (!ctx.acceptance_output) return .{ .status = .pending_qualification, .reason = .acceptance_output_not_selected };
     if (!ctx.selection.valid) return .{ .status = .unsupported, .reason = .acceptance_features_invalid };
     if (!ctx.selection.features.contains(feature)) return .{ .status = .pending_qualification, .reason = switch (feature) {
@@ -140,8 +141,7 @@ pub fn support(ctx: Context, feature: Feature) Support {
     return .{ .status = .acceptance_only };
 }
 pub fn rejection(ctx: Context, requirements: Requirements) ?Reason {
-    // Capability errors are actionable even when production qualification is
-    // closed. Do not hide them behind the general SDR acceptance gate.
+    // Prefer hardware capability errors over acceptance-build selection errors.
     inline for (std.meta.tags(Feature)) |feature| {
         if (requirements.contains(feature)) {
             const result = support(ctx, feature);
@@ -199,9 +199,29 @@ test "preservation transitions and mixed outputs require combined qualification"
     req.merge(metadata);
     try std.testing.expect(req.contains(.auto_hdr));
 }
-test "hardware support is separate from acceptance and production stays gated" {
+test "production DRM previews use hardware capabilities without acceptance selection" {
+    var ctx: Context = .{ .backend = .drm, .hdr_capable = true, .vrr_capable = true };
+    for ([_]Selection{ .{}, Selection.parse("hdr,typo") }) |selection| {
+        ctx.selection = selection;
+        inline for (.{ Feature.sdr, Feature.hdr, Feature.vrr, Feature.hdr_vrr, Feature.auto_hdr }) |feature| {
+            const result = support(ctx, feature);
+            try std.testing.expectEqual(.available, result.status);
+            try std.testing.expectEqual(null, result.reason);
+        }
+    }
+    try std.testing.expectEqual(Reason.mirroring_hardware_acceptance_pending, support(ctx, .mirroring).reason.?);
+    try std.testing.expectEqual(Reason.custom_mode_hardware_acceptance_pending, support(ctx, .custom_mode).reason.?);
+    ctx.vrr_capable = false;
+    inline for (.{ Feature.vrr, Feature.hdr_vrr }) |feature| try std.testing.expectEqual(Reason.vrr_unsupported, support(ctx, feature).reason.?);
+    ctx.hdr_capable = false;
+    inline for (.{ Feature.hdr, Feature.hdr_vrr, Feature.auto_hdr }) |feature| try std.testing.expectEqual(Reason.hdr_unsupported, support(ctx, feature).reason.?);
+    try std.testing.expect(support(ctx, .sdr).allowed());
+    ctx.backend = .unsupported;
+    inline for (std.meta.tags(Feature)) |feature| try std.testing.expectEqual(Reason.preview_backend_unsupported, support(ctx, feature).reason.?);
+}
+
+test "acceptance builds retain selection gates and headless retains capability limits" {
     var ctx: Context = .{ .backend = .drm, .hdr_capable = true, .vrr_capable = true, .acceptance_output = true, .selection = Selection.parse("hdr_vrr,auto_hdr") };
-    inline for (std.meta.tags(Feature)) |feature| try std.testing.expect(!support(ctx, feature).allowed());
     ctx.acceptance_build = true;
     inline for (.{ Feature.sdr, Feature.hdr, Feature.vrr, Feature.hdr_vrr, Feature.auto_hdr }) |feature| try std.testing.expect(support(ctx, feature).allowed());
     try std.testing.expect(!support(ctx, .mirroring).allowed());
@@ -242,6 +262,11 @@ test "both directions require feature selection and every participating connecto
         ctx.acceptance_output = true;
         ctx.selection = Selection.parse("hdr,typo");
         try std.testing.expectEqual(Reason.acceptance_features_invalid, rejection(ctx, req).?);
+        // Production preserves and transitions active HDR/VRR/Auto HDR without
+        // requiring acceptance variables, including stale invalid selections.
+        ctx.acceptance_build = false;
+        ctx.acceptance_output = false;
+        try std.testing.expectEqual(null, rejection(ctx, req));
     }
 }
 

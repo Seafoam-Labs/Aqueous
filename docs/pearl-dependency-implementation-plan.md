@@ -114,27 +114,27 @@ Tests: extend `scripts/fixtures/ext-capture-formats.c` and `scripts/test-ext-cap
 
 Acceptance: isolated captures have correct reference pixels and matching metadata in the required event order. A Pearl-compatible client can export supported SDR captures and rejects missing/unsupported gamut or transfer descriptions. Gamma 2.2 conversion must occur once at the client boundary, not be mislabeled as sRGB.
 
-**5. Enable physical previews only after backend and recovery acceptance**
+**5. Enable protected physical previews with backend and recovery checks**
 
 Implementation status: runtime/recovery hardening and the acceptance harness are implemented locally. Confirmation now waits for complete observed output state and presentation, rollback survives partial backend commits, inactive sessions defer restoration until resume, and commit deadlines wait for the canonical writer's decision. Per-output backend/feature reasons and presentation evidence are exposed with `display_preview_completion_v1`.
 
-The non-shipping `-Ddisplay-preview-acceptance=true` build permits explicitly selected DRM connectors to exercise ordinary SDR with advertised modes. Production still advertises `display_preview_hardware:false`. HDR, VRR, hardware mirroring and custom modes remain separately gated. The physical harness uses disposable configuration, preserves per-case evidence, and never promotes simulated or incomplete results to acceptance. See [physical-display-preview.md](physical-display-preview.md).
+Production now enables DRM previews for advertised modes, SDR, HDR, VRR, combined HDR+VRR, and Auto HDR using hardware capability checks and backend preflight. It advertises `display_preview_hardware:true`; per-output support and candidate admission determine actual availability. No acceptance flags or hardware allowlist are required. The non-shipping `-Ddisplay-preview-acceptance=true` build retains explicit connector/feature selection for isolated tests. Hardware mirroring and custom modes remain gated. See [physical-display-preview.md](physical-display-preview.md).
 
-Acceptance status: incomplete. No dedicated physical seat/recovery console was confirmed for this run, so physical modesetting, hotplug/lease/suspend faults and hardware rollback have not been accepted. Hardware-specific enablement requires those recorded results; software and simulated-harness passes cannot close this workstream.
+Acceptance status: incomplete. No dedicated physical seat/recovery console was confirmed for this run, so physical modesetting, hotplug/lease/suspend faults and hardware rollback have not been accepted. This remains a hardware coverage gap, independent of production enablement. Software and simulated-harness passes do not establish physical acceptance.
 
 Primary files: `compositor/aqueous/DisplayPreview.zig`, `OutputManager.zig`, `Output.zig`, `wm/output/Service.zig`, `ConfigTransaction.zig`, IPC capability reporting, and relevant renderer/output integration.
 
 Implementation:
 
-- Inventory backend support for state testing, commit completion and restoration. Replace the broad headless-only gate only for specifically supported operation/backend paths, with runtime capability reporting and precise rejection reasons for the remainder.
+- Inventory backend support for state testing, commit completion and restoration. Enable supported DRM operation/backend paths, with runtime capability reporting and precise rejection reasons for the remainder.
 - Test the complete intended output state before apply; track asynchronous completion across all participating outputs. Start the confirmation interval only once the intended state is actually applied. Reject unsupported or partial plans and retain at least one usable non-mirrored output.
 - Verify restoration of mode, enablement, position, transform, scale, profile selection, mirror relationships and color/adaptive-sync state. Handle hotplug, lease loss, competing state changes, suspend/resume and delayed/failed commits. Report partial rollback and fallback honestly.
 - Audit crash recovery at every lease/commit/journal boundary. An unconfirmed preview must not become persistent startup configuration. A confirmed transaction must have a deterministic recover-or-rollback result after helper or compositor death; extend durable state only where existing recovery cannot establish that result.
-- Keep ordinary SDR modesetting, HDR, VRR and mirroring as separate acceptance groups. Enable each only after its backend/renderer tests pass. Rejection remains the correct behavior for unsupported groups, including deferred/store-only requests that still require a native lease.
+- Keep ordinary SDR modesetting, HDR, VRR and mirroring as separate acceptance groups. Admit supported SDR/HDR/VRR groups using runtime capability and backend checks; retain the separate mirroring restriction. Rejection remains the correct behavior for unsupported groups, including deferred/store-only requests that still require a native lease.
 
 Tests: retain `scripts/test-display-preview.py` as the headless regression suite. Add an explicitly selected physical test harness that records GPU/driver/kernel, connector, monitor EDID/model, renderer, modes and feature support, source revision and helper version. Cover Keep, explicit revert, timeout, owner disconnect, helper crash, compositor restart, failed test/commit, partial multi-output commit, hotplug during preview/commit and fallback when restoration is impossible. Use a recovery console and disposable configuration/session for destructive fault scenarios.
 
-Acceptance: publish an artifact per supported backend/feature group showing restored usable output and consistent disk configuration/receipts after every relevant failure. Hardware availability and execution are required inputs; headless success cannot close this workstream or justify enabling untested HDR/VRR/mirroring paths.
+Acceptance: publish an artifact per supported backend/feature group showing restored usable output and consistent disk configuration/receipts after every relevant failure. Hardware availability and execution are required to claim physical acceptance; headless success does not establish panel behavior or physical recovery coverage.
 
 **6. Split compositor/helper packaging from session and shell presets**
 

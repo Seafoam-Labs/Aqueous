@@ -2346,7 +2346,7 @@
           "pattern": "^[0-9a-f]{32}$"
         },
         "production_hardware_enabled": {
-          "const": false
+          "type": "boolean"
         },
         "outputs": {
           "type": "array",

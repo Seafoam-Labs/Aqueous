@@ -75,7 +75,8 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         baseline=wait(lambda: (m if (m:=model())['observation']=='current' and len(m['outputs'])==2 else None))
         assert query.capabilities['capabilities']['display_preview_feature_policy_v1']
         features=query.call('display.preview.features')['result'];VALIDATOR.validate(features)
-        assert features['production_hardware_enabled'] is False
+        assert features['production_hardware_enabled'] == (not query.capabilities['capabilities']['display_preview_acceptance_build'])
+        assert features['production_hardware_enabled'] == query.capabilities['capabilities']['display_preview_hardware']
         assert all(o['features']['hdr']['transition']['reason']=='hdr_unsupported' and
                    o['features']['vrr']['preserve']['reason']=='vrr_unsupported' and
                    o['features']['sdr']['transition']['status']=='available' for o in features['outputs'])

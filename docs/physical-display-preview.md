@@ -1,8 +1,12 @@
 # Physical display preview implementation and acceptance
 
-The preview runtime and isolated qualification harness support SDR, HDR, VRR,
-combined HDR+VRR, and Auto HDR feature groups. **Physical acceptance is still incomplete; production physical previews
-remain disabled.** No hardware acceptance record was produced by this change.
+Production DRM previews support SDR, HDR, VRR, combined HDR+VRR, and Auto HDR,
+subject to hardware capabilities and backend preflight. No acceptance build,
+connector allowlist, environment selection, or hardware acceptance record is
+required. The existing protected preview, presentation, confirmation, rollback,
+and persistence checks apply to physical displays. Mirroring and custom modes
+remain separately gated. Physical qualification coverage is documented below;
+production enablement does not claim that those hardware checks have run.
 
 ## Runtime contract
 
@@ -55,8 +59,8 @@ The existing support fields now give backend/feature-specific reasons.
 | Backend/group | Production | Isolated acceptance build |
 | --- | --- | --- |
 | Headless ordinary display operations | Available | Same software path |
-| DRM ordinary SDR, advertised modes | Acceptance pending | Explicitly selected connectors only |
-| DRM HDR, VRR, HDR+VRR, Auto HDR | Acceptance pending | Explicitly selected features and connectors |
+| DRM ordinary SDR, advertised modes | Available after backend preflight | Explicitly selected connectors only |
+| DRM HDR, VRR, HDR+VRR, Auto HDR | Available when hardware supports the feature and preflight passes | Explicitly selected features and connectors |
 | DRM mirroring, custom modes | Acceptance pending | Still blocked |
 | Nested/other backends | Unsupported | Unsupported |
 
@@ -64,20 +68,26 @@ The classifier includes baseline state, effective target, deferred declarations,
 and profile members, including offline selectors. Ordinary layout edits preserve
 all participating outputs' active features. `apply_on_reload=false`, profiles,
 and raw TOML do not bypass feature admission. Hardware capability is checked per
-output; the qualification requirement is the union across the lease. An SDR
-companion need not support HDR. HDR on one head plus VRR on another still requires
-combined qualification.
+output. An SDR companion need not support HDR. In acceptance builds, the selected
+feature requirement is the union across the lease: HDR on one head plus VRR on
+another requires selecting the combined group. Production does not require
+feature selection.
 
-All participating DRM connectors must be explicitly selected with
+In an acceptance build, all participating DRM connectors must be explicitly selected with
 `AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_OUTPUTS=DP-1,HDMI-A-1`. The additional
 `AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_FEATURES` variable defaults to `sdr` and
 accepts comma-separated `sdr,hdr,vrr,hdr_vrr,auto_hdr`. `hdr_vrr` includes HDR and
 VRR; `auto_hdr` includes HDR. Selecting `hdr,vrr` does **not** select their combined
 group. Empty, unknown, wildcard, and trailing-comma feature names are rejected.
-These variables cannot open production gates. Mirroring and custom modes retain
+These variables only restrict acceptance builds; production admission ignores
+them, including invalid or stale selections. Mirroring and custom modes retain
 independent qualification gates.
 
-`display_preview_hardware` stays false in every build. The separate
+`display_preview_hardware` and feature diagnostics
+`production_hardware_enabled` are true in production builds and false in
+acceptance builds. They describe the build policy, even in a headless session;
+they do not promise support for every connected output or operation. Use the
+per-output support results and candidate admission for that decision. The separate
 `display_preview_acceptance_build` flag identifies a test binary. There is no
 caller-supplied acceptance assertion and no wildcard connector selector. Do not
 ship or package this test build, or use it as Pearl's production dependency.
@@ -133,7 +143,7 @@ bytes/hash, native monitor identity/model, selected renderer logs, source revisi
 and file hashes, binary/dependency hashes, helper version, actual output states,
 rollback evidence and operation receipts. Cases are independently `passed`,
 `failed`, `unsupported`, or `not_run`, with a summary by status. The report always leaves `acceptance_complete:false` for
-the separate hardware review; it never changes production gates.
+the separate hardware review; it does not control production admission.
 
 Automatic cases cover placement, scale, transform, another advertised mode when
 available, disabling one head in a multi-head setup, timeout, disconnect, Keep,
@@ -165,13 +175,9 @@ restored output. Do not treat a tested fallback as exact restoration or an
 injected backend error as proof of a real driver fault path. Repeat with the
 actual intended GPU/driver/kernel, connector and monitor combination.
 
-Each HDR/VRR group requires its own reviewed physical results before production
-can open. Mirroring and custom modes remain separate future work. No production
-allowlist is added here.
-
-The [HDR and VRR implementation plan](hdr-vrr-preview-implementation-plan.md)
-defines feature admission, preview/recovery changes, capability reporting,
-expanded test groups, and production qualification for HDR and VRR.
+Retain reviewed physical results separately for each HDR/VRR group. These results
+document hardware coverage rather than unlock production previews. Mirroring and
+custom modes remain separate future work. There is no production hardware allowlist.
 
 ## HDR and VRR runs
 
@@ -222,7 +228,7 @@ backend preflight; capability discovery alone does not prove every mode works.
 native requests. Send the usual IPC session envelope:
 
 - `display.preview.features`, with empty parameters, returns `version:1`, session,
-  the closed production flag, and per-output capability/selection plus feature
+  the production enablement flag, and per-output capability/selection plus feature
   support. Each feature has `preserve` and `transition` results with `status` and
   a nullable stable `reason`. Status is `available`, `acceptance_only`,
   `pending_qualification`, or `unsupported`. Hardware capability and qualification
@@ -237,13 +243,16 @@ The helper exposes these as `aqueous-config preview-features --shell none` and
 response members are `preview_features` and `preview_evidence`. A legacy
 compositor without the negotiated capability rejects this query. Existing
 snapshot and lease result shapes remain unchanged. Consumers must negotiate
-feature support rather than interpret `display_preview_hardware:false` as the
-acceptance build's per-feature result. Candidate admission is authoritative.
+feature support rather than interpret the build-wide `display_preview_hardware`
+flag as a per-feature result. Candidate admission is authoritative.
 
 Rejection codes distinguish `hdr_unsupported`, `vrr_unsupported`,
 `mode_not_advertised`, `acceptance_output_not_selected`,
-`acceptance_features_invalid`, `<feature>_acceptance_not_selected`, and
-`<feature>_hardware_acceptance_pending`. Ordinary backend test/commit failures
+`acceptance_features_invalid`, and `<feature>_acceptance_not_selected` in
+acceptance builds. Production SDR/HDR/VRR/Auto HDR no longer return
+`hardware_acceptance_pending` or their feature-specific pending reasons. Physical
+mirroring and custom modes retain their `*_hardware_acceptance_pending` reasons.
+Ordinary backend test/commit failures
 remain separate. Evidence cannot prove cable metadata delivery or panel behavior.
 
 

@@ -281,7 +281,7 @@ pub fn writePreviewFeatures(json: *std.json.Stringify) !void {
     try json.beginObject();
     try field(json, "version", 1);
     try field(json, "session", server.shell_manager.session[0..32]);
-    try field(json, "production_hardware_enabled", false);
+    try field(json, "production_hardware_enabled", !@import("build_options").display_preview_acceptance);
     try json.objectField("outputs");
     try json.beginArray();
     var it = server.om.outputs.iterator(.forward);

@@ -276,7 +276,11 @@ Display preview feature-policy results are defined in
 [aqueous-display-v1.schema.json](aqueous-display-v1.schema.json), separately from
 legacy snapshot and lease shapes. See the
 [preview qualification runbook](../../docs/physical-display-preview.md#negotiated-feature-diagnostics)
-for semantics and rejection codes. `display_preview_hardware` remains false;
-acceptance builds advertise their selected per-feature support through the new
-query. A successful presentation proves completion, not HDR appearance or
+for semantics and rejection codes. `display_preview_hardware` and
+`production_hardware_enabled` are true in production builds and false in isolated
+acceptance builds, independently of the active backend. These flags advertise
+production policy, not support for every feature or output. Production DRM previews
+use hardware capability checks and backend preflight; acceptance builds additionally
+restrict connectors and feature selections. Use per-output/per-feature results
+and candidate admission to determine whether a particular operation is supported. A successful presentation proves completion, not HDR appearance or
 variable panel refresh.

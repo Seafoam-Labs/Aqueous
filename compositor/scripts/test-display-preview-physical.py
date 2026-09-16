@@ -240,7 +240,7 @@ def main():
             assert all(o['preview_backend'] == 'headless' and not o['preview_acceptance_only'] for o in current['outputs'])
         else:
             assert all(o['preview_backend'] == 'drm' and o['preview_acceptance_only'] for o in current['outputs']), 'Use the isolated acceptance build'
-        assert not query.capabilities['capabilities']['display_preview_hardware']
+        assert query.capabilities['capabilities']['display_preview_hardware'] == (not query.capabilities['capabilities']['display_preview_acceptance_build'])
         if not args.simulate:
             assert query.capabilities['capabilities']['display_preview_acceptance_build']
         # dbus-run-session owns the process group; the compositor log records

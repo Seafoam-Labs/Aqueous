@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Compositor-owned lease. Hardware groups remain gated pending acceptance.
+//! Compositor-owned lease with backend preflight, presentation and rollback checks.
 const std = @import("std");
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
@@ -84,7 +84,7 @@ pub fn supportReason(output: *wlr.Output, feature: Policy.Feature) ?[]const u8 {
         aggregate.merge(req);
         if (Policy.rejection(featureContext(w), req)) |why| return @tagName(why);
     }
-    // Across-head HDR+VRR combinations need explicit combined qualification.
+    // Acceptance builds require the combined group for across-head HDR+VRR.
     var ctx = featureContext(output);
     ctx.hdr_capable = true;
     ctx.vrr_capable = true;
@@ -111,7 +111,7 @@ fn configuredRequirements(o: *Output, legacy: *const Config.Snapshot, preferred:
     const before = featureState(o.current);
     req.include(before, featureState(target));
     // Include deferred fields and profile members as well as the live plan.
-    // A stored profile or apply_on_reload=false cannot bypass qualification.
+    // Stored profiles and apply_on_reload=false still undergo feature admission.
     for ([_]*const Config.Snapshot{ legacy, preferred }) |snapshot| {
         for (snapshot.outputs[0..snapshot.output_count]) |spec| if (Manager.matchesSpec(&spec, o.wlr_output.?)) includeIntent(&req, spec, before);
         for (snapshot.profiles[0..snapshot.profile_count]) |profile| {
