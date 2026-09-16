@@ -176,7 +176,6 @@ pub fn configure(xwindow: *XwaylandWindow) bool {
 }
 
 pub fn projection(xwindow: *const XwaylandWindow) ?xwayland_projection.Projection {
-    if (server.xwayland_scaling != .native) return null;
     const width: i32 = @intCast(xwindow.window.configure_scheduled.width orelse
         xwindow.window.configure_sent.width orelse 1);
     const height: i32 = @intCast(xwindow.window.configure_scheduled.height orelse

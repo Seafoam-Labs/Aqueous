@@ -422,8 +422,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
 
         # Output-management changes retain runtime identity and expose actual
         # logical bounds on negative-origin, fractional, rotated configurations.
-        # Existing XWayland policy disallows negative output coordinates.
-        origin = (3000, 100) if XWAYLAND else (-3000, -100)
+        origin = (-3000, -100)
         subprocess.run(['wlr-randr', '--output', target['name'], '--scale', '1.25', '--transform', '90', f'--pos={origin[0]},{origin[1]}'], env=env, check=True, capture_output=True)
         transformed = wait_for(lambda: next((o for o in records('output') if o['id'] == target['id'] and o['scale'] == 1.25 and o['bounds']['x'] == origin[0]), None))
         assert transformed['bounds']['y'] == origin[1]

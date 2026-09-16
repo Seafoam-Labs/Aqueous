@@ -245,12 +245,14 @@ pub fn prepareSpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyE
                 });
                 continue;
             };
-            if (!coordinatesValid(&proposed)) {
+            const previous = pending[index.?].state;
+            pending[index.?].state = proposed;
+            if (!om.coordinatesValid(pending[0..pending_count])) {
+                pending[index.?].state = previous;
                 if (created) pending_count -= 1;
                 report.reject(spec_index, matcher_kind, matcher, std.mem.span(wlr_output.name), .invalid_coordinates);
                 continue;
             }
-            pending[index.?].state = proposed;
         }
         if (matched == 0) report.reject(spec_index, matcher_kind, matcher, null, .unknown_output);
     }
@@ -282,12 +284,27 @@ pub fn prepareSpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyE
     return .{ .items = pending, .len = pending_count, .report = report };
 }
 
-fn coordinatesValid(state: *const Output.State) bool {
-    if (!build_options.xwayland or server.xwayland == null or state.state != .enabled) return true;
-    const width, const height = state.dimensions();
-    return state.x >= 0 and state.y >= 0 and
-        state.x + width <= math.maxInt(i16) and
-        state.y + height <= math.maxInt(i16);
+fn coordinatesValid(om: *OutputManager, pending: []const Pending) bool {
+    var specs: [OutputConfig.max_outputs]xwayland_projection.Output = undefined;
+    var count: usize = 0;
+    var it = om.outputs.iterator(.forward);
+    while (it.next()) |output| {
+        var state = output.scheduled;
+        for (pending) |entry| if (entry.output == output) {
+            state = entry.state;
+            break;
+        };
+        if (!state.mirror_of.empty() or (state.state != .enabled and state.state != .disabled_soft)) continue;
+        const width, const height = state.dimensions();
+        // Scene boxes use i32 even when Xwayland is disabled.
+        if (@as(i64, state.x) + width > math.maxInt(i32) or
+            @as(i64, state.y) + height > math.maxInt(i32)) return false;
+        if (count == specs.len) return false;
+        specs[count] = projectionSpec(&state);
+        count += 1;
+    }
+    return !build_options.xwayland or server.xwayland == null or
+        xwayland_projection.layoutValid(specs[0..count], server.xwayland_scaling);
 }
 
 fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, state: *Output.State) ApplyError!void {
@@ -549,34 +566,20 @@ fn validateConfigCoordinates(config: *wlr.OutputConfigurationV1) bool {
         if ((!output.scheduled.mirror_of.empty() or is_source) and head.state.enabled and
             (head.state.transform != .normal or (!output.scheduled.mirror_of.empty() and head.state.adaptive_sync_enabled))) return false;
     }
+    var pending: [OutputConfig.max_outputs]Pending = undefined;
+    var count: usize = 0;
     var it = config.heads.iterator(.forward);
     while (it.next()) |head| {
-        if (!head.state.enabled) continue;
-
-        const proposed: Output.State = .fromHeadState(&head.state);
-        if (build_options.xwayland and server.xwayland != null) {
-            // Negative output coordinates currently cause Xwayland clients to not receive click events.
-            // See: https://gitlab.freedesktop.org/xorg/xserver/-/issues/899
-            if (proposed.x < 0 or proposed.y < 0) {
-                log.err(
-                    \\Attempted to set negative coordinates for output {s}.
-                    \\Negative output coordinates are disallowed if Xwayland is enabled due to a limitation of Xwayland.
-                , .{head.state.output.name});
-                return false;
-            }
-            const width, const height = proposed.dimensions();
-            if (proposed.x + width > math.maxInt(i16) or
-                proposed.y + height > math.maxInt(i16))
-            {
-                log.err(
-                    \\Attempted to set too-large coordinates for output {s}.
-                    \\Coordinates greater than {d} are disallowed if Xwayland is enabled due to a limitation of X11.
-                , .{ head.state.output.name, math.maxInt(i16) });
-                return false;
-            }
-        }
+        if (count == pending.len) return false;
+        const output: *Output = @ptrCast(@alignCast(head.state.output.data));
+        var proposed: Output.State = .fromHeadState(&head.state);
+        proposed.mirror_of = output.scheduled.mirror_of;
+        pending[count] = .{ .output = output, .state = proposed };
+        count += 1;
     }
-    return true;
+    if (server.om.coordinatesValid(pending[0..count])) return true;
+    log.err("output layout exceeds scene or translated Xwayland coordinate limits", .{});
+    return false;
 }
 
 fn handlePowerManagerSetMode(
@@ -854,10 +857,22 @@ pub fn commitOutputState(om: *OutputManager) void {
         }
     }
 
-    if (build_options.xwayland and server.xwayland != null and
-        server.xwayland_scaling == .native)
-    {
+    if (build_options.xwayland and server.xwayland != null) {
         wlr_xdg_output_manager_v1_update(om.xdg_output_manager);
+        // Window.renderFinish ran before current output state was committed.
+        // Reconfigure against the new desktop origin even when window size and
+        // logical position did not change (another head may have moved).
+        var windows = wm.windows.iterator();
+        while (windows.next()) |window| {
+            if (window.impl == .xwayland and window.impl.xwayland.surface_tree != null) {
+                _ = window.impl.xwayland.configure();
+            }
+        }
+        var popups = server.scene.layers.override_redirect.children.iterator(.forward);
+        while (popups.next()) |node| {
+            const data = SceneNodeData.fromNode(node) orelse continue;
+            if (data.data == .override_redirect) data.data.override_redirect.applyProjection();
+        }
     }
 
     @import("OutputMirror.zig").reconcile();
@@ -877,9 +892,20 @@ const ProjectionSet = struct {
     len: usize = 0,
 
     fn projection(set: *const ProjectionSet, index: usize) xwayland_projection.Projection {
-        return xwayland_projection.project(set.specs[0..set.len], index);
+        return xwayland_projection.project(set.specs[0..set.len], index, server.xwayland_scaling);
     }
 };
+
+fn projectionSpec(state: *const Output.State) xwayland_projection.Output {
+    const logical = state.box();
+    const physical_width, const physical_height = state.physicalDimensions();
+    return .{
+        .logical = .{ .x = logical.x, .y = logical.y, .width = logical.width, .height = logical.height },
+        .physical_width = physical_width,
+        .physical_height = physical_height,
+        .scale = state.scale,
+    };
+}
 
 fn xwaylandProjectionSet(om: *OutputManager) ProjectionSet {
     var set: ProjectionSet = .{};
@@ -895,17 +921,7 @@ fn xwaylandProjectionSet(om: *OutputManager) ProjectionSet {
         if (logical.empty()) continue;
         const physical_width, const physical_height = output.current.physicalDimensions();
         if (physical_width <= 0 or physical_height <= 0) continue;
-        set.specs[set.len] = .{
-            .logical = .{
-                .x = logical.x,
-                .y = logical.y,
-                .width = logical.width,
-                .height = logical.height,
-            },
-            .physical_width = physical_width,
-            .physical_height = physical_height,
-            .scale = output.current.scale,
-        };
+        set.specs[set.len] = projectionSpec(&output.current);
         set.outputs[set.len] = output;
         set.len += 1;
     }

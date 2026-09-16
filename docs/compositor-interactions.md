@@ -680,6 +680,13 @@ transaction as uninitialized, retains its mode/scale changes, and recomputes
 the positions. Once configuration or a valid client arrangement owns a
 position, overlapping coordinates are preserved as intentional.
 
+Output positions may be negative, including when Xwayland is enabled. Aqueous
+keeps the configured Wayland coordinates and translates the Xwayland desktop
+to a nonnegative origin in both legacy and native scaling modes. X11 window
+and popup positions use the same translation. The translated X11 desktop must
+still fit within its 32767-pixel coordinate limit; native scaling validates
+physical pixel bounds. An invalid layout is rejected before it is applied.
+
 The configured `primary` flag is used only as a deterministic focus/action
 fallback. It does not override an explicitly selected output or steal focus
 from a window. If several usable outputs resolve primary, the first is used and

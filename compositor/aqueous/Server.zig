@@ -574,8 +574,8 @@ pub fn init(
     if (build_options.xwayland and runtime_xwayland) {
         server.xwayland = try wlr.Xwayland.create(wl_server, compositor, false);
         server.xwayland.?.events.new_surface.add(&server.new_xsurface);
+        wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
         if (xwayland_scaling == .native) {
-            wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
             log.info("using native-resolution embedded Xwayland scaling", .{});
         }
     }
@@ -636,9 +636,7 @@ pub fn deinit(server: *Server) void {
     server.om.new_output.link.remove();
 
     if (build_options.xwayland) {
-        if (server.xwayland_scaling == .native) {
-            wlr_output_set_client_projection_handler(null, null);
-        }
+        wlr_output_set_client_projection_handler(null, null);
         if (server.xwayland) |xwayland| {
             server.new_xsurface.link.remove();
             xwayland.destroy();
@@ -718,7 +716,7 @@ fn handleXwaylandOutputProjection(
         .y = projected.x11.y,
         .width = projected.x11.width,
         .height = projected.x11.height,
-        .scale = 1,
+        .scale = if (self.xwayland_scaling == .native) 1 else @intFromFloat(@ceil(output.scale)),
     };
     return true;
 }

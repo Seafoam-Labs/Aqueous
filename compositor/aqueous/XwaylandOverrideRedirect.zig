@@ -384,7 +384,6 @@ fn handleSetGeometry(listener: *wl.Listener(void)) void {
 }
 
 fn projection(override_redirect: *XwaylandOverrideRedirect) ?xwayland_projection.Projection {
-    if (server.xwayland_scaling != .native) return null;
     if (override_redirect.owner) |owner_ref| {
         if (owner_ref.get()) |owner| {
             if (owner.impl == .xwayland) return owner.impl.xwayland.projection();
@@ -400,7 +399,7 @@ fn projection(override_redirect: *XwaylandOverrideRedirect) ?xwayland_projection
     );
 }
 
-fn applyProjection(override_redirect: *XwaylandOverrideRedirect) void {
+pub fn applyProjection(override_redirect: *XwaylandOverrideRedirect) void {
     const tree = override_redirect.surface_tree orelse return;
     if (override_redirect.projection()) |projected| {
         const logical_x, const logical_y = projected.x11ToLogicalPoint(
