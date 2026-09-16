@@ -46,6 +46,7 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
     const default_shell = if (std.mem.eql(u8, aqueous_instance_name, "aqueous")) "noctalia" else "none";
     const shell = std.meta.stringToEnum(backend.Shell, option(args, "--shell") orelse default_shell) orelse return error.UnknownShell;
     var request: []const u8 = option(args, "--file") orelse "";
+    if (op == .@"preview-features") request = option(args, "--token") orelse "";
     if (op == .validate or op == .apply) {
         const path = option(args, "--request") orelse return error.MissingRequest;
         var buffer: [4096]u8 = undefined;

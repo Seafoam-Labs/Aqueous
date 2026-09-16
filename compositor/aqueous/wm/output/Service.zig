@@ -474,6 +474,10 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
             };
         } else if (std.mem.eql(u8, action, "preview_test_failure")) {
             @import("../../DisplayPreview.zig").test_fail_next = true;
+        } else if (std.mem.eql(u8, action, "preview_reject_present")) {
+            @import("../../DisplayPreview.zig").test_reject_present = true;
+        } else if (std.mem.eql(u8, action, "preview_fail_all_tests")) {
+            @import("../../DisplayPreview.zig").test_fail_all = jsonBool(request.get("fail")) orelse return service.sendError(client, "missing fail");
         } else if (std.mem.eql(u8, action, "preview_commit_failure")) {
             @import("../../DisplayPreview.zig").test_fail_commit = true;
         } else if (std.mem.eql(u8, action, "preview_hold_completion")) {

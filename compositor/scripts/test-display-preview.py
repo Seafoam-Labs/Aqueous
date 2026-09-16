@@ -73,6 +73,13 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         def model():
             value=query.call('display.snapshot')['result'];VALIDATOR.validate(value);return value
         baseline=wait(lambda: (m if (m:=model())['observation']=='current' and len(m['outputs'])==2 else None))
+        assert query.capabilities['capabilities']['display_preview_feature_policy_v1']
+        features=query.call('display.preview.features')['result'];VALIDATOR.validate(features)
+        assert features['production_hardware_enabled'] is False
+        assert all(o['features']['hdr']['transition']['reason']=='hdr_unsupported' and
+                   o['features']['vrr']['preserve']['reason']=='vrr_unsupported' and
+                   o['features']['sdr']['transition']['status']=='available' for o in features['outputs'])
+        assert helper_call('preview-features')['preview_features']==features
         # Collection-only protected apply has no display lease, but its native
         # reload acknowledgement must still bind the freshly reviewed candidate.
         snap=helper_call('snapshot')
@@ -163,6 +170,11 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
         lease=begin(c,x=125)
         token=lease['token']; wait(lambda: status(token)['state']=='previewing')
         assert model()['outputs'][0]['actual']['x']==125
+        evidence=query.call('display.preview.evidence',dict(token=token))['result'];VALIDATOR.validate(evidence)
+        assert all(o['observed']['target_matches'] and o['observed']['color_matches'] and o['observed']['presented'] for o in evidence['outputs'])
+        assert helper_call('preview-features',flags=('--token',token))['preview_evidence']==evidence
+        assert not query.call('display.preview.evidence',dict(token='0'*64),ok=False)['ok']
+
         # Competing native, compatibility and wlr output clients are serialized.
         assert not outputd(dict(op='reload'))['ok']
         assert not outputd(dict(op='save_profile',name='competing',outputs=[]))['ok']
@@ -215,6 +227,21 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
                 candidate_digest=reviewed['candidate_review']['candidate_digest'],wm_source=reviewed['raw_files']['wm'],outputs_source=reviewed['raw_files']['outputs'])
             assert not c.call('display.preview.begin',params,ok=False)['ok']
             assert not (cfg/'outputs.toml').exists()
+        # Raw, deferred, inactive-profile, and offline intent use the same gate.
+        for key, value, reason in [('hdr', 'true', 'hdr_unsupported'),
+                                   ('adaptive_sync', 'true', 'vrr_unsupported'),
+                                   ('auto_hdr', 'true', 'hdr_unsupported'),
+                                   ('sdr_white_level', '400', 'hdr_unsupported')]:
+            for prefix, selector in [('[display]\napply_on_reload = false\n[[output]]\n', model()['outputs'][0]['connector']),
+                                     ('[[display.profile]]\nname = "inactive"\n[[display.profile.output]]\n', model()['outputs'][0]['connector']),
+                                     ('[[display.profile]]\nname = "offline"\n[[display.profile.output]]\n', 'DISCONNECTED')]:
+                request,params=candidate(model(),{})
+                params['outputs_source']=prefix+'name = '+json.dumps(selector)+'\n'+key+' = '+value+'\n'
+                request['raw_files']['outputs']=params['outputs_source']
+                params['candidate_digest']=helper_call('validate',request)['candidate_review']['candidate_digest']
+                response=c.call('display.preview.begin',params,ok=False)
+                assert response['error']['code']==reason,response
+                assert not (cfg/'outputs.toml').exists()
         # Reject an entire unusable plan without starting a lease.
         _,params=candidate(model(),{'enabled':False})
         params['outputs_source']=''.join('[[output]]\nname = '+json.dumps(o['connector'])+'\nenabled = false\n' for o in model()['outputs'])
@@ -389,6 +416,7 @@ with tempfile.TemporaryDirectory(prefix='aq-preview-') as tmp:
             assert not query.call('display.preview.status',dict(token=token),ok=False)['ok']
             assert (cfg/'outputs.toml').read_text()==(params['outputs_source'] if stage=='journal_committed' else before)
             assert model()['config_generation']==helper_call('snapshot')['generation']
+        print('PASS: negotiated feature/evidence schemas, helper queries, deferred/profile/offline feature admission')
         print('PASS: native headless placement/mode/enable/primary/profile/mirror preview, Keep and rollback')
         print('PASS: structured profile/raw projection equivalence and mixed declaration/collection protected commit')
         print('PASS: protected collection apply and native generation/digest-bound reload acknowledgement')

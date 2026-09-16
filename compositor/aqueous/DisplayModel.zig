@@ -273,3 +273,41 @@ pub fn candidate(json: *std.json.Stringify, params: std.json.ObjectMap) !void {
         .reason = if (ambiguous) @as(?[]const u8, "unknown_or_rejected_declaration") else if (!offline_only_rejections) @as(?[]const u8, "rejected_declaration") else null,
     });
 }
+
+/// Opt-in result shape, negotiated through display_preview_feature_policy_v1.
+/// Existing snapshot/lease responses remain unchanged.
+pub fn writePreviewFeatures(json: *std.json.Stringify) !void {
+    const Preview = @import("DisplayPreview.zig");
+    try json.beginObject();
+    try field(json, "version", 1);
+    try field(json, "session", server.shell_manager.session[0..32]);
+    try field(json, "production_hardware_enabled", false);
+    try json.objectField("outputs");
+    try json.beginArray();
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |o| {
+        const w = o.wlr_output orelse continue;
+        const ctx = Preview.featureContext(w);
+        try json.beginObject();
+        var id: [20]u8 = undefined;
+        try field(json, "instance", try std.fmt.bufPrint(&id, "{d}", .{o.display_instance}));
+        try field(json, "connector", std.mem.span(w.name));
+        try field(json, "backend", ctx.backend);
+        try field(json, "hdr_capable", ctx.hdr_capable);
+        try field(json, "vrr_capable", ctx.vrr_capable);
+        try field(json, "adaptive_sync_status", @tagName(w.adaptive_sync_status));
+        try field(json, "acceptance_selected", ctx.acceptance_output);
+        try field(json, "selection_valid", ctx.selection.valid);
+        try field(json, "layout", previewSupport(w, .sdr));
+        try json.objectField("features");
+        try json.beginObject();
+        inline for (std.meta.tags(Preview.Policy.Feature)) |feature| {
+            const feature_support = Preview.Policy.support(ctx, feature);
+            try field(json, @tagName(feature), .{ .preserve = feature_support, .transition = feature_support });
+        }
+        try json.endObject();
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.endObject();
+}

@@ -90,7 +90,7 @@ def edit(node,op='update',**kwargs):return dict(op=op,source=node['source'],id=n
 def parsed(r,source='outputs'):return tomllib.loads(r['raw_files'][source])
 
 with Fixture() as f:
-    v=f.call('version');assert v['version']=='0.8.2' and 'display_declaration_mutations_v1' in v['capabilities']
+    v=f.call('version');assert v['version']=='0.8.3' and 'display_declaration_mutations_v1' in v['capabilities']
     s=f.call('snapshot');ds=declarations(s);policy,first,second,desk,member,travel,other=ds
     assert len({d['id'] for d in s['display_declarations']})==len(s['display_declarations'])
     assert member['parent_id']==desk['id'] and other['parent_id']==travel['id']

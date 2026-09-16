@@ -329,14 +329,14 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = false, .display_preview_completion_v1 = true, .display_preview_acceptance_build = @import("build_options").display_preview_acceptance },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = false, .display_preview_completion_v1 = true, .display_preview_feature_policy_v1 = true, .display_preview_acceptance_build = @import("build_options").display_preview_acceptance },
                 });
             },
-            .@"display.candidate", .@"display.snapshot", .@"display.preview.begin", .@"display.preview.status", .@"display.preview.revert", .@"display.preview.authorize", .@"display.preview.finalize" => {
+            .@"display.candidate", .@"display.snapshot", .@"display.preview.features", .@"display.preview.evidence", .@"display.preview.begin", .@"display.preview.status", .@"display.preview.revert", .@"display.preview.authorize", .@"display.preview.finalize" => {
                 if (server.lock_manager.state != .unlocked) return client.reject(req.id, "locked");
                 if (server.aqueous.mode != .internal) return client.reject(req.id, "unsupported");
                 const keys: []const []const u8 = switch (op) {
-                    .@"display.snapshot" => &.{},
+                    .@"display.snapshot", .@"display.preview.features" => &.{},
                     .@"display.candidate" => &.{ "expected_generation", "wm_source", "outputs_source" },
                     .@"display.preview.begin" => &.{ "expected_generation", "candidate_digest", "display_revision", "wm_source", "outputs_source" },
                     .@"display.preview.authorize" => &.{ "token", "operation_id", "candidate_digest", "expected_generation", "wm_source", "outputs_source" },
@@ -349,6 +349,8 @@ pub const Client = struct {
                 var json: std.json.Stringify = .{ .writer = &output.writer };
                 switch (op) {
                     .@"display.candidate" => @import("DisplayModel.zig").candidate(&json, req.params) catch |err| return client.reject(req.id, @errorName(err)),
+                    .@"display.preview.features" => @import("DisplayModel.zig").writePreviewFeatures(&json) catch |err| return client.reject(req.id, @errorName(err)),
+                    .@"display.preview.evidence" => Preview.writeEvidence(&json, try Codec.string(req.params, "token")) catch |err| return client.reject(req.id, @errorName(err)),
                     .@"display.snapshot" => @import("DisplayModel.zig").write(&json) catch |err| return client.reject(req.id, @errorName(err)),
                     .@"display.preview.begin" => {
                         Preview.begin(@intFromPtr(client), req.params) catch |err| return client.reject(req.id, @errorName(err));

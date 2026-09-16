@@ -12,6 +12,7 @@ pub const Client = struct {
     session: [32]u8 = undefined,
     number: u32 = 0,
     deadline: i64,
+    preview_feature_policy: bool = false,
     pub fn open(a: A) !Client {
         const path = if (std.c.getenv("AQUEOUS_SOCKET")) |p| std.mem.span(p) else return error.CompositorUnavailable;
         var address: linux.sockaddr.un = .{ .path = @splat(0) };
@@ -30,6 +31,9 @@ pub const Client = struct {
         const session = parsed.value.object.get("session") orelse return error.InvalidReply;
         if (session != .string or session.string.len != 32) return error.InvalidReply;
         c.session = session.string[0..32].*;
+        if (parsed.value.object.get("capabilities")) |caps| if (caps == .object) {
+            if (caps.object.get("display_preview_feature_policy_v1")) |feature| c.preview_feature_policy = feature == .bool and feature.bool;
+        };
         return c;
     }
     pub fn close(c: Client) void {
@@ -82,7 +86,19 @@ pub const Client = struct {
                 const reply_id = obj.get("id") orelse return error.InvalidReply;
                 if (reply_id != .string or !std.mem.eql(u8, id, reply_id.string)) return error.InvalidReply;
                 const ok = obj.get("ok") orelse return error.InvalidReply;
-                if (ok != .bool or !ok.bool) return error.CompositorRejected;
+                if (ok != .bool) return error.InvalidReply;
+                if (!ok.bool) {
+                    // Preserve documented feature rejection codes through the
+                    // helper, while bounding the set of remotely named errors.
+                    if (obj.get("error")) |remote| if (remote == .object) {
+                        const code = remote.object.get("code") orelse return error.CompositorRejected;
+                        if (code != .string) return error.CompositorRejected;
+                        inline for (std.meta.fields(@import("display_preview_policy.zig").Reason)) |field| {
+                            if (std.mem.eql(u8, code.string, field.name)) return @field(anyerror, field.name);
+                        }
+                    };
+                    return error.CompositorRejected;
+                }
                 return std.json.Stringify.valueAlloc(a, obj.get("result") orelse return error.InvalidReply, .{});
             }
         }

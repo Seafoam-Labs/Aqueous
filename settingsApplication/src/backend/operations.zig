@@ -12,13 +12,28 @@ const Allocator = std.mem.Allocator;
 const Json = std.json.Value;
 const max_request_bytes = 4 * 1024 * 1024;
 
-pub const Command = enum { version, snapshot, validate, apply, raw };
+pub const Command = enum { version, snapshot, validate, apply, raw, @"preview-features" };
 pub const Shell = toolkit_sync.Shell;
 const control = @import("control.zig");
 pub fn execute(allocator: Allocator, io: std.Io, command: Command, shell: Shell, request: []const u8, writer: *std.Io.Writer) !void {
     try control.check();
     switch (command) {
         .version => try writeVersion(writer),
+        .@"preview-features" => {
+            var client = try @import("display_config").ipc.Client.open(allocator);
+            defer client.close();
+            if (!client.preview_feature_policy) return error.UnsupportedPreviewFeaturePolicy;
+            const bytes = if (request.len == 0) try client.call(allocator, "display.preview.features", .{}) else try client.call(allocator, "display.preview.evidence", .{ .token = request });
+            defer allocator.free(bytes);
+            const value = try std.json.parseFromSlice(Json, allocator, bytes, .{});
+            defer value.deinit();
+            var json: std.json.Stringify = .{ .writer = writer };
+            try json.beginObject();
+            try field(&json, "ok", true);
+            try field(&json, "protocol", schema.protocol_version);
+            try field(&json, if (request.len == 0) "preview_features" else "preview_evidence", value.value);
+            try json.endObject();
+        },
         .snapshot, .raw => {
             var files = try config.ConfigFiles.init(allocator);
             defer files.deinit();
@@ -2218,6 +2233,9 @@ fn writeError(writer: *std.Io.Writer, code: []const u8, message: []const u8) !vo
 }
 
 pub fn errorCode(err: anyerror) []const u8 {
+    inline for (.{ "mode_not_advertised", "preview_backend_unsupported", "hdr_unsupported", "vrr_unsupported", "hardware_acceptance_pending", "hdr_hardware_acceptance_pending", "vrr_hardware_acceptance_pending", "hdr_vrr_hardware_acceptance_pending", "auto_hdr_hardware_acceptance_pending", "mirroring_hardware_acceptance_pending", "custom_mode_hardware_acceptance_pending", "mirroring_renderer_unsupported", "acceptance_output_not_selected", "acceptance_features_invalid", "hdr_acceptance_not_selected", "vrr_acceptance_not_selected", "hdr_vrr_acceptance_not_selected", "auto_hdr_acceptance_not_selected" }) |code| {
+        if (std.mem.eql(u8, @errorName(err), code)) return code;
+    }
     return switch (err) {
         error.ExternalChange => "external_change",
         error.ConfigWriterBusy => "config_writer_busy",

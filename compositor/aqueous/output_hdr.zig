@@ -214,7 +214,9 @@ pub fn stateMatches(output: *wlr.Output, requested: bool, level: HdrLevel, sdr_w
         // to reach the Aqueous-added fields for the comparison.
         const committed: *const ImageDescription = @ptrCast(@alignCast(description));
         const expected = imageDescription(level, sdr_white_level);
-        return committed.mastering_luminance.max == expected.mastering_luminance.max and
+        return std.meta.eql(committed.mastering_display_primaries, expected.mastering_display_primaries) and
+            committed.mastering_luminance.min == expected.mastering_luminance.min and
+            committed.mastering_luminance.max == expected.mastering_luminance.max and
             committed.max_cll == expected.max_cll and
             committed.max_fall == expected.max_fall and
             committed.sdr_white_level == expected.sdr_white_level;

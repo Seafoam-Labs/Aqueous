@@ -79,3 +79,13 @@ results use `apply --result v1 --operation-id ID`; query lost replies with
 `operation-status --operation-id ID`. The shared document and journal sources
 now live at `compositor/aqueous/ConfigDocument.zig` and `ConfigTransaction.zig`;
 backend imports retain their compatibility wrapper.
+
+
+Helper 0.8.3 adds negotiated display preview feature diagnostics. Use
+`aqueous-config preview-features --shell none` for capability and qualification
+status, or append `--token TOKEN` for target/observed/restoration evidence from
+an existing lease. These read-only commands require native
+`display_preview_feature_policy_v1`; they do not create or confirm a preview.
+The existing snapshot/result contracts remain unchanged. See
+[physical preview qualification](../../docs/physical-display-preview.md#negotiated-feature-diagnostics)
+for reason codes, response semantics, and acceptance-only feature selection.

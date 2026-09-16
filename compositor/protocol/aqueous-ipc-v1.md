@@ -74,6 +74,8 @@ connection; emit a bounded error first only when safely possible.
 | `snapshot` | Empty object | `{"batch": <complete shell snapshot>}` |
 | `subscribe` | Empty object; once per event connection | `{"subscribed":true}`, then initial snapshot event |
 | `ack` | `{"delivery":"N"}` | `{"acked":"N"}` |
+| `display.preview.features` | Empty object; negotiate `display_preview_feature_policy_v1` | Versioned per-output capability, selection, preservation/transition support |
+| `display.preview.evidence` | `{"token":"LEASE"}`; same capability | Versioned baseline/target, observed color/VRR state, presentation progress |
 | `command` | `{"action":"NAME","fields":{...}}` | `{"status":"applied","sequence":"N"}` or `accepted` |
 
 All post-hello requests additionally contain top-level `"session":"TOKEN"`.
@@ -268,3 +270,13 @@ caches up to 32 encoded responses and invalidates a window's entries when its
 icon changes or it is destroyed. No per-window subprocesses or disk cache are
 used. A query response can already be obsolete by the time it reaches a client;
 consumers must compare it with their latest subscribed metadata before display.
+
+
+Display preview feature-policy results are defined in
+[aqueous-display-v1.schema.json](aqueous-display-v1.schema.json), separately from
+legacy snapshot and lease shapes. See the
+[preview qualification runbook](../../docs/physical-display-preview.md#negotiated-feature-diagnostics)
+for semantics and rejection codes. `display_preview_hardware` remains false;
+acceptance builds advertise their selected per-feature support through the new
+query. A successful presentation proves completion, not HDR appearance or
+variable panel refresh.

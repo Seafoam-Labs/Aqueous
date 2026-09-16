@@ -8,6 +8,12 @@
     },
     {
       "$ref": "#/$defs/result"
+    },
+    {
+      "$ref": "#/$defs/preview_features_result"
+    },
+    {
+      "$ref": "#/$defs/preview_evidence_result"
     }
   ],
   "$defs": {
@@ -2328,6 +2334,392 @@
           ]
         }
       ]
+    },
+    "preview_features": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "production_hardware_enabled": {
+          "const": false
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "instance": {
+                "type": "string"
+              },
+              "connector": {
+                "type": "string"
+              },
+              "backend": {
+                "enum": [
+                  "headless",
+                  "drm",
+                  "unsupported"
+                ]
+              },
+              "hdr_capable": {
+                "type": "boolean"
+              },
+              "vrr_capable": {
+                "type": "boolean"
+              },
+              "adaptive_sync_status": {
+                "enum": [
+                  "disabled",
+                  "enabled"
+                ]
+              },
+              "acceptance_selected": {
+                "type": "boolean"
+              },
+              "selection_valid": {
+                "type": "boolean"
+              },
+              "layout": {
+                "$ref": "#/$defs/native_support"
+              },
+              "features": {
+                "type": "object",
+                "properties": {
+                  "sdr": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "hdr": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "vrr": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "hdr_vrr": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "auto_hdr": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "mirroring": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "custom_mode": {
+                    "type": "object",
+                    "properties": {
+                      "preserve": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      },
+                      "transition": {
+                        "$ref": "#/$defs/preview_feature_support"
+                      }
+                    },
+                    "required": [
+                      "preserve",
+                      "transition"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "sdr",
+                  "hdr",
+                  "vrr",
+                  "hdr_vrr",
+                  "auto_hdr",
+                  "mirroring",
+                  "custom_mode"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "instance",
+              "connector",
+              "backend",
+              "hdr_capable",
+              "vrr_capable",
+              "adaptive_sync_status",
+              "acceptance_selected",
+              "selection_valid",
+              "layout",
+              "features"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "session",
+        "production_hardware_enabled",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "preview_features_result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "protocol": {
+          "const": 1
+        },
+        "preview_features": {
+          "$ref": "#/$defs/preview_features"
+        }
+      },
+      "required": [
+        "ok",
+        "protocol",
+        "preview_features"
+      ],
+      "additionalProperties": false
+    },
+    "preview_evidence": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "enum": [
+            "applying",
+            "previewing",
+            "commit_authorized",
+            "kept",
+            "reverting",
+            "reverted",
+            "invalidated",
+            "failed",
+            "waiting_session"
+          ]
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "instance": {
+                "type": "string"
+              },
+              "before": {
+                "$ref": "#/$defs/native_state"
+              },
+              "target": {
+                "$ref": "#/$defs/native_state"
+              },
+              "observed": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "hdr": {
+                        "type": "boolean"
+                      },
+                      "adaptive_sync": {
+                        "enum": [
+                          "disabled",
+                          "enabled"
+                        ]
+                      },
+                      "render_format": {
+                        "type": "string"
+                      },
+                      "target_matches": {
+                        "type": "boolean"
+                      },
+                      "baseline_matches": {
+                        "type": "boolean"
+                      },
+                      "color_matches": {
+                        "type": "boolean"
+                      },
+                      "compositor_auto_hdr": {
+                        "type": "boolean"
+                      },
+                      "compositor_auto_hdr_boost": {
+                        "type": "number"
+                      },
+                      "submitted": {
+                        "type": "boolean"
+                      },
+                      "presented": {
+                        "type": "boolean"
+                      },
+                      "presentation_rejected": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "hdr",
+                      "adaptive_sync",
+                      "render_format",
+                      "target_matches",
+                      "baseline_matches",
+                      "color_matches",
+                      "compositor_auto_hdr",
+                      "compositor_auto_hdr_boost",
+                      "submitted",
+                      "presented",
+                      "presentation_rejected"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "instance",
+              "before",
+              "target",
+              "observed"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "token",
+        "state",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "preview_evidence_result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "protocol": {
+          "const": 1
+        },
+        "preview_evidence": {
+          "$ref": "#/$defs/preview_evidence"
+        }
+      },
+      "required": [
+        "ok",
+        "protocol",
+        "preview_evidence"
+      ],
+      "additionalProperties": false
+    },
+    "preview_feature_support": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "acceptance_only",
+            "pending_qualification",
+            "unsupported"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false
     }
   }
 }

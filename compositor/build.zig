@@ -101,7 +101,7 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "tablet_testing", b.option(bool, "tablet-testing", "Enable private synthetic tablet input (tests only)") orelse false);
     const output_retry_testing = b.option(bool, "output-retry-testing", "Enable private output retry fault injection (tests only)") orelse false;
     options.addOption(bool, "output_retry_testing", output_retry_testing);
-    const display_preview_acceptance = b.option(bool, "display-preview-acceptance", "Enable explicitly selected SDR DRM preview acceptance tests; never ship this build") orelse false;
+    const display_preview_acceptance = b.option(bool, "display-preview-acceptance", "Enable explicitly selected DRM feature preview acceptance tests; never ship this build") orelse false;
     options.addOption(bool, "display_preview_acceptance", display_preview_acceptance);
     options.addOption([]const u8, "version", full_version);
     // Generated from the actual build options, never supplied by a packaging caller.

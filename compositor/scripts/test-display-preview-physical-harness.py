@@ -33,5 +33,30 @@ class Admission(unittest.TestCase):
                 harness.prerequisites(self.options(**changes), {})
 
 
+class FeatureGroups(unittest.TestCase):
+    def test_transitions_are_bidirectional(self):
+        for group in harness.GROUPS[1:]:
+            self.assertNotEqual(harness.group_fields(group), harness.group_fields(group, False))
+            self.assertEqual(harness.transition_cases(group)['transition-off'], harness.group_fields(group, False))
+        self.assertEqual(harness.group_fields('auto_hdr', False), {'hdr':True, 'auto_hdr':False})
+
+    def test_combined_and_auto_hdr_have_independent_cases(self):
+        self.assertIn('hdr-off-vrr-on', harness.transition_cases('hdr_vrr'))
+        self.assertIn('vrr-off-hdr-on', harness.transition_cases('hdr_vrr'))
+        self.assertEqual(harness.transition_cases('auto_hdr')['auto-boost-zero'], {'auto_hdr_boost':0})
+        self.assertEqual(harness.transition_cases('auto_hdr')['auto-boost-full'], {'auto_hdr_boost':1})
+
+    def test_requirements_match_the_group(self):
+        self.assertNotIn('visual-hdr', harness.required_cases('sdr'))
+        self.assertNotIn('panel-vrr', harness.required_cases('auto_hdr'))
+        self.assertIn('combined-across-heads', harness.required_cases('hdr_vrr'))
+        self.assertIn('auto-boost-full', harness.required_cases('auto_hdr'))
+        self.assertNotIn('unsupported-mode', harness.required_cases('sdr', simulate=True))
+
+    def test_summary_never_counts_unsupported_or_unrun_as_passed(self):
+        cases = {value:{'status':value} for value in ('passed','failed','unsupported','not_run')}
+        self.assertEqual(harness.summarize(cases), {value:[value] for value in cases})
+
+
 if __name__ == '__main__':
     unittest.main()

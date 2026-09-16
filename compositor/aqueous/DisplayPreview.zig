@@ -39,6 +39,8 @@ const Configs = struct { legacy: Config.Snapshot, preferred: Config.Snapshot };
 var lease: ?Lease = null;
 var timer: ?*wl.EventSource = null;
 pub var test_fail_next = false;
+pub var test_reject_present = false;
+pub var test_fail_all = false;
 pub var test_fail_commit = false;
 pub var test_hold_completion = false;
 pub var test_session_inactive = false;
@@ -55,14 +57,77 @@ pub fn acceptanceOutput(output: *wlr.Output) bool {
     const names = std.c.getenv("AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_OUTPUTS") orelse return false;
     return Policy.selected(std.mem.span(names), std.mem.span(output.name));
 }
-pub fn supportReason(output: *wlr.Output, feature: Policy.Feature) ?[]const u8 {
-    if (output.isDrm() and feature == .sdr and acceptanceOutput(output)) {
-        if (Output.hdr.active(output)) return "sdr_acceptance_requires_hdr_disabled";
-        if (output.adaptive_sync_status == .enabled) return "sdr_acceptance_requires_vrr_disabled";
-    }
-    return Policy.reason(backend(output), feature, acceptanceOutput(output), @import("OutputMirror.zig").supported());
+pub fn featureContext(output: *wlr.Output) Policy.Context {
+    const selection = if (std.c.getenv("AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_FEATURES")) |value| Policy.Selection.parse(std.mem.span(value)) else Policy.Selection.parse(null);
+    return .{
+        .backend = backend(output),
+        .acceptance_build = @import("build_options").display_preview_acceptance,
+        .acceptance_output = acceptanceOutput(output),
+        .selection = selection,
+        .hdr_capable = Output.hdr.capable(output),
+        .vrr_capable = output.adaptive_sync_supported,
+        .renderer_mirroring = @import("OutputMirror.zig").supported(),
+    };
 }
-fn hardwareMatches(o: *Output, target: Output.State) bool {
+pub fn featureState(state: Output.State) Policy.State {
+    return .{ .hdr = state.hdr_enabled, .vrr = state.adaptive_sync, .auto_hdr = state.auto_hdr, .hdr_level = @intFromEnum(state.hdr_level), .sdr_white_level = state.sdr_white_level, .auto_hdr_boost = state.auto_hdr_boost };
+}
+pub fn supportReason(output: *wlr.Output, feature: Policy.Feature) ?[]const u8 {
+    // Ordinary layout edits preserve every participant's active features.
+    var aggregate: Policy.Requirements = .{};
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |o| {
+        const w = o.wlr_output orelse continue;
+        var req: Policy.Requirements = .{};
+        req.include(featureState(o.current), featureState(o.current));
+        if (w == output and feature != .sdr) req.transition.insert(feature);
+        aggregate.merge(req);
+        if (Policy.rejection(featureContext(w), req)) |why| return @tagName(why);
+    }
+    // Across-head HDR+VRR combinations need explicit combined qualification.
+    var ctx = featureContext(output);
+    ctx.hdr_capable = true;
+    ctx.vrr_capable = true;
+    if (Policy.rejection(ctx, aggregate)) |why| return @tagName(why);
+    return null;
+}
+fn includeIntent(req: *Policy.Requirements, spec: Config.Spec, before: Policy.State) void {
+    var after = before;
+    if (spec.hdr) |v| after.hdr = v;
+    if (spec.adaptive_sync) |v| after.vrr = v;
+    if (spec.auto_hdr) |v| after.auto_hdr = v;
+    if (spec.hdr_level) |v| after.hdr_level = switch (v) {
+        .auto => before.hdr_level,
+        .l100 => 100,
+        .l400 => 400,
+        .l1000 => 1000,
+    };
+    if (spec.sdr_white_level) |v| after.sdr_white_level = v;
+    if (spec.auto_hdr_boost) |v| after.auto_hdr_boost = v;
+    req.include(before, after);
+}
+fn configuredRequirements(o: *Output, legacy: *const Config.Snapshot, preferred: *const Config.Snapshot, target: Output.State) Policy.Requirements {
+    var req: Policy.Requirements = .{};
+    const before = featureState(o.current);
+    req.include(before, featureState(target));
+    // Include deferred fields and profile members as well as the live plan.
+    // A stored profile or apply_on_reload=false cannot bypass qualification.
+    for ([_]*const Config.Snapshot{ legacy, preferred }) |snapshot| {
+        for (snapshot.outputs[0..snapshot.output_count]) |spec| if (Manager.matchesSpec(&spec, o.wlr_output.?)) includeIntent(&req, spec, before);
+        for (snapshot.profiles[0..snapshot.profile_count]) |profile| {
+            for (profile.outputs[0..profile.output_count]) |spec| if (Manager.matchesSpec(&spec, o.wlr_output.?)) includeIntent(&req, spec, before);
+        }
+    }
+    return req;
+}
+fn includeOfflineIntent(req: *Policy.Requirements, spec: Config.Spec) void {
+    var it = server.om.outputs.iterator(.forward);
+    while (it.next()) |o| if (o.wlr_output) |w| {
+        if (Manager.matchesSpec(&spec, w)) return;
+    };
+    includeIntent(req, spec, .{});
+}
+pub fn hardwareMatches(o: *Output, target: Output.State) bool {
     const w = o.wlr_output orelse return false;
     if (w.enabled != (target.state == .enabled)) return false;
     if (!w.enabled) return true;
@@ -86,7 +151,16 @@ fn hardwareMatches(o: *Output, target: Output.State) bool {
 pub fn presented(instance: u64, sequence: u32, success: bool) void {
     const l = if (lease) |*v| v else return;
     if (!active()) return;
-    for (l.items[0..l.len]) |*item| if (item.instance == instance and item.submitted) item.completion.observe(sequence, success);
+    for (l.items[0..l.len]) |*item| if (item.instance == instance and item.submitted) {
+        var accepted = success;
+        if (comptime @import("build_options").output_retry_testing) {
+            if (test_reject_present and sequence != item.completion.baseline) {
+                test_reject_present = false;
+                accepted = false;
+            }
+        }
+        item.completion.observe(sequence, accepted);
+    };
 }
 pub fn submitting() void {
     const l = if (lease) |*v| v else return;
@@ -148,6 +222,11 @@ pub fn applied() void {
                 l.rollback_partial = true;
                 continue;
             };
+            if (item.completion.rejected) {
+                l.state = .failed;
+                l.reason = "rollback_presentation_failed";
+                return;
+            }
             if (!std.meta.eql(o.current, o.scheduled) or !hardwareMatches(o, o.scheduled)) return;
             if (o.scheduled.state == .enabled and !item.completion.presented) return;
             if (!std.meta.eql(o.current, item.before)) l.rollback_partial = true;
@@ -164,6 +243,10 @@ pub fn applied() void {
             revert("hotplug", null);
             return;
         };
+        if (item.completion.rejected) {
+            revert("presentation_failed", null);
+            return;
+        }
         if (!std.meta.eql(o.current, item.after)) {
             if (l.state == .previewing) revert("competing_change", null);
             return;
@@ -224,6 +307,7 @@ fn tick(_: *u8) c_int {
 var timer_data: u8 = 0;
 fn testStates(states: []const Manager.Pending) !void {
     if (comptime @import("build_options").output_retry_testing) {
+        if (test_fail_all) return error.TestFailed;
         if (test_fail_next) {
             test_fail_next = false;
             return error.TestFailed;
@@ -282,11 +366,14 @@ fn revert(reason: []const u8, removed_instance: ?u64) void {
         // be restored (for example, its only enabled monitor disappeared).
         var usable_fallback = false;
         for (pending[0..len]) |*item| {
+            item.state.hdr_enabled = false;
+            item.state.auto_hdr = false;
+            item.state.adaptive_sync = false;
+        }
+        for (pending[0..len]) |*item| {
             if (item.state.mode == .none) continue;
             item.state.state = .enabled;
             item.state.mirror_of = .{};
-            item.state.hdr_enabled = false;
-            item.state.adaptive_sync = false;
             testStates(pending[0..len]) catch continue;
             usable_fallback = true;
             break;
@@ -337,9 +424,15 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     const Service = @import("wm/output/Service.zig");
     const projected: Service.ConfiguredPlan = if (Config.effectiveApplyOnReload(&legacy, &preferred)) try Service.prepareConfigured(&legacy, &preferred) else .{ .plan = .{} };
     const plan = projected.plan;
-    for (plan.report.rejections[0..plan.report.rejection_count]) |rejection| if (rejection.reason != .unknown_output) return error.RejectedDisplayDeclaration;
+    for (plan.report.rejections[0..plan.report.rejection_count]) |rejection| switch (rejection.reason) {
+        .unknown_output => {},
+        .hdr_unsupported => return error.hdr_unsupported,
+        .mode_not_advertised => return error.mode_not_advertised,
+        else => return error.RejectedDisplayDeclaration,
+    };
     var pending: [Config.max_outputs]Manager.Pending = undefined;
     var count: usize = 0;
+    var required: Policy.Requirements = .{};
     const configs = try a.create(Configs);
     errdefer a.destroy(configs);
     configs.* = .{ .legacy = legacy, .preferred = preferred };
@@ -351,25 +444,35 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
         const w = o.wlr_output orelse continue;
         if (count == pending.len or !std.meta.eql(o.current, o.scheduled)) return error.Busy;
         if (backend(w) == .unsupported) return error.UnsupportedPreviewBackend;
-        if (supportReason(w, .sdr) != null) return error.HardwareAcceptanceRequired;
         var target = o.current;
         for (plan.items[0..plan.len]) |entry| if (entry.output == o) {
             target = entry.state;
         };
+        const requirements = configuredRequirements(o, &legacy, &preferred, target);
+        if (Policy.rejection(featureContext(w), requirements)) |why| return Policy.failure(why);
+        required.merge(requirements);
         if (w.isDrm()) {
-            // The acceptance build only exercises ordinary SDR with advertised
-            // modes. Feature groups require their own future acceptance.
-            if (target.hdr_enabled or o.current.hdr_enabled or target.auto_hdr or o.current.auto_hdr) return error.HdrAcceptanceRequired;
-            if (target.adaptive_sync or o.current.adaptive_sync) return error.VrrAcceptanceRequired;
-            if (!target.mirror_of.empty() or !o.current.mirror_of.empty()) return error.MirroringAcceptanceRequired;
-            if (target.mode == .custom or o.current.mode == .custom) return error.CustomModeAcceptanceRequired;
+            if (!target.mirror_of.empty() or !o.current.mirror_of.empty()) return error.mirroring_hardware_acceptance_pending;
+            if (target.mode == .custom or o.current.mode == .custom) return error.custom_mode_hardware_acceptance_pending;
         }
-        if (target.hdr_enabled != o.current.hdr_enabled or target.adaptive_sync != o.current.adaptive_sync or
-            target.hdr_level != o.current.hdr_level or target.sdr_white_level != o.current.sdr_white_level or
-            target.auto_hdr != o.current.auto_hdr or target.auto_hdr_boost != o.current.auto_hdr_boost) return error.HardwareAcceptanceRequired;
         pending[count] = .{ .output = o, .state = target };
         l.items[count] = .{ .instance = o.display_instance, .before = o.current, .after = target, .completion = .{ .baseline = w.commit_seq } };
         count += 1;
+    }
+    // Offline profile/declaration intent is still protected. It cannot claim
+    // hardware support, but also cannot evade the selected feature groups.
+    for ([_]*const Config.Snapshot{ &legacy, &preferred }) |snapshot| {
+        for (snapshot.outputs[0..snapshot.output_count]) |spec| includeOfflineIntent(&required, spec);
+        for (snapshot.profiles[0..snapshot.profile_count]) |profile| {
+            for (profile.outputs[0..profile.output_count]) |spec| includeOfflineIntent(&required, spec);
+        }
+    }
+    // Gate the union without requiring an SDR-only head to support HDR itself.
+    for (pending[0..count]) |entry| {
+        var ctx = featureContext(entry.output.wlr_output.?);
+        ctx.hdr_capable = true;
+        ctx.vrr_capable = true;
+        if (Policy.rejection(ctx, required)) |why| return Policy.failure(why);
     }
     Manager.layoutPlan(pending[0..count]);
     for (pending[0..count], 0..) |entry, index| l.items[index].after = entry.state;
@@ -392,8 +495,12 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     server.aqueous.output_service.active_profile = l.after_profile;
     server.aqueous.output_service.preview_config = &configs.legacy;
     server.aqueous.output_service.preview_persisted = &configs.preferred;
-    for (pending[0..count]) |entry| entry.output.scheduled = entry.state;
-    for (pending[0..count]) |entry| if (entry.output.scene_output) |scene| scene.damage_ring.addWhole();
+    for (pending[0..count]) |entry| {
+        entry.output.scheduled = entry.state;
+        // Auto HDR is compositor state: require fresh scene pixels even if the
+        // underlying DRM state did not need a modeset.
+        if (entry.output.scene_output) |scene| scene.damage_ring.addWhole();
+    }
     server.wm.dirtyWindowing();
 }
 pub fn requestRevert(token: []const u8) !void {
@@ -427,6 +534,39 @@ pub fn writeStatus(json: *std.json.Stringify, token: ?[]const u8) !void {
     }
     var revision: [20]u8 = undefined;
     try json.write(.{ .session = server.shell_manager.session[0..32], .token = l.token, .state = @tagName(l.state), .reason = l.reason, .remaining_ms = if (active()) @max(0, l.deadline_ms - now()) else 0, .display_revision = try std.fmt.bufPrint(&revision, "{d}", .{server.om.display_revision}), .candidate_digest = l.candidate_digest, .expected_generation = l.generation, .after_generation = l.after_generation, .rollback_partial = l.rollback_partial, .fallback_used = l.fallback_used, .affected_outputs = affected[0..l.len], .affected_output_count = l.len, .supported_actions = .{ .revert = active() and !commitActive(), .commit = l.state == .previewing and now() < l.deadline_ms } });
+}
+
+pub fn writeEvidence(json: *std.json.Stringify, token: []const u8) !void {
+    try checkToken(token);
+    const l = lease.?;
+    try json.beginObject();
+    try json.objectField("version");
+    try json.write(1);
+    try json.objectField("token");
+    try json.write(token);
+    try json.objectField("state");
+    try json.write(l.state);
+    try json.objectField("outputs");
+    try json.beginArray();
+    for (l.items[0..l.len]) |item| {
+        try json.beginObject();
+        var buffer: [20]u8 = undefined;
+        try json.objectField("instance");
+        try json.write(try std.fmt.bufPrint(&buffer, "{d}", .{item.instance}));
+        try json.objectField("before");
+        try @import("DisplayModel.zig").writeState(json, item.before);
+        try json.objectField("target");
+        try @import("DisplayModel.zig").writeState(json, item.after);
+        try json.objectField("observed");
+        if (find(item.instance)) |o| {
+            const w = o.wlr_output.?;
+            var format: [4]u8 = undefined;
+            try json.write(.{ .hdr = Output.hdr.active(w), .adaptive_sync = @tagName(w.adaptive_sync_status), .render_format = Output.hdr.formatName(w.render_format, &format), .target_matches = hardwareMatches(o, item.after), .baseline_matches = hardwareMatches(o, item.before), .color_matches = Output.hdr.stateMatches(w, item.after.hdr_enabled, item.after.hdr_level, item.after.sdr_white_level), .compositor_auto_hdr = o.current.auto_hdr, .compositor_auto_hdr_boost = o.current.auto_hdr_boost, .submitted = item.submitted, .presented = item.completion.presented, .presentation_rejected = item.completion.rejected });
+        } else try json.write(null);
+        try json.endObject();
+    }
+    try json.endArray();
+    try json.endObject();
 }
 
 pub fn source(params: std.json.ObjectMap, key: []const u8) ![]const u8 {

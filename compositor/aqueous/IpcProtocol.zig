@@ -6,7 +6,7 @@ pub const max_request = 65536;
 pub const max_batch = 4194304;
 pub const max_frame = max_batch + max_request;
 pub const max_depth = 16;
-pub const Op = enum { hello, snapshot, subscribe, ack, command, @"window.icon", @"display.snapshot", @"display.candidate", @"display.preview.begin", @"display.preview.status", @"display.preview.revert", @"display.preview.authorize", @"display.preview.finalize" };
+pub const Op = enum { hello, snapshot, subscribe, ack, command, @"window.icon", @"display.snapshot", @"display.preview.features", @"display.preview.evidence", @"display.candidate", @"display.preview.begin", @"display.preview.status", @"display.preview.revert", @"display.preview.authorize", @"display.preview.finalize" };
 pub const Request = struct {
     id: []const u8,
     number: u128,
