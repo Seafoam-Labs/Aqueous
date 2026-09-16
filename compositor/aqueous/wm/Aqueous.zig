@@ -2955,12 +2955,11 @@ fn spawn(_: *Aqueous, command: []const u8) void {
     if (command.len == 0) return;
     const owned = util.gpa.dupeZ(u8, command) catch return;
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", owned.ptr, null };
-    const rc = posix.system.fork();
-    if (posix.errno(rc) != .SUCCESS) {
+    const rc = server.child_processes.fork() catch |err| {
         util.gpa.free(owned);
-        log.err("fork failed for command '{s}'", .{command});
+        log.err("spawn failed for command '{s}': {s}", .{ command, @errorName(err) });
         return;
-    }
+    };
     if (rc == 0) {
         process.cleanupChild();
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.c.environ);
@@ -3020,8 +3019,7 @@ fn execApplication(_: *Aqueous, application: *const action_config.Application) !
     }
     try env_list.append(util.gpa, null);
 
-    const rc = posix.system.fork();
-    if (posix.errno(rc) != .SUCCESS) return error.ForkFailed;
+    const rc = try server.child_processes.fork();
     if (rc == 0) {
         process.cleanupChild();
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(env_list.items.ptr);

@@ -524,6 +524,21 @@ pub fn build(b: *Build) !void {
         });
         const run_cursor_config_test = b.addRunArtifact(cursor_config_test);
 
+        const child_processes_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/ChildProcesses.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        child_processes_test.root_module.addImport("wayland", wayland);
+        child_processes_test.root_module.linkSystemLibrary("wayland-server", .{});
+        const run_child_processes_test = b.addRunArtifact(child_processes_test);
+        b.step("test-child-processes", "Test spawned child ownership and reaping").dependOn(&run_child_processes_test.step);
+
         const overlay_planes_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/overlay_planes.zig"),
@@ -831,6 +846,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_cursor_config_test.step);
+        test_step.dependOn(&run_child_processes_test.step);
         test_step.dependOn(&run_overlay_planes_test.step);
         test_step.dependOn(&run_output_retry_test.step);
         test_step.dependOn(&run_aqueous_test.step);

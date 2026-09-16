@@ -78,6 +78,7 @@ wl_server: *wl.Server,
 
 sigint_source: *wl.EventSource,
 sigterm_source: *wl.EventSource,
+child_processes: @import("ChildProcesses.zig") = .{},
 
 fixes: *wlr.Fixes,
 
@@ -526,6 +527,9 @@ pub fn init(
         .layer_shell = undefined,
     };
 
+    try server.child_processes.init(util.gpa, wl_server);
+    errdefer server.child_processes.deinit();
+
     if (renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
         server.linux_dmabuf = try wlr.LinuxDmabufV1.createWithRenderer(wl_server, 5, renderer);
     }
@@ -611,6 +615,7 @@ pub fn init(
 
 /// Free allocated memory and clean up. Note: order is important here
 pub fn deinit(server: *Server) void {
+    server.child_processes.deinit();
     server.drm_lease.stop();
     server.ipc_server.deinit();
     server.sigint_source.remove();

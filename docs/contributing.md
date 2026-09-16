@@ -16,6 +16,15 @@ zig build -Dvulkan-effects=false
 Changes to policy defaults, compositor hooks, output management, or packaging
 should also run the relevant headless checks in `compositor/scripts/`.
 
+For child-process lifecycle changes, run `zig build test-child-processes` and
+`python3 scripts/test-child-processes.py` from `compositor/`. The headless test
+uses a private session to exercise command and application-profile launches,
+exit-status collection, and shutdown with running applications. Also run
+`scripts/test-xdg-system-bell.py` and the shell integration test with
+`AQUEOUS_SHELL_TEST_XWAYLAND=1` against a `-Dxwayland=true` build, since bell
+audio and wlroots own children separately. The `-c` init process still uses
+its existing process-group shutdown path and is outside the spawn tracker.
+
 Configuration readers intentionally accept the existing TOML surface while
 producing validated snapshots. Add parser tests for malformed input, defaults,
 and compatibility behavior. Layout engines should be deterministic for a
